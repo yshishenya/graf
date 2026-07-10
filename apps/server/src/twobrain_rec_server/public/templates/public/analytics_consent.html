@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    <meta
+      name="description"
+      content="Согласие на аналитику GRAF: категории, цели и границы публичной аналитики."
+    >
+    <meta name="theme-color" content="#05090a">
+    <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">К содержанию</a>
+    <div class="site-shell legal-shell">
+      <header class="site-header" aria-label="GRAF">
+        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
+        <nav class="top-nav" aria-label="Основные разделы">
+          <a href="/">Главная</a>
+          <a href="/download">Скачать</a>
+        </nav>
+      </header>
+
+      <main id="main" class="legal-page">
+        <p class="section-label">Согласие</p>
+        <h1>Согласие на аналитику</h1>
+        <p class="legal-status">
+          Редакция: {{ public_analytics.consent_copy_version }}. Перед
+          campaign launch нужна юридическая проверка текста и операторских
+          реквизитов.
+        </p>
+
+        <section class="legal-section" aria-labelledby="consent-choice">
+          <h2 id="consent-choice">Какие варианты есть</h2>
+          <ul>
+            <li>Разрешить все категории.</li>
+            <li>Оставить только необходимые cookies.</li>
+            <li>Настроить категории отдельно.</li>
+            <li>Изменить выбор позже на публичных страницах.</li>
+          </ul>
+        </section>
+
+        <section class="legal-section" aria-labelledby="consent-categories">
+          <h2 id="consent-categories">Категории</h2>
+          <p>
+            Необходимые cookies сохраняют выбор. Аналитика включает Яндекс
+            Метрику для публичной воронки. Рекламная атрибуция использует
+            безопасные campaign labels. Поведенческая запись разрешает replay
+            только на / и /download, если включена в конфигурации и выбрана
+            пользователем.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="consent-boundaries">
+          <h2 id="consent-boundaries">Границы</h2>
+          <p>
+            Публичная аналитика не включается на login, cabinet, meeting,
+            upload, playback, deletion, admin, desktop embedded и других
+            product/content-bearing surfaces. Google, GA4, Google Ads, GTM,
+            PostHog и другие product analytics tools не входят в Phase 1.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="consent-revoke">
+          <h2 id="consent-revoke">Отзыв и изменение</h2>
+          <p>
+            Если выбрать only necessary или убрать analytics category, новые
+            публичные взаимодействия не должны отправлять custom analytics
+            events. Уже загруженный сторонний provider script не используется
+            для новых custom events после изменения выбора.
+          </p>
+        </section>
+      </main>
+    </div>
+    {% include "public/_analytics.html" %}
+  </body>
+</html>

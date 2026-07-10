@@ -1,0 +1,99 @@
+{% extends "admin/base.html" %}
+
+{% block subtitle %}
+  <p class="admin-subtitle">{{ view.workspace_name }} · роль: {{ view.actor_role }}</p>
+{% endblock %}
+
+{% block content %}
+  <section class="admin-grid" aria-label="ВКС-детектор">
+    <article class="admin-panel">
+      <h2>Кандидаты ВКС</h2>
+      <dl class="admin-metrics">
+        <div><dt>Кандидаты</dt><dd>{{ view.meeting_detection.counts.candidate_count or 0 }}</dd></div>
+        <div><dt>Health rows</dt><dd>{{ view.meeting_detection.counts.target_health_count or 0 }}</dd></div>
+        <div><dt>Registry versions</dt><dd>{{ view.meeting_detection.counts.registry_version_count or 0 }}</dd></div>
+      </dl>
+    </article>
+    <article class="admin-panel admin-panel--wide">
+      <h2>Очередь review</h2>
+      {% if view.meeting_detection.candidates %}
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Приложение</th>
+              <th>Bundle</th>
+              <th>Состояние</th>
+              <th>Score</th>
+              <th>Сигналы</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for candidate in view.meeting_detection.candidates %}
+              <tr>
+                <td>{{ candidate.display_name or "Unknown" }}</td>
+                <td>{{ candidate.bundle_id or "n/a" }}</td>
+                <td>{{ candidate.state }}</td>
+                <td>{{ candidate.candidate_score }}</td>
+                <td>{{ candidate.candidate_reasons | join(", ") }}</td>
+                <td>
+                  <form method="post" action="/admin/meeting-detection/candidates/{{ candidate.candidate_id }}/mark-non-target">
+                    <input type="hidden" name="reason_code" value="admin_marked_non_target">
+                    <button type="submit">Не ВКС</button>
+                  </form>
+                  <form method="post" action="/admin/meeting-detection/candidates/{{ candidate.candidate_id }}/request-validation">
+                    <input type="hidden" name="validation_kind" value="runtime">
+                    <input type="hidden" name="reason_code" value="runtime_validation_needed">
+                    <button type="submit">Проверить</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="admin-empty">Пока нет кандидатов ВКС.</p>
+      {% endif %}
+    </article>
+    <article class="admin-panel admin-panel--wide">
+      <h2>Health известных целей</h2>
+      {% if view.meeting_detection.target_health %}
+        <table class="admin-table">
+          <thead><tr><th>Target</th><th>Режим</th><th>Дата</th><th>Outcomes</th></tr></thead>
+          <tbody>
+            {% for row in view.meeting_detection.target_health %}
+              <tr>
+                <td>{{ row.target_id }}</td>
+                <td>{{ row.support_mode }}</td>
+                <td>{{ row.rollup_date }}</td>
+                <td>{{ row.outcomes }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="admin-empty">Пока нет health-агрегатов.</p>
+      {% endif %}
+    </article>
+    <article class="admin-panel admin-panel--wide">
+      <h2>Registry drafts</h2>
+      {% if view.meeting_detection.registry_versions %}
+        <table class="admin-table">
+          <thead><tr><th>Версия</th><th>Статус</th><th>Источник</th><th>Targets</th></tr></thead>
+          <tbody>
+            {% for row in view.meeting_detection.registry_versions %}
+              <tr>
+                <td>{{ row.registry_version }}</td>
+                <td>{{ row.status }}</td>
+                <td>{{ row.source }}</td>
+                <td>{{ row.target_count }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="admin-empty">Пока нет draft/published registry versions.</p>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-06-28
+Date: 2026-07-09
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -11,6 +11,18 @@ metadata-only evidence остаются подробной историей ре
 - macOS is the selected MVP platform.
 - The current macOS product identity is `GRAF.app` with bundle id
   `pro.2brain.graf`.
+- Feature `095-macos-permission-retention` is implemented for local
+  owner-machine validation: GRAF can be built with an explicit locally trusted
+  self-signed app identity, same-identity reinstalls preserve already granted
+  microphone and Screen/System Audio permissions on the validated Mac, and
+  permission onboarding/AppKit sheets are dismissed during bounded termination
+  cleanup so macOS quit/relaunch is not blocked. This is not public
+  distribution readiness: Apple Developer account, Developer ID Application
+  and Installer signing, notarization, stapling, and public Gatekeeper
+  validation remain separate release-gate work. Release `v2026.07.09.6`
+  refreshes the public download package with the local self-signed build so
+  the owner machine can update from the hosted package while the Developer ID
+  path remains out of scope.
 - The Core Audio HAL component publishes `GRAF Microphone` and `GRAF Speaker`
   with `pro.2brain.graf.*` virtual device identifiers; legacy `2brain Rec`
   paths are kept only for cleanup and local data compatibility.
@@ -28,6 +40,25 @@ metadata-only evidence остаются подробной историей ре
 - Diagnostics and validation artifacts remain metadata-only and must not include
   raw audio, transcript text, credentials, tokens, signed URLs, passwords, or
   meeting content.
+- Public landing analytics from feature `093-public-landing-analytics` is live
+  on production for `/` and `/download` only. It uses Yandex Metrica public
+  page events, UTM/source attribution, consent-gated Webvisor/replay, and
+  runtime-only provider configuration. Production deploy, provider smoke,
+  rendered-page checks, negative `/login` scope check, and GitHub issue closeout
+  passed on 2026-07-08. Paid campaign launch remains blocked until legal and
+  campaign-readiness approval. Product activation analytics is not included in
+  093 and is tracked as feature `094-product-activation-analytics`.
+- Feature `094-product-activation-analytics` now has a safe implementation
+  scaffold for product activation analytics without production provider launch.
+  It defines the activation funnel from public download intent through first
+  value, disabled-by-default runtime config, forbidden-field rejection,
+  pseudonymous identity helpers, a mandatory product telemetry gate model,
+  PostHog/Yandex provider-disabled wrappers, server-mediated validation API,
+  macOS payload/client shell, env propagation checks, smoke helpers, dashboard
+  evidence template, and rollout documentation. Live PostHog setup, Yandex
+  all-pages expansion, Yandex offline conversion upload, production deploy, and
+  paid campaign optimization remain blocked pending separate legal/product/
+  security/QA/provider approval.
 - Manual user-facing `Record`/`Stop` exists in the local macOS app with visible
   recording state and one-action stop from feature `007`.
 - Local recording persistence from feature `008` is accepted for local artifact
@@ -58,6 +89,34 @@ metadata-only evidence остаются подробной историей ре
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
+- Feature `092-automatic-meeting-detection` is implemented locally as the first
+  registry-driven detect-and-ask foundation for the Russian-market VKS scope.
+  It adds server-side metadata-only meeting-detection telemetry, admin candidate
+  review and registry publishing, RLS-covered registry/candidate tables, a
+  server-published macOS target registry with last-good client cache, low-noise
+  candidate rollups, macOS `AudioHAL` app-ownership parsing,
+  detector debounce/end state, target-scoped prompt/auto-record policy gates,
+  metadata-only diagnostics, meeting-detection settings with app auto-record
+  checkboxes, and
+  browser metadata plus calendar/join-intent foundation without requiring a
+  browser extension. Prompt-capable first targets remain limited to locally
+  verified native Zoom and Yandex Telemost paths; browser targets, unverified
+  native apps, and unsupported metadata states stay detect-only/manual-only
+  until separate live validation promotes them. This slice is local
+  implementation readiness only: it is not committed, merged, released,
+  deployed, or production-rollout evidence. Critical review remediation on
+  2026-07-08 connected the native `AudioHAL` log stream to
+  prompt/auto-record decisioning, moved the registry source to server publish
+  plus last-good client cache,
+  hardened browser-target validation, added candidate/non-target uniqueness,
+  rejected admin merges into unknown target ids, and refreshed focused/full
+  local validation evidence. Convergence remediation on 2026-07-09 routes
+  prompt/auto-record eligibility through the existing recording prerequisite
+  gate, expands the prompt with safe capture mode/source/policy/reason copy,
+  scopes the `AudioHAL` log predicate to RunningBoard, records a passing
+  10-minute resource gate, explicitly keeps Microsoft Teams diagnostic-only
+  until installed runtime validation is available, and documents Firefox/
+  non-Chromium browser metadata as manual-only when no safe adapter exists.
 - Feature `012-server-ingest-foundation` is implemented as the first backend
   foundation slice in this repository: FastAPI ingest service scaffold,
   local/prod Docker Compose stacks, Postgres/Alembic schema models, MinIO

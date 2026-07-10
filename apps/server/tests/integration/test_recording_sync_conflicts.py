@@ -71,7 +71,22 @@ def test_sync_state_reports_server_deleted_conflict_and_hides_review(client) -> 
 
 def test_sync_state_reports_stale_device_identity_conflict(client) -> None:
     local_id = "sync-conflict-device-001"
-    create_finalized_meeting(client, local_id)
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": local_id,
+            "local_media_revision_id": f"{local_id}--initial",
+            "duration_seconds": 60,
+        },
+    )
+    assert meeting.status_code == 200
+    session = client.post(
+        f"/api/v1/meetings/{meeting.json()['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_tracks": ["manifest", "microphone", "system"]},
+    )
+    assert session.status_code == 200
     stale_device_id = "40000000-0000-0000-0000-000000000088"
 
     async def add_device() -> None:

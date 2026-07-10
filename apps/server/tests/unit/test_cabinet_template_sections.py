@@ -60,7 +60,7 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
     template = get_cabinet_templates().from_string(
         """
         {% import "cabinet/components/sections.html" as sections %}
-        {{ sections.cabinet_shell(navigation, embedded=embedded, content=content, static_url=cabinet_static_url) }}
+        {{ sections.cabinet_shell(navigation, embedded=embedded, content=content, static_url=cabinet_static_url, csrf_token=csrf_token) }}
         """
     )
     navigation = view_models.CabinetNavigationModel(
@@ -79,6 +79,7 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
 
     html = template.render(
         cabinet_static_url="/static/cabinet",
+        csrf_token="shell-csrf-token",
         navigation=navigation,
         embedded=False,
         content=Markup('<main class="cabinet-main" id="content">Контент</main>'),
@@ -96,8 +97,40 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
     assert 'href="#"' not in html
     assert 'src="/static/cabinet/graf-wordmark-dark.png"' in html
     assert 'data-cabinet-rail-toggle' in html
+    assert 'class="sidebar-logout"' in html
+    assert 'action="/logout"' in html
+    assert 'name="csrf_token" value="shell-csrf-token"' in html
+    assert 'name="next" value="/login?next=/meetings"' in html
+    assert 'data-icon="log-out"' in html
+    assert "Выйти" in html
     assert "Пробный период 7 дней" in html
     assert '<main class="cabinet-main" id="content">Контент</main>' in html
+
+
+def test_cabinet_shell_macro_uses_embedded_allowed_logout_target() -> None:
+    template = get_cabinet_templates().from_string(
+        """
+        {% import "cabinet/components/sections.html" as sections %}
+        {{ sections.cabinet_shell(navigation, embedded=True, content=content, csrf_token=csrf_token) }}
+        """
+    )
+    navigation = view_models.CabinetNavigationModel(
+        active="meetings",
+        items=(
+            view_models.CabinetNavigationItem("meetings", "Мои встречи", "/desktop/meetings", "calendar-days"),
+        ),
+    )
+
+    html = template.render(
+        csrf_token="embedded-csrf-token",
+        navigation=navigation,
+        content=Markup('<main class="cabinet-main" id="content">Контент</main>'),
+    )
+
+    assert 'class="sidebar-logout"' in html
+    assert 'action="/desktop/meetings"' in html
+    assert 'name="csrf_token" value="embedded-csrf-token"' in html
+    assert 'name="next" value="/login?next=/desktop/meetings"' in html
 
 
 def test_section_css_covers_interaction_and_overflow_states() -> None:
@@ -112,6 +145,7 @@ def test_section_css_covers_interaction_and_overflow_states() -> None:
         ".cabinet-text--overflow",
         ".cabinet-playback-controls[data-state=\"unavailable\"]",
         ".cabinet-confirmation-dialog[data-state=\"destructive\"]",
+        ".sidebar-logout__button:hover",
     ]:
         assert marker in css
 

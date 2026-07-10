@@ -966,7 +966,12 @@ def _summary_state(policy_value: str, access: AccessDecision, result: Processing
     blocked = _policy_blocked_state("summary", policy_value, access)
     if blocked is not None:
         return blocked
-    if result is not None and result.summary_status == SummaryStatus.AVAILABLE.value:
+    if (
+        result is not None
+        and result.summary_status == SummaryStatus.AVAILABLE.value
+        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and result.segment_count > 0
+    ):
         return ArtifactEgressState(
             artifact_class="summary",
             state="available",

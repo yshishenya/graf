@@ -1,0 +1,261 @@
+import Foundation
+import TwoBrainRecShared
+
+#if canImport(XCTest)
+import XCTest
+
+final class MeetingTargetRegistryTests: XCTestCase {
+    func testNoRemoteOrCacheFailsClosedWithoutPackagedSeed() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MeetingTargetRegistryStore(
+            cacheURL: root.appendingPathComponent("registry-cache.json")
+        )
+
+        XCTAssertThrowsError(try store.resolve()) { error in
+            XCTAssertEqual(error as? MeetingTargetRegistryError, .noUsableRegistry)
+        }
+    }
+
+    func testValidRemoteRegistryIsCachedAndPreferred() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cacheURL = root.appendingPathComponent("registry-cache.json")
+        let store = MeetingTargetRegistryStore(cacheURL: cacheURL)
+
+        let resolution = try store.resolve(
+            remoteData: Self.seedRegistryData(registryVersion: "2026.07.09.1"),
+            remoteETag: "etag-remote"
+        )
+        let cache = try store.loadCache()
+
+        XCTAssertEqual(resolution.source, .remote)
+        XCTAssertEqual(resolution.document.registryVersion, "2026.07.09.1")
+        XCTAssertEqual(cache.etag, "etag-remote")
+        XCTAssertEqual(cache.registry.registryVersion, "2026.07.09.1")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path))
+    }
+
+    func testInvalidRemoteFallsBackToPreviousValidCache() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MeetingTargetRegistryStore(cacheURL: root.appendingPathComponent("cache.json"))
+        _ = try store.resolve(remoteData: Self.seedRegistryData(registryVersion: "2026.07.09.1"), remoteETag: "etag-cache")
+
+        let resolution = try store.resolve(remoteData: Self.unsafePromptRegistryData(), remoteETag: "etag-bad")
+
+        XCTAssertEqual(resolution.source, .remoteCache)
+        XCTAssertEqual(resolution.document.registryVersion, "2026.07.09.1")
+        XCTAssertEqual(resolution.etag, "etag-cache")
+    }
+
+    func testUnsafePromptEnabledTargetFailsClosed() throws {
+        XCTAssertThrowsError(
+            try MeetingDetectionCoding.decoder().decode(
+                MeetingTargetRegistryDocument.self,
+                from: Self.unsafePromptRegistryData()
+            ).validatedForTest()
+        ) { error in
+            XCTAssertEqual(error as? MeetingTargetRegistryError, .unsafePromptTarget("unsafe_zoom"))
+        }
+    }
+
+    func testUnsafeBrowserTargetWithoutJoinIntentFailsClosed() throws {
+        let document = MeetingTargetRegistryDocument(
+            registryVersion: "2026.07.08.1",
+            generatedAt: Date(timeIntervalSince1970: 1_779_887_120),
+            targets: [
+                MeetingTargetRegistryTarget(
+                    id: "unsafe_browser",
+                    displayName: "Unsafe Browser",
+                    market: .global,
+                    platform: .browser,
+                    targetFamily: .browserMeeting,
+                    mode: .promptEnabled,
+                    evidence: .seed,
+                    requiredSignals: [.browserMetadata],
+                    browserServicePatterns: [
+                        MeetingTargetBrowserServicePattern(
+                            serviceFamily: "google_meet",
+                            hostCategory: "first_party",
+                            patternClass: "meeting_room"
+                        )
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertThrowsError(try MeetingTargetRegistryValidator.validate(document)) { error in
+            XCTAssertEqual(error as? MeetingTargetRegistryError, .unsafeBrowserTarget("unsafe_browser"))
+        }
+    }
+
+    func testOldSensorSignalIsRejected() {
+        XCTAssertThrowsError(
+            try MeetingDetectionCoding.decoder().decode(
+                MeetingTargetRegistryDocument.self,
+                from: Self.seedRegistryData(requiredSignal: "macos_sensor_indicators_mic")
+            )
+        )
+    }
+
+    func testDesktopAppRefreshesRemoteRegistryPeriodicallyAndAfterWake() throws {
+        let source = try Self.desktopAppSource()
+
+        XCTAssertTrue(source.contains("meetingDetectionRegistryRefreshIntervalNanoseconds"))
+        XCTAssertTrue(source.contains("refreshMeetingDetectionRegistry(reason: \"periodic_registry_refresh\")"))
+        XCTAssertTrue(source.contains("refreshMeetingDetectionRegistry(reason: \"system_wake\")"))
+        XCTAssertTrue(source.contains("client.fetchMeetingDetectionTargetRegistry(ifNoneMatch: etag)"))
+        XCTAssertTrue(source.contains(".twoBrainRecMeetingTargetRegistryDidChange"))
+    }
+
+    func testDesktopAppStartupDoesNotRequireLocalRegistryBeforeRemoteFetch() throws {
+        let source = try Self.desktopAppSource()
+        let body = try Self.functionBody(
+            named: "startMeetingDetectionIfNeeded",
+            before: "private func stopMeetingDetection()",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("try? resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)"))
+        XCTAssertTrue(body.contains("meetingDetectionHealth = \"Реестр загружается с сервера\""))
+        XCTAssertTrue(body.contains("await refreshMeetingDetectionRegistry(reason: \"startup\")"))
+        XCTAssertFalse(body.contains("try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)"))
+        XCTAssertFalse(body.contains("Проверьте локальный реестр приложений"))
+    }
+
+    func testRegistryFetchBypassesFoundationHTTPCache() throws {
+        let source = try Self.desktopUploadClientSource()
+        let body = try Self.functionBody(
+            named: "fetchMeetingDetectionTargetRegistry",
+            before: "public func acknowledgeLocalPurgeTask",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("request.cachePolicy = .reloadIgnoringLocalCacheData"))
+    }
+
+    private func temporaryRoot() -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meeting-target-registry-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    static func seedRegistryData(
+        registryVersion: String = "2026.07.08.1",
+        requiredSignal: String = "macos_audio_hal_assertion"
+    ) -> Data {
+        Data(
+            """
+            {
+              "schemaVersion": 1,
+              "registryVersion": "\(registryVersion)",
+              "generatedAt": "2026-07-08T00:00:00Z",
+              "targets": [
+                {
+                  "id": "zoom",
+                  "displayName": "Zoom",
+                  "market": "global",
+                  "platform": "macos",
+                  "targetFamily": "native_app",
+                  "nativeBundleIds": ["us.zoom.xos"],
+                  "mode": "prompt_enabled",
+                  "evidence": "runtime_verified",
+                  "requiredSignals": ["\(requiredSignal)"]
+                },
+                {
+                  "id": "yandex_telemost",
+                  "displayName": "Yandex Telemost",
+                  "market": "russia",
+                  "platform": "macos",
+                  "targetFamily": "native_app",
+                  "nativeBundleIds": ["ru.yandex.desktop.telemost"],
+                  "mode": "prompt_enabled",
+                  "evidence": "runtime_verified",
+                  "requiredSignals": ["\(requiredSignal)"]
+                }
+              ]
+            }
+            """.utf8
+        )
+    }
+
+    static func unsafePromptRegistryData() -> Data {
+        Data(
+            """
+            {
+              "schemaVersion": 1,
+              "registryVersion": "2026.07.09.2",
+              "generatedAt": "2026-07-08T00:00:00Z",
+              "targets": [
+                {
+                  "id": "unsafe_zoom",
+                  "displayName": "Unsafe Zoom",
+                  "market": "global",
+                  "platform": "macos",
+                  "targetFamily": "native_app",
+                  "nativeBundleIds": [],
+                  "mode": "prompt_enabled",
+                  "evidence": "seed",
+                  "requiredSignals": ["macos_audio_hal_assertion"]
+                }
+              ]
+            }
+            """.utf8
+        )
+    }
+
+    private static func repositoryRoot() throws -> URL {
+        var candidate = URL(fileURLWithPath: #filePath)
+        while candidate.path != "/" {
+            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+            if FileManager.default.fileExists(atPath: appSourceURL.path) {
+                return candidate
+            }
+            candidate.deleteLastPathComponent()
+        }
+        throw NSError(
+            domain: "MeetingTargetRegistryTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Repository root not found"]
+        )
+    }
+
+    private static func desktopAppSource() throws -> String {
+        try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+    }
+
+    private static func desktopUploadClientSource() throws -> String {
+        try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift"),
+            encoding: .utf8
+        )
+    }
+
+    private static func functionBody(named name: String, before endMarker: String, in source: String) throws -> String {
+        guard let start = source.range(of: "func \(name)"),
+              let end = source[start.lowerBound...].range(of: endMarker)
+        else {
+            throw NSError(
+                domain: "MeetingTargetRegistryTests",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Function \(name) not found"]
+            )
+        }
+        return String(source[start.lowerBound..<end.lowerBound])
+    }
+}
+
+private extension MeetingTargetRegistryDocument {
+    func validatedForTest() throws -> MeetingTargetRegistryDocument {
+        try MeetingTargetRegistryValidator.validate(self)
+        return self
+    }
+}
+#endif

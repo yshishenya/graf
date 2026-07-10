@@ -93,6 +93,48 @@ def test_cabinet_js_owns_component_dom_behavior() -> None:
         assert marker in script
 
 
+def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    for marker in [
+        "initManualUpload",
+        "XMLHttpRequest",
+        "data-manual-upload-dialog",
+        "data-manual-upload-dropzone",
+        "data-upload-activity-list",
+        "data-upload-activity-cancel",
+        "data-upload-activity-retry",
+        "data-upload-activity-resume",
+        "data-manual-upload-submit",
+        'document.body.addEventListener("click"',
+        "event.preventDefault();",
+        "duration_seconds",
+        "local_recording_id",
+        "X-CSRF-Token",
+        "abort",
+        "refreshMeetingList",
+        "dragover",
+        "dropEffect",
+        "meeting-list-region",
+    ]:
+        assert marker in script
+    for marker in [
+        ".manual-upload-dialog",
+        ".manual-upload-dropzone",
+        ".manual-upload-file-card",
+        ".manual-upload-validation",
+        ".upload-activity-row",
+        ".upload-activity-progress",
+        ".upload-activity-actions",
+        ".upload-activity-action",
+    ]:
+        assert marker in css
+    assert "Длительность не прочитана" in script
+    assert 'durationInput?.addEventListener("input"' not in script
+    assert ".manual-upload-duration__control" not in css
+
+
 def test_auth_static_assets_keep_compact_panel_and_code_autosubmit() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
     script = (STATIC_DIR / "cabinet.js").read_text()

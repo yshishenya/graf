@@ -124,16 +124,29 @@ def _access_conflict(*, tenant_scope: TenantScope, meeting: object) -> tuple[str
                 next_action="sign_in_again",
             ),
         )
-    if meeting.device_id != tenant_scope.device_id:
-        return (
-            "stale_device_identity",
-            _conflict(
-                SyncConflictState.STALE_DEVICE_IDENTITY,
-                reason="stale_device_identity",
-                next_action="reauthenticate_device",
-            ),
-        )
     return ("owner", DesktopSyncConflict())
+
+
+def _session_device_conflict(
+    *,
+    tenant_scope: TenantScope,
+    session: UploadSessionRecord | None,
+) -> DesktopSyncConflict:
+    if session is None or session.device_id == tenant_scope.device_id:
+        return DesktopSyncConflict()
+    if session.status in {
+        UploadSessionStatus.FINALIZED,
+        UploadSessionStatus.DEGRADED,
+        UploadSessionStatus.FAILED,
+        UploadSessionStatus.ABORTED,
+        UploadSessionStatus.EXPIRED,
+    }:
+        return DesktopSyncConflict()
+    return _conflict(
+        SyncConflictState.STALE_DEVICE_IDENTITY,
+        reason="stale_device_identity",
+        next_action="reauthenticate_device",
+    )
 
 
 def _deletion_conflict(*, deletion_state: DeletionState, media_revision_status: MediaRevisionStatus) -> DesktopSyncConflict:
@@ -645,14 +658,18 @@ async def get_desktop_recording_sync_state(
         if dependency_conflict.state != SyncConflictState.NONE
         else await _mark_expired_if_needed(db=db, meeting=meeting, session=session)
     )
+    session_device_conflict = _session_device_conflict(tenant_scope=tenant_scope, session=session)
     conflict = _first_blocking_conflict(
         access_conflict,
+        session_device_conflict,
         metadata_conflict,
         deletion_conflict,
         processing_conflict,
         dependency_conflict,
         session_conflict,
     )
+    if conflict.state == SyncConflictState.STALE_DEVICE_IDENTITY:
+        access_state = "stale_device_identity"
     accepted_bytes_by_track = _accepted_bytes_by_track(session)
     missing_ranges_by_track = _missing_ranges_by_track(session)
     review_available = _review_available(conflict, effective_processing_status)

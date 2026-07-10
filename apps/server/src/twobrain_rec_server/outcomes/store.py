@@ -130,6 +130,7 @@ async def record_generation_attempt(
     ended_at: datetime | None = None,
     latency_ms: int | None = None,
     failure_reason: str | None = None,
+    failure_source: str | None = None,
     metadata_json: dict | None = None,
 ) -> MeetingOutcomeGenerationAttempt:
     attempt = MeetingOutcomeGenerationAttempt(
@@ -145,6 +146,7 @@ async def record_generation_attempt(
         ended_at=ended_at,
         latency_ms=latency_ms,
         failure_reason=failure_reason,
+        failure_source=failure_source,
         metadata_json=metadata_json or {},
     )
     session.add(attempt)

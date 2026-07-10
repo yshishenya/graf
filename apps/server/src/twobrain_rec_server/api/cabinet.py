@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.queries import load_admin_workspace_context
-from twobrain_rec_server.api.ingest import get_request_db_session, get_request_storage
+from twobrain_rec_server.api.ingest import (
+    commit_if_available,
+    get_request_db_session,
+    get_request_storage,
+    meeting_response,
+    session_response,
+)
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     AccessState,
@@ -23,6 +30,7 @@ from twobrain_rec_server.api.schemas import (
     LocalPurgeAckRequest,
     LocalPurgeTask,
     LocalPurgeTaskList,
+    ManualMediaUploadResponse,
     MeetingAccessResponse,
     MeetingActivityResponse,
     MeetingListResponse,
@@ -75,6 +83,7 @@ from twobrain_rec_server.deletion.service import (
     lifecycle_for_meeting,
     request_meeting_deletion,
 )
+from twobrain_rec_server.ingest.manual_media_upload import accept_manual_media_upload
 
 router = APIRouter(prefix="/api/v1", tags=["cabinet"])
 
@@ -122,6 +131,51 @@ async def list_cabinet_meetings_route(
         access=access,
         sort=sort,
         limit=limit,
+    )
+
+
+@router.post(
+    "/cabinet/media-uploads",
+    response_model=ManualMediaUploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="createCabinetManualMediaUpload",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def create_cabinet_manual_media_upload_route(
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    duration_seconds: Annotated[int, Form(gt=0)],
+    title: str | None = Form(default=None, max_length=500),
+    local_recording_id: str | None = Form(default=None, min_length=1, max_length=240, pattern=r"^[^\x00-\x1f\x7f]+$"),
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+    storage: object = StorageDependency,
+) -> ManualMediaUploadResponse:
+    if not principal.auth_via_session:
+        raise ProblemDetail(
+            status=401,
+            code="auth_session_required_for_manual_upload",
+            title="Sign in required for media upload",
+        )
+    result = await accept_manual_media_upload(
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        db=db,
+        storage=storage,
+        file=file,
+        duration_seconds=duration_seconds,
+        title=title,
+        local_recording_id=local_recording_id,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
+    )
+    await commit_if_available(db)
+    return ManualMediaUploadResponse(
+        meeting=meeting_response(result.meeting),
+        upload_session=session_response(result.upload_session),
+        object_count=result.object_count,
+        workflow_started=result.processing.workflow_started,
+        mediascribe_job_created=result.processing.mediascribe_job_created,
     )
 
 

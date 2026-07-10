@@ -45,6 +45,7 @@ class MeetingOutcomeSet(Base):
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     failure_reason: Mapped[str | None] = mapped_column(String(240))
+    failure_source: Mapped[str | None] = mapped_column(String(64))
     lifecycle_state: Mapped[str] = mapped_column(String(64), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -106,6 +107,7 @@ class MeetingOutcomeGenerationAttempt(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     failure_reason: Mapped[str | None] = mapped_column(String(240))
+    failure_source: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

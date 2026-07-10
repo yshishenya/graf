@@ -15,6 +15,7 @@ COMPONENT_DIR="$BUILD_DIR/components"
 SCRIPTS_DIR="$BUILD_DIR/scripts"
 APP_BUNDLE="$MACOS_DIR/RecApp/.build/GRAF.app"
 APP_ICON="$MACOS_DIR/RecApp/Resources/AppIcon.icns"
+APP_CORE_RESOURCE_BUNDLE_NAME="TwoBrainRecMacOS_TwoBrainRecAppCore.bundle"
 WORDMARK_DARK="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark.png"
 WORDMARK_DARK_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark@2x.png"
 WORDMARK_LIGHT="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight.png"
@@ -22,6 +23,7 @@ WORDMARK_LIGHT_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight@2x.png"
 OUTPUT_PKG="${1:-"$BUILD_DIR/graf-local.pkg"}"
 APP_SIGN_IDENTITY="${GRAF_APP_SIGN_IDENTITY:-${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}}"
 ALLOW_ADHOC_APP_SIGNING="${GRAF_ALLOW_ADHOC_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}}"
+ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING="${GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-0}}"
 INCLUDE_DRIVER_COMPONENT="${GRAF_INCLUDE_DRIVER_COMPONENT:-${TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT:-0}}"
 DEVELOPER_TOOLS_STATUS=$(DevToolsSecurity -status 2>&1 || true)
 DEVELOPER_TOOLS_ENABLED=0
@@ -89,6 +91,7 @@ swift build --package-path "$MACOS_DIR" -c release --product TwoBrainRecApp
 
 BIN_DIR=$(swift build --package-path "$MACOS_DIR" -c release --show-bin-path)
 APP_EXECUTABLE="$BIN_DIR/TwoBrainRecApp"
+APP_CORE_RESOURCE_BUNDLE="$BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME"
 DRIVER_BUNDLE="$MACOS_DIR/AudioDriver/.build/proof/GrafProof.driver"
 
 if [ ! -x "$APP_EXECUTABLE" ]; then
@@ -97,6 +100,10 @@ if [ ! -x "$APP_EXECUTABLE" ]; then
 fi
 if [ ! -f "$APP_ICON" ]; then
   echo "Missing app icon at $APP_ICON" >&2
+  exit 1
+fi
+if [ ! -d "$APP_CORE_RESOURCE_BUNDLE" ]; then
+  echo "Missing app resource bundle at $APP_CORE_RESOURCE_BUNDLE" >&2
   exit 1
 fi
 for resource in "$WORDMARK_DARK" "$WORDMARK_DARK_2X" "$WORDMARK_LIGHT" "$WORDMARK_LIGHT_2X"; do
@@ -115,6 +122,7 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$APP_EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/GRAF"
+cp -R "$APP_CORE_RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
 cp "$APP_ICON" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp "$WORDMARK_DARK" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark.png"
 cp "$WORDMARK_DARK_2X" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark@2x.png"
@@ -184,6 +192,13 @@ Application certificate, then run:
   GRAF_APP_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
     sh apps/macos/Installer/Scripts/build-local-installer.sh
 
+For local permission-retention validation with a locally trusted self-signed
+identity, run:
+
+  GRAF_APP_SIGN_IDENTITY="GRAF Local Code Signing" \
+  GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1 \
+    sh apps/macos/Installer/Scripts/build-local-installer.sh
+
 For packaging-only tests on locked-down hosts, set:
 
   GRAF_ALLOW_ADHOC_APP_SIGNING=1 \
@@ -214,15 +229,27 @@ fi
 if [ -n "$APP_SIGN_IDENTITY" ] &&
    ! printf '%s\n' "$APP_SIGNATURE" |
      grep -Eq '^Authority=(Apple Development|Developer ID Application|Apple Distribution|Mac Developer)'; then
-  cat >&2 <<EOF
+  if [ "$ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING" = "1" ] &&
+     ! printf '%s\n' "$APP_SIGNATURE" | grep -q '^Signature=adhoc' &&
+     printf '%s\n' "$APP_SIGNATURE" | grep -q '^Authority='; then
+    echo "Using local self-signed app signing identity for local validation only: $APP_SIGN_IDENTITY" >&2
+    echo "This package is not Developer ID signed or notarized for public distribution." >&2
+  else
+    cat >&2 <<EOF
 App bundle was signed, but not with an Apple application signing identity.
 
 Observed signature:
 $APP_SIGNATURE
 
-Use an Apple Development or Developer ID Application identity for launchable local builds.
+Use an Apple Development or Developer ID Application identity for release-like builds.
+For local-only permission-retention validation, rerun with:
+
+  GRAF_APP_SIGN_IDENTITY="GRAF Local Code Signing" \\
+  GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1 \\
+    sh apps/macos/Installer/Scripts/build-local-installer.sh
 EOF
-  exit 1
+    exit 1
+  fi
 fi
 
 cp -R "$APP_BUNDLE" "$STAGE_DIR/app/Applications/"

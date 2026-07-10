@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,9 @@ from twobrain_rec_server.cabinet.rendering import (
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
 )
+from twobrain_rec_server.cabinet.web_routes.auth import (
+    logout_current_browser_session,
+)
 from twobrain_rec_server.cabinet.web_routes.support import (
     CabinetAccessQuery,
     CabinetLimitQuery,
@@ -49,7 +52,9 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     CalendarPreferencesResultQuery,
     CalendarSelectionResultQuery,
     CalendarSyncResultQuery,
+    LoginDbDependency,
     PrincipalDependency,
+    WebCSRFDependency,
     WebDbDependency,
     WebTenantDependency,
     _authorized_lifecycle_meeting,
@@ -60,6 +65,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
 from twobrain_rec_server.deletion.service import deletion_report_response
 
 router = APIRouter(tags=["cabinet-web"])
+EmbeddedLogoutNextForm = Form(default="/login?next=/desktop/meetings", alias="next", max_length=512)
 
 
 @router.get("/desktop/meetings", response_class=HTMLResponse, include_in_schema=False)
@@ -98,6 +104,25 @@ async def embedded_meeting_list_page(
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=_request_path_with_query(request),
         )
+    )
+
+
+# Compatibility path for already-installed macOS clients: their embedded
+# cabinet allowlist permits POST navigation to /desktop/meetings, but blocks
+# /logout until a future app release explicitly allows a desktop logout route.
+@router.post("/desktop/meetings", include_in_schema=False, response_model=None)
+async def embedded_logout_from_meetings_route(
+    request: Request,
+    next_path: str = EmbeddedLogoutNextForm,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    _csrf: None = WebCSRFDependency,
+    db: AsyncSession | None = LoginDbDependency,
+):
+    return await logout_current_browser_session(
+        request,
+        next_path=next_path,
+        principal=principal,
+        db=db,
     )
 
 

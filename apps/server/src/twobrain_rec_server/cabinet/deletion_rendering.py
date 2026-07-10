@@ -81,6 +81,11 @@ def _render_deletion_report_content(
         ),
         local_purge=trusted_component_html(_render_local_purge_tasks(report.local_purge), source="deletion_report.local_purge"),
         activity=trusted_component_html(_render_lifecycle_activity(report.activity), source="deletion_report.activity"),
+        analytics_limits=(
+            "Product analytics uses pseudonymous metadata only. GRAF can remove GRAF-controlled bridge and gap records; "
+            "provider-held aggregates, Yandex offline conversion reports, and exported dashboard snapshots may require "
+            "separate provider/manual handling and must not be described as universal erasure."
+        ),
     )
 
 

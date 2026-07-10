@@ -45,6 +45,30 @@ class FakeMediaScribeClient:
             status=self.status_sequence[0],
         )
 
+    async def submit_single_track(
+        self,
+        *,
+        media_file: BinaryIO,
+        diarize: bool,
+        summarize: bool,
+        media_content_type: str | None = None,
+    ) -> MediaScribeSubmitResponse:
+        media_size, media_hash = _stream_digest(media_file)
+        self.submissions.append(
+            {
+                "request_mode": "single_track",
+                "media_size": media_size,
+                "media_sha256": media_hash,
+                "media_content_type": media_content_type,
+                "diarize": diarize,
+                "summarize": summarize,
+            }
+        )
+        return MediaScribeSubmitResponse(
+            external_job_id=self.external_job_id,
+            status=self.status_sequence[0],
+        )
+
     async def poll_job(self, external_job_id: str) -> MediaScribePollResponse:
         status = self.status_sequence[min(self.poll_count, len(self.status_sequence) - 1)]
         self.poll_count += 1

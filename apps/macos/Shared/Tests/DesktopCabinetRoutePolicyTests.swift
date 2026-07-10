@@ -38,6 +38,11 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             XCTAssertEqual(decision.reason, .allowedCalendarSettings, route)
         }
 
+        let meetingDetectionSettings = policy.decision(for: try url("/desktop/settings/meeting-detection"))
+        XCTAssertEqual(meetingDetectionSettings.decision, .allow)
+        XCTAssertEqual(meetingDetectionSettings.route.kind, .meetingDetectionSettings)
+        XCTAssertEqual(meetingDetectionSettings.reason, .allowedMeetingDetectionSettings)
+
         let login = policy.decision(for: try url("/login?next=/desktop/meetings"))
         XCTAssertEqual(login.decision, .allow)
         XCTAssertEqual(login.route.kind, .authLogin)
@@ -61,6 +66,15 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: try url("/sign-up?next=/desktop/meetings&mode=email")).decision, .allow)
         XCTAssertEqual(policy.decision(for: try url("/sign-up/email/start")).decision, .allow)
         XCTAssertEqual(policy.decision(for: try url("/sign-up/email/verify")).decision, .allow)
+    }
+
+    func testAllowsEmbeddedLogoutCompatibilityTarget() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let decision = policy.decision(for: try url("/desktop/meetings"))
+
+        XCTAssertEqual(decision.decision, .allow)
+        XCTAssertEqual(decision.route.kind, .meetingList)
+        XCTAssertEqual(decision.reason, .allowedMeetingList)
     }
 
     func testAllowsProviderLegsOnlyDuringAuthContinuation() throws {

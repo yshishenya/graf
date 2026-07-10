@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus
 from twobrain_rec_server.mediascribe.schemas import MediaScribeResult
 
 ROLE_ALIASES = {
@@ -26,6 +27,8 @@ def normalize_source_role(role: str) -> str:
 
 
 def normalize_result(result: MediaScribeResult) -> MediaScribeResult:
+    if result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE:
+        return result.model_copy(update={"transcript": [], "diarization": []})
     transcript = []
     for segment in result.transcript:
         if segment.end_seconds < segment.start_seconds:

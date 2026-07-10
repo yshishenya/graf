@@ -22,6 +22,7 @@ from twobrain_rec_server.admin.invitations import (
     invitation_to_dict,
     revoke_workspace_invitation,
 )
+from twobrain_rec_server.admin.meeting_detection import build_meeting_detection_admin_model
 from twobrain_rec_server.admin.metrics import get_admin_metrics
 from twobrain_rec_server.admin.queries import (
     get_admin_overview_payload,
@@ -50,6 +51,17 @@ from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_t
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.deletion.service import deletion_report_response, request_meeting_deletion
 from twobrain_rec_server.domain.statuses import DeletionReasonCode, DeletionRequestSource
+from twobrain_rec_server.meeting_detection.admin_review import (
+    add_diagnostic_only_draft,
+    load_meeting_detection_review,
+    mark_candidate_non_target,
+    merge_candidate_with_target,
+    request_candidate_validation,
+)
+from twobrain_rec_server.meeting_detection.registry import (
+    MeetingTargetRegistryError,
+    publish_registry_draft,
+)
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -106,6 +118,26 @@ class AdminDeletionRequest(BaseModel):
     reason_code: DeletionReasonCode = DeletionReasonCode.USER_REQUEST
 
 
+class MeetingDetectionAdminActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason_code: str | None = Field(default=None, max_length=120)
+
+
+class MeetingDetectionMergeRequest(MeetingDetectionAdminActionRequest):
+    target_id: str = Field(min_length=3, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]{2,80}$")
+
+
+class MeetingDetectionDiagnosticDraftRequest(MeetingDetectionAdminActionRequest):
+    target_id: str = Field(min_length=3, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]{2,80}$")
+    display_name: str = Field(min_length=1, max_length=80)
+    market: str = Field(pattern="^(global|russia|enterprise|unknown)$")
+
+
+class MeetingDetectionValidationRequest(MeetingDetectionAdminActionRequest):
+    validation_kind: str = Field(default="runtime", pattern="^(runtime|package)$")
+
+
 @router.get("/overview", operation_id="getAdminOverview")
 async def get_admin_overview(
     tenant_scope: TenantScope = TenantDependency,
@@ -118,6 +150,171 @@ async def get_admin_overview(
         )
     context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
     return await get_admin_overview_payload(db, context=context)
+
+
+@router.get("/meeting-detection", operation_id="getAdminMeetingDetectionReview")
+async def get_admin_meeting_detection_review(
+    limit: int = AdminLimitQuery,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> dict[str, object]:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="admin_store_unavailable", title="Admin store unavailable"
+        )
+    context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
+    review = await load_meeting_detection_review(db, context=context, limit=limit)
+    return build_meeting_detection_admin_model(review)
+
+
+@router.post(
+    "/meeting-detection/candidates/{candidate_id}/mark-non-target",
+    operation_id="markMeetingDetectionCandidateNonTarget",
+    dependencies=[WebCSRFDependency],
+)
+async def mark_admin_meeting_detection_candidate_non_target(
+    candidate_id: UUID,
+    payload: MeetingDetectionAdminActionRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> dict[str, object]:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="admin_store_unavailable", title="Admin store unavailable"
+        )
+    context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
+    row = await mark_candidate_non_target(
+        db,
+        context=context,
+        candidate_id=candidate_id,
+        reason_code=payload.reason_code,
+    )
+    await db.commit()
+    return row
+
+
+@router.post(
+    "/meeting-detection/candidates/{candidate_id}/merge",
+    operation_id="mergeMeetingDetectionCandidate",
+    dependencies=[WebCSRFDependency],
+)
+async def merge_admin_meeting_detection_candidate(
+    candidate_id: UUID,
+    payload: MeetingDetectionMergeRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> dict[str, object]:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="admin_store_unavailable", title="Admin store unavailable"
+        )
+    context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
+    row = await merge_candidate_with_target(
+        db,
+        context=context,
+        candidate_id=candidate_id,
+        target_id=payload.target_id,
+        reason_code=payload.reason_code,
+    )
+    await db.commit()
+    return row
+
+
+@router.post(
+    "/meeting-detection/candidates/{candidate_id}/add-diagnostic-only-draft",
+    operation_id="addMeetingDetectionDiagnosticDraft",
+    dependencies=[WebCSRFDependency],
+)
+async def add_admin_meeting_detection_diagnostic_draft(
+    candidate_id: UUID,
+    payload: MeetingDetectionDiagnosticDraftRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> dict[str, object]:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="admin_store_unavailable", title="Admin store unavailable"
+        )
+    context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
+    row = await add_diagnostic_only_draft(
+        db,
+        context=context,
+        candidate_id=candidate_id,
+        target_id=payload.target_id,
+        display_name=payload.display_name,
+        market=payload.market,
+        reason_code=payload.reason_code,
+    )
+    await db.commit()
+    return row
+
+
+@router.post(
+    "/meeting-detection/candidates/{candidate_id}/request-validation",
+    operation_id="requestMeetingDetectionCandidateValidation",
+    dependencies=[WebCSRFDependency],
+)
+async def request_admin_meeting_detection_candidate_validation(
+    candidate_id: UUID,
+    payload: MeetingDetectionValidationRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> dict[str, object]:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="admin_store_unavailable", title="Admin store unavailable"
+        )
+    context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
+    row = await request_candidate_validation(
+        db,
+        context=context,
+        candidate_id=candidate_id,
+        validation_kind=payload.validation_kind,
+        reason_code=payload.reason_code,
+    )
+    await db.commit()
+    return row
+
+
+@router.post(
+    "/meeting-detection/registry-drafts/{draft_id}/publish",
+    operation_id="publishMeetingDetectionRegistryDraft",
+    dependencies=[WebCSRFDependency],
+)
+async def publish_admin_meeting_detection_registry_draft(
+    draft_id: UUID,
+    payload: MeetingDetectionAdminActionRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> dict[str, object]:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="admin_store_unavailable", title="Admin store unavailable"
+        )
+    context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
+    try:
+        row = await publish_registry_draft(
+            db,
+            context=context,
+            draft_id=draft_id,
+            reason_code=payload.reason_code,
+        )
+    except MeetingTargetRegistryError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
+        raise ProblemDetail(
+            status=status_code,
+            code="meeting_detection_registry_publish_failed",
+            title="Meeting detection registry draft could not be published",
+            detail=str(exc),
+        ) from exc
+    await db.commit()
+    return row
 
 
 @router.get("/users", operation_id="listAdminUsers")

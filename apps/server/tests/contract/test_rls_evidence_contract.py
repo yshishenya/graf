@@ -52,3 +52,47 @@ def test_processing_dispatch_audit_metadata_keeps_only_safe_fields() -> None:
         "blocked_count": 0,
         "reason_code": "duplicate_workflow_reused",
     }
+
+
+def test_processing_result_contract_audit_metadata_keeps_safe_classification_fields() -> None:
+    metadata = safe_audit_metadata(
+        {
+            "mediascribe_job_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "transcript_status": "unavailable",
+            "transcript_reason": "no_recognizable_speech",
+            "error_code": "invalid_audio_payload",
+            "error_origin": "input_audio",
+            "failure_reason": "invalid_audio_payload",
+            "failure_source": "input_audio",
+            "diagnostic_class": "input_audio_problem",
+            "transcript_text": "private transcript",
+            "download_url": "https://example.invalid/download",
+            "storage_object_key": "workspace/private/audio.wav",
+            "api_key": "secret",
+        }
+    )
+
+    assert metadata == {
+        "mediascribe_job_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "transcript_status": "unavailable",
+        "transcript_reason": "no_recognizable_speech",
+        "error_code": "invalid_audio_payload",
+        "error_origin": "input_audio",
+        "failure_reason": "invalid_audio_payload",
+        "failure_source": "input_audio",
+        "diagnostic_class": "input_audio_problem",
+    }
+
+
+def test_processing_result_contract_audit_does_not_restore_unknown_transcript_reason() -> None:
+    metadata = safe_audit_metadata(
+        {
+            "transcript_status": "available",
+            "transcript_reason": "private meeting words",
+        }
+    )
+
+    assert metadata == {
+        "transcript_status": "available",
+        "transcript_reason": "[REDACTED]",
+    }

@@ -1,4 +1,9 @@
-from twobrain_rec_server.cabinet.egress import safe_audit_metadata
+from uuid import uuid4
+
+from twobrain_rec_server.cabinet.access import AccessDecision
+from twobrain_rec_server.cabinet.egress import _transcript_state, safe_audit_metadata
+from twobrain_rec_server.db.models import ProcessingResult
+from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus, ProcessingResultStatus
 
 
 def test_safe_audit_metadata_keeps_only_allowed_redacted_scalars() -> None:
@@ -82,3 +87,31 @@ def test_safe_audit_metadata_for_stream_prepared_keeps_bounded_range_fields() ->
         "range_start": 4,
         "range_end": 9,
     }
+
+
+def test_transcript_download_state_requires_available_status_and_segments() -> None:
+    access = AccessDecision(
+        state="owner",
+        label="Owner",
+        reason=None,
+        can_view=True,
+        can_share=True,
+        can_manage_team_visibility=True,
+        can_download=True,
+        can_export=True,
+    )
+    result = ProcessingResult(
+        id=uuid4(),
+        meeting_id=uuid4(),
+        workspace_id=uuid4(),
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+        segment_count=0,
+    )
+
+    state = _transcript_state("allowed", access, result)
+
+    assert state.artifact_class == "transcript"
+    assert state.state == "missing"
+    assert state.action == "disabled"

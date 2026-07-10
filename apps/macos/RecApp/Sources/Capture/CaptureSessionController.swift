@@ -73,6 +73,22 @@ public final class CaptureSessionController {
         return next
     }
 
+    public func beginDetectorAssistedPreparing(
+        targetID: String,
+        bundleID: String,
+        displayName: String,
+        mode: CaptureMode = .audioRecording
+    ) throws -> CaptureSession {
+        var prepared = try beginPreparing(mode: mode, sourceAppEligibility: .eligible)
+        prepared.triggerEvidence["trigger"] = "meeting_detection_prompt"
+        prepared.triggerEvidence["meetingDetectionTargetId"] = targetID
+        prepared.triggerEvidence["meetingDetectionBundleId"] = bundleID
+        prepared.stopActionAvailable = false
+        prepared.visibleIndicatorState = .ready
+        session = prepared
+        return prepared
+    }
+
     public func markReady(
         sourceAppEligibility: SourceAppEligibility? = nil,
         triggerEvidence: [String: String] = [:]

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    <meta
+      name="description"
+      content="Политика конфиденциальности GRAF для публичного сайта, лендинга и страницы скачивания."
+    >
+    <meta name="theme-color" content="#05090a">
+    <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">К содержанию</a>
+    <div class="site-shell legal-shell">
+      <header class="site-header" aria-label="GRAF">
+        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
+        <nav class="top-nav" aria-label="Основные разделы">
+          <a href="/">Главная</a>
+          <a href="/download">Скачать</a>
+        </nav>
+      </header>
+
+      <main id="main" class="legal-page">
+        <p class="section-label">Конфиденциальность</p>
+        <h1>Политика конфиденциальности</h1>
+        <p class="legal-status">
+          Рабочая редакция для публичного сайта. Перед запуском рекламных
+          кампаний нужно добавить реквизиты оператора и провести юридическую
+          проверку.
+        </p>
+
+        <section class="legal-section" aria-labelledby="privacy-scope">
+          <h2 id="privacy-scope">Что относится к этой странице</h2>
+          <p>
+            Эта страница описывает публичный сайт GRAF: главную страницу,
+            страницу скачивания, юридические страницы и согласие на аналитику.
+            Кабинет, учетная запись, запись встреч, транскрибация, удаление и
+            desktop-приложение регулируются отдельными продуктовыми условиями.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="privacy-data">
+          <h2 id="privacy-data">Какие данные могут обрабатываться</h2>
+          <ul>
+            <li>Технические данные браузера и устройства, нужные для работы сайта.</li>
+            <li>Выбор по cookies и аналитике, сохраненный локально в браузере.</li>
+            <li>Безопасные UTM-метки рекламных кампаний, если они есть в ссылке.</li>
+            <li>События публичной воронки: просмотр страницы, клик по CTA, переход к скачиванию.</li>
+          </ul>
+          <p>
+            Публичная аналитика не должна содержать email, телефон, имя,
+            название компании, аккаунт, текст встречи, аудио, транскрипт,
+            локальный путь, object key, токен, signed URL, пароль или passcode.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="privacy-purpose">
+          <h2 id="privacy-purpose">Зачем это нужно</h2>
+          <p>
+            Данные используются для работы сайта, понимания источников трафика,
+            качества публичной страницы, кликов по скачиванию и эффективности
+            рекламных кампаний. Installer download считается web-намерением, а
+            не доказательством установки, входа или первой записи встречи.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="privacy-providers">
+          <h2 id="privacy-providers">Поставщики аналитики</h2>
+          <p>
+            Phase 1 использует только Яндекс Метрику после согласия на
+            аналитику. Google Analytics, Google Ads, GTM, PostHog, Clarity,
+            Amplitude, Mixpanel, Matomo и custom analytics storage не входят в
+            текущий публичный сайт.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="privacy-rights">
+          <h2 id="privacy-rights">Выбор пользователя</h2>
+          <p>
+            Пользователь может открыть настройки cookies на публичных страницах,
+            выбрать только необходимые cookies, разрешить все категории или
+            настроить категории отдельно. Согласие на cookies и аналитику не
+            является принятием условий продукта.
+          </p>
+        </section>
+      </main>
+    </div>
+    {% include "public/_analytics.html" %}
+  </body>
+</html>

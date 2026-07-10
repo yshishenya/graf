@@ -84,6 +84,8 @@ STATUS_LABELS: dict[str, str] = {
     "deleted_future": "Delete planned",
 }
 
+MEDIASCRIBE_SPEAKER_LABEL_RE = re.compile(r"^SPEAKER_\d{2,}$")
+
 SORT_LABELS: dict[str, str] = {
     "updated_desc": "Недавно обновленные",
     "updated_asc": "Давно обновленные",
@@ -1137,7 +1139,7 @@ def meeting_media_label(item: MeetingListItem) -> str:
         "audio": "аудио",
         "video": "видео",
         "transcript": "транскрипт",
-        "upload": "upload",
+        "upload": "медиа",
     }[meeting_media_kind(item)]
 
 
@@ -1313,6 +1315,8 @@ def build_list_item(
         status_label=STATUS_LABELS[status],
         status_reason=workflow.last_reason_code
         if workflow is not None and status in {"blocked", "failed"}
+        else result.failure_reason
+        if result is not None and status == "unavailable"
         else None,
         primary_action=primary_action_for_status(status),
         transcript_available=transcript_available(result),
@@ -1343,6 +1347,11 @@ def primary_action_for_status(status: MeetingReviewStatus) -> str:
 def _meeting_source(media_revision: MediaRevision | None) -> str:
     if (
         media_revision is not None
+        and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+    ):
+        return "manual_upload"
+    if (
+        media_revision is not None
         and media_revision.source_kind == MediaRevisionSourceKind.VIDEO_CAPTURE.value
     ):
         return "video_recording"
@@ -1361,11 +1370,9 @@ def processing_state(
     summary_available = bool(
         result is not None and result.summary_status == SummaryStatus.AVAILABLE.value
     )
-    reason_code = (
-        workflow.last_reason_code
-        if workflow is not None and status in {"blocked", "failed"}
-        else None
-    )
+    reason_code = workflow.last_reason_code if workflow is not None and status in {"blocked", "failed"} else None
+    if reason_code is None and result is not None and not has_transcript:
+        reason_code = result.failure_reason
     return ProcessingReviewState(
         state=status,
         stage=stage_for_status(
@@ -1416,7 +1423,9 @@ def reason_label(reason_code: str | None) -> str | None:
     if reason_code is None:
         return None
     return {
-        "mediascribe_validation_failed": "Processing result could not be imported safely.",
+        "no_recognizable_speech": "MediaScribe обработал запись, но транскрипт не создан: распознаваемая речь не найдена.",
+        "invalid_audio_payload": "Файл записи не является декодируемым аудио или поврежден.",
+        "mediascribe_validation_failed": "Transcription service could not accept this media file.",
         "blocked_config": "Processing is blocked by server configuration.",
     }.get(reason_code, "Processing needs operator review.")
 
@@ -1429,17 +1438,36 @@ def transcript_state(
     status: MeetingReviewStatus,
     playback_available: bool = False,
     playback_duration_seconds: int | None = None,
+    force_speaker_labels: bool = False,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
     diarization_rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
-    speaker_labels_by_key = canonical_speaker_labels(diarization_rows)
-    if status not in {"ready", "partial"} or not transcripts:
+    diarization_display_rows = [row for row in diarization_rows if row.text.strip()]
+    if status not in {"ready", "partial"}:
         return TranscriptReviewState(
             available=False,
             language=language,
             degraded_reason="processing"
             if status in {"processing", "submitted"}
             else "unavailable",
+            search_enabled=False,
+            segments=[],
+        )
+    speaker_labels_by_key = canonical_speaker_labels(diarization_rows)
+    if force_speaker_labels and diarization_display_rows:
+        return diarization_transcript_state(
+            language=language,
+            diarization_rows=diarization_display_rows,
+            speaker_rows=mediascribe_speaker_rows(diarization_rows),
+            status=status,
+            playback_available=playback_available,
+            playback_duration_seconds=playback_duration_seconds,
+        )
+    if not transcripts:
+        return TranscriptReviewState(
+            available=False,
+            language=language,
+            degraded_reason="unavailable",
             search_enabled=False,
             segments=[],
         )
@@ -1464,6 +1492,50 @@ def transcript_state(
                 ),
                 source_role=source_role_label(segment.source_role),
                 text=segment.text,
+                confidence_label="unknown",
+                seekable=seek_seconds is not None,
+                seek_seconds=seek_seconds,
+            )
+        )
+    return TranscriptReviewState(
+        available=True,
+        language=language,
+        degraded_reason=None if status == "ready" else "partial_transcript",
+        search_enabled=True,
+        segments=segments,
+    )
+
+
+def diarization_transcript_state(
+    *,
+    language: str | None,
+    diarization_rows: list[DiarizationSegment],
+    speaker_rows: list[DiarizationSegment],
+    status: MeetingReviewStatus,
+    playback_available: bool,
+    playback_duration_seconds: int | None,
+) -> TranscriptReviewState:
+    speaker_labels = mediascribe_speaker_labels_by_time(
+        diarization_rows,
+        speaker_rows,
+    )
+    segments = []
+    for row, speaker_label in zip(diarization_rows, speaker_labels, strict=True):
+        seek_seconds = _seek_seconds(
+            row.start_seconds,
+            playback_available=playback_available,
+            playback_duration_seconds=playback_duration_seconds,
+        )
+        segments.append(
+            TranscriptSegmentView(
+                segment_id=str(row.id),
+                sequence=row.sequence,
+                start_seconds=float(row.start_seconds),
+                end_seconds=float(row.end_seconds),
+                timestamp_label=format_timestamp(row.start_seconds),
+                speaker_label=speaker_label,
+                source_role=source_role_label(row.source_role),
+                text=row.text,
                 confidence_label="unknown",
                 seekable=seek_seconds is not None,
                 seek_seconds=seek_seconds,
@@ -1544,7 +1616,111 @@ def _speaker_identity_key(row: DiarizationSegment) -> str:
     return f"{source_role_label(row.source_role)}:{row.sequence}"
 
 
-def speaker_state(diarization_segments: Iterable[DiarizationSegment]) -> SpeakerReviewState:
+def is_mediascribe_speaker_label(label: str | None) -> bool:
+    return mediascribe_speaker_label(label) is not None
+
+
+def mediascribe_speaker_label(label: str | None) -> str | None:
+    if label is None:
+        return None
+    normalized = label.strip()
+    if MEDIASCRIBE_SPEAKER_LABEL_RE.fullmatch(normalized):
+        return normalized
+    return None
+
+
+def transcript_speaker_labels(
+    transcripts: list[TranscriptSegment],
+    *,
+    diarization_rows: list[DiarizationSegment],
+    diarization_by_segment_key: dict[tuple[int, SourceRoleView], DiarizationSegment],
+    force_speaker_labels: bool,
+) -> list[str]:
+    if force_speaker_labels:
+        return mediascribe_speaker_labels_by_time(
+            transcripts,
+            mediascribe_speaker_rows(diarization_rows),
+        )
+    return [
+        speaker_label_for_segment(
+            segment,
+            diarization_by_segment_key.get((segment.sequence, source_role_label(segment.source_role))),
+        )
+        for segment in transcripts
+    ]
+
+
+def mediascribe_speaker_labels_by_time(
+    segments: list[TranscriptSegment] | list[DiarizationSegment],
+    speaker_rows: list[DiarizationSegment],
+) -> list[str]:
+    if not speaker_rows:
+        return ["SPEAKER_00"] * len(segments)
+    labels = ["SPEAKER_00"] * len(segments)
+    cursor = 0
+    for index, segment in sorted(
+        enumerate(segments), key=lambda item: segment_time_key(item[1])
+    ):
+        own_label = mediascribe_speaker_label(getattr(segment, "speaker_label", None))
+        if own_label is not None:
+            labels[index] = own_label
+            continue
+        midpoint = segment_midpoint(segment)
+        while cursor + 1 < len(speaker_rows) and segment_end(speaker_rows[cursor]) < midpoint:
+            cursor += 1
+        labels[index] = nearest_speaker_label_at_midpoint(midpoint, speaker_rows, cursor)
+    return labels
+
+
+def mediascribe_speaker_rows(rows: list[DiarizationSegment]) -> list[DiarizationSegment]:
+    return [row for row in rows if is_mediascribe_speaker_label(row.speaker_label)]
+
+
+def nearest_speaker_label_at_midpoint(
+    midpoint: float,
+    speaker_rows: list[DiarizationSegment],
+    cursor: int,
+) -> str:
+    last_index = len(speaker_rows) - 1
+    candidate_indexes = {max(0, cursor - 1), cursor, min(last_index, cursor + 1)}
+
+    def rank(index: int) -> tuple[float, float, int, int]:
+        row = speaker_rows[index]
+        start = segment_start(row)
+        end = segment_end(row)
+        if start <= midpoint <= end:
+            gap = 0.0
+        elif midpoint < start:
+            gap = start - midpoint
+        else:
+            gap = midpoint - end
+        return (gap, abs(segment_midpoint(row) - midpoint), row.sequence, index)
+
+    label = mediascribe_speaker_label(speaker_rows[min(candidate_indexes, key=rank)].speaker_label)
+    return label or "SPEAKER_00"
+
+
+def segment_time_key(segment: TranscriptSegment | DiarizationSegment) -> tuple[float, float, int]:
+    return (segment_start(segment), segment_end(segment), segment.sequence)
+
+
+def segment_start(segment: TranscriptSegment | DiarizationSegment) -> float:
+    return float(segment.start_seconds)
+
+
+def segment_end(segment: TranscriptSegment | DiarizationSegment) -> float:
+    return float(segment.end_seconds)
+
+
+def segment_midpoint(segment: TranscriptSegment | DiarizationSegment) -> float:
+    return (segment_start(segment) + segment_end(segment)) / 2
+
+
+def speaker_state(
+    diarization_segments: Iterable[DiarizationSegment],
+    *,
+    force_speaker_labels: bool = False,
+) -> SpeakerReviewState:
     rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
     if not rows:
         return SpeakerReviewState(
@@ -1555,13 +1731,17 @@ def speaker_state(diarization_segments: Iterable[DiarizationSegment]) -> Speaker
         )
 
     grouped: dict[str, list[DiarizationSegment]] = defaultdict(list)
-    speaker_labels_by_key = canonical_speaker_labels(rows)
-    for row in rows:
-        grouped[_speaker_identity_key(row)].append(row)
+    if force_speaker_labels:
+        speaker_labels = mediascribe_speaker_labels_by_time(rows, mediascribe_speaker_rows(rows))
+        for row, speaker_label in zip(rows, speaker_labels, strict=True):
+            grouped[speaker_label].append(row)
+    else:
+        speaker_labels_by_key = canonical_speaker_labels(rows)
+        for row in rows:
+            grouped[speaker_labels_by_key[_speaker_identity_key(row)]].append(row)
     total = sum(max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in rows) or 1.0
     speakers: list[SpeakerLane] = []
-    for speaker_key, speaker_rows in grouped.items():
-        speaker_label = speaker_labels_by_key[speaker_key]
+    for speaker_label, speaker_rows in grouped.items():
         duration = sum(
             max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in speaker_rows
         )
@@ -1963,6 +2143,10 @@ def build_review_response(
     item.notes_available = notes_truth.summary.state == "available"
     item.notes_action_truth = notes_truth
     playback = playback_state(meeting, status, review_playback)
+    force_speaker_labels = (
+        media_revision is not None
+        and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+    )
     return MeetingReviewResponse(
         meeting=item,
         provenance=provenance_state(
@@ -1979,8 +2163,12 @@ def build_review_response(
             status=status,
             playback_available=playback.available,
             playback_duration_seconds=playback.duration_seconds,
+            force_speaker_labels=force_speaker_labels,
         ),
-        speakers=speaker_state(diarization_segments),
+        speakers=speaker_state(
+            diarization_segments,
+            force_speaker_labels=force_speaker_labels,
+        ),
         calendar_roster=calendar_roster,
         notes=notes_state(status),
         notes_action_truth=notes_truth,

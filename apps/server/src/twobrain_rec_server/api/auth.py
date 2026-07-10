@@ -46,6 +46,7 @@ from twobrain_rec_server.db.tenant_context import (
     WorkspaceAuthContext,
     apply_tenant_context,
 )
+from twobrain_rec_server.product_analytics.events import build_activation_event
 
 
 class _ProviderEntry(BaseModel):
@@ -174,6 +175,28 @@ PROBLEM_RESPONSES = {
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"], responses=PROBLEM_RESPONSES, include_in_schema=True)
 WebCSRFDependency = Depends(require_web_csrf)
+
+
+def build_account_connected_product_analytics_payload(
+    *,
+    stable_pseudonymous_user_id: str,
+    auth_method_category: str,
+    bridge_present: bool,
+    attribution_reliability: str = "campaign_linked_reliable",
+    elapsed_bucket: str | None = None,
+) -> dict[str, object]:
+    event = build_activation_event(
+        "desktop_account_connected",
+        stable_pseudonymous_user_id=stable_pseudonymous_user_id,
+        properties={
+            "auth_method_category": auth_method_category,
+            "account_connection_state": "connected",
+            "bridge_present": bridge_present,
+            "attribution_reliability": attribution_reliability,
+            **({"elapsed_bucket": elapsed_bucket} if elapsed_bucket else {}),
+        },
+    )
+    return event.as_payload()
 
 
 def _parse_uuid(value: str | None, header_name: str) -> UUID:

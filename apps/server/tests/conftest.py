@@ -1,4 +1,6 @@
 import asyncio
+import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +12,8 @@ from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.base import Base
 from twobrain_rec_server.db.models import (
+    MeetingTargetRegistryEntry,
+    MeetingTargetRegistryVersion,
     Organization,
     RegisteredDevice,
     UserIdentity,
@@ -18,6 +22,12 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
 from twobrain_rec_server.main import create_app
+from twobrain_rec_server.meeting_detection.registry import registry_entries, registry_etag
+
+REGISTRY_DATA = (
+    Path(__file__).resolve().parents[1]
+    / "src/twobrain_rec_server/db/migrations/data/0019_meeting_target_registry.json"
+)
 
 
 @pytest.fixture
@@ -41,6 +51,16 @@ def client(test_settings: Settings) -> TestClient:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         async with sessionmaker() as session:
+            registry_document = json.loads(REGISTRY_DATA.read_text(encoding="utf-8"))
+            registry_version = MeetingTargetRegistryVersion(
+                workspace_id=None,
+                registry_version=registry_document["registryVersion"],
+                schema_version=registry_document["schemaVersion"],
+                status="published",
+                source="migration",
+                document_json=registry_document,
+                etag=registry_etag(registry_document),
+            )
             session.add_all(
                 [
                     Organization(id=ORG_ID, slug="test-org", name="Test Org"),
@@ -61,7 +81,16 @@ def client(test_settings: Settings) -> TestClient:
                         device_public_id="revoked-device",
                         status="revoked",
                     ),
+                    registry_version,
                 ]
+            )
+            await session.flush()
+            session.add_all(
+                MeetingTargetRegistryEntry(
+                    registry_version_id=registry_version.id,
+                    **entry,
+                )
+                for entry in registry_entries(registry_document)
             )
             await session.commit()
 

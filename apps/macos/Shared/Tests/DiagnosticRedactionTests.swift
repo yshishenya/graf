@@ -173,6 +173,27 @@ final class DiagnosticRedactionTests: XCTestCase {
         XCTAssertNil(bundle.manifest["meetingContent"])
     }
 
+    func testMeetingDetectionDetectorBundleKeepsOnlyMetadata() throws {
+        let bundle = try DiagnosticBundleService().buildMeetingDetectionDetectorBundle(
+            evidence: MeetingDetectionDetectorEvidence(
+                status: "observed",
+                registryVersion: "2026.07.08.1",
+                bundleID: "ru.yandex.desktop.telemost",
+                targetID: "yandex_telemost",
+                supportMode: .promptEnabled,
+                decision: "prompt",
+                reason: nil,
+                observedAt: Date(timeIntervalSince1970: 1_783_440_000)
+            )
+        )
+
+        XCTAssertNotNil(bundle.manifest["meetingDetectionDetector"])
+        XCTAssertNil(bundle.manifest["rawAudio"])
+        XCTAssertNil(bundle.manifest["transcriptText"])
+        XCTAssertFalse(String(describing: bundle.manifest).localizedCaseInsensitiveContains("http"))
+        XCTAssertFalse(String(describing: bundle.manifest).localizedCaseInsensitiveContains("passcode"))
+    }
+
     func testLowResourceRouteTruthKeepsMetadataAndRemovesSensitiveFields() {
         let manifest: [String: DiagnosticFieldValue] = [
             "lowResourceRouteTruth": .object([

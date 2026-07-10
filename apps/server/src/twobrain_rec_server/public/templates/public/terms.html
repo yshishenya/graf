@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    <meta
+      name="description"
+      content="Условия публичного сайта GRAF и границы согласия на аналитику."
+    >
+    <meta name="theme-color" content="#05090a">
+    <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">К содержанию</a>
+    <div class="site-shell legal-shell">
+      <header class="site-header" aria-label="GRAF">
+        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
+        <nav class="top-nav" aria-label="Основные разделы">
+          <a href="/">Главная</a>
+          <a href="/download">Скачать</a>
+        </nav>
+      </header>
+
+      <main id="main" class="legal-page">
+        <p class="section-label">Условия</p>
+        <h1>Условия публичного сайта</h1>
+        <p class="legal-status">
+          Рабочая редакция для публичного сайта. Финальные продуктовые условия,
+          реквизиты оператора и правила установки должны быть утверждены перед
+          публичным запуском.
+        </p>
+
+        <section class="legal-section" aria-labelledby="terms-site">
+          <h2 id="terms-site">Публичный сайт</h2>
+          <p>
+            Публичный сайт рассказывает о GRAF, дает ссылку на скачивание
+            установщика и ссылку на вход в кабинет. Аналитика не должна менять
+            маршруты скачивания, входа или работу страницы.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="terms-consent">
+          <h2 id="terms-consent">Согласие на аналитику не равно условиям продукта</h2>
+          <p>
+            Выбор cookies и аналитики относится только к публичному сайту. Он
+            не является согласием на условия кабинета, установщика, desktop
+            app, записи встреч, транскрибации или обработки содержимого встреч.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="terms-download">
+          <h2 id="terms-download">Скачивание</h2>
+          <p>
+            Клик по скачиванию считается web-намерением. Он не доказывает, что
+            приложение установлено, открыто, подключено к аккаунту или уже
+            записало первую встречу.
+          </p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="terms-product">
+          <h2 id="terms-product">Продуктовые условия</h2>
+          <p>
+            Account flow, installer flow, desktop app, запись, транскрибация,
+            хранение и удаление данных должны иметь собственные условия и
+            подтверждения в соответствующих продуктовых сценариях.
+          </p>
+        </section>
+      </main>
+    </div>
+    {% include "public/_analytics.html" %}
+  </body>
+</html>

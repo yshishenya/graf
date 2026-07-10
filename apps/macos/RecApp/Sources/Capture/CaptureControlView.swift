@@ -17,6 +17,8 @@ public struct CaptureControlView: View {
     private let uploadQueueItems: [DesktopUploadQueueItem]
     private let cabinetConfiguration: DesktopCabinetConfiguration?
     private let calendarPrompt: DesktopCalendarPrompt?
+    private let meetingDetectionStatus: String?
+    private let meetingDetectionHealth: String?
     private let routeSignalLevels: LiveRouteSignalLevels
     private let recordDisabled: Bool
     private let stopDisabled: Bool
@@ -45,6 +47,8 @@ public struct CaptureControlView: View {
         uploadQueueItems: [DesktopUploadQueueItem] = [],
         cabinetConfiguration: DesktopCabinetConfiguration? = nil,
         calendarPrompt: DesktopCalendarPrompt? = nil,
+        meetingDetectionStatus: String? = nil,
+        meetingDetectionHealth: String? = nil,
         routeSignalLevels: LiveRouteSignalLevels = .inactive,
         recordDisabled: Bool = false,
         stopDisabled: Bool = false,
@@ -74,6 +78,8 @@ public struct CaptureControlView: View {
         self.uploadQueueItems = uploadQueueItems
         self.cabinetConfiguration = cabinetConfiguration
         self.calendarPrompt = calendarPrompt
+        self.meetingDetectionStatus = meetingDetectionStatus
+        self.meetingDetectionHealth = meetingDetectionHealth
         self.routeSignalLevels = routeSignalLevels
         self.recordDisabled = recordDisabled
         self.stopDisabled = stopDisabled
@@ -140,6 +146,24 @@ public struct CaptureControlView: View {
                     onPrimary: onCalendarPromptPrimary,
                     onDismiss: onCalendarPromptDismiss
                 )
+            }
+
+            if let meetingDetectionStatus, !meetingDetectionStatus.isEmpty {
+                HStack(alignment: .top, spacing: 10) {
+                    StatusNoteView(
+                        icon: "dot.radiowaves.left.and.right",
+                        title: SystemAudioStatusLabels.meetingDetectionSettingsTitle,
+                        detail: meetingDetectionHealth.map { "\(meetingDetectionStatus). \($0)" } ?? meetingDetectionStatus,
+                        iconColor: .secondary
+                    )
+                    .accessibilityLabel(
+                        SystemAudioStatusLabels.meetingDetectionAccessibilityLabel(
+                            status: meetingDetectionStatus,
+                            health: meetingDetectionHealth
+                        )
+                    )
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionStatus)
+                }
             }
 
             if !recordingMicrophoneInputs.isEmpty || recordingMicrophoneSelection != nil {

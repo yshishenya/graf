@@ -1,0 +1,24 @@
+<footer class="legal-footer" aria-label="Юридическая информация">
+  <a href="/privacy">Конфиденциальность</a>
+  <a href="/cookies">Cookies</a>
+  <a href="/terms">Условия</a>
+  <a href="/analytics-consent">Согласие на аналитику</a>
+  {% if public_analytics.enabled %}
+    <button class="cookie-settings-link" type="button" data-cc="show-preferencesModal">
+      Настройки cookies
+    </button>
+  {% endif %}
+</footer>
+
+{% if public_analytics.enabled %}
+  <link rel="stylesheet" href="{{ public_static_asset_url('cookieconsent.css') }}">
+  <script id="graf-public-analytics-config" type="application/json">
+    {{ public_analytics | tojson }}
+  </script>
+  <script
+    defer
+    src="{{ public_static_asset_url('cookieconsent.umd.js') }}"
+    data-graf-cookieconsent-version="{{ public_analytics.cookieconsent_version }}"
+  ></script>
+  <script defer src="{{ public_static_asset_url('analytics.js') }}"></script>
+{% endif %}

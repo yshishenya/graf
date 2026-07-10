@@ -66,6 +66,46 @@ public struct DesktopCalendarReminderService: Sendable {
         return nil
     }
 
+    public static func meetingDetectionJoinIntentHint(
+        from events: [DesktopCalendarPromptEvent],
+        now: Date = Date(),
+        isRecordingActive: Bool,
+        dismissedPromptIDs: Set<String> = []
+    ) -> MeetingDetectionCalendarJoinIntentHint? {
+        guard !isRecordingActive else {
+            return nil
+        }
+
+        let joinCandidates = events
+            .filter { isJoinPromptDue(for: $0, now: now) }
+            .sorted { $0.startsAt < $1.startsAt }
+        if let hint = meetingDetectionHint(
+            for: joinCandidates,
+            kind: .join,
+            source: .calendarJoinPrompt,
+            dismissedPromptIDs: dismissedPromptIDs
+        ) {
+            return hint
+        }
+        if joinCandidates.count > 1 {
+            return nil
+        }
+
+        let recordCandidates = events
+            .filter { event in
+                event.meetingLinkPresent &&
+                    event.openMeetingURL != nil &&
+                    isRecordPromptDue(for: event, now: now)
+            }
+            .sorted { $0.startsAt < $1.startsAt }
+        return meetingDetectionHint(
+            for: recordCandidates,
+            kind: .record,
+            source: .calendarRecordPrompt,
+            dismissedPromptIDs: dismissedPromptIDs
+        )
+    }
+
     public static func isJoinPromptDue(for event: DesktopCalendarPromptEvent, now: Date) -> Bool {
         let dueAt = event.joinPromptDueAt ?? event.startsAt.addingTimeInterval(-60)
         return event.joinPromptState.canSurfacePrompt &&
@@ -171,5 +211,27 @@ public struct DesktopCalendarReminderService: Sendable {
 
     private static func promptID(kind: DesktopCalendarPromptKind, eventIDs: [String]) -> String {
         "\(kind.rawValue):\(eventIDs.sorted().joined(separator: ","))"
+    }
+
+    private static func meetingDetectionHint(
+        for events: [DesktopCalendarPromptEvent],
+        kind: DesktopCalendarPromptKind,
+        source: MeetingDetectionCalendarJoinIntentSource,
+        dismissedPromptIDs: Set<String>
+    ) -> MeetingDetectionCalendarJoinIntentHint? {
+        guard events.count == 1,
+              let event = events.first,
+              !dismissedPromptIDs.contains(promptID(kind: kind, eventIDs: [event.eventId])),
+              event.meetingLinkPresent,
+              let url = event.openMeetingURL,
+              let serviceFamily = BrowserMeetingServiceFamilyResolver.serviceFamily(for: url)
+        else {
+            return nil
+        }
+        return MeetingDetectionCalendarJoinIntentHint(
+            serviceFamily: serviceFamily,
+            source: source,
+            matchingEventCount: 1
+        )
     }
 }

@@ -73,6 +73,624 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.07.09.16] - 2026-07-09
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- macOS desktop больше не берет meeting target registry из Foundation HTTP
+  cache; registry fetch всегда идет к серверу с нашим `If-None-Match` и
+  last-good cache, чтобы старый `macos_sensor_indicators_mic` не ломал
+  автоопределение после server-published registry update.
+- macOS desktop явно прикладывает bridged owner-session cookie к native desktop
+  API requests на тот же origin, чтобы WebView-login и native registry/upload
+  client использовали одну production auth session.
+- Лог `meeting_detection.registry_refresh_failed` теперь показывает безопасный
+  remote error и fallback-cache error отдельно, чтобы не маскировать причину
+  refresh failure старым локальным cache decode.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Обновлен public static installer package для `/download`; SHA-256 package:
+  `1cd58b09355fff51baf01169c29e97ffdf36eb2bc155cc0e79225b6d30da2318`.
+
+## [2026.07.09.8] - 2026-07-09
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Production Docker image больше не ссылается на удаленный локальный
+  `meeting-target-registry.seed.json`; registry публикуется серверной
+  миграцией, а не копируется из macOS bundle.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Добавлен CI guard, который проверяет, что локальные `COPY`-source в
+  `infra/server/Dockerfile` существуют в репозитории до remote deploy.
+- Обновлен public static installer package для `/download`; SHA-256 package:
+  `76fa3d12393265bf020f42963972067f099a42cc13066b1dd46cfc3d57ab80aa`.
+
+## [2026.07.09.7] - 2026-07-09
+
+
+### Добавлено
+- Feature `092-automatic-meeting-detection`: macOS desktop теперь обновляет
+  meeting target registry не только на старте/active/auth, но и после wake и
+  периодически в фоне через `If-None-Match`, чтобы долгоживущие клиенты
+  подтягивали server-published allowlist без перезапуска.
+
+### Изменено
+- Feature `092-automatic-meeting-detection`: target registry теперь полностью
+  server-published; macOS app bundle больше не содержит локальную копию, а
+  клиент использует remote fetch и last-good cache.
+- Feature `092-automatic-meeting-detection`: prompt/auto-record eligibility
+  теперь проходит через общий `RecordingPrerequisiteGate`, а floating prompt
+  показывает безопасные строки про режим записи, источники, workspace policy
+  state и причину детекта без приватных meeting metadata.
+- Feature `092-automatic-meeting-detection`: `AudioHAL` unified-log stream
+  теперь сужен до RunningBoard-процесса перед матчингом `AudioHAL`; 10-минутный
+  local resource gate после изменения дал CPU p95 `0.0%`, CPU max `0.6%`,
+  RSS p95 `5.17 MB`.
+
+### Исправлено
+- Feature `092-automatic-meeting-detection`: свежая macOS установка без
+  сохраненного registry cache больше не останавливает auto-detection до remote
+  fetch; клиент запускает detector shell и сразу подтягивает registry с сервера.
+- Feature `092-automatic-meeting-detection`: rollback миграции registry больше
+  не оставляет сервер без published global registry, если до upgrade уже была
+  опубликованная версия.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `092-automatic-meeting-detection`: closeout evidence обновлен для
+  Microsoft Teams diagnostic-only решения, Firefox/non-Chromium browser
+  manual-only решения, resource gate и manual admin smoke ограничения.
+
+### Операции
+- Обновлен public static installer package для `/download`; SHA-256 package:
+  `3e1f8b30481d8706be75a3d82465e21df782e576b3cd1b8829815318cff521bb`.
+
+## [2026.07.09.6] - 2026-07-09
+
+
+### Добавлено
+- Feature `095-macos-permission-retention`: добавлен локальный self-signed
+  signing path для owner-machine проверки сохранения macOS microphone и
+  Screen/System Audio permissions после переустановки GRAF.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Feature `095-macos-permission-retention`: permission onboarding и другие
+  desktop prompts больше не должны блокировать macOS quit/relaunch; termination
+  path закрывает modal state перед bounded cleanup reply.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `095-macos-permission-retention`: добавлены Spec Kit artifacts,
+  local signing runbook, metadata-only validation quickstart и явная граница,
+  что local self-signed package не является Developer ID/notarized public
+  release.
+
+### Операции
+- Feature `095-macos-permission-retention`: публичный download package
+  `graf-local.pkg` обновлен сборкой `2026.07.09.6` для локального
+  self-signed release path без Apple Developer ID/notarization.
+
+## [2026.07.09.5] - 2026-07-09
+
+
+### Добавлено
+- Feature `091-mediascribe-result-contract`: добавлены безопасные диагностические
+  признаки результата MediaScribe (`transcript_status`, `transcript_reason`,
+  `error_code`, `error_origin`, `failure_reason`, `failure_source`) для
+  различения `processed_no_transcript`, `input_audio_problem` и
+  `mediascribe_service_problem`.
+
+### Изменено
+- Интеграция MediaScribe теперь использует `result.transcript_status` как
+  главный индикатор наличия транскрипта. Готовая обработка без распознаваемой
+  речи сохраняется как terminal business outcome, блокирует meeting outcomes с
+  `failure_source=input_audio` и не запускает summary.
+
+### Исправлено
+- `invalid_audio_payload` от MediaScribe с `error_origin=input_audio` больше не
+  считается сбоем сервиса транскрибации: GRAF показывает понятную причину про
+  недекодируемый или поврежденный аудиофайл.
+- Failed poll ответы MediaScribe теперь читают `error_code` и `error_origin`
+  как на верхнем уровне, так и внутри `job`, чтобы `invalid_audio_payload`
+  не превращался в ложный service outage из-за формы payload.
+- `processing_results.transcript_status` теперь сохраняется из
+  `result.transcript_status`, а не выводится из количества строк; явный
+  `transcript_status="unavailable"` остается авторитетным даже если payload
+  содержит лишние transcript-like rows.
+- Endpoint статуса обработки больше не считает контент доступным только по
+  `transcript_status="available"` / `diarization_status="available"`: для
+  `content_available` теперь также нужны сохраненные строки сегментов.
+- Для записи без распознаваемой речи UI показывает: "MediaScribe обработал
+  запись, но транскрипт не создан: распознаваемая речь не найдена."
+- Кнопка скачивания transcript не появляется, если сохраненного доступного
+  транскрипта нет.
+
+### Безопасность
+- `transcript_status` и `transcript_reason` ограничены безопасными машинными
+  значениями нового контракта; произвольные значения от внешнего сервиса не
+  восстанавливаются из redaction в audit metadata и считаются malformed
+  MediaScribe response без раскрытия текста.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.09.4] - 2026-07-09
+
+
+### Добавлено
+- Feature `094-product-activation-analytics`: добавлен безопасный
+  implementation scaffold продуктовой аналитики: disabled-by-default config,
+  stable event catalog, forbidden-field validator, telemetry gate model,
+  pseudonymous identity helpers, provider-disabled PostHog/Yandex wrappers,
+  server-mediated API, macOS payload/client shell, env propagation, focused
+  tests, smoke scripts и rollout/dashboard documentation без прод-запуска.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- Feature `094-product-activation-analytics`: product analytics запрещает raw
+  identity, meeting content, transcript/audio/calendar text, local paths,
+  signed URLs, tokens, secrets, device names и private free text; direct desktop
+  provider egress закрыт без явных legal/security/QA/provider approval.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Feature `094-product-activation-analytics`: production env example и compose
+  получили disabled-by-default product analytics placeholders только для
+  `rec-api`; live PostHog/Yandex provider setup, production deploy и paid
+  campaign launch остаются отдельными approvals.
+
+## [2026.07.09.3] - 2026-07-09
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Feature `092-automatic-meeting-detection`: native macOS meeting detection
+  now uses `AudioHAL` app-ownership assertions as the primary Gilb-style signal
+  instead of `sensor-indicators` mic-attribution; Yandex
+  Telemost emits this ownership signal during an active meeting.
+- Feature `092-automatic-meeting-detection`: the local macOS installer now
+  packages the SwiftPM app resource bundle required by the installed `.app`.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature `092-automatic-meeting-detection`: refreshed allowlist,
+  fingerprint, telemetry, quickstart, and Spec Kit language to describe
+  `AudioHAL` ownership as the native-app detector signal and keep browser
+  meetings on the metadata + calendar/join-intent path.
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.09.2] - 2026-07-09
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Обновлен публичный установщик GRAF для `/download` и GitHub Release assets,
+  чтобы сайт отдавал macOS package той же релизной линии, что и установленное
+  локальное приложение.
+
+## [2026.07.09.1] - 2026-07-09
+
+
+### Добавлено
+- Feature `093-public-landing-analytics`: добавлена публичная аналитика
+  лендинга и `/download` на Yandex Metrica с disabled-by-default runtime,
+  UTM attribution, стабильными событиями воронки, consent UI на
+  CookieConsent v3.1.0, legal pages и локальными assets без CDN.
+- Feature `094-product-activation-analytics`: зафиксирован backlog/SDD prompt
+  для следующей высокорисковой продуктовой аналитики после 093 с контекстом
+  Yandex/PostHog, attribution bridge, masking/replay gates и production smoke
+  lessons learned из public analytics closeout.
+- Feature `092-automatic-meeting-detection`: заложен серверный и desktop
+  фундамент для registry-driven определения встреч: metadata-only telemetry,
+  admin review кандидатов и server-published target registry без production
+  rollout.
+- На macOS добавлены registry cache/fallback, VKS-candidate filter,
+  telemetry rollups/uploader, primary `AudioHAL` app-ownership parser,
+  detector debounce/end state, policy gates для prompt/target-scoped
+  auto-record, local settings и metadata-only detector diagnostics.
+- Заложен первый browser foundation без расширения: browser metadata
+  классифицируется только вместе с calendar/join intent, а landing/new/join,
+  settings/device-test/media/voice-search и missing metadata остаются
+  manual-only/detect-only.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Feature `093-public-landing-analytics`: production compose теперь передает
+  runtime public analytics env в `rec-api`; post-deploy smoke поймал случай,
+  когда `.env` на сервере был обновлен, но контейнер продолжал работать с
+  disabled defaults.
+- Feature `092-automatic-meeting-detection`: после критического review
+  исправлен runtime path macOS detector: primary `AudioHAL` app-ownership
+  stream подключен к detector decisioning/prompt/auto-record path, parser
+  читает реальные `AudioHAL` ownership assertions,
+  unknown short-duration candidates могут переоцениваться, а native browser
+  audio ownership подавляется до browser metadata + calendar/join intent path.
+- Feature `092-automatic-meeting-detection`: усилены серверные safety gates для
+  registry/admin/telemetry: browser targets обязаны иметь browser metadata и
+  calendar/join intent, merge в неизвестный target id отклоняется, добавлены
+  uniqueness constraints для candidates/non-target rules, workspace draft stale
+  guard не блокирует публикацию registry, desktop uploader уважает
+  `next_upload_after`.
+
+### Безопасность
+- Feature `093-public-landing-analytics`: provider scripts не загружаются до
+  согласия на analytics; Webvisor/replay ограничен публичными страницами и
+  отдельной категорией `behavior_replay`; public analytics отсутствует на
+  login, cabinet, admin, API, legal и product/content-bearing surfaces.
+- Feature `092-automatic-meeting-detection`: telemetry/admin/diagnostics остаются
+  metadata-only; low-score unknown apps redacted locally, Krisp/audio utilities
+  and generic browser audio ownership suppressed, remote registry cannot enable
+  behavior beyond compiled safety gates.
+- Feature `092-automatic-meeting-detection`: local telemetry rollups теперь
+  принудительно очищаются по retention cap `14 days / 1 MB` при записи и перед
+  upload early-return path, включая disabled upload и backoff.
+
+### Документы
+- Feature `093-public-landing-analytics`: добавлены provider setup, Phase 2
+  activation contract guardrails, implementation evidence, legal-readiness
+  notes и campaign-readiness boundary с явным deferral для Google/GA4/GTM и
+  PostHog/product analytics.
+- Feature `092-automatic-meeting-detection`: добавлены Spec Kit artifacts,
+  allowlist/fingerprint research, telemetry contracts и high-risk validation
+  plan для первого detect-and-ask релиза.
+
+### Операции
+- Feature `093-public-landing-analytics`: production env example получил
+  безопасные public analytics variables без live IDs; Yandex counter/goals,
+  dashboard access, production deploy и provider smoke завершены для `/` и
+  `/download`; paid campaign launch остается blocked до legal/campaign-
+  readiness approval.
+- Feature `092-automatic-meeting-detection`: focused validation passed server
+  `48 passed`, macOS `124 tests`, forbidden-content source scan, and full
+  `infra/scripts/ci-local.sh` with `1136 passed, 4 skipped, 1 warning`.
+
+## [2026.07.08.7] - 2026-07-08
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- В приложении embedded WebView теперь открывает системный выбор файла для
+  ручной загрузки записи, а кнопка `Загрузить` в кабинете остаётся
+  серверной модалкой внутри списка встреч.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.08.6] - 2026-07-08
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Ручные однодорожечные расшифровки и speaker overview больше не показывают
+  `Входящий звук` или `UNKNOWN` как участника: когда MediaScribe вернул
+  diarization, review показывает строки из diarization с labels вида
+  `SPEAKER_XX`; если diarization нет, ручной upload получает fallback
+  `SPEAKER_00`. Если diarization пришла без текста, review не показывает
+  пустые реплики и возвращается к transcript rows с `SPEAKER_XX` по таймингам.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.08.5] - 2026-07-08
+
+
+### Добавлено
+- Добавлен операторский dry-run/execute скрипт для повторной обработки уже
+  принятых ручных медиафайлов, которые упали до создания задания MediaScribe.
+
+### Изменено
+- Если пользователь не указал название при ручной загрузке, встреча получает
+  название из имени выбранного файла; введённое пользователем название остаётся
+  приоритетным.
+- Сообщение о сбое `mediascribe_validation_failed` теперь честно говорит, что
+  сервис расшифровки не принял медиафайл, а не что результат не удалось
+  импортировать.
+
+### Исправлено
+- Однодорожечная ручная загрузка теперь отправляется в MediaScribe с безопасным
+  синтетическим именем файла и корректным MIME-типом/расширением вместо
+  безымянного `application/octet-stream`, чтобы валидные `m4a/mp4/wav/webm`
+  файлы не отклонялись на submit.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.08.4] - 2026-07-08
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Встроенный macOS-кабинет больше не блокирует кнопку `Выйти` как внешний
+  маршрут: выход теперь отправляется через разрешенный embedded-путь и сразу
+  возвращает пользователя на вход.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.08.3] - 2026-07-08
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Иконка GRAF в macOS app bundle, favicon, apple-touch icon и локальных
+  web static assets выровнена с последней иконкой из `2brain Rec.app`.
+- Удалены старые черновые и backup-экспорты логотипа GRAF; в репозитории
+  оставлены текущие `final-symbol`, favicon и handoff-метаданные.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.08.2] - 2026-07-08
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- В ручной загрузке убран ручной ввод длительности: длительность остается
+  справочной информацией из файла и отправляется технически после чтения
+  метаданных.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.08.1] - 2026-07-08
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Ручная загрузка теперь закрывает модалку после нажатия `Загрузить`;
+  прогресс, статус и действия `Отменить`, `Повторить`, `Продолжить` и
+  `Открыть` показываются в общем списке записей.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.07.4] - 2026-07-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Ручная загрузка в кабинете получила короткую кнопку `Загрузить`, более
+  понятную модалку с drag/drop-зоной, выбором файла, карточкой выбранного файла,
+  процентом прогресса и аккуратным состоянием принятого файла.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.07.3] - 2026-07-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- В кабинете появилась кнопка `Выйти`: она завершает текущую browser session,
+  очищает session cookie и возвращает пользователя на страницу входа для
+  повторной авторизации.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.07.2] - 2026-07-07
+
+
+### Добавлено
+- Feature `087-own-media-upload-processing`: добавлен серверный путь
+  `POST /api/v1/media-uploads` для загрузки одного пользовательского
+  медиафайла как обычной встречи GRAF с пакетом `manifest + media`.
+- Feature `090-manual-media-upload-ui`: в веб-кабинете и встроенном кабинете
+  macOS добавлена ручная загрузка одного медиафайла с выбором файла,
+  длительностью, прогрессом передачи, отменой до принятия сервером и переходом
+  в обычную встречу.
+
+### Изменено
+- Обработка теперь различает обычные двухдорожечные записи с компьютера и
+  однодорожечные ручные загрузки: ручные загрузки отправляются в серверный
+  MediaScribe путь `POST /v1/audio/transcriptions`, а записи с компьютера
+  продолжают использовать прежний двухдорожечный путь.
+- Ручные загрузки теперь отображаются в списке и карточке встречи как обычные
+  встречи с техническим source `manual_upload`, русской меткой происхождения
+  `медиа` и теми же статусами отправки, обработки и готовности.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- Feature `090-manual-media-upload-ui`: для загрузки из кабинета с пользовательской
+  сессией добавлен отдельный CSRF-защищенный путь
+  `POST /api/v1/cabinet/media-uploads`; старый встроенный контекст только с
+  заголовками получает безопасное состояние входа или недоступности и не
+  используется как граница небезопасной загрузки.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Для выпуска выполнены focused server/macOS сценарии, скан на запрещенное
+  содержимое и полный локальный gate `infra/scripts/ci-local.sh`.
+
+## [2026.07.07.1] - 2026-07-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Записи одного пользователя больше не блокируются старым `device_id` после
+  пересборки приложения или повторного входа: новый зарегистрированный device
+  может продолжить серверную отправку своей записи, а активные upload sessions
+  остаются device-bound.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
 ## [2026.07.04.1] - 2026-07-04
 
 ### Добавлено

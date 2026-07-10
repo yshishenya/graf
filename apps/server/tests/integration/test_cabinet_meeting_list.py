@@ -74,6 +74,36 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
     assert 'hx-trigger="every 3s"' in page.text
 
 
+def test_cabinet_list_shows_manual_upload_as_normal_meeting_row(client) -> None:
+    upload = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={
+            "title": "Manual list row",
+            "duration_seconds": "90",
+            "local_recording_id": "manual-list-row",
+        },
+        files={"file": ("meeting.wav", deterministic_wav_bytes(72), "audio/wav")},
+    )
+    assert upload.status_code == 202
+    meeting_id = upload.json()["meeting"]["meeting_id"]
+
+    response = client.get("/api/v1/cabinet/meetings?q=Manual%20list%20row", headers=auth_headers())
+    page = client.get("/meetings?q=Manual%20list%20row", headers=auth_headers())
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["meeting_id"] == meeting_id
+    assert item["title"] == "Manual list row"
+    assert item["source"] == "manual_upload"
+    assert item["duration_seconds"] == 90
+    assert item["status"] == "submitted"
+    assert item["primary_action"] == "wait"
+    assert page.status_code == 200
+    assert "Manual list row" in page.text
+    assert 'data-media-kind="медиа"' in page.text
+
+
 def test_desktop_empty_meeting_list_polls_for_new_local_uploads(client) -> None:
     response = client.get("/desktop/meetings?q=missing-local-upload", headers=auth_headers())
 
@@ -216,7 +246,8 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert "Подключить календари" in response.text
     assert "Командный синк" not in response.text
     assert "Записи встреч" in response.text
-    assert "Новая" in response.text
+    assert "<span>Загрузить</span>" in response.text
+    assert "Загрузить медиа" not in response.text
     assert "Фильтры" in response.text
     assert "Сортировка" in response.text
     assert 'value="started_desc"' in response.text

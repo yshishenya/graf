@@ -194,8 +194,44 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("sessionId: \"startup-permission-onboarding\""))
         XCTAssertTrue(source.contains("microphoneCaptureService.requestPermissionAndPreflight("))
         XCTAssertTrue(source.contains("systemAudioPermissionAuthorizer.requestPermission()"))
+        XCTAssertTrue(source.contains("if status.isReady {\n            permissionOnboardingPresented = false"))
         XCTAssertFalse(source.contains("requestStartupMicrophonePermission() async {\n        await startManualRecording"))
         XCTAssertFalse(source.contains("requestStartupSystemAudioPermission() async {\n        await startManualRecording"))
+    }
+
+    func testDesktopAppDismissesPermissionSheetsBeforeTerminationCleanup() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("permissionOnboardingPresented = false"))
+        XCTAssertTrue(source.contains("permissionOnboardingRequestInProgress = false"))
+        XCTAssertTrue(source.contains("dismissMeetingDetectionPrompt()"))
+        XCTAssertTrue(source.contains("dismissModalWindowsForTermination()"))
+        XCTAssertTrue(source.contains("window.endSheet(attachedSheet)"))
+        XCTAssertTrue(source.contains("sheetParent.endSheet(window)"))
+    }
+
+    func testDesktopAppDoesNotRequestPermissionsDuringTerminationCleanup() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+        let terminationBlock = try XCTUnwrap(
+            source.range(of: ".onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate))")
+        )
+        let nextReceive = try XCTUnwrap(
+            source[terminationBlock.upperBound...].range(of: ".onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange))")
+        )
+        let block = source[terminationBlock.lowerBound..<nextReceive.lowerBound]
+
+        XCTAssertFalse(block.contains("requestStartupMicrophonePermission"))
+        XCTAssertFalse(block.contains("requestStartupSystemAudioPermission"))
+        XCTAssertFalse(block.contains("openPermissionSettings"))
+        XCTAssertTrue(block.contains("releaseCaptureResourcesForAppExit()"))
     }
 
     func testCalendarPromptAccessibilityCopyPreservesManualRecordingBoundary() {
@@ -210,6 +246,19 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(label.contains("Запись не начинается автоматически"))
         XCTAssertFalse(label.localizedCaseInsensitiveContains("@"))
         XCTAssertFalse(label.localizedCaseInsensitiveContains("http"))
+    }
+
+    func testMeetingDetectionAccessibilityCopyDoesNotMentionRawLogsOrSecrets() {
+        let label = SystemAudioStatusLabels.meetingDetectionAccessibilityLabel(
+            status: "Определение включено",
+            health: "Работает в фоне"
+        )
+
+        XCTAssertTrue(label.contains(SystemAudioStatusLabels.meetingDetectionSettingsTitle))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("raw"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("log"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("token"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("@"))
     }
 
     func testDesktopAppInstallsStandardEditMenuCommandsForEmbeddedCabinetFields() throws {
@@ -228,6 +277,9 @@ final class AppControlAccessibilityTests: XCTestCase {
             XCTAssertTrue(source.contains(command), "Missing edit command \(command)")
         }
         XCTAssertTrue(source.contains("installMainMenu(on: app, zoomTarget: appDelegate)"))
+        XCTAssertTrue(source.contains("withTitle: \"Settings...\""))
+        XCTAssertTrue(source.contains("#selector(AppLifecycleDelegate.openSettings(_:))"))
+        XCTAssertTrue(source.contains("MeetingDetectionSettingsView()"))
         XCTAssertTrue(source.contains("WorkspaceZoomMenu.items"))
         XCTAssertTrue(source.contains("increaseWorkspaceZoom"))
         XCTAssertTrue(source.contains("decreaseWorkspaceZoom"))

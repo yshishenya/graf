@@ -123,6 +123,7 @@ class InMemoryIngestStore:
         local_media_revision_id: str | None = None,
         duration_seconds: int,
         title: str | None,
+        media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING,
     ) -> MeetingRecord:
         key = (workspace_id, user_id, local_recording_id)
         if key in self.meetings_by_local_id:
@@ -143,6 +144,7 @@ class InMemoryIngestStore:
                 local_media_revision_id,
             ),
             media_revision_id=initial_media_revision_id(),
+            media_revision_source_kind=media_revision_source_kind,
         )
         self.meetings[meeting.id] = meeting
         self.meetings_by_local_id[key] = meeting.id
@@ -153,6 +155,7 @@ class InMemoryIngestStore:
         *,
         settings: Settings,
         meeting: MeetingRecord,
+        device_id: UUID | None = None,
         expected_track_roles: list[TrackRole] | None = None,
         expected_track_sizes: dict[TrackRole, int] | None = None,
         idempotency_key: str | None = None,
@@ -162,7 +165,7 @@ class InMemoryIngestStore:
             meeting_id=meeting.id,
             workspace_id=meeting.workspace_id,
             organization_id=meeting.organization_id,
-            device_id=meeting.device_id,
+            device_id=device_id or meeting.device_id,
             created_by_user_id=meeting.created_by_user_id,
             media_revision_id=meeting.media_revision_id,
             status=UploadSessionStatus.PENDING,

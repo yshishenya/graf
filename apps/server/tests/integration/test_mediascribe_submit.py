@@ -27,11 +27,31 @@ class StagingOnlyStorage:
     async def get_bytes_async(self, _object_key: str) -> bytes:
         raise AssertionError("processing submit must not load full audio objects into memory")
 
-    def download_to_path(self, object_key: str, destination_path: str | Path, *, chunk_size: int) -> int:
-        return self.delegate.download_to_path(object_key, destination_path, chunk_size=chunk_size)
+    def download_to_path(
+        self,
+        object_key: str,
+        destination_path: str | Path,
+        *,
+        chunk_size: int,
+    ) -> int:
+        return self.delegate.download_to_path(
+            object_key,
+            destination_path,
+            chunk_size=chunk_size,
+        )
 
-    async def download_to_path_async(self, object_key: str, destination_path: str | Path, *, chunk_size: int) -> int:
-        return await self.delegate.download_to_path_async(object_key, destination_path, chunk_size=chunk_size)
+    async def download_to_path_async(
+        self,
+        object_key: str,
+        destination_path: str | Path,
+        *,
+        chunk_size: int,
+    ) -> int:
+        return await self.delegate.download_to_path_async(
+            object_key,
+            destination_path,
+            chunk_size=chunk_size,
+        )
 
 
 def test_submit_persists_external_job_id_before_retry_continues(client) -> None:
@@ -85,7 +105,13 @@ def test_submit_blocks_large_track_pair_before_loading_audio_bytes(client) -> No
         def get_bytes(self, _object_key: str) -> bytes:
             raise AssertionError("processing must block before loading audio bytes")
 
-        def download_to_path(self, _object_key: str, _destination_path: str | Path, *, chunk_size: int) -> int:
+        def download_to_path(
+            self,
+            _object_key: str,
+            _destination_path: str | Path,
+            *,
+            chunk_size: int,
+        ) -> int:
             raise AssertionError("processing must block before staging audio")
 
     async def submit_large_pair() -> tuple[str, str | None, int]:
@@ -131,10 +157,20 @@ def test_submit_sync_storage_staging_runs_off_event_loop(client) -> None:
         def get_bytes(self, _object_key: str) -> bytes:
             raise AssertionError("processing submit must not load full audio objects into memory")
 
-        def download_to_path(self, object_key: str, destination_path: str | Path, *, chunk_size: int) -> int:
+        def download_to_path(
+            self,
+            object_key: str,
+            destination_path: str | Path,
+            *,
+            chunk_size: int,
+        ) -> int:
             with pytest.raises(RuntimeError):
                 asyncio.get_running_loop()
-            return self.delegate.download_to_path(object_key, destination_path, chunk_size=chunk_size)
+            return self.delegate.download_to_path(
+                object_key,
+                destination_path,
+                chunk_size=chunk_size,
+            )
 
     async def submit_with_sync_storage() -> tuple[bool, int]:
         async with client.app_state["sessionmaker"]() as db:
@@ -197,3 +233,75 @@ def test_submit_marks_temp_storage_unavailable_retryable_before_staging(client, 
     assert status == ProcessingStatus.FAILED_RETRYABLE.value
     assert reason_code == PROCESSING_TEMP_STORAGE_UNAVAILABLE
     assert submission_count == 0
+
+
+def test_submit_single_track_media_upload_persists_source_and_reuses_existing_job(client) -> None:
+    client.app.state.temporal_client = FakeTemporalClient()
+    upload = client.post(
+        "/api/v1/media-uploads",
+        headers={
+            "X-Organization-Id": str(UUID("10000000-0000-0000-0000-000000000001")),
+            "X-Workspace-Id": str(UUID("20000000-0000-0000-0000-000000000001")),
+            "X-User-Id": str(UUID("30000000-0000-0000-0000-000000000001")),
+            "X-Device-Id": str(UUID("40000000-0000-0000-0000-000000000001")),
+        },
+        data={"duration_seconds": "60", "local_recording_id": "manual-mediascribe-submit"},
+        files={"file": ("meeting.wav", b"manual-media-audio", "audio/wav")},
+    )
+    assert upload.status_code == 202
+    finalized = upload.json()
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="job_single_submit")
+
+    async def submit_twice() -> tuple[str, int, str | None, bool, str, bool, bool]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=UUID(finalized["meeting"]["workspace_id"]),
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            first = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=StagingOnlyStorage(client.app_state["storage"]),
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            second = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=StagingOnlyStorage(client.app_state["storage"]),
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            return (
+                first.job.request_mode,
+                len(fake_client.submissions),
+                str(fake_client.submissions[0]["media_content_type"]),
+                second.submitted,
+                first.job.external_job_id,
+                first.job.source_track_artifact_id is not None,
+                first.job.mic_track_artifact_id is None and first.job.incoming_track_artifact_id is None,
+            )
+
+    (
+        request_mode,
+        submission_count,
+        media_content_type,
+        second_submitted,
+        external_job_id,
+        has_source,
+        no_pair,
+    ) = asyncio.run(submit_twice())
+    assert request_mode == "single_track"
+    assert submission_count == 1
+    assert media_content_type == "audio/wav"
+    assert second_submitted is False
+    assert external_job_id == "job_single_submit"
+    assert has_source is True
+    assert no_pair is True
+    assert fake_client.submissions[0]["request_mode"] == "single_track"

@@ -2290,6 +2290,7 @@ public enum SystemAudioStatusLabels {
     public static let calendarPromptRecordActionTitle = "Начать запись"
     public static let calendarPromptRecordWithoutContextActionTitle = "Начать запись без календаря"
     public static let calendarPromptDismissActionTitle = "Скрыть"
+    public static let meetingDetectionSettingsTitle = "Автоопределение встреч"
     public static let recordingMeterFreshnessWindowSeconds: TimeInterval = 1.5
 
     public static func liveSummary(
@@ -2341,6 +2342,16 @@ public enum SystemAudioStatusLabels {
     public static func calendarPromptAccessibilityLabel(title: String, action: String) -> String {
         "\(title). \(action). Запись не начинается автоматически."
     }
+
+    public static func meetingDetectionAccessibilityLabel(status: String, health: String?) -> String {
+        [
+            meetingDetectionSettingsTitle,
+            status,
+            health
+        ]
+        .compactMap { $0 }
+        .joined(separator: ". ")
+    }
 }
 
 public enum SystemAudioAccessibilityIdentifier {
@@ -2364,6 +2375,8 @@ public enum SystemAudioAccessibilityIdentifier {
     public static let calendarPrompt = "systemAudio.calendar.prompt"
     public static let calendarPromptPrimaryButton = "systemAudio.calendar.prompt.primary"
     public static let calendarPromptDismissButton = "systemAudio.calendar.prompt.dismiss"
+    public static let meetingDetectionStatus = "systemAudio.meetingDetection.status"
+    public static let meetingDetectionRecordingToggle = "systemAudio.meetingDetection.recordingToggle"
     public static let meters = "systemAudio.meters"
     public static let microphoneMeter = "systemAudio.meter.microphone"
     public static let incomingMeter = "systemAudio.meter.incoming"

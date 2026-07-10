@@ -287,7 +287,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
             items=[_item()],
             filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
             generated_at=datetime.now(UTC),
-        )
+        ),
+        csrf_token="test-csrf-token",
     )
 
     assert "Мои встречи" in page
@@ -297,7 +298,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Подключить календари" in page
     assert "Командный синк" not in page
     assert "Записи встреч" in page
-    assert "Новая" in page
+    assert "<span>Загрузить</span>" in page
+    assert "Загрузить медиа" not in page
     assert "Недавно обновленные" in page
     assert 'value="updated_desc" selected>Недавно обновленные</option>' in page
     css = _cabinet_css()
@@ -310,6 +312,24 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert ":focus-visible" in css
     assert "hero" not in page.lower()
     assert 'data-selection-toolbar' in page
+    assert 'data-manual-upload-open' in page
+    assert 'data-manual-upload-dialog' in page
+    assert 'data-upload-endpoint="/api/v1/cabinet/media-uploads"' in page
+    assert 'data-manual-upload-dropzone' in page
+    assert 'data-manual-upload-file-card' in page
+    assert 'data-manual-upload-file-name' in page
+    assert 'data-upload-activity-list' in page
+    assert 'data-manual-upload-validation' in page
+    assert 'data-manual-upload-percent' not in page
+    assert 'data-manual-upload-progress' not in page
+    assert 'data-manual-upload-accepted' not in page
+    assert "Перетащите файл сюда" in page
+    assert 'name="duration_seconds"' in page
+    assert 'type="hidden" name="duration_seconds"' in page
+    assert 'type="number" name="duration_seconds"' not in page
+    assert "Автозаполним" not in page
+    assert 'data-manual-upload-submit' in page
+    assert 'aria-live="polite"' in page
     assert 'data-selection-toggle' in page
     assert 'class="cabinet-list-controls"' in page
     assert 'method="get"' in page
@@ -377,6 +397,9 @@ def test_empty_meeting_list_starts_with_app_download_handoff() -> None:
     assert "Первый запуск" in page
     assert "Установите GRAF" in page
     assert 'href="/download">Скачать приложение</a>' in page
+    assert 'data-manual-upload-empty-open' in page
+    assert "<span>Загрузить</span>" in page
+    assert "Загрузить медиа" not in page
     assert "Подключить календари" in page
 
 
@@ -518,6 +541,13 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
         assert '<body data-surface-mode="desktop_embedded">' in page
         assert 'href="/desktop/meetings"' in page
 
+    assert 'data-manual-upload-open' in list_page
+    assert 'class="new-button manual-upload-trigger" type="button" data-manual-upload-open' in list_page
+    assert 'data-manual-upload-dialog' in list_page
+    assert 'data-upload-surface="desktop_embedded"' in list_page
+    assert 'href="/desktop/upload"' not in list_page
+    assert "Администрирование" not in list_page
+    assert "Экспорт" not in list_page
     assert "Record live" not in list_page + detail_page
     assert "Screen Recording" not in list_page + detail_page
 
@@ -688,7 +718,7 @@ def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
     assert 'data-media-kind="аудио"' in page
     assert 'data-media-kind="видео"' in page
     assert 'data-media-kind="транскрипт"' in page
-    assert 'data-media-kind="upload"' in page
+    assert 'data-media-kind="медиа"' in page
     assert "▣" not in page
 
 

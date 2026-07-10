@@ -6,6 +6,16 @@ import TwoBrainRecShared
 import XCTest
 
 final class SystemAudioPermissionUXTests: XCTestCase {
+    func testGrantedPermissionsHaveNoRecoveryPresentation() {
+        let result = SystemAudioPermissionGate().evaluate(
+            microphone: .granted,
+            systemAudio: .granted
+        )
+
+        XCTAssertTrue(result.allowsAcceptedRecording)
+        XCTAssertNil(result.presentation)
+    }
+
     func testMissingBothPermissionsUsesSpecificRecoveryCopy() {
         let result = SystemAudioPermissionGate().evaluate(
             microphone: .denied,
@@ -29,6 +39,27 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         XCTAssertTrue(result.presentation?.message.contains("системного звука") == true)
         XCTAssertFalse(result.presentation?.message.localizedCaseInsensitiveContains("virtual") == true)
         XCTAssertFalse(result.presentation?.message.localizedCaseInsensitiveContains("driver") == true)
+    }
+
+    @MainActor
+    func testDetectorAssistedPreparingDoesNotStartRecordingAutomatically() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 1_783_440_000) },
+            idFactory: { "meeting-detection-session" },
+            policySnapshotProvider: { "policy-meeting-detection" }
+        )
+
+        let session = try controller.beginDetectorAssistedPreparing(
+            targetID: "yandex_telemost",
+            bundleID: "ru.yandex.desktop.telemost",
+            displayName: "Yandex Telemost"
+        )
+
+        XCTAssertEqual(session.state, .detecting)
+        XCTAssertEqual(session.visibleIndicatorState, .ready)
+        XCTAssertFalse(session.stopActionAvailable)
+        XCTAssertEqual(session.triggerEvidence["trigger"], "meeting_detection_prompt")
+        XCTAssertEqual(session.triggerEvidence["meetingDetectionTargetId"], "yandex_telemost")
     }
 }
 #endif

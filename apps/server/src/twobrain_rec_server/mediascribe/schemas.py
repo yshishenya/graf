@@ -1,6 +1,12 @@
-from pydantic import BaseModel, Field
+from typing import Any, Literal
 
-from twobrain_rec_server.domain.statuses import MediaScribeJobStatus, SummaryStatus
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from twobrain_rec_server.domain.statuses import (
+    MediaScribeJobStatus,
+    ProcessingAvailabilityStatus,
+    SummaryStatus,
+)
 
 
 class MediaScribeSubmitRequest(BaseModel):
@@ -21,6 +27,8 @@ class MediaScribePollResponse(BaseModel):
     external_job_id: str
     status: MediaScribeJobStatus
     reason_code: str | None = None
+    error_code: str | None = None
+    error_origin: str | None = None
 
 
 class MediaScribeSegment(BaseModel):
@@ -39,7 +47,33 @@ class MediaScribeDiarizationSegment(MediaScribeSegment):
 class MediaScribeResult(BaseModel):
     external_job_id: str
     language: str | None = None
+    transcript_status: ProcessingAvailabilityStatus = ProcessingAvailabilityStatus.UNAVAILABLE
+    transcript_reason: Literal["no_recognizable_speech"] | None = None
+    failure_reason: str | None = None
+    failure_source: str | None = None
     transcript: list[MediaScribeSegment] = Field(default_factory=list)
     diarization: list[MediaScribeDiarizationSegment] = Field(default_factory=list)
     summary_status: SummaryStatus = SummaryStatus.NOT_REQUESTED
     result_version: int = Field(default=1, ge=1)
+
+    @field_validator("transcript_status")
+    @classmethod
+    def require_result_contract_transcript_status(
+        cls,
+        value: ProcessingAvailabilityStatus,
+    ) -> ProcessingAvailabilityStatus:
+        if value not in {
+            ProcessingAvailabilityStatus.AVAILABLE,
+            ProcessingAvailabilityStatus.UNAVAILABLE,
+        }:
+            raise ValueError("unsupported_transcript_status")
+        return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_legacy_transcript_status(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if data.get("transcript_status") is None and data.get("transcript_reason") is None and data.get("transcript"):
+            return {**data, "transcript_status": ProcessingAvailabilityStatus.AVAILABLE}
+        return data

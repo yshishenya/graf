@@ -1,3 +1,4 @@
+import shlex
 import tomllib
 from pathlib import Path
 
@@ -75,6 +76,28 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     assert "ruff" not in constraints
     assert "fastapi==" in constraints
     assert "sqlalchemy==" in constraints
+
+
+def test_runtime_image_copy_sources_exist_in_repository() -> None:
+    missing_sources: list[str] = []
+
+    for raw_line in DOCKERFILE_PATH.read_text().splitlines():
+        line = raw_line.strip()
+        if not line.startswith("COPY "):
+            continue
+
+        parts = shlex.split(line)
+        operands = parts[1:]
+        while operands and operands[0].startswith("--"):
+            operands = operands[1:]
+
+        for source in operands[:-1]:
+            if not source.startswith(".") and source.startswith("/"):
+                continue
+            if not (REPO_ROOT / source).exists():
+                missing_sources.append(source)
+
+    assert missing_sources == []
 
 
 def test_dev_lint_toolchain_pins_supported_ruff_version() -> None:
@@ -187,6 +210,28 @@ def test_production_api_autostarts_processing_and_worker_can_read_processing_sec
     assert worker["user"] == "root"
     assert worker["environment"]["TWOBRAIN_MEDIASCRIBE_API_KEY_FILE"] == "/run/secrets/twobrain_mediascribe_api_key"
     assert {"source": "twobrain_mediascribe_api_key", "target": "twobrain_mediascribe_api_key"} in worker["secrets"]
+
+
+def test_production_api_allows_runtime_public_analytics_overrides() -> None:
+    compose = _compose()
+    api_env = compose["services"]["rec-api"]["environment"]
+    worker_env = compose["services"]["rec-processing-worker"]["environment"]
+
+    assert api_env["TWOBRAIN_PUBLIC_ANALYTICS_ENABLED"] == "${TWOBRAIN_PUBLIC_ANALYTICS_ENABLED:-false}"
+    assert (
+        api_env["TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID"]
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID:-}"
+    )
+    assert (
+        api_env["TWOBRAIN_PUBLIC_ANALYTICS_VALIDATION_MODE"]
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_VALIDATION_MODE:-disabled}"
+    )
+    assert api_env["TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED"] == "${TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED:-false}"
+    assert (
+        api_env["TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION"]
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION:-2026-07-08.1}"
+    )
+    assert "TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID" not in worker_env
 
 
 def test_remote_cd_blocks_static_postgres_pwd_in_compose_config() -> None:

@@ -70,6 +70,14 @@ def render_meeting_list_page(
             source="meeting_list.region",
         ),
         delete_dialog=trusted_component_html(_render_list_delete_dialog(), source="meeting_list.delete_dialog"),
+        manual_upload=trusted_component_html(
+            _render_manual_upload_fragment(
+                embedded=embedded,
+                csrf_token=csrf_token,
+                list_refresh_url=poll_url or _base_path(embedded),
+            ),
+            source="meeting_list.manual_upload",
+        ),
         sort_label=_sort_label(response.filters.sort),
         query_value=response.filters.q or "",
         status_value=response.filters.status or "",
@@ -229,6 +237,24 @@ def _render_meeting_list_region(
     return render_template(
         "cabinet/fragments/meeting_list.html",
         content=trusted_component_html(content, source="meeting_list.rows"),
+    )
+
+
+def _render_manual_upload_fragment(
+    *,
+    embedded: bool,
+    csrf_token: str | None,
+    list_refresh_url: str,
+) -> str:
+    base_path = _base_path(embedded)
+    return render_template(
+        "cabinet/fragments/manual_upload.html",
+        embedded=embedded,
+        upload_available=bool(csrf_token),
+        upload_endpoint="/api/v1/cabinet/media-uploads",
+        list_refresh_url=list_refresh_url,
+        detail_base_path=base_path,
+        login_href=f"/login?next={base_path}",
     )
 
 

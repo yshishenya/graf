@@ -870,6 +870,114 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/media-uploads:
+    post:
+      tags:
+      - ingest
+      summary: Create Manual Media Upload
+      operationId: create_manual_media_upload_api_v1_media_uploads_post
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_create_manual_media_upload_api_v1_media_uploads_post'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualMediaUploadResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/desktop/recordings/{local_recording_id}/sync-state:
     get:
       tags:
@@ -1689,6 +1797,222 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/meeting-detection/telemetry:
+    post:
+      tags:
+      - meeting-detection
+      summary: Create Meeting Detection Telemetry
+      operationId: createMeetingDetectionTelemetry
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingDetectionTelemetryRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingDetectionTelemetryResponse'
+        '400':
+          description: Unsafe meeting detection telemetry payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Schema invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: Meeting detection telemetry rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Meeting detection store unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/meeting-detection/target-registry:
+    get:
+      tags:
+      - meeting-detection
+      summary: Get Meeting Detection Target Registry
+      operationId: getMeetingDetectionTargetRegistry
+      parameters:
+      - name: If-None-Match
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: If-None-Match
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingDetectionRegistryResponse'
+        '400':
+          description: Unsafe meeting detection telemetry payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Schema invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: Meeting detection telemetry rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Meeting detection store unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '304':
+          description: Client registry cache is current
   /api/v1/internal/processing/pickup:
     post:
       tags:
@@ -1822,6 +2146,156 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/product-analytics/catalog:
+    get:
+      tags:
+      - product-analytics
+      summary: Product Analytics Catalog
+      operationId: product_analytics_catalog_api_v1_product_analytics_catalog_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Catalog Api V1 Product Analytics
+                  Catalog Get
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/telemetry-gate/disclosure:
+    get:
+      tags:
+      - product-analytics
+      summary: Product Analytics Telemetry Gate Disclosure
+      operationId: product_analytics_telemetry_gate_disclosure_api_v1_product_analytics_telemetry_gate_disclosure_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Telemetry Gate Disclosure Api V1
+                  Product Analytics Telemetry Gate Disclosure Get
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/telemetry-gate/access:
+    get:
+      tags:
+      - product-analytics
+      summary: Product Analytics Telemetry Gate Access
+      operationId: product_analytics_telemetry_gate_access_api_v1_product_analytics_telemetry_gate_access_get
+      parameters:
+      - name: state
+        in: query
+        required: false
+        schema:
+          type: string
+          default: not_seen
+          title: State
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Product Analytics Telemetry Gate Access Api V1 Product
+                  Analytics Telemetry Gate Access Get
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/events:
+    post:
+      tags:
+      - product-analytics
+      summary: Product Analytics Events
+      operationId: product_analytics_events_api_v1_product_analytics_events_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductAnalyticsEventRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Events Api V1 Product Analytics
+                  Events Post
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/calendar/providers:
     get:
       tags:
@@ -2735,6 +3209,452 @@ paths:
                 type: object
                 additionalProperties: true
                 title: Response Getadminoverview
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/meeting-detection:
+    get:
+      tags:
+      - admin
+      summary: Get Admin Meeting Detection Review
+      operationId: getAdminMeetingDetectionReview
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Getadminmeetingdetectionreview
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/meeting-detection/candidates/{candidate_id}/mark-non-target:
+    post:
+      tags:
+      - admin
+      summary: Mark Admin Meeting Detection Candidate Non Target
+      operationId: markMeetingDetectionCandidateNonTarget
+      parameters:
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Candidate Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingDetectionAdminActionRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Markmeetingdetectioncandidatenontarget
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/meeting-detection/candidates/{candidate_id}/merge:
+    post:
+      tags:
+      - admin
+      summary: Merge Admin Meeting Detection Candidate
+      operationId: mergeMeetingDetectionCandidate
+      parameters:
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Candidate Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingDetectionMergeRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Mergemeetingdetectioncandidate
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/meeting-detection/candidates/{candidate_id}/add-diagnostic-only-draft:
+    post:
+      tags:
+      - admin
+      summary: Add Admin Meeting Detection Diagnostic Draft
+      operationId: addMeetingDetectionDiagnosticDraft
+      parameters:
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Candidate Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingDetectionDiagnosticDraftRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Addmeetingdetectiondiagnosticdraft
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/meeting-detection/candidates/{candidate_id}/request-validation:
+    post:
+      tags:
+      - admin
+      summary: Request Admin Meeting Detection Candidate Validation
+      operationId: requestMeetingDetectionCandidateValidation
+      parameters:
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Candidate Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingDetectionValidationRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Requestmeetingdetectioncandidatevalidation
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/meeting-detection/registry-drafts/{draft_id}/publish:
+    post:
+      tags:
+      - admin
+      summary: Publish Admin Meeting Detection Registry Draft
+      operationId: publishMeetingDetectionRegistryDraft
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Draft Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingDetectionAdminActionRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Publishmeetingdetectionregistrydraft
         '422':
           description: Validation Error
           content:
@@ -4204,6 +5124,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MeetingListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/media-uploads:
+    post:
+      tags:
+      - cabinet
+      summary: Create Cabinet Manual Media Upload Route
+      operationId: createCabinetManualMediaUpload
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_createCabinetManualMediaUpload'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualMediaUploadResponse'
         '422':
           description: Validation Error
           content:
@@ -5757,6 +6743,64 @@ components:
       - expires_at
       - provider
       title: AuthStartResponse
+    Body_createCabinetManualMediaUpload:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        duration_seconds:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Duration Seconds
+        title:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Title
+        local_recording_id:
+          anyOf:
+          - type: string
+            maxLength: 240
+            minLength: 1
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Local Recording Id
+      type: object
+      required:
+      - file
+      - duration_seconds
+      title: Body_createCabinetManualMediaUpload
+    Body_create_manual_media_upload_api_v1_media_uploads_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        duration_seconds:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Duration Seconds
+        title:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Title
+        local_recording_id:
+          anyOf:
+          - type: string
+            maxLength: 240
+            minLength: 1
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Local Recording Id
+      type: object
+      required:
+      - file
+      - duration_seconds
+      title: Body_create_manual_media_upload_api_v1_media_uploads_post
     CalendarDisconnectResponse:
       properties:
         source_id:
@@ -6895,7 +7939,7 @@ components:
           items:
             $ref: '#/components/schemas/TrackDescriptor'
           type: array
-          minItems: 3
+          minItems: 2
           title: Tracks
       type: object
       required:
@@ -7220,6 +8264,35 @@ components:
       - purge_local_exports
       - confirm_local_expiry
       title: LocalPurgeTaskType
+    ManualMediaUploadResponse:
+      properties:
+        meeting:
+          $ref: '#/components/schemas/MeetingResponse'
+        upload_session:
+          $ref: '#/components/schemas/UploadSessionResponse'
+        object_count:
+          type: integer
+          minimum: 0.0
+          title: Object Count
+        workflow_started:
+          type: boolean
+          title: Workflow Started
+          default: false
+        mediascribe_job_created:
+          type: boolean
+          title: Mediascribe Job Created
+          default: false
+        request_mode:
+          type: string
+          const: single_track
+          title: Request Mode
+          default: single_track
+      type: object
+      required:
+      - meeting
+      - upload_session
+      - object_count
+      title: ManualMediaUploadResponse
     MeResponse:
       properties:
         user_id:
@@ -7260,6 +8333,7 @@ components:
       type: string
       enum:
       - initial_recording
+      - manual_upload
       - local_trim
       - video_capture
       - replace
@@ -7486,6 +8560,585 @@ components:
       - meeting_id
       - context_state
       title: MeetingCalendarContextResponse
+    MeetingDetectionAdminActionRequest:
+      properties:
+        reason_code:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Reason Code
+      additionalProperties: false
+      type: object
+      title: MeetingDetectionAdminActionRequest
+    MeetingDetectionDiagnosticDraftRequest:
+      properties:
+        reason_code:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Reason Code
+        target_id:
+          type: string
+          maxLength: 80
+          minLength: 3
+          pattern: ^[a-z0-9][a-z0-9_-]{2,80}$
+          title: Target Id
+        display_name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Display Name
+        market:
+          type: string
+          pattern: ^(global|russia|enterprise|unknown)$
+          title: Market
+      additionalProperties: false
+      type: object
+      required:
+      - target_id
+      - display_name
+      - market
+      title: MeetingDetectionDiagnosticDraftRequest
+    MeetingDetectionDurationBuckets:
+      properties:
+        under5s:
+          type: integer
+          minimum: 0.0
+          title: Under5S
+          default: 0
+        from5sTo30s:
+          type: integer
+          minimum: 0.0
+          title: From5Sto30S
+          default: 0
+        from30sTo5m:
+          type: integer
+          minimum: 0.0
+          title: From30Sto5M
+          default: 0
+        over5m:
+          type: integer
+          minimum: 0.0
+          title: Over5M
+          default: 0
+      additionalProperties: false
+      type: object
+      title: MeetingDetectionDurationBuckets
+    MeetingDetectionMergeRequest:
+      properties:
+        reason_code:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Reason Code
+        target_id:
+          type: string
+          maxLength: 80
+          minLength: 3
+          pattern: ^[a-z0-9][a-z0-9_-]{2,80}$
+          title: Target Id
+      additionalProperties: false
+      type: object
+      required:
+      - target_id
+      title: MeetingDetectionMergeRequest
+    MeetingDetectionOutcomes:
+      properties:
+        observed:
+          type: integer
+          minimum: 0.0
+          title: Observed
+          default: 0
+        promptEligible:
+          type: integer
+          minimum: 0.0
+          title: Prompteligible
+          default: 0
+        blocked:
+          type: integer
+          minimum: 0.0
+          title: Blocked
+          default: 0
+        prompted:
+          type: integer
+          minimum: 0.0
+          title: Prompted
+          default: 0
+        skipped:
+          type: integer
+          minimum: 0.0
+          title: Skipped
+          default: 0
+        suppressed:
+          type: integer
+          minimum: 0.0
+          title: Suppressed
+          default: 0
+        recorded:
+          type: integer
+          minimum: 0.0
+          title: Recorded
+          default: 0
+        ended:
+          type: integer
+          minimum: 0.0
+          title: Ended
+          default: 0
+        missedManualStartNearby:
+          type: integer
+          minimum: 0.0
+          title: Missedmanualstartnearby
+          default: 0
+        healthDegraded:
+          type: integer
+          minimum: 0.0
+          title: Healthdegraded
+          default: 0
+      additionalProperties: false
+      type: object
+      title: MeetingDetectionOutcomes
+    MeetingDetectionPolicySummary:
+      properties:
+        detectionMode:
+          type: string
+          enum:
+          - detect_only
+          - detect_and_ask
+          title: Detectionmode
+        uploadMode:
+          type: string
+          enum:
+          - local_only
+          - manual_export
+          - workspace_opt_in
+          - dogfood_opt_in
+          - automatic_candidate_upload
+          title: Uploadmode
+        unknownIdentityUploadAllowed:
+          type: boolean
+          title: Unknownidentityuploadallowed
+      additionalProperties: false
+      type: object
+      required:
+      - detectionMode
+      - uploadMode
+      - unknownIdentityUploadAllowed
+      title: MeetingDetectionPolicySummary
+    MeetingDetectionRegistryResponse:
+      properties:
+        schemaVersion:
+          type: integer
+          const: 1
+          title: Schemaversion
+        registryVersion:
+          type: string
+          pattern: ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$
+          title: Registryversion
+        generatedAt:
+          type: string
+          format: date-time
+          title: Generatedat
+        expiresAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expiresat
+        targets:
+          items:
+            $ref: '#/components/schemas/MeetingTargetRegistryTarget'
+          type: array
+          minItems: 1
+          title: Targets
+        nonTargetRules:
+          items:
+            $ref: '#/components/schemas/MeetingTargetNonTargetRule'
+          type: array
+          title: Nontargetrules
+        etag:
+          anyOf:
+          - type: string
+            maxLength: 160
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Etag
+      additionalProperties: false
+      type: object
+      required:
+      - schemaVersion
+      - registryVersion
+      - generatedAt
+      - targets
+      title: MeetingDetectionRegistryResponse
+    MeetingDetectionResourceRollup:
+      properties:
+        cpuP95PercentBucket:
+          type: string
+          enum:
+          - not_measured
+          - under_1
+          - from_1_to_2
+          - from_2_to_5
+          - over_5
+          title: Cpup95Percentbucket
+          default: not_measured
+        memoryOverheadBucketMb:
+          type: string
+          enum:
+          - not_measured
+          - under_10
+          - from_10_to_30
+          - from_30_to_60
+          - over_60
+          title: Memoryoverheadbucketmb
+          default: not_measured
+        parserRestartCount:
+          type: integer
+          minimum: 0.0
+          title: Parserrestartcount
+        droppedEventCount:
+          type: integer
+          minimum: 0.0
+          title: Droppedeventcount
+        diskBytesWritten:
+          type: integer
+          minimum: 0.0
+          title: Diskbyteswritten
+        uploadAttemptCount:
+          type: integer
+          minimum: 0.0
+          title: Uploadattemptcount
+      additionalProperties: false
+      type: object
+      required:
+      - parserRestartCount
+      - droppedEventCount
+      - diskBytesWritten
+      - uploadAttemptCount
+      title: MeetingDetectionResourceRollup
+    MeetingDetectionRollupWindow:
+      properties:
+        bucket:
+          type: string
+          enum:
+          - hour
+          - day
+          title: Bucket
+        startedAt:
+          type: string
+          format: date-time
+          title: Startedat
+        endedAt:
+          type: string
+          format: date-time
+          title: Endedat
+      additionalProperties: false
+      type: object
+      required:
+      - bucket
+      - startedAt
+      - endedAt
+      title: MeetingDetectionRollupWindow
+    MeetingDetectionTargetRollup:
+      properties:
+        targetId:
+          type: string
+          maxLength: 80
+          minLength: 3
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Targetid
+        targetFamily:
+          type: string
+          enum:
+          - native_app
+          - browser_meeting
+          - provider
+          - manual_only
+          - unknown
+          title: Targetfamily
+        supportMode:
+          type: string
+          enum:
+          - prompt_enabled
+          - diagnostic_only
+          - blocked_missing_bundle
+          - manual_or_browser_only
+          - disabled
+          title: Supportmode
+        signalFamilies:
+          items:
+            type: string
+            enum:
+            - macos_audio_hal_assertion
+            - browser_metadata
+            - calendar_overlap
+            - join_intent
+            - system_audio_activity
+            - manual_record_nearby
+            - adapter_health
+          type: array
+          title: Signalfamilies
+        outcomes:
+          $ref: '#/components/schemas/MeetingDetectionOutcomes'
+        durationBuckets:
+          $ref: '#/components/schemas/MeetingDetectionDurationBuckets'
+        reasonCodes:
+          items:
+            type: string
+            maxLength: 80
+            pattern: ^[^\x00-\x1f\x7f]+$
+          type: array
+          title: Reasoncodes
+      additionalProperties: false
+      type: object
+      required:
+      - targetId
+      - targetFamily
+      - supportMode
+      title: MeetingDetectionTargetRollup
+    MeetingDetectionTelemetryRequest:
+      properties:
+        schemaVersion:
+          type: integer
+          const: 1
+          title: Schemaversion
+        clientVersion:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Clientversion
+        platform:
+          type: string
+          enum:
+          - macos
+          - windows
+          title: Platform
+        osVersionMajor:
+          type: string
+          maxLength: 40
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Osversionmajor
+        registryVersion:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Registryversion
+        candidateFilterVersion:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Candidatefilterversion
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        rollupWindow:
+          $ref: '#/components/schemas/MeetingDetectionRollupWindow'
+        policy:
+          $ref: '#/components/schemas/MeetingDetectionPolicySummary'
+        targetRollups:
+          items:
+            $ref: '#/components/schemas/MeetingDetectionTargetRollup'
+          type: array
+          maxItems: 200
+          title: Targetrollups
+        unknownNativeAppRollups:
+          items:
+            $ref: '#/components/schemas/MeetingDetectionUnknownNativeAppRollup'
+          type: array
+          maxItems: 100
+          title: Unknownnativeapprollups
+        resourceRollup:
+          $ref: '#/components/schemas/MeetingDetectionResourceRollup'
+      additionalProperties: false
+      type: object
+      required:
+      - schemaVersion
+      - clientVersion
+      - platform
+      - osVersionMajor
+      - registryVersion
+      - candidateFilterVersion
+      - createdAt
+      - rollupWindow
+      - policy
+      - resourceRollup
+      title: MeetingDetectionTelemetryRequest
+    MeetingDetectionTelemetryResponse:
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+          title: Batch Id
+        dedupe_status:
+          type: string
+          enum:
+          - created
+          - duplicate
+          title: Dedupe Status
+        accepted_target_rollup_count:
+          type: integer
+          minimum: 0.0
+          title: Accepted Target Rollup Count
+        accepted_candidate_count:
+          type: integer
+          minimum: 0.0
+          title: Accepted Candidate Count
+        suppressed_candidate_count:
+          type: integer
+          minimum: 0.0
+          title: Suppressed Candidate Count
+        registry_version:
+          type: string
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Registry Version
+        next_upload_after:
+          type: string
+          format: date-time
+          title: Next Upload After
+      type: object
+      required:
+      - batch_id
+      - dedupe_status
+      - accepted_target_rollup_count
+      - accepted_candidate_count
+      - suppressed_candidate_count
+      - registry_version
+      - next_upload_after
+      title: MeetingDetectionTelemetryResponse
+    MeetingDetectionUnknownNativeAppRollup:
+      properties:
+        identityMode:
+          type: string
+          enum:
+          - redacted
+          - raw_candidate_allowed
+          title: Identitymode
+        uploadEligibility:
+          type: string
+          enum:
+          - local_only_low_score
+          - local_only_non_target
+          - server_candidate_upload
+          title: Uploadeligibility
+        candidateScore:
+          type: integer
+          maximum: 20.0
+          minimum: 0.0
+          title: Candidatescore
+        candidateReasons:
+          items:
+            type: string
+            enum:
+            - stable_mic_duration
+            - repeated_observation
+            - manual_record_nearby
+            - calendar_or_join_hint
+            - vks_name_token
+            - known_vks_vendor
+            - known_registry_neighbor
+            - long_duration_bucket
+          type: array
+          minItems: 1
+          title: Candidatereasons
+        stableObservationCount:
+          type: integer
+          minimum: 0.0
+          title: Stableobservationcount
+        durationBuckets:
+          $ref: '#/components/schemas/MeetingDetectionDurationBuckets'
+        manualRecordNearbyCount:
+          type: integer
+          minimum: 0.0
+          title: Manualrecordnearbycount
+        suppressionReasons:
+          items:
+            type: string
+            enum:
+            - low_score
+            - short_duration
+            - browser_bundle
+            - audio_utility
+            - system_service
+            - media_player
+            - audio_editor
+            - game
+            - screen_recorder
+            - known_non_target
+            - workspace_upload_disabled
+          type: array
+          title: Suppressionreasons
+        bundleId:
+          anyOf:
+          - type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$
+          - type: 'null'
+          title: Bundleid
+        displayName:
+          anyOf:
+          - type: string
+            maxLength: 80
+            minLength: 1
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Displayname
+        signingTeamId:
+          anyOf:
+          - type: string
+            pattern: ^[A-Za-z0-9]{5,20}$
+          - type: 'null'
+          title: Signingteamid
+        version:
+          anyOf:
+          - type: string
+            maxLength: 80
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Version
+        calendarOrJoinHintCount:
+          type: integer
+          minimum: 0.0
+          title: Calendarorjoinhintcount
+          default: 0
+        nonTargetSuppressionCount:
+          type: integer
+          minimum: 0.0
+          title: Nontargetsuppressioncount
+          default: 0
+      additionalProperties: false
+      type: object
+      required:
+      - identityMode
+      - uploadEligibility
+      - candidateScore
+      - candidateReasons
+      - stableObservationCount
+      - durationBuckets
+      - manualRecordNearbyCount
+      title: MeetingDetectionUnknownNativeAppRollup
+    MeetingDetectionValidationRequest:
+      properties:
+        reason_code:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Reason Code
+        validation_kind:
+          type: string
+          pattern: ^(runtime|package)$
+          title: Validation Kind
+          default: runtime
+      additionalProperties: false
+      type: object
+      title: MeetingDetectionValidationRequest
     MeetingFilterState:
       properties:
         q:
@@ -7843,6 +9496,181 @@ components:
       - aborted
       - expired
       title: MeetingStatus
+    MeetingTargetBrowserServicePattern:
+      properties:
+        serviceFamily:
+          type: string
+          maxLength: 80
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Servicefamily
+        hostCategory:
+          type: string
+          enum:
+          - first_party
+          - enterprise_domain
+          - unknown
+          title: Hostcategory
+        patternClass:
+          type: string
+          enum:
+          - meeting_room
+          - join_intent
+          - landing
+          - settings
+          - unsupported
+          title: Patternclass
+      additionalProperties: false
+      type: object
+      required:
+      - serviceFamily
+      - hostCategory
+      - patternClass
+      title: MeetingTargetBrowserServicePattern
+    MeetingTargetNonTargetRule:
+      properties:
+        platform:
+          type: string
+          enum:
+          - macos
+          - windows
+          - browser
+          title: Platform
+        ruleKind:
+          type: string
+          enum:
+          - bundle_id
+          - bundle_prefix
+          - display_name_token
+          - category
+          - windows_process_name
+          - browser_service_family
+          title: Rulekind
+        ruleValue:
+          type: string
+          maxLength: 240
+          minLength: 2
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Rulevalue
+        reasonCode:
+          type: string
+          maxLength: 120
+          minLength: 2
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Reasoncode
+      additionalProperties: false
+      type: object
+      required:
+      - platform
+      - ruleKind
+      - ruleValue
+      - reasonCode
+      title: MeetingTargetNonTargetRule
+    MeetingTargetRegistryTarget:
+      properties:
+        id:
+          type: string
+          maxLength: 80
+          minLength: 3
+          pattern: ^[a-z0-9][a-z0-9_-]{2,80}$
+          title: Id
+        displayName:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Displayname
+        market:
+          type: string
+          enum:
+          - global
+          - russia
+          - enterprise
+          - unknown
+          title: Market
+        platform:
+          type: string
+          enum:
+          - macos
+          - windows
+          - browser
+          - cross_platform
+          title: Platform
+        targetFamily:
+          type: string
+          enum:
+          - native_app
+          - browser_meeting
+          - provider
+          - manual_only
+          title: Targetfamily
+        mode:
+          type: string
+          enum:
+          - prompt_enabled
+          - diagnostic_only
+          - blocked_missing_bundle
+          - manual_or_browser_only
+          - disabled
+          title: Mode
+        evidence:
+          type: string
+          enum:
+          - runtime_verified
+          - runtime_start_verified
+          - package_verified
+          - installed_verified
+          - confirmed
+          - seed
+          - verify_required
+          - future_windows
+          title: Evidence
+        requiredSignals:
+          items:
+            type: string
+            enum:
+            - macos_audio_hal_assertion
+            - browser_metadata
+            - calendar_or_join_intent
+            - windows_future_adapter
+          type: array
+          minItems: 1
+          title: Requiredsignals
+        nativeBundleIds:
+          items:
+            type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$
+          type: array
+          title: Nativebundleids
+        windowsProcessNames:
+          items:
+            type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9_.\- ]{1,200}$
+          type: array
+          title: Windowsprocessnames
+        browserServicePatterns:
+          items:
+            $ref: '#/components/schemas/MeetingTargetBrowserServicePattern'
+          type: array
+          title: Browserservicepatterns
+        comments:
+          anyOf:
+          - type: string
+            maxLength: 500
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Comments
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - displayName
+      - market
+      - platform
+      - targetFamily
+      - mode
+      - evidence
+      - requiredSignals
+      title: MeetingTargetRegistryTarget
     MeetingUploadProgressState:
       properties:
         status:
@@ -8478,6 +10306,35 @@ components:
       - workspace_id
       - state
       title: ProcessingStatusResponse
+    ProductAnalyticsEventRequest:
+      properties:
+        event_name:
+          type: string
+          minLength: 1
+          title: Event Name
+        stable_pseudonymous_user_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stable Pseudonymous User Id
+        occurred_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Occurred At
+        telemetry_gate_state:
+          type: string
+          title: Telemetry Gate State
+          default: accepted
+        properties:
+          additionalProperties: true
+          type: object
+          title: Properties
+      type: object
+      required:
+      - event_name
+      title: ProductAnalyticsEventRequest
     PutMeetingCalendarContextRequest:
       properties:
         event_id:
@@ -8895,6 +10752,7 @@ components:
       enum:
       - microphone
       - system
+      - media
       - manifest
       - playback
       title: TrackRole

@@ -5,6 +5,7 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingDetail
     case meetingDeletionReport
     case calendarSettings
+    case meetingDetectionSettings
     case admin
     case authLogin
     case authSignup
@@ -38,6 +39,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedMeetingDetail = "allowed_meeting_detail"
     case allowedMeetingDeletionReport = "allowed_meeting_deletion_report"
     case allowedCalendarSettings = "allowed_calendar_settings"
+    case allowedMeetingDetectionSettings = "allowed_meeting_detection_settings"
     case allowedAuthLogin = "allowed_auth_login"
     case allowedAuthSignup = "allowed_auth_signup"
     case allowedAuthProvider = "allowed_auth_provider"
@@ -157,6 +159,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedCalendarSettings,
                 userMessage: "Calendar settings"
+            )
+        }
+        if isMeetingDetectionSettingsRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .meetingDetectionSettings),
+                decision: .allow,
+                reason: .allowedMeetingDetectionSettings,
+                userMessage: "Meeting detection settings"
             )
         }
         if isAdminRoute(components) {
@@ -295,6 +305,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
             return true
         }
         return false
+    }
+
+    private func isMeetingDetectionSettingsRoute(_ components: [String]) -> Bool {
+        components == ["desktop", "settings", "meeting-detection"]
     }
 
     private func isFutureGovernanceRoute(_ components: [String]) -> Bool {

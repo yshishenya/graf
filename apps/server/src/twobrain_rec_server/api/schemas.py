@@ -63,6 +63,9 @@ class Problem(BaseModel):
     custody: ProblemCustodyExtension | None = None
 
 
+SafeClientText = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[^\x00-\x1f\x7f]+$")]
+
+
 class SupportIncidentReportRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -191,6 +194,282 @@ class DesktopCalendarPromptResponse(BaseModel):
     events: list[DesktopCalendarPromptEvent] = Field(default_factory=list)
 
 
+MeetingDetectionMode = Literal["detect_only", "detect_and_ask"]
+MeetingDetectionUploadMode = Literal[
+    "local_only",
+    "manual_export",
+    "workspace_opt_in",
+    "dogfood_opt_in",
+    "automatic_candidate_upload",
+]
+MeetingDetectionSupportMode = Literal[
+    "prompt_enabled",
+    "diagnostic_only",
+    "blocked_missing_bundle",
+    "manual_or_browser_only",
+    "disabled",
+]
+MeetingDetectionTargetFamily = Literal[
+    "native_app",
+    "browser_meeting",
+    "provider",
+    "manual_only",
+    "unknown",
+]
+MeetingDetectionSignalFamily = Literal[
+    "macos_audio_hal_assertion",
+    "browser_metadata",
+    "calendar_overlap",
+    "join_intent",
+    "system_audio_activity",
+    "manual_record_nearby",
+    "adapter_health",
+]
+MeetingDetectionCandidateReason = Literal[
+    "stable_mic_duration",
+    "repeated_observation",
+    "manual_record_nearby",
+    "calendar_or_join_hint",
+    "vks_name_token",
+    "known_vks_vendor",
+    "known_registry_neighbor",
+    "long_duration_bucket",
+]
+MeetingDetectionCandidateSuppression = Literal[
+    "low_score",
+    "short_duration",
+    "browser_bundle",
+    "audio_utility",
+    "system_service",
+    "media_player",
+    "audio_editor",
+    "game",
+    "screen_recorder",
+    "known_non_target",
+    "workspace_upload_disabled",
+]
+
+
+class MeetingTargetBrowserServicePattern(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    service_family: Annotated[SafeClientText, Field(alias="serviceFamily", max_length=80)]
+    host_category: Literal["first_party", "enterprise_domain", "unknown"] = Field(alias="hostCategory")
+    pattern_class: Literal["meeting_room", "join_intent", "landing", "settings", "unsupported"] = Field(
+        alias="patternClass",
+    )
+
+
+class MeetingTargetRegistryTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: Annotated[SafeClientText, Field(min_length=3, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]{2,80}$")]
+    display_name: Annotated[SafeClientText, Field(alias="displayName", min_length=1, max_length=80)]
+    market: Literal["global", "russia", "enterprise", "unknown"]
+    platform: Literal["macos", "windows", "browser", "cross_platform"]
+    target_family: Literal["native_app", "browser_meeting", "provider", "manual_only"] = Field(
+        alias="targetFamily",
+    )
+    mode: MeetingDetectionSupportMode
+    evidence: Literal[
+        "runtime_verified",
+        "runtime_start_verified",
+        "package_verified",
+        "installed_verified",
+        "confirmed",
+        "seed",
+        "verify_required",
+        "future_windows",
+    ]
+    required_signals: list[
+        Literal[
+            "macos_audio_hal_assertion",
+            "browser_metadata",
+            "calendar_or_join_intent",
+            "windows_future_adapter",
+        ]
+    ] = Field(alias="requiredSignals", min_length=1)
+    native_bundle_ids: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$")]] = Field(
+        default_factory=list,
+        alias="nativeBundleIds",
+    )
+    windows_process_names: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.\- ]{1,200}$")]] = Field(
+        default_factory=list,
+        alias="windowsProcessNames",
+    )
+    browser_service_patterns: list[MeetingTargetBrowserServicePattern] = Field(
+        default_factory=list,
+        alias="browserServicePatterns",
+    )
+    comments: Annotated[SafeClientText, Field(max_length=500)] | None = None
+
+
+class MeetingTargetNonTargetRule(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    platform: Literal["macos", "windows", "browser"]
+    rule_kind: Literal[
+        "bundle_id",
+        "bundle_prefix",
+        "display_name_token",
+        "category",
+        "windows_process_name",
+        "browser_service_family",
+    ] = Field(alias="ruleKind")
+    rule_value: Annotated[SafeClientText, Field(alias="ruleValue", min_length=2, max_length=240)]
+    reason_code: Annotated[SafeClientText, Field(alias="reasonCode", min_length=2, max_length=120)]
+
+
+class MeetingTargetRegistryDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    registry_version: Annotated[str, Field(alias="registryVersion", pattern=r"^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")]
+    generated_at: datetime = Field(alias="generatedAt")
+    expires_at: datetime | None = Field(default=None, alias="expiresAt")
+    targets: list[MeetingTargetRegistryTarget] = Field(min_length=1)
+    non_target_rules: list[MeetingTargetNonTargetRule] = Field(
+        default_factory=list,
+        alias="nonTargetRules",
+    )
+
+
+class MeetingDetectionRegistryResponse(MeetingTargetRegistryDocument):
+    etag: Annotated[SafeClientText, Field(max_length=160)] | None = None
+
+
+class MeetingDetectionRollupWindow(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    bucket: Literal["hour", "day"]
+    started_at: datetime = Field(alias="startedAt")
+    ended_at: datetime = Field(alias="endedAt")
+
+
+class MeetingDetectionPolicySummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    detection_mode: MeetingDetectionMode = Field(alias="detectionMode")
+    upload_mode: MeetingDetectionUploadMode = Field(alias="uploadMode")
+    unknown_identity_upload_allowed: bool = Field(alias="unknownIdentityUploadAllowed")
+
+
+class MeetingDetectionDurationBuckets(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    under_5s: int = Field(default=0, alias="under5s", ge=0)
+    from_5s_to_30s: int = Field(default=0, alias="from5sTo30s", ge=0)
+    from_30s_to_5m: int = Field(default=0, alias="from30sTo5m", ge=0)
+    over_5m: int = Field(default=0, alias="over5m", ge=0)
+
+
+class MeetingDetectionOutcomes(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    observed: int = Field(default=0, ge=0)
+    prompt_eligible: int = Field(default=0, alias="promptEligible", ge=0)
+    blocked: int = Field(default=0, ge=0)
+    prompted: int = Field(default=0, ge=0)
+    skipped: int = Field(default=0, ge=0)
+    suppressed: int = Field(default=0, ge=0)
+    recorded: int = Field(default=0, ge=0)
+    ended: int = Field(default=0, ge=0)
+    missed_manual_start_nearby: int = Field(default=0, alias="missedManualStartNearby", ge=0)
+    health_degraded: int = Field(default=0, alias="healthDegraded", ge=0)
+
+
+class MeetingDetectionTargetRollup(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    target_id: Annotated[SafeClientText, Field(alias="targetId", min_length=3, max_length=80)]
+    target_family: MeetingDetectionTargetFamily = Field(alias="targetFamily")
+    support_mode: MeetingDetectionSupportMode = Field(alias="supportMode")
+    signal_families: list[MeetingDetectionSignalFamily] = Field(default_factory=list, alias="signalFamilies")
+    outcomes: MeetingDetectionOutcomes = Field(default_factory=MeetingDetectionOutcomes)
+    duration_buckets: MeetingDetectionDurationBuckets = Field(
+        default_factory=MeetingDetectionDurationBuckets,
+        alias="durationBuckets",
+    )
+    reason_codes: list[Annotated[SafeClientText, Field(max_length=80)]] = Field(
+        default_factory=list,
+        alias="reasonCodes",
+    )
+
+
+class MeetingDetectionUnknownNativeAppRollup(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    identity_mode: Literal["redacted", "raw_candidate_allowed"] = Field(alias="identityMode")
+    upload_eligibility: Literal[
+        "local_only_low_score",
+        "local_only_non_target",
+        "server_candidate_upload",
+    ] = Field(alias="uploadEligibility")
+    candidate_score: int = Field(alias="candidateScore", ge=0, le=20)
+    candidate_reasons: list[MeetingDetectionCandidateReason] = Field(alias="candidateReasons", min_length=1)
+    stable_observation_count: int = Field(alias="stableObservationCount", ge=0)
+    duration_buckets: MeetingDetectionDurationBuckets = Field(alias="durationBuckets")
+    manual_record_nearby_count: int = Field(alias="manualRecordNearbyCount", ge=0)
+    suppression_reasons: list[MeetingDetectionCandidateSuppression] = Field(
+        default_factory=list,
+        alias="suppressionReasons",
+    )
+    bundle_id: str | None = Field(default=None, alias="bundleId", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$")
+    display_name: SafeClientText | None = Field(default=None, alias="displayName", min_length=1, max_length=80)
+    signing_team_id: str | None = Field(default=None, alias="signingTeamId", pattern=r"^[A-Za-z0-9]{5,20}$")
+    version: Annotated[SafeClientText, Field(max_length=80)] | None = None
+    calendar_or_join_hint_count: int = Field(default=0, alias="calendarOrJoinHintCount", ge=0)
+    non_target_suppression_count: int = Field(default=0, alias="nonTargetSuppressionCount", ge=0)
+
+
+class MeetingDetectionResourceRollup(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    cpu_p95_percent_bucket: Literal["not_measured", "under_1", "from_1_to_2", "from_2_to_5", "over_5"] = Field(
+        default="not_measured",
+        alias="cpuP95PercentBucket",
+    )
+    memory_overhead_bucket_mb: Literal["not_measured", "under_10", "from_10_to_30", "from_30_to_60", "over_60"] = Field(
+        default="not_measured",
+        alias="memoryOverheadBucketMb",
+    )
+    parser_restart_count: int = Field(alias="parserRestartCount", ge=0)
+    dropped_event_count: int = Field(alias="droppedEventCount", ge=0)
+    disk_bytes_written: int = Field(alias="diskBytesWritten", ge=0)
+    upload_attempt_count: int = Field(alias="uploadAttemptCount", ge=0)
+
+
+class MeetingDetectionTelemetryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    client_version: Annotated[SafeClientText, Field(alias="clientVersion", min_length=1, max_length=80)]
+    platform: Literal["macos", "windows"]
+    os_version_major: Annotated[SafeClientText, Field(alias="osVersionMajor", min_length=1, max_length=40)]
+    registry_version: Annotated[SafeClientText, Field(alias="registryVersion", min_length=1, max_length=80)]
+    candidate_filter_version: Annotated[SafeClientText, Field(alias="candidateFilterVersion", min_length=1, max_length=80)]
+    created_at: datetime = Field(alias="createdAt")
+    rollup_window: MeetingDetectionRollupWindow = Field(alias="rollupWindow")
+    policy: MeetingDetectionPolicySummary
+    target_rollups: list[MeetingDetectionTargetRollup] = Field(default_factory=list, alias="targetRollups", max_length=200)
+    unknown_native_app_rollups: list[MeetingDetectionUnknownNativeAppRollup] = Field(
+        default_factory=list,
+        alias="unknownNativeAppRollups",
+        max_length=100,
+    )
+    resource_rollup: MeetingDetectionResourceRollup = Field(alias="resourceRollup")
+
+
+class MeetingDetectionTelemetryResponse(BaseModel):
+    batch_id: UUID
+    dedupe_status: Literal["created", "duplicate"]
+    accepted_target_rollup_count: int = Field(ge=0)
+    accepted_candidate_count: int = Field(ge=0)
+    suppressed_candidate_count: int = Field(ge=0)
+    registry_version: SafeClientText
+    next_upload_after: datetime
+
+
 class PutMeetingCalendarContextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -224,9 +503,6 @@ class MediaRevisionSummary(BaseModel):
     status: MediaRevisionStatus = MediaRevisionStatus.PENDING_UPLOAD
     manifest_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     track_sha256_by_role: dict[str, str] = Field(default_factory=dict)
-
-
-SafeClientText = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[^\x00-\x1f\x7f]+$")]
 
 
 class CreateMeetingRequest(BaseModel):
@@ -384,7 +660,7 @@ class MissingRangesResponse(BaseModel):
 
 class FinalizeUploadRequest(BaseModel):
     manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    tracks: list[TrackDescriptor] = Field(min_length=3)
+    tracks: list[TrackDescriptor] = Field(min_length=2)
 
 
 class FinalizeUploadResponse(BaseModel):
@@ -393,6 +669,10 @@ class FinalizeUploadResponse(BaseModel):
     object_count: int = Field(ge=0)
     workflow_started: bool = False
     mediascribe_job_created: bool = False
+
+
+class ManualMediaUploadResponse(FinalizeUploadResponse):
+    request_mode: Literal["single_track"] = "single_track"
 
 
 class AbortUploadRequest(BaseModel):

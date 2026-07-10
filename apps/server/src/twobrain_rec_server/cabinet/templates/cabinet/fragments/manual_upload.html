@@ -1,0 +1,58 @@
+{% import "cabinet/components/icons.html" as icons %}
+
+<dialog class="manual-upload-dialog" data-manual-upload-dialog
+  data-upload-endpoint="{{ upload_endpoint }}"
+  data-upload-refresh-url="{{ list_refresh_url }}"
+  data-upload-detail-base="{{ detail_base_path }}"
+  data-upload-available="{{ 'true' if upload_available else 'false' }}"
+  data-upload-surface="{{ 'desktop_embedded' if embedded else 'standalone_browser' }}">
+  <form class="manual-upload-sheet" method="dialog" data-manual-upload-form novalidate>
+    <div class="manual-upload-head">
+      <div class="manual-upload-title">
+        <h2>Загрузить запись</h2>
+        <p>Один аудио- или видеофайл с аудиодорожкой.</p>
+      </div>
+      <button class="icon-control" type="button" data-manual-upload-close aria-label="Закрыть">{{ icons.icon("x") }}</button>
+    </div>
+
+    {% if upload_available %}
+    <div class="manual-upload-picker">
+      <input class="manual-upload-input" id="manual-upload-file-input" type="file" data-manual-upload-file accept="audio/*,video/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.mp4,.mov,.m4v,.webm,.mkv" aria-describedby="manual-upload-drop-hint">
+      <label class="manual-upload-dropzone" for="manual-upload-file-input" data-manual-upload-dropzone>
+        <span class="manual-upload-dropzone__icon" aria-hidden="true">{{ icons.icon("upload") }}</span>
+        <span class="manual-upload-dropzone__copy">
+          <strong data-manual-upload-drop-title>Перетащите файл сюда</strong>
+          <span id="manual-upload-drop-hint">или выберите на компьютере</span>
+          <span class="manual-upload-dropzone__types">WAV, MP3, M4A, MP4, MOV, WebM</span>
+        </span>
+        <span class="manual-upload-browse" data-manual-upload-browse>Выбрать файл</span>
+      </label>
+    </div>
+    <div class="manual-upload-file-card" data-manual-upload-file-card hidden>
+      <span class="manual-upload-file-card__icon" aria-hidden="true">{{ icons.icon("audio") }}</span>
+      <div class="manual-upload-file-card__copy">
+        <strong data-manual-upload-file-name>Файл не выбран</strong>
+        <span data-manual-upload-file-meta></span>
+      </div>
+      <span class="manual-upload-file-card__duration" data-manual-upload-file-duration></span>
+    </div>
+    <div class="manual-upload-fields">
+      <label>
+        <span>Название</span>
+        <input type="text" name="title" maxlength="500" autocomplete="off" placeholder="Например, созвон по продукту" data-manual-upload-title>
+      </label>
+    </div>
+    <input type="hidden" name="duration_seconds" data-manual-upload-duration>
+    <input type="hidden" name="local_recording_id" data-manual-upload-local-id>
+    <div class="manual-upload-validation" data-manual-upload-validation aria-live="polite" hidden></div>
+    <div class="manual-upload-actions">
+      <button class="button primary" type="button" data-manual-upload-submit disabled>Загрузить</button>
+    </div>
+    {% else %}
+    <div class="manual-upload-unavailable" data-manual-upload-unavailable>
+      <p>Сессия закончилась. Войдите снова, чтобы загрузить файл.</p>
+      <a class="button primary" href="{{ login_href }}">Войти</a>
+    </div>
+    {% endif %}
+  </form>
+</dialog>

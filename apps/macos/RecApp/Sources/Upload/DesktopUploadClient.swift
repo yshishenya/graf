@@ -248,7 +248,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
     public static let uploadBearerTokenEnvironmentKey = "GRAF_UPLOAD_BEARER_TOKEN"
     public static let legacyUploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
+    public static let ownerSessionCookieName = "__Host-twobrain_rec_owner_session"
     public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
+    public static let meetingDetectionTargetRegistryPath = "/api/v1/desktop/meeting-detection/target-registry"
+    public static let meetingDetectionTelemetryPath = "/api/v1/desktop/meeting-detection/telemetry"
     public static let supportIncidentPath = "/api/v1/desktop/support-incidents"
     public static let supportIncidentTimeoutSeconds: TimeInterval = 5
 
@@ -257,15 +260,18 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private let partSizeBytes: Int
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let cookieHeaderProvider: @Sendable (URL) -> String?
 
     public init(
         baseURL: URL,
         headers: [String: String] = [:],
-        partSizeBytes: Int = Self.defaultPartSizeBytes
+        partSizeBytes: Int = Self.defaultPartSizeBytes,
+        cookieHeaderProvider: @escaping @Sendable (URL) -> String? = DesktopUploadClient.defaultCookieHeader
     ) {
         self.baseURL = baseURL
         self.headers = headers
         self.partSizeBytes = max(64 * 1024, partSizeBytes)
+        self.cookieHeaderProvider = cookieHeaderProvider
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -345,6 +351,21 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             return trimmed
         }
         return "Bearer \(trimmed)"
+    }
+
+    public static func defaultCookieHeader(for url: URL) -> String? {
+        authSessionCookieHeader(from: HTTPCookieStorage.shared.cookies(for: url) ?? [])
+    }
+
+    public static func authSessionCookieHeader(from cookies: [HTTPCookie]) -> String? {
+        let sessionCookies = cookies
+            .filter { cookie in
+                cookie.name == ownerSessionCookieName &&
+                    !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            .map { "\($0.name)=\($0.value)" }
+        guard !sessionCookies.isEmpty else { return nil }
+        return sessionCookies.joined(separator: "; ")
     }
 
     private static func configuredBaseURLCandidate(
@@ -592,6 +613,45 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             ]
         )
         return try await perform(request)
+    }
+
+    public func fetchMeetingDetectionTargetRegistry(
+        ifNoneMatch etag: String? = nil
+    ) async throws -> DesktopMeetingDetectionRegistryFetchResult {
+        var request = try request(path: Self.meetingDetectionTargetRegistryPath, method: "GET")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        if let etag, !etag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
+        }
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        if httpResponse.statusCode == 304 {
+            return DesktopMeetingDetectionRegistryFetchResult(
+                registry: nil,
+                etag: etag,
+                notModified: true
+            )
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let problem = try? decoder.decode(Problem.self, from: data)
+            throw DesktopUploadClientError.httpStatus(
+                httpResponse.statusCode,
+                problem?.code ?? "http_error"
+            )
+        }
+        return DesktopMeetingDetectionRegistryFetchResult(
+            registry: try MeetingDetectionCoding.decoder().decode(MeetingTargetRegistryDocument.self, from: data),
+            etag: httpResponse.value(forHTTPHeaderField: "ETag"),
+            notModified: false
+        )
     }
 
     public func acknowledgeLocalPurgeTask(
@@ -904,6 +964,11 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
+        if request.value(forHTTPHeaderField: "Cookie") == nil,
+           let cookieHeader = cookieHeaderProvider(url),
+           !cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        }
         return request
     }
 
@@ -938,6 +1003,28 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
         let hex = SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
         return "\(prefix)_\(String(hex.prefix(max(8, length))))"
+    }
+}
+
+extension DesktopUploadClient: MeetingDetectionTelemetryTransport {
+    public func upload(_ request: MeetingDetectionTelemetryUploadRequest) async throws -> MeetingDetectionTelemetryUploadResponse {
+        var urlRequest = try self.request(path: request.path, method: "POST")
+        urlRequest.httpBody = request.body
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(request.idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        return try await perform(urlRequest)
+    }
+}
+
+public struct DesktopMeetingDetectionRegistryFetchResult: Sendable {
+    public let registry: MeetingTargetRegistryDocument?
+    public let etag: String?
+    public let notModified: Bool
+
+    public init(registry: MeetingTargetRegistryDocument?, etag: String?, notModified: Bool) {
+        self.registry = registry
+        self.etag = etag
+        self.notModified = notModified
     }
 }
 

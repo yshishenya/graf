@@ -40,10 +40,14 @@ async def get_content_safe_processing_status(
     )
     state = ProcessingStatus(workflow.status) if workflow is not None else ProcessingStatus(meeting.processing_status)
     transcript_available = (
-        result is not None and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        result is not None
+        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and result.segment_count > 0
     )
     diarization_available = (
-        result is not None and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        result is not None
+        and result.diarization_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and result.diarization_segment_count > 0
     )
     updated_at = None
     if workflow is not None:

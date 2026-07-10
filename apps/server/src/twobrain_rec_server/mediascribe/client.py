@@ -77,13 +77,52 @@ class MediaScribeClient:
         except (ValueError, ValidationError) as exc:
             raise _malformed_response_error() from exc
 
-    async def poll_job(self, external_job_id: str) -> MediaScribePollResponse:
-        data = await self._request_json("GET", f"/jobs/{external_job_id}")
+    async def submit_single_track(
+        self,
+        *,
+        media_file: BinaryIO,
+        diarize: bool,
+        summarize: bool,
+        media_content_type: str | None = None,
+    ) -> MediaScribeSubmitResponse:
+        payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
+        media_type = _safe_media_content_type(media_content_type, _read_media_probe(media_file))
+        files = {"file": (_safe_media_filename(media_type), media_file, media_type)}
+        data = await self._request_json(
+            "POST",
+            "/v1/audio/transcriptions",
+            data=payload,
+            files=files,
+        )
+        external_job_id = str(data.get("id") or data.get("job_id") or "")
+        if not external_job_id:
+            raise _malformed_response_error()
         try:
             status = MediaScribeJobStatus(str(data.get("status") or MediaScribeJobStatus.UPLOADED.value))
+            return MediaScribeSubmitResponse(external_job_id=external_job_id, status=status)
+        except (ValueError, ValidationError) as exc:
+            raise _malformed_response_error() from exc
+
+    async def poll_job(self, external_job_id: str) -> MediaScribePollResponse:
+        data = await self._request_json("GET", f"/jobs/{external_job_id}")
+        job = data.get("job")
+        if not isinstance(job, dict):
+            job = {}
+        try:
+            status = MediaScribeJobStatus(str(data.get("status") or job.get("status") or MediaScribeJobStatus.UPLOADED.value))
         except ValueError as exc:
             raise _malformed_response_error() from exc
-        return MediaScribePollResponse(external_job_id=external_job_id, status=status)
+        error_code = data.get("error_code") or job.get("error_code")
+        error_origin = data.get("error_origin") or job.get("error_origin")
+        reason_code = data.get("reason_code") or job.get("reason_code") or error_code
+        reported_job_id = data.get("id") or data.get("job_id") or job.get("id") or external_job_id
+        return MediaScribePollResponse(
+            external_job_id=str(reported_job_id),
+            status=status,
+            reason_code=str(reason_code) if reason_code else None,
+            error_code=str(error_code) if error_code else None,
+            error_origin=str(error_origin) if error_origin else None,
+        )
 
     async def fetch_result(self, external_job_id: str) -> MediaScribeResult:
         data = await self._request_json("GET", f"/jobs/{external_job_id}/result")
@@ -129,14 +168,91 @@ def _malformed_response_error() -> MediaScribeClientError:
     return MediaScribeClientError("mediascribe_malformed_response", retryable=True)
 
 
+_MEDIA_TYPE_EXTENSION_BY_CONTENT_TYPE = {
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/wave": "wav",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/m4a": "m4a",
+    "audio/aac": "aac",
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+    "audio/flac": "flac",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/webm": "webm",
+}
+
+
+def _read_media_probe(media_file: BinaryIO, max_bytes: int = 64) -> bytes:
+    try:
+        position = media_file.tell()
+    except OSError:
+        position = None
+    probe = media_file.read(max_bytes)
+    if position is not None:
+        media_file.seek(position)
+    return probe
+
+
+def _safe_media_content_type(content_type: str | None, media_bytes: bytes) -> str:
+    if content_type:
+        normalized = content_type.split(";", 1)[0].strip().lower()
+        if normalized and normalized != "application/octet-stream":
+            if normalized in {"audio/x-m4a", "audio/m4a"}:
+                return "audio/mp4"
+            return normalized
+    return _infer_media_content_type(media_bytes)
+
+
+def _infer_media_content_type(media_bytes: bytes) -> str:
+    if media_bytes.startswith(b"RIFF") and media_bytes[8:12] == b"WAVE":
+        return "audio/wav"
+    if media_bytes.startswith(b"ID3") or (len(media_bytes) >= 2 and media_bytes[0] == 0xFF and media_bytes[1] & 0xE0 == 0xE0):
+        return "audio/mpeg"
+    if media_bytes.startswith(b"OggS"):
+        return "audio/ogg"
+    if media_bytes.startswith(b"fLaC"):
+        return "audio/flac"
+    if media_bytes.startswith(b"\x1a\x45\xdf\xa3"):
+        return "audio/webm"
+    if len(media_bytes) >= 12 and media_bytes[4:8] == b"ftyp":
+        brand = media_bytes[8:12]
+        if brand in {b"M4A ", b"M4B ", b"mp41"}:
+            return "audio/mp4"
+        if brand == b"qt  ":
+            return "video/quicktime"
+        return "video/mp4"
+    return "application/octet-stream"
+
+
+def _safe_media_filename(content_type: str) -> str:
+    extension = _MEDIA_TYPE_EXTENSION_BY_CONTENT_TYPE.get(content_type, "bin")
+    return f"manual-media.{extension}"
+
+
 def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> dict[str, Any]:
     job = data.get("job")
     if not isinstance(job, dict):
         job = {}
+    transcript_payload = _list_payload(data.get("transcript"))
+    transcript_status = data.get("transcript_status") or ("available" if transcript_payload else "unavailable")
+    transcript_reason = data.get("transcript_reason")
+    normalized_transcript = (
+        [_normalize_transcript_segment(index, item) for index, item in enumerate(transcript_payload)]
+        if transcript_status == "available"
+        else []
+    )
     return {
         "external_job_id": data.get("external_job_id") or data.get("id") or job.get("id") or external_job_id,
         "language": data.get("language") or job.get("language"),
-        "transcript": [_normalize_transcript_segment(index, item) for index, item in enumerate(_list_payload(data.get("transcript")))],
+        "transcript_status": transcript_status,
+        "transcript_reason": transcript_reason,
+        "failure_reason": transcript_reason if transcript_status == "unavailable" else None,
+        "transcript": normalized_transcript,
         "diarization": [_normalize_diarization_segment(index, item) for index, item in enumerate(_list_payload(data.get("diarization")))],
         "summary_status": data.get("summary_status") or ("available" if data.get("summary") else "not_requested"),
         "result_version": data.get("result_version") or 1,
