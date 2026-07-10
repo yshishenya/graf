@@ -1,7 +1,7 @@
 """user-scoped recording ids
 
-Revision ID: 0016_user_scoped_recording_ids
-Revises: 0015_external_calendar_selection
+Revision ID: 0020_user_scoped_recording_ids
+Revises: 0019_publish_meeting_registry
 Create Date: 2026-07-09
 """
 
@@ -10,8 +10,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0016_user_scoped_recording_ids"
-down_revision: str | None = "0015_external_calendar_selection"
+revision: str = "0020_user_scoped_recording_ids"
+down_revision: str | None = "0019_publish_meeting_registry"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

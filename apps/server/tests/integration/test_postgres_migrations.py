@@ -26,7 +26,7 @@ WORKSPACE_ID = UUID("20000000-0000-0000-0000-000000000001")
 USER_ID = UUID("30000000-0000-0000-0000-000000000001")
 DEVICE_ID = UUID("40000000-0000-0000-0000-000000000001")
 USER_SCOPED_RECORDING_MIGRATION = (
-    ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0016_user_scoped_recording_ids.py"
+    ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0020_user_scoped_recording_ids.py"
 )
 
 
