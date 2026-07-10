@@ -354,9 +354,40 @@ Task: "T035 [US4] Add view-model assertions in apps/server/tests/unit/test_cabin
   - `git diff --check` -> pass.
   - Diff-scope forbidden-content scan -> no matches.
   - `infra/scripts/ci-local.sh` -> `ci_local_result=pass`; 1050 passed, 4 skipped, 1 warning, server lint passed, Python compile passed, deployment evidence scan passed.
-- Production deploy/smoke was not run for this implementation slice.
+- The original implementation slice did not run production deploy/smoke; later
+  release lanes deployed the browser and embedded upload flow. The final
+  security-closeout release evidence is tracked in Phase 11 below.
 - Implementation commit was created after explicit user release/closeout
   approval and rebased cleanly onto `origin/master`.
-- Phase 10 embedded WebView file-picker correction has not been committed,
-  merged, deployed, or installed yet; those release steps require explicit
-  approval after validation.
+- Phase 10 embedded WebView file-picker correction was merged in PR #2805,
+  released as `v2026.07.08.7`, deployed with smoke evidence, and installed
+  locally as documented in the closure comment for GitHub issue #2804.
+
+---
+
+## Phase 11: Security Review Reconciliation And Final Release Closeout
+
+**Purpose**: Reconcile the already deployed security-review follow-up with the
+repository source of truth, validate the exact merge candidate, build the local
+macOS application, and publish a release from the merged `master` SHA.
+
+- [X] T062 Review PR #3040 for auth, CSRF, tenant isolation, storage, migration,
+  processing, and egress regressions and record validated findings.
+- [X] T063 Merge the current `origin/master` into the security-closeout branch
+  without discarding unrelated work.
+- [X] T064 Run the 090 focused server, migration, auth, storage, and egress
+  validation against the exact merge candidate.
+- [X] T065 Run focused macOS cabinet/WebView validation and build the release
+  `TwoBrainRecApp` product.
+- [X] T066 Run `infra/scripts/ci-local.sh` and the metadata-only forbidden-content
+  scans against the exact merge candidate.
+- [ ] T067 Build, sign, install, launch, and verify the local owner-machine
+  `GRAF.app` package while preserving the Developer ID/notarization limitation.
+- [ ] T068 Merge PR #3040 and verify that its merge SHA is contained in current
+  `master`.
+- [ ] T069 Prepare and publish the next CalVer release from the exact merged
+  `master` SHA with Russian release notes and migration/rollback limitations.
+- [ ] T070 Run production deploy dry-run, execute, health checks, smoke, and
+  runtime-SHA ancestry verification.
+- [ ] T071 Reconcile all feature-090 GitHub issues with post-deploy evidence and
+  remove only feature-specific temporary closeout state.

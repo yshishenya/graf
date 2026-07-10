@@ -64,27 +64,51 @@ public actor SystemAudioCaptureService {
     private static let captureSampleRate: Double = 48_000
     private static let captureChannelCount = 1
 
-    private let runtime: SystemAudioCaptureRuntime
+    private let runtimeFactory: @Sendable () -> SystemAudioCaptureRuntime
+    private let waitForTimedOutRuntimeStartCleanup: Bool
     private let runtimeStartTimeoutSeconds: TimeInterval
+    private let runtimeStartCleanupTimeoutSeconds: TimeInterval
     private let runtimeStopTimeoutSeconds: TimeInterval
+    private let runtimeStartFailureLogger: (@Sendable (String) -> Void)?
     public nonisolated let incomingSampleSource: LocalRecordingSampleSource
     private let bufferedSampleSource: BufferedLocalRecordingSampleSource
     private var activeSession: SystemAudioCaptureSession?
+    private var activeRuntime: SystemAudioCaptureRuntime?
     private var pendingRuntimeStartCleanup: Task<Void, Never>?
 
     public init(
         runtime: SystemAudioCaptureRuntime? = nil,
+        runtimeFactory: (@Sendable () -> SystemAudioCaptureRuntime)? = nil,
         sampleSource: BufferedLocalRecordingSampleSource? = nil,
-        runtimeStartTimeoutSeconds: TimeInterval = 10,
-        runtimeStopTimeoutSeconds: TimeInterval = 2
+        runtimeStartTimeoutSeconds: TimeInterval = 30,
+        runtimeStartCleanupTimeoutSeconds: TimeInterval = 2,
+        runtimeStopTimeoutSeconds: TimeInterval = 2,
+        waitForTimedOutRuntimeStartCleanup: Bool? = nil,
+        runtimeStartFailureLogger: (@Sendable (String) -> Void)? = nil
     ) {
-        self.bufferedSampleSource = sampleSource ?? BufferedLocalRecordingSampleSource(
+        precondition(runtime == nil || runtimeFactory == nil, "Pass runtime or runtimeFactory, not both")
+        let resolvedSampleSource = sampleSource ?? BufferedLocalRecordingSampleSource(
             channelCount: Self.captureChannelCount
         )
-        self.incomingSampleSource = self.bufferedSampleSource
+        let resolvedRuntimeFactory: @Sendable () -> SystemAudioCaptureRuntime
+        if let runtimeFactory {
+            resolvedRuntimeFactory = runtimeFactory
+        } else if let runtime {
+            resolvedRuntimeFactory = { runtime }
+        } else {
+            resolvedRuntimeFactory = {
+                Self.makeDefaultRuntime(sampleSource: resolvedSampleSource)
+            }
+        }
+        self.bufferedSampleSource = resolvedSampleSource
+        self.incomingSampleSource = resolvedSampleSource
         self.runtimeStartTimeoutSeconds = runtimeStartTimeoutSeconds
+        self.runtimeStartCleanupTimeoutSeconds = runtimeStartCleanupTimeoutSeconds
         self.runtimeStopTimeoutSeconds = runtimeStopTimeoutSeconds
-        self.runtime = runtime ?? Self.makeDefaultRuntime(sampleSource: self.bufferedSampleSource)
+        self.waitForTimedOutRuntimeStartCleanup = waitForTimedOutRuntimeStartCleanup ??
+            (runtime != nil || runtimeFactory != nil)
+        self.runtimeStartFailureLogger = runtimeStartFailureLogger
+        self.runtimeFactory = resolvedRuntimeFactory
     }
 
     public var isRunning: Bool {
@@ -98,7 +122,9 @@ public actor SystemAudioCaptureService {
         startedAt: Date = Date()
     ) async throws -> SystemAudioCaptureSession {
         if let pendingRuntimeStartCleanup {
-            await pendingRuntimeStartCleanup.value
+            if waitForTimedOutRuntimeStartCleanup {
+                await pendingRuntimeStartCleanup.value
+            }
             self.pendingRuntimeStartCleanup = nil
         }
         guard permissionState == .granted else {
@@ -112,12 +138,17 @@ public actor SystemAudioCaptureService {
         }
 
         bufferedSampleSource.reset()
+        let runtime = runtimeFactory()
         let startResult = await Self.startRuntime(
             runtime,
-            timeoutSeconds: runtimeStartTimeoutSeconds
+            timeoutSeconds: runtimeStartTimeoutSeconds,
+            timeoutCleanupMode: waitForTimedOutRuntimeStartCleanup
+                ? .waitForRuntimeStartTask
+                : .bestEffort(timeoutSeconds: runtimeStartCleanupTimeoutSeconds)
         )
         pendingRuntimeStartCleanup = startResult.cleanupTask
         guard startResult.completed else {
+            runtimeStartFailureLogger?(startResult.failureDetail ?? "reason=unknown")
             throw SystemAudioCaptureServiceError.runtimeStartFailed
         }
 
@@ -132,19 +163,25 @@ public actor SystemAudioCaptureService {
             channelCount: Self.captureChannelCount
         )
         activeSession = session
+        activeRuntime = runtime
         return session
     }
 
     private nonisolated static func startRuntime(
         _ runtime: SystemAudioCaptureRuntime,
-        timeoutSeconds: TimeInterval
+        timeoutSeconds: TimeInterval,
+        timeoutCleanupMode: RuntimeStartTimeoutCleanupMode
     ) async -> RuntimeStartResult {
         guard timeoutSeconds > 0 else {
             do {
                 try await runtime.start()
-                return RuntimeStartResult(completed: true, cleanupTask: nil)
+                return RuntimeStartResult(completed: true, cleanupTask: nil, failureDetail: nil)
             } catch {
-                return RuntimeStartResult(completed: false, cleanupTask: nil)
+                return RuntimeStartResult(
+                    completed: false,
+                    cleanupTask: nil,
+                    failureDetail: runtimeStartFailureDetail(for: error)
+                )
             }
         }
 
@@ -152,27 +189,43 @@ public actor SystemAudioCaptureService {
         let startTask = Task.detached {
             do {
                 try await runtime.start()
-                let accepted = completion.complete(true)
+                let accepted = completion.complete(
+                    RuntimeStartResult(completed: true, cleanupTask: nil, failureDetail: nil)
+                )
                 if !accepted {
                     await runtime.stop()
                 }
             } catch {
-                let accepted = completion.complete(false)
-                if accepted {
-                    await runtime.stop()
-                }
+                _ = completion.complete(
+                    RuntimeStartResult(
+                        completed: false,
+                        cleanupTask: nil,
+                        failureDetail: runtimeStartFailureDetail(for: error)
+                    )
+                )
+                await runtime.stop()
             }
         }
         let completed = await completion.wait(timeoutSeconds: timeoutSeconds)
-        guard completed != nil else {
+        guard let result = completed else {
             let cleanupTask = Task.detached {
-                await runtime.stop()
-                _ = await startTask.result
-                await runtime.stop()
+                switch timeoutCleanupMode {
+                case .waitForRuntimeStartTask:
+                    await runtime.stop()
+                    _ = await startTask.result
+                    await runtime.stop()
+                case .bestEffort(let timeoutSeconds):
+                    startTask.cancel()
+                    _ = await Self.stopRuntime(runtime, timeoutSeconds: timeoutSeconds)
+                }
             }
-            return RuntimeStartResult(completed: false, cleanupTask: cleanupTask)
+            return RuntimeStartResult(
+                completed: false,
+                cleanupTask: cleanupTask,
+                failureDetail: runtimeStartTimeoutDetail(timeoutSeconds: timeoutSeconds)
+            )
         }
-        return RuntimeStartResult(completed: completed == true, cleanupTask: nil)
+        return result
     }
 
     public func appendIncomingSamples(_ samples: [Float], at date: Date = Date()) {
@@ -190,6 +243,10 @@ public actor SystemAudioCaptureService {
         guard var session = activeSession else {
             throw SystemAudioCaptureServiceError.notRunning
         }
+        guard let runtime = activeRuntime else {
+            activeSession = nil
+            throw SystemAudioCaptureServiceError.notRunning
+        }
 
         let stopCompleted = await Self.stopRuntime(
             runtime,
@@ -202,6 +259,7 @@ public actor SystemAudioCaptureService {
             session.lastFrameAt = stats.lastFrameAt
         }
         activeSession = nil
+        activeRuntime = nil
         session.stoppedAt = stoppedAt
         if !stopCompleted {
             session.failureReason = .captureFailed
@@ -216,6 +274,10 @@ public actor SystemAudioCaptureService {
         guard var session = activeSession else {
             return nil
         }
+        guard let runtime = activeRuntime else {
+            activeSession = nil
+            return nil
+        }
 
         let stopCompleted = await Self.stopRuntime(
             runtime,
@@ -228,6 +290,7 @@ public actor SystemAudioCaptureService {
             session.lastFrameAt = stats.lastFrameAt
         }
         activeSession = nil
+        activeRuntime = nil
         session.stoppedAt = stoppedAt
         if !stopCompleted {
             session.failureReason = .captureFailed
@@ -270,15 +333,39 @@ public actor SystemAudioCaptureService {
         guard sampleCount > 0 else { return 0 }
         return Int64((sampleCount + captureChannelCount - 1) / captureChannelCount)
     }
+
+    private nonisolated static func runtimeStartFailureDetail(for error: Error) -> String {
+        let nsError = error as NSError
+        return [
+            "reason=error",
+            "type=\(logToken(String(reflecting: Swift.type(of: error))))",
+            "domain=\(logToken(nsError.domain))",
+            "code=\(nsError.code)",
+            "description=\(logToken(nsError.localizedDescription))"
+        ].joined(separator: " ")
+    }
+
+    private nonisolated static func runtimeStartTimeoutDetail(timeoutSeconds: TimeInterval) -> String {
+        let timeoutMs = Int((timeoutSeconds * 1000).rounded())
+        return "reason=timeout timeoutMs=\(timeoutMs)"
+    }
+
+    private nonisolated static func logToken(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\n", with: "_")
+            .replacingOccurrences(of: "\r", with: "_")
+            .replacingOccurrences(of: "\t", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+    }
 }
 
 private final class RuntimeStartCompletion: @unchecked Sendable {
     private let lock = NSLock()
     private var completed = false
-    private var result: Bool?
-    private var continuation: CheckedContinuation<Bool?, Never>?
+    private var result: RuntimeStartResult?
+    private var continuation: CheckedContinuation<RuntimeStartResult?, Never>?
 
-    func wait(timeoutSeconds: TimeInterval) async -> Bool? {
+    func wait(timeoutSeconds: TimeInterval) async -> RuntimeStartResult? {
         await withCheckedContinuation { continuation in
             lock.lock()
             if completed {
@@ -297,7 +384,7 @@ private final class RuntimeStartCompletion: @unchecked Sendable {
     }
 
     @discardableResult
-    func complete(_ result: Bool) -> Bool {
+    func complete(_ result: RuntimeStartResult) -> Bool {
         lock.lock()
         guard !completed else {
             lock.unlock()
@@ -332,6 +419,12 @@ private final class RuntimeStartCompletion: @unchecked Sendable {
 private struct RuntimeStartResult {
     let completed: Bool
     let cleanupTask: Task<Void, Never>?
+    let failureDetail: String?
+}
+
+private enum RuntimeStartTimeoutCleanupMode: Sendable {
+    case waitForRuntimeStartTask
+    case bestEffort(timeoutSeconds: TimeInterval)
 }
 
 private final class RuntimeStopCompletion: @unchecked Sendable {
@@ -398,13 +491,14 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         configuration.excludesCurrentProcessAudio = true
         configuration.sampleRate = 48_000
         configuration.channelCount = 1
-        configuration.width = 2
-        configuration.height = 2
+        configuration.width = 16
+        configuration.height = 16
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
         configuration.showsCursor = false
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: outputQueue)
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
         setCurrentStream(stream)
         do {
             try await stream.startCapture()
@@ -419,6 +513,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         guard let stream = currentStream() else { return }
         clearCurrentStreamIfSame(stream)
         try? stream.removeStreamOutput(self, type: .audio)
+        try? stream.removeStreamOutput(self, type: .screen)
         try? await stream.stopCapture()
     }
 

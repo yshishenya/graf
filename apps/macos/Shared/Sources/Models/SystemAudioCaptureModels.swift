@@ -2376,6 +2376,7 @@ public enum SystemAudioAccessibilityIdentifier {
     public static let calendarPromptPrimaryButton = "systemAudio.calendar.prompt.primary"
     public static let calendarPromptDismissButton = "systemAudio.calendar.prompt.dismiss"
     public static let meetingDetectionStatus = "systemAudio.meetingDetection.status"
+    public static let meetingDetectionSettingsButton = "systemAudio.meetingDetection.settingsButton"
     public static let meetingDetectionRecordingToggle = "systemAudio.meetingDetection.recordingToggle"
     public static let meters = "systemAudio.meters"
     public static let microphoneMeter = "systemAudio.meter.microphone"

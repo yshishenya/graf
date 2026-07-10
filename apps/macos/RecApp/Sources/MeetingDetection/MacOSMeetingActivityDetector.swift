@@ -12,7 +12,7 @@ public struct MacOSAudioOwnershipLogStreamConfiguration: Equatable, Sendable {
             "--style",
             "compact",
             "--predicate",
-            "(process == 'runningboardd' OR process == 'RunningBoard') AND (eventMessage CONTAINS[c] 'AudioHAL' OR composedMessage CONTAINS[c] 'AudioHAL')"
+            "((process == 'runningboardd' OR process == 'RunningBoard') AND (eventMessage CONTAINS[c] 'AudioHAL' OR composedMessage CONTAINS[c] 'AudioHAL')) OR (subsystem == 'com.apple.controlcenter' AND category == 'sensor-indicators' AND eventMessage BEGINSWITH 'Active activity attributions changed to ')"
         ]
     ) {
         self.executableURL = executableURL

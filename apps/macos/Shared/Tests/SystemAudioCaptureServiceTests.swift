@@ -6,6 +6,21 @@ import TwoBrainRecShared
 import XCTest
 
 final class SystemAudioCaptureServiceTests: XCTestCase {
+    func testScreenCaptureKitRuntimeStartsWithScreenAndAudioOutputs() throws {
+        let source = try String(
+            contentsOf: repositoryRootForSystemAudioCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("configuration.width = 16"))
+        XCTAssertTrue(source.contains("configuration.height = 16"))
+        XCTAssertTrue(source.contains("runtimeStartTimeoutSeconds: TimeInterval = 30"))
+        XCTAssertTrue(source.contains("stream.addStreamOutput(self, type: .audio"))
+        XCTAssertTrue(source.contains("stream.addStreamOutput(self, type: .screen"))
+        XCTAssertTrue(source.contains("stream.removeStreamOutput(self, type: .screen"))
+    }
+
     func testStartRequiresGrantedPermissionAndApprovedScope() async throws {
         let service = SystemAudioCaptureService(runtime: FakeSystemAudioRuntime())
         let approval = approvedScope()
@@ -195,6 +210,30 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         }
     }
 
+    func testImmediateRuntimeStartFailureLogsDiagnosticDetail() async throws {
+        let logger = RuntimeStartFailureRecorder()
+        let service = SystemAudioCaptureService(
+            runtime: FailingSystemAudioRuntime(),
+            runtimeStartTimeoutSeconds: 1,
+            runtimeStartFailureLogger: { detail in
+                logger.record(detail)
+            }
+        )
+
+        do {
+            _ = try await service.start(
+                sessionId: "session",
+                permissionState: .granted,
+                scopeApproval: approvedScope()
+            )
+            XCTFail("Failing runtime start should fail with runtimeStartFailed")
+        } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+            XCTAssertEqual(logger.details.count, 1)
+            XCTAssertTrue(logger.details[0].contains("reason=error"))
+            XCTAssertTrue(logger.details[0].contains("description="))
+        }
+    }
+
     func testRuntimeStartFailureStopsPartiallyStartedRuntime() async throws {
         let runtime = PartiallyStartingThenFailingSystemAudioRuntime()
         let service = SystemAudioCaptureService(
@@ -261,6 +300,47 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         _ = try await service.stop()
         XCTAssertEqual(runtime.stopCount, stopCountBeforeAcceptedStop + 1)
     }
+
+    func testRetryCanUseFreshRuntimeAfterTimedOutStartCleanup() async throws {
+        let firstRuntime = CancellableSlowStartingSystemAudioRuntime()
+        let secondRuntime = FakeSystemAudioRuntime()
+        let runtimeFactory = SequencedSystemAudioRuntimeFactory([firstRuntime, secondRuntime])
+        let service = SystemAudioCaptureService(
+            runtimeFactory: { runtimeFactory.next() },
+            runtimeStartTimeoutSeconds: 0.05,
+            runtimeStartCleanupTimeoutSeconds: 0.05,
+            waitForTimedOutRuntimeStartCleanup: false
+        )
+
+        do {
+            _ = try await service.start(
+                sessionId: "first",
+                permissionState: .granted,
+                scopeApproval: approvedScope()
+            )
+            XCTFail("First runtime should time out")
+        } catch SystemAudioCaptureServiceError.runtimeStartFailed {
+            let running = await service.isRunning
+            XCTAssertFalse(running)
+        }
+
+        let startedAt = Date()
+        let second = try await service.start(
+            sessionId: "second",
+            permissionState: .granted,
+            scopeApproval: approvedScope()
+        )
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertEqual(second.sessionId, "second")
+        XCTAssertLessThan(elapsed, 1)
+        XCTAssertEqual(firstRuntime.startCount, 1)
+        XCTAssertGreaterThanOrEqual(firstRuntime.stopCount, 1)
+        XCTAssertTrue(secondRuntime.didStart)
+
+        _ = try await service.stop()
+        XCTAssertTrue(secondRuntime.didStop)
+    }
 }
 
 private func approvedScope() -> CaptureScopeApproval {
@@ -272,6 +352,18 @@ private func approvedScope() -> CaptureScopeApproval {
         approvalMode: .manualSelection,
         eligibleReason: .approvedMeetingApp
     )
+}
+
+private func repositoryRootForSystemAudioCaptureTests() throws -> URL {
+    var candidate = URL(fileURLWithPath: #filePath)
+    while candidate.path != "/" {
+        let package = candidate.appendingPathComponent("apps/macos/Package.swift")
+        if FileManager.default.fileExists(atPath: package.path) {
+            return candidate
+        }
+        candidate.deleteLastPathComponent()
+    }
+    throw CocoaError(.fileNoSuchFile)
 }
 
 private final class FakeSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
@@ -293,6 +385,21 @@ private final class FailingSystemAudioRuntime: SystemAudioCaptureRuntime, @unche
     }
 
     func stop() async {}
+}
+
+private final class RuntimeStartFailureRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var protectedDetails: [String] = []
+
+    var details: [String] {
+        lock.withLock { protectedDetails }
+    }
+
+    func record(_ detail: String) {
+        lock.withLock {
+            protectedDetails.append(detail)
+        }
+    }
 }
 
 private final class PartiallyStartingThenFailingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
@@ -386,6 +493,51 @@ private final class RecoveringSlowStartingSystemAudioRuntime: SystemAudioCapture
     func stop() async {
         lock.withLock {
             protectedStopCount += 1
+        }
+    }
+}
+
+private final class CancellableSlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
+    private let lock = NSLock()
+    private var protectedStartCount = 0
+    private var protectedStopCount = 0
+
+    var startCount: Int {
+        lock.withLock { protectedStartCount }
+    }
+
+    var stopCount: Int {
+        lock.withLock { protectedStopCount }
+    }
+
+    func start() async throws {
+        lock.withLock {
+            protectedStartCount += 1
+        }
+        try await Task.sleep(nanoseconds: 10_000_000_000)
+    }
+
+    func stop() async {
+        lock.withLock {
+            protectedStopCount += 1
+        }
+    }
+}
+
+private final class SequencedSystemAudioRuntimeFactory: @unchecked Sendable {
+    private let lock = NSLock()
+    private var runtimes: [SystemAudioCaptureRuntime]
+
+    init(_ runtimes: [SystemAudioCaptureRuntime]) {
+        self.runtimes = runtimes
+    }
+
+    func next() -> SystemAudioCaptureRuntime {
+        lock.withLock {
+            guard !runtimes.isEmpty else {
+                return FakeSystemAudioRuntime()
+            }
+            return runtimes.removeFirst()
         }
     }
 }

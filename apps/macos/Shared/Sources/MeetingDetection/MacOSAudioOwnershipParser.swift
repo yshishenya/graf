@@ -35,6 +35,16 @@ public struct MacOSAudioOwnershipParser: Sendable {
         return parseAudioHALAssertion(line: line, lowercased: lowercased, observedAt: observedAt)
     }
 
+    public func parseSensorIndicatorMicrophoneBundleIDs(line: String) -> Set<String>? {
+        let lowercased = line.lowercased()
+        guard lowercased.contains("active activity attributions changed to"),
+              lowercased.contains("sensor-indicators") || lowercased.contains("com.apple.controlcenter")
+        else {
+            return nil
+        }
+        return Set(captures(in: line, pattern: #"mic:([A-Za-z0-9][A-Za-z0-9_.-]*)"#))
+    }
+
     private func parseAudioHALAssertion(
         line: String,
         lowercased: String,
@@ -103,5 +113,20 @@ public struct MacOSAudioOwnershipParser: Sendable {
             return String(line[valueRange])
         }
         return nil
+    }
+
+    private func captures(in line: String, pattern: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        return regex.matches(in: line, range: range).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let valueRange = Range(match.range(at: 1), in: line)
+            else {
+                return nil
+            }
+            return String(line[valueRange])
+        }
     }
 }
