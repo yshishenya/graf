@@ -456,11 +456,18 @@ async def resolve_callback_to_user(
     actor_ip: str | None = None,
     request_id: str | None = None,
     provider_http_client: ProviderHttpClient | None = None,
+    browser_state_nonce: str | None = None,
     now: datetime | None = None,
 ) -> CallbackProfile:
     now = now or datetime.now(UTC)
     try:
-        state = await consume_callback_state(db, provider=provider, state_nonce=state_nonce, now=now)
+        state = await consume_callback_state(
+            db,
+            provider=provider,
+            state_nonce=state_nonce,
+            browser_state_nonce=browser_state_nonce,
+            now=now,
+        )
     except ValueError as exc:
         message = str(exc)
         if "already consumed" in message:

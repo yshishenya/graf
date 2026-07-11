@@ -3,12 +3,14 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 from html import unescape
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from sqlalchemy import select
 
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import seed_cabinet_meetings
+from twobrain_rec_server.api.auth import BROWSER_AUTH_STATE_COOKIE_NAME
 from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
@@ -336,6 +338,30 @@ def test_browser_yandex_login_start_redirects_to_provider(client) -> None:
     assert response.headers["location"].startswith("https://oauth.yandex.ru/authorize?")
     assert "state=" in response.headers["location"]
     assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex" in response.headers["location"]
+    set_cookie = response.headers["set-cookie"]
+    assert f"{BROWSER_AUTH_STATE_COOKIE_NAME}=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
+    assert "SameSite=lax" in set_cookie
+    assert "Domain=" not in set_cookie
+
+
+def test_browser_yandex_callback_rejects_missing_browser_state_cookie(client) -> None:
+    start = client.get(
+        "/login/yandex/start?next=/meetings",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+    client.cookies.clear()
+
+    callback = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": state, "code": "TEST-YA-USER"},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 400
+    assert callback.json()["code"] == "callback_state_invalid"
 
 
 def test_browser_vk_login_start_redirects_to_provider(client) -> None:

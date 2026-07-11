@@ -19,6 +19,9 @@
 
 ### Безопасность
 - macOS desktop cabinet больше не прикрепляет Authorization и desktop identity headers к первому WebView-запросу на внешний HTTPS origin auth-provider при восстановлении входа.
+- Support incident reports теперь редактируют клиентские строки по строгим metadata-схемам и ограничивают `local_purge_tasks` безопасными enum-значениями, чтобы encoded private content не уходил в GitHub issue.
+- Browser OAuth-вход через Yandex/VK теперь привязывает callback провайдера к браузеру, начавшему вход, через короткоживущую `__Host-` nonce cookie и не позволяет захваченным callback URL закрепить браузер жертвы за чужим аккаунтом.
+- Manual media upload endpoints теперь читают multipart body потоково после auth/CSRF checks, отклоняют oversized bodies до framework form spooling и больше не загружают весь media file в память.
 
 ### Документы
 - _Пока нет записей._
