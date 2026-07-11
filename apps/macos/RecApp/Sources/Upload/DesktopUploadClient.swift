@@ -248,7 +248,6 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
     public static let uploadBearerTokenEnvironmentKey = "GRAF_UPLOAD_BEARER_TOKEN"
     public static let legacyUploadBearerTokenEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BEARER_TOKEN"
-    public static let ownerSessionCookieName = "__Host-twobrain_rec_owner_session"
     public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
     public static let meetingDetectionTargetRegistryPath = "/api/v1/desktop/meeting-detection/target-registry"
     public static let meetingDetectionTelemetryPath = "/api/v1/desktop/meeting-detection/telemetry"
@@ -260,18 +259,15 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private let partSizeBytes: Int
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let cookieHeaderProvider: @Sendable (URL) -> String?
 
     public init(
         baseURL: URL,
         headers: [String: String] = [:],
-        partSizeBytes: Int = Self.defaultPartSizeBytes,
-        cookieHeaderProvider: @escaping @Sendable (URL) -> String? = DesktopUploadClient.defaultCookieHeader
+        partSizeBytes: Int = Self.defaultPartSizeBytes
     ) {
         self.baseURL = baseURL
         self.headers = headers
         self.partSizeBytes = max(64 * 1024, partSizeBytes)
-        self.cookieHeaderProvider = cookieHeaderProvider
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -353,21 +349,6 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return "Bearer \(trimmed)"
     }
 
-    public static func defaultCookieHeader(for url: URL) -> String? {
-        authSessionCookieHeader(from: HTTPCookieStorage.shared.cookies(for: url) ?? [])
-    }
-
-    public static func authSessionCookieHeader(from cookies: [HTTPCookie]) -> String? {
-        let sessionCookies = cookies
-            .filter { cookie in
-                cookie.name == ownerSessionCookieName &&
-                    !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            .map { "\($0.name)=\($0.value)" }
-        guard !sessionCookies.isEmpty else { return nil }
-        return sessionCookies.joined(separator: "; ")
-    }
-
     private static func configuredBaseURLCandidate(
         from environment: [String: String],
         defaults: UserDefaults,
@@ -412,6 +393,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         components.host = url.host
         components.port = url.port
         return components.url
+    }
+
+    private static func isCookieHeader(named name: String) -> Bool {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "cookie"
     }
 
     private static func shouldRedactHeader(named name: String) -> Bool {
@@ -961,13 +946,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = timeoutInterval
-        for (key, value) in headers {
+        for (key, value) in headers where !Self.isCookieHeader(named: key) {
             request.setValue(value, forHTTPHeaderField: key)
-        }
-        if request.value(forHTTPHeaderField: "Cookie") == nil,
-           let cookieHeader = cookieHeaderProvider(url),
-           !cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         }
         return request
     }

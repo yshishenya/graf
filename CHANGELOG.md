@@ -18,7 +18,7 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- macOS desktop больше не сериализует owner session cookie в ручной HTTP `Cookie` header для native API requests; cookies остаются под управлением системного cookie jar, а явно переданный `Cookie` header игнорируется при сборке запросов.
 
 ### Документы
 - _Пока нет записей._
