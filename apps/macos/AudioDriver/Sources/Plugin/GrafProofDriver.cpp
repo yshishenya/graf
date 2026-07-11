@@ -6,6 +6,7 @@
 #include "../Device/VirtualDeviceRegistry.hpp"
 
 #include <fcntl.h>
+#include <errno.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -505,19 +506,53 @@ OSStatus Initialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef in_host
     Trace("Initialize called");
     gHost = in_host;
 
-    // Create or open shared memory
-    gShmFD = shm_open(TwoBrainRec::kShmName, O_CREAT | O_RDWR, 0666);
-    if (gShmFD < 0) {
-        Trace("Initialize: shm_open failed");
-        return kAudioHardwareUnspecifiedError;
-    }
-    fchmod(gShmFD, 0666);
+    // Create the bridge with restrictive permissions and reject attacker-created
+    // or stale objects before mapping live meeting audio.
+    auto createSharedMemory = []() -> bool {
+        gShmFD = shm_open(TwoBrainRec::kShmName, O_CREAT | O_EXCL | O_RDWR, 0600);
+        if (gShmFD < 0) {
+            return false;
+        }
 
-    // Resize stale shared memory from older local builds before mapping the new layout.
-    struct stat st;
-    if (fstat(gShmFD, &st) == 0 && st.st_size != static_cast<off_t>(sizeof(TwoBrainRec::SharedAudioBuffer))) {
-        ftruncate(gShmFD, sizeof(TwoBrainRec::SharedAudioBuffer));
         gShmOwner = true;
+        if (fchmod(gShmFD, 0600) == 0 &&
+            ftruncate(gShmFD, sizeof(TwoBrainRec::SharedAudioBuffer)) == 0) {
+            return true;
+        }
+
+        close(gShmFD);
+        shm_unlink(TwoBrainRec::kShmName);
+        gShmFD = -1;
+        gShmOwner = false;
+        return false;
+    };
+
+    if (!createSharedMemory()) {
+        if (errno != EEXIST) {
+            Trace("Initialize: shm_open failed");
+            return kAudioHardwareUnspecifiedError;
+        }
+
+        gShmFD = shm_open(TwoBrainRec::kShmName, O_RDWR, 0);
+        if (gShmFD < 0) {
+            Trace("Initialize: shm_open existing failed");
+            return kAudioHardwareUnspecifiedError;
+        }
+
+        struct stat st;
+        if (fstat(gShmFD, &st) != 0 ||
+            st.st_uid != geteuid() ||
+            (st.st_mode & 0777) != 0600 ||
+            st.st_size != static_cast<off_t>(sizeof(TwoBrainRec::SharedAudioBuffer))) {
+            Trace("Initialize: replacing unsafe shared memory object");
+            close(gShmFD);
+            shm_unlink(TwoBrainRec::kShmName);
+            gShmFD = -1;
+            if (!createSharedMemory()) {
+                Trace("Initialize: secure shared memory setup failed");
+                return kAudioHardwareUnspecifiedError;
+            }
+        }
     }
 
     gShared = static_cast<TwoBrainRec::SharedAudioBuffer*>(

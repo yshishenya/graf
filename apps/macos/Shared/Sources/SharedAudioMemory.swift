@@ -128,12 +128,16 @@ public final class SharedAudioMemory {
 
         shmSize = Self.expectedSharedMemorySize
 
-        var isOwner = false
         var st = stat()
-        if fstat_fixed(fd, &st) == 0, st.st_size != off_t(shmSize) {
-            ftruncate(fd, off_t(shmSize))
-            isOwner = true
+        guard fstat_fixed(fd, &st) == 0,
+              st.st_uid == geteuid(),
+              (st.st_mode & 0o777) == 0o600,
+              st.st_size == off_t(shmSize) else {
+            close(fd)
+            return nil
         }
+
+        let isOwner = false
 
         guard let ptr = mmap(nil, shmSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0),
               ptr != MAP_FAILED else {
@@ -143,10 +147,6 @@ public final class SharedAudioMemory {
         self.mapped = ptr
         self.isOwner = isOwner
         self.layout = Layout(base: ptr)
-
-        if isOwner {
-            mapped.initializeMemory(as: UInt8.self, repeating: 0, count: shmSize)
-        }
     }
 
     deinit {
