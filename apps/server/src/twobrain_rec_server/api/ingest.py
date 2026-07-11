@@ -1,7 +1,6 @@
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Header, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -21,7 +20,10 @@ from twobrain_rec_server.api.schemas import (
     UploadPartResponse,
     UploadSessionResponse,
 )
-from twobrain_rec_server.api.upload_stream import read_bounded_upload_body
+from twobrain_rec_server.api.upload_stream import (
+    read_bounded_upload_body,
+    read_manual_media_upload_body,
+)
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
@@ -178,23 +180,26 @@ async def create_meeting(
 )
 async def create_manual_media_upload(
     request: Request,
-    file: Annotated[UploadFile, File()],
-    duration_seconds: Annotated[int, Form(gt=0)],
-    title: str | None = Form(default=None, max_length=500),
-    local_recording_id: str | None = Form(default=None, min_length=1, max_length=240, pattern=r"^[^\x00-\x1f\x7f]+$"),
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
     storage: object = StorageDependency,
 ) -> ManualMediaUploadResponse:
+    upload = await read_manual_media_upload_body(
+        request,
+        max_file_bytes=request.app.state.settings.max_upload_part_bytes,
+        spool_memory_bytes=request.app.state.settings.max_upload_spool_memory_bytes,
+    )
     result = await accept_manual_media_upload(
         settings=request.app.state.settings,
         db=db,
         tenant_scope=tenant_scope,
         storage=storage,
-        file=file,
-        duration_seconds=duration_seconds,
-        title=title,
-        local_recording_id=local_recording_id,
+        file=upload.file,
+        filename=upload.filename,
+        content_type=upload.content_type,
+        duration_seconds=upload.duration_seconds,
+        title=upload.title,
+        local_recording_id=upload.local_recording_id,
         temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await commit_if_available(db)

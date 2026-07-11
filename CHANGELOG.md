@@ -18,9 +18,7 @@
 - _Пока нет записей._
 
 ### Безопасность
-- Review playback теперь применяет audio egress policy к non-owner team/shared
-  viewers, чтобы запрет `disabled` или `owner_only` не обходился через
-  `/playback`.
+- Manual media upload endpoints теперь читают multipart body потоково после auth/CSRF checks, отклоняют oversized bodies до framework form spooling и больше не загружают весь media file в память.
 
 ### Документы
 - _Пока нет записей._
