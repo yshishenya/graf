@@ -4,15 +4,18 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import Problem
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext
+from twobrain_rec_server.auth.dependencies import DeviceDependency, PrincipalDependency
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.product_analytics.event_catalog import (
     catalog_payload,
     yandex_offline_conversion_event_names,
 )
+from twobrain_rec_server.product_analytics.identity import build_safe_identity
 from twobrain_rec_server.product_analytics.ingest import ProductAnalyticsIngestService
 from twobrain_rec_server.product_analytics.page_inventory import page_class_policies
 from twobrain_rec_server.product_analytics.provider_readiness import build_provider_readiness
@@ -27,15 +30,16 @@ from twobrain_rec_server.product_analytics.telemetry_gate import (
 
 
 class ProductAnalyticsEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     event_name: str = Field(min_length=1)
-    stable_pseudonymous_user_id: str | None = None
     occurred_at: datetime | None = None
-    telemetry_gate_state: str = "accepted"
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
 PROBLEM_RESPONSES = {
     400: {"model": Problem, "description": "Bad request"},
+    401: {"model": Problem, "description": "Unauthorized"},
     403: {"model": Problem, "description": "Forbidden"},
     422: {"model": Problem, "description": "Validation error"},
 }
@@ -86,8 +90,13 @@ async def product_analytics_telemetry_gate_access(state: str = "not_seen") -> di
     }
 
 
-@router.post("/events")
-async def product_analytics_events(request: Request, body: ProductAnalyticsEventRequest) -> dict[str, Any]:
+@router.post("/events", dependencies=[PrincipalDependency, DeviceDependency])
+async def product_analytics_events(
+    request: Request,
+    body: ProductAnalyticsEventRequest,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+) -> dict[str, Any]:
     settings = _settings_from_request(request)
     if not settings.product_analytics_enabled:
         raise ProblemDetail(
@@ -96,9 +105,17 @@ async def product_analytics_events(request: Request, body: ProductAnalyticsEvent
             title="Product analytics disabled",
             detail="094 product analytics is disabled unless an explicit validation/rollout gate enables it.",
         )
+    identity = build_safe_identity(
+        user_source_id=str(principal.user_id),
+        workspace_source_id=str(device.workspace_id),
+        device_class=device.platform,
+    )
+    payload = body.model_dump() | {
+        "stable_pseudonymous_user_id": identity.stable_pseudonymous_user_id,
+    }
     service = ProductAnalyticsIngestService(settings)
     try:
-        result = service.ingest(body.model_dump(), telemetry_gate_state=body.telemetry_gate_state)
+        result = service.ingest(payload)
     except ValueError as exc:
         raise ProblemDetail(
             status=400,

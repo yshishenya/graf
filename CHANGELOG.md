@@ -18,7 +18,7 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Endpoint `/api/v1/product-analytics/events` теперь требует auth/device context и не принимает клиентские `stable_pseudonymous_user_id` или `telemetry_gate_state`, чтобы не допускать unauthenticated spoofing product activation analytics.
 
 ### Документы
 - _Пока нет записей._

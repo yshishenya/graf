@@ -12,6 +12,13 @@ REPO_ROOT = Path(__file__).parents[4]
 COMPOSE_PATH = REPO_ROOT / "infra/docker-compose.yml"
 ENV_TEMPLATE_PATH = REPO_ROOT / "infra/env/rec.production.env.example"
 
+PRODUCT_ANALYTICS_AUTH_HEADERS = {
+    "X-User-Id": "10000000-0000-0000-0000-000000000094",
+    "X-Organization-Id": "20000000-0000-0000-0000-000000000094",
+    "X-Workspace-Id": "30000000-0000-0000-0000-000000000094",
+    "X-Device-Id": "40000000-0000-0000-0000-000000000094",
+}
+
 
 def _compose() -> dict:
     return yaml.safe_load(COMPOSE_PATH.read_text())
@@ -62,6 +69,7 @@ def test_product_analytics_api_is_disabled_by_default() -> None:
         catalog = client.get("/api/v1/product-analytics/catalog")
         event_response = client.post(
             "/api/v1/product-analytics/events",
+            headers=PRODUCT_ANALYTICS_AUTH_HEADERS,
             json={"event_name": "desktop_first_opened", "properties": {"platform": "macos"}},
         )
 
@@ -153,21 +161,66 @@ def test_provider_failure_is_reported_as_measurement_gap_without_blocking_accept
 
 
 def test_enabled_api_accepts_synthetic_event_without_live_provider_delivery() -> None:
-    identity = build_safe_identity(user_source_id="user-094")
-    app = create_app(Settings(product_analytics_enabled=True, product_analytics_validation_mode="render_only"))
+    app = create_app(
+        Settings(product_analytics_enabled=True, product_analytics_validation_mode="render_only")
+    )
 
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/product-analytics/events",
+            headers=PRODUCT_ANALYTICS_AUTH_HEADERS,
             json={
                 "event_name": "desktop_first_opened",
-                "stable_pseudonymous_user_id": identity.stable_pseudonymous_user_id,
                 "properties": {"platform": "macos", "bridge_present": True},
             },
         )
 
     assert response.status_code == 200
     body = response.json()
+    expected_identity = build_safe_identity(
+        user_source_id=PRODUCT_ANALYTICS_AUTH_HEADERS["X-User-Id"],
+        workspace_source_id=PRODUCT_ANALYTICS_AUTH_HEADERS["X-Workspace-Id"],
+        device_class="macos",
+    )
     assert body["accepted"] is True
     assert body["event"]["event_name"] == "desktop_first_opened"
+    assert (
+        body["event"]["stable_pseudonymous_user_id"]
+        == expected_identity.stable_pseudonymous_user_id
+    )
     assert body["provider_results"][0]["status"] == "disabled"
+
+
+def test_enabled_api_rejects_unauthenticated_product_analytics_events() -> None:
+    app = create_app(
+        Settings(product_analytics_enabled=True, product_analytics_validation_mode="render_only")
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/product-analytics/events",
+            json={"event_name": "desktop_first_opened", "properties": {"platform": "macos"}},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "missing_auth_context"
+
+
+def test_enabled_api_rejects_client_asserted_analytics_identity_and_gate_state() -> None:
+    app = create_app(
+        Settings(product_analytics_enabled=True, product_analytics_validation_mode="render_only")
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/product-analytics/events",
+            headers=PRODUCT_ANALYTICS_AUTH_HEADERS,
+            json={
+                "event_name": "desktop_first_opened",
+                "stable_pseudonymous_user_id": "graf_pseudo_user_attacker_spoof_001",
+                "telemetry_gate_state": "accepted",
+                "properties": {"platform": "macos"},
+            },
+        )
+
+    assert response.status_code == 422
