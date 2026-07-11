@@ -1985,17 +1985,13 @@ private struct MeetingDetectionPrompt: Identifiable, Equatable {
 }
 
 private struct MeetingDetectionPromptView: View {
-    private static let countdownSeconds: TimeInterval = 8
-
     let prompt: MeetingDetectionPrompt
     let isStartDisabled: Bool
     let onStart: (Bool) -> Void
     let onDismiss: () -> Void
 
     @State private var autoRecordOptIn = false
-    @State private var appearedAt = Date()
     @State private var didResolve = false
-    @State private var autoStartTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2009,7 +2005,7 @@ private struct MeetingDetectionPromptView: View {
                         .font(.headline)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Началась встреча. Запись стартует автоматически.")
+                    Text("Началась встреча. Нажмите «Записать сейчас», чтобы начать запись.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -2031,9 +2027,7 @@ private struct MeetingDetectionPromptView: View {
                 .toggleStyle(.checkbox)
 
             VStack(spacing: 8) {
-                TimelineView(.periodic(from: appearedAt, by: 0.05)) { context in
-                    countdownButton(progress: progress(at: context.date))
-                }
+                startButton()
 
                 Button("Пропустить") {
                     resolveDismiss()
@@ -2051,65 +2045,36 @@ private struct MeetingDetectionPromptView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(.quaternary, lineWidth: 1)
         )
-        .onAppear {
-            appearedAt = Date()
-            autoStartTask?.cancel()
-            autoStartTask = Task {
-                try? await Task.sleep(nanoseconds: UInt64(Self.countdownSeconds * 1_000_000_000))
-                await MainActor.run {
-                    resolveStart()
-                }
-            }
-        }
-        .onDisappear {
-            autoStartTask?.cancel()
-            autoStartTask = nil
-        }
     }
 
-    private func countdownButton(progress: CGFloat) -> some View {
+    private func startButton() -> some View {
         Button {
             resolveStart()
         } label: {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(isStartDisabled ? Color.secondary.opacity(0.28) : Color.blue)
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.white.opacity(0.22))
-                        .frame(width: proxy.size.width * progress)
-                    Text(isStartDisabled ? "Запись пока недоступна" : "Записать сейчас")
-                        .font(.callout)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(height: 34)
+            Text(isStartDisabled ? "Запись пока недоступна" : "Записать сейчас")
+                .font(.callout)
+                .fontWeight(.semibold)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity, minHeight: 34)
+                .background(isStartDisabled ? Color.secondary.opacity(0.28) : Color.blue)
+                .clipShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
         .disabled(isStartDisabled)
         .keyboardShortcut(.defaultAction)
     }
 
-    private func progress(at date: Date) -> CGFloat {
-        guard !isStartDisabled else { return 0 }
-        return min(max(CGFloat(date.timeIntervalSince(appearedAt) / Self.countdownSeconds), 0), 1)
-    }
-
     private func resolveStart() {
         guard !didResolve, !isStartDisabled else { return }
         didResolve = true
-        autoStartTask?.cancel()
         onStart(autoRecordOptIn)
     }
 
     private func resolveDismiss() {
         guard !didResolve else { return }
         didResolve = true
-        autoStartTask?.cancel()
         onDismiss()
     }
 }

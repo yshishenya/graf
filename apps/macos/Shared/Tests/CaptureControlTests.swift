@@ -229,7 +229,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(source.contains("indicatorAvailable: meetingDetectionOneActionStopAvailable"))
     }
 
-    func testMeetingDetectionPromptUsesFloatingCountdownInsteadOfMainSheet() throws {
+    func testMeetingDetectionPromptRequiresExplicitStartInsteadOfAutoStart() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
                 .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
@@ -252,8 +252,11 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("Task { @MainActor [weak window]"))
         XCTAssertTrue(source.contains("meeting_detection.prompt_presented"))
         XCTAssertTrue(source.contains("meeting_detection.prompt_accepted"))
-        XCTAssertTrue(source.contains("TimelineView(.periodic"))
-        XCTAssertTrue(source.contains("Запись стартует автоматически"))
+        XCTAssertTrue(source.contains("Нажмите «Записать сейчас», чтобы начать запись"))
+        XCTAssertTrue(source.contains("private func startButton()"))
+        XCTAssertFalse(source.contains("autoStartTask"))
+        XCTAssertFalse(source.contains("TimelineView(.periodic"))
+        XCTAssertFalse(source.contains("Запись стартует автоматически"))
         XCTAssertTrue(source.contains("Режим: аудиозапись встречи"))
         XCTAssertTrue(source.contains("Источники: системный звук и микрофон"))
         XCTAssertTrue(source.contains("Политика: запись разрешена"))
