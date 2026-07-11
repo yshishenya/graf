@@ -186,6 +186,7 @@ async def browser_email_login_start(
         db,
         workspace_id=resolved_workspace_id,
         next_path=safe_next,
+        email=normalized_email,
         code=code,
         ttl_seconds=ttl_seconds,
     )
@@ -310,6 +311,7 @@ async def browser_email_signup_start(
         db,
         workspace_id=resolved_workspace_id,
         next_path=safe_next,
+        email=normalized_email,
         code=code,
         ttl_seconds=ttl_seconds,
         provider=EMAIL_SIGNUP_PROVIDER,
