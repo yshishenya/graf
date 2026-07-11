@@ -207,6 +207,22 @@
     return true;
   }
 
+  function disableYandexProvider() {
+    if (window.ym && config.yandex_metrica_id) {
+      try {
+        window.ym(config.yandex_metrica_id, "destruct");
+      } catch (_) {
+        // Best-effort provider teardown; local consent state must still block dispatch.
+      }
+    }
+    document.querySelectorAll('script[data-graf-provider="yandex-metrica"]').forEach(function (script) {
+      script.remove();
+    });
+    providerInitStarted = false;
+    api.providerInitStarted = false;
+    api.providerLoaded = false;
+  }
+
   function dispatchEvent(eventName, fields) {
     var payload = buildEventPayload(eventName, fields);
     if (!payload) {
@@ -333,6 +349,7 @@
     api.currentConsentState = state;
     writeStoredConsent(state, categories);
     if (!hasCategory(categories, "analytics")) {
+      disableYandexProvider();
       return false;
     }
     return startGrantedTracking(categories);
@@ -445,6 +462,7 @@
     currentConsentState: currentConsentState,
     dispatchEvent: dispatchEvent,
     dispatchOnce: dispatchOnce,
+    disableYandexProvider: disableYandexProvider,
     ensureYandexProvider: ensureYandexProvider,
     providerBlocked: false,
     providerInitStarted: false,

@@ -317,6 +317,17 @@ def test_public_analytics_controller_is_provider_failure_and_duplicate_init_safe
     assert "sectionsObserved" in analytics_js
 
 
+def test_public_analytics_controller_tears_down_yandex_on_consent_revocation() -> None:
+    analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
+
+    assert "disableYandexProvider" in analytics_js
+    assert "window.ym(config.yandex_metrica_id, \"destruct\")" in analytics_js
+    assert "script[data-graf-provider=\"yandex-metrica\"]" in analytics_js
+    assert "script.remove()" in analytics_js
+    assert "api.providerLoaded = false" in analytics_js
+    assert "if (!hasCategory(categories, \"analytics\")) {\n      disableYandexProvider();" in analytics_js
+
+
 def test_public_phase1_assets_do_not_include_deferred_provider_or_activation_code() -> None:
     public_asset_paths = [
         *PUBLIC_STATIC_DIR.rglob("*.js"),
