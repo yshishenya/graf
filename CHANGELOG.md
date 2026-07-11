@@ -18,7 +18,7 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- macOS desktop cabinet больше не прикрепляет Authorization и desktop identity headers к первому WebView-запросу на внешний HTTPS origin auth-provider при восстановлении входа.
 
 ### Документы
 - _Пока нет записей._

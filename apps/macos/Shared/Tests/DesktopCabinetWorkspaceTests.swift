@@ -14,6 +14,32 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertFalse(DesktopCabinetWorkspace.defaultRoute(configuration: configuration).path.localizedCaseInsensitiveContains("settings"))
     }
 
+    func testCabinetUrlRequestKeepsDesktopHeadersOnSameOriginOnly() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [
+                "Authorization": "Bearer SECRET",
+                "X-Workspace-Id": "workspace-033",
+                "X-Device-Id": "device-033",
+                "X-User-Id": "user-033",
+                "X-Organization-Id": "organization-033"
+            ]
+        ))
+
+        let sameOriginRequest = configuration.urlRequest(for: try url("/desktop/meetings"))
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "Authorization"), "Bearer SECRET")
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+
+        let externalProviderRequest = configuration.urlRequest(
+            for: try XCTUnwrap(URL(string: "https://attacker.example/oauth/authorize?state=state"))
+        )
+        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "X-Workspace-Id"))
+        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "X-Device-Id"))
+        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "X-User-Id"))
+        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "X-Organization-Id"))
+    }
+
     func testWorkspaceOpensMeetingDetailDestination() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
 
