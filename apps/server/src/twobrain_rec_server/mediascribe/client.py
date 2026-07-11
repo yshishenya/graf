@@ -13,6 +13,7 @@ from twobrain_rec_server.mediascribe.schemas import (
     MediaScribeResult,
     MediaScribeSubmitResponse,
 )
+from twobrain_rec_server.processing import reasons
 from twobrain_rec_server.processing.lifecycle import classify_mediascribe_error
 
 
@@ -112,16 +113,16 @@ class MediaScribeClient:
             status = MediaScribeJobStatus(str(data.get("status") or job.get("status") or MediaScribeJobStatus.UPLOADED.value))
         except ValueError as exc:
             raise _malformed_response_error() from exc
-        error_code = data.get("error_code") or job.get("error_code")
-        error_origin = data.get("error_origin") or job.get("error_origin")
-        reason_code = data.get("reason_code") or job.get("reason_code") or error_code
+        error_code = _safe_poll_error_code(data.get("error_code") or job.get("error_code"))
+        error_origin = _safe_poll_error_origin(data.get("error_origin") or job.get("error_origin"))
+        reason_code = _safe_poll_reason_code(data.get("reason_code") or job.get("reason_code") or error_code)
         reported_job_id = data.get("id") or data.get("job_id") or job.get("id") or external_job_id
         return MediaScribePollResponse(
             external_job_id=str(reported_job_id),
             status=status,
-            reason_code=str(reason_code) if reason_code else None,
-            error_code=str(error_code) if error_code else None,
-            error_origin=str(error_origin) if error_origin else None,
+            reason_code=reason_code,
+            error_code=error_code,
+            error_origin=error_origin,
         )
 
     async def fetch_result(self, external_job_id: str) -> MediaScribeResult:
@@ -162,6 +163,46 @@ class MediaScribeClient:
         if not isinstance(data, dict):
             raise MediaScribeClientError("mediascribe_malformed_response", retryable=True)
         return data
+
+
+_SAFE_POLL_REASON_CODES = {
+    reasons.INVALID_AUDIO_PAYLOAD,
+    reasons.MEDIASCRIBE_AUTH_FAILED,
+    reasons.MEDIASCRIBE_JOB_FAILED,
+    reasons.MEDIASCRIBE_MALFORMED_RESPONSE,
+    reasons.MEDIASCRIBE_PAYLOAD_TOO_LARGE,
+    reasons.MEDIASCRIBE_RATE_LIMITED,
+    reasons.MEDIASCRIBE_SERVER_ERROR,
+    reasons.MEDIASCRIBE_TIMEOUT,
+    reasons.MEDIASCRIBE_VALIDATION_FAILED,
+}
+
+_SAFE_POLL_ERROR_ORIGINS = {
+    reasons.FAILURE_SOURCE_INPUT_AUDIO,
+    reasons.FAILURE_SOURCE_MEDIASCRIBE,
+}
+
+
+def _safe_poll_reason_code(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in _SAFE_POLL_REASON_CODES:
+        return normalized
+    return reasons.MEDIASCRIBE_JOB_FAILED
+
+
+def _safe_poll_error_code(value: object) -> str | None:
+    return _safe_poll_reason_code(value)
+
+
+def _safe_poll_error_origin(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in _SAFE_POLL_ERROR_ORIGINS:
+        return normalized
+    return reasons.FAILURE_SOURCE_MEDIASCRIBE
 
 
 def _malformed_response_error() -> MediaScribeClientError:

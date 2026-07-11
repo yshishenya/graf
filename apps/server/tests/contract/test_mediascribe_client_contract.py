@@ -306,3 +306,35 @@ async def test_mediascribe_client_maps_nested_failed_poll_job_error_code_and_ori
     assert poll.reason_code == "invalid_audio_payload"
     assert poll.error_code == "invalid_audio_payload"
     assert poll.error_origin == "input_audio"
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_maps_untrusted_failed_poll_diagnostics_to_safe_codes() -> None:
+    raw_reason = "RAW_TRANSCRIPT_SNIPPET https://internal.example/object " + ("x" * 200)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_untrusted_error"
+        return httpx.Response(
+            200,
+            json={
+                "id": "job_untrusted_error",
+                "status": "failed",
+                "reason_code": raw_reason,
+                "error_code": "stack trace with private media object id",
+                "error_origin": "https://internal.example/provider/trace",
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    poll = await client.poll_job("job_untrusted_error")
+
+    assert poll.status == MediaScribeJobStatus.FAILED
+    assert poll.reason_code == "mediascribe_job_failed"
+    assert poll.error_code == "mediascribe_job_failed"
+    assert poll.error_origin == "mediascribe"
+    assert raw_reason not in str(poll)

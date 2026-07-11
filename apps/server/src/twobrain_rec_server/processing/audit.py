@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from uuid import UUID
 
 from twobrain_rec_server.observability.redaction import redact_mapping
+from twobrain_rec_server.processing import reasons
 
 ALLOWED_AUDIT_KEYS = {
     "attempt_count",
@@ -35,7 +36,34 @@ ALLOWED_AUDIT_KEYS = {
     "workspace_id",
 }
 
-SAFE_TRANSCRIPT_METADATA_VALUES = {
+SAFE_AUDIT_METADATA_VALUES = {
+    "error_code": {
+        reasons.INVALID_AUDIO_PAYLOAD,
+        reasons.MEDIASCRIBE_AUTH_FAILED,
+        reasons.MEDIASCRIBE_JOB_FAILED,
+        reasons.MEDIASCRIBE_MALFORMED_RESPONSE,
+        reasons.MEDIASCRIBE_PAYLOAD_TOO_LARGE,
+        reasons.MEDIASCRIBE_RATE_LIMITED,
+        reasons.MEDIASCRIBE_SERVER_ERROR,
+        reasons.MEDIASCRIBE_TIMEOUT,
+        reasons.MEDIASCRIBE_VALIDATION_FAILED,
+        None,
+    },
+    "error_origin": {reasons.FAILURE_SOURCE_INPUT_AUDIO, reasons.FAILURE_SOURCE_MEDIASCRIBE, None},
+    "failure_reason": {
+        reasons.INVALID_AUDIO_PAYLOAD,
+        reasons.MEDIASCRIBE_AUTH_FAILED,
+        reasons.MEDIASCRIBE_JOB_FAILED,
+        reasons.MEDIASCRIBE_MALFORMED_RESPONSE,
+        reasons.MEDIASCRIBE_PAYLOAD_TOO_LARGE,
+        reasons.MEDIASCRIBE_RATE_LIMITED,
+        reasons.MEDIASCRIBE_SERVER_ERROR,
+        reasons.MEDIASCRIBE_TIMEOUT,
+        reasons.MEDIASCRIBE_VALIDATION_FAILED,
+        reasons.NO_RECOGNIZABLE_SPEECH,
+        None,
+    },
+    "failure_source": {reasons.FAILURE_SOURCE_INPUT_AUDIO, reasons.FAILURE_SOURCE_MEDIASCRIBE, None},
     "transcript_status": {"available", "unavailable"},
     "transcript_reason": {"no_recognizable_speech", None},
 }
@@ -59,9 +87,13 @@ def safe_audit_metadata(values: Mapping[str, object]) -> dict[str, object]:
         else:
             sanitized[key] = value
     redacted = redact_mapping(sanitized)
-    for key, allowed_values in SAFE_TRANSCRIPT_METADATA_VALUES.items():
-        if key in sanitized and sanitized[key] in allowed_values:
+    for key, allowed_values in SAFE_AUDIT_METADATA_VALUES.items():
+        if key not in sanitized:
+            continue
+        if sanitized[key] in allowed_values:
             redacted[key] = sanitized[key]
+        else:
+            redacted[key] = "[REDACTED]"
     return redacted
 
 

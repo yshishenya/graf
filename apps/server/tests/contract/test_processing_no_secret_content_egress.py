@@ -35,3 +35,21 @@ def test_processing_redaction_treats_mediascribe_payloads_as_sensitive() -> None
     assert redacted["mediascribe_result"] == "[REDACTED]"
     assert redacted["safe_count"] == 2
     assert contains_forbidden_evidence_content("x-api-key: value")
+
+
+def test_processing_audit_metadata_redacts_untrusted_mediascribe_diagnostic_values() -> None:
+    metadata = safe_audit_metadata(
+        {
+            "error_code": "stack trace with private media object id",
+            "error_origin": "https://internal.example/provider/trace",
+            "failure_reason": "RAW_TRANSCRIPT_SNIPPET https://internal.example/object",
+            "failure_source": "provider stack trace",
+        }
+    )
+
+    assert metadata == {
+        "error_code": "[REDACTED]",
+        "error_origin": "[REDACTED]",
+        "failure_reason": "[REDACTED]",
+        "failure_source": "[REDACTED]",
+    }
