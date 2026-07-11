@@ -19,6 +19,9 @@
 
 ### Безопасность
 - Endpoint `/api/v1/product-analytics/events` теперь требует auth/device context и не принимает клиентские `stable_pseudonymous_user_id` или `telemetry_gate_state`, чтобы не допускать unauthenticated spoofing product activation analytics.
+- Support incident reports теперь редактируют клиентские строки по строгим metadata-схемам и ограничивают `local_purge_tasks` безопасными enum-значениями, чтобы encoded private content не уходил в GitHub issue.
+- Browser OAuth-вход через Yandex/VK теперь привязывает callback провайдера к браузеру, начавшему вход, через короткоживущую `__Host-` nonce cookie и не позволяет захваченным callback URL закрепить браузер жертвы за чужим аккаунтом.
+- Manual media upload endpoints теперь читают multipart body потоково после auth/CSRF checks, отклоняют oversized bodies до framework form spooling и больше не загружают весь media file в память.
 
 ### Документы
 - _Пока нет записей._

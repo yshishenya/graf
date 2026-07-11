@@ -4,11 +4,11 @@ import json
 from dataclasses import dataclass
 from hashlib import sha256
 
-from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import TrackDescriptor
+from twobrain_rec_server.api.upload_stream import BoundedUploadBody
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind, TrackRole
@@ -32,10 +32,11 @@ class ManualMediaUploadResult:
     processing: FinalizeProcessingDispatchResult
 
 
-def _track_descriptor_for_bytes(
+def _track_descriptor(
     *,
     track_role: TrackRole,
-    data: bytes,
+    byte_length: int,
+    content_sha256: str,
     codec: str,
     duration_seconds: int,
 ) -> TrackDescriptor:
@@ -45,8 +46,8 @@ def _track_descriptor_for_bytes(
         sample_rate_hz=1,
         channel_count=1,
         duration_seconds=duration_seconds,
-        byte_length=len(data),
-        sha256=sha256(data).hexdigest(),
+        byte_length=byte_length,
+        sha256=content_sha256,
     )
 
 
@@ -83,39 +84,43 @@ async def accept_manual_media_upload(
     tenant_scope: TenantScope,
     db: AsyncSession | None,
     storage: object,
-    file: UploadFile,
+    file: BoundedUploadBody,
+    filename: str | None,
+    content_type: str,
     duration_seconds: int,
     title: str | None,
     local_recording_id: str | None,
     temporal_client: object | None,
 ) -> ManualMediaUploadResult:
-    media_bytes = await file.read(settings.max_upload_part_bytes + 1)
-    await file.close()
-    if not media_bytes:
+    if file.byte_length == 0:
+        file.stream.close()
         raise ProblemDetail(status=400, code="empty_media_upload", title="Uploaded media file is empty")
-    if len(media_bytes) > settings.max_upload_part_bytes:
+    if file.byte_length > settings.max_upload_part_bytes:
+        file.stream.close()
         raise ProblemDetail(status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded")
 
-    media_sha256 = sha256(media_bytes).hexdigest()
+    media_sha256 = file.sha256
     recording_id = local_recording_id or f"manual-upload-{media_sha256[:32]}"
     media_revision_id = f"{recording_id}--manual"
-    content_type = file.content_type or "application/octet-stream"
-    display_title = _display_title_from_upload(title=title, filename=file.filename)
+    display_title = _display_title_from_upload(title=title, filename=filename)
     manifest_bytes = _manifest_bytes(
         duration_seconds=duration_seconds,
         media_sha256=media_sha256,
-        media_byte_length=len(media_bytes),
+        media_byte_length=file.byte_length,
         content_type=content_type,
     )
-    manifest = _track_descriptor_for_bytes(
+    manifest_sha256 = sha256(manifest_bytes).hexdigest()
+    manifest = _track_descriptor(
         track_role=TrackRole.MANIFEST,
-        data=manifest_bytes,
+        byte_length=len(manifest_bytes),
+        content_sha256=manifest_sha256,
         codec="application/json",
         duration_seconds=duration_seconds,
     )
-    media = _track_descriptor_for_bytes(
+    media = _track_descriptor(
         track_role=TrackRole.MEDIA,
-        data=media_bytes,
+        byte_length=file.byte_length,
+        content_sha256=media_sha256,
         codec=content_type,
         duration_seconds=duration_seconds,
     )
@@ -139,7 +144,7 @@ async def accept_manual_media_upload(
             expected_track_roles=[TrackRole.MANIFEST, TrackRole.MEDIA],
             expected_track_sizes={
                 TrackRole.MANIFEST: len(manifest_bytes),
-                TrackRole.MEDIA: len(media_bytes),
+                TrackRole.MEDIA: file.byte_length,
             },
             idempotency_key=f"manual-upload-{recording_id}",
         )
@@ -165,7 +170,7 @@ async def accept_manual_media_upload(
             part_number=0,
             byte_offset=0,
             content_sha256=media.sha256,
-            data=media_bytes,
+            data=file,
         )
         meeting, session = await finalize_upload(
             tenant_scope=tenant_scope,

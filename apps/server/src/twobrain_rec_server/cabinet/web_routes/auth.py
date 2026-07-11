@@ -7,7 +7,10 @@ from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.api.auth import build_provider_callback_url
+from twobrain_rec_server.api.auth import (
+    _set_browser_auth_state_cookie,
+    build_provider_callback_url,
+)
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.audit import write_auth_audit_event
@@ -17,6 +20,7 @@ from twobrain_rec_server.auth.policy import read_auth_providers
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.sessions import (
     create_callback_state,
+    issue_callback_nonce,
 )
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
@@ -619,12 +623,15 @@ async def browser_login_provider_start(
             ),
             status_code=403,
         )
+    browser_state_nonce = issue_callback_nonce()
+    state_ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
     state = create_callback_state(
         db,
         provider=normalized_provider,
         workspace_id=resolved_workspace_id,
         requested_redirect=safe_next,
-        ttl_seconds=request.app.state.settings.auth_callback_state_ttl_seconds,
+        browser_state_nonce=browser_state_nonce,
+        ttl_seconds=state_ttl_seconds,
     )
     settings = request.app.state.settings
     callback_url = build_provider_callback_url(request, normalized_provider)
@@ -650,7 +657,11 @@ async def browser_login_provider_start(
         request_id=getattr(request.state, "request_id", None),
     )
     await db.commit()
-    return RedirectResponse(authorization_url, status_code=303)
+    response = RedirectResponse(authorization_url, status_code=303)
+    _set_browser_auth_state_cookie(
+        response, nonce=browser_state_nonce, max_age=state_ttl_seconds
+    )
+    return response
 
 
 async def _load_browser_auth_page_context(
