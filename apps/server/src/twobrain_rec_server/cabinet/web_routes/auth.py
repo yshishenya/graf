@@ -181,6 +181,7 @@ async def browser_email_login_start(
     state = await _create_email_login_state(
         db,
         workspace_id=resolved_workspace_id,
+        email=normalized_email,
         next_path=safe_next,
         code=code,
         ttl_seconds=ttl_seconds,
@@ -305,6 +306,7 @@ async def browser_email_signup_start(
     state = await _create_email_login_state(
         db,
         workspace_id=resolved_workspace_id,
+        email=normalized_email,
         next_path=safe_next,
         code=code,
         ttl_seconds=ttl_seconds,

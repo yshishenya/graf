@@ -71,6 +71,7 @@ async def _create_email_login_state(
     db: AsyncSession,
     *,
     workspace_id: UUID,
+    email: str,
     next_path: str,
     code: str,
     ttl_seconds: int,
@@ -82,7 +83,7 @@ async def _create_email_login_state(
         state_nonce=secrets.token_urlsafe(24),
         workspace_id=workspace_id,
         requested_redirect=_safe_browser_next_path(next_path),
-        expected_state=hash_token(_normalize_email_code(code)),
+        expected_state=_email_login_challenge_hash(email=email, code=code),
         expires_at=callback_expiry(ttl_seconds=ttl_seconds),
         result="pending",
     )
@@ -160,7 +161,7 @@ async def _consume_email_login_code(
             error="email_code_expired",
             flow=flow,
         )
-    if state.expected_state != hash_token(_normalize_email_code(code)):
+    if state.expected_state != _email_login_challenge_hash(email=email, code=code):
         state.result = "failed"
         state.used_at = now
         state.error_code = "email_code_invalid"
@@ -517,6 +518,10 @@ def _normalize_email(value: str) -> str | None:
     if not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
         return None
     return normalized
+
+
+def _email_login_challenge_hash(*, email: str, code: str) -> str:
+    return hash_token(f"email:{_normalize_email(email) or ''}:{_normalize_email_code(code)}")
 
 
 def _issue_email_login_code() -> str:

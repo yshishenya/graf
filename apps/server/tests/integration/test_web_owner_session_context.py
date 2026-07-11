@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.csrf import issue_csrf_token
@@ -42,6 +42,40 @@ async def _link_owner_email_identity(client) -> None:
             )
         )
         await db.commit()
+
+
+async def _link_additional_email_identity(client, *, email: str):
+    user_id = uuid4()
+    async with client.app_state["sessionmaker"]() as db:
+        db.add(
+            UserIdentity(
+                id=user_id,
+                organization_id=ORG_ID,
+                external_subject=str(user_id),
+                display_name="Other User",
+            )
+        )
+        db.add(
+            WorkspaceMembership(
+                workspace_id=WORKSPACE_ID,
+                user_id=user_id,
+                role="member",
+                status="active",
+            )
+        )
+        db.add(
+            ExternalIdentity(
+                user_id=user_id,
+                provider="email",
+                provider_subject=email,
+                provider_username=email,
+                email=email,
+                display_name="Other User",
+                is_verified=True,
+            )
+        )
+        await db.commit()
+        return user_id
 
 
 async def _set_workspace_yandex_policy(client, enabled: bool) -> None:
@@ -471,6 +505,46 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert meetings.status_code == 200
     assert "Проектный синк" in meetings.text
     assert "missing_auth_context" not in meetings.text
+
+
+def test_browser_email_login_code_is_bound_to_started_email(client) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+    attacker_email = "attacker@example.test"
+    client.portal.call(_link_additional_email_identity, client, email=attacker_email)
+
+    start = client.post(
+        "/login/email/start",
+        data={"email": attacker_email, "next": "/meetings"},
+    )
+    assert start.status_code == 200
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None
+    assert code_match is not None
+
+    swapped = client.post(
+        "/login/email/verify",
+        data={
+            "email": BROWSER_OWNER_EMAIL,
+            "code": code_match.group(1),
+            "state": state_match.group(1),
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+
+    assert swapped.status_code == 400
+    assert swapped.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
+
+    async def state_result() -> tuple[str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            state_row = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state_match.group(1))
+            )
+            assert state_row is not None
+            return state_row.result, state_row.error_code
+
+    assert client.portal.call(state_result) == ("failed", "email_code_invalid")
 
 
 def test_browser_email_login_wrong_code_consumes_state(client) -> None:
