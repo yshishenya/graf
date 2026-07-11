@@ -3,12 +3,14 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 from html import unescape
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from sqlalchemy import select
 
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import seed_cabinet_meetings
+from twobrain_rec_server.api.auth import BROWSER_AUTH_STATE_COOKIE_NAME
 from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
@@ -336,6 +338,30 @@ def test_browser_yandex_login_start_redirects_to_provider(client) -> None:
     assert response.headers["location"].startswith("https://oauth.yandex.ru/authorize?")
     assert "state=" in response.headers["location"]
     assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fv1%2Fauth%2Fcallback%2Fyandex" in response.headers["location"]
+    set_cookie = response.headers["set-cookie"]
+    assert f"{BROWSER_AUTH_STATE_COOKIE_NAME}=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
+    assert "SameSite=lax" in set_cookie
+    assert "Domain=" not in set_cookie
+
+
+def test_browser_yandex_callback_rejects_missing_browser_state_cookie(client) -> None:
+    start = client.get(
+        "/login/yandex/start?next=/meetings",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+    client.cookies.clear()
+
+    callback = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": state, "code": "TEST-YA-USER"},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 400
+    assert callback.json()["code"] == "callback_state_invalid"
 
 
 def test_browser_vk_login_start_redirects_to_provider(client) -> None:
@@ -564,6 +590,47 @@ def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> No
             return identity
 
     client.portal.call(read_created_identity)
+
+
+def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:
+    client.portal.call(_set_workspace_self_enrollment_policy, client, True)
+    signup_email = "attacker-controlled@example.test"
+    different_email = "victim@example.test"
+
+    start = client.post(
+        "/sign-up/email/start",
+        data={"email": signup_email, "next": "/meetings"},
+    )
+    assert start.status_code == 200
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None
+    assert code_match is not None
+
+    callback = client.post(
+        "/sign-up/email/verify",
+        data={
+            "email": different_email,
+            "code": code_match.group(1),
+            "state": state_match.group(1),
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 400
+    assert callback.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
+
+    async def read_rejected_signup():
+        async with client.app_state["sessionmaker"]() as db:
+            state_row = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state_match.group(1))
+            )
+            victim_identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == different_email))
+            assert state_row is not None
+            return state_row.result, state_row.error_code, victim_identity
+
+    assert client.portal.call(read_rejected_signup) == ("failed", "email_code_invalid", None)
 
 
 def test_browser_email_signup_requires_workspace_enrollment_policy(client) -> None:

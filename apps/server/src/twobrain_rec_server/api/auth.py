@@ -48,6 +48,8 @@ from twobrain_rec_server.db.tenant_context import (
 )
 from twobrain_rec_server.product_analytics.events import build_activation_event
 
+BROWSER_AUTH_STATE_COOKIE_NAME = "__Host-twobrain_rec_browser_auth_state"
+
 
 class _ProviderEntry(BaseModel):
     provider: str
@@ -325,6 +327,28 @@ def _safe_browser_return_path(value: str | None) -> str | None:
     if any(char in stripped for char in "\r\n"):
         return None
     return stripped
+
+
+def _set_browser_auth_state_cookie(response: Response, *, nonce: str, max_age: int) -> None:
+    response.set_cookie(
+        key=BROWSER_AUTH_STATE_COOKIE_NAME,
+        value=nonce,
+        max_age=max_age,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _clear_browser_auth_state_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=BROWSER_AUTH_STATE_COOKIE_NAME,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
 
 
 def _set_auth_cookie(response: Response, *, token: str, expires_at: datetime) -> None:
@@ -616,6 +640,7 @@ async def callback(
             session_ttl_seconds=settings.auth_session_ttl_seconds,
             actor_ip=_request_client_ip(request),
             request_id=_request_id(request),
+            browser_state_nonce=request.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME),
         )
     except CallbackFlowError as exc:
         await db.commit()
@@ -651,8 +676,10 @@ async def callback(
     if redirect_path is not None:
         redirect = RedirectResponse(redirect_path, status_code=303)
         _set_auth_cookie(redirect, token=profile.token, expires_at=profile.token_expires_at)
+        _clear_browser_auth_state_cookie(redirect)
         return redirect
     _set_auth_cookie(response, token=profile.token, expires_at=profile.token_expires_at)
+    _clear_browser_auth_state_cookie(response)
     return payload
 
 
