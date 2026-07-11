@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, datetime
 
 import pytest
@@ -182,6 +183,50 @@ def test_redacts_human_text_in_safe_identifier_fields() -> None:
     assert report["safe_device_identifier"] == REDACTED_METADATA
     assert report["safe_recording_identity"] == REDACTED_METADATA
     assert report["safe_affected_identities"] == [REDACTED_METADATA]
+
+
+def test_redacts_encoded_chunks_from_support_incident_report() -> None:
+    secret = b"meeting content: Alice roadmap and credential token"
+    encoded = base64.urlsafe_b64encode(secret).decode("ascii").rstrip("=")
+    payload = safe_report_payload()
+    payload["local_purge_tasks"] = [encoded, "purge_local_buffers"]
+    payload["app_name"] = encoded
+    payload["last_safe_problem_code"] = encoded
+    payload["local_file_completeness_profile"]["duration_bucket"] = encoded
+
+    report = build_server_redacted_report(payload)
+    report_json = canonical_report_json(report)
+
+    assert report["local_purge_tasks"] == [REDACTED_METADATA, "purge_local_buffers"]
+    assert report["app_name"] == REDACTED_METADATA
+    assert report["last_safe_problem_code"] == REDACTED_METADATA
+    assert report["local_file_completeness_profile"]["duration_bucket"] == REDACTED_METADATA
+    assert encoded not in report_json
+    assert report["redaction_result"] == "accepted_with_redactions"
+
+
+def test_local_purge_tasks_are_bounded_to_metadata_enums() -> None:
+    payload = safe_report_payload()
+    payload["local_purge_tasks"] = [
+        "purge_local_buffers",
+        "acknowledged",
+        "free form task",
+    ] + ["pending"] * 12
+
+    report = build_server_redacted_report(payload)
+
+    assert report["local_purge_tasks"] == [
+        "purge_local_buffers",
+        "acknowledged",
+        REDACTED_METADATA,
+        "pending",
+        "pending",
+        "pending",
+        "pending",
+        "pending",
+        "pending",
+        "pending",
+    ]
 
 
 def test_rejects_non_metadata_only_or_unsupported_schema() -> None:

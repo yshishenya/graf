@@ -154,6 +154,13 @@ SIGNED_URL_RE = re.compile(
 )
 RAW_PATH_RE = re.compile(r"(^|[\s=:])(/Users/|/private/|/var/folders/|file://|[A-Za-z]:\\)")
 SAFE_TEXT_RE = re.compile(r"^[A-Za-z0-9 ._:/+@-]{1,256}$")
+SAFE_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,159}$")
+SAFE_VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){0,3}(?:[-+][A-Za-z0-9._-]{1,40})?$")
+SAFE_BUILD_RE = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
+SAFE_BUNDLE_ID_RE = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+){1,8}$")
+SAFE_LOCALE_RE = re.compile(r"^[a-z]{2,3}(?:[-_][A-Z]{2})?$")
+SAFE_TIMEZONE_RE = re.compile(r"^[A-Za-z_]+/[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+)?$")
+SAFE_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 SAFE_FINGERPRINT_RE = re.compile(r"^(?:fpr|[a-z0-9]+_fpr)_[a-f0-9]{2,64}$")
 SAFE_AFFECTED_FINGERPRINT_RE = re.compile(r"^affected_fpr_[a-f0-9]{2,64}$")
 SAFE_SENTINELS = {"unknown", "not_applicable"}
@@ -171,6 +178,52 @@ REPORT_FINGERPRINT_EXCLUDED_FIELDS = {
     "safe_report_fingerprint",
     "dedupe_key",
     "affected_identity_fingerprint",
+}
+
+STRICT_STRING_FIELD_VALIDATORS: dict[str, Callable[[str], bool]] = {
+    "app_name": lambda value: value == "GRAF",
+    "bundle_id": lambda value: SAFE_BUNDLE_ID_RE.match(value) is not None,
+    "app_version": lambda value: SAFE_VERSION_RE.match(value) is not None,
+    "build_version": lambda value: SAFE_BUILD_RE.match(value) is not None,
+    "macos_version": lambda value: SAFE_VERSION_RE.match(value) is not None,
+    "architecture": lambda value: value in {"arm64", "x86_64", "universal", UNKNOWN},
+    "locale": lambda value: SAFE_LOCALE_RE.match(value) is not None or value == UNKNOWN,
+    "timezone": lambda value: SAFE_TIMEZONE_RE.match(value) is not None or value in {"UTC", UNKNOWN},
+    "custody_lifecycle_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "upload_queue_item_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "retry_class": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "retry_mode": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "normal_user_action": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "failure_category": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "problem_code": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "sync_conflict_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "created_at": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None,
+    "updated_at": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None,
+    "retention_deadline": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None,
+    "data_loss_risk": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "last_attempt_at": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None or value in SAFE_SENTINELS,
+    "next_retry_at": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None or value in SAFE_SENTINELS,
+    "last_safe_http_status": lambda value: value in SAFE_SENTINELS or value.isdigit(),
+    "last_safe_problem_code": lambda value: SAFE_CODE_RE.match(value) is not None or value in SAFE_SENTINELS,
+    "local_purge_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "local_purge_ack_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "processing_status": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "app_queue_schema_version": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "ledger_schema_version": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "redaction_state": lambda value: value == "metadata_only",
+}
+
+SAFE_LOCAL_PURGE_TASK_VALUES = {
+    "purge_local_buffers",
+    "purge_local_exports",
+    "confirm_local_expiry",
+    "pending",
+    "claimed",
+    "acknowledged",
+    "failed",
+    "unreachable",
+    "expired",
+    "local_expiry_relied_upon",
 }
 
 
@@ -285,7 +338,7 @@ def _redact_field(field: str, value: Any) -> tuple[Any, int]:
     if field in NESTED_ALLOWED_FIELDS:
         return _redact_nested(field, value)
     if field == "local_purge_tasks":
-        return _redact_safe_list(value)
+        return _redact_safe_list(value, limit=10, item_validator=_is_safe_local_purge_task)
     if field == "safe_affected_identities":
         return _redact_safe_list(value, limit=5, item_validator=_is_safe_affected_identity)
     if field in FINGERPRINT_FIELDS:
@@ -295,10 +348,27 @@ def _redact_field(field: str, value: Any) -> tuple[Any, int]:
     if field == "safe_recording_identity":
         return _redact_safe_identity(value, allow_device_prefix=False, allow_recording_prefix=True)
     if isinstance(value, str):
-        if _is_unsafe_string(value) or not SAFE_TEXT_RE.match(value):
-            return REDACTED_METADATA, 1
-        return value, 0
+        return _redact_string_field(field, value)
     return value if isinstance(value, bool | int | float) else REDACTED_METADATA, 1
+
+
+def _redact_string_field(field: str, value: str) -> tuple[str, int]:
+    validator = STRICT_STRING_FIELD_VALIDATORS.get(field)
+    if validator is None:
+        return REDACTED_METADATA, 1
+    if _is_unsafe_string(value) or not validator(value):
+        return REDACTED_METADATA, 1
+    return value, 0
+
+
+def _redact_nested_string_value(field: str, value: str) -> tuple[str, int]:
+    if _is_unsafe_string(value):
+        return REDACTED_METADATA, 1
+    if field == "manifest_schema_version" and SAFE_CODE_RE.match(value):
+        return value, 0
+    if field in {"total_size_bucket", "duration_bucket"} and SAFE_CODE_RE.match(value):
+        return value, 0
+    return REDACTED_METADATA, 1
 
 
 def _redact_nested(field: str, value: Any) -> tuple[dict[str, Any], int]:
@@ -312,11 +382,9 @@ def _redact_nested(field: str, value: Any) -> tuple[dict[str, Any], int]:
             continue
         nested = value[key]
         if isinstance(nested, str):
-            if _is_unsafe_string(nested) or not SAFE_TEXT_RE.match(nested):
-                redacted[key] = REDACTED_METADATA
-                count += 1
-            else:
-                redacted[key] = nested
+            safe_nested, redacted_count = _redact_nested_string_value(key, nested)
+            redacted[key] = safe_nested
+            count += redacted_count
         elif isinstance(nested, bool | int):
             redacted[key] = nested
         else:
@@ -413,3 +481,7 @@ def _is_unsafe_string(value: str) -> bool:
 def _fingerprint(prefix: str, value: str, *, length: int = 16) -> str:
     digest = sha256(value.encode("utf-8")).hexdigest()[:length]
     return f"{prefix}_{digest}"
+
+
+def _is_safe_local_purge_task(value: Any) -> bool:
+    return isinstance(value, str) and value in SAFE_LOCAL_PURGE_TASK_VALUES
