@@ -506,12 +506,17 @@ OSStatus Initialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef in_host
     gHost = in_host;
 
     // Create or open shared memory
-    gShmFD = shm_open(TwoBrainRec::kShmName, O_CREAT | O_RDWR, 0666);
+    gShmFD = shm_open(TwoBrainRec::kShmName, O_CREAT | O_RDWR, 0600);
     if (gShmFD < 0) {
         Trace("Initialize: shm_open failed");
         return kAudioHardwareUnspecifiedError;
     }
-    fchmod(gShmFD, 0666);
+    if (fchmod(gShmFD, 0600) != 0) {
+        Trace("Initialize: fchmod failed");
+        close(gShmFD);
+        gShmFD = -1;
+        return kAudioHardwareUnspecifiedError;
+    }
 
     // Resize stale shared memory from older local builds before mapping the new layout.
     struct stat st;

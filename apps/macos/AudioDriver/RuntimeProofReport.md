@@ -392,9 +392,9 @@ Decision: this attempt confirmed that the fail-closed side is now strict enough,
 but recovery is blocked because the app cannot establish or refresh private app
 I/O. The likely cause is shared-memory permissions: `coreaudiod` creates the
 POSIX shared memory object as root, and umask can leave it not writable by the
-desktop app. The driver was updated after this attempt to call `fchmod(...,
-0666)` immediately after `shm_open`, so the desktop app can write the heartbeat
-needed for recovery.
+desktop app. This historical recovery attempt was superseded by the
+shared-memory hardening fix: the driver must not call `fchmod(..., 0666)`
+because the bridge contains heartbeat state and live audio buffers.
 
 Required follow-up: rebuild and reinstall the package containing the shared
 memory permission fix, then rerun the same kill/relaunch proof. `T059` remains
