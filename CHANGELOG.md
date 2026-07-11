@@ -18,6 +18,7 @@
 - _Пока нет записей._
 
 ### Безопасность
+- Browser OAuth-вход через Yandex/VK теперь привязывает callback провайдера к браузеру, начавшему вход, через короткоживущую `__Host-` nonce cookie и не позволяет захваченным callback URL закрепить браузер жертвы за чужим аккаунтом.
 - Manual media upload endpoints теперь читают multipart body потоково после auth/CSRF checks, отклоняют oversized bodies до framework form spooling и больше не загружают весь media file в память.
 
 ### Документы

@@ -64,11 +64,14 @@ def create_callback_state(
     provider: str,
     workspace_id: UUID,
     requested_redirect: str | None,
+    browser_state_nonce: str | None = None,
     ttl_seconds: int | None = None,
     now: datetime | None = None,
 ) -> CreatedCallbackState:
     state_nonce = issue_callback_nonce()
-    expected_state = state_nonce
+    expected_state = (
+        hash_token(browser_state_nonce) if browser_state_nonce is not None else state_nonce
+    )
     created = AuthCallbackState(
         provider=provider,
         state_nonce=state_nonce,
@@ -93,6 +96,7 @@ async def consume_callback_state(
     *,
     provider: str,
     state_nonce: str,
+    browser_state_nonce: str | None = None,
     now: datetime | None = None,
 ) -> AuthCallbackState:
     now = now or datetime.now(UTC)
@@ -111,6 +115,10 @@ async def consume_callback_state(
         state.used_at = now
         state.result = "expired"
         raise ValueError("callback state expired")
+    if state.expected_state != state_nonce and (
+        browser_state_nonce is None or hash_token(browser_state_nonce) != state.expected_state
+    ):
+        raise ValueError("callback state browser binding invalid")
     state.used_at = now
     state.result = "completed"
     db.add(state)
