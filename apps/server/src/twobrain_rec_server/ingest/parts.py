@@ -32,6 +32,8 @@ from twobrain_rec_server.ingest.store import (
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 from twobrain_rec_server.storage.object_keys import build_track_object_key
 
+MAX_UPLOAD_PART_NUMBER = 2_147_483_647
+
 
 async def get_session_for_tenant(
     session_id: UUID,
@@ -166,9 +168,13 @@ async def accept_part(
         if stream is not None:
             stream.close()
 
-    if part_number < 0:
+    if part_number < 0 or part_number > MAX_UPLOAD_PART_NUMBER:
         close_upload_stream()
-        raise ProblemDetail(status=400, code="invalid_part_number", title="Part number must be non-negative")
+        raise ProblemDetail(
+            status=400,
+            code="invalid_part_number",
+            title=f"Part number must be between 0 and {MAX_UPLOAD_PART_NUMBER}",
+        )
     if byte_offset < 0:
         close_upload_stream()
         raise ProblemDetail(status=400, code="invalid_byte_offset", title="Byte offset must be non-negative")
