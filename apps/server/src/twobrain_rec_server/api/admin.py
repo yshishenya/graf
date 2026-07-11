@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.admin.audit import read_admin_audit_journal
 from twobrain_rec_server.admin.files import (
     admin_meeting_access,
+    ensure_admin_file_access_allowed,
     get_admin_file_detail,
     list_admin_files,
     record_admin_review_access,
@@ -582,6 +583,7 @@ async def download_admin_meeting_artifact(
         )
     context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
     meeting = await _load_admin_meeting(db, context.workspace_id, meeting_id)
+    await ensure_admin_file_access_allowed(db, context=context, meeting=meeting)
     access = admin_meeting_access(context)
     result = await latest_processing_result(
         db, workspace_id=context.workspace_id, meeting_id=meeting_id
@@ -634,6 +636,7 @@ async def create_admin_meeting_export(
         )
     context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
     meeting = await _load_admin_meeting(db, context.workspace_id, meeting_id)
+    await ensure_admin_file_access_allowed(db, context=context, meeting=meeting)
     access = admin_meeting_access(context)
     result = await latest_processing_result(
         db, workspace_id=context.workspace_id, meeting_id=meeting_id
