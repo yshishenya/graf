@@ -261,6 +261,11 @@ def test_empty_optional_url_is_unset_when_feature_is_disabled() -> None:
     assert settings.postal_api_url is None
 
 
+def test_production_rejects_empty_auth_base_url() -> None:
+    with pytest.raises(ValidationError, match="auth_base_url"):
+        _production_settings(auth_base_url="")
+
+
 def test_production_email_login_delivery_reads_non_empty_postal_secret(tmp_path) -> None:
     key_file = tmp_path / "postal-key"
     key_file.write_text("postal-api-key")

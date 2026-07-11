@@ -170,7 +170,6 @@ class Settings(BaseSettings):
         "mediascribe_health_url",
         "langfuse_base_url",
         "langfuse_health_url",
-        "auth_base_url",
         "web_login_workspace_id",
         "postal_host_header",
         "credential_encryption_key_file",
