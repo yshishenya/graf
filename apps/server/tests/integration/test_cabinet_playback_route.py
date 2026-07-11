@@ -17,6 +17,7 @@ from tests.fixtures.cabinet_access import (
     replace_retained_audio_with_test_wav,
     set_artifact_policy,
     set_meeting_deletion_state,
+    set_meeting_visibility,
     set_retained_audio_source_status,
 )
 from twobrain_rec_server.db.models import TrackArtifact
@@ -185,6 +186,7 @@ def test_owner_playback_route_audits_storage_reader_failure(client) -> None:
 
 def test_shared_viewer_playback_route_uses_stored_m4a_review_artifact(client) -> None:
     seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
     add_workspace_user(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
     m4a_body = add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A shared")
@@ -200,6 +202,47 @@ def test_shared_viewer_playback_route_uses_stored_m4a_review_artifact(client) ->
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/mp4")
     assert response.content == m4a_body
+
+
+def test_shared_viewer_playback_route_obeys_owner_only_audio_policy(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(client, seeds.ready_id, audio_download="owner_only")
+    add_workspace_user(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A shared")
+    share = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+        headers=auth_headers(),
+        json={"grantee_user_id": str(SHARED_USER_ID)},
+    )
+    assert share.status_code == 201
+
+    response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers_for())
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "playback_unavailable"
+    assert [
+        (event.event_type, event.outcome, event.policy_reason) for event in audit_events(client, seeds.ready_id)
+    ] == [
+        ("playback_denied", "denied", "Only the meeting owner can use this artifact action.")
+    ]
+
+
+def test_team_viewer_playback_route_obeys_disabled_audio_policy(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(client, seeds.ready_id, audio_download="disabled")
+    set_meeting_visibility(client, seeds.ready_id, "team")
+    add_workspace_user(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A team")
+
+    response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers_for())
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "playback_unavailable"
+    assert [
+        (event.event_type, event.outcome, event.policy_reason) for event in audit_events(client, seeds.ready_id)
+    ] == [
+        ("playback_denied", "denied", "Workspace policy disables this artifact egress.")
+    ]
 
 
 def test_owner_playback_route_supports_byte_range_without_audio_download_policy(client) -> None:

@@ -237,6 +237,10 @@ async def review_playback_state(
             reason="Viewer cannot access this meeting.",
             action="disabled",
         )
+    policy = await resolve_artifact_policy(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    blocked = _playback_policy_blocked_state(policy.audio_download, access)
+    if blocked is not None:
+        return blocked
     if result is None or result.status != ProcessingResultStatus.IMPORTED.value:
         reason = _playback_result_unavailable_reason(meeting, result)
         state = "failed" if reason in {"processing_failed", "review_result_not_imported"} else "processing"
@@ -1051,6 +1055,21 @@ def _policy_blocked_state(
             action="disabled",
         )
     return None
+
+
+def _playback_policy_blocked_state(policy_value: str, access: AccessDecision) -> ArtifactEgressState | None:
+    if access.state == "owner":
+        return None
+    blocked = _policy_blocked_state("audio", policy_value, access)
+    if blocked is None:
+        return None
+    return ArtifactEgressState(
+        artifact_class="audio",
+        state=blocked.state,
+        label=blocked.label,
+        reason=blocked.reason,
+        action="disabled",
+    )
 
 
 async def _transcript_text(

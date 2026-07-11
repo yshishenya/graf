@@ -18,7 +18,9 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Review playback теперь применяет audio egress policy к non-owner team/shared
+  viewers, чтобы запрет `disabled` или `owner_only` не обходился через
+  `/playback`.
 
 ### Документы
 - _Пока нет записей._
