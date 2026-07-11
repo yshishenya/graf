@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.csrf import issue_csrf_token
@@ -614,6 +614,84 @@ def test_browser_email_signup_verify_rechecks_workspace_enrollment_policy(client
     assert "Регистрация в этом кабинете закрыта" in callback.text
     assert callback.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
 
+
+def test_browser_email_login_rejects_recipient_swap(client) -> None:
+    victim_user_id = uuid4()
+    attacker_email = BROWSER_OWNER_EMAIL
+    victim_email = "victim@example.test"
+
+    async def seed_login_identities() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    ExternalIdentity(
+                        user_id=USER_ID,
+                        provider="email",
+                        provider_subject=attacker_email,
+                        provider_username=attacker_email,
+                        email=attacker_email,
+                        display_name="Browser Owner",
+                        is_verified=True,
+                    ),
+                    UserIdentity(
+                        id=victim_user_id,
+                        organization_id=ORG_ID,
+                        external_subject=str(victim_user_id),
+                        display_name="Victim User",
+                    ),
+                    WorkspaceMembership(
+                        workspace_id=WORKSPACE_ID,
+                        user_id=victim_user_id,
+                        role="member",
+                        status="active",
+                    ),
+                    ExternalIdentity(
+                        user_id=victim_user_id,
+                        provider="email",
+                        provider_subject=victim_email,
+                        provider_username=victim_email,
+                        email=victim_email,
+                        display_name="Victim User",
+                        is_verified=True,
+                    ),
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_login_identities)
+    start = client.post(
+        "/login/email/start",
+        data={"email": attacker_email, "next": "/meetings"},
+    )
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None
+    assert code_match is not None
+
+    callback = client.post(
+        "/login/email/verify",
+        data={
+            "email": victim_email,
+            "code": code_match.group(1),
+            "state": state_match.group(1),
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 400
+    assert "Неверный или уже использованный код" in callback.text
+    assert callback.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
+
+    async def read_callback_state() -> tuple[str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            state = await db.scalar(
+                select(AuthCallbackState).where(AuthCallbackState.state_nonce == state_match.group(1))
+            )
+            assert state is not None
+            return state.result, state.error_code
+
+    assert client.portal.call(read_callback_state) == ("failed", "email_code_invalid")
 
 def test_browser_email_login_production_delivery_hides_code(monkeypatch, client) -> None:
     client.app.state.settings.env = "production"

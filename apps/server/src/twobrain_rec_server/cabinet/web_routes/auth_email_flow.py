@@ -72,6 +72,7 @@ async def _create_email_login_state(
     *,
     workspace_id: UUID,
     next_path: str,
+    email: str,
     code: str,
     ttl_seconds: int,
     provider: str = EMAIL_LOGIN_PROVIDER,
@@ -82,7 +83,7 @@ async def _create_email_login_state(
         state_nonce=secrets.token_urlsafe(24),
         workspace_id=workspace_id,
         requested_redirect=_safe_browser_next_path(next_path),
-        expected_state=hash_token(_normalize_email_code(code)),
+        expected_state=_email_login_expected_state(email=email, code=code),
         expires_at=callback_expiry(ttl_seconds=ttl_seconds),
         result="pending",
     )
@@ -160,7 +161,7 @@ async def _consume_email_login_code(
             error="email_code_expired",
             flow=flow,
         )
-    if state.expected_state != hash_token(_normalize_email_code(code)):
+    if state.expected_state != _email_login_expected_state(email=email, code=code):
         state.result = "failed"
         state.used_at = now
         state.error_code = "email_code_invalid"
@@ -525,6 +526,10 @@ def _issue_email_login_code() -> str:
 
 def _normalize_email_code(value: str) -> str:
     return "".join(char for char in value.strip() if char.isdigit())
+
+
+def _email_login_expected_state(*, email: str, code: str) -> str:
+    return hash_token(f"email:{email}:code:{_normalize_email_code(code)}")
 
 
 def _should_echo_email_code(request: Request) -> bool:
