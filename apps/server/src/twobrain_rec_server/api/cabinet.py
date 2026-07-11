@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +39,7 @@ from twobrain_rec_server.api.schemas import (
     RetentionRunResponse,
     ShareGrantResponse,
 )
+from twobrain_rec_server.api.upload_stream import read_manual_media_upload_body
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
@@ -143,10 +143,6 @@ async def list_cabinet_meetings_route(
 )
 async def create_cabinet_manual_media_upload_route(
     request: Request,
-    file: Annotated[UploadFile, File()],
-    duration_seconds: Annotated[int, Form(gt=0)],
-    title: str | None = Form(default=None, max_length=500),
-    local_recording_id: str | None = Form(default=None, min_length=1, max_length=240, pattern=r"^[^\x00-\x1f\x7f]+$"),
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = DbDependency,
@@ -158,15 +154,22 @@ async def create_cabinet_manual_media_upload_route(
             code="auth_session_required_for_manual_upload",
             title="Sign in required for media upload",
         )
+    upload = await read_manual_media_upload_body(
+        request,
+        max_file_bytes=request.app.state.settings.max_upload_part_bytes,
+        spool_memory_bytes=request.app.state.settings.max_upload_spool_memory_bytes,
+    )
     result = await accept_manual_media_upload(
         settings=request.app.state.settings,
         tenant_scope=tenant_scope,
         db=db,
         storage=storage,
-        file=file,
-        duration_seconds=duration_seconds,
-        title=title,
-        local_recording_id=local_recording_id,
+        file=upload.file,
+        filename=upload.filename,
+        content_type=upload.content_type,
+        duration_seconds=upload.duration_seconds,
+        title=upload.title,
+        local_recording_id=upload.local_recording_id,
         temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await commit_if_available(db)
