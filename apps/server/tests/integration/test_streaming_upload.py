@@ -137,3 +137,80 @@ def test_upload_part_limit_rejects_before_storage_write(client) -> None:
     assert response.status_code == 413
     assert response.json()["code"] == "upload_part_bytes_exceeded"
     assert client.app_state["storage"].objects == {}
+
+
+def _multipart_body(boundary: str, file_bytes: bytes) -> bytes:
+    return (
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"duration_seconds\"\r\n\r\n60\r\n"
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nUploaded\r\n"
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"meeting.wav\"\r\n"
+        f"Content-Type: audio/wav\r\n\r\n"
+    ).encode() + file_bytes + f"\r\n--{boundary}--\r\n".encode()
+
+
+def test_manual_media_multipart_stream_rejects_declared_oversize_before_streaming() -> None:
+    import asyncio
+
+    from twobrain_rec_server.api.upload_stream import read_manual_media_upload_body
+
+    consumed = 0
+
+    class CountingRequest(StreamingRequest):
+        async def stream(self):
+            nonlocal consumed
+            consumed += 1
+            yield b"unused"
+
+    async def run() -> None:
+        with pytest.raises(ProblemDetail) as exc:
+            await read_manual_media_upload_body(
+                CountingRequest(
+                    [b"unused"],
+                    headers={
+                        "content-type": "multipart/form-data; boundary=manual",
+                        "content-length": str(65_536 + 12),
+                    },
+                ),  # type: ignore[arg-type]
+                max_file_bytes=10,
+                spool_memory_bytes=4,
+            )
+        assert exc.value.status == 413
+        assert exc.value.code == "upload_part_bytes_exceeded"
+
+    asyncio.run(run())
+    assert consumed == 0
+
+
+def test_manual_media_multipart_stream_spools_file_without_whole_file_bytes() -> None:
+    import asyncio
+    from hashlib import sha256
+
+    from twobrain_rec_server.api.upload_stream import read_manual_media_upload_body
+
+    boundary = "manual"
+    data = b"a" * 12
+    body = _multipart_body(boundary, data)
+
+    async def run() -> None:
+        upload = await read_manual_media_upload_body(
+            StreamingRequest(
+                [body[:40], body[40:90], body[90:]],
+                headers={
+                    "content-type": f"multipart/form-data; boundary={boundary}",
+                    "content-length": str(len(body)),
+                },
+            ),  # type: ignore[arg-type]
+            max_file_bytes=64,
+            spool_memory_bytes=4,
+        )
+        assert upload.duration_seconds == 60
+        assert upload.title == "Uploaded"
+        assert upload.filename == "meeting.wav"
+        assert upload.content_type == "audio/wav"
+        assert upload.file.byte_length == len(data)
+        assert upload.file.sha256 == sha256(data).hexdigest()
+        assert getattr(upload.file.stream, "_rolled", False) is True
+        assert upload.file.stream.read() == data
+        upload.file.stream.close()
+
+    asyncio.run(run())
