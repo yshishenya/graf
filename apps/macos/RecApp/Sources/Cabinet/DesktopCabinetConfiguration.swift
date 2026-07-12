@@ -101,8 +101,12 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
     }
 
     public func urlRequest(for url: URL? = nil) -> URLRequest {
-        var request = URLRequest(url: url ?? meetingsURL())
+        let requestURL = url ?? meetingsURL()
+        var request = URLRequest(url: requestURL)
         request.timeoutInterval = loadTimeoutSeconds
+        guard isSameOrigin(requestURL) else {
+            return request
+        }
         for (header, value) in headers {
             request.setValue(value, forHTTPHeaderField: header)
         }
@@ -121,6 +125,12 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
             return trimmed
         }
         return trimmed.addingPercentEncoding(withAllowedCharacters: allowed) ?? "unknown"
+    }
+
+    private func isSameOrigin(_ url: URL) -> Bool {
+        let normalizedURL = Self.normalizedHTTPOrigin(url)
+        let normalizedBaseURL = Self.normalizedHTTPOrigin(baseURL)
+        return normalizedURL == normalizedBaseURL
     }
 
     private static func normalizedHTTPOrigin(_ url: URL) -> URL? {
