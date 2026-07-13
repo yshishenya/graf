@@ -267,7 +267,7 @@ evidence and closure comments are available.
 
 **Purpose**: Complete the active goal's release obligation after PR merge; do not substitute local CI for production proof.
 
-- [ ] T105 After PR merge, choose the next CalVer and run `./scripts/prepare-release.sh YYYY.MM.DD.N`, recording the version and generated diff in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
+- [X] T105 After PR merge, choose the next CalVer and run `./scripts/prepare-release.sh YYYY.MM.DD.N`, recording the version and generated diff in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
 - [ ] T106 Publish the matching tag and Russian GitHub Release notes with changes, validation, migration/compatibility, known limitations, PR/issues and deferred audit in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
 - [ ] T107 Run `infra/scripts/cd-remote.sh --dry-run`, resolve every gate, then run `infra/scripts/cd-remote.sh --execute` only when met and record backup/rollback/deployed SHA in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
 - [ ] T108 Prove production health, migration state, clear/no-context/ambiguous behavior, browser/embedded parity and installed macOS app impact without private content in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
