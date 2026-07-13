@@ -257,11 +257,10 @@ follows; no issue is closed by local evidence alone.
 | T091–T102 | #3172–#3183 | `validation/implementation-evidence.md` |
 | T103–T104 | #3184–#3185 | `validation/pr-closeout.md` |
 
-T105–T108 are complete with merge, release, deploy and production evidence in
-`validation/release-closeout.md`. Their issues and the already completed
-T001–T104 issues remain open only until detailed post-release closure comments
-are published. T109 / #3190 remains open for that tracker and workspace
-cleanup.
+T001–T108 are complete and their one-to-one issues #3082–#3189 received
+detailed post-release closure comments before being closed. T109 is complete
+with status documentation and verified feature branch/worktree cleanup in
+`validation/release-closeout.md`; #3190 closes after that final receipt merges.
 
 ---
 
@@ -273,7 +272,7 @@ cleanup.
 - [X] T106 Publish the matching tag and Russian GitHub Release notes with changes, validation, migration/compatibility, known limitations, PR/issues and deferred audit in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
 - [X] T107 Run `infra/scripts/cd-remote.sh --dry-run`, resolve every gate, then run `infra/scripts/cd-remote.sh --execute` only when met and record backup/rollback/deployed SHA in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
 - [X] T108 Prove production health, migration state, clear/no-context/ambiguous behavior, browser/embedded parity and installed macOS app impact without private content in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
-- [ ] T109 Close task-backed GitHub issues only after evidence comments, update `docs/current-product-status.md`, verify branch/worktree cleanup, and record that feature 097 plus the standalone security audit remain separately deferred in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
+- [X] T109 Close task-backed GitHub issues only after evidence comments, update `docs/current-product-status.md`, verify branch/worktree cleanup, and record that feature 097 plus the standalone security audit remain separately deferred in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
 
 ---
 

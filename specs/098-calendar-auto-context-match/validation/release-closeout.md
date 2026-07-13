@@ -4,7 +4,8 @@
 **Validation lane**: release / deploy
 **Status**: feature and smoke-cleanup hotfix released; `v2026.07.13.3` is
 published and production serves its exact SHA with all deployment, smoke,
-cleanup and public-health gates passing
+cleanup and public-health gates passing; task evidence, tracker comments and
+feature-workspace cleanup are complete
 
 ## Merge Anchor
 
@@ -343,6 +344,33 @@ code did not change.
 - Server deployment alone never updates an installed macOS application. Public
   Developer ID signing/notarization remains a separate product limitation.
 
+## T109 — Tracker And Workspace Cleanup
+
+- Issues #3082–#3189, mapping one-to-one to T001–T108, each received a detailed
+  Russian closure comment before being closed with reason `completed`.
+- A post-close query returned `108` closed and only #3190/T109 open. Issue
+  #3190 is intentionally closed only after this final receipt reaches
+  `master`.
+- Clean, fully merged worktrees
+  `098-calendar-auto-context-match`, `098-master-baseline-fix` and
+  `release-v202607132-098-closeout` were removed after each branch proved zero
+  commits ahead of `origin/master`.
+- Their local branches and the merged remote feature, baseline-fix, release and
+  smoke-hotfix branches were removed. The transient
+  `codex/098-tracker-closeout` branch exists only to merge this receipt and is
+  deleted with that merge; afterward no remote branch under the exact
+  `codex/098*` feature prefix remains.
+- Two pre-refresh 098 stashes remain preserved by design; no stash or unrelated
+  user state was dropped.
+- The clean 099 worktree remains available for the next feature. The dirty
+  detached `30ac` worktree was inspected only read-only and remains unchanged.
+- Feature 097 and resumable Codex Security scan
+  `97e2db82-ff16-4fda-9167-aa52b9b9cf59` were not opened, mutated, failed or
+  counted as 098 evidence.
+- The two independent deployment clones are not registered repository
+  worktrees. Their clean state was verified; they are removed only after the
+  final evidence PR is merged so no in-progress closeout state is lost.
+
 ## Approval Gate
 
 - [x] Feature PR merged and exact merge SHA recorded.
@@ -366,5 +394,5 @@ code did not change.
   `deploy_result=pass` and `readiness_verdict=infra_smoke_ready`.
 - [x] Production read-back, behavior-proof boundary, installed-app impact and
   zero synthetic residue are recorded without private content.
-- [ ] Detailed issue closure comments, tracker closure and worktree/branch
+- [x] Detailed issue closure comments, tracker closure and worktree/branch
   cleanup are complete.
