@@ -39,7 +39,10 @@ from twobrain_rec_server.api.schemas import (
     RetentionRunResponse,
     ShareGrantResponse,
 )
-from twobrain_rec_server.api.upload_stream import read_manual_media_upload_body
+from twobrain_rec_server.api.upload_stream import (
+    MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA,
+    read_manual_media_upload_body,
+)
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
@@ -140,6 +143,7 @@ async def list_cabinet_meetings_route(
     status_code=status.HTTP_202_ACCEPTED,
     operation_id="createCabinetManualMediaUpload",
     dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+    openapi_extra=MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA,
 )
 async def create_cabinet_manual_media_upload_route(
     request: Request,

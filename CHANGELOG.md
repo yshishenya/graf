@@ -15,7 +15,10 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Streaming manual media upload снова публикует обязательный multipart OpenAPI
+  contract и возвращает `422` для отсутствующих обязательных form-полей;
+  macOS regression coverage для desktop cabinet снова компилируется и
+  проверяет изоляцию identity headers по scheme, host и port.
 
 ### Безопасность
 - macOS desktop cabinet больше не прикрепляет Authorization и desktop identity headers к первому WebView-запросу на внешний HTTPS origin auth-provider при восстановлении входа.

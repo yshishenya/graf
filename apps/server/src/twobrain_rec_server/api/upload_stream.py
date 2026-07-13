@@ -8,6 +8,48 @@ from python_multipart.multipart import MultipartParseError, MultipartParser, par
 
 from twobrain_rec_server.api.problems import ProblemDetail
 
+MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA: dict[str, object] = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "file": {
+                            "type": "string",
+                            "contentMediaType": "application/octet-stream",
+                            "title": "File",
+                        },
+                        "duration_seconds": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0.0,
+                            "title": "Duration Seconds",
+                        },
+                        "title": {
+                            "anyOf": [{"type": "string", "maxLength": 500}, {"type": "null"}],
+                            "title": "Title",
+                        },
+                        "local_recording_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 240,
+                                    "minLength": 1,
+                                    "pattern": r"^[^\x00-\x1f\x7f]+$",
+                                },
+                                {"type": "null"},
+                            ],
+                            "title": "Local Recording Id",
+                        },
+                    },
+                    "required": ["file", "duration_seconds"],
+                }
+            }
+        },
+    }
+}
+
 
 @dataclass(slots=True)
 class BoundedUploadBody:
@@ -83,7 +125,9 @@ def _multipart_boundary(request: Request) -> bytes:
     content_type = getattr(request, "headers", {}).get("content-type", "")
     media_type, options = parse_options_header(content_type.encode("latin-1"))
     boundary = options.get(b"boundary")
-    if media_type != b"multipart/form-data" or not boundary:
+    if media_type != b"multipart/form-data":
+        raise ProblemDetail(status=422, code="request_validation_error", title="Request validation error")
+    if not boundary:
         raise ProblemDetail(status=400, code="invalid_multipart_upload", title="Expected multipart/form-data upload")
     return boundary
 

@@ -26,18 +26,34 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             ]
         ))
 
-        let sameOriginRequest = configuration.urlRequest(for: try url("/desktop/meetings"))
+        let sameOriginRequest = configuration.urlRequest(
+            for: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings"))
+        )
         XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "Authorization"), "Bearer SECRET")
         XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-Device-Id"), "device-033")
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-User-Id"), "user-033")
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-Organization-Id"), "organization-033")
 
-        let externalProviderRequest = configuration.urlRequest(
-            for: try XCTUnwrap(URL(string: "https://attacker.example/oauth/authorize?state=state"))
-        )
-        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "Authorization"))
-        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "X-Workspace-Id"))
-        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "X-Device-Id"))
-        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "X-User-Id"))
-        XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: "X-Organization-Id"))
+        for externalURL in [
+            "https://attacker.example/oauth/authorize?state=state",
+            "http://rec.2brain.dev/desktop/meetings",
+            "https://rec.2brain.dev:8443/desktop/meetings",
+            "https://sub.rec.2brain.dev/desktop/meetings"
+        ] {
+            let externalProviderRequest = configuration.urlRequest(
+                for: try XCTUnwrap(URL(string: externalURL))
+            )
+            for header in [
+                "Authorization",
+                "X-Workspace-Id",
+                "X-Device-Id",
+                "X-User-Id",
+                "X-Organization-Id"
+            ] {
+                XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: header), externalURL)
+            }
+        }
     }
 
     func testWorkspaceOpensMeetingDetailDestination() throws {
