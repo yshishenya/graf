@@ -73,6 +73,9 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
     ).read_text(encoding="utf-8")
 
     ordered_fragments = [
+        "delete from calendar_audit_events where meeting_id=:meeting_id",
+        "delete from recording_calendar_context_links where meeting_id=:meeting_id",
+        "delete from recording_calendar_match_attempts where consumed_by_meeting_id=:meeting_id",
         "delete from transcript_segments where meeting_id=:meeting_id",
         "delete from diarization_segments where meeting_id=:meeting_id",
         "delete from processing_audit_events where meeting_id=:meeting_id",

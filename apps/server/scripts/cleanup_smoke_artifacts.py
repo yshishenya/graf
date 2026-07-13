@@ -132,6 +132,9 @@ async def cleanup_smoke_artifacts(
             processing_tables = {
                 table_name: await _table_exists(conn, table_name)
                 for table_name in (
+                    "calendar_audit_events",
+                    "recording_calendar_context_links",
+                    "recording_calendar_match_attempts",
                     "transcript_segments",
                     "diarization_segments",
                     "processing_audit_events",
@@ -145,6 +148,18 @@ async def cleanup_smoke_artifacts(
                 )
             }
             processing_statements = [
+                (
+                    "calendar_audit_events",
+                    "delete from calendar_audit_events where meeting_id=:meeting_id",
+                ),
+                (
+                    "recording_calendar_context_links",
+                    "delete from recording_calendar_context_links where meeting_id=:meeting_id",
+                ),
+                (
+                    "recording_calendar_match_attempts",
+                    "delete from recording_calendar_match_attempts where consumed_by_meeting_id=:meeting_id",
+                ),
                 ("transcript_segments", "delete from transcript_segments where meeting_id=:meeting_id"),
                 ("diarization_segments", "delete from diarization_segments where meeting_id=:meeting_id"),
                 ("processing_audit_events", "delete from processing_audit_events where meeting_id=:meeting_id"),
