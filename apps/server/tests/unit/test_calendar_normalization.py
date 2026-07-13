@@ -22,13 +22,17 @@ def test_normalization_preserves_available_fields() -> None:
     assert normalized.title_state == "available"
     assert normalized.participant_count == 2
     assert normalized.meeting_link_present is True
-    assert normalized.attachments_metadata == [{"file_name": "synthetic-agenda.pdf", "mime_type": "application/pdf"}]
+    assert normalized.attachments_metadata == [
+        {"file_name": "synthetic-agenda.pdf", "mime_type": "application/pdf"}
+    ]
     assert normalized.source_updated_at == datetime(2026, 7, 1, 8, 0, tzinfo=UTC)
 
 
 def test_private_free_busy_normalization_does_not_fabricate_content() -> None:
     event = private_free_busy_event_fixture()
-    event["conference_links"] = [{"provider_family": "generic", "source_field": "location", "url_hash": "sha256:private"}]
+    event["conference_links"] = [
+        {"provider_family": "generic", "source_field": "location", "url_hash": "sha256:private"}
+    ]
     event["attachments_metadata"] = [{"file_name": "private.pdf"}]
     normalized = normalize_calendar_event(event)
 
@@ -82,6 +86,19 @@ def test_normalization_rejects_raw_provider_payload_extras() -> None:
         "source_kind": "synthetic_caldav_event",
         "raw_payload_retained": False,
     }
+
+
+def test_098_normalization_hides_unsafe_title_and_roster_display_name() -> None:
+    # FR-017/FR-030, SC-011: normalize once at the provider trust boundary.
+    event = calendar_event_fixture("caldav_yandex")
+    event["title"] = "Join https://meet.example.test/private?passcode=123"
+    event["participants"][0]["display_name"] = "alice@example.test"
+
+    normalized = normalize_calendar_event(event)
+
+    assert normalized.title is None
+    assert normalized.title_state == "policy_hidden"
+    assert normalized.participants[0]["display_name"] is None
 
 
 def test_icalendar_normalization_extracts_schedule_recurrence_and_links() -> None:
@@ -140,12 +157,18 @@ END:VCALENDAR
     assert normalized.recurrence_exceptions == [{"exdate": "20260715T090000Z"}]
 
 
-def test_normalization_preserves_cancelled_and_duplicate_identity_without_fabricating_match() -> None:
+def test_normalization_preserves_cancelled_and_duplicate_identity_without_fabricating_match() -> (
+    None
+):
     cancelled = normalize_calendar_event(
-        calendar_event_fixture("exchange_ews", provider_event_id="cancelled-instance", source_status="cancelled")
+        calendar_event_fixture(
+            "exchange_ews", provider_event_id="cancelled-instance", source_status="cancelled"
+        )
     )
     duplicate_copy = normalize_calendar_event(
-        calendar_event_fixture("caldav_yandex", provider_event_id="organizer-copy", ical_uid=cancelled.ical_uid)
+        calendar_event_fixture(
+            "caldav_yandex", provider_event_id="organizer-copy", ical_uid=cancelled.ical_uid
+        )
     )
 
     assert cancelled.source_status == "cancelled"

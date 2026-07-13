@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
+import pytest
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
@@ -44,6 +45,7 @@ CALENDAR_TABLES = {
     "calendar_reminder_states",
     "calendar_audit_events",
 }
+RESOLVE_PATH = "/api/v1/desktop/recordings/{local_recording_id}/calendar-context/resolve"
 
 
 def test_calendar_models_define_required_tables() -> None:
@@ -826,6 +828,60 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
     assert sync_token == "token-2"
 
 
+@pytest.mark.parametrize(
+    "provider_mutation",
+    ["rename", "move", "delete", "cancel", "roster_sync"],
+)
+def test_matched_auto_calendar_context_stays_stable_after_provider_mutation(
+    client,
+    provider_mutation: str,
+) -> None:
+    """FR-016/FR-019, SC-006: provider sync cannot rewrite auto-match history."""
+
+    seeded = _seed_stable_matched_calendar_context(client, provider_mutation)
+    before = _stable_calendar_context_state(client, seeded["meeting_id"])
+
+    provider_state = _mutate_matched_provider_event(
+        client,
+        source_id=seeded["source_id"],
+        event_id=seeded["event_id"],
+        provider_mutation=provider_mutation,
+    )
+
+    after = _stable_calendar_context_state(client, seeded["meeting_id"])
+
+    assert after["meeting_title"] == "Synthetic Stable Planning"
+    assert after["meeting_title_source"] == "calendar"
+    assert after["context_snapshot"] == before["context_snapshot"]
+    assert after["review_projection"] == before["review_projection"]
+    assert after["review_projection"]["context_state"] == "matched_auto"
+    assert after["review_projection"]["event_id"] == str(seeded["event_id"])
+    assert sorted(after["review_projection"]["roster_names"]) == [
+        "Synthetic Stable Owner",
+        "Synthetic Stable Reviewer",
+    ]
+    assert "Synthetic Mutable Provider" not in after["review_text"]
+    assert "mutable-provider@example.test" not in after["review_text"]
+    assert "stable-owner@example.test" not in after["review_text"]
+    assert "stable-reviewer@example.test" not in after["review_text"]
+    if provider_mutation == "rename":
+        assert provider_state["title"] == "Synthetic Mutable Provider Rename"
+    elif provider_mutation == "move":
+        provider_starts_at = provider_state["starts_at"]
+        matched_starts_at = before["context_snapshot"]["starts_at"]
+        assert isinstance(provider_starts_at, datetime)
+        assert isinstance(matched_starts_at, datetime)
+        assert provider_starts_at.replace(tzinfo=UTC) == matched_starts_at.replace(
+            tzinfo=UTC
+        ) + timedelta(days=2)
+    elif provider_mutation == "delete":
+        assert provider_state["source_deleted_at"] is not None
+    elif provider_mutation == "cancel":
+        assert provider_state["source_status"] == "cancelled"
+    else:
+        assert provider_state["participant_names"] == ["Synthetic Mutable Provider Participant"]
+
+
 def test_calendar_title_fallback_preserves_manual_title_and_names_untitled_recording(
     client,
 ) -> None:
@@ -870,10 +926,263 @@ def test_calendar_title_fallback_preserves_manual_title_and_names_untitled_recor
         json={"event_id": fallback_event, "context_reason": "manual_selection"},
     )
 
-    assert manual_link.json()["title_source"] == "user_or_generic"
+    assert manual_link.json()["title_source"] == "legacy_unknown"
     assert fallback_link.json()["title_source"] == "calendar"
     assert _meeting_title(client, UUID(manual.json()["meeting_id"])) == "Manual title"
     assert _meeting_title(client, UUID(untitled.json()["meeting_id"])) == "Synthetic Planning Sync"
+
+
+def _seed_stable_matched_calendar_context(client, suffix: str) -> dict[str, UUID]:
+    recording_started_at = datetime.now(UTC).replace(microsecond=0)
+    local_recording_id = f"calendar-stable-history-{suffix}"
+    created = client.post(
+        "/api/v1/calendar/sources",
+        headers=auth_headers(),
+        json={
+            "provider_family": "caldav_yandex",
+            "auth_mode": "app_password",
+            "username": "stable-owner@example.test",
+            "credential_input": "synthetic-stable-secret",
+            "selected_provider_calendar_ids": ["primary"],
+        },
+    )
+    assert created.status_code == 201
+    source_id = UUID(created.json()["source"]["source_id"])
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def seed_event() -> UUID:
+        async with sessionmaker() as session:
+            source = await session.get(CalendarSource, source_id)
+            source.sync_state = "synced"
+            source.last_successful_sync_at = recording_started_at - timedelta(minutes=1)
+            source.last_sync_finished_at = source.last_successful_sync_at
+            source.sync_horizon_start = recording_started_at - timedelta(days=1)
+            source.sync_horizon_end = recording_started_at + timedelta(days=365)
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
+            event = normalize_calendar_event(
+                calendar_event_fixture(
+                    "caldav_yandex",
+                    provider_event_id=f"stable-history-{suffix}",
+                    ical_uid=f"stable-history-{suffix}@example.test",
+                    recurring_series_id=f"stable-series-{suffix}",
+                    source_version="stable-etag-1",
+                    starts_at=recording_started_at - timedelta(minutes=5),
+                    ends_at=recording_started_at + timedelta(minutes=55),
+                    title="Synthetic Stable Planning",
+                    participants=[
+                        {
+                            "participant_kind": "organizer",
+                            "response_status": "organizer",
+                            "email": "stable-owner@example.test",
+                            "email_hash": "sha256:stable-owner",
+                            "display_name": "Synthetic Stable Owner",
+                            "workspace_relation": "owner",
+                            "recipient_candidate_class": "organizer",
+                        },
+                        {
+                            "participant_kind": "required_attendee",
+                            "response_status": "accepted",
+                            "email": "stable-reviewer@example.test",
+                            "email_hash": "sha256:stable-reviewer",
+                            "display_name": "Synthetic Stable Reviewer",
+                            "workspace_relation": "external",
+                            "recipient_candidate_class": "external_attendee",
+                        },
+                    ],
+                )
+            )
+            snapshot = await upsert_event_snapshot(
+                session,
+                tenant_scope=client.app_state.get("tenant_scope") or _tenant_scope(),
+                source=source,
+                calendar=calendar,
+                event=event,
+            )
+            await session.commit()
+            return snapshot.id
+
+    event_id = asyncio.run(seed_event())
+    resolved = client.post(
+        RESOLVE_PATH.format(local_recording_id=local_recording_id),
+        headers=auth_headers() | {"Idempotency-Key": f"stable-history-{suffix}-resolve-098"},
+        json={
+            "recording_started_at": recording_started_at.isoformat(),
+            "decision_intent": "automatic",
+            "contract_version": "calendar_auto_context_v1",
+        },
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["context_state"] == "matched_auto"
+    assert resolved.json()["candidate_count"] == 1
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": local_recording_id,
+            "duration_seconds": 1800,
+            "started_at": recording_started_at.isoformat(),
+            "ended_at": (recording_started_at + timedelta(minutes=30)).isoformat(),
+            "recording_display_timezone_offset_minutes": 180,
+            "title": "Synthetic App Context",
+            "title_source": "app_context",
+            "calendar_match_attempt_id": resolved.json()["attempt_id"],
+        },
+    )
+    assert meeting.status_code == 200
+    assert meeting.json()["calendar_context"]["state"] == "matched_auto"
+    meeting_id = UUID(meeting.json()["meeting_id"])
+    return {"meeting_id": meeting_id, "source_id": source_id, "event_id": event_id}
+
+
+def _mutate_matched_provider_event(
+    client,
+    *,
+    source_id: UUID,
+    event_id: UUID,
+    provider_mutation: str,
+) -> dict[str, object]:
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def mutate() -> dict[str, object]:
+        async with sessionmaker() as session:
+            source = await session.get(CalendarSource, source_id)
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
+            existing = await session.get(CalendarEventSnapshot, event_id)
+            starts_at = existing.starts_at
+            ends_at = existing.ends_at
+            events = []
+            if provider_mutation != "delete":
+                events = [
+                    normalize_calendar_event(
+                        calendar_event_fixture(
+                            "caldav_yandex",
+                            provider_event_id=existing.provider_event_id,
+                            ical_uid=existing.ical_uid,
+                            recurring_series_id=existing.recurring_series_id,
+                            source_version="mutable-etag-2",
+                            source_status=(
+                                "cancelled" if provider_mutation == "cancel" else "confirmed"
+                            ),
+                            starts_at=(
+                                starts_at + timedelta(days=2)
+                                if provider_mutation == "move"
+                                else starts_at
+                            ),
+                            ends_at=(
+                                ends_at + timedelta(days=2)
+                                if provider_mutation == "move"
+                                else ends_at
+                            ),
+                            title=(
+                                "Synthetic Mutable Provider Rename"
+                                if provider_mutation == "rename"
+                                else "Synthetic Stable Planning"
+                            ),
+                            participants=(
+                                [
+                                    {
+                                        "participant_kind": "optional_attendee",
+                                        "response_status": "declined",
+                                        "email": "mutable-provider@example.test",
+                                        "email_hash": "sha256:mutable-provider",
+                                        "display_name": "Synthetic Mutable Provider Participant",
+                                        "workspace_relation": "external",
+                                        "recipient_candidate_class": "external_attendee",
+                                    }
+                                ]
+                                if provider_mutation == "roster_sync"
+                                else calendar_event_fixture("caldav_yandex")["participants"]
+                            ),
+                        )
+                    )
+                ]
+            await apply_calendar_sync_result(
+                session,
+                tenant_scope=client.app_state.get("tenant_scope") or _tenant_scope(),
+                source=source,
+                calendar=calendar,
+                events=events,
+                sync_token=f"stable-history-{provider_mutation}",
+                synced_at=starts_at - timedelta(hours=1),
+            )
+            await session.commit()
+            updated = await session.get(CalendarEventSnapshot, event_id)
+            participant_names = list(
+                await session.scalars(
+                    select(CalendarParticipant.display_name)
+                    .where(CalendarParticipant.calendar_event_snapshot_id == event_id)
+                    .order_by(CalendarParticipant.display_name)
+                )
+            )
+            return {
+                "title": updated.title,
+                "starts_at": updated.starts_at,
+                "source_status": updated.source_status,
+                "source_deleted_at": updated.source_deleted_at,
+                "participant_names": participant_names,
+            }
+
+    return asyncio.run(mutate())
+
+
+def _stable_calendar_context_state(client, meeting_id: UUID) -> dict[str, object]:
+    sessionmaker = client.app_state["sessionmaker"]
+
+    async def read_state() -> tuple[str | None, str, dict[str, object]]:
+        async with sessionmaker() as session:
+            meeting = await session.get(Meeting, meeting_id)
+            link = await session.scalar(
+                select(RecordingCalendarContextLink).where(
+                    RecordingCalendarContextLink.meeting_id == meeting_id
+                )
+            )
+            snapshot = {
+                "event_id": str(link.calendar_event_snapshot_id),
+                "starts_at": link.matched_event_starts_at,
+                "ends_at": link.matched_event_ends_at,
+                "title": link.matched_title,
+                "title_state": link.matched_title_state,
+                "roster": link.matched_roster_json,
+                "roster_state": link.matched_roster_state,
+                "roster_count": link.matched_roster_count,
+                "series_fingerprint": link.recurring_series_key_sha256,
+                "source_version_fingerprint": link.source_version_fingerprint_sha256,
+            }
+            return meeting.title, meeting.title_source, snapshot
+
+    meeting_title, meeting_title_source, context_snapshot = asyncio.run(read_state())
+    assert context_snapshot["series_fingerprint"] is not None
+    assert context_snapshot["source_version_fingerprint"] is not None
+    review = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}",
+        headers=auth_headers(),
+    )
+    assert review.status_code == 200
+    body = review.json()
+    detail = body["calendar_context_detail"]
+    roster = body["calendar_roster"]
+    projection = {
+        "meeting_title": body["meeting"]["title"],
+        "summary_state": body["calendar_context"]["state"],
+        "context_state": detail["context_state"],
+        "event_id": detail["event_id"],
+        "title_source": detail["title_source"],
+        "detail_roster": detail["roster"],
+        "roster_state": roster["roster_state"],
+        "roster_count": roster["participant_count"],
+        "roster_names": [participant["display_name"] for participant in roster["participants"]],
+    }
+    return {
+        "meeting_title": meeting_title,
+        "meeting_title_source": meeting_title_source,
+        "context_snapshot": context_snapshot,
+        "review_projection": projection,
+        "review_text": review.text,
+    }
 
 
 def _seed_calendar_event_at(client, *, starts_at: datetime, ends_at: datetime) -> str:

@@ -309,6 +309,7 @@ class DeletionReasonCode(StrEnum):
 
 class DeletionArtifactClass(StrEnum):
     MEETING_ROW = "meeting_row"
+    CALENDAR_CONTEXT = "calendar_context"
     MEDIA_REVISION = "media_revision"
     AUDIO_OBJECT = "audio_object"
     TRANSCRIPT = "transcript"

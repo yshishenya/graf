@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,7 +81,9 @@ async def embedded_meeting_list_page(
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     response = await list_cabinet_meetings(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -94,7 +96,9 @@ async def embedded_meeting_list_page(
     )
     if _is_hx_request(request):
         return cabinet_html_response(
-            render_meeting_list_fragment(response, embedded=True, poll_url=_request_path_with_query(request)),
+            render_meeting_list_fragment(
+                response, embedded=True, poll_url=_request_path_with_query(request)
+            ),
             hx_request=True,
         )
     return cabinet_html_response(
@@ -130,17 +134,21 @@ async def embedded_logout_from_meetings_route(
 async def embedded_meeting_detail_page(
     request: Request,
     meeting_id: UUID,
+    calendar_context_action: str | None = Query(default=None, pattern="^change$"),
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     response = await get_cabinet_meeting_review(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
+        include_calendar_correction_candidates=calendar_context_action == "change",
     )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
@@ -158,7 +166,9 @@ async def embedded_meeting_detail_page(
     )
 
 
-@router.get("/desktop/settings/integrations/calendar", response_class=HTMLResponse, include_in_schema=False)
+@router.get(
+    "/desktop/settings/integrations/calendar", response_class=HTMLResponse, include_in_schema=False
+)
 async def embedded_calendar_settings_page(
     request: Request,
     connect_result: str | None = CalendarConnectResultQuery,
@@ -172,7 +182,9 @@ async def embedded_calendar_settings_page(
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     surface = await get_calendar_settings_surface(
         db,
         tenant_scope,
@@ -244,7 +256,9 @@ async def embedded_meeting_deletion_report_page(
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting = await _authorized_lifecycle_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,

@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -13,6 +14,7 @@ from twobrain_rec_server.api.schemas import (
     FinalizeUploadResponse,
     ManualMediaUploadResponse,
     MediaRevisionSummary,
+    MeetingCalendarContextSummary,
     MeetingResponse,
     MissingRange,
     MissingRangesResponse,
@@ -31,6 +33,7 @@ from twobrain_rec_server.auth.dependencies import (
     get_principal,
     get_tenant_scope,
 )
+from twobrain_rec_server.db.models import RecordingCalendarContextLink
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import TrackRole
 from twobrain_rec_server.ingest.desktop_status import upload_session_desktop_status
@@ -96,7 +99,10 @@ async def commit_if_available(db: AsyncSession | None) -> None:
         await db.commit()
 
 
-def meeting_response(meeting: object) -> MeetingResponse:
+def meeting_response(
+    meeting: object,
+    calendar_context: RecordingCalendarContextLink | None = None,
+) -> MeetingResponse:
     media_revision = MediaRevisionSummary(
         media_revision_id=meeting.media_revision_id,
         local_media_revision_id=meeting.local_media_revision_id,
@@ -110,14 +116,35 @@ def meeting_response(meeting: object) -> MeetingResponse:
         local_recording_id=meeting.local_recording_id,
         local_media_revision_id=meeting.local_media_revision_id,
         title=meeting.title,
-        title_source=getattr(meeting, "title_source", None) or ("user" if meeting.title else "generic"),
+        title_source=meeting.title_source,
         media_revision=media_revision,
         status=meeting.status,
         processing_status=meeting.processing_status,
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
         recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
+        calendar_context=_meeting_calendar_context_summary(calendar_context),
         created_at=meeting.created_at,
+    )
+
+
+def _meeting_calendar_context_summary(
+    context: RecordingCalendarContextLink | None,
+) -> MeetingCalendarContextSummary | None:
+    if context is None:
+        return None
+    labels = {
+        "matched_auto": "Из календаря",
+        "matched_user": "Выбрано из календаря",
+        "ambiguous": "Нужно выбрать встречу",
+        "declined_by_user": "Без календаря",
+        "cleared_by_user": "Контекст календаря удалён",
+    }
+    return MeetingCalendarContextSummary(
+        state=context.context_state,
+        label=labels.get(context.context_state, "Без контекста календаря"),
+        title_source=context.title_source,
+        needs_owner_action=context.context_state == "ambiguous",
     )
 
 
@@ -158,9 +185,12 @@ async def create_meeting(
             local_media_revision_id=payload.local_media_revision_id,
             duration_seconds=payload.duration_seconds,
             title=payload.title,
+            title_source=payload.title_source,
             started_at=payload.started_at,
             ended_at=payload.ended_at,
             recording_display_timezone_offset_minutes=payload.recording_display_timezone_offset_minutes,
+            calendar_match_attempt_id=payload.calendar_match_attempt_id,
+            consume_calendar_context=True,
         )
     except IngestLimitViolation as exc:
         raise ProblemDetail(
@@ -169,8 +199,18 @@ async def create_meeting(
             title="Ingest limit exceeded",
             detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
         ) from exc
+    calendar_context = None
+    if db is not None:
+        calendar_context = await db.scalar(
+            select(RecordingCalendarContextLink).where(
+                RecordingCalendarContextLink.workspace_id
+                == tenant_scope.workspace_id,
+                RecordingCalendarContextLink.meeting_id == meeting.id,
+            )
+        )
+    response = meeting_response(meeting, calendar_context)
     await commit_if_available(db)
-    return meeting_response(meeting)
+    return response
 
 
 @router.post(
@@ -206,7 +246,7 @@ async def create_manual_media_upload(
     )
     await commit_if_available(db)
     return ManualMediaUploadResponse(
-        meeting=meeting_response(result.meeting),
+        meeting=meeting_response(result.meeting, result.calendar_context),
         upload_session=session_response(result.upload_session),
         object_count=result.object_count,
         workflow_started=result.processing.workflow_started,

@@ -10,7 +10,9 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import TrackDescriptor
 from twobrain_rec_server.api.upload_stream import BoundedUploadBody
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.calendar.matching import ensure_manual_upload_calendar_skip
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.models import RecordingCalendarContextLink
 from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind, TrackRole
 from twobrain_rec_server.ingest.finalize import finalize_upload
 from twobrain_rec_server.ingest.meetings import create_or_get_meeting
@@ -27,6 +29,7 @@ from twobrain_rec_server.ingest.store import MeetingRecord, UploadSessionRecord
 @dataclass(frozen=True, slots=True)
 class ManualMediaUploadResult:
     meeting: MeetingRecord
+    calendar_context: RecordingCalendarContextLink | None
     upload_session: UploadSessionRecord
     object_count: int
     processing: FinalizeProcessingDispatchResult
@@ -103,6 +106,14 @@ async def accept_manual_media_upload(
     recording_id = local_recording_id or f"manual-upload-{media_sha256[:32]}"
     media_revision_id = f"{recording_id}--manual"
     display_title = _display_title_from_upload(title=title, filename=filename)
+    cleaned_title = title.strip() if title is not None else ""
+    display_title_source = (
+        "upload_provided"
+        if cleaned_title
+        else "file_name_derived"
+        if display_title is not None
+        else "generic"
+    )
     manifest_bytes = _manifest_bytes(
         duration_seconds=duration_seconds,
         media_sha256=media_sha256,
@@ -134,7 +145,17 @@ async def accept_manual_media_upload(
             local_media_revision_id=media_revision_id,
             duration_seconds=duration_seconds,
             title=display_title,
+            title_source=display_title_source,
             media_revision_source_kind=MediaRevisionSourceKind.MANUAL_UPLOAD,
+        )
+        calendar_context = (
+            await ensure_manual_upload_calendar_skip(
+                db,
+                tenant_scope,
+                meeting=meeting,
+            )
+            if db is not None
+            else None
         )
         session = await create_upload_session(
             settings=settings,
@@ -198,6 +219,7 @@ async def accept_manual_media_upload(
     )
     return ManualMediaUploadResult(
         meeting=meeting,
+        calendar_context=calendar_context,
         upload_session=session,
         object_count=len(session.parts),
         processing=processing,

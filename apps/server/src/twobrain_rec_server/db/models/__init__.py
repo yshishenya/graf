@@ -16,6 +16,7 @@ from twobrain_rec_server.db.models.calendar import (
     ConferenceLinkCandidate,
     ExternalCalendar,
     RecordingCalendarContextLink,
+    RecordingCalendarMatchAttempt,
 )
 from twobrain_rec_server.db.models.deletion import (
     LocalPurgeTask,
@@ -147,6 +148,7 @@ __all__ = [
     "ExternalCalendar",
     "ExternalIdentity",
     "RecordingCalendarContextLink",
+    "RecordingCalendarMatchAttempt",
     "WorkspaceAuthPolicy",
     "WorkspaceConsentCopy",
     "WorkspaceProviderLinkState",

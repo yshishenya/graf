@@ -68,10 +68,7 @@
     {% endif %}
     <section class="upcoming cabinet-card" aria-label="Ближайшие встречи">
       <div class="section-title">Ближайшие</div>
-      <div class="calendar-empty">
-        <div class="muted">Ближайшие встречи появятся после подключения календаря.</div>
-        <a class="button quiet calendar-connect-link" href="{{ calendar_settings_href }}">Подключить календари</a>
-      </div>
+      {{ upcoming_content }}
     </section>
     <div class="meeting-toolbar">
       <div class="section-title" data-list-title>Записи встреч</div>
