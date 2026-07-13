@@ -157,10 +157,12 @@ privileged migration is introduced.
   [#3191](https://github.com/yshishenya/crisp/issues/3191) through
   [#3221](https://github.com/yshishenya/crisp/issues/3221); exact task mappings
   are encoded in their canonical titles.
-- **Pull request**: not created. Creation remains after explicit implementation
-  commit approval.
-- **Commit**: not created. Explicit user approval is requested in the validated
-  implementation handoff.
+- **Pull request**: [#3222](https://github.com/yshishenya/crisp/pull/3222),
+  opened ready for review against `master` with closing references for
+  #3191–#3221.
+- **Implementation commit**:
+  [`9a9179d3`](https://github.com/yshishenya/crisp/commit/9a9179d3ca5495bb31db2084e818ea16d0cafd7f),
+  created and pushed after explicit user approval on 2026-07-13.
 
 ---
 

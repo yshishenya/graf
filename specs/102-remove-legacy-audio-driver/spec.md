@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-13
 
-**Status**: Locally validated; pending commit and PR review
+**Status**: In PR review
 
 **Input**: User description: "Полностью и очень аккуратно вычистить из кода всё, что связано с отдельным audio driver: продукт уже перешёл на другой путь, а driver стал legacy."
 
