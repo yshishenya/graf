@@ -23,9 +23,10 @@ metadata-only evidence остаются подробной историей ре
   refreshes the public download package with the local self-signed build so
   the owner machine can update from the hosted package while the Developer ID
   path remains out of scope.
-- Feature `098-calendar-auto-context-match` is implemented locally as a
-  high-risk Spec Kit slice, but is not committed, merged, released, deployed or
-  production-smoked yet. A desktop recording start may request a server-owned,
+- Feature `098-calendar-auto-context-match` is implemented, validated and
+  committed as `13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb` on its feature branch,
+  but is not merged, released, deployed or production-smoked yet. A desktop
+  recording start may request a server-owned,
   24-hour match attempt without blocking capture; the deterministic matcher
   accepts only one fresh eligible event, keeps overlaps/back-to-back cases
   ambiguous, and safely skips private/free-busy, all-day, stale, manual-upload

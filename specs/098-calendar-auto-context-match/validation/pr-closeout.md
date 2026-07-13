@@ -1,24 +1,28 @@
 # Feature 098 PR Closeout Draft
 
 **Recorded**: 2026-07-13 (Europe/Moscow)
-**Tasks**: T103 complete; T104 approval and Chrome QA complete, commit pending
+**Tasks**: T103–T104 complete
 **Branch**: `codex/098-calendar-auto-context-match`
 **Base**: `3b62270c2b6c8e236444d521759b682323aa80bf`
 
 ## Current State
 
-- No implementation commit has been created.
-- No files have been staged.
+- The validated `117`-file implementation scope was committed as
+  `13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb`
+  (`feat(098): добавить безопасный автоконтекст календаря`).
+- The implementation worktree was clean immediately after that commit, and the
+  branch was `ahead 1` of `origin/master`; this closeout reconciliation is a
+  separate documentation-only follow-up.
 - No PR has been created.
-- Final pre-commit scope is `117` files: `77` tracked modifications and `40`
-  new files. The branch is `0/0` against `origin/master` at
-  `3b62270c2b6c8e236444d521759b682323aa80bf`.
+- The committed scope is `117` files: `77` tracked modifications and `40` new
+  files, based on `3b62270c2b6c8e236444d521759b682323aa80bf`.
 - Both recovery stashes remain preserved:
   `codex-098-pre-release-refresh-2026-07-13` and
   `codex-098-pre-origin-master-refresh-2026-07-13`.
 - The user explicitly approved Chrome visual QA and the validated
-  implementation commit. T104 remains open only until staging and commit
-  evidence are recorded.
+  implementation commit. Staging contained exactly the `117` feature-owned
+  files, with `0` unstaged and `0` untracked files; `git diff --cached --check`
+  passed before the commit.
 - Chrome visual QA passed for web and embedded routes. It found and closed an
   invalid nested-link/grid-wrap defect before the final rerun; eight synthetic
   screenshots and interaction receipts are in `validation/visual-qa.md`.
@@ -150,12 +154,14 @@ screenshots are in `validation/visual-qa.md`.
 
 ## T104 Approval Gate
 
-Before committing:
+Commit gate:
 
 1. [x] Reconcile phase-9 issue comments and final status.
 2. [x] Show the user the validation boundary and run the requested Chrome QA.
 3. [x] Obtain explicit approval for the validated implementation commit.
-4. [ ] Stage only the 098-owned diff, create the approved commit and record the
-   exact commit SHA/status here.
+4. [x] Stage only the 098-owned diff, create the approved commit and record the
+   exact commit SHA/status here:
+   `13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb`, branch `ahead 1`, clean
+   implementation worktree immediately after commit.
 
-No commit, push or PR action is authorized by this draft alone.
+No push or PR had been performed when this commit receipt was recorded.

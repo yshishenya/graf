@@ -235,7 +235,7 @@
 - [X] T101 Run `infra/scripts/ci-local.sh` once at closeout and record exact SHA/result/counts/known limits in `specs/098-calendar-auto-context-match/validation/implementation-evidence.md`
 - [X] T102 Reconcile every `[X]` task with its GitHub issue/PR/evidence link in `specs/098-calendar-auto-context-match/tasks.md` and `specs/098-calendar-auto-context-match/validation/implementation-evidence.md`
 - [X] T103 Prepare the Russian PR description with risk lane, FR/SC coverage, migration/rollback, validation evidence, 097 skip and deferred standalone audit in `.github/pull_request_template.md`-compatible form referenced from `specs/098-calendar-auto-context-match/validation/pr-closeout.md`
-- [ ] T104 Obtain explicit user approval for the implementation commit, stage only 098-owned files, and record commit/branch/status evidence in `specs/098-calendar-auto-context-match/validation/pr-closeout.md`
+- [X] T104 Obtain explicit user approval for the implementation commit, stage only 098-owned files, and record commit/branch/status evidence in `specs/098-calendar-auto-context-match/validation/pr-closeout.md`
 
 ### Completed Task / GitHub Issue / Evidence Map
 
@@ -255,11 +255,11 @@ follows; no issue is closed by local evidence alone.
 | T075–T083 | #3156–#3164 | `validation/us5-recurring-context.md` |
 | T084–T090 | #3165–#3171 | `validation/us6-speaker-deferral.md` |
 | T091–T102 | #3172–#3183 | `validation/implementation-evidence.md` |
-| T103 | #3184 | `validation/pr-closeout.md` |
+| T103–T104 | #3184–#3185 | `validation/pr-closeout.md` |
 
-T104 / #3185 remains open for explicit commit approval. T105–T109 /
-#3186–#3190 remain open for merge, release, deploy, production proof and final
-cleanup.
+T105–T109 / #3186–#3190 remain open for merge, release, deploy, production
+proof and final cleanup. Completed task issues remain open until post-merge
+evidence and closure comments are available.
 
 ---
 

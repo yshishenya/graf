@@ -4,7 +4,8 @@
 **Validation lane**: high-risk active Spec Kit slice
 **Branch**: `codex/098-calendar-auto-context-match`
 **Current base / origin master**: `3b62270c2b6c8e236444d521759b682323aa80bf`
-**State**: validated working diff; no implementation commit or PR yet
+**State**: validated implementation committed at
+`13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb`; no PR yet
 
 ## Scope Boundary
 
@@ -117,8 +118,9 @@ implementation/release evidence.
 
 `CHANGELOG.md` keeps all 098 entries under `[Unreleased]`; none were moved into
 the already published `2026.07.13.1` section during the base refresh.
-`docs/current-product-status.md` states that 098 is locally implemented and
-validated but not committed, merged, released, deployed or production-smoked.
+`docs/current-product-status.md` states that 098 is locally implemented,
+validated and committed, but not merged, released, deployed or
+production-smoked.
 
 The managed Spec Kit block in `AGENTS.md` was refreshed through
 `$speckit-agent-context-update` to point at the 098 plan. Its first run found
@@ -257,14 +259,16 @@ The final external-state recheck again returned `109` matching issues,
 Superseding post-audit counts were posted to [T091 / #3172](https://github.com/yshishenya/crisp/issues/3172#issuecomment-4958233597),
 [T093 / #3174](https://github.com/yshishenya/crisp/issues/3174#issuecomment-4958233798),
 [T101 / #3182](https://github.com/yshishenya/crisp/issues/3182#issuecomment-4958233940)
-and the still-pending [T104 / #3185 approval gate](https://github.com/yshishenya/crisp/issues/3185#issuecomment-4958234102).
+and the pre-commit [T104 / #3185 approval gate](https://github.com/yshishenya/crisp/issues/3185#issuecomment-4958234102).
 
 `tasks.md` now carries the exact completed-range issue/evidence map through
-T103 / #3184. Earlier story receipts were already posted to #3082–#3171. Final
-phase evidence comments were posted to #3172–#3184; #3185 records that T104 is
-still blocked on explicit user commit approval. All issues remain open, there
-is no PR, no remote feature branch, no file is staged and no implementation
-commit exists. Release tasks T105–T109 / #3186–#3190 remain untouched.
+T104 / #3185. Earlier story receipts were already posted to #3082–#3171. Final
+phase evidence comments were posted to #3172–#3184; #3185 contains the earlier
+approval-gate state and receives the completed commit receipt during tracker
+reconciliation. All issues remain open, there is no PR or remote feature
+branch, and implementation commit
+`13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb` exists. Release tasks T105–T109 /
+#3186–#3190 remain untouched.
 
 T102 is complete as a reconciliation receipt, not as issue closure. Closing
 comments remain a post-merge responsibility under T109.
