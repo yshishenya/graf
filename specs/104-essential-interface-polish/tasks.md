@@ -40,16 +40,16 @@ No new framework, schema, API, storage entity, or shared abstraction is required
 
 ### Tests for User Story 1
 
-- [ ] T003 [P] [US1] Add failing enabled-only sidebar, compact branding, no hard-coded plan/trial state, and no-placeholder assertions in `apps/server/tests/unit/test_cabinet_navigation_model.py` and `apps/server/tests/unit/test_cabinet_template_sections.py`
-- [ ] T004 [P] [US1] Add failing one-search, semantic filter/sort, active-reset, preserved meeting-result link, preserved short-debounce/50-row-limit, no-extra-request-control, no-calendar-block, no embedded app-download/onboarding duplicate, contextual-selection, and no-disabled-action assertions in `apps/server/tests/unit/test_cabinet_web_shell.py` and `apps/server/tests/integration/test_cabinet_meeting_list.py`
+- [X] T003 [P] [US1] Add failing enabled-only sidebar, compact branding, no hard-coded plan/trial state, and no-placeholder assertions in `apps/server/tests/unit/test_cabinet_navigation_model.py` and `apps/server/tests/unit/test_cabinet_template_sections.py`
+- [X] T004 [P] [US1] Add failing one-search, semantic filter/sort, active-reset, preserved meeting-result link, preserved short-debounce/50-row-limit, no-extra-request-control, no-calendar-block, no embedded app-download/onboarding duplicate, contextual-selection, and no-disabled-action assertions in `apps/server/tests/unit/test_cabinet_web_shell.py` and `apps/server/tests/integration/test_cabinet_meeting_list.py`
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Project only enabled `Мои встречи`/`Настройки` destinations, compact branding, and logout while removing unsupported account-plan copy in `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`
-- [ ] T006 [US1] Restructure the meeting header into one search, accessible filter/sort disclosures, active reset, upload, preserved primary result links, an installed-app empty state that reuses toolbar upload/native recording without download/onboarding duplicates, no unconditional calendar region, and a delete-only contextual bulk toolbar in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_list_content.html`
-- [ ] T007 [US1] Reconcile selection-mode visibility, list replacement, select-all/clear state, disclosure state, and post-delete focus in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
-- [ ] T008 [US1] Implement the compact sidebar, meeting-first toolbar, reading/selection modes, subtle selected state, and minimum-window layout without reserved calendar space in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
-- [ ] T009 [US1] Run the US1 server tests and document independent five-second comprehension evidence in `specs/104-essential-interface-polish/quickstart.md`
+- [X] T005 [US1] Project only enabled `Мои встречи`/`Настройки` destinations, compact branding, and logout while removing unsupported account-plan copy in `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`
+- [X] T006 [US1] Restructure the meeting header into one search, accessible filter/sort disclosures, active reset, upload, preserved primary result links, an installed-app empty state that reuses toolbar upload/native recording without download/onboarding duplicates, no unconditional calendar region, and a delete-only contextual bulk toolbar in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_list_content.html`
+- [X] T007 [US1] Reconcile selection-mode visibility, list replacement, select-all/clear state, disclosure state, and post-delete focus in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T008 [US1] Implement the compact sidebar, meeting-first toolbar, reading/selection modes, subtle selected state, and minimum-window layout without reserved calendar space in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
+- [X] T009 [US1] Run the US1 server tests and document independent five-second comprehension evidence in `specs/104-essential-interface-polish/quickstart.md`
 
 **Checkpoint**: User Story 1 is independently useful with the current native capture surface unchanged.
 

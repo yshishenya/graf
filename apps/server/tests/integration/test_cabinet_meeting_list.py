@@ -108,7 +108,8 @@ def test_desktop_empty_meeting_list_polls_for_new_local_uploads(client) -> None:
     response = client.get("/desktop/meetings?q=missing-local-upload", headers=auth_headers())
 
     assert response.status_code == 200
-    assert "Нет встреч для выбранного фильтра." in response.text
+    assert "Ничего не найдено" in response.text
+    assert "Измените запрос или сбросьте фильтры." in response.text
     assert 'hx-trigger="every 3s"' in response.text
     assert 'hx-get="/desktop/meetings?q=missing-local-upload"' in response.text
 
@@ -240,19 +241,25 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
 
     assert response.status_code == 200
     assert "Мои встречи" in response.text
-    assert "Ближайшие" in response.text
-    assert "Ближайшие встречи появятся после подключения календаря." in response.text
-    assert 'href="/settings/integrations/calendar"' in response.text
-    assert "Подключить календари" in response.text
+    assert "Ближайшие" not in response.text
+    assert "Подключить календари" not in response.text
+    assert "Пробный период" not in response.text
+    assert "Пригласить" not in response.text
     assert "Командный синк" not in response.text
     assert "Записи встреч" in response.text
     assert "<span>Загрузить</span>" in response.text
     assert "Загрузить медиа" not in response.text
     assert "Фильтры" in response.text
     assert "Сортировка" in response.text
+    assert response.text.count('id="meeting-search"') == 1
+    assert 'aria-label="Поиск встреч"' in response.text
+    assert 'data-filter-disclosure' in response.text
+    assert 'data-sort-disclosure' in response.text
+    assert 'aria-label="Сохраненные"' not in response.text
+    assert 'aria-label="Применить фильтры"' not in response.text
     assert 'value="started_desc"' in response.text
     assert 'value="started_asc"' in response.text
-    assert "Новые по дате записи" in response.text
+    assert "Сначала новые" in response.text
     assert "Проектный синк" in response.text
     assert 'data-cabinet-shell' in response.text
     assert 'data-cabinet-navigation' in response.text

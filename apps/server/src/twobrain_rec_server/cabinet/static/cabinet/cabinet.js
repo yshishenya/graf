@@ -3,6 +3,7 @@
 
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let pendingDeleteRows = [];
+  let deleteReturnFocus = null;
 
   const plural = (value, one, few, many) => {
     const mod10 = value % 10;
@@ -16,6 +17,13 @@
   const allRows = () => Array.from(currentList()?.querySelectorAll("[data-meeting-row]") || []);
   const selectedRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]")?.checked);
   const deletingLabel = (value) => `Вы удаляете ${value} ${plural(value, "запись", "записи", "записей")}.`;
+
+  const setRowContextualAvailability = (row, visible) => {
+    row?.querySelectorAll("[data-row-contextual]").forEach((control) => {
+      control.setAttribute("aria-hidden", visible ? "false" : "true");
+      control.tabIndex = visible ? 0 : -1;
+    });
+  };
 
   const updateSelection = () => {
     const list = currentList();
@@ -37,7 +45,9 @@
     }
     if (listTitle) listTitle.hidden = rows.length > 0;
     allRows().forEach((row) => {
-      row.classList.toggle("is-selected", row.querySelector("[data-meeting-select]")?.checked === true);
+      const selected = row.querySelector("[data-meeting-select]")?.checked === true;
+      row.classList.toggle("is-selected", selected);
+      if (selected) setRowContextualAvailability(row, true);
     });
   };
 
@@ -47,6 +57,7 @@
     const title = dialog.querySelector("[data-delete-title]");
     const count = dialog.querySelector("[data-delete-count]");
     const error = dialog.querySelector("[data-delete-error]");
+    deleteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     pendingDeleteRows = rows.filter(Boolean);
     if (!pendingDeleteRows.length) return;
     if (error) error.hidden = true;
@@ -56,12 +67,14 @@
     else dialog.setAttribute("open", "");
   };
 
-  const closeDeleteDialog = () => {
+  const closeDeleteDialog = ({ restoreFocus = true } = {}) => {
     const dialog = document.querySelector("[data-delete-dialog]");
     pendingDeleteRows = [];
     if (!dialog) return;
     if (typeof dialog.close === "function") dialog.close();
     else dialog.removeAttribute("open");
+    if (restoreFocus && deleteReturnFocus?.isConnected) deleteReturnFocus.focus({ preventScroll: true });
+    deleteReturnFocus = null;
   };
 
   const formValues = (form) => {
@@ -107,8 +120,18 @@
         openDeleteDialog(selectedRows());
         return;
       }
+      if (event.target.closest("[data-clear-selection]")) {
+        allRows().forEach((row) => {
+          const checkbox = row.querySelector("[data-meeting-select]");
+          if (checkbox) checkbox.checked = false;
+          setRowContextualAvailability(row, row.contains(document.activeElement));
+        });
+        updateSelection();
+        return;
+      }
       if (event.target.closest("[data-delete-cancel]")) {
-        closeDeleteDialog();
+        closeDeleteDialog({ restoreFocus: false });
+        document.querySelector("[data-list-title]")?.focus({ preventScroll: true });
         return;
       }
       const selectionToggle = event.target.closest("[data-selection-toggle]");
@@ -164,7 +187,43 @@
       checkbox.checked = !checkbox.checked;
       updateSelection();
     });
+    document.body.addEventListener("pointerover", (event) => {
+      const row = event.target.closest?.("[data-meeting-row]");
+      if (row) setRowContextualAvailability(row, true);
+    });
+    document.body.addEventListener("pointerout", (event) => {
+      const row = event.target.closest?.("[data-meeting-row]");
+      if (!row || row.contains(event.relatedTarget)) return;
+      const selected = row.querySelector("[data-meeting-select]")?.checked === true;
+      if (!selected && !row.contains(document.activeElement)) setRowContextualAvailability(row, false);
+    });
+    document.body.addEventListener("focusin", (event) => {
+      const row = event.target.closest?.("[data-meeting-row]");
+      if (row) setRowContextualAvailability(row, true);
+    });
+    document.body.addEventListener("focusout", (event) => {
+      const row = event.target.closest?.("[data-meeting-row]");
+      if (!row) return;
+      window.setTimeout(() => {
+        const selected = row.querySelector("[data-meeting-select]")?.checked === true;
+        if (!selected && !row.contains(document.activeElement)) setRowContextualAvailability(row, false);
+      }, 0);
+    });
+    allRows().forEach((row) => setRowContextualAvailability(row, false));
     updateSelection();
+  };
+
+  const initListDisclosures = () => {
+    document.querySelectorAll("[data-filter-disclosure], [data-sort-disclosure]").forEach((details) => {
+      if (details.dataset.disclosureReady === "true") return;
+      details.dataset.disclosureReady = "true";
+      details.addEventListener("toggle", () => {
+        if (!details.open) return;
+        document.querySelectorAll("[data-filter-disclosure], [data-sort-disclosure]").forEach((peer) => {
+          if (peer !== details) peer.open = false;
+        });
+      });
+    });
   };
 
   const initCodeForms = () => {
@@ -856,6 +915,7 @@
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
+    initListDisclosures();
     initCodeForms();
     initMeetingList();
     initManualUpload();
@@ -870,6 +930,8 @@
       target.querySelectorAll("[data-meeting-select]").forEach((input) => {
         input.checked = false;
       });
+      target.querySelectorAll("[data-meeting-row]").forEach((row) => setRowContextualAvailability(row, false));
+      updateSelection();
     }
     initCabinet();
   });

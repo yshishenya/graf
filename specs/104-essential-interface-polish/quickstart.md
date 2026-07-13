@@ -122,6 +122,27 @@ Expected:
 - idle UI omits telemetry/report/diagnostics/meters;
 - actionable recovery remains truthful and accessible.
 
+### US1 implementation evidence
+
+Tests-first proof on 2026-07-13:
+
+- the first US1 run failed in exactly seven intended places: disabled navigation,
+  invite/trial sidebar copy, unconditional calendar presentation, duplicated
+  first-run actions, and missing contextual filter/reset semantics;
+- after the scoped implementation, the complete US1 set passed: `58 passed`,
+  `0 failed`, with the same environment-owned Starlette deprecation warning;
+- the rendered information order exposes `Мои встречи`, one `Поиск встреч`,
+  `Фильтры`, current `Сортировка`, `Загрузить`, then `Записи встреч` and the
+  result links; this is the five-second comprehension path;
+- only `Мои встречи`, `Настройки`, and `Выйти` remain in the primary sidebar;
+- filter reset is absent in the default state and appears once when search or a
+  filter is active;
+- bulk delete controls remain hidden until a row is selected; the removed
+  saved/download placeholders have no replacement request or background work;
+- the no-meetings state points to the existing toolbar upload and the separate
+  native recording surface without an app-download, onboarding, or calendar
+  duplicate.
+
 ## 5. Release Build
 
 ```sh

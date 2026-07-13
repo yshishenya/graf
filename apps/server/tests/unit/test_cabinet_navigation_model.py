@@ -9,16 +9,13 @@ def test_cabinet_navigation_model_keeps_one_online_meetings_nav() -> None:
     assert navigation.workspace_subtitle == ""
     meetings = next(item for item in navigation.items if item.id == "meetings")
     settings = next(item for item in navigation.items if item.id == "settings")
-    actions = next(item for item in navigation.items if item.id == "actions")
-    disabled = [item for item in navigation.items if not item.enabled]
-
     assert meetings.href == "/meetings"
     assert meetings.enabled is True
     assert settings.href == "/settings/integrations/calendar"
     assert settings.enabled is True
-    assert actions.count == 3
-    assert {item.id for item in disabled} >= {"search", "shared", "actions", "activity"}
-    assert "settings" not in {item.id for item in disabled}
+    assert [item.id for item in navigation.items] == ["meetings", "settings"]
+    assert all(item.enabled for item in navigation.items)
+    assert all(item.count is None for item in navigation.items)
     assert all(item.icon for item in navigation.items)
 
 
@@ -40,9 +37,8 @@ def test_cabinet_navigation_can_activate_settings() -> None:
 
 def test_cabinet_navigation_falls_back_to_enabled_destination() -> None:
     navigation = view_models.cabinet_navigation(active="search")
-    disabled = next(item for item in navigation.items if item.id == "search")
     meetings = next(item for item in navigation.items if item.id == "meetings")
 
-    assert disabled.enabled is False
+    assert all(item.id != "search" for item in navigation.items)
     assert meetings.enabled is True
     assert navigation.active == "meetings"

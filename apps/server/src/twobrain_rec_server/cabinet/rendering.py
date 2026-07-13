@@ -83,7 +83,11 @@ def render_meeting_list_page(
         status_value=response.filters.status or "",
         access_value=response.filters.access or "",
         sort_value=response.filters.sort,
-        calendar_settings_href=_settings_path(embedded),
+        filters_active=bool(response.filters.q or response.filters.status or response.filters.access),
+        active_filter_count=sum(
+            value is not None and value != ""
+            for value in (response.filters.q, response.filters.status, response.filters.access)
+        ),
         visible_total=len(response.items),
     )
 
@@ -227,7 +231,16 @@ def _render_meeting_list_region(
         for item in response.items
     )
     if not rows:
-        rows = '<div class="empty-state">Нет встреч для выбранного фильтра.</div>'
+        if response.filters.q or response.filters.status or response.filters.access:
+            rows = (
+                '<div class="empty-state"><strong>Ничего не найдено</strong>'
+                '<span>Измените запрос или сбросьте фильтры.</span></div>'
+            )
+        else:
+            rows = (
+                '<div class="empty-state"><strong>Пока нет записей</strong>'
+                '<span>Начните запись в приложении или загрузите файл кнопкой выше.</span></div>'
+            )
     poll_attrs = _meeting_list_poll_attrs(response, poll_url=poll_url, poll_empty=embedded)
     content = f"""
       <section class="list-card cabinet-card" aria-label="Записи встреч" data-meeting-list{poll_attrs}>
@@ -403,10 +416,10 @@ def _render_meeting_row(
     row_meta = _render_meeting_row_meta(item)
     csrf_field = f'<input type="hidden" name="csrf_token" value="{escape(csrf_token)}">' if csrf_token else ""
     return f"""
-      <article class="meeting-row cabinet-row{selected_class}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
-        <input class="row-check" type="checkbox" data-meeting-select aria-label="Выбрать запись {title}">
-        <span class="row-icon" data-media-kind="{source_label}" aria-label="{source_label}" title="{source_label}">{source_icon}</span>
-        <a class="meeting-title" href="{href}">
+      <article class="meeting-row cabinet-row{selected_class}" tabindex="0" aria-label="Встреча {title}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
+        <span class="row-select-hit" aria-hidden="true"><input class="row-check" type="checkbox" tabindex="-1" aria-hidden="true" data-row-contextual data-meeting-select aria-label="Выбрать запись {title}"></span>
+        <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
+        <a class="meeting-title" href="{href}" aria-label="Открыть встречу {title}">
           <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
           <span class="row-meta">{row_meta}</span>
         </a>
@@ -417,7 +430,7 @@ def _render_meeting_row(
           data-hx-swap="innerHTML">
           {csrf_field}
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
-          <button class="row-delete icon-button" type="button" data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>
+          <button class="row-delete icon-button" type="button" tabindex="-1" aria-hidden="true" data-row-contextual data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>
           <noscript><button class="row-delete-noscript" type="submit">Удалить</button></noscript>
         </form>
         <span class="meeting-date">{_date_label(item)}</span>

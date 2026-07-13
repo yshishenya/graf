@@ -66,7 +66,6 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
     navigation = view_models.CabinetNavigationModel(
         active="meetings",
         items=(
-            view_models.CabinetNavigationItem("search", "Поиск", "#", "search", enabled=False),
             view_models.CabinetNavigationItem("meetings", "Мои встречи", "/meetings", "calendar-days"),
             view_models.CabinetNavigationItem(
                 "settings",
@@ -93,7 +92,8 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
     assert html.count('aria-current="page"') == 1
     assert 'href="/meetings"' in html
     assert 'href="/settings/integrations/calendar"' in html
-    assert '<span class="cabinet-sidebar-nav__item is-disabled" data-state="disabled" aria-disabled="true">' in html
+    assert 'data-state="disabled"' not in html
+    assert 'aria-disabled="true"' not in html
     assert 'href="#"' not in html
     assert 'src="/static/cabinet/graf-wordmark-dark.png"' in html
     assert 'data-cabinet-rail-toggle' in html
@@ -103,7 +103,9 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
     assert 'name="next" value="/login?next=/meetings"' in html
     assert 'data-icon="log-out"' in html
     assert "Выйти" in html
-    assert "Пробный период 7 дней" in html
+    assert "Пригласить" not in html
+    assert "Пробный период" not in html
+    assert "Free plan" not in html
     assert '<main class="cabinet-main" id="content">Контент</main>' in html
 
 
