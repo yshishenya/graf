@@ -6,49 +6,12 @@ import TwoBrainRecShared
 import XCTest
 
 final class RecordingPrerequisiteGateTests: XCTestCase {
-    func testValidSnapshotAllowsRecordingStart() {
+    func testCurrentCapturePrerequisitesAllowRecordingStart() {
         let decision = RecordingPrerequisiteGate().evaluate(validSnapshot())
 
         XCTAssertTrue(decision.allowsRecording)
         XCTAssertEqual(decision.blockedReason, .none)
-    }
-
-    func testPublicationOnlyRouteBlocksRecordingStart() {
-        let decision = RecordingPrerequisiteGate().evaluate(
-            validSnapshot(routeEvidenceKind: .publicationOnly)
-        )
-
-        XCTAssertFalse(decision.allowsRecording)
-        XCTAssertEqual(decision.blockedReason, .publicationOnly)
-        XCTAssertEqual(decision.recoveryAction, "Refresh local audio status before recording")
-    }
-
-    func testStaleRouteBlocksRecordingStart() {
-        let decision = RecordingPrerequisiteGate().evaluate(
-            validSnapshot(routeState: .stale, routeEvidenceKind: .stale)
-        )
-
-        XCTAssertFalse(decision.allowsRecording)
-        XCTAssertEqual(decision.blockedReason, .routeNotReady)
-    }
-
-    func testUnknownRouteEvidenceBlocksRecordingStart() {
-        let decision = RecordingPrerequisiteGate().evaluate(
-            validSnapshot(routeEvidenceKind: .unknown)
-        )
-
-        XCTAssertFalse(decision.allowsRecording)
-        XCTAssertEqual(decision.blockedReason, .routeNotReady)
-        XCTAssertEqual(decision.recoveryAction, "Confirm local audio status before recording")
-    }
-
-    func testSystemAudioCaptureDoesNotRequireLiveRouteState() {
-        let decision = RecordingPrerequisiteGate().evaluate(
-            validSnapshot(routeState: .inactive, routeEvidenceKind: .systemAudioCapture)
-        )
-
-        XCTAssertTrue(decision.allowsRecording)
-        XCTAssertEqual(decision.blockedReason, .none)
+        XCTAssertNil(decision.recoveryAction)
     }
 
     func testPolicyDisabledBlocksRecordingStart() {
@@ -60,13 +23,24 @@ final class RecordingPrerequisiteGateTests: XCTestCase {
         XCTAssertEqual(decision.blockedReason, .policyDisabled)
     }
 
-    func testPermissionDeniedBlocksRecordingStart() {
+    func testMicrophonePermissionDeniedBlocksRecordingStart() {
         let decision = RecordingPrerequisiteGate().evaluate(
             validSnapshot(microphonePermissionGranted: false)
         )
 
         XCTAssertFalse(decision.allowsRecording)
         XCTAssertEqual(decision.blockedReason, .permissionDenied)
+        XCTAssertEqual(decision.recoveryAction, "Grant microphone permission in System Settings")
+    }
+
+    func testSystemAudioPermissionDeniedBlocksRecordingStart() {
+        let decision = RecordingPrerequisiteGate().evaluate(
+            validSnapshot(systemAudioPermissionGranted: false)
+        )
+
+        XCTAssertFalse(decision.allowsRecording)
+        XCTAssertEqual(decision.blockedReason, .permissionDenied)
+        XCTAssertEqual(decision.recoveryAction, "Grant Screen & System Audio permission in System Settings")
     }
 
     func testUnsafeStorageBlocksRecordingStart() {
@@ -97,19 +71,17 @@ final class RecordingPrerequisiteGateTests: XCTestCase {
     }
 
     private func validSnapshot(
-        routeState: LivePassthroughStatus = .ready,
-        routeEvidenceKind: RecordingRouteEvidenceKind = .lowResourceTruth,
         policyAllowsRecording: Bool = true,
         microphonePermissionGranted: Bool = true,
+        systemAudioPermissionGranted: Bool = true,
         storageRisk: LocalBufferRiskState = .healthy,
         indicatorAvailable: Bool = true,
         sourceAppEligibility: SourceAppEligibility = .eligible
     ) -> RecordingPrerequisiteSnapshot {
         RecordingPrerequisiteSnapshot(
-            routeState: routeState,
-            routeEvidenceKind: routeEvidenceKind,
             policyAllowsRecording: policyAllowsRecording,
             microphonePermissionGranted: microphonePermissionGranted,
+            systemAudioPermissionGranted: systemAudioPermissionGranted,
             storageRisk: storageRisk,
             indicatorAvailable: indicatorAvailable,
             sourceAppEligibility: sourceAppEligibility,

@@ -12,19 +12,15 @@ final class SystemAudioLocalizationTests: XCTestCase {
         XCTAssertEqual(SystemAudioStatusLabels.resumeButtonTitle, "Продолжить")
         XCTAssertEqual(SystemAudioStatusLabels.activeState, "Есть звук")
         XCTAssertEqual(SystemAudioStatusLabels.silentState, "Тихо")
-        XCTAssertEqual(
-            SystemAudioStatusLabels.localAudioRouteActiveNotRecording,
-            "Локальный аудиомаршрут активен; запись начинается только вручную"
-        )
     }
 
     func testLiveSummaryLabelsCoverAllMeterStatesWithoutDriverLanguage() {
         let summaries = [
-            SystemAudioStatusLabels.liveSummary(routeIsActive: false, microphoneIsLive: false, incomingIsLive: false),
-            SystemAudioStatusLabels.liveSummary(routeIsActive: true, microphoneIsLive: true, incomingIsLive: true),
-            SystemAudioStatusLabels.liveSummary(routeIsActive: true, microphoneIsLive: true, incomingIsLive: false),
-            SystemAudioStatusLabels.liveSummary(routeIsActive: true, microphoneIsLive: false, incomingIsLive: true),
-            SystemAudioStatusLabels.liveSummary(routeIsActive: true, microphoneIsLive: false, incomingIsLive: false)
+            SystemAudioStatusLabels.liveSummary(recordingIsActive: false, microphoneIsLive: false, incomingIsLive: false),
+            SystemAudioStatusLabels.liveSummary(recordingIsActive: true, microphoneIsLive: true, incomingIsLive: true),
+            SystemAudioStatusLabels.liveSummary(recordingIsActive: true, microphoneIsLive: true, incomingIsLive: false),
+            SystemAudioStatusLabels.liveSummary(recordingIsActive: true, microphoneIsLive: false, incomingIsLive: true),
+            SystemAudioStatusLabels.liveSummary(recordingIsActive: true, microphoneIsLive: false, incomingIsLive: false)
         ]
 
         XCTAssertEqual(Set(summaries).count, 5)
@@ -33,17 +29,15 @@ final class SystemAudioLocalizationTests: XCTestCase {
             XCTAssertFalse(summary.localizedCaseInsensitiveContains("virtual"))
             XCTAssertFalse(summary.localizedCaseInsensitiveContains("run check"))
         }
-        XCTAssertFalse(SystemAudioStatusLabels.localAudioRouteActiveNotRecording.localizedCaseInsensitiveContains("passthrough"))
-        XCTAssertFalse(SystemAudioStatusLabels.localAudioRouteActiveNotRecording.localizedCaseInsensitiveContains("virtual"))
     }
 
     func testMeterDetailLabelsAreStableForPermissionAndRecordingStates() {
         XCTAssertEqual(
-            SystemAudioStatusLabels.microphoneDetail(routeIsActive: false, microphoneIsLive: false),
+            SystemAudioStatusLabels.microphoneDetail(recordingIsActive: false, microphoneIsLive: false),
             SystemAudioStatusLabels.waitingForRecordingAudio
         )
         XCTAssertEqual(
-            SystemAudioStatusLabels.incomingDetail(routeIsActive: true, incomingIsLive: true),
+            SystemAudioStatusLabels.incomingDetail(recordingIsActive: true, incomingIsLive: true),
             "Звук встречи поступает в запись."
         )
         XCTAssertEqual(SystemAudioStatusLabels.meterState(isLive: true), SystemAudioStatusLabels.activeState)

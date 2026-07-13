@@ -1,32 +1,26 @@
-# Permission Recovery Scenarios (US3)
+# Current Capture Permission Recovery
 
 ## Purpose
 
-Validate recovery behavior when microphone or capture permissions are denied or revoked.
+Validate fail-closed recovery for the two permissions required by the supported
+recording graph.
 
 ## Scenarios
 
-1. Start audio capture readiness flow with microphone permission denied.
-   - Verify Audio Health shows permission-specific copy and recovery action.
-   - Verify capture UI refuses `ready` until permission is granted.
-
-2. Grant permission from System Settings and return to the app.
-   - Verify permission state updates without restarting the app process.
-   - Verify route verification can be retried.
-
-3. Revoke permission after permission was previously granted.
-   - Verify recovery action appears and route state transitions to a permission failure family.
-   - Verify `ready` is blocked and one-action stop remains visible if capture was running.
-
-4. Attempt capture on unsupported host policy and verify explicit copy.
+1. Request recording with microphone permission denied.
+   - Start is blocked with microphone-specific guidance.
+2. Request recording with Screen & System Audio permission denied.
+   - Start is blocked with system-audio-specific guidance.
+3. Grant the missing permission in System Settings and return to GRAF.
+   - Permission truth refreshes without starting recording automatically.
+4. Start recording manually after both permissions are granted.
+   - Active capture is visible and one-action Stop is available.
+5. Revoke a required permission before a later recording.
+   - The later start fails closed and does not claim a complete package.
 
 ## Expected Outcome
 
-- Permission failures are explicitly distinguished from route/driver failures.
-- Recovery actions are truthful and not mixed with driver-install failure copy.
-
-## Evidence
-
-- Screenshot of permission copy for each blocked state.
-- Timestamped Audio Health lines from logs/diagnostic manifest.
-- Recovery action selected and executed by user.
+- Permission failures are not conflated with storage, device, or source-scope
+  failures.
+- Permission recovery never auto-starts recording.
+- Evidence remains metadata-only and contains no private meeting content.

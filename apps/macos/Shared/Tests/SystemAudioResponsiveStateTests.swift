@@ -24,7 +24,7 @@ final class SystemAudioResponsiveStateTests: XCTestCase {
 
     func testWaitingAndBlockedCopyAvoidsOverSpecificDeviceInstructions() {
         let waiting = SystemAudioStatusLabels.waitingForRecordingAudio
-        let noIncoming = SystemAudioStatusLabels.incomingDetail(routeIsActive: true, incomingIsLive: false)
+        let noIncoming = SystemAudioStatusLabels.incomingDetail(recordingIsActive: true, incomingIsLive: false)
 
         XCTAssertFalse(waiting.localizedCaseInsensitiveContains("select"))
         XCTAssertFalse(noIncoming.localizedCaseInsensitiveContains("speaker device"))

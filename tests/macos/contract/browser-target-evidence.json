@@ -1,22 +1,20 @@
 {
-  "schemaVersion": "0.1.0",
+  "schemaVersion": "browser-target-evidence.v1",
   "requiredTargets": [
     "chrome",
+    "firefox",
     "opera",
-    "yandex_browser",
-    "yandex_telemost_browser"
+    "yandex_browser"
   ],
-  "statuses": ["passed", "blocked", "not_accepted"],
   "requiredFields": [
     "target",
-    "targetVersion",
-    "status",
-    "microphoneSelected",
-    "speakerSelected",
-    "readinessStateBeforeJoin",
-    "routeStateAfterJoin",
-    "localSpeechUsable",
-    "remoteAudioUsable",
+    "browserBundleID",
+    "serviceFamily",
+    "hostCategory",
+    "patternClass",
+    "pageState",
+    "metadataAvailable",
+    "calendarOrJoinIntentPresent",
     "failureReason",
     "checkedAt"
   ],
@@ -29,10 +27,9 @@
     "signedUrls",
     "meetingContent"
   ],
-  "passRules": {
-    "passedRequiresReadyBeforeJoin": true,
-    "blockedRequiresFailureReason": true,
-    "notAcceptedRequiresFailureReason": true,
-    "releaseReadinessRequiresEveryTargetEvidence": true
+  "decisionRules": {
+    "metadataUnavailableIsManualOnly": true,
+    "joinedPageRequiresCalendarOrJoinIntent": true,
+    "unsupportedMetadataIsManualOnly": true
   }
 }

@@ -133,7 +133,7 @@ public final class CaptureRecoveryService {
         updated.stoppedAt = clock()
         updated.visibleIndicatorState = .error
         updated.stopActionAvailable = false
-        updated.stopReason = .appBridgeLost
+        updated.stopReason = .appRestarted
         return updated
     }
 

@@ -309,10 +309,9 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         storageRisk: LocalBufferRiskState = .healthy
     ) -> RecordingPrerequisiteSnapshot {
         RecordingPrerequisiteSnapshot(
-            routeState: .inactive,
-            routeEvidenceKind: .systemAudioCapture,
             policyAllowsRecording: policyAllowsRecording,
             microphonePermissionGranted: true,
+            systemAudioPermissionGranted: true,
             storageRisk: storageRisk,
             indicatorAvailable: true,
             sourceAppEligibility: .eligible,

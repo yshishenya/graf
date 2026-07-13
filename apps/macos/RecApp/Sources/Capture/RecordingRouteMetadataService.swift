@@ -10,9 +10,7 @@ public struct RecordingRouteMetadataService: Sendable {
         muteState: LeakageRouteMuteState = .unknown,
         browserTarget: String? = nil,
         routeChangeCount: Int = 0,
-        coreaudiodState: String? = nil,
-        sleepWakeObserved: Bool = false,
-        selfRoutingRejected: Bool = false
+        sleepWakeObserved: Bool = false
     ) -> RecordingRouteMetadata {
         RecordingRouteMetadata(
             inputRouteClass: inputRouteClass,
@@ -21,9 +19,7 @@ public struct RecordingRouteMetadataService: Sendable {
             muteState: muteState,
             browserTarget: browserTarget,
             routeChangeCount: routeChangeCount,
-            coreaudiodState: coreaudiodState,
-            sleepWakeObserved: sleepWakeObserved,
-            selfRoutingRejected: selfRoutingRejected
+            sleepWakeObserved: sleepWakeObserved
         )
     }
 }

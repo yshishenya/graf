@@ -151,16 +151,20 @@ and a rollback path in its own PR or slice.
   replacement with focused checks.
 - **Pre-refactor checks**: Server tests, Docker launch check, CI lint gate.
 
-### F-072-011: Parked Audio Driver Surface
+### F-072-011: Retired Separate Audio-Routing Surface
 
-- **Classification**: `keep intentionally`
-- **Paths**: `apps/macos/AudioDriver/`
-- **Evidence**: ADRs park virtual-driver routing as future advanced-routing
-  work outside MVP acceptance.
-- **Risk**: Deleting it can erase future safety/proof scaffolding.
-- **Recommended next step**: Keep until a dedicated driver cleanup/retirement
-  spec decides its fate.
-- **Pre-refactor checks**: Separate Spec Kit slice and driver evidence review.
+- **Classification**: `resolved by removal`
+- **Paths**: historical `apps/macos/AudioDriver/` and its app/bridge/package
+  dependents
+- **Evidence**: Feature `102-remove-legacy-audio-driver` and ADR 004 retire the
+  parked implementation after preserving the historical runtime report under
+  `docs/evidence/legacy-audio-driver/`.
+- **Risk**: Partial removal could regress the accepted app-owned dual-source
+  recording graph or leave a package/runtime revival path.
+- **Resolution**: Remove executable and active maintenance surfaces; retain
+  historical evidence and a negative architecture guard.
+- **Regression checks**: Current system-audio, microphone, writer, permission,
+  indicator, manifest, package, redaction, and full local CI gates.
 
 ### F-072-012: Release And Deploy Scripts
 

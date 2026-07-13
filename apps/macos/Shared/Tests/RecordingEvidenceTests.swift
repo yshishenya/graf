@@ -16,13 +16,13 @@ final class RecordingEvidenceTests: XCTestCase {
         let event = service.event(
             for: session,
             type: .started,
-            initiator: .user,
-            routeState: .active
+            initiator: .user
         )
 
         XCTAssertEqual(event.eventId, "event-1")
         XCTAssertEqual(event.sessionId, session.id)
         XCTAssertEqual(event.eventType, .started)
+        XCTAssertEqual(event.captureState, .active)
         XCTAssertEqual(event.indicatorState, .active)
         XCTAssertTrue(event.stopActionAvailable)
         XCTAssertTrue(event.diagnosticSafe)
@@ -35,23 +35,22 @@ final class RecordingEvidenceTests: XCTestCase {
         )
         let session = makeSession(state: .failed, indicator: .error, stopAvailable: false)
         let prerequisite = RecordingPrerequisiteSnapshot(
-            routeState: .inactive,
-            routeEvidenceKind: .publicationOnly,
             policyAllowsRecording: true,
             microphonePermissionGranted: true,
+            systemAudioPermissionGranted: false,
             storageRisk: .healthy,
             indicatorAvailable: true,
             sourceAppEligibility: .eligible,
-            blockedReason: .publicationOnly,
-            recoveryAction: "Refresh local audio status before recording",
+            blockedReason: .permissionDenied,
+            recoveryAction: "Grant Screen & System Audio permission in System Settings",
             evaluatedAt: Date(timeIntervalSince1970: 1_777_777_777)
         )
 
         let event = service.startBlocked(session: session, prerequisite: prerequisite)
 
         XCTAssertEqual(event.eventType, .startBlocked)
-        XCTAssertEqual(event.blockedReason, .publicationOnly)
-        XCTAssertEqual(event.recoveryAction, "Refresh local audio status before recording")
+        XCTAssertEqual(event.blockedReason, .permissionDenied)
+        XCTAssertEqual(event.recoveryAction, "Grant Screen & System Audio permission in System Settings")
     }
 
     func testRecordingEvidenceDiagnosticBundleRemovesForbiddenContent() throws {
@@ -61,7 +60,7 @@ final class RecordingEvidenceTests: XCTestCase {
             eventType: .started,
             occurredAt: Date(timeIntervalSince1970: 1_777_777_777),
             initiator: .user,
-            routeState: .active,
+            captureState: .active,
             indicatorState: .active,
             stopActionAvailable: true
         )
@@ -75,6 +74,7 @@ final class RecordingEvidenceTests: XCTestCase {
         )
 
         XCTAssertNotNil(bundle.manifest["recordingEvidence"])
+        XCTAssertEqual(bundle.manifest["captureState"], .string("active"))
         XCTAssertNil(bundle.manifest["rawAudio"])
         XCTAssertNil(bundle.manifest["meetingContent"])
         XCTAssertEqual(bundle.redactionState, .blockedSensitiveContent)

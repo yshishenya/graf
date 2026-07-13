@@ -14,9 +14,7 @@ final class RecordingRouteMetadataTests: XCTestCase {
             muteState: .unmuted,
             browserTarget: "chrome",
             routeChangeCount: 2,
-            coreaudiodState: "running",
-            sleepWakeObserved: true,
-            selfRoutingRejected: false
+            sleepWakeObserved: true
         )
 
         XCTAssertEqual(metadata.inputRouteClass, "built_in")
@@ -25,17 +23,16 @@ final class RecordingRouteMetadataTests: XCTestCase {
         XCTAssertEqual(metadata.muteState, .unmuted)
         XCTAssertEqual(metadata.browserTarget, "chrome")
         XCTAssertEqual(metadata.routeChangeCount, 2)
-        XCTAssertEqual(metadata.coreaudiodState, "running")
         XCTAssertTrue(metadata.sleepWakeObserved)
-        XCTAssertFalse(metadata.selfRoutingRejected)
     }
 
-    func testSelfRoutingRejectedIsEvidenceFlagNotLeakageReadiness() {
-        let metadata = RecordingRouteMetadataService().snapshot(selfRoutingRejected: true)
+    func testSnapshotDefaultsRemainNeutralForLeakageEvaluation() {
+        let metadata = RecordingRouteMetadataService().snapshot()
 
-        XCTAssertTrue(metadata.selfRoutingRejected)
         XCTAssertEqual(metadata.outputVolumeBucket, .unknown)
         XCTAssertEqual(metadata.muteState, .unknown)
+        XCTAssertEqual(metadata.routeChangeCount, 0)
+        XCTAssertFalse(metadata.sleepWakeObserved)
     }
 }
 #endif

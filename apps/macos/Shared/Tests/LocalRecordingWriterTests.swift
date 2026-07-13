@@ -13,7 +13,6 @@ final class LocalRecordingWriterTests: XCTestCase {
 
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             recordMicrophone: false
         )
 
@@ -39,7 +38,6 @@ final class LocalRecordingWriterTests: XCTestCase {
 
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             recordMicrophone: false
         )
 
@@ -63,7 +61,6 @@ final class LocalRecordingWriterTests: XCTestCase {
 
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             recordMicrophone: false
         )
 
@@ -85,7 +82,6 @@ final class LocalRecordingWriterTests: XCTestCase {
 
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             recordMicrophone: true
         )
 
@@ -141,7 +137,6 @@ final class LocalRecordingWriterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             recordMicrophone: false
         )
 
@@ -164,7 +159,6 @@ final class LocalRecordingWriterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             recordMicrophone: false
         )
 
@@ -188,7 +182,6 @@ final class LocalRecordingWriterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             recordMicrophone: false
         )
 
@@ -236,7 +229,6 @@ final class LocalRecordingWriterTests: XCTestCase {
         let micSource = BufferedLocalRecordingSampleSource(capacity: 16, channelCount: 1)
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             microphoneSampleSourceFactory: { micSource },
             recordMicrophone: true
         )
@@ -277,7 +269,6 @@ final class LocalRecordingWriterTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             recordMicrophone: false
         )
 
@@ -300,7 +291,6 @@ final class LocalRecordingWriterTests: XCTestCase {
         let micSource = BufferedLocalRecordingSampleSource(capacity: 16, channelCount: 1)
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            sharedMemoryFactory: { nil },
             microphoneSampleSourceFactory: { micSource },
             recordMicrophone: true
         )

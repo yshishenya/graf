@@ -83,94 +83,6 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
-    public func buildLiveRouteReadinessBundle(
-        result: LiveRouteReadinessResult
-    ) throws -> DiagnosticBundle {
-        var manifest: [String: DiagnosticFieldValue] = [
-            "liveRouteReadiness": .object([
-                "status": .string(result.status.rawValue),
-                "checkedAt": .string(Self.formatDate(result.checkedAt)),
-                "recoveryAction": .string(result.recoveryAction ?? "none")
-            ]),
-            "microphonePathEvidence": .object([
-                "selectedPhysicalDeviceName": .string(result.microphoneEvidence.selectedPhysicalDeviceName),
-                "status": .string(result.microphoneEvidence.status.rawValue),
-                "validFrameCount": .int(Int(result.microphoneEvidence.validFrameCount)),
-                "emptyBufferCount": .int(Int(result.microphoneEvidence.emptyBufferCount)),
-                "selfRoutingRejected": .bool(result.microphoneEvidence.selfRoutingRejected),
-                "failureReason": .string(result.microphoneEvidence.failureReason ?? "none")
-            ]),
-            "speakerPathEvidence": .object([
-                "selectedPhysicalOutputName": .string(result.speakerEvidence.selectedPhysicalOutputName),
-                "status": .string(result.speakerEvidence.status.rawValue),
-                "stimulusObserved": .bool(result.speakerEvidence.stimulusObserved),
-                "validFrameCount": .int(Int(result.speakerEvidence.validFrameCount)),
-                "emptyBufferCount": .int(Int(result.speakerEvidence.emptyBufferCount)),
-                "selfRoutingRejected": .bool(result.speakerEvidence.selfRoutingRejected),
-                "failureReason": .string(result.speakerEvidence.failureReason ?? "none")
-            ]),
-            "routeStatus": .string(result.status.rawValue),
-            "routeVerificationResults": .object([
-                "microphoneStatus": .string(result.microphoneEvidence.status.rawValue),
-                "microphoneFailureReason": .string(result.microphoneEvidence.failureReason ?? "none"),
-                "speakerStatus": .string(result.speakerEvidence.status.rawValue),
-                "speakerFailureReason": .string(result.speakerEvidence.failureReason ?? "none")
-            ]),
-            "recoveryActionId": .string(result.recoveryAction ?? "none")
-        ]
-
-        if let latency = result.latencyMeasurement {
-            manifest["latencyMeasurement"] = .object([
-                "routeClass": .string(latency.routeClass.rawValue),
-                "addedLatencyMs": .double(latency.addedLatencyMs),
-                "thresholdMs": .double(latency.thresholdMs),
-                "status": .string(latency.status.rawValue)
-            ])
-        }
-
-        if let leakage = result.leakageMeasurement {
-            manifest["leakageMeasurement"] = .object([
-                "speakerReferenceDb": .double(leakage.speakerReferenceDb),
-                "virtualMicLeakageDb": .double(leakage.virtualMicLeakageDb),
-                "relativeLeakageDb": .double(leakage.relativeLeakageDb),
-                "intelligibilityStatus": .string(leakage.intelligibilityStatus.rawValue),
-                "status": .string(leakage.status.rawValue)
-            ])
-        }
-
-        return try buildBundle(
-            schemaVersion: "1",
-            manifest: manifest,
-            failureFamily: "live_route_readiness"
-        )
-    }
-
-    public func buildBrowserTargetEvidenceBundle(
-        evidence: [BrowserTargetEvidence]
-    ) throws -> DiagnosticBundle {
-        let values = evidence.map { item in
-            DiagnosticFieldValue.object([
-                "target": .string(item.target),
-                "status": .string(item.status.rawValue),
-                "microphoneSelected": .string(item.microphoneSelected),
-                "speakerSelected": .string(item.speakerSelected),
-                "localSpeechUsable": .bool(item.localSpeechUsable),
-                "remoteAudioUsable": .bool(item.remoteAudioUsable),
-                "failureReason": .string(item.failureReason ?? "none"),
-                "checkedAt": .string(Self.formatDate(item.checkedAt))
-            ])
-        }
-
-        return try buildBundle(
-            schemaVersion: "1",
-            manifest: [
-                "browserTargetEvidence": .array(values),
-                "routeStatus": .string("browser_target_evidence_recorded")
-            ],
-            failureFamily: "browser_target_evidence"
-        )
-    }
-
     public func buildMeetingDetectionDetectorBundle(
         evidence: MeetingDetectionDetectorEvidence
     ) throws -> DiagnosticBundle {
@@ -186,103 +98,9 @@ public struct DiagnosticBundleService: Sendable {
                     "decision": .string(evidence.decision),
                     "reason": .string(evidence.reason ?? "none"),
                     "observedAt": .string(Self.formatDate(evidence.observedAt))
-                ]),
-                "routeStatus": .string("meeting_detection_detector_recorded")
+                ])
             ],
             failureFamily: "meeting_detection_detector"
-        )
-    }
-
-    public func buildRouteInvalidationBundle(
-        events: [RouteInvalidationEvent]
-    ) throws -> DiagnosticBundle {
-        let values = events.map { event in
-            DiagnosticFieldValue.object([
-                "source": .string(event.source.rawValue),
-                "previousReadinessStatus": .string(event.previousReadinessStatus.rawValue),
-                "newReadinessStatus": .string(event.newReadinessStatus.rawValue),
-                "detectedAt": .string(Self.formatDate(event.detectedAt)),
-                "recoveryAction": .string(event.recoveryAction)
-            ])
-        }
-
-        return try buildBundle(
-            schemaVersion: "1",
-            manifest: [
-                "routeInvalidationEvents": .array(values),
-                "recoveryActionId": .string("rerun_readiness_check")
-            ],
-            failureFamily: "route_invalidation"
-        )
-    }
-
-    public func buildLivePassthroughBundle(
-        session: LivePassthroughSession,
-        recoveryEvents: [PassthroughRouteRecoveryEvent] = []
-    ) throws -> DiagnosticBundle {
-        let browserValues = session.browserEvidence.map { item in
-            DiagnosticFieldValue.object([
-                "targetName": .string(item.targetName),
-                "targetVersion": .string(item.targetVersion ?? "unknown"),
-                "selectedMicrophone": .string(item.selectedMicrophone),
-                "selectedSpeaker": .string(item.selectedSpeaker),
-                "localSpeechUsable": .bool(item.localSpeechUsable),
-                "remoteAudioUsable": .bool(item.remoteAudioUsable),
-                "status": .string(item.status.rawValue),
-                "failureReason": .string(item.failureReason ?? "none"),
-                "checkedAt": .string(Self.formatDate(item.checkedAt))
-            ])
-        }
-
-        let recoveryValues = recoveryEvents.map { event in
-            DiagnosticFieldValue.object([
-                "eventType": .string(event.eventType.rawValue),
-                "detectedAt": .string(Self.formatDate(event.detectedAt)),
-                "previousStatus": .string(event.previousStatus.rawValue),
-                "newStatus": .string(event.newStatus.rawValue),
-                "recoveryAction": .string(event.recoveryAction)
-            ])
-        }
-
-        return try buildBundle(
-            schemaVersion: "1",
-            manifest: [
-                "livePassthrough": .object([
-                    "sessionId": .string(session.sessionId),
-                    "status": .string(session.status.rawValue),
-                    "recordingState": .string(session.recordingState),
-                    "startedAt": .string(session.startedAt.map(Self.formatDate) ?? "none"),
-                    "endedAt": .string(session.endedAt.map(Self.formatDate) ?? "none"),
-                    "lastRecoveryAction": .string(session.lastRecoveryAction ?? "none")
-                ]),
-                "microphonePassthroughPath": .object([
-                    "physicalInputName": .string(session.microphonePath.physicalInputName),
-                    "virtualInputName": .string(session.microphonePath.virtualInputName),
-                    "status": .string(session.microphonePath.status.rawValue),
-                    "validFrameObserved": .bool(session.microphonePath.validFrameObserved),
-                    "failureReason": .string(session.microphonePath.failureReason.rawValue)
-                ]),
-                "speakerPassthroughPath": .object([
-                    "virtualOutputName": .string(session.speakerPath.virtualOutputName),
-                    "physicalOutputName": .string(session.speakerPath.physicalOutputName),
-                    "status": .string(session.speakerPath.status.rawValue),
-                    "stimulusObserved": .bool(session.speakerPath.stimulusObserved),
-                    "failureReason": .string(session.speakerPath.failureReason.rawValue)
-                ]),
-                "passthroughHealth": .object([
-                    "appHeartbeatStatus": .string(session.healthEvidence.appHeartbeatStatus.rawValue),
-                    "latencyMs": .double(session.healthEvidence.latencyMs ?? -1),
-                    "leakageDbBelowReference": .double(session.healthEvidence.leakageDbBelowReference ?? -1),
-                    "notIntelligible": .bool(session.healthEvidence.notIntelligible),
-                    "diagnosticSafe": .bool(session.healthEvidence.diagnosticSafe)
-                ]),
-                "passthroughBrowserEvidence": .array(browserValues),
-                "passthroughRecoveryEvents": .array(recoveryValues),
-                "appHeartbeatStatus": .string(session.healthEvidence.appHeartbeatStatus.rawValue),
-                "routeStatus": .string(session.status.rawValue),
-                "recoveryActionId": .string(session.lastRecoveryAction ?? "none")
-            ],
-            failureFamily: "live_passthrough"
         )
     }
 
@@ -296,7 +114,7 @@ public struct DiagnosticBundleService: Sendable {
         manifest["recordingEvidence"] = .array(events.map(Self.diagnosticValue))
         manifest["recordingPrerequisites"] = .array(prerequisites.map(Self.diagnosticValue))
         manifest["recordingIndicatorState"] = .array(indicatorSnapshots.map(Self.diagnosticValue))
-        manifest["routeStatus"] = .string(events.last?.routeState.rawValue ?? "unknown")
+        manifest["captureState"] = .string(events.last?.captureState.rawValue ?? "unknown")
         manifest["recoveryActionId"] = .string(events.last?.recoveryAction ?? "none")
 
         return try buildBundle(
@@ -366,118 +184,6 @@ public struct DiagnosticBundleService: Sendable {
         )
     }
 
-    public func buildReleaseHardeningBundle(
-        run: ReleaseHardeningRun,
-        shortSmokeEvidence: [ShortSmokeEvidence] = [],
-        noHangEvidence: [CoreAudioNoHangEvidence] = [],
-        routeRecoveryEvidence: [RouteRecoveryEvidence] = [],
-        installerLifecycleEvidence: [InstallerLifecycleEvidence] = [],
-        uxReadinessEvidence: [UXReadinessEvidence] = [],
-        deferredRecordingAcceptance: DeferredRecordingAcceptanceState? = nil
-    ) throws -> DiagnosticBundle {
-        try buildBundle(
-            schemaVersion: "1",
-            manifest: [
-                "releaseHardeningRun": .object([
-                    "runId": .string(run.runId),
-                    "createdAt": .string(Self.formatDate(run.createdAt)),
-                    "macOSVersion": .string(run.macOSVersion),
-                    "appBuild": .string(run.appBuild),
-                    "driverBuild": .string(run.driverBuild),
-                    "result": .string(run.result.rawValue),
-                    "notes": .string(run.notes)
-                ]),
-                "releaseHardeningEvidenceFamilies": .array(
-                    run.evidenceFamilies.map { .string($0.rawValue) }
-                ),
-                "shortSmokeEvidence": .array(shortSmokeEvidence.map(Self.diagnosticValue)),
-                "coreAudioNoHangEvidence": .array(noHangEvidence.map(Self.diagnosticValue)),
-                "routeRecoveryEvidence": .array(routeRecoveryEvidence.map(Self.diagnosticValue)),
-                "installerLifecycleEvidence": .array(installerLifecycleEvidence.map(Self.diagnosticValue)),
-                "uxReadinessEvidence": .array(uxReadinessEvidence.map(Self.diagnosticValue)),
-                "deferredRecordingAcceptance": deferredRecordingAcceptance.map(Self.diagnosticValue) ?? .null
-            ],
-            failureFamily: "release_hardening"
-        )
-    }
-
-    public func buildLowResourceRouteTruthBundle(
-        snapshot: RouteTruthSnapshot,
-        startupAttempts: [StartupAttemptEvidence] = [],
-        validationRun: LowResourceValidationRun? = nil,
-        recoveryEvents: [LowResourceRecoveryEvent] = []
-    ) throws -> DiagnosticBundle {
-        try buildBundle(
-            schemaVersion: "1",
-            manifest: [
-                "lowResourceRouteTruth": Self.diagnosticValue(snapshot),
-                "lowResourceStartupAttempts": .array(startupAttempts.map(Self.diagnosticValue)),
-                "lowResourceValidationRun": validationRun.map(Self.diagnosticValue) ?? .null,
-                "lowResourceRecoveryEvents": .array(recoveryEvents.map(Self.diagnosticValue)),
-                "routeStatus": .string(snapshot.resourceState.rawValue),
-                "recoveryActionId": .string(snapshot.appBridgeHealth.recoveryAction)
-            ],
-            failureFamily: "low_resource_audio"
-        )
-    }
-
-    public func buildLowResourceRecoveryBundle(
-        events: [LowResourceRecoveryEvent]
-    ) throws -> DiagnosticBundle {
-        try buildBundle(
-            schemaVersion: "1",
-            manifest: [
-                "lowResourceRecoveryEvents": .array(events.map(Self.diagnosticValue)),
-                "routeStatus": .string(events.last?.newState.rawValue ?? AudioResourceState.stale.rawValue),
-                "recoveryActionId": .string(events.last?.recoveryAction ?? "none")
-            ],
-            failureFamily: "low_resource_recovery"
-        )
-    }
-
-    public func buildLowResourcePromotionBundle(
-        decision: LowResourcePromotionDecision
-    ) throws -> DiagnosticBundle {
-        try buildBundle(
-            schemaVersion: "1",
-            manifest: [
-                "lowResourcePromotionDecision": Self.diagnosticValue(decision),
-                "routeStatus": .string(decision.status == .promoted ? "ready" : "fallback"),
-                "recoveryActionId": .string(decision.shouldUseFallback ? "use_005_fallback" : "none")
-            ],
-            failureFamily: "low_resource_promotion"
-        )
-    }
-
-    public func buildRouteEvidenceBundle(
-        events: [RouteEvidenceEvent],
-        manifestOverrides: [String: DiagnosticFieldValue] = [:]
-    ) throws -> DiagnosticBundle {
-        var manifest = manifestOverrides
-        manifest["routeEvidenceEvents"] = .array(events.map(Self.diagnosticValue))
-
-        if let validationRun = events.compactMap(\.validationRun).last {
-            manifest["validationRunEvidence"] = Self.diagnosticValue(validationRun)
-        }
-
-        if let timelineEvidence = events.compactMap(\.recordingTimeline).last {
-            manifest["recordingTimelineEvidence"] = Self.diagnosticValue(timelineEvidence)
-        }
-
-        if let releaseDecision = events.compactMap(\.releaseDecision).last {
-            manifest["routeReleaseDecision"] = Self.diagnosticValue(releaseDecision)
-        }
-
-        manifest["routeEvidenceFile"] = .string("route-evidence.jsonl")
-        manifest["routeStatus"] = .string(events.last?.routeState?.rawValue ?? "unknown")
-
-        return try buildBundle(
-            schemaVersion: "1",
-            manifest: manifest,
-            failureFamily: "live_route_stability"
-        )
-    }
-
     public func buildBundle(
         schemaVersion: String,
         createdAt: Date = Date(),
@@ -534,94 +240,6 @@ public struct DiagnosticBundleService: Sendable {
         return formatter.string(from: date)
     }
 
-    private static func diagnosticValue(_ evidence: ShortSmokeEvidence) -> DiagnosticFieldValue {
-        .object([
-            "targetApp": .string(evidence.targetApp),
-            "selectedInput": .string(evidence.selectedInput),
-            "selectedOutput": .string(evidence.selectedOutput),
-            "localSpeechObserved": boolOrUnknown(evidence.localSpeechObserved),
-            "remoteAudioObserved": boolOrUnknown(evidence.remoteAudioObserved),
-            "loopbackObserved": boolOrUnknown(evidence.loopbackObserved),
-            "recordingStarted": .bool(evidence.recordingStarted),
-            "result": .string(evidence.result.rawValue)
-        ])
-    }
-
-    private static func diagnosticValue(_ evidence: CoreAudioNoHangEvidence) -> DiagnosticFieldValue {
-        .object([
-            "targetSurface": .string(evidence.targetSurface),
-            "openedWithinSeconds": .double(evidence.openedWithinSeconds),
-            "coreaudiodCPUPeakPercent": .double(evidence.coreaudiodCPUPeakPercent),
-            "coreaudiodCPUSustainedPercent": .double(evidence.coreaudiodCPUSustainedPercent),
-            "routeStateBefore": .string(evidence.routeStateBefore.rawValue),
-            "routeStateAfter": .string(evidence.routeStateAfter.rawValue),
-            "result": .string(evidence.result.rawValue),
-            "failureReason": .string(evidence.failureReason ?? "none")
-        ])
-    }
-
-    private static func diagnosticValue(_ evidence: RouteRecoveryEvidence) -> DiagnosticFieldValue {
-        .object([
-            "trigger": .string(evidence.trigger),
-            "detectedWithinSeconds": .double(evidence.detectedWithinSeconds),
-            "expectedState": .string(evidence.expectedState.rawValue),
-            "actualState": .string(evidence.actualState.rawValue),
-            "recoveryAction": .string(evidence.recoveryAction),
-            "result": .string(evidence.result.rawValue)
-        ])
-    }
-
-    private static func diagnosticValue(_ event: LowResourceRecoveryEvent) -> DiagnosticFieldValue {
-        .object([
-            "trigger": .string(event.trigger.rawValue),
-            "previousState": .string(event.previousState.rawValue),
-            "newState": .string(event.newState.rawValue),
-            "detectedAt": .string(Self.formatDate(event.detectedAt)),
-            "recoveryAction": .string(event.recoveryAction),
-            "publicDeviceAvailability": .string(event.publicDeviceAvailability.rawValue)
-        ])
-    }
-
-    private static func diagnosticValue(_ decision: LowResourcePromotionDecision) -> DiagnosticFieldValue {
-        .object([
-            "status": .string(decision.status.rawValue),
-            "decidedAt": .string(Self.formatDate(decision.decidedAt)),
-            "reason": .string(decision.reason),
-            "fallbackBaseline": .string(decision.fallbackBaseline)
-        ])
-    }
-
-    private static func diagnosticValue(_ evidence: InstallerLifecycleEvidence) -> DiagnosticFieldValue {
-        .object([
-            "operation": .string(evidence.operation),
-            "preState": .string(evidence.preState),
-            "postState": .string(evidence.postState),
-            "coreAudioRefreshRequired": .bool(evidence.coreAudioRefreshRequired),
-            "runtimeProbeResult": .string(evidence.runtimeProbeResult),
-            "result": .string(evidence.result.rawValue)
-        ])
-    }
-
-    private static func diagnosticValue(_ evidence: UXReadinessEvidence) -> DiagnosticFieldValue {
-        .object([
-            "state": .string(evidence.state.rawValue),
-            "copyClaim": .string(evidence.copyClaim),
-            "nonRecordingExplicit": .bool(evidence.nonRecordingExplicit),
-            "recordingImplied": .bool(evidence.recordingImplied),
-            "accessibilityNotes": .string(evidence.accessibilityNotes),
-            "result": .string(evidence.result.rawValue)
-        ])
-    }
-
-    private static func diagnosticValue(_ state: DeferredRecordingAcceptanceState) -> DiagnosticFieldValue {
-        .object([
-            "blockedUntil": .string(state.blockedUntil),
-            "retentionPolicyRequired": .bool(state.retentionPolicyRequired),
-            "deletionPolicyRequired": .bool(state.deletionPolicyRequired),
-            "result": .string(state.result.rawValue)
-        ])
-    }
-
     private static func diagnosticValue(_ event: RecordingEvidenceEvent) -> DiagnosticFieldValue {
         .object([
             "eventId": .string(event.eventId),
@@ -629,7 +247,7 @@ public struct DiagnosticBundleService: Sendable {
             "eventType": .string(event.eventType.rawValue),
             "occurredAt": .string(Self.formatDate(event.occurredAt)),
             "initiator": .string(event.initiator.rawValue),
-            "routeState": .string(event.routeState.rawValue),
+            "captureState": .string(event.captureState.rawValue),
             "indicatorState": .string(event.indicatorState.rawValue),
             "stopActionAvailable": .bool(event.stopActionAvailable),
             "blockedReason": .string(event.blockedReason.rawValue),
@@ -641,10 +259,9 @@ public struct DiagnosticBundleService: Sendable {
 
     private static func diagnosticValue(_ snapshot: RecordingPrerequisiteSnapshot) -> DiagnosticFieldValue {
         .object([
-            "routeState": .string(snapshot.routeState.rawValue),
-            "routeEvidenceKind": .string(snapshot.routeEvidenceKind.rawValue),
             "policyAllowsRecording": .bool(snapshot.policyAllowsRecording),
             "microphonePermissionGranted": .bool(snapshot.microphonePermissionGranted),
+            "systemAudioPermissionGranted": .bool(snapshot.systemAudioPermissionGranted),
             "storageRisk": .string(snapshot.storageRisk.rawValue),
             "indicatorAvailable": .bool(snapshot.indicatorAvailable),
             "sourceAppEligibility": .string(snapshot.sourceAppEligibility.rawValue),
@@ -971,9 +588,7 @@ public struct DiagnosticBundleService: Sendable {
             "muteState": .string(route.muteState.rawValue),
             "browserTarget": .string(route.browserTarget ?? "unknown"),
             "routeChangeCount": .int(route.routeChangeCount),
-            "coreaudiodState": .string(route.coreaudiodState ?? "unknown"),
-            "sleepWakeObserved": .bool(route.sleepWakeObserved),
-            "selfRoutingRejected": .bool(route.selfRoutingRejected)
+            "sleepWakeObserved": .bool(route.sleepWakeObserved)
         ])
     }
 
@@ -997,160 +612,6 @@ public struct DiagnosticBundleService: Sendable {
         ])
     }
 
-    private static func diagnosticValue(_ snapshot: RouteTruthSnapshot) -> DiagnosticFieldValue {
-        .object([
-            "snapshotId": .string(snapshot.snapshotId),
-            "recordedAt": .string(Self.formatDate(snapshot.recordedAt)),
-            "resourceState": .string(snapshot.resourceState.rawValue),
-            "result": .string(snapshot.result.rawValue),
-            "publication": .object([
-                "microphoneVisible": .bool(snapshot.publication.microphoneVisible),
-                "speakerVisible": .bool(snapshot.publication.speakerVisible),
-                "microphoneAlive": .string(snapshot.publication.microphoneAlive.map(String.init) ?? "unknown"),
-                "speakerAlive": .string(snapshot.publication.speakerAlive.map(String.init) ?? "unknown"),
-                "microphoneRunning": .string(snapshot.publication.microphoneRunning.map(String.init) ?? "unknown"),
-                "speakerRunning": .string(snapshot.publication.speakerRunning.map(String.init) ?? "unknown"),
-                "hidden": .bool(snapshot.publication.hidden),
-                "runtimeProbeResult": .string(snapshot.publication.runtimeProbeResult.rawValue)
-            ]),
-            "clientActivity": .object([
-                "microphoneClientCount": .int(snapshot.clientActivity.microphoneClientCount),
-                "speakerClientCount": .int(snapshot.clientActivity.speakerClientCount),
-                "microphoneRunning": .bool(snapshot.clientActivity.microphoneRunning),
-                "speakerRunning": .bool(snapshot.clientActivity.speakerRunning),
-                "source": .string(snapshot.clientActivity.source.rawValue),
-                "naturalSilenceAllowed": .bool(snapshot.clientActivity.naturalSilenceAllowed)
-            ]),
-            "appBridge": .object([
-                "heartbeatState": .string(snapshot.appBridgeHealth.heartbeatState.rawValue),
-                "timeoutMs": .int(snapshot.appBridgeHealth.timeoutMs),
-                "driverFailClosed": .bool(snapshot.appBridgeHealth.driverFailClosed),
-                "publicDeviceAvailability": .string(snapshot.appBridgeHealth.publicDeviceAvailability),
-                "recoveryAction": .string(snapshot.appBridgeHealth.recoveryAction)
-            ]),
-            "physicalDevices": .object([
-                "inputDeviceName": .string(snapshot.physicalDevices.inputDeviceName),
-                "outputDeviceName": .string(snapshot.physicalDevices.outputDeviceName),
-                "inputKind": .string(snapshot.physicalDevices.inputKind.rawValue),
-                "outputKind": .string(snapshot.physicalDevices.outputKind.rawValue),
-                "selectionResult": .string(snapshot.physicalDevices.selectionResult.rawValue),
-                "rejectionReason": .string(snapshot.physicalDevices.rejectionReason ?? "none")
-            ]),
-            "recordingTrigger": .object([
-                "recordingTriggerState": .string(snapshot.recordingTrigger.recordingTriggerState.rawValue),
-                "driverRecordingOwner": .bool(snapshot.recordingTrigger.driverRecordingOwner),
-                "appRecordingOwner": .bool(snapshot.recordingTrigger.appRecordingOwner),
-                "recordingArtifactsCreated": .bool(snapshot.recordingTrigger.recordingArtifactsCreated),
-                "externalEgressStarted": .bool(snapshot.recordingTrigger.externalEgressStarted)
-            ])
-        ])
-    }
-
-    private static func diagnosticValue(_ attempt: StartupAttemptEvidence) -> DiagnosticFieldValue {
-        .object([
-            "attemptId": .string(attempt.attemptId),
-            "trigger": .string(attempt.trigger.rawValue),
-            "startedAt": .string(Self.formatDate(attempt.startedAt)),
-            "completedAt": .string(Self.formatDate(attempt.completedAt)),
-            "durationMs": .int(attempt.durationMs),
-            "outcome": .string(attempt.outcome.rawValue),
-            "blockedReason": .string(attempt.blockedReason ?? "none"),
-            "fallbackUsed": .bool(attempt.fallbackUsed)
-        ])
-    }
-
-    private static func diagnosticValue(_ run: LowResourceValidationRun) -> DiagnosticFieldValue {
-        .object([
-            "runId": .string(run.runId),
-            "createdAt": .string(Self.formatDate(run.createdAt)),
-            "appBuild": .string(run.appBuild),
-            "driverBuild": .string(run.driverBuild),
-            "baseline": .string(run.baseline),
-            "result": .string(run.result.rawValue),
-            "routeTruthCount": .int(run.routeTruthSnapshots.count),
-            "startupAttemptCount": .int(run.startupAttempts.count),
-            "realtimeSafetyResult": .string(run.realtimeSafety.result.rawValue)
-        ])
-    }
-
-    private static func diagnosticValue(_ event: RouteEvidenceEvent) -> DiagnosticFieldValue {
-        var object: [String: DiagnosticFieldValue] = [
-            "eventId": .string(event.eventId),
-            "sessionId": .string(event.sessionId),
-            "family": .string(event.family.rawValue),
-            "name": .string(event.name),
-            "observedAt": .string(Self.formatDate(event.observedAt)),
-            "source": .string(event.source.rawValue),
-            "redactionState": .string(event.redactionState.rawValue)
-        ]
-        if let routeState = event.routeState {
-            object["routeState"] = .string(routeState.rawValue)
-        }
-        if let target = event.target {
-            object["target"] = .string(target.rawValue)
-        }
-        if let validationRun = event.validationRun {
-            object["validationRun"] = diagnosticValue(validationRun)
-        }
-        if let releaseDecision = event.releaseDecision {
-            object["releaseDecision"] = diagnosticValue(releaseDecision)
-        }
-        if let frameContinuity = event.frameContinuity {
-            object["frameContinuity"] = diagnosticValue(frameContinuity)
-        }
-        if let recordingTimeline = event.recordingTimeline {
-            object["recordingTimeline"] = diagnosticValue(recordingTimeline)
-        }
-        return .object(object)
-    }
-
-    private static func diagnosticValue(_ evidence: ValidationRunEvidence) -> DiagnosticFieldValue {
-        .object([
-            "runId": .string(evidence.runId),
-            "durationGate": .string(evidence.durationGate.rawValue),
-            "result": .string(evidence.result.rawValue),
-            "targetsCovered": .array(evidence.targetsCovered.map { .string($0.rawValue) }),
-            "deviceClassesCovered": .array(evidence.deviceClassesCovered.map { .string($0.rawValue) }),
-            "userActionCount": .int(evidence.userActionCount),
-            "startedAt": .string(Self.formatDate(evidence.startedAt)),
-            "completedAt": .string(evidence.completedAt.map(Self.formatDate) ?? "none")
-        ])
-    }
-
-    private static func diagnosticValue(_ evidence: RecordingTimelineIntegrityEvidence) -> DiagnosticFieldValue {
-        .object([
-            "routeSessionId": .string(evidence.routeSessionId),
-            "autorepairAttemptIds": .array(evidence.autorepairAttemptIds.map { .string($0) }),
-            "micDurationSeconds": .double(evidence.micDurationSeconds),
-            "incomingDurationSeconds": .double(evidence.incomingDurationSeconds),
-            "durationDifferenceSeconds": .double(evidence.durationDifferenceSeconds),
-            "alignmentBand": .string(evidence.alignmentBand.rawValue),
-            "interruptionCategory": .string(evidence.interruptionCategory.rawValue)
-        ])
-    }
-
-    private static func diagnosticValue(_ decision: RouteReleaseDecision) -> DiagnosticFieldValue {
-        .object([
-            "outcome": .string(decision.outcome.rawValue),
-            "reason": .string(decision.reason.rawValue),
-            "clientEvidenceFresh": .bool(decision.clientEvidenceFresh),
-            "decidedAt": .string(Self.formatDate(decision.decidedAt))
-        ])
-    }
-
-    private static func diagnosticValue(_ snapshot: FrameContinuitySnapshot) -> DiagnosticFieldValue {
-        .object([
-            "microphoneFramesObserved": .int(snapshot.microphoneFramesObserved),
-            "incomingFramesObserved": .int(snapshot.incomingFramesObserved),
-            "missingFrameCount": .int(snapshot.missingFrameCount),
-            "dropoutCount": .int(snapshot.dropoutCount),
-            "windowMs": .int(snapshot.windowMs)
-        ])
-    }
-
-    private static func boolOrUnknown(_ value: Bool?) -> DiagnosticFieldValue {
-        value.map { .bool($0) } ?? .string("unknown")
-    }
 }
 
 private extension DiagnosticFieldValue {

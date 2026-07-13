@@ -5,7 +5,6 @@ included:
 excluded:
   - .build
   - DerivedData
-  - AudioDriver
   - Installer
 
 disabled_rules:

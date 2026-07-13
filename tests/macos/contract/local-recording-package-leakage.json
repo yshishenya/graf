@@ -219,9 +219,7 @@
         },
         "browserTarget": { "type": "string" },
         "routeChangeCount": { "type": "integer", "minimum": 0 },
-        "coreaudiodState": { "type": "string" },
-        "sleepWakeObserved": { "type": "boolean" },
-        "selfRoutingRejected": { "type": "boolean" }
+        "sleepWakeObserved": { "type": "boolean" }
       }
     },
     "measurement": {

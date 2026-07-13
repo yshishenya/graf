@@ -1,32 +1,27 @@
-# Recording-Assisted Acceptance (Deferred)
+# Recording-Assisted Acceptance
 
-This checklist is a future release gate. It is intentionally blocked until local
-recording exists and the recording slice defines retention, deletion, and
-content-review rules.
+This is the long-duration acceptance gate for the current app-owned recording
+architecture. It is separate from the short manual start/stop smoke.
 
-## Blocked Until
+## Preconditions
 
-- [ ] Local recording support exists.
-- [ ] Recording retention policy exists.
-- [ ] Recording deletion policy exists.
-- [ ] Recorded evidence review rules avoid uncontrolled egress and secrets.
+- [ ] Product retention and deletion copy is current.
+- [ ] Evidence handling forbids uncontrolled audio/content egress.
+- [ ] The current-build short recording smoke passes first.
 
-## Future Evidence
+## Required Evidence
 
-- [ ] Long-duration call replay covers the local microphone path.
-- [ ] Long-duration call replay covers the remote speaker path.
-- [ ] Recorded evidence proves channel separation.
-- [ ] Recorded evidence proves no remote-to-mic loopback.
-- [ ] Recorded evidence allows distortion and dropout review.
-- [ ] Route state timeline is captured alongside recording evidence.
-- [ ] Upload, transcription, MediaScribe, and Langfuse behavior match the
-  future recording feature policy.
+- [ ] Long-duration replay covers the app-owned microphone source.
+- [ ] Long-duration replay covers the app-owned system-audio source.
+- [ ] The two original tracks remain separate and playable.
+- [ ] Dropouts, timing discontinuities, and source loss are recorded truthfully.
+- [ ] One-action `Stop` finalizes or fails closed.
+- [ ] Sleep/wake, permission changes, and eligible microphone changes do not
+  create a false successful package.
+- [ ] Upload, transcription, MediaScribe, and Langfuse behavior matches the
+  separately accepted policies.
 
-## Current Slice Rule
+## Current Status
 
-- [x] 005 pre-recording hardening may reference this checklist but must not
-  require recording-derived evidence before local recording exists.
-- [x] 005 release-hardening tasks treat this checklist as a future gate and keep
-  current long-duration replay acceptance blocked.
-- [x] Future acceptance must include retention/deletion policy before any raw or
-  recorded audio evidence is created.
+Open. Removing the retired routing implementation does not itself accept this
+gate. A fresh long-duration run on the current build is still required.

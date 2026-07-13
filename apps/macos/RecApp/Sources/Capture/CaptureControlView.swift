@@ -19,7 +19,7 @@ public struct CaptureControlView: View {
     private let calendarPrompt: DesktopCalendarPrompt?
     private let meetingDetectionStatus: String?
     private let meetingDetectionHealth: String?
-    private let routeSignalLevels: LiveRouteSignalLevels
+    private let recordingLevels: LiveRecordingLevels
     private let recordDisabled: Bool
     private let stopDisabled: Bool
     private let pauseDisabled: Bool
@@ -50,7 +50,7 @@ public struct CaptureControlView: View {
         calendarPrompt: DesktopCalendarPrompt? = nil,
         meetingDetectionStatus: String? = nil,
         meetingDetectionHealth: String? = nil,
-        routeSignalLevels: LiveRouteSignalLevels = .inactive,
+        recordingLevels: LiveRecordingLevels = .inactive,
         recordDisabled: Bool = false,
         stopDisabled: Bool = false,
         pauseDisabled: Bool = false,
@@ -82,7 +82,7 @@ public struct CaptureControlView: View {
         self.calendarPrompt = calendarPrompt
         self.meetingDetectionStatus = meetingDetectionStatus
         self.meetingDetectionHealth = meetingDetectionHealth
-        self.routeSignalLevels = routeSignalLevels
+        self.recordingLevels = recordingLevels
         self.recordDisabled = recordDisabled
         self.stopDisabled = stopDisabled
         self.pauseDisabled = pauseDisabled
@@ -282,7 +282,7 @@ public struct CaptureControlView: View {
             Divider()
 
             LiveRecordingMetersView(
-                routeSignalLevels: routeSignalLevels
+                recordingLevels: recordingLevels
             )
         }
         .padding(16)
@@ -439,8 +439,6 @@ public struct CaptureControlView: View {
     ) -> String? {
         guard let selection else { return nil }
         switch selection.rejectionReason {
-        case .unsupportedSelfRoutingInput:
-            return "Выберите обычный микрофон. Виртуальные устройства GRAF нельзя использовать как микрофон записи."
         case .unsupportedVirtualInput:
             return "Выберите встроенный, USB, проводной или Bluetooth-микрофон для записи."
         case .deviceUnavailable:
@@ -899,7 +897,7 @@ private struct UploadQueueStatusView: View {
 }
 
 private struct LiveRecordingMetersView: View {
-    let routeSignalLevels: LiveRouteSignalLevels
+    let recordingLevels: LiveRecordingLevels
     private var now: Date { Date() }
 
     var body: some View {
@@ -950,7 +948,7 @@ private struct LiveRecordingMetersView: View {
 
     private var liveSummary: String {
         SystemAudioStatusLabels.liveSummary(
-            routeIsActive: routeSignalLevels.isActive,
+            recordingIsActive: recordingLevels.isRecording,
             microphoneIsLive: microphoneIsLive,
             incomingIsLive: incomingIsLive
         )
@@ -968,46 +966,46 @@ private struct LiveRecordingMetersView: View {
 
     private var microphoneDetail: String {
         SystemAudioStatusLabels.microphoneDetail(
-            routeIsActive: routeSignalLevels.isActive,
+            recordingIsActive: recordingLevels.isRecording,
             microphoneIsLive: microphoneIsLive
         )
     }
 
     private var incomingDetail: String {
         SystemAudioStatusLabels.incomingDetail(
-            routeIsActive: routeSignalLevels.isActive,
+            recordingIsActive: recordingLevels.isRecording,
             incomingIsLive: incomingIsLive
         )
     }
 
     private var microphoneLevel: Double {
-        routeSignalLevels.microphoneLevel
+        recordingLevels.microphoneLevel
     }
 
     private var incomingLevel: Double {
-        routeSignalLevels.speakerLevel
+        recordingLevels.incomingLevel
     }
 
     private var microphoneIsLive: Bool {
-        routeSignalLevels.microphoneIsLive(
+        recordingLevels.microphoneIsLive(
             now: now,
             staleAfter: SystemAudioStatusLabels.recordingMeterFreshnessWindowSeconds
         )
     }
 
     private var incomingIsLive: Bool {
-        routeSignalLevels.speakerIsLive(
+        recordingLevels.incomingIsLive(
             now: now,
             staleAfter: SystemAudioStatusLabels.recordingMeterFreshnessWindowSeconds
         )
     }
 
     private var shouldWarnIncoming: Bool {
-        routeSignalLevels.isActive && !incomingIsLive
+        recordingLevels.isRecording && !incomingIsLive
     }
 
     private var shouldWarnMicrophone: Bool {
-        routeSignalLevels.isActive && !microphoneIsLive
+        recordingLevels.isRecording && !microphoneIsLive
     }
 
     private func meterRow(

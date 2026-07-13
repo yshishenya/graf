@@ -7,4 +7,4 @@ REPO_ROOT=$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)
 
 swift build --package-path "$MACOS_DIR"
 (cd "$REPO_ROOT" && swift run --package-path apps/macos ContractValidation)
-make -C "$MACOS_DIR/AudioDriver" proof-scaffold-run
+"$SCRIPT_DIR/validate-no-legacy-audio-driver.sh"

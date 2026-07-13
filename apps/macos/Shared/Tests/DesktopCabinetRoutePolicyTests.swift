@@ -141,6 +141,7 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: try url("/desktop/upload/picker")).reason, .blockedLocalFileOrDiagnostic)
         XCTAssertEqual(policy.decision(for: try url("/desktop/audio-devices")).reason, .blockedNativeCaptureControl)
         XCTAssertEqual(policy.decision(for: try url("/desktop/permissions/recover")).reason, .blockedNativeCaptureControl)
+        XCTAssertEqual(policy.decision(for: try url("/desktop/driver")).reason, .blockedNativeCaptureControl)
     }
 
     func testExternalLinksDoNotEmbedByDefault() throws {

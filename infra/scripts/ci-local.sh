@@ -10,6 +10,16 @@ run_step() {
   "$@"
 }
 
+run_step "macOS legacy audio architecture guard" sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  run_step "macOS Swift build" swift build --package-path apps/macos
+  run_step "macOS Swift tests" swift test --package-path apps/macos
+  run_step "macOS contract validation" swift run --package-path apps/macos ContractValidation
+else
+  printf '\n==> macOS Swift validation skipped (requires Darwin)\n'
+fi
+
 run_step "server tests" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q"
 run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ."
 run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts

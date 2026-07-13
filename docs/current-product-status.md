@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-09
+Date: 2026-07-13
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -23,20 +23,20 @@ metadata-only evidence остаются подробной историей ре
   refreshes the public download package with the local self-signed build so
   the owner machine can update from the hosted package while the Developer ID
   path remains out of scope.
-- The Core Audio HAL component publishes `GRAF Microphone` and `GRAF Speaker`
-  with `pro.2brain.graf.*` virtual device identifiers; legacy `2brain Rec`
-  paths are kept only for cleanup and local data compatibility.
-- The installed local package can be upgraded, `coreaudiod` can be restarted,
-  and both virtual devices return visible/alive in default-safe idle state.
-- Low-resource routing is the current local default: public virtual devices
-  stay lightweight while physical input/output routes are opened only when a
-  virtual-device client needs audio or the user runs an explicit check.
-- Non-recording passthrough smoke is accepted for Telemost, Chrome, Opera, and
-  Zoom in the local environment.
-- `Run Check` is now a recheck/repair action, not the normal activation path
-  for ordinary browser/meeting audio.
-- The current route truth model separates publication, virtual client I/O, app
-  bridge, physical-device routing, and future recording triggers.
+- The macOS recording path is app-owned: ScreenCaptureKit system audio and the
+  app-owned microphone source are explicitly injected into
+  `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and
+  `manifest.json`.
+- The former separate audio-routing component, shared-memory bridge,
+  lifecycle scripts, route orchestration, and user-facing setup/repair states
+  have been removed from the source and app-only package surface.
+- Current packaging contains one desktop application component and performs no
+  privileged audio installation or Core Audio service mutation.
+- Historical recording roots and unknown manifest fields remain readable for
+  data compatibility; current recordings do not emit retired routing state.
+- Generic Core Audio microphone discovery and metadata-only `AudioHAL`
+  meeting-detection signals remain current OS integrations and are not the
+  removed component.
 - Diagnostics and validation artifacts remain metadata-only and must not include
   raw audio, transcript text, credentials, tokens, signed URLs, passwords, or
   meeting content.
@@ -513,7 +513,7 @@ metadata-only evidence остаются подробной историей ре
   remain limited to disposable or explicit test databases.
 - Feature `025-system-audio-capture-pivot` is accepted as the macOS MVP
   recording path. It records local microphone plus incoming/system audio without
-  requiring virtual device selection, preserves dual-track local artifacts, and
+  requiring meeting-app audio-device reconfiguration, preserves dual-track local artifacts, and
   closes the final evidence gates for permission matrix, controlled artifact,
   CPU/resource behavior, 30-minute development validation, 75-minute release
   validation, forbidden-content scan, and final scope review.
@@ -536,11 +536,10 @@ metadata-only evidence остаются подробной историей ре
   meeting content, and live filesystem paths remain forbidden.
 - `020` is finalization-only. It does not introduce external egress, a
   MediaScribe call, live echo cancellation, recording-time route remediation,
-  driver fallback, or a customer-visible auto-start policy.
-- The driver-based live virtual-device publication blocker from `019` / issue
-  #234 is superseded for MVP recording by `025` and parked as future
-  advanced-routing work. Its unsafe HAL publication attempts remain preserved
-  as negative evidence and must not be counted as accepted driver evidence.
+  an alternate audio-routing fallback, or a customer-visible auto-start policy.
+- The unsafe separate audio-routing experiment from `019` / issue #234 is
+  superseded by `025` and removed from active source, packaging, runtime,
+  tests, and QA. Its failure report remains historical negative evidence only.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted. Capture-critical
   desktop trust surfaces stay local/native; server/web surfaces own
   post-meeting, transcript, notes, admin, retention, deletion, audit, and fleet
@@ -548,6 +547,13 @@ metadata-only evidence остаются подробной историей ре
 
 ## Not Accepted Yet
 
+- A controlled 2026-07-13 app-owned recording produced both non-empty original
+  tracks with granted permissions and tight duration alignment, but the review
+  M4A subjectively masked microphone speech while system audio dominated and
+  finalization reported `leakage_detected`. Driver retirement does not change
+  the pre-existing review mixer or leakage policy, so review-mix balance,
+  clean built-in-speaker capture, and end-to-end transcription quality require
+  a separate high-risk recording-quality feature and fresh real-hardware proof.
 - Yandex Browser is intentionally skipped/not accepted in the current
   browser/meeting smoke cycle.
 - Third-party meeting-app mute adapters are not accepted yet. Local privacy
@@ -560,9 +566,9 @@ metadata-only evidence остаются подробной историей ре
   product must not label polluted microphone audio as clean local speech.
   Feature `038` did not accept Apple processing for built-in speakerphone
   recording; `044` remains the real echo/noise suppression runtime candidate.
-- Driver live virtual-device publication is not accepted for MVP recording and
-  must not be revived without a separate future advanced-routing spec,
-  implementation, and safety evidence.
+- Any future advanced routing requires a new approved spec, implementation,
+  packaging model, and safety evidence; the removed implementation must not be
+  revived as a hidden fallback.
 - Public meeting links, external-recipient invitations, partial deletion,
   legal-hold management, admin retention editing UI, billing, and desktop-owned
   deletion policy remain later slices.

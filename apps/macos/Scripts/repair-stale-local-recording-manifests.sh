@@ -81,7 +81,6 @@ gate_for_reason = {
     "finalization_failed": "failed",
     "timeline_misaligned": "failed",
     "cpu_gate_failed": "failed",
-    "hal_probe_observed": "failed",
     "device_unavailable": "failed",
     "app_closed": "failed",
     "empty_required_track": "degraded",

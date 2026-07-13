@@ -1,14 +1,13 @@
 # GRAF macOS Installer
 
-This directory owns the local macOS installer package and recovery scripts.
+This directory owns the local app-only macOS installer package.
 
 ## MVP Scope
 
-- System-audio MVP local install defaults to the desktop app only.
-- Driver install, repair, rollback, uninstall, and Core Audio restart are parked
-  for future driver diagnostics unless an explicit driver flag is set.
-- User-visible restart-required and manual-cleanup states remain required for
-  future driver work, but are not MVP recording prerequisites.
+- The local package contains the desktop app only.
+- Recording uses app-owned system-audio and microphone capture.
+- Normal build, install, update, and uninstall paths do not modify Core Audio
+  system components or services.
 
 Silent install, MDM, fleet deployment, and enterprise deployment are out of scope for this feature.
 
@@ -42,24 +41,11 @@ GRAF_VERSION=YYYY.MM.DD.N \
 The matching git tag and GitHub Release add the leading `v`, for example
 `vYYYY.MM.DD.N`.
 
-The default package does not include the proof HAL driver component and does not
-restart `coreaudiod`. This is intentional for the system-audio MVP pivot.
-
 After installing, verify the local result with:
 
 ```sh
 open "/Applications/GRAF.app"
 ```
-
-To build the parked driver diagnostics package explicitly, opt in:
-
-```sh
-GRAF_INCLUDE_DRIVER_COMPONENT=1 \
-  GRAF_ALLOW_COREAUDIOD_RESTART=1 \
-  sh apps/macos/Installer/Scripts/build-local-installer.sh
-```
-
-Do not use the driver opt-in path for system-audio MVP acceptance.
 
 Local development may use ad-hoc app signing only when Developer Tools Security
 is enabled. If it is disabled, macOS can install the `.app` successfully but
@@ -158,6 +144,6 @@ path is `Scripts/build-local-installer.sh`.
 ## Safety Rules
 
 - Updates must not interrupt active capture or an active call.
-- Uninstall must remove app-managed virtual audio artifacts where macOS permits.
-- Uninstall must attempt to restore previous physical microphone and speaker choices where macOS permits.
-- Partial cleanup must be reported truthfully with a manual remediation step.
+- The normal uninstaller removes only the GRAF app and its legacy app-name alias.
+- Existing local proof components, if any, are handled only through the separate
+  bounded operator procedure in `docs/agent-guidance/legacy-audio-driver-cleanup.md`.

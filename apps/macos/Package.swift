@@ -39,13 +39,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "CShmHelpers",
-            path: "Shared/CShmHelpers",
-            publicHeadersPath: "include"
-        ),
-        .target(
             name: "TwoBrainRecShared",
-            dependencies: ["CShmHelpers"],
             path: "Shared/Sources"
         ),
         .target(

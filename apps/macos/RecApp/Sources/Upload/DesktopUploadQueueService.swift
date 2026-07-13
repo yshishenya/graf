@@ -54,7 +54,7 @@ private extension LocalRecordingManifest {
             return true
         case .directoryUnavailable, .writeFailed, .finalizationFailed,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
-             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .cpuGateFailed, .deviceUnavailable, .legacyNotReady,
              .appClosed, .unknown:
             return false
         }
@@ -90,7 +90,7 @@ private extension LocalRecordingTrack {
             return true
         case .directoryUnavailable, .writeFailed, .finalizationFailed,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
-             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .cpuGateFailed, .deviceUnavailable, .legacyNotReady,
              .appClosed, .unknown:
             return false
         }
@@ -1367,7 +1367,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             return reason.rawValue
         case .none, .directoryUnavailable, .writeFailed, .finalizationFailed,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
-             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .cpuGateFailed, .deviceUnavailable, .legacyNotReady,
              .appClosed, .unknown:
             return nil
         }

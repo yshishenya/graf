@@ -34,6 +34,31 @@ public enum AudioCaptureSourceKind: String, Codable, Sendable {
     case systemAudio
 }
 
+public enum PhysicalWorkingDeviceKind: String, Codable, Sendable {
+    case physical
+    case otherVirtual = "other_virtual"
+    case aggregate
+    case multiOutput = "multi_output"
+    case bluetooth
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        if value == "2brain_virtual" {
+            self = .otherVirtual
+            return
+        }
+        guard let kind = Self(rawValue: value) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown physical working device kind"
+            )
+        }
+        self = kind
+    }
+}
+
 public enum CaptureHealthPhase: String, Codable, Sendable {
     case idle
     case activeRecording
@@ -216,10 +241,25 @@ public enum RecordingMicrophoneSelectionResult: String, Codable, Sendable {
 }
 
 public enum RecordingMicrophoneSelectionRejectionReason: String, Codable, Sendable {
-    case unsupportedSelfRoutingInput = "unsupported_self_routing_input"
     case unsupportedVirtualInput = "unsupported_virtual_input"
     case deviceUnavailable = "device_unavailable"
     case inputIdentityUnproven = "input_identity_unproven"
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        if value == "unsupported_self_routing_input" {
+            self = .unsupportedVirtualInput
+            return
+        }
+        guard let reason = Self(rawValue: value) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown microphone selection rejection reason"
+            )
+        }
+        self = reason
+    }
 }
 
 public struct RecordingMicrophoneSelection: Codable, Equatable, Sendable {
@@ -1914,7 +1954,6 @@ public struct CaptureHealthSnapshot: Codable, Equatable, Sendable {
     public var droppedFrameCount: Int64
     public var silentFrameCount: Int64
     public var protectedFrameCount: Int64
-    public var halProbeObserved: Bool
     public var gateStatus: CaptureHealthGateStatus
     public var failureReason: LocalRecordingFailureReason
 
@@ -1932,7 +1971,6 @@ public struct CaptureHealthSnapshot: Codable, Equatable, Sendable {
         droppedFrameCount: Int64 = 0,
         silentFrameCount: Int64 = 0,
         protectedFrameCount: Int64 = 0,
-        halProbeObserved: Bool = false,
         gateStatus: CaptureHealthGateStatus = .passed,
         failureReason: LocalRecordingFailureReason = .none
     ) {
@@ -1949,7 +1987,6 @@ public struct CaptureHealthSnapshot: Codable, Equatable, Sendable {
         self.droppedFrameCount = droppedFrameCount
         self.silentFrameCount = silentFrameCount
         self.protectedFrameCount = protectedFrameCount
-        self.halProbeObserved = halProbeObserved
         self.gateStatus = gateStatus
         self.failureReason = failureReason
     }
@@ -1958,8 +1995,8 @@ public struct CaptureHealthSnapshot: Codable, Equatable, Sendable {
         appCpuPercent + helperCpuPercent
     }
 
-    public var passesNoHALGate: Bool {
-        !halProbeObserved && gateStatus == .passed
+    public var passesCaptureHealthGate: Bool {
+        gateStatus == .passed
     }
 }
 
@@ -1993,7 +2030,6 @@ public struct SystemAudioCPUSample: Codable, Equatable, Sendable {
     public var appCpuPercent: Double
     public var helperCpuPercent: Double
     public var memoryMb: Double
-    public var halProbeObserved: Bool
 
     public init(
         recordingSessionId: String,
@@ -2002,8 +2038,7 @@ public struct SystemAudioCPUSample: Codable, Equatable, Sendable {
         coreaudiodCpuPercent: Double,
         appCpuPercent: Double,
         helperCpuPercent: Double = 0,
-        memoryMb: Double = 0,
-        halProbeObserved: Bool = false
+        memoryMb: Double = 0
     ) {
         self.recordingSessionId = recordingSessionId
         self.phase = phase
@@ -2012,7 +2047,6 @@ public struct SystemAudioCPUSample: Codable, Equatable, Sendable {
         self.appCpuPercent = appCpuPercent
         self.helperCpuPercent = helperCpuPercent
         self.memoryMb = memoryMb
-        self.halProbeObserved = halProbeObserved
     }
 
     public var appHelperCpuPercent: Double {
@@ -2029,7 +2063,6 @@ public struct SystemAudioCPUGateEvaluation: Codable, Equatable, Sendable {
     public var maxAppHelperCpuPercent: Double
     public var sustainedCoreaudiodExceeded: Bool
     public var sustainedAppHelperExceeded: Bool
-    public var halProbeObserved: Bool
 
     public init(
         phase: CaptureHealthPhase,
@@ -2039,8 +2072,7 @@ public struct SystemAudioCPUGateEvaluation: Codable, Equatable, Sendable {
         maxCoreaudiodCpuPercent: Double,
         maxAppHelperCpuPercent: Double,
         sustainedCoreaudiodExceeded: Bool,
-        sustainedAppHelperExceeded: Bool,
-        halProbeObserved: Bool
+        sustainedAppHelperExceeded: Bool
     ) {
         self.phase = phase
         self.sampleCount = sampleCount
@@ -2050,7 +2082,6 @@ public struct SystemAudioCPUGateEvaluation: Codable, Equatable, Sendable {
         self.maxAppHelperCpuPercent = maxAppHelperCpuPercent
         self.sustainedCoreaudiodExceeded = sustainedCoreaudiodExceeded
         self.sustainedAppHelperExceeded = sustainedAppHelperExceeded
-        self.halProbeObserved = halProbeObserved
     }
 
     public var passed: Bool {
@@ -2067,7 +2098,6 @@ public enum SystemAudioCPUGateEvaluator {
         let phaseSamples = samples.filter { $0.phase == phase }
         let maxCoreaudiod = phaseSamples.map(\.coreaudiodCpuPercent).max() ?? 0
         let maxAppHelper = phaseSamples.map(\.appHelperCpuPercent).max() ?? 0
-        let halProbeObserved = phaseSamples.contains { $0.halProbeObserved }
 
         guard !phaseSamples.isEmpty else {
             return SystemAudioCPUGateEvaluation(
@@ -2078,22 +2108,7 @@ public enum SystemAudioCPUGateEvaluator {
                 maxCoreaudiodCpuPercent: 0,
                 maxAppHelperCpuPercent: 0,
                 sustainedCoreaudiodExceeded: false,
-                sustainedAppHelperExceeded: false,
-                halProbeObserved: false
-            )
-        }
-
-        if halProbeObserved {
-            return SystemAudioCPUGateEvaluation(
-                phase: phase,
-                sampleCount: phaseSamples.count,
-                gateStatus: .failed,
-                failureReason: .halProbeObserved,
-                maxCoreaudiodCpuPercent: maxCoreaudiod,
-                maxAppHelperCpuPercent: maxAppHelper,
-                sustainedCoreaudiodExceeded: false,
-                sustainedAppHelperExceeded: false,
-                halProbeObserved: true
+                sustainedAppHelperExceeded: false
             )
         }
 
@@ -2135,8 +2150,7 @@ public enum SystemAudioCPUGateEvaluator {
             maxCoreaudiodCpuPercent: maxCoreaudiod,
             maxAppHelperCpuPercent: maxAppHelper,
             sustainedCoreaudiodExceeded: sustained && coreaudiodExceeded,
-            sustainedAppHelperExceeded: sustained && appHelperExceeded,
-            halProbeObserved: false
+            sustainedAppHelperExceeded: sustained && appHelperExceeded
         )
     }
 
@@ -2157,96 +2171,6 @@ public enum SystemAudioCPUGateEvaluator {
             }
         }
         return false
-    }
-}
-
-public struct SystemAudioNoHALEvidence: Codable, Equatable, Sendable {
-    public var halRuntimeProbeExecuted: Bool
-    public var virtualDeviceSelectionRequired: Bool
-    public var driverRepairRequired: Bool
-    public var coreAudioRestartRequired: Bool
-    public var recordingUsedVirtualDevice: Bool
-    public var gateStatus: CaptureHealthGateStatus
-    public var failureReason: LocalRecordingFailureReason
-
-    public init(
-        halRuntimeProbeExecuted: Bool,
-        virtualDeviceSelectionRequired: Bool,
-        driverRepairRequired: Bool,
-        coreAudioRestartRequired: Bool,
-        recordingUsedVirtualDevice: Bool,
-        gateStatus: CaptureHealthGateStatus = .passed,
-        failureReason: LocalRecordingFailureReason = .none
-    ) {
-        self.halRuntimeProbeExecuted = halRuntimeProbeExecuted
-        self.virtualDeviceSelectionRequired = virtualDeviceSelectionRequired
-        self.driverRepairRequired = driverRepairRequired
-        self.coreAudioRestartRequired = coreAudioRestartRequired
-        self.recordingUsedVirtualDevice = recordingUsedVirtualDevice
-        self.gateStatus = gateStatus
-        self.failureReason = failureReason
-    }
-
-    public var passesMVPBoundary: Bool {
-        !halRuntimeProbeExecuted &&
-            !virtualDeviceSelectionRequired &&
-            !driverRepairRequired &&
-            !coreAudioRestartRequired &&
-            !recordingUsedVirtualDevice &&
-            gateStatus == .passed &&
-            failureReason == .none
-    }
-}
-
-public struct SystemAudioDriverParkedReadiness: Codable, Equatable, Sendable {
-    public var driverState: DriverInstallationState
-    public var microphoneState: VirtualDeviceAvailabilityState
-    public var speakerState: VirtualDeviceAvailabilityState
-    public var routeVerificationReady: Bool
-
-    public init(
-        driverState: DriverInstallationState,
-        microphoneState: VirtualDeviceAvailabilityState,
-        speakerState: VirtualDeviceAvailabilityState,
-        routeVerificationReady: Bool
-    ) {
-        self.driverState = driverState
-        self.microphoneState = microphoneState
-        self.speakerState = speakerState
-        self.routeVerificationReady = routeVerificationReady
-    }
-
-    public var mvpRecordingIgnoresDriverDiagnostics: Bool {
-        true
-    }
-
-    public var summary: String {
-        if routeVerificationReady {
-            return "Запись системного звука готова через права macOS"
-        }
-        return "Готовность записи проверяется при старте"
-    }
-
-    public var driverDiagnosticSummary: String {
-        switch driverState {
-        case .installed:
-            return "Драйвер установлен; для записи системного звука он не обязателен"
-        case .requiresRestart:
-            return "Перезапуск драйвера ожидает; запись системного звука доступна без него"
-        case .needsRepair, .needsUpdate, .incompatible:
-            return "Обслуживание драйвера отложено для будущей маршрутизации"
-        case .notInstalled, .uninstalled:
-            return "Драйвер отсутствует; запись использует права macOS"
-        case .uninstalling:
-            return "Удаление драйвера выполняется; запись по-прежнему управляется правами macOS"
-        }
-    }
-
-    public var virtualDeviceDiagnosticSummary: String {
-        if microphoneState == .available && speakerState == .available {
-            return "Виртуальные устройства видны только для диагностики"
-        }
-        return "Виртуальные устройства не обязательны для записи"
     }
 }
 
@@ -2275,8 +2199,6 @@ public enum SystemAudioStatusLabels {
     public static let silentState = "Тихо"
     public static let metersWaiting = "Уровни появятся во время записи"
     public static let waitingForRecordingAudio = "Ожидаем старт записи"
-    public static let localAudioRouteActiveNotRecording =
-        "Локальный аудиомаршрут активен; запись начинается только вручную"
     public static let calendarGenericMeetingTitle = "Встреча из календаря"
     public static let calendarJoinPromptMessage =
         "Скоро начало. Можно открыть встречу; запись начнется только вручную."
@@ -2294,11 +2216,11 @@ public enum SystemAudioStatusLabels {
     public static let recordingMeterFreshnessWindowSeconds: TimeInterval = 1.5
 
     public static func liveSummary(
-        routeIsActive: Bool,
+        recordingIsActive: Bool,
         microphoneIsLive: Bool,
         incomingIsLive: Bool
     ) -> String {
-        guard routeIsActive else {
+        guard recordingIsActive else {
             return metersWaiting
         }
         if microphoneIsLive && incomingIsLive {
@@ -2313,15 +2235,15 @@ public enum SystemAudioStatusLabels {
         return "Звук пока не обнаружен"
     }
 
-    public static func microphoneDetail(routeIsActive: Bool, microphoneIsLive: Bool) -> String {
-        guard routeIsActive else { return waitingForRecordingAudio }
+    public static func microphoneDetail(recordingIsActive: Bool, microphoneIsLive: Bool) -> String {
+        guard recordingIsActive else { return waitingForRecordingAudio }
         return microphoneIsLive
             ? "Микрофон поступает в запись."
             : "Микрофон пока не слышен."
     }
 
-    public static func incomingDetail(routeIsActive: Bool, incomingIsLive: Bool) -> String {
-        guard routeIsActive else { return waitingForRecordingAudio }
+    public static func incomingDetail(recordingIsActive: Bool, incomingIsLive: Bool) -> String {
+        guard recordingIsActive else { return waitingForRecordingAudio }
         return incomingIsLive
             ? "Звук встречи поступает в запись."
             : "Звук встречи пока не слышен."

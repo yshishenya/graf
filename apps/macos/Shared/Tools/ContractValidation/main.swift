@@ -6,46 +6,10 @@ struct ValidationError: Error, CustomStringConvertible {
     let description: String
 }
 
-struct EventFixture: Decodable {
-    let name: String
-    let requiredFields: [String]
-    let forbiddenFields: [String]
-}
-
-struct EventFixtureFile: Decodable {
-    let schemaVersion: String
-    let events: [EventFixture]
-}
-
 struct ForbiddenFixtureFile: Decodable {
     let schemaVersion: String
     let forbiddenKeys: [String]
     let forbiddenPatterns: [String]
-}
-
-struct ReleaseHardeningFixtureFile: Decodable {
-    let schema: String
-    let requiredFields: [String]?
-    let allowedResult: [String]?
-    let forbiddenFields: [String]
-}
-
-struct LowResourceValidationFixtureFile: Decodable {
-    let schema: String
-    let feature: String?
-    let baseline: String?
-    let allowedResult: [String]?
-    let requiredFields: [String]?
-    let requiredGates: [String]?
-    let thresholds: [String: Int]?
-    let forbiddenFields: [String]
-}
-
-struct LowResourceRouteTruthFixtureFile: Decodable {
-    let schema: String
-    let allowedResourceStates: [String]
-    let requiredPlanes: [String]
-    let forbiddenFields: [String]
 }
 
 struct RecordingSessionEvidenceFixtureFile: Decodable {
@@ -99,7 +63,7 @@ func findRepositoryRoot(startingAt startURL: URL) throws -> URL {
     var candidate = startURL.standardizedFileURL
 
     while true {
-        let fixture = candidate.appendingPathComponent("tests/macos/contract/desktop-driver-events.json")
+        let fixture = candidate.appendingPathComponent("tests/macos/contract/recording-session-evidence.json")
         if FileManager.default.fileExists(atPath: fixture.path) {
             return candidate
         }
@@ -113,7 +77,6 @@ func findRepositoryRoot(startingAt startURL: URL) throws -> URL {
 }
 
 let repositoryRoot = try findRepositoryRoot(startingAt: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
-let eventFixtureURL = repositoryRoot.appendingPathComponent("tests/macos/contract/desktop-driver-events.json")
 let forbiddenFixtureURL = repositoryRoot.appendingPathComponent("tests/macos/contract/diagnostic-forbidden-fields.json")
 
 func decode<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
@@ -124,72 +87,6 @@ func decode<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
 func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
     if !condition() {
         throw ValidationError(description: message)
-    }
-}
-
-func validateDesktopDriverEvents() throws {
-    let fixture = try decode(EventFixtureFile.self, from: eventFixtureURL)
-    let eventsByName = Dictionary(uniqueKeysWithValues: fixture.events.map { ($0.name, $0) })
-
-    let expectedEvents: [String: Set<String>] = [
-        "driver.status_changed": [
-            "driverInstallationState",
-            "driverVersion",
-            "macOSVersion",
-            "appleSilicon",
-            "requiresRestart",
-            "recoveryAction"
-        ],
-        "route.verification_result": [
-            "path",
-            "validationType",
-            "target",
-            "status",
-            "failureReason",
-            "recoveryAction",
-            "timestamp"
-        ],
-        "audio.passthrough_changed": [
-            "path",
-            "passthroughStatus",
-            "physicalDeviceClass",
-            "sampleRate",
-            "channelLayout",
-            "timestamp"
-        ],
-        "audio.continuity_event": [
-            "trackRole",
-            "eventType",
-            "monotonicTime",
-            "durationMs",
-            "driftEstimateMs",
-            "severity"
-        ],
-        "capture.frame_available": [
-            "trackRole",
-            "monotonicTimestamp",
-            "sampleRate",
-            "channelLayout",
-            "frameCount",
-            "continuitySequence"
-        ]
-    ]
-
-    for (eventName, requiredFields) in expectedEvents {
-        guard let event = eventsByName[eventName] else {
-            throw ValidationError(description: "Missing desktop-driver fixture event: \(eventName)")
-        }
-
-        let actualFields = Set(event.requiredFields)
-        try require(
-            requiredFields.isSubset(of: actualFields),
-            "Event \(eventName) does not include required fields: \(requiredFields.subtracting(actualFields))"
-        )
-
-        try require(
-            Set(event.forbiddenFields).isSuperset(of: ["rawAudio", "transcriptText", "credentials", "tokens", "signedUrls"]),
-            "Event \(eventName) must forbid raw content and secret fields"
-        )
     }
 }
 
@@ -252,17 +149,18 @@ func validateDiagnosticForbiddenFixtures() throws {
 
     let recursiveResult = redactor.redact([
         "appVersion": .string("0.1.0"),
-        "routeVerificationResults": .object([
-            "failureCode": .string("speaker_missing"),
+        "capturePermissions": .object([
+            "microphone": .string("granted"),
+            "systemAudio": .string("granted"),
             "sessionToken": .string("nested-secret"),
             "samples": .array([
                 .object([
-                    "path": .string("speaker_passthrough"),
+                    "source": .string("system_audio"),
                     "temporaryUploadUrl": .string("https://example.presigned/upload")
                 ]),
                 .object([
-                    "path": .string("mic_to_virtual_input"),
-                    "status": .string("failed")
+                    "source": .string("microphone"),
+                    "status": .string("granted")
                 ])
             ])
         ]),
@@ -277,106 +175,20 @@ func validateDiagnosticForbiddenFixtures() throws {
         recursiveResult.manifest["contactName"] == nil,
         "Recursive DiagnosticRedactor must drop non-allowlisted top-level fields"
     )
-    guard case .object(let routeResults)? = recursiveResult.manifest["routeVerificationResults"] else {
+    guard case .object(let capturePermissions)? = recursiveResult.manifest["capturePermissions"] else {
         throw ValidationError(description: "Recursive DiagnosticRedactor must preserve allowed object fields")
     }
     try require(
-        routeResults["sessionToken"] == nil,
+        capturePermissions["sessionToken"] == nil,
         "Recursive DiagnosticRedactor must remove nested forbidden keys"
     )
-    guard case .array(let samples)? = routeResults["samples"],
+    guard case .array(let samples)? = capturePermissions["samples"],
           case .object(let firstSample)? = samples.first else {
         throw ValidationError(description: "Recursive DiagnosticRedactor must preserve safe array objects")
     }
     try require(
         firstSample["temporaryUploadUrl"] == nil,
         "Recursive DiagnosticRedactor must remove forbidden keys inside arrays"
-    )
-}
-
-func validateReleaseHardeningFixtures() throws {
-    let fixtureNames = [
-        "release-hardening-evidence",
-        "core-audio-no-hang-evidence",
-        "route-recovery-evidence",
-        "installer-lifecycle-evidence",
-        "ux-readiness-evidence"
-    ]
-
-    for name in fixtureNames {
-        let url = repositoryRoot.appendingPathComponent("tests/macos/contract/\(name).json")
-        let fixture = try decode(ReleaseHardeningFixtureFile.self, from: url)
-        try require(
-            fixture.schema.hasPrefix("2brain.rec."),
-            "Release-hardening fixture \(name) must use a 2brain.rec schema"
-        )
-        try require(
-            Set(fixture.forbiddenFields).isSuperset(of: ["rawAudio", "transcriptText", "meetingContent", "credentials", "tokens", "signedUrls"]),
-            "Release-hardening fixture \(name) must forbid raw content and secret fields"
-        )
-
-        if let allowedResult = fixture.allowedResult {
-            try require(
-                Set(allowedResult) == ["passed", "blocked", "not_accepted"],
-                "Release-hardening fixture \(name) must use common result values"
-            )
-        }
-    }
-}
-
-func validateLowResourceFixtures() throws {
-    let validationURL = repositoryRoot.appendingPathComponent("tests/macos/contract/low-resource-validation-evidence.json")
-    let validation = try decode(LowResourceValidationFixtureFile.self, from: validationURL)
-
-    try require(
-        validation.schema == "2brain.rec.low_resource_validation_evidence.v1",
-        "Low-resource validation fixture must use the v1 schema"
-    )
-    try require(
-        validation.feature == "006-low-resource-audio",
-        "Low-resource validation fixture must identify feature 006"
-    )
-    try require(
-        validation.baseline == "005-macos-passthrough-release-hardening",
-        "Low-resource validation fixture must preserve the accepted 005 baseline"
-    )
-    try require(
-        Set(validation.allowedResult ?? []) == ["passed", "blocked", "not_accepted"],
-        "Low-resource validation fixture must use common result values"
-    )
-    try require(
-        validation.thresholds?["startup_timeout_ms"] == 3000,
-        "Low-resource startup threshold must be 3000 ms"
-    )
-    try require(
-        validation.thresholds?["target_surface_usable_within_seconds"] == 5,
-        "Low-resource no-hang threshold must be 5 seconds"
-    )
-    try require(
-        Set(validation.forbiddenFields).isSuperset(of: ["rawAudio", "transcriptText", "meetingContent", "credentials", "tokens", "signedUrls", "password"]),
-        "Low-resource validation fixture must forbid raw content and secret fields"
-    )
-
-    let routeURL = repositoryRoot.appendingPathComponent("tests/macos/contract/low-resource-route-truth.json")
-    let route = try decode(LowResourceRouteTruthFixtureFile.self, from: routeURL)
-    try require(
-        Set(route.requiredPlanes) == ["publication", "client_io", "app_bridge", "physical_devices", "recording_trigger"],
-        "Low-resource route truth fixture must require separate readiness planes"
-    )
-    try require(
-        route.allowedResourceStates.contains("fallback") && route.allowedResourceStates.contains("active"),
-        "Low-resource route truth fixture must include active and fallback states"
-    )
-
-    let startupURL = repositoryRoot.appendingPathComponent("tests/macos/contract/low-resource-startup-attempt.json")
-    let startup = try decode(LowResourceValidationFixtureFile.self, from: startupURL)
-    try require(
-        startup.thresholds?["maximum_duration_ms"] == 3000,
-        "Low-resource startup attempt fixture must cap duration at 3000 ms"
-    )
-    try require(
-        Set(startup.forbiddenFields).isSuperset(of: ["rawAudio", "transcriptText", "meetingContent", "credentials", "tokens", "signedUrls", "password"]),
-        "Low-resource startup fixture must forbid raw content and secret fields"
     )
 }
 
@@ -397,7 +209,6 @@ func validateRecordingSessionEvidenceFixture() throws {
             RecordingEvidenceEventType.stopped.rawValue,
             RecordingEvidenceEventType.failed.rawValue,
             RecordingEvidenceEventType.indicatorLost.rawValue,
-            RecordingEvidenceEventType.routeInvalidated.rawValue,
             RecordingEvidenceEventType.storageBlocked.rawValue
         ]),
         "Recording evidence fixture must require all lifecycle and fail-closed events"
@@ -408,7 +219,7 @@ func validateRecordingSessionEvidenceFixture() throws {
             "eventType",
             "occurredAt",
             "initiator",
-            "routeState",
+            "captureState",
             "indicatorState",
             "stopActionAvailable",
             "blockedReason",
@@ -611,51 +422,6 @@ func validateCaptureSafetyInvariant() throws {
     )
 }
 
-func validateSystemAudioMVPHealthCanRecordIgnoresParkedDriverDiagnostics() throws {
-    let state = AudioHealthState(
-        driverState: .needsRepair,
-        virtualMicState: .missing,
-        virtualSpeakerState: .missing,
-        microphonePermission: .granted,
-        outputPermission: .granted,
-        routeVerification: nil,
-        passthroughStatus: .failed,
-        bufferRisk: .healthy,
-        livePassthroughStatus: .blocked,
-        recoveryActions: [
-            "Driver diagnostics are parked for system audio recording",
-            "Review parked passthrough diagnostics before future driver experiments"
-        ]
-    )
-
-    try require(
-        state.canRecord,
-        "System-audio MVP health state must not block recording on parked driver or passthrough diagnostics"
-    )
-    try require(
-        state.requiresAttention,
-        "Parked driver or passthrough diagnostics should remain visible as attention, not as a recording blocker"
-    )
-
-    let missingPermission = AudioHealthState(
-        microphonePermission: .denied,
-        outputPermission: .granted,
-        passthroughStatus: .healthy,
-        bufferRisk: .healthy
-    )
-    let unsafeBuffer = AudioHealthState(
-        microphonePermission: .granted,
-        outputPermission: .granted,
-        passthroughStatus: .healthy,
-        bufferRisk: .mustDegradeOrStop
-    )
-
-    try require(
-        !missingPermission.canRecord && !unsafeBuffer.canRecord,
-        "System-audio MVP health state must still block missing permissions and unsafe local buffer"
-    )
-}
-
 func validateDiagnosticBundleService() throws {
     let bundle = try DiagnosticBundleService().buildBundle(
         DiagnosticBundleInput(
@@ -663,8 +429,9 @@ func validateDiagnosticBundleService() throws {
             createdAt: Date(timeIntervalSince1970: 1_777_777_777),
             manifest: [
                 "appVersion": .string("0.1.0"),
-                "routeVerificationResults": .object([
-                    "failureCode": .string("route_failed"),
+                "capturePermissions": .object([
+                    "microphone": .string("granted"),
+                    "systemAudio": .string("granted"),
                     "password": .string("should-be-removed")
                 ]),
                 "meetingTitle": .string("should-be-removed")
@@ -688,11 +455,11 @@ func validateDiagnosticBundleService() throws {
         bundle.manifest["meetingTitle"] == nil,
         "DiagnosticBundleService must remove non-allowlisted top-level content"
     )
-    guard case .object(let routeResults)? = bundle.manifest["routeVerificationResults"] else {
-        throw ValidationError(description: "DiagnosticBundleService must preserve safe route verification object")
+    guard case .object(let capturePermissions)? = bundle.manifest["capturePermissions"] else {
+        throw ValidationError(description: "DiagnosticBundleService must preserve safe capture permission metadata")
     }
     try require(
-        routeResults["password"] == nil,
+        capturePermissions["password"] == nil,
         "DiagnosticBundleService must remove nested forbidden fields"
     )
 }
@@ -1174,9 +941,11 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
     )
 
     guard let clearBlockerRange = source.range(of: "recordingBlocker = nil"),
-          let beginPreparingRange = source.range(of: "let preparing = try captureController.beginPreparing"),
+          let beginPreparingRange = source.range(of: "let preparing = if let meetingDetectionTarget"),
           let microphonePromptRange = source.range(of: "let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight"),
-          let systemAudioPromptRange = source.range(of: "let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()")
+          let systemAudioPromptRange = source.range(of: "let systemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()"),
+          source.contains("try captureController.beginDetectorAssistedPreparing"),
+          source.contains("try captureController.beginPreparing")
     else {
         throw ValidationError(description: "App start path must expose blocker clearing, preparing state, and permission prompts")
     }
@@ -1188,41 +957,19 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
     )
 }
 
-func validateLiveAudioSignalMonitorFreshnessInvariant() throws {
-    let monitorSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/LiveAudioSignalMonitor.swift")
-    let monitorSource = try String(contentsOf: monitorSourceURL, encoding: .utf8)
-    let testsSourceURL = repositoryRoot.appendingPathComponent("apps/macos/Shared/Tests/LiveAudioSignalMonitorTests.swift")
-    let testsSource = try String(contentsOf: testsSourceURL, encoding: .utf8)
-
-    try require(
-        monitorSource.contains("let age = now.timeIntervalSince(date)") &&
-            monitorSource.contains("return age >= 0 && age <= Self.staleLevelResetInterval"),
-        "LiveAudioSignalMonitor freshness must reject future timestamps so meters cannot show false live bars"
-    )
-    try require(
-        testsSource.contains("testFutureMonitorFrameTimestampResetsInsteadOfHoldingFalseLiveBars"),
-        "LiveAudioSignalMonitor tests must cover future timestamp false-live regression"
-    )
-}
-
 func validateRecordingMetersUseLocalWriterInvariant() throws {
     let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
     let source = try String(contentsOf: appSourceURL, encoding: .utf8)
 
     try require(
         source.contains("let recordingLevels = await writer.currentLevelsAsync()") &&
-            source.contains("microphoneLevel: recordingLevels.microphoneLevel") &&
-            source.contains("speakerLevel: recordingLevels.incomingLevel"),
-        "Recording UI meters must be driven by LocalRecordingWriter levels, not legacy passthrough levels"
+            source.contains("liveRecordingLevels = recordingLevels"),
+        "Recording UI meters must be driven by LocalRecordingWriter levels"
     )
     try require(
         source.contains("guard localRecordingActive, !recordingStartInProgress, !recordingStopInProgress else") &&
-            source.contains("liveRouteSignalLevels = .inactive"),
+            source.contains("liveRecordingLevels = .inactive"),
         "Recording UI meters must reset to inactive outside active local recording"
-    )
-    try require(
-        !source.contains("liveRouteSignalLevels = PassthroughRouteEngine.shared.currentSignalLevels"),
-        "Recording UI meters must not be assigned from parked passthrough route levels"
     )
 }
 
@@ -1570,16 +1317,12 @@ func validateMeetingMuteTruthContract() throws {
 }
 
 do {
-    try validateDesktopDriverEvents()
     try validateDiagnosticForbiddenFixtures()
-    try validateReleaseHardeningFixtures()
-    try validateLowResourceFixtures()
     try validateRecordingSessionEvidenceFixture()
     try validateLocalRecordingManifestFixture()
     try validateRecordingArtifactFormatFixture()
     try validatePlatformGate()
     try validateCaptureSafetyInvariant()
-    try validateSystemAudioMVPHealthCanRecordIgnoresParkedDriverDiagnostics()
     try validateDiagnosticBundleService()
     try validateLocalRecordingDiagnosticBundleNoEgressTruth()
     try validateLocalRecordingWriterBoundedDrain()
@@ -1590,7 +1333,6 @@ do {
     try await validateSystemAudioPermissionFailClosed()
     try await validateSystemAudioStartTimeoutCleanupOrdering()
     try validateAppStopFailureFailClosedSourceInvariant()
-    try validateLiveAudioSignalMonitorFreshnessInvariant()
     try validateRecordingMetersUseLocalWriterInvariant()
     try validateManualGateExitCleanupInvariant()
     try validateLocalRecordingWriterTimerWriteFailureInvariant()

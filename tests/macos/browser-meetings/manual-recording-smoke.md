@@ -1,54 +1,45 @@
-# Manual Recording Smoke Matrix
+# Current Manual Recording Smoke Matrix
 
-Feature: `007-capture-session-indicator`
+Feature: `102-remove-legacy-audio-driver`
 
 ## Scope
 
-This matrix records metadata-only manual recording smoke evidence. It is not
-long-duration recording acceptance and does not validate upload, MediaScribe,
-Langfuse, dashboard notes, retention, or deletion.
+Validate the supported desktop recording graph: the app captures incoming
+system audio through ScreenCaptureKit, captures the selected physical
+microphone through the app-owned microphone source, and writes the two original
+tracks through `LocalRecordingWriter`.
 
 ## Required Setup
 
-- `2brain Rec Microphone` selected as the meeting microphone.
-- `2brain Rec Speaker` selected as the meeting speaker.
-- Low-resource non-recording passthrough route is valid.
-- User presses Record manually.
-- Active recording has a visible local indicator and one-action Stop.
-- User presses Stop manually.
+- Microphone and Screen & System Audio permissions are granted to GRAF.
+- A supported physical microphone is selected in GRAF.
+- The user approves the intended display, window, or application capture scope.
+- The user presses Record manually.
+- Active recording remains visibly indicated and exposes one-action Stop.
+- The user presses Stop manually.
 
 ## Target Matrix
 
-| Target | Current 007 Status | Required Evidence |
+| Target | Status after architecture cleanup | Required evidence |
 |---|---|---|
-| Yandex Telemost | Passed 1-minute manual recording smoke on 2026-06-02 | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
-| Chrome | Passed 1-minute manual recording smoke on 2026-06-02 | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
-| Opera | Passed 1-minute manual recording smoke on 2026-06-02 | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
-| Zoom | Passed 1-minute manual recording smoke on 2026-06-02 | Manual start, visible indicator, one-action stop, no upload/transcription/external egress |
-| Yandex Browser | Not accepted in current cycle | Run only if explicitly added back to smoke scope |
+| Yandex Telemost | Pending current-path revalidation | Manual start, visible indicator, one-action stop, `mic.wav`, `incoming.wav`, manifest |
+| Chrome meeting | Pending current-path revalidation | Same current-path evidence |
+| Opera meeting | Pending current-path revalidation | Same current-path evidence |
+| Zoom | Pending current-path revalidation | Same current-path evidence |
 
-## Manual Evidence Log
+Evidence from a superseded recording architecture is historical and does not
+count as current-path acceptance.
 
-- 2026-06-02 02:02 MSK: User confirmed 1-minute manual recording smoke for
-  Yandex Telemost, Chrome, Opera, and Zoom. Treat this as accepted target smoke
-  for manual recording start, visible active state, one-action stop, and local
-  stop completion for feature `007`. This does not accept upload,
-  transcription, MediaScribe, Langfuse, dashboard publication, retention,
-  deletion, long-duration recording, or meeting-app mute truth.
+## Pass Criteria
 
-## Evidence Fields
-
-- target name and version if available;
-- selected microphone and speaker;
-- route state before Record;
-- recording start result;
-- visible indicator surface;
-- stop action availability;
-- stop result and elapsed time;
-- no upload/transcription/MediaScribe/Langfuse/dashboard activity;
-- pass, blocked, or not accepted status;
-- concrete blocked/not accepted reason.
-
-Evidence must remain metadata-only and must not include raw audio, transcript
-text, meeting content, credentials, tokens, signed URLs, passwords, or live
-secret paths.
+- Recording starts only after both current permissions and scope approval pass.
+- `mic.wav` is sourced from the app-owned microphone source.
+- `incoming.wav` is sourced from ScreenCaptureKit system audio.
+- Both tracks are non-empty, aligned, and represented truthfully in the current
+  manifest.
+- The visible recording state and one-action Stop remain available throughout
+  active capture.
+- No upload, transcription, MediaScribe, Langfuse, or dashboard activity starts
+  as a side effect of this smoke.
+- Evidence remains metadata-only and contains no raw audio, transcript text,
+  meeting content, credentials, tokens, signed URLs, passwords, or live paths.

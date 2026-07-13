@@ -1,21 +1,22 @@
 <!--
 Sync Impact Report
-Version change: 2.0.1 -> 2.0.2
+Version change: 2.0.2 -> 2.1.0
 Modified principles:
-- Spec-Driven Delivery With Testable Gates: clarified risk-lane selection so
-  low-risk direct changes can use scoped validation while significant and
-  high-risk work keeps full Spec Kit gates.
+- Capture-First MVP Integrity: the superseded separate audio-routing
+  implementation is removed, not parked; future advanced routing requires a
+  new approved architecture and cannot revive the legacy implementation.
+- Spec-Driven Delivery With Testable Gates: capture/audio routing remains
+  high-risk while obsolete component-specific gates are replaced by current
+  capture and new-architecture gates.
 Added sections:
 - None.
 Removed sections:
 - None.
 Templates requiring updates:
-- ✅ updated .specify/templates/plan-template.md risk/validation lane fields.
-- ✅ reviewed .specify/templates/spec-template.md; no structural change needed.
-- ✅ updated .specify/templates/tasks-template.md validation-lane closeout task.
+- ✅ reviewed .specify/templates; no structural change needed.
 - ✅ updated AGENTS.md operating router.
-- ✅ updated docs/agent-guidance/spec-kit-flow.md risk-lane process.
-- ✅ updated docs/agent-guidance/release-and-validation.md validation lanes.
+- ✅ updated docs/agent-guidance/spec-kit-flow.md and product-gates.md.
+- ✅ updated the product baseline and ADR 004.
 Follow-up items:
 - None.
 -->
@@ -30,18 +31,20 @@ that can reliably produce separate local microphone and incoming/system-audio
 tracks without overheating, hanging CoreAudio, hiding capture, or requiring
 fragile meeting-app routing. The MVP capture path is system-audio-first:
 Screen/System Audio capture for incoming audio plus explicit microphone capture
-for the local speaker. A virtual audio driver/layer is no longer required for
-MVP acceptance and MUST be treated as a later advanced routing slice until it
-has independent safety evidence.
+for the local speaker. The superseded separate routing implementation is
+removed and
+MUST NOT be packaged, started, repaired, or used as a fallback. Future advanced
+routing requires a new approved architecture, safety case, packaging model,
+rollback plan, and validation slice.
 
 Capture implementation, permission model, installer/signing behavior, update,
 rollback, repair, degraded-state behavior, and QA matrix MUST be approved
 before Phase 0 coding starts. Features that touch capture, recording integrity,
 buffering, permissions, screen/system audio, microphone capture, or future
-driver UX MUST define measurable latency, dropout, track alignment,
+advanced-routing UX MUST define measurable latency, dropout, track alignment,
 authorization, recovery, and degraded-state requirements.
 
-Rationale: capture integrity is the product. The prior driver-first path
+Rationale: capture integrity is the product. The prior separate-routing path
 produced repeated CoreAudio hangs and CPU runaway during `019` validation. If
 the audio layer is unreliable, silent, looped, overheated, or opaque,
 downstream transcription and notes cannot be trusted.
@@ -112,13 +115,13 @@ MUST be grouped by independently testable user stories and include exact file
 paths.
 
 High-risk features MUST run `$speckit-clarify`, `$speckit-checklist`, and
-`$speckit-analyze` before implementation. High-risk includes driver/audio,
+`$speckit-analyze` before implementation. High-risk includes capture/audio,
 recording start behavior, privacy, auth, secrets, MediaScribe, Langfuse, MinIO,
 Postgres, Temporal, Docker, retention, deletion, diagnostics, tray/widget,
 onboarding, admin, and brand-distance UX. If lane selection is unclear, choose
 the stricter lane.
 
-Rationale: this product has privacy, driver, and data-lifecycle risk. The work
+Rationale: this product has privacy, capture, and data-lifecycle risk. The work
 must be decomposed into reviewable artifacts before code.
 
 ## Product And Platform Constraints
@@ -131,9 +134,9 @@ must be decomposed into reviewable artifacts before code.
   where they do not own capture authorization, real-time audio capture, local
   recording truth, permission flows, or installer signing/notarization.
 - For the MVP, this means Swift/Cocoa/ScreenCaptureKit/AVFoundation/Core Audio
-  where appropriate for the macOS app. Virtual audio driver work is future
-  advanced routing work and requires a separate approved spec, safety gate, and
-  rollback plan before implementation.
+  where appropriate for the macOS app. The removed routing implementation is
+  not a dormant option. Any future advanced routing requires a new approved
+  spec, implementation, safety gate, packaging model, and rollback plan.
 - MVP server target is `2brain.dev` with public URL `https://rec.2brain.pro`.
 - `2brain_rec`-owned infrastructure MUST run in Docker containers for MVP.
 - Dedicated Postgres and MinIO are required for `2brain_rec`.
@@ -179,9 +182,9 @@ Required quality gates:
 - No implementation starts with unresolved constitution violations.
 - Capture features require permission, system-audio, microphone, track
   alignment, no-overheat, and local recording truth gates.
-- Driver features, if reintroduced, require a separate driver QA matrix,
-  installer/recovery gates, CoreAudio CPU gates, and rollback evidence before
-  they can affect MVP behavior.
+- A new advanced-routing architecture, if proposed, requires its own QA matrix,
+  installer/recovery gates where applicable, Core Audio safety/resource gates,
+  and rollback evidence before it can affect product behavior.
 - Data features require artifact lifecycle, retention, deletion, and audit gates.
 - External dependency features require egress, secret, timeout, failure, and
   retention/deletion gates.
@@ -212,4 +215,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 2.0.2 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-06-26
+**Version**: 2.1.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-07-13

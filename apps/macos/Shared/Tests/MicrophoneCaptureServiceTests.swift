@@ -165,6 +165,28 @@ final class MicrophoneCaptureServiceTests: XCTestCase {
         XCTAssertNil(selection.rejectionReason)
     }
 
+    func testResolveRecordingMicrophoneFailsClosedForUnknownInputIdentity() {
+        let unknownInput = PhysicalAudioDevice(
+            id: "unclassified-input",
+            displayName: "External Audio",
+            direction: .input,
+            deviceClass: .unknown,
+            availabilityState: .available
+        )
+        let service = MicrophoneCaptureService(
+            authorizer: FakeMicrophoneAuthorizer(current: .granted, requested: .granted),
+            inputProvider: FakeRecordingMicrophoneInputProvider(defaultInput: unknownInput, devices: [unknownInput]),
+            clock: { Date(timeIntervalSince1970: 204) }
+        )
+
+        let selection = service.resolveRecordingMicrophoneSelection(selectedInputDeviceId: nil)
+
+        XCTAssertEqual(selection.selectionResult, .rejected)
+        XCTAssertEqual(selection.workingDeviceKind, .unknown)
+        XCTAssertEqual(selection.rejectionReason, .inputIdentityUnproven)
+        XCTAssertFalse(selection.isAccepted)
+    }
+
     func testAppOwnedMicrophoneSampleSourceBindsResolvedSelectedInputDevice() throws {
         let selectedInput = PhysicalAudioDevice(
             id: "usb-mic",
