@@ -63,15 +63,15 @@ No new framework, schema, API, storage entity, or shared abstraction is required
 
 ### Tests for User Story 2
 
-- [ ] T010 [P] [US2] Add failing compact-rail Start/Stop, stable inspector disclosure, target-size, accessible-label, and Reduce Motion contract assertions in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
-- [ ] T011 [P] [US2] Add failing native-authority, no-auto-expand-on-recording, actionable-problem expansion, and persistent titlebar Stop assertions in `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
-- [ ] T012 [P] [US2] Add failing ready/permission/detected-meeting/recording/paused/stopping/local-saved/meter-visibility state assertions in `apps/macos/Shared/Tests/CaptureControlTests.swift`
+- [X] T010 [P] [US2] Add failing compact-rail Start/Stop, stable inspector disclosure, target-size, accessible-label, and Reduce Motion contract assertions in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
+- [X] T011 [P] [US2] Add failing native-authority, no-auto-expand-on-recording, actionable-problem expansion, and persistent titlebar Stop assertions in `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
+- [X] T012 [P] [US2] Add failing ready/permission/detected-meeting/recording/paused/stopping/local-saved/meter-visibility state assertions in `apps/macos/Shared/Tests/CaptureControlTests.swift`
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Pass direct start/transition eligibility into the native shell without changing capture prerequisites in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
-- [ ] T014 [US2] Implement the direct compact-rail Start/Stop control, 304–312 pt intentional inspector, stable recording width, simplified `Запись` header, actionable expansion, accessible targets, and reduced-motion behavior in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
-- [ ] T015 [US2] Present concise readiness, permission, transition, pause/resume, local-save, recovery, secondary microphone settings, and active-only meters in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T013 [US2] Pass direct start/transition eligibility into the native shell without changing capture prerequisites in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T014 [US2] Implement the direct compact-rail Start/Stop control, 304–312 pt intentional inspector, stable recording width, simplified `Запись` header, actionable expansion, accessible targets, and reduced-motion behavior in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
+- [X] T015 [US2] Present concise readiness, permission, transition, pause/resume, local-save, recovery, secondary microphone settings, and active-only meters in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
 - [ ] T016 [US2] Run the US2 Swift tests plus synthetic permission, detected-meeting, Start/Pause/Resume/Stop, finalizing, local-save, cabinet-unavailable, and actionable-failure runtime states at both target sizes; record truth/Stop evidence in `specs/104-essential-interface-polish/quickstart.md`
 
 **Checkpoint**: User Story 2 remains independently valid even when the cabinet is unavailable.
@@ -86,16 +86,16 @@ No new framework, schema, API, storage entity, or shared abstraction is required
 
 ### Tests for User Story 3
 
-- [ ] T017 [P] [US3] Add failing presentation-only generated-title cases with and without trustworthy time, manual-upload IDs, filenames, Russian durations, user states, and active-only progress in `apps/server/tests/unit/test_cabinet_view_models.py` and `apps/server/tests/integration/test_cabinet_meeting_list.py`
-- [ ] T018 [P] [US3] Add failing ordinary-screen forbidden-copy and metadata-safety assertions in `apps/server/tests/contract/test_cabinet_no_secret_content_egress.py` and `apps/macos/Shared/Tests/CaptureControlTests.swift`
+- [X] T017 [P] [US3] Add failing presentation-only generated-title cases with and without trustworthy time, manual-upload IDs, filenames, Russian durations, user states, and active-only progress in `apps/server/tests/unit/test_cabinet_view_models.py` and `apps/server/tests/integration/test_cabinet_meeting_list.py`
+- [X] T018 [P] [US3] Add failing ordinary-screen forbidden-copy and metadata-safety assertions in `apps/server/tests/contract/test_cabinet_no_secret_content_egress.py` and `apps/macos/Shared/Tests/CaptureControlTests.swift`
 
 ### Implementation for User Story 3
 
-- [ ] T019 [US3] Add presentation-only human title, safe filename cleanup, Russian duration, and user-result helpers without mutating stored meetings in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
-- [ ] T020 [US3] Map terminal upload/degraded/failure states and active progress to human list results in `apps/server/src/twobrain_rec_server/cabinet/queries.py` and `apps/server/src/twobrain_rec_server/cabinet/rendering.py`
-- [ ] T021 [US3] Remove ordinary rendering of telemetry health, Apple/WebRTC internals, local paths, idle meters, and unconditional upload-support summaries while preserving recovery inputs in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T022 [US3] Remove permanent trust/diagnostics cards and make local custody/support contextual in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift` and `apps/macos/RecApp/Sources/Upload/DesktopSupportIncidentActionStrip.swift`
-- [ ] T023 [US3] Run the US3 server/macOS tests and forbidden-copy searches, then record zero-debug and diagnostic-keep-boundary evidence in `specs/104-essential-interface-polish/quickstart.md`
+- [X] T019 [US3] Add presentation-only human title, safe filename cleanup, Russian duration, and user-result helpers without mutating stored meetings in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`
+- [X] T020 [US3] Map terminal upload/degraded/failure states and active progress to human list results in `apps/server/src/twobrain_rec_server/cabinet/queries.py` and `apps/server/src/twobrain_rec_server/cabinet/rendering.py`
+- [X] T021 [US3] Remove ordinary rendering of telemetry health, Apple/WebRTC internals, local paths, idle meters, and unconditional upload-support summaries while preserving recovery inputs in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T022 [US3] Remove permanent trust/diagnostics cards and make local custody/support contextual in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift` and `apps/macos/RecApp/Sources/Upload/DesktopSupportIncidentActionStrip.swift`
+- [X] T023 [US3] Run the US3 server/macOS tests and forbidden-copy searches, then record zero-debug and diagnostic-keep-boundary evidence in `specs/104-essential-interface-polish/quickstart.md`
 
 **Checkpoint**: Ordinary UI is human; internal metadata-only diagnostics, redaction, and support services remain intact.
 
@@ -109,15 +109,15 @@ No new framework, schema, API, storage entity, or shared abstraction is required
 
 ### Tests for User Story 4
 
-- [ ] T024 [P] [US4] Add failing CSS/DOM contracts for focus, target sizes, compact wordmark fallback, responsive sidebar/toolbar label collapse with preserved accessible names, visible date/upload/native rail, contextual hover-focus parity, and reduced motion in `apps/server/tests/contract/test_cabinet_frontend_foundation_contract.py` and `apps/server/tests/contract/test_cabinet_static_assets_contract.py`
-- [ ] T025 [P] [US4] Add failing native typography/spacing/target/accessibility and stable-width contracts in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
+- [X] T024 [P] [US4] Add failing CSS/DOM contracts for focus, target sizes, compact wordmark fallback, responsive sidebar/toolbar label collapse with preserved accessible names, visible date/upload/native rail, contextual hover-focus parity, and reduced motion in `apps/server/tests/contract/test_cabinet_frontend_foundation_contract.py` and `apps/server/tests/contract/test_cabinet_static_assets_contract.py`
+- [X] T025 [P] [US4] Add failing native typography/spacing/target/accessibility and stable-width contracts in `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
 
 ### Implementation for User Story 4
 
-- [ ] T026 [US4] Consolidate the existing GRAF dark tokens, 8/12/16/24 spacing, typography, focus, control sizes, subtle borders/selection, compact sidebar breakpoint, and increased-contrast/reduced-motion states in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
-- [ ] T027 [US4] Align native rail/inspector typography, spacing, surfaces, labels, target sizes, increased contrast, and reduced motion with existing GRAF tokens in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift` and `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
+- [X] T026 [US4] Consolidate the existing GRAF dark tokens, 8/12/16/24 spacing, typography, focus, control sizes, subtle borders/selection, compact sidebar breakpoint, and increased-contrast/reduced-motion states in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
+- [X] T027 [US4] Align native rail/inspector typography, spacing, surfaces, labels, target sizes, increased contrast, and reduced motion with existing GRAF tokens in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift` and `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
 - [ ] T028 [US4] Run all 16 states from `specs/104-essential-interface-polish/visual-target.md` through the full viewport, long-text, keyboard, accessibility-tree, and matched before/after matrix; iterate spacing/alignment/radius/focus defects in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
-- [ ] T029 [US4] Record metadata-safe accessibility and clean-room/brand-distance outcomes without private screenshots in `specs/104-essential-interface-polish/quickstart.md`
+- [X] T029 [US4] Record metadata-safe accessibility and clean-room/brand-distance outcomes without private screenshots in `specs/104-essential-interface-polish/quickstart.md`
 
 **Checkpoint**: User Story 4 meets the visual contract without introducing a light-theme engine or reference copy.
 
@@ -131,12 +131,12 @@ No new framework, schema, API, storage entity, or shared abstraction is required
 
 ### Tests for User Story 5
 
-- [ ] T030 [P] [US5] Add negative source/DOM assertions for removed sidebar placeholders, hard-coded plan/trial copy, unconditional calendar region, embedded app-download/onboarding and saved/download placeholders, duplicate decorative tools, trust/diagnostics cards, and unconditional report actions in `apps/server/tests/unit/test_cabinet_web_shell.py` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
+- [X] T030 [P] [US5] Add negative source/DOM assertions for removed sidebar placeholders, hard-coded plan/trial copy, unconditional calendar region, embedded app-download/onboarding and saved/download placeholders, duplicate decorative tools, trust/diagnostics cards, and unconditional report actions in `apps/server/tests/unit/test_cabinet_web_shell.py` and `apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift`
 
 ### Implementation for User Story 5
 
-- [ ] T031 [US5] Remove dead branches, selectors, state paths, view fragments, and parameters proven to serve only removed UI while preserving shared diagnostics/support services in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_list_content.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`, `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`, and `apps/macos/RecApp/Sources/Upload/DesktopSupportIncidentActionStrip.swift`
-- [ ] T032 [US5] Run negative scans, focused regression suites, and a source-diff review proving no new polling, list request, network call, capture-thread work, or background service; document each deleted cluster and its preserved alternative/safety boundary in `specs/104-essential-interface-polish/research.md`
+- [X] T031 [US5] Remove dead branches, selectors, state paths, view fragments, and parameters proven to serve only removed UI while preserving shared diagnostics/support services in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_list_content.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`, `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`, and `apps/macos/RecApp/Sources/Upload/DesktopSupportIncidentActionStrip.swift`
+- [X] T032 [US5] Run negative scans, focused regression suites, and a source-diff review proving no new polling, list request, network call, capture-thread work, or background service; document each deleted cluster and its preserved alternative/safety boundary in `specs/104-essential-interface-polish/research.md`
 
 **Checkpoint**: Removed UI cannot return through another current entry point and no unrelated cleanup is included.
 
@@ -146,11 +146,11 @@ No new framework, schema, API, storage entity, or shared abstraction is required
 
 **Purpose**: Prove the integrated high-risk slice, create explicitly approved scoped commits after validation, and prepare a reviewable handoff without deploying automatically.
 
-- [ ] T033 Update Russian behavior/UX notes for feature 104 in `CHANGELOG.md`
-- [ ] T034 Run every focused command and the release app build from `specs/104-essential-interface-polish/quickstart.md`, recording exact results in that file
-- [ ] T035 Run `infra/scripts/ci-local.sh` and record the full repository-gate result in `specs/104-essential-interface-polish/quickstart.md`
+- [X] T033 Update Russian behavior/UX notes for feature 104 in `CHANGELOG.md`
+- [X] T034 Run every focused command and the release app build from `specs/104-essential-interface-polish/quickstart.md`, recording exact results in that file
+- [X] T035 Run `infra/scripts/ci-local.sh` and record the full repository-gate result in `specs/104-essential-interface-polish/quickstart.md`
 - [ ] T036 Complete the final all-16-state same-viewport GRAF before/after, selected Stitch-target, Krisp clean-room, private-content, control-target, contrast, focus, and one-action Stop review; record only metadata-safe findings in `specs/104-essential-interface-polish/quickstart.md`
-- [ ] T037 Reconcile completed checkboxes, GitHub issue evidence/status, UX checklist, remaining limitations, scoped commit evidence, and the no-deploy boundary in `specs/104-essential-interface-polish/tasks.md` and `specs/104-essential-interface-polish/checklists/ux.md`
+- [X] T037 Reconcile completed checkboxes, GitHub issue evidence/status, UX checklist, remaining limitations, scoped commit evidence, and the no-deploy boundary in `specs/104-essential-interface-polish/tasks.md` and `specs/104-essential-interface-polish/checklists/ux.md`
 
 ---
 
@@ -236,3 +236,9 @@ The smallest independently useful slice is US1 after baseline: remove disabled/d
 - Private runtime screenshots stay outside git; only synthetic or metadata-safe evidence may be committed.
 - Preserve the pre-existing user changes in `.specify/templates/checklist-template.md`, `.specify/templates/plan-template.md`, `AGENTS.md`, and `docs/agent-guidance/ponytail-upstream.md`.
 - Apply the Ponytail ladder: delete proven noise, reuse existing helpers/native semantics, add no dependency, and avoid broad refactors.
+- Implementation commit: `10abb936` (`feat(interface): завершить полировку главного окна`).
+- T016, T028, and T036 intentionally remain unchecked: automated/native
+  contracts, browser runtime, full CI, release build, privacy, and clean-room
+  evidence are green, but the final native-window/VoiceOver matrix requires an
+  unlocked macOS session. The lock reports `CGSSessionScreenIsLocked=Yes` and
+  exposes zero GRAF windows to the accessibility client.

@@ -200,3 +200,37 @@ SwiftUI, and AppKit without importing CDN/runtime dependencies from the mock.
 ## Research Result
 
 All technical and product unknowns required for planning are resolved. No unresolved question remains. The chosen and responsive-tested visual target is an original GRAF composition that borrows only general progressive-disclosure and hierarchy lessons from the supplied reference.
+
+## Implementation Deletion And Boundary Proof — 2026-07-13
+
+The implemented diff removed only presentation clusters whose behavior was
+either unavailable, duplicated, or engineering-facing:
+
+- server sidebar placeholders, invite/trial/plan presentation, duplicate
+  footer branding, unconditional calendar space, saved/download placeholders,
+  redundant submit/decorative controls, and always-visible selection chrome;
+- native duplicate headings, auto-expanding recording inspector, permanent
+  trust/diagnostics cards, idle meters, raw telemetry/registry/Apple/WebRTC
+  presentation, local paths, generic report/copy-report actions, and an unused
+  location accessibility helper;
+- CSS/DOM/state branches serving the removed elements, including permanently
+  reserved selection columns and inactive toolbar layouts.
+
+The preserved alternatives and safety boundaries are explicit:
+
+- real `Мои встречи`, `Настройки`, logout, search, filter, sort, upload,
+  meeting links, contextual selection/delete, and bounded confirmation remain;
+- native capture authority, permission recovery, direct Start/Stop, titlebar
+  Pause/Resume/Stop, local custody truth, and support-eligible recovery remain;
+- diagnostic models, redaction, audit/evidence collection, and metadata-only
+  support submission remain internal and are not exposed as a normal user
+  surface;
+- stored meeting titles and backend states are not rewritten; human wording is
+  presentation-only.
+
+No package, schema, API route, storage entity, background service, capture-thread
+work, or periodic task was added. Search retains the existing `150ms` HTMX
+debounce and existing list replacement. The deletion request uses the existing
+endpoint and user action, now checks HTTP failure and retries only failed rows;
+it does not add a background request. Existing upload polling is paused while a
+list interaction or modal is active, rather than duplicated or accelerated.

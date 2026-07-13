@@ -280,3 +280,67 @@ Expected: exit `0` after focused and live validation are already green.
 ## 11. Release Boundary
 
 Scoped feature commits are approved after their named validation passes and their staged file list contains no unrelated worktree changes. Do not run production deploy, publish a release, or replace the installed public app without a separate explicit release decision. Record any manual local build/run separately from production evidence.
+
+## 12. Final Implementation Evidence — 2026-07-13
+
+### Automated gates
+
+- Exact focused server command from section 3: `79 passed`, `0 failed`, one
+  pre-existing Starlette/httpx deprecation warning in `32.01s`.
+- Exact focused macOS command from section 4: `69 tests`, `0 failures`.
+- Current full macOS suite after the final fallback-copy correction:
+  `618 tests`, `0 failures`; `ContractValidation: PASS`.
+- Exact release command from section 5: exit `0`, product
+  `TwoBrainRecApp` built successfully.
+- Full repository gate before the final native-only wording correction:
+  `617` Swift tests with `0` failures, `ContractValidation: PASS`,
+  `1238 passed`, `4 skipped`, one pre-existing deprecation warning for the
+  server, Ruff/compile/compose/evidence scan clean, and
+  `ci_local_result=pass`.
+- The final native-only wording correction was then covered by the exact
+  focused suite, the complete `618`-test Swift suite, ContractValidation, and
+  a fresh release build; server code did not change after the full gate.
+- `git diff --check` and ordinary-UI forbidden-copy scans are clean. A final
+  scan found one legacy fallback sentence about diagnostics/reporting; it was
+  replaced with impact-and-recovery copy and protected by
+  `testCustodyFallbackCopyKeepsDiagnosticsOutOfTheUserInterface`.
+
+### Browser and accessibility evidence
+
+- Synthetic embedded cabinet states were exercised in a real browser at
+  `988×680` and `1228×760`, corresponding to the `1040×680` and `1280×760`
+  app targets after the 52 pt native rail.
+- Measured `scrollWidth == clientWidth` at both sizes; the sidebar is `64 px`
+  in compact mode and `176 px` at the default width, toolbar controls are
+  `36 px`, and meeting rows are `48 px`.
+- At row focus, the accessibility snapshot exposes the row-specific checkbox,
+  primary `Открыть встречу …` link, delete action, state, duration, and date.
+  Outside reading intent the checkbox/delete controls are not exposed.
+- `Escape` closes filters and restores focus to `Фильтры`; outside click closes
+  sorting; the contextual checkbox hit area measures `32×32`.
+- Final metadata-safe screenshots are kept outside git as
+  `implemented-web-988x680-final-v3.png` and
+  `implemented-web-1228x760-final-v3.png` in the local Codex visualization
+  workspace. They contain only synthetic meeting data.
+- The composition uses the existing GRAF wordmark, color tokens, icons, and
+  interaction language. No Krisp string, asset, gradient banner, proprietary
+  flow, or recognizable branded composition was copied.
+
+### Native build evidence and remaining manual boundary
+
+- `build-local-installer.sh` produced GRAF `2026.07.13.3`; the rebuilt
+  `GRAF.app` is valid on disk and satisfies its designated requirement with
+  expected local ad-hoc signing. `graf-local.pkg` is intentionally unsigned
+  for local development and was not installed.
+- Source/behavior tests cover ready, permission-required, detected-meeting,
+  starting, recording, paused, stopping, saved, cabinet-unavailable, and
+  actionable-failure states; separate accessible Pause/Resume/Stop actions,
+  direct rail Start/Stop, stable inspector width, and active-only meters pass.
+- A live native-window/VoiceOver pass cannot be represented as complete in
+  this run: macOS reports `CGSSessionScreenIsLocked=Yes`, and both running GRAF
+  processes publish zero windows to the accessibility client while the user
+  session is locked. No click, recording action, app replacement, install,
+  deploy, or release was attempted behind the lock.
+- Therefore T016, T028, and T036 remain open only for the final unlocked native
+  runtime matrix. All automated, browser, build, privacy, clean-room, and
+  static checks available in the current session are green.

@@ -125,3 +125,23 @@
 
 - All three checks passed in final Stitch screen `e3c3421bd78e4320845d072c6a7193cc`.
 - Playwright measured checkbox label `32×32`, delete `32×32`, result link height `32`, and rail disclosure `40×40`; the reduced-motion probe returned `pulseAnimation: none` and `rowTransitionDuration: 1e-05s`.
+
+## Final Implementation Recheck — 2026-07-13
+
+- [x] CHK062 Does the implemented ordinary screen contain only working navigation, one search, contextual list tools, upload, meeting results, and native capture control? [Relevance, T005–T009/T030–T031]
+- [x] CHK063 Do real browser measurements at both embedded target widths show zero horizontal overflow, contracted sidebar/toolbar/row geometry, and preserved dates/actions? [Responsive QA, Quickstart §12]
+- [x] CHK064 Does the focused accessibility snapshot expose contextual checkbox/link/delete semantics only with row intent and restore filter focus after Escape? [Accessibility QA, Quickstart §12]
+- [x] CHK065 Do ordinary native copy/contracts exclude raw IDs, paths, telemetry, internal processing names, diagnostics/report tooling, and placeholder support identifiers? [Debug-free UI, T018/T021–T023]
+- [x] CHK066 Do automated checks preserve native one-action Stop, separate Pause/Resume controls, stable width, permission recovery, local custody, and metadata-only support boundaries? [Safety, T010–T016/T022]
+- [x] CHK067 Did the implementation avoid new dependencies, schemas, routes, services, polling frequency, and capture-thread work while deleting only proven presentation noise? [Ponytail/Performance, Research §Implementation Deletion And Boundary Proof]
+- [x] CHK068 Are final visual artifacts synthetic, outside git, recognizably GRAF, and clean-room distant from the supplied Krisp reference? [Privacy/Brand Distance, Quickstart §12]
+- [ ] CHK069 Has the final native window been exercised unlocked through all required runtime/VoiceOver states at both app sizes? [Manual Runtime QA, T016/T028/T036]
+
+## Final Implementation Notes
+
+- CHK062–CHK068 pass against the final source, real browser runtime, automated
+  native contracts, full repository gate, and rebuilt local release artifact.
+- CHK069 is not waived: macOS remained locked and exposed no GRAF window to the
+  accessibility client. T016, T028, and T036 stay open for that exact pass.
+- No production deployment, public release, installer replacement, or private
+  screenshot commit occurred.
