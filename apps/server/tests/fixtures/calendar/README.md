@@ -1,8 +1,8 @@
 # Calendar Fixture Rules
 
-Calendar fixtures for feature 060 are synthetic only. They exist to prove provider
-coverage, normalization boundaries, and privacy behavior without committing real
-calendar payloads.
+Calendar fixtures are synthetic only. They exist to prove provider coverage,
+normalization boundaries, matching behavior, and privacy behavior without
+committing real calendar payloads.
 
 ## Allowed
 
@@ -32,3 +32,15 @@ calendar payloads.
   richer provider examples; treat VK WorkSpace, Mailion/MyOffice, R7-Office,
   CommuniGate Pro, RuPost, Nextcloud/SOGo-like deployments, and custom CalDAV as
   generic CalDAV examples unless later vendor proof changes that boundary.
+
+## Feature 098 Auto-Match Fixtures
+
+`tests.fixtures.calendar_auto_match` provides deterministic builders for clear,
+overlap, private/free-busy, stale/latest-failed, and recurring scenarios. All
+participant and owner identities must use a `.test` domain. The builders remove
+event descriptions and attachments and retain conference evidence only as a hash
+plus a redacted preview; raw links and passcodes are forbidden.
+
+The fixture-only bounds mirror the feature design: at most 4 selected sources,
+50 event rows, 10 visible candidates, and 100 roster items. These constants are
+test data limits, not production configuration.

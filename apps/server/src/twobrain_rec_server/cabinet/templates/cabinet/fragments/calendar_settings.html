@@ -243,6 +243,7 @@
             {{ ui.checkbox("include_private_free_busy_prompt_candidates", "Показывать private/free-busy минимум", checked=surface.preferences.include_private_free_busy_prompt_candidates) }}
             {{ ui.checkbox("auto_record_disabled", surface.preferences.disabled_auto_record_label, checked=false, disabled=true) }}
           </div>
+          <p class="calendar-policy-note" data-calendar-auto-context-boundary>{{ surface.auto_context_boundary_copy }}</p>
           <p class="calendar-policy-note">По умолчанию подсказки используют только похожие на встречи события. {{ surface.private_free_busy_copy }}</p>
           <p class="calendar-policy-note">{{ surface.policy_constrained_copy }}</p>
           <p class="calendar-policy-note">{{ surface.preferences.overlap_prompt_copy }}</p>

@@ -99,10 +99,28 @@ def test_meeting_response_reports_title_source_for_user_and_generic_titles(clien
 
     assert titled.status_code == 200
     assert titled.json()["title"] == "Manual title"
-    assert titled.json()["title_source"] == "user"
+    assert titled.json()["title_source"] == "legacy_unknown"
     assert generic.status_code == 200
     assert generic.json()["title"] is None
     assert generic.json()["title_source"] == "generic"
+
+    async def persisted_fingerprints() -> tuple[str | None, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            titled_model = await db.get(Meeting, UUID(titled.json()["meeting_id"]))
+            generic_model = await db.get(Meeting, UUID(generic.json()["meeting_id"]))
+            assert titled_model is not None
+            assert generic_model is not None
+            return (
+                titled_model.create_request_fingerprint_sha256,
+                generic_model.create_request_fingerprint_sha256,
+            )
+
+    titled_fingerprint, generic_fingerprint = client.portal.call(
+        persisted_fingerprints
+    )
+    assert titled_fingerprint is not None and len(titled_fingerprint) == 64
+    assert generic_fingerprint is not None and len(generic_fingerprint) == 64
+    assert titled_fingerprint != generic_fingerprint
 
 
 def test_upload_session_persists_expected_roles_separately_from_expected_sizes(client) -> None:

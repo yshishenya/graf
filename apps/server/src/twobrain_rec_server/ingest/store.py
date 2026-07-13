@@ -46,6 +46,9 @@ class MeetingRecord:
     local_recording_id: str
     duration_seconds: int
     title: str | None
+    title_source: str = "legacy_unknown"
+    title_updated_at: datetime | None = None
+    create_request_fingerprint_sha256: str | None = None
     local_media_revision_id: str | None = None
     media_revision_id: UUID | None = None
     media_revision_status: MediaRevisionStatus = field(default_factory=initial_media_revision_status)
@@ -123,6 +126,7 @@ class InMemoryIngestStore:
         local_media_revision_id: str | None = None,
         duration_seconds: int,
         title: str | None,
+        title_source: str,
         media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING,
     ) -> MeetingRecord:
         key = (workspace_id, user_id, local_recording_id)
@@ -130,6 +134,7 @@ class InMemoryIngestStore:
             return self.meetings[self.meetings_by_local_id[key]]
         if duration_seconds > settings.max_recording_duration_seconds:
             raise ValueError("recording_duration_exceeded")
+        created_at = datetime.now(UTC)
         meeting = MeetingRecord(
             id=uuid4(),
             workspace_id=workspace_id,
@@ -139,12 +144,15 @@ class InMemoryIngestStore:
             local_recording_id=local_recording_id,
             duration_seconds=duration_seconds,
             title=title,
+            title_source=title_source,
+            title_updated_at=created_at if title is not None else None,
             local_media_revision_id=normalize_initial_local_media_revision_id(
                 local_recording_id,
                 local_media_revision_id,
             ),
             media_revision_id=initial_media_revision_id(),
             media_revision_source_kind=media_revision_source_kind,
+            created_at=created_at,
         )
         self.meetings[meeting.id] = meeting
         self.meetings_by_local_id[key] = meeting.id
@@ -208,6 +216,9 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, co
             device_id=meeting.device_id,
             local_recording_id=meeting.local_recording_id,
             title=meeting.title,
+            title_source=meeting.title_source,
+            title_updated_at=meeting.title_updated_at,
+            create_request_fingerprint_sha256=meeting.create_request_fingerprint_sha256,
             started_at=meeting.started_at,
             ended_at=meeting.ended_at,
             recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
@@ -266,6 +277,11 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, co
             meeting.local_media_revision_id = media_revision.local_media_revision_id
         existing.status = meeting.status.value
         existing.processing_status = meeting.processing_status.value
+        existing.title = meeting.title
+        existing.title_source = meeting.title_source
+        existing.title_updated_at = meeting.title_updated_at
+        if meeting.create_request_fingerprint_sha256 is not None:
+            existing.create_request_fingerprint_sha256 = meeting.create_request_fingerprint_sha256
         existing.started_at = meeting.started_at
         existing.ended_at = meeting.ended_at
         existing.recording_display_timezone_offset_minutes = meeting.recording_display_timezone_offset_minutes
@@ -317,6 +333,9 @@ async def load_meeting_record(
         local_recording_id=model.local_recording_id,
         duration_seconds=model.duration_seconds,
         title=model.title,
+        title_source=model.title_source,
+        title_updated_at=model.title_updated_at,
+        create_request_fingerprint_sha256=model.create_request_fingerprint_sha256,
         local_media_revision_id=(
             media_revision.local_media_revision_id
             if media_revision is not None

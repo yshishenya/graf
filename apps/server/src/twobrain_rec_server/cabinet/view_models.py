@@ -16,6 +16,8 @@ from twobrain_rec_server.api.schemas import (
     GovernanceActionSummary,
     MeetingAccessState,
     MeetingActivityResponse,
+    MeetingCalendarContextResponse,
+    MeetingCalendarContextSummary,
     MeetingListItem,
     MeetingProvenance,
     MeetingReviewResponse,
@@ -28,6 +30,8 @@ from twobrain_rec_server.api.schemas import (
     OutcomeProvenanceView,
     OutcomeSourceReferenceView,
     PlaybackReviewState,
+    PreviousRecurringMeetingReadiness,
+    PreviousRecurringMeetingView,
     ProcessingReviewState,
     SharePanelState,
     SlotState,
@@ -59,8 +63,10 @@ from twobrain_rec_server.db.models import (
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
+    RecordingCalendarContextLink,
     TranscriptSegment,
 )
+from twobrain_rec_server.domain.metadata_text import safe_metadata_text
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionSourceKind,
@@ -96,6 +102,51 @@ SORT_LABELS: dict[str, str] = {
     "title_asc": "По названию",
 }
 
+CALENDAR_CONTEXT_OWNER_REASON_LABELS: dict[str, str] = {
+    "private_free_busy_skipped": "Приватное событие пропущено",
+    "all_day_skipped": "Событие на весь день пропущено",
+    "selected_source_stale": "Данные календаря устарели",
+    "latest_sync_failed": "Данные календаря устарели",
+    "calendar_not_connected": "Календарь недоступен",
+    "calendar_not_selected": "Календарь недоступен",
+    "calendar_unavailable": "Календарь недоступен",
+    "manual_upload_skipped": "Ручная загрузка не сопоставляется",
+    "offline_or_unknown_skipped": "Офлайн-запись не сопоставляется",
+    "no_matching_event": "Подходящая встреча не найдена",
+    "weak_event_signal": "Подходящая встреча не найдена",
+    "prestart_not_reached": "Запись завершилась до начала встречи",
+    "user_declined": "Вы начали запись без календарного контекста",
+    "user_cleared": "Контекст убран вами",
+}
+
+CALENDAR_CONTEXT_STATE_COPY: dict[str, dict[str, str]] = {
+    "ru": {
+        "matched_auto": "Из календаря",
+        "matched_user": "Выбрано вами",
+        "ambiguous": "Нужно выбрать встречу",
+        "no_context": "Без календарного контекста",
+        "declined_by_user": "Вы начали запись без календарного контекста",
+        "cleared_by_user": "Контекст убран вами",
+    },
+    "en": {
+        "matched_auto": "From calendar",
+        "matched_user": "Selected by you",
+        "ambiguous": "Choose a meeting",
+        "no_context": "No calendar context",
+        "declined_by_user": "You started recording without calendar context",
+        "cleared_by_user": "Context removed by you",
+    },
+}
+
+
+def calendar_context_state_copy(state: str, *, locale: str = "ru") -> str:
+    language = locale if locale in CALENDAR_CONTEXT_STATE_COPY else "ru"
+    return CALENDAR_CONTEXT_STATE_COPY[language].get(
+        state,
+        CALENDAR_CONTEXT_STATE_COPY[language]["no_context"],
+    )
+
+
 PROCESSING_STATUSES = {
     ProcessingStatus.PENDING_PROCESSING.value,
     ProcessingStatus.STARTING.value,
@@ -105,11 +156,6 @@ PROCESSING_STATUSES = {
     ProcessingStatus.POLLING.value,
     ProcessingStatus.IMPORTING.value,
 }
-
-UNSAFE_TITLE_RE = re.compile(
-    r"https?://|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|token=|password|bearer\s|(?:^|[^A-Z0-9])sk-[A-Z0-9_-]{8,}|\b(?:[A-Z0-9-]+\.)+[A-Z]{2,}/[^\s<>'\"]+",
-    re.IGNORECASE,
-)
 
 CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "caldav_yandex": (
@@ -152,7 +198,11 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
         "manual_url",
         "CalDAV доступ зависит от прав почтового ящика и сервера.",
     ),
-    "caldav_rupost": ("RuPost", "manual_url", "Синхронизация CalDAV зависит от конфигурации организации."),
+    "caldav_rupost": (
+        "RuPost",
+        "manual_url",
+        "Синхронизация CalDAV зависит от конфигурации организации.",
+    ),
     "caldav_nextcloud_sogo": (
         "Nextcloud / SOGo-like CalDAV",
         "manual_url",
@@ -190,6 +240,12 @@ CALENDAR_BOUNDARY_COPY = (
     "GRAF не меняет события календаря, не отправляет письма и не рассылает саммари. "
     "Участники календаря не получают доступ к записи автоматически. "
     "Данные для подключения хранятся на сервере GRAF; приложение на Mac не хранит пароль календаря."
+)
+
+CALENDAR_AUTO_CONTEXT_BOUNDARY_COPY = (
+    "Эти фильтры управляют подсказками и списком ближайших встреч. "
+    "Приватные события и события на весь день не используются для "
+    "автоматического контекста записи."
 )
 
 CALENDAR_BOUNDARY_ITEMS: tuple[tuple[str, str], ...] = (
@@ -330,9 +386,7 @@ class CalendarSettingsNoticeView:
 @dataclass(frozen=True)
 class CalendarDisconnectConfirmationView:
     title: str = "Отключить календарь?"
-    future_sync_copy: str = (
-        "Будущая синхронизация из этого источника остановится, и календарь перестанет влиять на подсказки."
-    )
+    future_sync_copy: str = "Будущая синхронизация из этого источника остановится, и календарь перестанет влиять на подсказки."
     credential_copy: str = (
         "Данные подключения будут удалены или отозваны там, где это контролирует GRAF."
     )
@@ -443,6 +497,7 @@ class CalendarSettingsSurfaceView:
     title: str
     subtitle: str
     read_only_boundary_copy: str
+    auto_context_boundary_copy: str
     boundary_items: tuple[CalendarBoundaryItemView, ...]
     forbidden_action_labels: tuple[str, ...]
     notices: tuple[CalendarSettingsNoticeView, ...]
@@ -549,7 +604,7 @@ def calendar_settings_surface(
     preview_events: Iterable[CalendarEventSnapshot] = (),
     notice_codes: Iterable[str] = (),
     now: datetime | None = None,
-    ) -> CalendarSettingsSurfaceView:
+) -> CalendarSettingsSurfaceView:
     calendars_by_source = calendars_by_source or {}
     source_rows = tuple(sources)
     preferences = calendar_settings_preferences_view(preference)
@@ -574,14 +629,13 @@ def calendar_settings_surface(
         for calendars in calendars_by_source.values()
         for calendar in calendars
     }
-    has_selected_calendar = any(
-        source.selected_calendar_count > 0 for source in rendered_sources
-    )
+    has_selected_calendar = any(source.selected_calendar_count > 0 for source in rendered_sources)
     return CalendarSettingsSurfaceView(
         breadcrumb=("Настройки", "Интеграции", "Календари"),
         title="Календари",
         subtitle="Подключите источник, выберите календари и получите подсказку перед встречей.",
         read_only_boundary_copy=CALENDAR_BOUNDARY_COPY,
+        auto_context_boundary_copy=CALENDAR_AUTO_CONTEXT_BOUNDARY_COPY,
         boundary_items=calendar_boundary_items(),
         forbidden_action_labels=CALENDAR_FORBIDDEN_ACTION_LABELS,
         notices=calendar_settings_notices(notice_codes),
@@ -787,7 +841,9 @@ def calendar_sync_recovery_label(state: str) -> str:
         "failed_closed": "Проверьте подключение или переподключите источник.",
         "disconnected": "Подключите источник заново.",
     }
-    return labels.get(state, "Если встреч не видно, запустите синхронизацию или переподключите источник.")
+    return labels.get(
+        state, "Если встреч не видно, запустите синхронизацию или переподключите источник."
+    )
 
 
 def safe_calendar_error_message(code: str | None) -> str | None:
@@ -1045,7 +1101,9 @@ def cabinet_navigation(
         CabinetNavigationItem("search", "Поиск", "#", "search", enabled=False),
         CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "calendar-days"),
         CabinetNavigationItem("shared", "Общие", "#", "users-round", enabled=False),
-        CabinetNavigationItem("actions", "Действия", "#", "list-checks", enabled=False, count=pending_actions),
+        CabinetNavigationItem(
+            "actions", "Действия", "#", "list-checks", enabled=False, count=pending_actions
+        ),
         CabinetNavigationItem("activity", "Активность", "#", "activity", enabled=False),
         CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
     )
@@ -1087,14 +1145,21 @@ def format_duration(seconds: int) -> str:
 def date_label(item: MeetingListItem) -> str:
     if item.started_at is None:
         return "Без даты"
-    started_at = (
-        item.started_at
-        if item.started_at.tzinfo is not None
-        else item.started_at.replace(tzinfo=UTC)
+    return short_date_label(
+        item.started_at,
+        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
     )
-    offset = item.recording_display_timezone_offset_minutes
+
+
+def short_date_label(
+    value: datetime,
+    *,
+    timezone_offset_minutes: int | None = None,
+) -> str:
+    localized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    offset = timezone_offset_minutes
     if offset is not None and -14 * 60 <= offset <= 14 * 60:
-        started_at = started_at.astimezone(timezone(timedelta(minutes=offset)))
+        localized = localized.astimezone(timezone(timedelta(minutes=offset)))
     months = {
         1: "янв",
         2: "фев",
@@ -1109,7 +1174,7 @@ def date_label(item: MeetingListItem) -> str:
         11: "ноя",
         12: "дек",
     }
-    return f"{started_at.day} {months[started_at.month]}"
+    return f"{localized.day} {months[localized.month]}"
 
 
 def sort_label(sort: str) -> str:
@@ -1152,10 +1217,7 @@ def safe_title(meeting: Meeting) -> str:
 
 
 def safe_title_candidate(raw: str | None) -> str | None:
-    title = "".join(char for char in (raw or "").strip() if char >= " " and char != "\x7f").strip()
-    if not title or UNSAFE_TITLE_RE.search(title):
-        return None
-    return title[:500]
+    return safe_metadata_text(raw, max_length=500)
 
 
 def transcript_available(result: ProcessingResult | None) -> bool:
@@ -1165,6 +1227,36 @@ def transcript_available(result: ProcessingResult | None) -> bool:
         and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
         and result.segment_count > 0
     )
+
+
+def previous_recurring_meeting_readiness(
+    meeting: Meeting,
+    *,
+    result: ProcessingResult | None,
+    outcome_set: MeetingOutcomeSet | None,
+) -> PreviousRecurringMeetingReadiness:
+    """Project only bounded artifact readiness for an authorized predecessor."""
+
+    notes_ready = bool(
+        result is not None and result.summary_status == SummaryStatus.AVAILABLE.value
+    ) or bool(
+        outcome_set is not None
+        and outcome_set.lifecycle_state == "active"
+        and outcome_set.status in {"completed", "ready"}
+        and outcome_set.summary_state == "available"
+    )
+    if notes_ready:
+        return PreviousRecurringMeetingReadiness.NOTES_READY
+    if transcript_available(result):
+        return PreviousRecurringMeetingReadiness.TRANSCRIPT_READY
+    if review_status(meeting, result=result, workflow=None) in {
+        "uploading",
+        "submitted",
+        "processing",
+        "partial",
+    }:
+        return PreviousRecurringMeetingReadiness.PROCESSING
+    return PreviousRecurringMeetingReadiness.UNAVAILABLE
 
 
 def diarization_available(result: ProcessingResult | None) -> bool:
@@ -1296,6 +1388,8 @@ def build_list_item(
     outcome_set: MeetingOutcomeSet | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
     upload: MeetingUploadProgressState | None = None,
+    calendar_context: RecordingCalendarContextLink | None = None,
+    previous_recurring_meeting: PreviousRecurringMeetingView | None = None,
 ) -> MeetingListItem:
     status = review_status(meeting, result=result, workflow=workflow)
     access_state = access or owner_access_state()
@@ -1329,6 +1423,62 @@ def build_list_item(
         governance=governance_summary(access=access_state, artifacts=artifact_states),
         future_slots=future_slots(),
         upload=upload,
+        calendar_context=calendar_context_summary(
+            calendar_context,
+            meeting_title_source=meeting.title_source,
+            owner_actions=access_state.state == "owner",
+            public_projection=True,
+        ),
+        previous_recurring_meeting=previous_recurring_meeting,
+    )
+
+
+def calendar_context_summary(
+    context: RecordingCalendarContextLink | None,
+    *,
+    meeting_title_source: str | None,
+    owner_detail: bool = False,
+    owner_actions: bool = False,
+    public_projection: bool = False,
+) -> MeetingCalendarContextSummary | None:
+    if context is None:
+        return None
+    context_state = context.context_state
+    matched_states = {"matched_auto", "matched_user", "legacy_linked"}
+    owner_list_states = {"ambiguous", "declined_by_user", "cleared_by_user"}
+    if (
+        public_projection
+        and not owner_detail
+        and context_state not in matched_states | (owner_list_states if owner_actions else set())
+    ):
+        context_state = "no_context"
+    accepted_title_sources = {
+        "user_confirmed",
+        "calendar",
+        "app_context",
+        "generic",
+        "upload_provided",
+        "file_name_derived",
+        "legacy_unknown",
+    }
+    title_source = meeting_title_source if meeting_title_source in accepted_title_sources else None
+    label = (
+        "Подобрано автоматически"
+        if owner_detail and context_state == "matched_auto"
+        else calendar_context_state_copy(context_state)
+        if context_state in CALENDAR_CONTEXT_STATE_COPY["ru"]
+        else "Без контекста календаря"
+    )
+    return MeetingCalendarContextSummary(
+        state=context_state,
+        label=label,
+        reason_label=(
+            CALENDAR_CONTEXT_OWNER_REASON_LABELS.get(context.safe_reason_code)
+            if owner_detail
+            else None
+        ),
+        title_source=title_source,
+        needs_owner_action=(owner_detail or owner_actions) and context.context_state == "ambiguous",
     )
 
 
@@ -1370,7 +1520,11 @@ def processing_state(
     summary_available = bool(
         result is not None and result.summary_status == SummaryStatus.AVAILABLE.value
     )
-    reason_code = workflow.last_reason_code if workflow is not None and status in {"blocked", "failed"} else None
+    reason_code = (
+        workflow.last_reason_code
+        if workflow is not None and status in {"blocked", "failed"}
+        else None
+    )
     if reason_code is None and result is not None and not has_transcript:
         reason_code = result.failure_reason
     return ProcessingReviewState(
@@ -1441,7 +1595,9 @@ def transcript_state(
     force_speaker_labels: bool = False,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
-    diarization_rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
+    diarization_rows = sorted(
+        diarization_segments, key=lambda row: (row.start_seconds, row.sequence)
+    )
     diarization_display_rows = [row for row in diarization_rows if row.text.strip()]
     if status not in {"ready", "partial"}:
         return TranscriptReviewState(
@@ -1589,11 +1745,15 @@ def matching_diarization_segment(
     for row in diarization_rows:
         if row.start_seconds >= segment.end_seconds:
             break
-        overlap = min(segment.end_seconds, row.end_seconds) - max(segment.start_seconds, row.start_seconds)
+        overlap = min(segment.end_seconds, row.end_seconds) - max(
+            segment.start_seconds, row.start_seconds
+        )
         if overlap <= 0:
             continue
         source_match = source_role_label(row.source_role) == segment_source
-        if overlap > best_overlap or (overlap == best_overlap and source_match and not best_source_match):
+        if overlap > best_overlap or (
+            overlap == best_overlap and source_match and not best_source_match
+        ):
             best = row
             best_overlap = overlap
             best_source_match = source_match
@@ -1644,7 +1804,9 @@ def transcript_speaker_labels(
     return [
         speaker_label_for_segment(
             segment,
-            diarization_by_segment_key.get((segment.sequence, source_role_label(segment.source_role))),
+            diarization_by_segment_key.get(
+                (segment.sequence, source_role_label(segment.source_role))
+            ),
         )
         for segment in transcripts
     ]
@@ -1658,9 +1820,7 @@ def mediascribe_speaker_labels_by_time(
         return ["SPEAKER_00"] * len(segments)
     labels = ["SPEAKER_00"] * len(segments)
     cursor = 0
-    for index, segment in sorted(
-        enumerate(segments), key=lambda item: segment_time_key(item[1])
-    ):
+    for index, segment in sorted(enumerate(segments), key=lambda item: segment_time_key(item[1])):
         own_label = mediascribe_speaker_label(getattr(segment, "speaker_label", None))
         if own_label is not None:
             labels[index] = own_label
@@ -1771,7 +1931,7 @@ def calendar_roster_state(participants: Iterable[CalendarParticipant]) -> Calend
         CalendarRosterParticipantView(
             participant_kind=participant.participant_kind,
             response_status=participant.response_status,
-            display_name=participant.display_name,
+            display_name=safe_metadata_text(participant.display_name, max_length=240),
             email_present=bool(participant.email_hash or participant.email),
             workspace_relation=participant.workspace_relation,
             recipient_candidate_class=participant.recipient_candidate_class,
@@ -1784,6 +1944,65 @@ def calendar_roster_state(participants: Iterable[CalendarParticipant]) -> Calend
         participant_count=len(views),
         source="calendar" if views else "none",
         participants=views,
+    )
+
+
+def _calendar_roster_snapshot_items_state(
+    participants: Iterable[dict[str, object]],
+    *,
+    roster_state: str,
+    participant_count: int,
+) -> CalendarRosterReviewState:
+    views = [
+        CalendarRosterParticipantView(
+            participant_kind=str(participant.get("participant_kind") or "unknown")[:80],
+            response_status=str(participant.get("response_status") or "unknown")[:80],
+            display_name=safe_metadata_text(
+                participant.get("display_name"),
+                max_length=240,
+            ),
+            email_present=bool(participant.get("email_present", False)),
+            workspace_relation=str(participant.get("workspace_relation") or "unknown")[:80],
+            recipient_candidate_class=str(
+                participant.get("recipient_candidate_class") or "unknown"
+            )[:80],
+        )
+        for participant in list(participants)[:100]
+    ]
+    normalized_state = (
+        roster_state
+        if roster_state in {"available", "not_available", "hidden"}
+        else "not_available"
+    )
+    return CalendarRosterReviewState(
+        available=normalized_state == "available" and bool(views),
+        roster_state=normalized_state,
+        participant_count=max(participant_count, len(views), 0),
+        source="calendar" if normalized_state == "available" else "none",
+        participants=views,
+    )
+
+
+def calendar_roster_snapshot_state(
+    context: RecordingCalendarContextLink | None,
+) -> CalendarRosterReviewState | None:
+    if context is None or context.context_state not in {
+        "matched_auto",
+        "matched_user",
+    }:
+        return None
+    has_immutable_snapshot = bool(
+        context.match_attempt_id
+        or context.matcher_version
+        or context.matched_roster_json
+        or context.matched_roster_count
+    )
+    if not has_immutable_snapshot:
+        return None
+    return _calendar_roster_snapshot_items_state(
+        context.matched_roster_json or [],
+        roster_state=context.matched_roster_state,
+        participant_count=context.matched_roster_count,
     )
 
 
@@ -2122,6 +2341,8 @@ def build_review_response(
     artifacts: list[ArtifactEgressState] | None = None,
     review_playback: ArtifactEgressState | None = None,
     calendar_roster: CalendarRosterReviewState | None = None,
+    calendar_context: RecordingCalendarContextLink | None = None,
+    calendar_context_detail: MeetingCalendarContextResponse | None = None,
     activity: MeetingActivityResponse | None = None,
     outcome_set: MeetingOutcomeSet | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
@@ -2135,6 +2356,7 @@ def build_review_response(
         workflow=workflow,
         access=access_state,
         artifacts=artifact_states,
+        calendar_context=calendar_context,
     )
     status = cast(MeetingReviewStatus, item.status)
     notes_truth = notes_action_truth_state(
@@ -2149,6 +2371,13 @@ def build_review_response(
     )
     return MeetingReviewResponse(
         meeting=item,
+        calendar_context=calendar_context_summary(
+            calendar_context,
+            meeting_title_source=meeting.title_source,
+            owner_detail=access_state.state == "owner",
+            public_projection=True,
+        ),
+        calendar_context_detail=calendar_context_detail,
         provenance=provenance_state(
             media_revision=media_revision,
             transcript_segments=transcript_segments,

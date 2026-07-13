@@ -1,13 +1,23 @@
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.artifacts import deterministic_wav_bytes
 from tests.fixtures.cabinet import seed_cabinet_meetings
+from tests.fixtures.cabinet_access import (
+    add_workspace_user,
+    set_meeting_visibility,
+)
+from tests.fixtures.cabinet_access import (
+    auth_headers_for as shared_auth_headers,
+)
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
-from twobrain_rec_server.db.models import Meeting
+from twobrain_rec_server.db.models import Meeting, RecordingCalendarContextLink
 from twobrain_rec_server.domain.statuses import MeetingStatus, ProcessingStatus
 
 
@@ -24,7 +34,12 @@ def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None
     assert str(seeds.failed_id) in ids
     assert str(seeds.partial_id) in ids
     assert str(seeds.foreign_id) not in ids
-    assert {item["status"] for item in payload["items"]} == {"ready", "processing", "failed", "partial"}
+    assert {item["status"] for item in payload["items"]} == {
+        "ready",
+        "processing",
+        "failed",
+        "partial",
+    }
 
 
 def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) -> None:
@@ -51,7 +66,9 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
     )
     assert upload.status_code == 200
 
-    response = client.get("/api/v1/cabinet/meetings?q=cabinet-upload-progress", headers=auth_headers())
+    response = client.get(
+        "/api/v1/cabinet/meetings?q=cabinet-upload-progress", headers=auth_headers()
+    )
 
     assert response.status_code == 200
     item = response.json()["items"][0]
@@ -160,9 +177,15 @@ def test_cabinet_list_search_filter_sort_and_limit(client) -> None:
 
     search = client.get("/api/v1/cabinet/meetings?q=релиза", headers=auth_headers())
     ready = client.get("/api/v1/cabinet/meetings?status=ready", headers=auth_headers())
-    shortest = client.get("/api/v1/cabinet/meetings?sort=duration_asc&limit=2", headers=auth_headers())
-    recording_newest = client.get("/api/v1/cabinet/meetings?sort=started_desc", headers=auth_headers())
-    recording_oldest = client.get("/api/v1/cabinet/meetings?sort=started_asc", headers=auth_headers())
+    shortest = client.get(
+        "/api/v1/cabinet/meetings?sort=duration_asc&limit=2", headers=auth_headers()
+    )
+    recording_newest = client.get(
+        "/api/v1/cabinet/meetings?sort=started_desc", headers=auth_headers()
+    )
+    recording_oldest = client.get(
+        "/api/v1/cabinet/meetings?sort=started_asc", headers=auth_headers()
+    )
     title_sorted = client.get("/api/v1/cabinet/meetings?sort=title_asc", headers=auth_headers())
 
     assert search.status_code == 200
@@ -199,7 +222,9 @@ def test_cabinet_list_and_detail_use_recording_date_with_legacy_fallback(client)
     assert legacy.status_code == 200
 
     detail = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
-    legacy_list = client.get("/api/v1/cabinet/meetings?q=legacy-no-recording-date", headers=auth_headers())
+    legacy_list = client.get(
+        "/api/v1/cabinet/meetings?q=legacy-no-recording-date", headers=auth_headers()
+    )
     legacy_web = client.get("/meetings?q=legacy-no-recording-date", headers=auth_headers())
 
     assert detail.status_code == 200
@@ -254,8 +279,8 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert 'value="started_asc"' in response.text
     assert "Новые по дате записи" in response.text
     assert "Проектный синк" in response.text
-    assert 'data-cabinet-shell' in response.text
-    assert 'data-cabinet-navigation' in response.text
+    assert "data-cabinet-shell" in response.text
+    assert "data-cabinet-navigation" in response.text
     assert response.text.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert response.text.count('aria-label="Навигация кабинета"') == 1
     assert response.text.count('aria-current="page"') == 1
@@ -277,7 +302,7 @@ def test_cabinet_list_full_page_fallback_without_hx_header(client) -> None:
 
     assert response.status_code == 200
     assert "<!doctype html>" in response.text
-    assert 'data-cabinet-shell' in response.text
+    assert "data-cabinet-shell" in response.text
     assert 'data-cabinet-fragment="meeting-list"' in response.text
     assert response.headers.get("Vary") != "HX-Request"
 
@@ -297,15 +322,17 @@ def test_cabinet_list_api_exposes_governance_future_slots_and_artifact_truth(cli
     assert "storage_object_key" not in response.text
 
 
-def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_controls(client) -> None:
+def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_controls(
+    client,
+) -> None:
     seed_cabinet_meetings(client)
 
     response = client.get("/desktop/meetings", headers=auth_headers())
 
     assert response.status_code == 200
     assert "desktop-embedded" in response.text
-    assert 'data-cabinet-shell' in response.text
-    assert 'data-cabinet-navigation' in response.text
+    assert "data-cabinet-shell" in response.text
+    assert "data-cabinet-navigation" in response.text
     assert response.text.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert response.text.count('aria-current="page"') == 1
     assert 'data-active-nav="meetings"' in response.text
@@ -321,6 +348,37 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert "Screen Recording" not in response.text
 
 
+def test_098_recurring_pointer_has_browser_and_embedded_meeting_list_route_parity(
+    client,
+) -> None:
+    # FR-024/FR-026/FR-048: one server-owned pointer backs browser and embedded lists.
+    previous_id = _create_recurring_list_pair(client)
+    responses = {
+        "web": client.get(
+            "/meetings?q=t082-recurring-current",
+            headers=auth_headers(),
+        ),
+        "embedded": client.get(
+            "/desktop/meetings?q=t082-recurring-current",
+            headers=auth_headers(),
+        ),
+    }
+    expected_hrefs = {
+        "web": f'href="/meetings/{previous_id}"',
+        "embedded": f'href="/desktop/meetings/{previous_id}"',
+    }
+
+    for surface, response in responses.items():
+        assert response.status_code == 200, surface
+        upcoming = _upcoming_section(response.text)
+        assert upcoming.count("Synthetic T082 Current") == 1, surface
+        assert upcoming.count("Предыдущая встреча") == 1, surface
+        assert upcoming.count("Synthetic T082 Previous") == 1, surface
+        assert expected_hrefs[surface] in upcoming, surface
+        assert "summary excerpt" not in upcoming
+        assert "transcript excerpt" not in upcoming
+
+
 def test_cabinet_settings_calendar_anchor_renders_in_web_and_embedded(client) -> None:
     web = client.get("/settings", headers=auth_headers())
     embedded = client.get("/desktop/settings", headers=auth_headers())
@@ -333,3 +391,201 @@ def test_cabinet_settings_calendar_anchor_renders_in_web_and_embedded(client) ->
     assert "Подключить календари" in web.text
     assert "desktop-embedded" in embedded.text
     assert 'href="/desktop/settings/integrations/calendar"' in embedded.text
+
+
+def test_098_ambiguous_owner_list_has_compact_choose_action_in_web_and_embedded(client) -> None:
+    # FR-014/FR-033/FR-043/FR-048; SC-003/SC-012/SC-013: ambiguity is visible but never auto-selected.
+    meeting_id = _create_ambiguous_list_meeting(
+        client, local_recording_id="t050-owner-ambiguous-list"
+    )
+    responses = {
+        "web": client.get(
+            "/meetings?q=t050-owner-ambiguous-list",
+            headers=auth_headers(),
+        ),
+        "embedded": client.get(
+            "/desktop/meetings?q=t050-owner-ambiguous-list",
+            headers=auth_headers(),
+        ),
+    }
+
+    for surface, response in responses.items():
+        assert response.status_code == 200, surface
+        assert response.text.count("Нужно выбрать встречу") == 1, surface
+        assert (
+            response.text.count(
+                '<span class="mini-link calendar-context-list-action">Выбрать</span>'
+            )
+            == 1
+        ), surface
+        assert 'data-calendar-context-state="ambiguous"' in response.text, surface
+        assert "Synthetic hidden candidate A" not in response.text
+        assert "Synthetic hidden candidate B" not in response.text
+    assert f'href="/meetings/{meeting_id}#calendar-context-chooser"' in responses["web"].text
+    assert (
+        f'href="/desktop/meetings/{meeting_id}#calendar-context-chooser"'
+        in responses["embedded"].text
+    )
+
+
+def test_098_ambiguous_non_owner_list_is_generic_and_has_no_choose_action(client) -> None:
+    # FR-033/FR-037; SC-011/SC-013: non-owner list text and accessible HTML reveal no ambiguity.
+    meeting_id = _create_ambiguous_list_meeting(
+        client, local_recording_id="t050-shared-context-list"
+    )
+    add_workspace_user(client)
+    set_meeting_visibility(client, meeting_id, "team")
+
+    for path in (
+        "/meetings?q=t050-shared-context-list",
+        "/desktop/meetings?q=t050-shared-context-list",
+    ):
+        response = client.get(path, headers=shared_auth_headers())
+        assert response.status_code == 200, path
+        assert response.text.count("Без календарного контекста") == 1, path
+        assert "Нужно выбрать встречу" not in response.text
+        assert "calendar-context-list-action" not in response.text
+        assert "ambiguous" not in response.text
+        assert "multiple_time_candidates" not in response.text
+
+
+def _create_ambiguous_list_meeting(client, *, local_recording_id: str) -> UUID:
+    response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": local_recording_id,
+            "title": local_recording_id,
+            "started_at": "2026-07-13T09:10:00Z",
+            "ended_at": "2026-07-13T09:40:00Z",
+            "duration_seconds": 1800,
+        },
+    )
+    assert response.status_code == 200
+    meeting_id = UUID(response.json()["meeting_id"])
+
+    async def mark_ambiguous() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            context = await db.scalar(
+                select(RecordingCalendarContextLink).where(
+                    RecordingCalendarContextLink.workspace_id == WORKSPACE_ID,
+                    RecordingCalendarContextLink.meeting_id == meeting_id,
+                )
+            )
+            assert context is not None
+            context.calendar_event_snapshot_id = None
+            context.context_state = "ambiguous"
+            context.context_confidence = "ambiguous"
+            context.context_reasons_json = ["multiple_time_candidates"]
+            context.title_source = "generic"
+            context.roster_source = "none"
+            context.manual_override_state = "none"
+            context.safe_reason_code = "multiple_time_candidates"
+            context.decision_source = "automatic"
+            context.matcher_version = "calendar_auto_match_v1"
+            context.evaluated_at = datetime(2026, 7, 13, 9, 10, tzinfo=UTC)
+            context.candidate_event_ids_json = []
+            context.candidate_count = 2
+            context.matched_title = None
+            context.matched_title_state = "unavailable"
+            context.matched_roster_json = []
+            context.matched_roster_state = "not_available"
+            context.matched_roster_count = 0
+            await db.commit()
+
+    asyncio.run(mark_ambiguous())
+    return meeting_id
+
+
+def _create_recurring_list_pair(client) -> UUID:
+    current_starts_at = datetime.now(UTC).replace(microsecond=0) + timedelta(minutes=30)
+    previous_starts_at = current_starts_at - timedelta(days=7)
+    previous = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "t082-recurring-previous",
+            "title": "Synthetic T082 Previous",
+            "title_source": "app_context",
+            "started_at": previous_starts_at.isoformat(),
+            "ended_at": (previous_starts_at + timedelta(minutes=30)).isoformat(),
+            "duration_seconds": 1800,
+        },
+    )
+    current = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "t082-recurring-current",
+            "title": "Synthetic T082 Current",
+            "title_source": "app_context",
+            "started_at": current_starts_at.isoformat(),
+            "ended_at": (current_starts_at + timedelta(minutes=30)).isoformat(),
+            "duration_seconds": 1800,
+        },
+    )
+    assert previous.status_code == 200
+    assert current.status_code == 200
+    previous_id = UUID(previous.json()["meeting_id"])
+    current_id = UUID(current.json()["meeting_id"])
+    series_key = sha256(b"synthetic-t082-recurring-series").hexdigest()
+
+    async def mark_recurring() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            contexts = list(
+                await db.scalars(
+                    select(RecordingCalendarContextLink).where(
+                        RecordingCalendarContextLink.workspace_id == WORKSPACE_ID,
+                        RecordingCalendarContextLink.meeting_id.in_([previous_id, current_id]),
+                    )
+                )
+            )
+            assert len(contexts) == 2
+            starts_at_by_meeting = {
+                previous_id: previous_starts_at,
+                current_id: current_starts_at,
+            }
+            title_by_meeting = {
+                previous_id: "Synthetic T082 Previous",
+                current_id: "Synthetic T082 Current",
+            }
+            for context in contexts:
+                starts_at = starts_at_by_meeting[context.meeting_id]
+                context.context_state = "matched_auto"
+                context.context_confidence = "high"
+                context.context_reasons_json = ["synthetic_recurring_match"]
+                context.title_source = "calendar"
+                context.roster_source = "none"
+                context.manual_override_state = "none"
+                context.safe_reason_code = "single_fresh_candidate"
+                context.decision_source = "automatic"
+                context.matcher_version = "calendar_auto_match_v1"
+                context.evaluated_at = starts_at
+                context.candidate_event_ids_json = []
+                context.candidate_count = 0
+                context.matched_event_starts_at = starts_at
+                context.matched_event_ends_at = starts_at + timedelta(minutes=30)
+                context.matched_title = title_by_meeting[context.meeting_id]
+                context.matched_title_state = "available"
+                context.matched_roster_json = []
+                context.matched_roster_state = "not_available"
+                context.matched_roster_count = 0
+                context.recurring_series_key_sha256 = series_key
+                context.source_version_fingerprint_sha256 = sha256(
+                    f"synthetic-source-{context.meeting_id}".encode()
+                ).hexdigest()
+                context.linked_at = starts_at
+            await db.commit()
+
+    client.portal.call(mark_recurring)
+    return previous_id
+
+
+def _upcoming_section(html: str) -> str:
+    marker = '<section class="upcoming cabinet-card" aria-label="Ближайшие встречи">'
+    before, found, after = html.partition(marker)
+    assert before or found
+    assert found == marker
+    section, closing, _ = after.partition("</section>")
+    assert closing == "</section>"
+    return section

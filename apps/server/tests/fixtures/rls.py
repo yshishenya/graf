@@ -44,6 +44,7 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "calendar_event_snapshots",
     "calendar_participants",
     "conference_link_candidates",
+    "recording_calendar_match_attempts",
     "recording_calendar_context_links",
     "calendar_reminder_states",
     "calendar_settings_preferences",

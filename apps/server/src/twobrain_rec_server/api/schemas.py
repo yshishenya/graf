@@ -1,8 +1,16 @@
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from twobrain_rec_server.domain.statuses import (
     CustodyMetadataSafety,
@@ -63,7 +71,120 @@ class Problem(BaseModel):
     custody: ProblemCustodyExtension | None = None
 
 
-SafeClientText = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[^\x00-\x1f\x7f]+$")]
+SafeClientText = Annotated[
+    str, StringConstraints(strip_whitespace=True, pattern=r"^[^\x00-\x1f\x7f]+$")
+]
+
+
+class MeetingTitleSource(StrEnum):
+    USER_CONFIRMED = "user_confirmed"
+    CALENDAR = "calendar"
+    APP_CONTEXT = "app_context"
+    GENERIC = "generic"
+    UPLOAD_PROVIDED = "upload_provided"
+    FILE_NAME_DERIVED = "file_name_derived"
+    LEGACY_UNKNOWN = "legacy_unknown"
+
+
+class DesktopMeetingTitleSource(StrEnum):
+    USER_CONFIRMED = "user_confirmed"
+    APP_CONTEXT = "app_context"
+    GENERIC = "generic"
+    UNKNOWN = "unknown"
+
+
+LegacyMeetingTitleSource = Literal["user", "user_or_generic", "unknown"]
+
+
+class CalendarMatchDecisionIntent(StrEnum):
+    AUTOMATIC = "automatic"
+    USER_SELECTED = "user_selected"
+    USER_DECLINED = "user_declined"
+
+
+class CalendarMatchAttemptState(StrEnum):
+    MATCHED_AUTO = "matched_auto"
+    MATCHED_USER = "matched_user"
+    PROVISIONAL_PRESTART = "provisional_prestart"
+    AMBIGUOUS = "ambiguous"
+    NO_CONTEXT = "no_context"
+    SKIPPED_PRIVATE = "skipped_private"
+    SKIPPED_ALL_DAY = "skipped_all_day"
+    SKIPPED_STALE_CALENDAR = "skipped_stale_calendar"
+    CALENDAR_UNAVAILABLE = "calendar_unavailable"
+    DECLINED_BY_USER = "declined_by_user"
+
+
+class CalendarContextState(StrEnum):
+    MATCHED_AUTO = "matched_auto"
+    MATCHED_USER = "matched_user"
+    AMBIGUOUS = "ambiguous"
+    NO_CONTEXT = "no_context"
+    SKIPPED_PRIVATE = "skipped_private"
+    SKIPPED_ALL_DAY = "skipped_all_day"
+    SKIPPED_STALE_CALENDAR = "skipped_stale_calendar"
+    CALENDAR_UNAVAILABLE = "calendar_unavailable"
+    SKIPPED_OFFLINE_OR_UNKNOWN = "skipped_offline_or_unknown"
+    SKIPPED_MANUAL_UPLOAD = "skipped_manual_upload"
+    DECLINED_BY_USER = "declined_by_user"
+    CLEARED_BY_USER = "cleared_by_user"
+    DELETED = "deleted"
+    LEGACY_LINKED = "legacy_linked"
+
+
+class CalendarContextConfidence(StrEnum):
+    HIGH = "high"
+    SELECTED = "selected"
+    AMBIGUOUS = "ambiguous"
+    NONE = "none"
+
+
+class CalendarContextDecisionSource(StrEnum):
+    AUTOMATIC = "automatic"
+    USER = "user"
+    SYSTEM_SKIP = "system_skip"
+    LEGACY = "legacy"
+
+
+class CalendarContextReasonCode(StrEnum):
+    SINGLE_FRESH_CANDIDATE = "single_fresh_candidate"
+    MULTIPLE_TIME_CANDIDATES = "multiple_time_candidates"
+    BACK_TO_BACK_BOUNDARY = "back_to_back_boundary"
+    NO_MATCHING_EVENT = "no_matching_event"
+    WEAK_EVENT_SIGNAL = "weak_event_signal"
+    PRIVATE_FREE_BUSY_SKIPPED = "private_free_busy_skipped"
+    ALL_DAY_SKIPPED = "all_day_skipped"
+    SELECTED_SOURCE_STALE = "selected_source_stale"
+    LATEST_SYNC_FAILED = "latest_sync_failed"
+    CALENDAR_NOT_CONNECTED = "calendar_not_connected"
+    CALENDAR_NOT_SELECTED = "calendar_not_selected"
+    CALENDAR_UNAVAILABLE = "calendar_unavailable"
+    MANUAL_UPLOAD_SKIPPED = "manual_upload_skipped"
+    OFFLINE_OR_UNKNOWN_SKIPPED = "offline_or_unknown_skipped"
+    PRESTART_NOT_REACHED = "prestart_not_reached"
+    USER_SELECTED = "user_selected"
+    USER_DECLINED = "user_declined"
+    USER_CLEARED = "user_cleared"
+    MEETING_DELETED = "meeting_deleted"
+
+
+class CalendarContextTitleState(StrEnum):
+    AVAILABLE = "available"
+    POLICY_HIDDEN = "policy_hidden"
+    UNAVAILABLE = "unavailable"
+
+
+class CalendarContextRosterState(StrEnum):
+    AVAILABLE = "available"
+    NOT_AVAILABLE = "not_available"
+    HIDDEN = "hidden"
+
+
+class PreviousRecurringMeetingReadiness(StrEnum):
+    NOTES_READY = "notes_ready"
+    TRANSCRIPT_READY = "transcript_ready"
+    PROCESSING = "processing"
+    UNAVAILABLE = "unavailable"
 
 
 class SupportIncidentReportRequest(BaseModel):
@@ -254,16 +375,22 @@ class MeetingTargetBrowserServicePattern(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     service_family: Annotated[SafeClientText, Field(alias="serviceFamily", max_length=80)]
-    host_category: Literal["first_party", "enterprise_domain", "unknown"] = Field(alias="hostCategory")
-    pattern_class: Literal["meeting_room", "join_intent", "landing", "settings", "unsupported"] = Field(
-        alias="patternClass",
+    host_category: Literal["first_party", "enterprise_domain", "unknown"] = Field(
+        alias="hostCategory"
+    )
+    pattern_class: Literal["meeting_room", "join_intent", "landing", "settings", "unsupported"] = (
+        Field(
+            alias="patternClass",
+        )
     )
 
 
 class MeetingTargetRegistryTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    id: Annotated[SafeClientText, Field(min_length=3, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]{2,80}$")]
+    id: Annotated[
+        SafeClientText, Field(min_length=3, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]{2,80}$")
+    ]
     display_name: Annotated[SafeClientText, Field(alias="displayName", min_length=1, max_length=80)]
     market: Literal["global", "russia", "enterprise", "unknown"]
     platform: Literal["macos", "windows", "browser", "cross_platform"]
@@ -289,11 +416,15 @@ class MeetingTargetRegistryTarget(BaseModel):
             "windows_future_adapter",
         ]
     ] = Field(alias="requiredSignals", min_length=1)
-    native_bundle_ids: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$")]] = Field(
+    native_bundle_ids: list[
+        Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$")]
+    ] = Field(
         default_factory=list,
         alias="nativeBundleIds",
     )
-    windows_process_names: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.\- ]{1,200}$")]] = Field(
+    windows_process_names: list[
+        Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.\- ]{1,200}$")]
+    ] = Field(
         default_factory=list,
         alias="windowsProcessNames",
     )
@@ -324,7 +455,9 @@ class MeetingTargetRegistryDocument(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     schema_version: Literal[1] = Field(alias="schemaVersion")
-    registry_version: Annotated[str, Field(alias="registryVersion", pattern=r"^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")]
+    registry_version: Annotated[
+        str, Field(alias="registryVersion", pattern=r"^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")
+    ]
     generated_at: datetime = Field(alias="generatedAt")
     expires_at: datetime | None = Field(default=None, alias="expiresAt")
     targets: list[MeetingTargetRegistryTarget] = Field(min_length=1)
@@ -384,7 +517,9 @@ class MeetingDetectionTargetRollup(BaseModel):
     target_id: Annotated[SafeClientText, Field(alias="targetId", min_length=3, max_length=80)]
     target_family: MeetingDetectionTargetFamily = Field(alias="targetFamily")
     support_mode: MeetingDetectionSupportMode = Field(alias="supportMode")
-    signal_families: list[MeetingDetectionSignalFamily] = Field(default_factory=list, alias="signalFamilies")
+    signal_families: list[MeetingDetectionSignalFamily] = Field(
+        default_factory=list, alias="signalFamilies"
+    )
     outcomes: MeetingDetectionOutcomes = Field(default_factory=MeetingDetectionOutcomes)
     duration_buckets: MeetingDetectionDurationBuckets = Field(
         default_factory=MeetingDetectionDurationBuckets,
@@ -406,7 +541,9 @@ class MeetingDetectionUnknownNativeAppRollup(BaseModel):
         "server_candidate_upload",
     ] = Field(alias="uploadEligibility")
     candidate_score: int = Field(alias="candidateScore", ge=0, le=20)
-    candidate_reasons: list[MeetingDetectionCandidateReason] = Field(alias="candidateReasons", min_length=1)
+    candidate_reasons: list[MeetingDetectionCandidateReason] = Field(
+        alias="candidateReasons", min_length=1
+    )
     stable_observation_count: int = Field(alias="stableObservationCount", ge=0)
     duration_buckets: MeetingDetectionDurationBuckets = Field(alias="durationBuckets")
     manual_record_nearby_count: int = Field(alias="manualRecordNearbyCount", ge=0)
@@ -414,9 +551,15 @@ class MeetingDetectionUnknownNativeAppRollup(BaseModel):
         default_factory=list,
         alias="suppressionReasons",
     )
-    bundle_id: str | None = Field(default=None, alias="bundleId", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$")
-    display_name: SafeClientText | None = Field(default=None, alias="displayName", min_length=1, max_length=80)
-    signing_team_id: str | None = Field(default=None, alias="signingTeamId", pattern=r"^[A-Za-z0-9]{5,20}$")
+    bundle_id: str | None = Field(
+        default=None, alias="bundleId", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$"
+    )
+    display_name: SafeClientText | None = Field(
+        default=None, alias="displayName", min_length=1, max_length=80
+    )
+    signing_team_id: str | None = Field(
+        default=None, alias="signingTeamId", pattern=r"^[A-Za-z0-9]{5,20}$"
+    )
     version: Annotated[SafeClientText, Field(max_length=80)] | None = None
     calendar_or_join_hint_count: int = Field(default=0, alias="calendarOrJoinHintCount", ge=0)
     non_target_suppression_count: int = Field(default=0, alias="nonTargetSuppressionCount", ge=0)
@@ -425,11 +568,15 @@ class MeetingDetectionUnknownNativeAppRollup(BaseModel):
 class MeetingDetectionResourceRollup(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    cpu_p95_percent_bucket: Literal["not_measured", "under_1", "from_1_to_2", "from_2_to_5", "over_5"] = Field(
+    cpu_p95_percent_bucket: Literal[
+        "not_measured", "under_1", "from_1_to_2", "from_2_to_5", "over_5"
+    ] = Field(
         default="not_measured",
         alias="cpuP95PercentBucket",
     )
-    memory_overhead_bucket_mb: Literal["not_measured", "under_10", "from_10_to_30", "from_30_to_60", "over_60"] = Field(
+    memory_overhead_bucket_mb: Literal[
+        "not_measured", "under_10", "from_10_to_30", "from_30_to_60", "over_60"
+    ] = Field(
         default="not_measured",
         alias="memoryOverheadBucketMb",
     )
@@ -443,15 +590,25 @@ class MeetingDetectionTelemetryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     schema_version: Literal[1] = Field(alias="schemaVersion")
-    client_version: Annotated[SafeClientText, Field(alias="clientVersion", min_length=1, max_length=80)]
+    client_version: Annotated[
+        SafeClientText, Field(alias="clientVersion", min_length=1, max_length=80)
+    ]
     platform: Literal["macos", "windows"]
-    os_version_major: Annotated[SafeClientText, Field(alias="osVersionMajor", min_length=1, max_length=40)]
-    registry_version: Annotated[SafeClientText, Field(alias="registryVersion", min_length=1, max_length=80)]
-    candidate_filter_version: Annotated[SafeClientText, Field(alias="candidateFilterVersion", min_length=1, max_length=80)]
+    os_version_major: Annotated[
+        SafeClientText, Field(alias="osVersionMajor", min_length=1, max_length=40)
+    ]
+    registry_version: Annotated[
+        SafeClientText, Field(alias="registryVersion", min_length=1, max_length=80)
+    ]
+    candidate_filter_version: Annotated[
+        SafeClientText, Field(alias="candidateFilterVersion", min_length=1, max_length=80)
+    ]
     created_at: datetime = Field(alias="createdAt")
     rollup_window: MeetingDetectionRollupWindow = Field(alias="rollupWindow")
     policy: MeetingDetectionPolicySummary
-    target_rollups: list[MeetingDetectionTargetRollup] = Field(default_factory=list, alias="targetRollups", max_length=200)
+    target_rollups: list[MeetingDetectionTargetRollup] = Field(
+        default_factory=list, alias="targetRollups", max_length=200
+    )
     unknown_native_app_rollups: list[MeetingDetectionUnknownNativeAppRollup] = Field(
         default_factory=list,
         alias="unknownNativeAppRollups",
@@ -470,19 +627,141 @@ class MeetingDetectionTelemetryResponse(BaseModel):
     next_upload_after: datetime
 
 
+class ResolveRecordingCalendarContextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recording_started_at: datetime
+    decision_intent: CalendarMatchDecisionIntent
+    event_id: UUID | None = None
+    contract_version: Literal["calendar_auto_context_v1"]
+
+    @field_validator("recording_started_at")
+    @classmethod
+    def require_timezone_aware_start(cls, value: datetime) -> datetime:
+        if value.utcoffset() is None:
+            raise ValueError("recording_started_at must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def validate_event_selection(self) -> "ResolveRecordingCalendarContextRequest":
+        if self.decision_intent is CalendarMatchDecisionIntent.USER_SELECTED:
+            if self.event_id is None:
+                raise ValueError("event_id is required for user_selected intent")
+        elif self.event_id is not None:
+            raise ValueError("event_id is allowed only for user_selected intent")
+        return self
+
+
+class ResolveRecordingCalendarContextResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attempt_id: UUID
+    context_state: CalendarMatchAttemptState
+    reason_code: CalendarContextReasonCode
+    context_confidence: CalendarContextConfidence
+    candidate_count: int = Field(ge=0)
+    matcher_version: Annotated[SafeClientText, Field(min_length=1, max_length=80)]
+    expires_at: datetime
+
+
+class CalendarContextCandidateView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: UUID
+    safe_title: Annotated[SafeClientText, Field(max_length=500)] | None = None
+    starts_at: datetime
+    ends_at: datetime
+    safe_source_label: Annotated[SafeClientText, Field(min_length=1, max_length=160)]
+    roster_state: CalendarContextRosterState = CalendarContextRosterState.NOT_AVAILABLE
+    participant_count: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_event_interval(self) -> "CalendarContextCandidateView":
+        if self.ends_at <= self.starts_at:
+            raise ValueError("ends_at must be later than starts_at")
+        return self
+
+
+class CalendarRosterSnapshotItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    participant_kind: Annotated[SafeClientText, Field(min_length=1, max_length=80)]
+    response_status: Annotated[SafeClientText, Field(min_length=1, max_length=80)]
+    display_name: Annotated[SafeClientText, Field(max_length=240)] | None = None
+    email_present: bool = False
+    workspace_relation: Annotated[SafeClientText, Field(min_length=1, max_length=80)] = "unknown"
+    recipient_candidate_class: Annotated[SafeClientText, Field(min_length=1, max_length=80)] = (
+        "unknown"
+    )
+
+
+class CalendarContextRosterView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    roster_state: CalendarContextRosterState = CalendarContextRosterState.NOT_AVAILABLE
+    participant_count: int = Field(default=0, ge=0)
+    participants: list[CalendarRosterSnapshotItem] = Field(default_factory=list, max_length=100)
+
+
+class PreviousRecurringMeetingView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    meeting_id: UUID
+    safe_title: Annotated[SafeClientText, Field(max_length=500)] | None = None
+    started_at: datetime
+    readiness_state: PreviousRecurringMeetingReadiness
+
+
+class MeetingCalendarContextSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: CalendarContextState
+    label: Annotated[SafeClientText, Field(min_length=1, max_length=160)]
+    reason_label: Annotated[
+        SafeClientText | None,
+        Field(
+            default=None,
+            min_length=1,
+            max_length=240,
+            exclude_if=lambda value: value is None,
+        ),
+    ]
+    title_source: MeetingTitleSource | None = None
+    needs_owner_action: bool = False
+
+
 class PutMeetingCalendarContextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     event_id: UUID
-    context_reason: Literal["manual_selection", "current_event_prompt", "event_start_prompt"]
+    context_reason: Literal[
+        "manual_selection",
+        "ambiguity_resolution",
+        "correction",
+        "current_event_prompt",
+        "event_start_prompt",
+    ]
 
 
 class MeetingCalendarContextResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     meeting_id: UUID
     event_id: UUID | None = None
-    context_state: Literal["linked", "unlinked", "no_context"]
-    context_confidence: str | None = None
-    title_source: str | None = None
+    context_state: CalendarContextState
+    context_confidence: CalendarContextConfidence | None = None
+    reason_code: CalendarContextReasonCode | None = None
+    decision_source: CalendarContextDecisionSource | None = None
+    title_source: MeetingTitleSource | LegacyMeetingTitleSource | None = None
+    matched_title: Annotated[SafeClientText, Field(max_length=500)] | None = None
+    matched_event_starts_at: datetime | None = None
+    matched_event_ends_at: datetime | None = None
+    candidate_count: int = Field(default=0, ge=0)
+    candidates: list[CalendarContextCandidateView] = Field(default_factory=list, max_length=10)
+    roster: CalendarContextRosterView | None = None
+    previous_recurring_meeting: PreviousRecurringMeetingView | None = None
+    can_change: bool = False
+    can_clear: bool = False
 
 
 class TrackDescriptor(BaseModel):
@@ -506,12 +785,20 @@ class MediaRevisionSummary(BaseModel):
 
 
 class CreateMeetingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     local_recording_id: Annotated[SafeClientText, Field(min_length=1, max_length=240)]
-    local_media_revision_id: Annotated[SafeClientText, Field(min_length=1, max_length=300)] | None = None
+    local_media_revision_id: (
+        Annotated[SafeClientText, Field(min_length=1, max_length=300)] | None
+    ) = None
     title: Annotated[SafeClientText, Field(max_length=500)] | None = None
+    title_source: DesktopMeetingTitleSource | None = None
+    calendar_match_attempt_id: UUID | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
-    recording_display_timezone_offset_minutes: int | None = Field(default=None, ge=-14 * 60, le=14 * 60)
+    recording_display_timezone_offset_minutes: int | None = Field(
+        default=None, ge=-14 * 60, le=14 * 60
+    )
     duration_seconds: int = Field(gt=0)
 
 
@@ -521,18 +808,21 @@ class MeetingResponse(BaseModel):
     local_recording_id: str
     local_media_revision_id: str | None = None
     title: str | None = None
-    title_source: str = "generic"
+    title_source: MeetingTitleSource | LegacyMeetingTitleSource = MeetingTitleSource.GENERIC
     media_revision: MediaRevisionSummary | None = None
     status: MeetingStatus
     processing_status: ProcessingStatus
     started_at: datetime | None = None
     ended_at: datetime | None = None
     recording_display_timezone_offset_minutes: int | None = None
+    calendar_context: MeetingCalendarContextSummary | None = None
     created_at: datetime | None = None
 
 
 class CreateUploadSessionRequest(BaseModel):
-    expected_tracks: list[TrackRole] = Field(default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM])
+    expected_tracks: list[TrackRole] = Field(
+        default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
+    )
     expected_track_sizes: dict[TrackRole, int] = Field(default_factory=dict)
     manifest_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
@@ -758,7 +1048,9 @@ class LocalPurgeAckRequest(BaseModel):
     completed_at: datetime | None = None
 
 
-LifecycleActivityOutcome = Literal["accepted", "denied", "completed", "failed", "skipped", "blocked"]
+LifecycleActivityOutcome = Literal[
+    "accepted", "denied", "completed", "failed", "skipped", "blocked"
+]
 
 
 class LifecycleActivityItem(BaseModel):
@@ -836,7 +1128,9 @@ PlaybackUnavailableReason = Literal[
     "storage_unavailable",
 ]
 PlaybackSourceMode = Literal["none", "stored_review_m4a"]
-GovernanceState = Literal["available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"]
+GovernanceState = Literal[
+    "available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"
+]
 SlotStateValue = Literal["available", "disabled", "planned", "policy_blocked", "out_of_scope"]
 NextAction = Literal["wait", "retry_future", "contact_operator", "open_desktop_queue", "none"]
 AccessState = Literal["owner", "team", "shared", "denied", "unavailable", "deleted"]
@@ -1099,6 +1393,8 @@ class MeetingListItem(BaseModel):
     governance: GovernanceActionSummary
     custody: CustodyReadModel | None = None
     upload: MeetingUploadProgressState | None = None
+    calendar_context: MeetingCalendarContextSummary | None = None
+    previous_recurring_meeting: PreviousRecurringMeetingView | None = None
     future_slots: list[SlotState] = Field(default_factory=list)
 
 
@@ -1172,21 +1468,18 @@ class SpeakerReviewState(BaseModel):
     speakers: list[SpeakerLane] = Field(default_factory=list)
 
 
-class CalendarRosterParticipantView(BaseModel):
-    participant_kind: str
-    response_status: str
-    display_name: str | None = None
-    email_present: bool = False
-    workspace_relation: str = "unknown"
-    recipient_candidate_class: str = "unknown"
+class CalendarRosterParticipantView(CalendarRosterSnapshotItem):
+    pass
 
 
 class CalendarRosterReviewState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     available: bool = False
-    roster_state: str = "not_available"
-    participant_count: int = 0
+    roster_state: CalendarContextRosterState = CalendarContextRosterState.NOT_AVAILABLE
+    participant_count: int = Field(default=0, ge=0)
     source: Literal["calendar", "none"] = "none"
-    participants: list[CalendarRosterParticipantView] = Field(default_factory=list)
+    participants: list[CalendarRosterParticipantView] = Field(default_factory=list, max_length=100)
 
 
 class NotesReviewState(BaseModel):
@@ -1215,6 +1508,8 @@ class PlaybackReviewState(BaseModel):
 
 class MeetingReviewResponse(BaseModel):
     meeting: MeetingListItem
+    calendar_context: MeetingCalendarContextSummary | None = None
+    calendar_context_detail: MeetingCalendarContextResponse | None = None
     provenance: MeetingProvenance
     processing: ProcessingReviewState
     transcript: TranscriptReviewState

@@ -7,6 +7,7 @@ from twobrain_rec_server.api.schemas import (
     GovernanceActionState,
     GovernanceActionSummary,
     MeetingAccessState,
+    MeetingCalendarContextSummary,
     MeetingListItem,
     SlotState,
 )
@@ -18,6 +19,7 @@ from twobrain_rec_server.db.models import (
     Meeting,
     ProcessingResult,
     ProcessingWorkflow,
+    RecordingCalendarContextLink,
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import (
@@ -57,13 +59,17 @@ def _owner_access() -> MeetingAccessState:
 
 
 def _governance() -> GovernanceActionSummary:
-    disabled = GovernanceActionState(state="disabled", label="Disabled", reason="Synthetic.", destructive=False)
+    disabled = GovernanceActionState(
+        state="disabled", label="Disabled", reason="Synthetic.", destructive=False
+    )
     return GovernanceActionSummary(
         share=disabled,
         export=disabled,
         download=disabled,
         retention=disabled,
-        delete=GovernanceActionState(state="planned", label="Delete", reason="Synthetic.", destructive=True),
+        delete=GovernanceActionState(
+            state="planned", label="Delete", reason="Synthetic.", destructive=True
+        ),
     )
 
 
@@ -129,7 +135,9 @@ def test_common_display_helpers_for_meeting_rows() -> None:
 
 def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fallbacks() -> None:
     recorded = _list_item(started_at=datetime(2026, 6, 26, 23, 30, tzinfo=UTC))
-    timezone_shifted = _list_item(started_at=datetime(2026, 6, 27, 2, 30, tzinfo=timezone(timedelta(hours=3))))
+    timezone_shifted = _list_item(
+        started_at=datetime(2026, 6, 27, 2, 30, tzinfo=timezone(timedelta(hours=3)))
+    )
     offset_shifted = _list_item(
         started_at=datetime(2026, 6, 26, 21, 30, tzinfo=UTC),
         recording_display_timezone_offset_minutes=180,
@@ -209,8 +217,16 @@ def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
 
     assert view_models.review_status(_meeting(), result=ready, workflow=None) == "ready"
     assert view_models.review_status(_meeting(), result=partial, workflow=None) == "partial"
-    assert view_models.review_status(_meeting(ProcessingStatus.POLLING), result=None, workflow=None) == "processing"
-    assert view_models.review_status(_meeting(ProcessingStatus.FAILED_TERMINAL), result=None, workflow=None) == "failed"
+    assert (
+        view_models.review_status(_meeting(ProcessingStatus.POLLING), result=None, workflow=None)
+        == "processing"
+    )
+    assert (
+        view_models.review_status(
+            _meeting(ProcessingStatus.FAILED_TERMINAL), result=None, workflow=None
+        )
+        == "failed"
+    )
 
 
 def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() -> None:
@@ -242,12 +258,17 @@ def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() ->
     )
 
     no_speech_state = view_models.processing_state(_meeting(), result=no_speech, workflow=None)
-    invalid_audio_state = view_models.processing_state(_meeting(), result=invalid_audio, workflow=None)
+    invalid_audio_state = view_models.processing_state(
+        _meeting(), result=invalid_audio, workflow=None
+    )
 
     assert no_speech_state.reason_label == (
         "MediaScribe обработал запись, но транскрипт не создан: распознаваемая речь не найдена."
     )
-    assert invalid_audio_state.reason_label == "Файл записи не является декодируемым аудио или поврежден."
+    assert (
+        invalid_audio_state.reason_label
+        == "Файл записи не является декодируемым аудио или поврежден."
+    )
     assert no_speech_state.transcript_available is False
     assert invalid_audio_state.transcript_available is False
 
@@ -419,7 +440,9 @@ def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> N
     assert state.segments[0].speaker_label == "SPEAKER_01"
 
 
-def test_dual_track_mapping_canonicalizes_dependency_labels_when_speaker_style_label_is_present() -> None:
+def test_dual_track_mapping_canonicalizes_dependency_labels_when_speaker_style_label_is_present() -> (
+    None
+):
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -771,7 +794,9 @@ def test_manual_upload_review_response_uses_diarization_as_transcript_source() -
     assert [segment.speaker_label for segment in response.transcript.segments] == ["SPEAKER_01"]
 
 
-def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization_text_is_blank() -> None:
+def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization_text_is_blank() -> (
+    None
+):
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -935,9 +960,7 @@ def test_mediascribe_speaker_time_matcher_handles_long_inputs_without_source_fal
     labels = view_models.mediascribe_speaker_labels_by_time(transcript, diarization)
 
     assert len(labels) == 1200
-    assert set(labels) == {
-        f"SPEAKER_{speaker_index:02d}" for speaker_index in range(12)
-    }
+    assert set(labels) == {f"SPEAKER_{speaker_index:02d}" for speaker_index in range(12)}
     assert labels[0] == "SPEAKER_00"
     assert labels[100] == "SPEAKER_01"
     assert labels[-1] == "SPEAKER_11"
@@ -1100,7 +1123,13 @@ def test_manual_upload_speaker_mapping_uses_speaker_zero_when_only_unknown_rows_
 
 def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -> None:
     roster = normalize_calendar_participants(
-        [{"participant_kind": "required_attendee", "email": "speaker@example.test", "display_name": "Calendar Name"}]
+        [
+            {
+                "participant_kind": "required_attendee",
+                "email": "speaker@example.test",
+                "display_name": "Calendar Name",
+            }
+        ]
     )
     result_id = uuid4()
     meeting = _meeting()
@@ -1125,6 +1154,354 @@ def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -
     assert state.speakers[0].label == "SPEAKER_00"
     assert "access_grant" not in roster[0]
     assert "share_grant" not in roster[0]
+
+
+def test_098_list_and_review_models_receive_the_same_safe_calendar_summary() -> None:
+    # FR-033/FR-048: list and review share state while using their contracted copy.
+    expected_list_summary = MeetingCalendarContextSummary(
+        state="matched_auto",
+        label="Из календаря",
+        title_source="calendar",
+        needs_owner_action=False,
+    )
+    expected_review_summary = expected_list_summary.model_copy(
+        update={"label": "Подобрано автоматически"}
+    )
+    meeting = _meeting()
+    meeting.title_source = "calendar"
+    link = _calendar_context_link(context_state="matched_auto")
+
+    item = view_models.build_list_item(
+        meeting,
+        result=None,
+        workflow=None,
+        calendar_context=link,
+    )
+    review = view_models.build_review_response(
+        meeting,
+        result=None,
+        workflow=None,
+        transcript_segments=[],
+        diarization_segments=[],
+        dependency=None,
+        calendar_context=link,
+    )
+
+    assert item.calendar_context == expected_list_summary
+    assert review.meeting.calendar_context == expected_list_summary
+    assert review.calendar_context == expected_review_summary
+    assert review.calendar_context.label == "Подобрано автоматически"
+
+
+def test_098_auto_context_summary_and_roster_use_only_immutable_safe_link_snapshots() -> None:
+    # FR-016/FR-020/FR-030: query projection never needs mutable provider rows.
+    link = _calendar_context_link(
+        context_state="matched_auto",
+        matched_title="Synthetic Immutable Planning",
+        matched_roster_json=[
+            {
+                "participant_kind": "organizer",
+                "response_status": "organizer",
+                "display_name": "Synthetic Immutable Owner",
+                "email": "must-not-project@example.test",
+                "email_present": True,
+                "workspace_relation": "owner",
+                "recipient_candidate_class": "organizer",
+            }
+        ],
+        matched_roster_state="available",
+        matched_roster_count=1,
+    )
+
+    summary = view_models.calendar_context_summary(link, meeting_title_source="calendar")
+    roster = view_models.calendar_roster_snapshot_state(link)
+
+    assert summary == MeetingCalendarContextSummary(
+        state="matched_auto",
+        label="Из календаря",
+        title_source="calendar",
+        needs_owner_action=False,
+    )
+    assert roster is not None
+    assert roster.available is True
+    assert roster.participant_count == 1
+    assert roster.participants[0].display_name == "Synthetic Immutable Owner"
+    assert roster.participants[0].email_present is True
+    assert "must-not-project@example.test" not in roster.model_dump_json()
+    assert 'email"' not in roster.model_dump_json()
+
+
+def test_098_calendar_roster_snapshot_hides_email_like_display_name() -> None:
+    # FR-030/SC-011: cabinet egress rechecks immutable snapshots fail closed.
+    link = _calendar_context_link(
+        context_state="matched_auto",
+        matched_roster_json=[
+            {
+                "participant_kind": "required_attendee",
+                "response_status": "accepted",
+                "display_name": "person@example.test",
+                "email_present": True,
+                "workspace_relation": "external",
+                "recipient_candidate_class": "external_attendee",
+            }
+        ],
+        matched_roster_state="available",
+        matched_roster_count=1,
+    )
+
+    roster = view_models.calendar_roster_snapshot_state(link)
+
+    assert roster is not None
+    assert roster.participants[0].display_name is None
+    assert "person@example.test" not in roster.model_dump_json()
+
+
+def test_098_private_and_no_context_states_ignore_stale_title_and_roster_payloads() -> None:
+    # FR-009/FR-033/FR-037: protected/no-context state cannot leak stale snapshots.
+    for state in ("skipped_private", "no_context"):
+        link = _calendar_context_link(
+            context_state=state,
+            matched_title="Synthetic Hidden Calendar Title",
+            matched_roster_json=[
+                {
+                    "participant_kind": "required_attendee",
+                    "response_status": "accepted",
+                    "display_name": "Synthetic Hidden Participant",
+                    "email": "hidden-person@example.test",
+                }
+            ],
+            matched_roster_state="available",
+            matched_roster_count=1,
+        )
+
+        summary = view_models.calendar_context_summary(link, meeting_title_source="generic")
+        roster = view_models.calendar_roster_snapshot_state(link)
+
+        assert summary is not None
+        assert summary.state == state
+        assert "Synthetic Hidden" not in summary.model_dump_json()
+        assert "hidden-person@example.test" not in summary.model_dump_json()
+        assert roster is None
+
+
+def test_098_private_skip_reason_is_owner_detail_only() -> None:
+    # FR-010/FR-033/FR-042: list/non-owner truth is generic; owner detail is safe.
+    link = _calendar_context_link(
+        context_state="skipped_private",
+        safe_reason_code="private_free_busy_skipped",
+    )
+
+    generic = view_models.calendar_context_summary(
+        link,
+        meeting_title_source="generic",
+    )
+    owner = view_models.calendar_context_summary(
+        link,
+        meeting_title_source="generic",
+        owner_detail=True,
+    )
+
+    assert generic is not None
+    assert owner is not None
+    assert generic.label == owner.label == "Без контекста календаря"
+    assert generic.reason_label is None
+    assert owner.reason_label == "Приватное событие пропущено"
+
+    meeting = _meeting()
+    owner_review = view_models.build_review_response(
+        meeting,
+        result=None,
+        workflow=None,
+        transcript_segments=[],
+        diarization_segments=[],
+        dependency=None,
+        access=_owner_access(),
+        calendar_context=link,
+    )
+    team_review = view_models.build_review_response(
+        meeting,
+        result=None,
+        workflow=None,
+        transcript_segments=[],
+        diarization_segments=[],
+        dependency=None,
+        access=_owner_access().model_copy(update={"state": "team"}),
+        calendar_context=link,
+    )
+
+    assert owner_review.calendar_context is not None
+    assert owner_review.meeting.calendar_context is not None
+    assert team_review.calendar_context is not None
+    assert owner_review.calendar_context.reason_label == "Приватное событие пропущено"
+    assert owner_review.meeting.calendar_context.reason_label is None
+    assert team_review.calendar_context.reason_label is None
+
+
+def test_098_owner_no_context_reasons_use_bounded_product_copy() -> None:
+    # FR-033/FR-042: owner detail explains safe outcomes without provider/internal text.
+    expected_labels = {
+        "all_day_skipped": "Событие на весь день пропущено",
+        "selected_source_stale": "Данные календаря устарели",
+        "latest_sync_failed": "Данные календаря устарели",
+        "calendar_unavailable": "Календарь недоступен",
+        "manual_upload_skipped": "Ручная загрузка не сопоставляется",
+        "offline_or_unknown_skipped": "Офлайн-запись не сопоставляется",
+        "no_matching_event": "Подходящая встреча не найдена",
+        "prestart_not_reached": "Запись завершилась до начала встречи",
+        "user_declined": "Вы начали запись без календарного контекста",
+        "user_cleared": "Контекст убран вами",
+    }
+
+    for reason_code, expected_label in expected_labels.items():
+        summary = view_models.calendar_context_summary(
+            _calendar_context_link(
+                context_state="no_context",
+                safe_reason_code=reason_code,
+            ),
+            meeting_title_source="generic",
+            owner_detail=True,
+        )
+
+        assert summary is not None
+        assert summary.reason_label == expected_label
+        assert reason_code not in summary.model_dump_json()
+
+
+def test_us6_calendar_roster_stays_metadata_and_speaker_labels_stay_canonical() -> None:
+    # T084; FR-020/FR-022; SC-008 (speaker-assignment slice): roster names stay separate.
+    link = _calendar_context_link(
+        context_state="matched_auto",
+        matched_roster_json=[
+            {
+                "participant_kind": "required_attendee",
+                "response_status": "accepted",
+                "display_name": "Synthetic Calendar Person A",
+                "email_present": True,
+                "workspace_relation": "external",
+                "recipient_candidate_class": "external_attendee",
+            },
+            {
+                "participant_kind": "optional_attendee",
+                "response_status": "tentative",
+                "display_name": "Synthetic Calendar Person B",
+                "email_present": True,
+                "workspace_relation": "external",
+                "recipient_candidate_class": "optional_attendee",
+            },
+        ],
+        matched_roster_state="available",
+        matched_roster_count=2,
+    )
+    roster = view_models.calendar_roster_snapshot_state(link)
+    meeting = _meeting()
+    result_id = uuid4()
+    result = ProcessingResult(
+        id=result_id,
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        segment_count=2,
+        diarization_segment_count=2,
+    )
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(index * 10),
+            end_seconds=Decimal(index * 10 + 10),
+            text=f"synthetic transcript segment {index}",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(index * 10),
+            end_seconds=Decimal(index * 10 + 10),
+            text=f"synthetic diarization segment {index}",
+            speaker_label=f"Synthetic Calendar Person {chr(ord('A') + index)}",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+
+    review = view_models.build_review_response(
+        meeting,
+        result=result,
+        workflow=None,
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        dependency=None,
+        access=_owner_access(),
+        calendar_roster=roster,
+    )
+
+    assert review.calendar_roster is not None
+    assert review.calendar_roster.source == "calendar"
+    assert [participant.display_name for participant in review.calendar_roster.participants] == [
+        "Synthetic Calendar Person A",
+        "Synthetic Calendar Person B",
+    ]
+    assert [segment.speaker_label for segment in review.transcript.segments] == [
+        "SPEAKER_00",
+        "SPEAKER_01",
+    ]
+    assert [speaker.label for speaker in review.speakers.speakers] == [
+        "SPEAKER_00",
+        "SPEAKER_01",
+    ]
+    assert review.access is not None
+    assert review.access.state == "owner"
+    assert review.access.can_view is True
+    assert "speaker_label" not in review.calendar_roster.model_dump_json()
+    assert "access_grant" not in review.calendar_roster.model_dump_json()
+    assert "share_grant" not in review.calendar_roster.model_dump_json()
+
+
+def _calendar_context_link(
+    *,
+    context_state: str,
+    matched_title: str | None = None,
+    matched_roster_json: list[dict] | None = None,
+    matched_roster_state: str = "not_available",
+    matched_roster_count: int = 0,
+    safe_reason_code: str | None = None,
+) -> RecordingCalendarContextLink:
+    return RecordingCalendarContextLink(
+        id=uuid4(),
+        workspace_id=uuid4(),
+        meeting_id=uuid4(),
+        calendar_event_snapshot_id=None,
+        context_state=context_state,
+        context_confidence="high" if context_state == "matched_auto" else "none",
+        context_reasons_json=[],
+        title_source="calendar" if context_state == "matched_auto" else "generic",
+        roster_source="calendar" if matched_roster_count else "none",
+        manual_override_state="none",
+        safe_reason_code=safe_reason_code
+        or ("single_fresh_candidate" if context_state == "matched_auto" else "no_matching_event"),
+        decision_source="automatic",
+        matcher_version="calendar_auto_match_v1",
+        evaluated_at=datetime(2026, 7, 13, 9, 0, tzinfo=UTC),
+        candidate_event_ids_json=[],
+        candidate_count=0,
+        matched_title=matched_title,
+        matched_title_state="available" if matched_title else "unavailable",
+        matched_roster_json=matched_roster_json or [],
+        matched_roster_state=matched_roster_state,
+        matched_roster_count=matched_roster_count,
+    )
 
 
 def test_governance_states_are_non_mutating_and_truthful() -> None:

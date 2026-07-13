@@ -9,22 +9,45 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature `098-calendar-auto-context-match` добавляет неблокирующее
+  сопоставление начала записи с одним подходящим календарным событием,
+  безопасный выбор при неоднозначности, явное продолжение без контекста и
+  указатель на предыдущую доступную встречу той же серии.
+- В web- и embedded-review появился единый блок `Контекст встречи` с
+  неизменяемым snapshot названия, времени и состава приглашённых; roster явно
+  отделён от подтверждённых спикеров.
 
 ### Изменено
-- _Пока нет записей._
+- Безопасное календарное название применяется только к заменяемым app/generic
+  названиям. Пользовательские, upload/file и legacy-названия не
+  перезаписываются, а уже показанное название остаётся стабильным после
+  исправления или очистки контекста.
+- Desktop upload queue сохраняет только server-issued match attempt и выбранный
+  event ID через retry; decision intent остаётся единственной серверной
+  истиной внутри attempt. Capture, создание встречи, upload и processing
+  остаются работоспособными при сбое или отсутствии календаря.
 
 ### Исправлено
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Calendar match/context в feature `098` ограничен owner/workspace/space,
+  хранит только bounded snapshot и metadata-only audit, не выдаёт private
+  event details/raw email и не создаёт attendee access, share, recipient,
+  delivery или speaker-name side effects. Обычные acceptance-тесты этого
+  среза не заменяют отдельно отложенный Codex Security scan.
 
 ### Документы
-- _Пока нет записей._
+- Добавлены Spec Kit artifacts, requirement/scenario matrix и synthetic-only
+  validation receipts для feature `098`; calendar/contact speaker naming
+  оставлен отдельной будущей capability с собственными consent, confidence,
+  correction, privacy и speaker-truth требованиями.
 
 ### Операции
-- _Пока нет записей._
+- Миграция `0021_calendar_auto_context_match` добавляет одноразовые попытки
+  сопоставления, единый context snapshot и title provenance; локальные SQLite
+  upgrade/downgrade и disposable PostgreSQL/RLS проверки проходят. Feature
+  ещё не слита, не выпущена и не развёрнута в production.
 
 ## [2026.07.13.1] - 2026-07-13
 
@@ -60,9 +83,6 @@
   system-audio-first flow; исторический runtime proof сохранен только как
   audit evidence, а для ранее установленного proof component добавлена
   отдельная ручная и узко ограниченная cleanup-инструкция.
-
-### Операции
-- _Пока нет записей._
 
 ## [2026.07.11.1] - 2026-07-11
 

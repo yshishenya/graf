@@ -214,7 +214,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifest: LocalRecordingManifest,
         directoryURL: URL,
         reason: String = "local_recording_finalized",
-        calendarContextEventId: String? = nil
+        calendarContextEventId: String? = nil,
+        calendarMatchAttemptId: String? = nil
     ) throws -> DesktopUploadQueueItem {
         try queue.sync {
             var document = try loadDocumentOnQueue()
@@ -224,7 +225,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 directoryURL: directoryURL,
                 now: now,
                 reason: reason,
-                calendarContextEventId: calendarContextEventId
+                calendarContextEventId: calendarContextEventId,
+                calendarMatchAttemptId: calendarMatchAttemptId
             )
             var savedItem = item
 
@@ -245,6 +247,42 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             try saveDocumentOnQueue(document)
             return savedItem
         }
+    }
+
+    @discardableResult
+    public func persistCalendarMatchAttempt(
+        localRecordingId: String,
+        attemptId: String
+    ) throws -> DesktopUploadQueueItem? {
+        let normalizedAttemptId = attemptId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAttemptId.isEmpty else { return nil }
+
+        return try queue.sync {
+            var document = try loadDocumentOnQueue()
+            guard let index = document.items.firstIndex(where: { $0.directoryId == localRecordingId }) else {
+                return nil
+            }
+            guard Self.canPersistCalendarMatchAttempt(in: document.items[index]) else {
+                return nil
+            }
+            let now = clock()
+            document.items[index].calendarMatchAttemptId = normalizedAttemptId
+            document.items[index].updatedAt = now
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+            return document.items.first { $0.directoryId == localRecordingId }
+        }
+    }
+
+    public static func canPersistCalendarMatchAttempt(
+        in item: DesktopUploadQueueItem
+    ) -> Bool {
+        item.attemptCount == 0 &&
+            item.state != .uploading &&
+            !item.state.isTerminal &&
+            item.meetingId == nil &&
+            item.serverTruth.meetingId == nil
     }
 
     @discardableResult
@@ -976,7 +1014,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         directoryURL: URL,
         now: Date,
         reason: String = "local_recording_discovered",
-        calendarContextEventId: String? = nil
+        calendarContextEventId: String? = nil,
+        calendarMatchAttemptId: String? = nil
     ) throws -> DesktopUploadQueueItem {
         let manifestURL = directoryURL.appendingPathComponent(manifest.manifestFileName)
         let microphoneURL = directoryURL.appendingPathComponent("mic.wav")
@@ -1031,6 +1070,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             createdAt: now,
             updatedAt: now,
             calendarContextEventId: calendarContextEventId,
+            calendarMatchAttemptId: calendarMatchAttemptId,
             recordingMetadata: recordingMetadata,
             artifactProfile: profile,
             retentionDecision: RetentionDecision(
@@ -1097,6 +1137,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.createdAt = existing.createdAt
         merged.supportIncidentSubmission = existing.supportIncidentSubmission
         merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
+        merged.calendarMatchAttemptId = existing.calendarMatchAttemptId ?? refreshed.calendarMatchAttemptId
         merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
         return merged
     }

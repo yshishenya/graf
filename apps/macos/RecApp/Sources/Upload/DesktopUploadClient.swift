@@ -615,6 +615,29 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return try await perform(request)
     }
 
+    public func calendarContextResolveRequest(
+        localRecordingId: String,
+        body: DesktopCalendarContextResolveRequest
+    ) throws -> URLRequest {
+        var request = try jsonRequest(
+            path: "/api/v1/desktop/recordings/\(localRecordingId)/calendar-context/resolve",
+            method: "POST",
+            body: body
+        )
+        request.setValue(
+            "desktop-calendar-context-resolve:\(localRecordingId)",
+            forHTTPHeaderField: "Idempotency-Key"
+        )
+        return request
+    }
+
+    public func resolveCalendarContext(
+        localRecordingId: String,
+        request: DesktopCalendarContextResolveRequest
+    ) async throws -> DesktopCalendarContextResolveResponse {
+        try await perform(calendarContextResolveRequest(localRecordingId: localRecordingId, body: request))
+    }
+
     public func fetchMeetingDetectionTargetRegistry(
         ifNoneMatch etag: String? = nil
     ) async throws -> DesktopMeetingDetectionRegistryFetchResult {
@@ -759,6 +782,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             local_recording_id: item.directoryId,
             local_media_revision_id: item.localMediaRevisionId,
             title: item.recordingMetadata?.title,
+            title_source: item.recordingMetadata?.titleSource,
+            calendar_match_attempt_id: item.calendarMatchAttemptId,
             started_at: item.recordingMetadata?.recordingStartedAt,
             ended_at: item.recordingMetadata?.recordingStoppedAt,
             recording_display_timezone_offset_minutes: item.recordingMetadata?.recordingDisplayTimeZoneOffsetMinutes,
@@ -799,7 +824,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     }
 
     private func linkCalendarContextIfNeeded(_ item: DesktopUploadQueueItem, meetingId: String) async {
-        guard let eventId = item.calendarContextEventId?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard item.calendarMatchAttemptId == nil,
+              let eventId = item.calendarContextEventId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !eventId.isEmpty
         else {
             return
@@ -1043,6 +1069,8 @@ public struct DesktopCreateMeetingPayload: Encodable, Sendable {
     public let local_recording_id: String
     public let local_media_revision_id: String
     public let title: String?
+    public let title_source: RecordingTitleSource?
+    public let calendar_match_attempt_id: String?
     public let started_at: Date?
     public let ended_at: Date?
     public let recording_display_timezone_offset_minutes: Int?

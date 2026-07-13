@@ -178,7 +178,7 @@ async def create_cabinet_manual_media_upload_route(
     )
     await commit_if_available(db)
     return ManualMediaUploadResponse(
-        meeting=meeting_response(result.meeting),
+        meeting=meeting_response(result.meeting, result.calendar_context),
         upload_session=session_response(result.upload_session),
         object_count=result.object_count,
         workflow_started=result.processing.workflow_started,

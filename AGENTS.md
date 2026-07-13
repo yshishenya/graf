@@ -132,7 +132,7 @@ Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/102-remove-legacy-audio-driver/plan.md
+at specs/098-calendar-auto-context-match/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking And GitHub Issues

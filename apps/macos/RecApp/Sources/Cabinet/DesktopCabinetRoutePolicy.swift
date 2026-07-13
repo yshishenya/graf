@@ -141,6 +141,23 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Meeting detail"
             )
         }
+        if components.count == 5,
+           components[0] == "desktop",
+           components[1] == "meetings",
+           isSafeMeetingId(components[2]),
+           components[3] == "calendar-context",
+           ["choose", "continue-without", "clear"].contains(components[4]) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(
+                    path: path,
+                    meetingId: components[2],
+                    kind: .meetingDetail
+                ),
+                decision: .allow,
+                reason: .allowedMeetingDetail,
+                userMessage: "Meeting calendar context"
+            )
+        }
         if components.count == 4,
            components[0] == "desktop",
            components[1] == "meetings",
