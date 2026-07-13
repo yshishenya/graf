@@ -209,6 +209,8 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "grid-template-columns: var(--app-rail-width) minmax(0, 1fr);",
         "@media (max-width: 1120px)",
         ".new-button.manual-upload-trigger > span",
+        ".desktop-embedded .cabinet-list-controls .manual-upload-trigger {",
+        "grid-column: auto;",
         ".cabinet-workspace-header--brand .cabinet-workspace-header__avatar",
         '[data-icon="panel-left-close"]',
         "@media (prefers-contrast: more)",
@@ -219,4 +221,18 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
     assert "min-height: var(--meeting-row-height);" in css
     assert "min-height: var(--control-height);" in css
     assert "overflow-x: hidden" in css
+    assert (
+        ".desktop-embedded .cabinet-list-controls .manual-upload-trigger {\n"
+        "    grid-column: auto;\n"
+        "    width: 40px;\n"
+        "    min-width: 40px;\n"
+        "    padding: 0;\n"
+        "  }"
+    ) in css
+    assert (
+        ".desktop-embedded .cabinet-list-controls .manual-upload-trigger {\n"
+        "    grid-column: 1 / -1;\n"
+        "    width: 100%;\n"
+        "  }"
+    ) not in css
     assert 'aria-label="Сохраненные"' not in css

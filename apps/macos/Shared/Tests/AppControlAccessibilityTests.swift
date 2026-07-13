@@ -144,7 +144,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         let copy = [
             DesktopCabinetWorkspaceView.workspaceTitle,
             DesktopCabinetWorkspaceView.workspaceAccessibilityLabel,
-            DesktopCabinetWorkspaceView.unavailableTitle,
+            DesktopCabinetState.offline.unavailableTitle,
+            DesktopCabinetState.offline.userMessage,
             DesktopMeetingShellChrome.compactRailStartLabel,
             DesktopMeetingShellChrome.compactRailStopLabel
         ]
@@ -157,6 +158,25 @@ final class AppControlAccessibilityTests: XCTestCase {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("@"))
             XCTAssertFalse(text.localizedCaseInsensitiveContains("/Users/"))
         }
+    }
+
+    func testUnavailableWorkspaceCentersHumanRecoveryAtShellSize() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("VStack(alignment: .center"))
+        XCTAssertTrue(source.contains(".multilineTextAlignment(.center)"))
+        XCTAssertTrue(source.contains("maxHeight: presentation == .shell ? .infinity : nil"))
+        XCTAssertTrue(source.contains("DesktopMeetingShellChrome.minimumInteractiveTarget"))
+        XCTAssertTrue(source.contains("activeCabinetState.recoverySystemImage"))
+        XCTAssertTrue(source.contains("accessibilityElement(children: recoveryTarget == nil ? .combine : .contain)"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(recoveryActionTitle)"))
+        XCTAssertEqual(DesktopCabinetState.offline.recoveryActionTitle, "Повторить")
+        XCTAssertFalse(DesktopCabinetState.offline.userMessage.localizedCaseInsensitiveContains("сервером rec"))
+        XCTAssertFalse(DesktopCabinetState.offline.userMessage.localizedCaseInsensitiveContains("пароли календаря"))
     }
 
     func testStartupPermissionOnboardingTracksBothMacPermissions() {

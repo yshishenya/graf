@@ -95,7 +95,8 @@ PYTHONPATH=src uv run --extra dev pytest -q \
   tests/unit/test_cabinet_web_shell.py \
   tests/integration/test_cabinet_meeting_list.py \
   tests/integration/test_cabinet_hx_fragments.py \
-  tests/contract/test_cabinet_no_secret_content_egress.py
+  tests/contract/test_cabinet_no_secret_content_egress.py \
+  tests/contract/test_cabinet_static_assets_contract.py
 ```
 
 Expected:
@@ -111,7 +112,7 @@ Expected:
 
 ```sh
 swift test --package-path apps/macos --disable-swift-testing \
-  --filter 'AppControlAccessibilityTests|CaptureControlTests|DesktopMeetingShellWebViewBoundaryTests'
+  --filter 'AppControlAccessibilityTests|CaptureControlTests|DesktopCabinetConfigurationTests|DesktopCabinetWorkspaceTests|DesktopMeetingShellWebViewBoundaryTests'
 ```
 
 Expected:
@@ -281,25 +282,25 @@ Expected: exit `0` after focused and live validation are already green.
 
 Scoped feature commits are approved after their named validation passes and their staged file list contains no unrelated worktree changes. Do not run production deploy, publish a release, or replace the installed public app without a separate explicit release decision. Record any manual local build/run separately from production evidence.
 
-## 12. Final Implementation Evidence — 2026-07-13
+## 12. Final Implementation Evidence — 2026-07-14
 
 ### Automated gates
 
-- Exact focused server command from section 3: `79 passed`, `0 failed`, one
-  pre-existing Starlette/httpx deprecation warning in `32.01s`.
-- Exact focused macOS command from section 4: `69 tests`, `0 failures`.
-- Current full macOS suite after the final fallback-copy correction:
-  `618 tests`, `0 failures`; `ContractValidation: PASS`.
-- Exact release command from section 5: exit `0`, product
-  `TwoBrainRecApp` built successfully.
-- Full repository gate before the final native-only wording correction:
-  `617` Swift tests with `0` failures, `ContractValidation: PASS`,
-  `1238 passed`, `4 skipped`, one pre-existing deprecation warning for the
-  server, Ruff/compile/compose/evidence scan clean, and
-  `ci_local_result=pass`.
-- The final native-only wording correction was then covered by the exact
-  focused suite, the complete `618`-test Swift suite, ContractValidation, and
-  a fresh release build; server code did not change after the full gate.
+- Exact expanded focused server command from section 3: `90 passed`, `0 failed`,
+  one pre-existing Starlette/httpx deprecation warning in `32.54s`; the set now
+  directly includes the compact-upload CSS regression contract.
+- Exact expanded focused macOS command from section 4: `117 tests`, `0 failures`;
+  the set now directly includes unavailable-state copy, safe retry routing, and
+  separate VoiceOver recovery-action contracts.
+- Current full macOS suite after the final accessibility correction:
+  `619 tests`, `0 failures`; `ContractValidation: PASS`.
+- Exact release command from section 5 and the local installer build both exit
+  `0`; product `TwoBrainRecApp` builds successfully and the local artifact is
+  GRAF `2026.07.14.1`.
+- Final full repository gate: `619` Swift tests with `0` failures,
+  `ContractValidation: PASS`, `1238 passed`, `4 skipped`, one pre-existing
+  deprecation warning for the server, Ruff/compile/compose/evidence scan clean,
+  and `ci_local_result=pass`.
 - `git diff --check` and ordinary-UI forbidden-copy scans are clean. A final
   scan found one legacy fallback sentence about diagnostics/reporting; it was
   replaced with impact-and-recovery copy and protected by
@@ -313,6 +314,10 @@ Scoped feature commits are approved after their named validation passes and thei
 - Measured `scrollWidth == clientWidth` at both sizes; the sidebar is `64 px`
   in compact mode and `176 px` at the default width, toolbar controls are
   `36 px`, and meeting rows are `48 px`.
+- The post-fix regression recheck at `772×680` (the WebView width with the
+  expanded native inspector) and `988×680` measures `Загрузить запись` at
+  `40×36 px`, `grid-column: auto`, zero horizontal overflow, and search using
+  the remaining toolbar width. The obsolete 100%-width upload rule is deleted.
 - At row focus, the accessibility snapshot exposes the row-specific checkbox,
   primary `Открыть встречу …` link, delete action, state, duration, and date.
   Outside reading intent the checkbox/delete controls are not exposed.
@@ -326,21 +331,33 @@ Scoped feature commits are approved after their named validation passes and thei
   interaction language. No Krisp string, asset, gradient banner, proprietary
   flow, or recognizable branded composition was copied.
 
-### Native build evidence and remaining manual boundary
+### Native runtime evidence and remaining manual boundary
 
-- `build-local-installer.sh` produced GRAF `2026.07.13.3`; the rebuilt
+- `build-local-installer.sh` produced GRAF `2026.07.14.1`; the rebuilt
   `GRAF.app` is valid on disk and satisfies its designated requirement with
   expected local ad-hoc signing. `graf-local.pkg` is intentionally unsigned
   for local development and was not installed.
 - Source/behavior tests cover ready, permission-required, detected-meeting,
   starting, recording, paused, stopping, saved, cabinet-unavailable, and
   actionable-failure states; separate accessible Pause/Resume/Stop actions,
-  direct rail Start/Stop, stable inspector width, and active-only meters pass.
-- A live native-window/VoiceOver pass cannot be represented as complete in
-  this run: macOS reports `CGSSessionScreenIsLocked=Yes`, and both running GRAF
-  processes publish zero windows to the accessibility client while the user
-  session is locked. No click, recording action, app replacement, install,
-  deploy, or release was attempted behind the lock.
-- Therefore T016, T028, and T036 remain open only for the final unlocked native
-  runtime matrix. All automated, browser, build, privacy, clean-room, and
-  static checks available in the current session are green.
+  direct rail Start/Stop, stable inspector width, active-only meters, and a
+  separately reachable recovery button pass.
+- An unlocked live pass at `1040×680` verified the permission onboarding, idle
+  compact rail, direct `Начать запись`, intentional inspector disclosure, the
+  expanded ready state, and the synthetic embedded cabinet. It found a real
+  responsive defect where `Загрузить` stretched across the toolbar; the CSS
+  specificity fix was then reloaded and confirmed live with a compact 40 px
+  action while search retained the remaining width.
+- A live offline pass found a second defect: technical fallback copy, weak
+  left-aligned hierarchy, and no retry action. The shared unavailable-state
+  path now uses human GRAF copy, centered hierarchy, a safe same-origin retry,
+  and `.contain` accessibility semantics when the action exists. Automated
+  source/behavior/build proof is green, but macOS locked before the post-fix
+  screenshot and accessibility-tree recheck.
+- No real `Начать запись` click was made because that would capture user audio;
+  Start/Pause/Resume/Stop/finalization are covered with synthetic state and
+  controller tests. No app replacement, install, deploy, or release occurred.
+- Therefore T016, T028, T036, and CHK069 remain open only for the final unlocked
+  native runtime matrix and post-fix offline recovery recheck. All automated,
+  browser, build, privacy, clean-room, and static checks available in the
+  current session are green.

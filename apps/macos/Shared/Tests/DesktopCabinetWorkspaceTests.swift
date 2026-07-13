@@ -125,7 +125,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(query["workspace_id"], "workspace-033")
         XCTAssertEqual(
             DesktopCabinetWorkspace.recoveryTarget(for: .offline, configuration: configuration),
-            nil
+            .embedded(configuration.meetingsURL())
         )
     }
 
@@ -177,7 +177,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         ))
     }
 
-    func testOfflineUnavailableWorkspaceStatesStayNativeWithoutOnlineRecoveryAction() throws {
+    func testUnavailableWorkspaceStatesStayNativeAndExposeOnlySafeRecoveryActions() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",
             headers: [:]
@@ -199,8 +199,18 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 initialRoute: nil,
                 configuration: configuration
             ), "\(state)")
-            XCTAssertNil(DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration), "\(state)")
-            XCTAssertNil(state.recoveryActionTitle, "\(state)")
+            if [.offline, .timeout, .malformedResponse].contains(state) {
+                XCTAssertEqual(
+                    DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration),
+                    .embedded(configuration.meetingsURL()),
+                    "\(state)"
+                )
+                XCTAssertEqual(state.recoveryActionTitle, "Повторить", "\(state)")
+                XCTAssertEqual(state.recoverySystemImage, "arrow.clockwise", "\(state)")
+            } else {
+                XCTAssertNil(DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration), "\(state)")
+                XCTAssertNil(state.recoveryActionTitle, "\(state)")
+            }
             XCTAssertNotEqual(
                 DesktopMeetingShellCabinetStatusPresentation.resolved(
                     cabinetConfigured: true,
@@ -324,8 +334,9 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     }
 
     func testMissingOwnerSessionHasLoginRecoveryAction() {
-        XCTAssertEqual(DesktopCabinetState.expiredSession.unavailableTitle, "Нужен вход в кабинет")
+        XCTAssertEqual(DesktopCabinetState.expiredSession.unavailableTitle, "Нужно войти")
         XCTAssertEqual(DesktopCabinetState.expiredSession.recoveryActionTitle, "Войти в кабинет")
+        XCTAssertEqual(DesktopCabinetState.expiredSession.recoverySystemImage, "person.crop.circle")
         XCTAssertTrue(DesktopCabinetState.expiredSession.unavailableSystemImage.contains("person"))
         XCTAssertFalse(DesktopCabinetState.expiredSession.shouldShowEmbeddedSurface)
     }
@@ -351,7 +362,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     }
 
     func testDeniedStateDoesNotOfferLoginAsAccessProof() {
-        XCTAssertEqual(DesktopCabinetState.accessDenied.unavailableTitle, "Нет доступа к кабинету")
+        XCTAssertEqual(DesktopCabinetState.accessDenied.unavailableTitle, "Нет доступа к встречам")
         XCTAssertNil(DesktopCabinetState.accessDenied.recoveryActionTitle)
         XCTAssertFalse(DesktopCabinetState.accessDenied.shouldShowEmbeddedSurface)
     }
@@ -482,7 +493,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(ready.systemImage, "checkmark.circle")
     }
 
-    func testCalendarSettingsUnavailableStatesKeepCredentialBoundaryAndManualRecording() {
+    func testUnavailableStatesUseHumanCopyAndKeepNativeRecordingIndependent() {
         let unavailableStates: [DesktopCabinetState] = [
             .notConfigured,
             .offline,
@@ -504,13 +515,17 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 embeddedSurfaceLoaded: false
             )
 
-            XCTAssertTrue(message.contains("Mac не хранит пароли календаря"), "\(state)")
-            XCTAssertTrue(message.contains("ручная запись доступна без календаря"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("сервером rec"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("пароли календаря"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("token"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("password"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("app password"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("refresh"), "\(state)")
             XCTAssertTrue(invariant.satisfiesActiveRecordingSafety(cabinetState: state), "\(state)")
+        }
+
+        for state in [DesktopCabinetState.notConfigured, .offline, .timeout, .expiredSession, .malformedResponse] {
+            XCTAssertTrue(state.userMessage.contains("Запись на этом Mac остаётся доступна"), "\(state)")
         }
     }
 
@@ -535,10 +550,13 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(route.path, "/login")
         XCTAssertEqual(query["next"], "/desktop/settings/integrations/calendar")
         XCTAssertEqual(query["workspace_id"], "workspace-063")
-        XCTAssertNil(DesktopCabinetWorkspace.calendarSettingsRecoveryTarget(
-            for: .offline,
-            configuration: configuration
-        ))
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.calendarSettingsRecoveryTarget(
+                for: .offline,
+                configuration: configuration
+            ),
+            .embedded(configuration.calendarSettingsURL())
+        )
     }
 }
 #endif

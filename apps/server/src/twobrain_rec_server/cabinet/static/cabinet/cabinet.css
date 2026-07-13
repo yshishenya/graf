@@ -1394,10 +1394,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .desktop-embedded .cabinet-list-controls .new-button:not([data-manual-upload-open]) {
     display: none;
   }
-  .desktop-embedded .cabinet-list-controls .manual-upload-trigger {
-    grid-column: 1 / -1;
-    width: 100%;
-  }
   .desktop-embedded .cabinet-list-controls .icon-control[type="submit"] {
     width: 32px;
     height: 32px;
@@ -3212,7 +3208,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
-  .new-button.manual-upload-trigger {
+  .desktop-embedded .cabinet-list-controls .manual-upload-trigger {
+    grid-column: auto;
     width: 40px;
     min-width: 40px;
     padding: 0;

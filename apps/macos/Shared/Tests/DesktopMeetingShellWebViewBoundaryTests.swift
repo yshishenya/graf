@@ -225,22 +225,29 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         ])
     }
 
-    func testOfflineStatesDoNotExposeOnlineRecoveryRouteFromWorkspace() throws {
+    func testOfflineStatesExposeOnlySafeSameOriginRetryFromWorkspace() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",
             headers: [:]
         ))
 
-        for state in [DesktopCabinetState.offline, .timeout, .notConfigured, .malformedResponse] {
+        for state in [DesktopCabinetState.offline, .timeout, .malformedResponse] {
             XCTAssertFalse(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
                 for: state,
                 currentRoute: configuration.meetingsURL(),
                 initialRoute: nil,
                 configuration: configuration
             ), "\(state)")
-            XCTAssertNil(DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration), "\(state)")
-            XCTAssertNil(state.recoveryActionTitle, "\(state)")
+            XCTAssertEqual(
+                DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration),
+                .embedded(configuration.meetingsURL()),
+                "\(state)"
+            )
+            XCTAssertEqual(state.recoveryActionTitle, "Повторить", "\(state)")
         }
+
+        XCTAssertNil(DesktopCabinetWorkspace.recoveryTarget(for: .notConfigured, configuration: configuration))
+        XCTAssertNil(DesktopCabinetState.notConfigured.recoveryActionTitle)
     }
 
     func testRightNativeCustodyPanelUsesAccessibleSupportIncidentActions() throws {

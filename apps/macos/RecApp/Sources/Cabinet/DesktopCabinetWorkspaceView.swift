@@ -3,7 +3,6 @@ import SwiftUI
 public struct DesktopCabinetWorkspaceView: View {
     public static let workspaceTitle = "Встречи"
     public static let workspaceAccessibilityLabel = "Встречи и обзор записей"
-    public static let unavailableTitle = "Кабинет встреч"
     public static let embeddedSurfaceHeight: CGFloat = 420
     public static let shellEmbeddedSurfaceMinHeight: CGFloat = 520
     public static let embeddedWorkspaceMaxWidth: CGFloat = 1120
@@ -119,14 +118,15 @@ public struct DesktopCabinetWorkspaceView: View {
     }
 
     private var unavailableState: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .center, spacing: DesktopMeetingShellChrome.spacingMedium) {
             Label(activeCabinetState.unavailableTitle, systemImage: activeCabinetState.unavailableSystemImage)
-                .font(.subheadline)
-                .fontWeight(.semibold)
+                .font(.headline)
             Text(activeCabinetState.userMessage)
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 520)
             if let recoveryActionTitle = activeCabinetState.recoveryActionTitle,
                let recoveryTarget {
                 switch recoveryTarget {
@@ -135,33 +135,49 @@ public struct DesktopCabinetWorkspaceView: View {
                         currentRoute = url
                         activeCabinetStateBinding.wrappedValue = .loading
                     } label: {
-                        Label(recoveryActionTitle, systemImage: "rectangle.stack.badge.person.crop")
+                        Label(recoveryActionTitle, systemImage: activeCabinetState.recoverySystemImage)
                     }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .padding(.top, 4)
+                    .controlSize(.regular)
+                    .frame(minHeight: DesktopMeetingShellChrome.minimumInteractiveTarget)
                     .help(recoveryActionTitle)
+                    .accessibilityLabel(recoveryActionTitle)
                 case let .external(url):
                     Link(destination: url) {
                         Label(recoveryActionTitle, systemImage: "arrow.up.right.square")
                     }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .padding(.top, 4)
+                    .controlSize(.regular)
+                    .frame(minHeight: DesktopMeetingShellChrome.minimumInteractiveTarget)
                     .help(recoveryActionTitle)
+                    .accessibilityLabel(recoveryActionTitle)
                 }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: presentation == .shell ? 360 : 160, alignment: .leading)
-        .padding(14)
-        .background(Color.secondary.opacity(0.08))
+        .frame(
+            maxWidth: .infinity,
+            minHeight: presentation == .shell ? 360 : 160,
+            maxHeight: presentation == .shell ? .infinity : nil,
+            alignment: .center
+        )
+        .padding(presentation == .shell ? DesktopMeetingShellChrome.spacingXLarge : 14)
+        .background(Color.secondary.opacity(presentation == .shell ? 0 : 0.08))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: recoveryTarget == nil ? .combine : .contain)
         .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.unavailableState)
     }
 
     private var recoveryTarget: DesktopCabinetRecoveryTarget? {
         guard let configuration else { return nil }
+        if let route = currentRoute ?? initialRoute {
+            let decision = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL).decision(for: route)
+            if decision.route.kind == .calendarSettings {
+                return DesktopCabinetWorkspace.calendarSettingsRecoveryTarget(
+                    for: activeCabinetState,
+                    configuration: configuration
+                )
+            }
+        }
         return DesktopCabinetWorkspace.recoveryTarget(for: activeCabinetState, configuration: configuration)
     }
 
