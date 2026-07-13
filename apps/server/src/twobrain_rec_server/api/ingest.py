@@ -21,6 +21,7 @@ from twobrain_rec_server.api.schemas import (
     UploadSessionResponse,
 )
 from twobrain_rec_server.api.upload_stream import (
+    MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA,
     read_bounded_upload_body,
     read_manual_media_upload_body,
 )
@@ -177,6 +178,7 @@ async def create_meeting(
     response_model=ManualMediaUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[PrincipalDependency, DeviceDependency],
+    openapi_extra=MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA,
 )
 async def create_manual_media_upload(
     request: Request,
