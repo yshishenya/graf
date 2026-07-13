@@ -139,9 +139,12 @@ in the repository.
   artifact, compatibility, and installer tests passed. The final review did not
   run uninstall, `sudo`, HAL mutation, `coreaudiod` restart, deployment, or
   proof-bundle cleanup.
-- After explicit user approval, implementation commit `9a9179d3` was pushed and
-  PR [#3222](https://github.com/yshishenya/crisp/pull/3222) was opened ready for
-  review against `master`; the post-commit retirement guard passed.
+- After explicit user approval, implementation commit `9a9179d3` was pushed;
+  the post-commit retirement guard passed. PR
+  [#3222](https://github.com/yshishenya/crisp/pull/3222) then passed formal
+  review with no blocking findings and was merged into `master` as `100b25c8`.
+  GitHub closed all 31 linked issues, and each received status plus post-merge
+  closure evidence.
 
 ## Existing Host State Cases
 

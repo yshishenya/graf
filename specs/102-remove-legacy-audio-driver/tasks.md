@@ -153,13 +153,14 @@ privileged migration is introduced.
   Kit, focused recording proof, clean-scratch Swift/package proof, and canonical
   local CI. No deploy, install, uninstall, privileged host cleanup, or audio
   service restart.
-- **GitHub issues**: T002-T032 are tracked by open issues
+- **GitHub issues**: T002-T032 were tracked by issues
   [#3191](https://github.com/yshishenya/crisp/issues/3191) through
-  [#3221](https://github.com/yshishenya/crisp/issues/3221); exact task mappings
-  are encoded in their canonical titles.
+  [#3221](https://github.com/yshishenya/crisp/issues/3221). All 31 issues were
+  closed by the feature merge and received Russian status and closure comments
+  with validation evidence.
 - **Pull request**: [#3222](https://github.com/yshishenya/crisp/pull/3222),
-  opened ready for review against `master` with closing references for
-  #3191–#3221.
+  reviewed with no blocking findings and merged into `master` as
+  [`100b25c8`](https://github.com/yshishenya/crisp/commit/100b25c811a18ea2332c922d0563bb219a41ef3d).
 - **Implementation commit**:
   [`9a9179d3`](https://github.com/yshishenya/crisp/commit/9a9179d3ca5495bb31db2084e818ea16d0cafd7f),
   created and pushed after explicit user approval on 2026-07-13.
