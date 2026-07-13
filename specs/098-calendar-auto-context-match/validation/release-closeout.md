@@ -2,9 +2,9 @@
 
 **Recorded**: 2026-07-13 (Europe/Moscow)
 **Validation lane**: release / deploy
-**Status**: `v2026.07.13.2` published and serving from its exact SHA; final
-production smoke gate blocked on cleanup ordering, recovered without user-data
-impact; validated `v2026.07.13.3` hotfix approved for commit, release and deploy
+**Status**: `v2026.07.13.2` published and serving from its exact SHA; failed
+smoke cleanup recovered without user-data impact; hotfix PR merged and
+`v2026.07.13.3` prepared for publication and repeat deployment
 
 ## Merge Anchor
 
@@ -12,6 +12,9 @@ impact; validated `v2026.07.13.3` hotfix approved for commit, release and deploy
 - Merge SHA: `979dc497c1575baa886ce5d74d414e898f5ea464`.
 - Release PR: [#3343](https://github.com/yshishenya/crisp/pull/3343).
 - Release/deployed SHA: `fc611b631ebdc763aca78d7114e53534c8ef5b59`.
+- Smoke-cleanup hotfix PR:
+  [#3344](https://github.com/yshishenya/crisp/pull/3344).
+- Hotfix merge SHA: `b835cb110405e50932d5a329e0ef0f1b2ccdbd73`.
 - Published release:
   [`v2026.07.13.2`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.2).
 - Validated implementation SHA:
@@ -163,8 +166,8 @@ and rolled back that database transaction.
 
 ## Smoke Cleanup Hotfix Validation
 
-The uncommitted branch `codex/098-smoke-cleanup-hotfix` adds table-existence
-guarded deletion of `calendar_audit_events`,
+Merged PR #3344 adds table-existence guarded deletion of
+`calendar_audit_events`,
 `recording_calendar_context_links` and possible consumed
 `recording_calendar_match_attempts` before the synthetic meeting.
 
@@ -184,6 +187,59 @@ fix requires a separate `v2026.07.13.3` commit, PR, tag, GitHub Release and
 production deploy. The user explicitly approved that complete hotfix path
 after reviewing the validation result.
 
+## Hotfix Release `v2026.07.13.3`
+
+- `./scripts/prepare-release.sh 2026.07.13.3` completed from exact hotfix merge
+  SHA `b835cb110405e50932d5a329e0ef0f1b2ccdbd73`.
+- The command moved the smoke-cleanup fix from `[Unreleased]` into the new
+  `[2026.07.13.3]` section and restored an empty `[Unreleased]` scaffold.
+- Planned title:
+  `v2026.07.13.3 - исправление production smoke cleanup`.
+
+Planned Russian release notes:
+
+```markdown
+## Что исправлено
+
+- Внутренняя проверка production теперь корректно удаляет календарные audit,
+  context и match-attempt связи до удаления своей синтетической встречи.
+- PostgreSQL foreign-key ограничения больше не прерывают финальную очистку и
+  deploy gate после успешной smoke-загрузки.
+
+## Влияние и совместимость
+
+- Пользовательская логика записи, календарного сопоставления и кабинета не
+  меняется.
+- Новых миграций нет; production остаётся на
+  `0021_calendar_auto_context_match`.
+- Серверная выкладка не обновляет установленное macOS-приложение. Для этого
+  служебного исправления переустановка приложения не требуется.
+
+## Как проверено
+
+- Focused cleanup tests: 6 passed.
+- Полный локальный gate: macOS 631/631; server 1414 passed, 4 skipped.
+- В disposable PostgreSQL 17 с миграцией `0021` реальный cleanup удалил все
+  три новых FK-типа; остаток равен нулю.
+- Остаток неуспешного smoke `v2026.07.13.2` удалён после fail-closed проверки;
+  production сохранил `live=200` и `ready=200`.
+
+## Выкладка и откат
+
+- Релиз повторно проходит clean branch/SHA gate, backup, restore rehearsal,
+  migration verification, runtime secret checks, production smoke и public
+  health.
+- При проблеме используется предыдущий стабильный SHA и резервная копия,
+  созданная перед выкладкой.
+
+## Ограничения и связи
+
+- Feature 097 и отдельно отложенный Codex Security scan не входят в этот
+  hotfix и остаются нетронутыми.
+- Hotfix PR: #3344. Feature PR: #3270. Release PR `v2026.07.13.2`: #3343.
+- Связанные release/deploy задачи: #3188 и #3189.
+```
+
 ## Approval Gate
 
 - [x] Feature PR merged and exact merge SHA recorded.
@@ -199,5 +255,9 @@ after reviewing the validation result.
 - [x] Failed smoke residue is removed and production remains healthy.
 - [x] User approves the validated hotfix implementation commit and separate
   `v2026.07.13.3` release/deploy.
+- [x] Hotfix PR #3344 is merged at exact SHA `b835cb11`.
+- [x] `v2026.07.13.3` changelog is prepared from the hotfix merge.
+- [ ] Hotfix release commit is merged and tag/GitHub Release point to its exact
+  SHA.
 - [ ] Hotfix production smoke finishes with `smoke_result=pass`,
   `deploy_result=pass` and `readiness_verdict=infra_smoke_ready`.
