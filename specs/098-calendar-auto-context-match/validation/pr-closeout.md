@@ -4,6 +4,7 @@
 **Tasks**: T103–T104 complete
 **Branch**: `codex/098-calendar-auto-context-match`
 **Base**: `3b62270c2b6c8e236444d521759b682323aa80bf`
+**PR**: [#3270](https://github.com/yshishenya/crisp/pull/3270) (draft)
 
 ## Current State
 
@@ -13,7 +14,8 @@
 - The implementation worktree was clean immediately after that commit, and the
   branch was `ahead 1` of `origin/master`; this closeout reconciliation is a
   separate documentation-only follow-up.
-- No PR has been created.
+- The branch is published and draft PR
+  [#3270](https://github.com/yshishenya/crisp/pull/3270) targets `master`.
 - The committed scope is `117` files: `77` tracked modifications and `40` new
   files, based on `3b62270c2b6c8e236444d521759b682323aa80bf`.
 - Both recovery stashes remain preserved:
@@ -164,4 +166,5 @@ Commit gate:
    `13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb`, branch `ahead 1`, clean
    implementation worktree immediately after commit.
 
-No push or PR had been performed when this commit receipt was recorded.
+The completed T104 tracker receipt is
+[#3185 comment 4960488204](https://github.com/yshishenya/crisp/issues/3185#issuecomment-4960488204).

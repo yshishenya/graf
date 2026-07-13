@@ -49,9 +49,10 @@ metadata-only evidence остаются подробной историей ре
   is the database receipt. User-approved Chrome QA also passes the web and
   embedded list/matched/recurring/ambiguity/correction/clear flow with keyboard
   focus and durable-state checks. That pass found and closed an invalid nested
-  chooser-link/grid-wrap defect before the final screenshot rerun. PR, CalVer
-  release, production migration/deploy/runtime smoke and installed-app evidence
-  still remain. Feature `097` and its
+  chooser-link/grid-wrap defect before the final screenshot rerun. Draft PR
+  [#3270](https://github.com/yshishenya/crisp/pull/3270) is open; review/merge,
+  CalVer release, production migration/deploy/runtime smoke and installed-app
+  evidence still remain. Feature `097` and its
   resumable standalone Codex Security scan stay separately deferred by user
   instruction and are not counted as 098 acceptance evidence.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the

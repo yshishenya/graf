@@ -5,7 +5,8 @@
 **Branch**: `codex/098-calendar-auto-context-match`
 **Current base / origin master**: `3b62270c2b6c8e236444d521759b682323aa80bf`
 **State**: validated implementation committed at
-`13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb`; no PR yet
+`13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb`; draft PR
+[#3270](https://github.com/yshishenya/crisp/pull/3270)
 
 ## Scope Boundary
 
@@ -259,14 +260,14 @@ The final external-state recheck again returned `109` matching issues,
 Superseding post-audit counts were posted to [T091 / #3172](https://github.com/yshishenya/crisp/issues/3172#issuecomment-4958233597),
 [T093 / #3174](https://github.com/yshishenya/crisp/issues/3174#issuecomment-4958233798),
 [T101 / #3182](https://github.com/yshishenya/crisp/issues/3182#issuecomment-4958233940)
-and the pre-commit [T104 / #3185 approval gate](https://github.com/yshishenya/crisp/issues/3185#issuecomment-4958234102).
+and the completed [T104 / #3185 commit receipt](https://github.com/yshishenya/crisp/issues/3185#issuecomment-4960488204).
 
 `tasks.md` now carries the exact completed-range issue/evidence map through
 T104 / #3185. Earlier story receipts were already posted to #3082–#3171. Final
-phase evidence comments were posted to #3172–#3184; #3185 contains the earlier
-approval-gate state and receives the completed commit receipt during tracker
-reconciliation. All issues remain open, there is no PR or remote feature
-branch, and implementation commit
+phase evidence comments were posted to #3172–#3184; #3185 now records the
+completed commit receipt. All issues remain open, the feature branch is
+published, draft PR [#3270](https://github.com/yshishenya/crisp/pull/3270)
+targets `master`, and implementation commit
 `13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb` exists. Release tasks T105–T109 /
 #3186–#3190 remain untouched.
 
