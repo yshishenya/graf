@@ -2,21 +2,27 @@
 
 **Recorded**: 2026-07-13 (Europe/Moscow)
 **Validation lane**: release / deploy
-**Status**: `v2026.07.13.2` published and serving from its exact SHA; failed
-smoke cleanup recovered without user-data impact; hotfix PR merged and
-`v2026.07.13.3` prepared for publication and repeat deployment
+**Status**: feature and smoke-cleanup hotfix released; `v2026.07.13.3` is
+published and production serves its exact SHA with all deployment, smoke,
+cleanup and public-health gates passing
 
 ## Merge Anchor
 
 - Feature PR: [#3270](https://github.com/yshishenya/crisp/pull/3270).
 - Merge SHA: `979dc497c1575baa886ce5d74d414e898f5ea464`.
-- Release PR: [#3343](https://github.com/yshishenya/crisp/pull/3343).
-- Release/deployed SHA: `fc611b631ebdc763aca78d7114e53534c8ef5b59`.
+- Feature release PR: [#3343](https://github.com/yshishenya/crisp/pull/3343).
+- Feature release SHA: `fc611b631ebdc763aca78d7114e53534c8ef5b59`.
 - Smoke-cleanup hotfix PR:
   [#3344](https://github.com/yshishenya/crisp/pull/3344).
 - Hotfix merge SHA: `b835cb110405e50932d5a329e0ef0f1b2ccdbd73`.
-- Published release:
+- Hotfix release PR:
+  [#3345](https://github.com/yshishenya/crisp/pull/3345).
+- Final release and deployed SHA:
+  `f0e3ee4aef81c5d7a58cf632b6513b7f38414dc9`.
+- Published feature release:
   [`v2026.07.13.2`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.2).
+- Published hotfix release:
+  [`v2026.07.13.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.3).
 - Validated implementation SHA:
   `13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb`.
 - The separately deferred feature 097 and its resumable Codex Security scan
@@ -104,7 +110,7 @@ Publication evidence:
 - published title:
   `v2026.07.13.2 - безопасный автоконтекст календаря`.
 
-## T107 — Deployment Dry Run
+## T107 — Deployment Dry Run And Execute
 
 Command:
 
@@ -193,10 +199,10 @@ after reviewing the validation result.
   SHA `b835cb110405e50932d5a329e0ef0f1b2ccdbd73`.
 - The command moved the smoke-cleanup fix from `[Unreleased]` into the new
   `[2026.07.13.3]` section and restored an empty `[Unreleased]` scaffold.
-- Planned title:
+- Published title:
   `v2026.07.13.3 - исправление production smoke cleanup`.
 
-Planned Russian release notes:
+Published Russian release notes:
 
 ```markdown
 ## Что исправлено
@@ -240,6 +246,103 @@ Planned Russian release notes:
 - Связанные release/deploy задачи: #3188 и #3189.
 ```
 
+Publication evidence:
+
+- release PR #3345 merged as
+  `f0e3ee4aef81c5d7a58cf632b6513b7f38414dc9`;
+- annotated tag `v2026.07.13.3` dereferences to that exact merge commit;
+- the GitHub Release was published at `2026-07-13T19:35:50Z`, is neither a
+  draft nor a prerelease, and uses the title above;
+- the tag object is `add58c500fead3e2f7601cef6b8f1bd489d44ccb`.
+
+### Hotfix Exact-SHA Deployment
+
+The first exact-SHA hotfix execution completed the full local gate, backup and
+restore rehearsal, then stopped while Docker Hub returned a transient HTTP 500
+for base-image metadata. No container recreation had started and production
+remained healthy. A bounded retry pulled `python:3.13-slim-bookworm` at digest
+`sha256:fcbd8dfc2605ba7c2eca646846c5e892b2931e41f6227985154a596f26ab8ed7`.
+
+The canonical deploy was then repeated from the same clean `master` and exact
+release SHA with `--skip-local-ci`. Only the already-passed same-SHA local CI
+was skipped; all remote production gates ran again:
+
+```text
+branch=master
+deployed_sha=f0e3ee4aef81c5d7a58cf632b6513b7f38414dc9
+backup_reference=/opt/projects/2brain-rec/backups/20260713T194906Z
+backup_result=pass
+restore_rehearsal_result=pass
+migration=0021_calendar_auto_context_match (head)
+rls_validation_result=pass
+run_id=smoke-20260713-195002
+database_records_removed=35
+object_keys_removed=3
+cleanup_result=pass
+smoke_result=pass
+readiness_verdict=infra_smoke_ready
+deploy_result=pass
+```
+
+The superseded first hotfix attempt created backup
+`/opt/projects/2brain-rec/backups/20260713T194744Z`; no rollback was needed
+because it stopped before container recreation. The successful retry created a
+fresh backup and repeated the restore rehearsal before deployment.
+
+## T108 — Production And Installed-App Proof
+
+### Direct Production Read-Back
+
+- Remote `HEAD` equals the final release/deploy SHA
+  `f0e3ee4aef81c5d7a58cf632b6513b7f38414dc9`.
+- Alembic reports `0021_calendar_auto_context_match (head)`.
+- Public liveness returned HTTP 200 with `{"status":"ok"}` and readiness
+  returned HTTP 200 with `{"status":"ready"}`.
+- API, PostgreSQL and MinIO are healthy; the processing worker and Temporal are
+  running.
+- The synthetic production no-context upload completed without calendar
+  availability becoming a recording/upload dependency.
+- An independent metadata-only residue query found zero synthetic meetings,
+  upload sessions, auth sessions, calendar-context links, organizations,
+  workspaces, users and devices:
+  `post_deploy_smoke_residue_total=0`.
+- No private meeting content, raw media, credentials or real account
+  identifiers were inspected or recorded.
+
+### Clear, Ambiguous And Browser/Embedded Behavior
+
+The production smoke intentionally uses a synthetic no-context identity and
+does not impersonate a real owner or create private calendar content. The
+clear, ambiguity/correction and browser/embedded parity receipts therefore come
+from the synthetic Chrome and integration runs recorded in
+`visual-qa.md`, `implementation-evidence.md` and `scenario-matrix.md`:
+
+- browser and embedded list, matched, recurring, ambiguous chooser, correction
+  and clear flows passed;
+- browser and embedded POST actions produced the same durable server state;
+- keyboard focus, no-context explanations and stable-title-after-clear behavior
+  passed;
+- authorization/privacy checks proved the owner/workspace boundaries and zero
+  access/share/delivery/speaker side effects.
+
+This is valid same-code release evidence rather than a claim of live private
+calendar testing: from feature merge `979dc497` through deployed `f0e3ee4a`,
+the only changed paths are release/status documents plus the internal smoke
+cleanup script and its unit test. Matcher, cabinet UI, API and macOS behavior
+code did not change.
+
+### Installed macOS App Impact
+
+- Feature 098 itself includes macOS changes, so an older installed GRAF build
+  must be updated or reinstalled from the feature release to use automatic
+  calendar context matching.
+- The `v2026.07.13.3` hotfix is server/operations-only. The exact diff from
+  `v2026.07.13.2` SHA `fc611b63` to deployed `f0e3ee4a` contains no
+  `apps/macos` path, so this hotfix requires no additional rebuild, reinstall
+  or app restart.
+- Server deployment alone never updates an installed macOS application. Public
+  Developer ID signing/notarization remains a separate product limitation.
+
 ## Approval Gate
 
 - [x] Feature PR merged and exact merge SHA recorded.
@@ -257,7 +360,11 @@ Planned Russian release notes:
   `v2026.07.13.3` release/deploy.
 - [x] Hotfix PR #3344 is merged at exact SHA `b835cb11`.
 - [x] `v2026.07.13.3` changelog is prepared from the hotfix merge.
-- [ ] Hotfix release commit is merged and tag/GitHub Release point to its exact
+- [x] Hotfix release commit is merged and tag/GitHub Release point to its exact
   SHA.
-- [ ] Hotfix production smoke finishes with `smoke_result=pass`,
+- [x] Hotfix production smoke finishes with `smoke_result=pass`,
   `deploy_result=pass` and `readiness_verdict=infra_smoke_ready`.
+- [x] Production read-back, behavior-proof boundary, installed-app impact and
+  zero synthetic residue are recorded without private content.
+- [ ] Detailed issue closure comments, tracker closure and worktree/branch
+  cleanup are complete.
