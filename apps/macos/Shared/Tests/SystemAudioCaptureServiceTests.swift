@@ -61,7 +61,7 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertEqual(stopped.failureReason, LocalRecordingFailureReason.none)
     }
 
-    func testIncomingSampleSourceFeedsWriterWithoutHAL() async throws {
+    func testIncomingSampleSourceFeedsCurrentWriter() async throws {
         let service = SystemAudioCaptureService(runtime: FakeSystemAudioRuntime())
         _ = try await service.start(
             sessionId: "session",

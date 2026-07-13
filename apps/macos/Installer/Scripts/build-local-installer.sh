@@ -24,7 +24,6 @@ OUTPUT_PKG="${1:-"$BUILD_DIR/graf-local.pkg"}"
 APP_SIGN_IDENTITY="${GRAF_APP_SIGN_IDENTITY:-${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}}"
 ALLOW_ADHOC_APP_SIGNING="${GRAF_ALLOW_ADHOC_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}}"
 ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING="${GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-0}}"
-INCLUDE_DRIVER_COMPONENT="${GRAF_INCLUDE_DRIVER_COMPONENT:-${TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT:-0}}"
 DEVELOPER_TOOLS_STATUS=$(DevToolsSecurity -status 2>&1 || true)
 DEVELOPER_TOOLS_ENABLED=0
 case "$DEVELOPER_TOOLS_STATUS" in
@@ -79,20 +78,11 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$STAGE_DIR/app/Applications"
 mkdir -p "$COMPONENT_DIR"
 mkdir -p "$SCRIPTS_DIR/desktop-app"
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
-  mkdir -p "$STAGE_DIR/driver/Library/Audio/Plug-Ins/HAL"
-  mkdir -p "$SCRIPTS_DIR/audio-driver"
-fi
-
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
-  make -C "$MACOS_DIR/AudioDriver" proof-plugin-build
-fi
 swift build --package-path "$MACOS_DIR" -c release --product TwoBrainRecApp
 
 BIN_DIR=$(swift build --package-path "$MACOS_DIR" -c release --show-bin-path)
 APP_EXECUTABLE="$BIN_DIR/TwoBrainRecApp"
 APP_CORE_RESOURCE_BUNDLE="$BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME"
-DRIVER_BUNDLE="$MACOS_DIR/AudioDriver/.build/proof/GrafProof.driver"
 
 if [ ! -x "$APP_EXECUTABLE" ]; then
   echo "Missing app executable at $APP_EXECUTABLE" >&2
@@ -112,11 +102,6 @@ for resource in "$WORDMARK_DARK" "$WORDMARK_DARK_2X" "$WORDMARK_LIGHT" "$WORDMAR
     exit 1
   fi
 done
-
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ] && [ ! -d "$DRIVER_BUNDLE" ]; then
-  echo "Missing proof driver bundle at $DRIVER_BUNDLE" >&2
-  exit 1
-fi
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
@@ -266,22 +251,6 @@ exit 0
 EOF
 chmod 755 "$SCRIPTS_DIR/desktop-app/preinstall"
 
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
-  cp -R "$DRIVER_BUNDLE" "$STAGE_DIR/driver/Library/Audio/Plug-Ins/HAL/"
-  xattr -cr "$STAGE_DIR/driver" 2>/dev/null || true
-  cp "$SCRIPT_DIR/postinstall.sh" "$SCRIPTS_DIR/audio-driver/postinstall"
-  chmod 755 "$SCRIPTS_DIR/audio-driver/postinstall"
-
-  pkgbuild \
-    --root "$STAGE_DIR/driver" \
-    --identifier "pro.2brain.graf.audio-driver" \
-    --version "$VERSION" \
-    --install-location "/" \
-    --scripts "$SCRIPTS_DIR/audio-driver" \
-    --ownership recommended \
-    "$COMPONENT_DIR/graf-audio-driver.pkg"
-fi
-
 pkgbuild \
   --root "$STAGE_DIR/app" \
   --identifier "pro.2brain.graf.desktop-app" \
@@ -290,20 +259,6 @@ pkgbuild \
   --scripts "$SCRIPTS_DIR/desktop-app" \
   --ownership recommended \
   "$COMPONENT_DIR/graf-desktop-app.pkg"
-
-if [ "$INCLUDE_DRIVER_COMPONENT" = "1" ]; then
-  DRIVER_CHOICE_LINE='      <line choice="audio-driver"/>'
-  DRIVER_DEFAULT_REF='    <pkg-ref id="pro.2brain.graf.audio-driver"/>'
-  DRIVER_CHOICE_BLOCK='  <choice id="audio-driver" title="GRAF Audio Driver" start_selected="true" start_enabled="false">
-    <pkg-ref id="pro.2brain.graf.audio-driver"/>
-  </choice>'
-  DRIVER_PKG_REF="  <pkg-ref id=\"pro.2brain.graf.audio-driver\" version=\"$VERSION\" auth=\"Root\">graf-audio-driver.pkg</pkg-ref>"
-else
-  DRIVER_CHOICE_LINE=''
-  DRIVER_DEFAULT_REF=''
-  DRIVER_CHOICE_BLOCK=''
-  DRIVER_PKG_REF=''
-fi
 
 cat > "$BUILD_DIR/distribution.xml" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -325,19 +280,15 @@ function InstallationCheck() {
   </script>
   <choices-outline>
     <line choice="default">
-$DRIVER_CHOICE_LINE
       <line choice="desktop-app"/>
     </line>
   </choices-outline>
   <choice id="default" title="GRAF" start_selected="true" start_enabled="false" start_visible="false">
-$DRIVER_DEFAULT_REF
     <pkg-ref id="pro.2brain.graf.desktop-app"/>
   </choice>
-$DRIVER_CHOICE_BLOCK
   <choice id="desktop-app" title="GRAF Desktop App" start_selected="true" start_enabled="false">
     <pkg-ref id="pro.2brain.graf.desktop-app"/>
   </choice>
-$DRIVER_PKG_REF
   <pkg-ref id="pro.2brain.graf.desktop-app" version="$VERSION" auth="Root">graf-desktop-app.pkg</pkg-ref>
 </installer-gui-script>
 EOF

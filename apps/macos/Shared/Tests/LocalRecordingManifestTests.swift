@@ -116,6 +116,27 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(object?["schemaVersion"] as? String, LocalRecordingManifest.schemaVersion)
         XCTAssertEqual(object?["mediaScribeSourceMode"] as? String, "dual")
         XCTAssertEqual(object?["transcriptionReadiness"] as? String, "ready")
+        let retiredTopLevelKeys: Set<String> = [
+            "recordingTimeline",
+            "routeState",
+            "routeEvidence",
+            "retiredDriverState",
+            "sharedMemoryBridge",
+            "passthroughRoute",
+            "publicationState",
+            "appBridgeState",
+            "halProbeObserved"
+        ]
+        let emittedTopLevelKeys = object.map { Set($0.keys) } ?? Set<String>()
+        XCTAssertTrue(
+            retiredTopLevelKeys.isDisjoint(with: emittedTopLevelKeys),
+            "Current manifests must not emit retired routing lifecycle fields"
+        )
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(LocalRecordingManifest.self, from: data)
+        XCTAssertEqual(decoded, manifest)
     }
 
     func testRecordingMetadataBasenameDoesNotRenameRequiredPackageFiles() throws {
@@ -336,27 +357,6 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertFalse(headerOnly.isMediaScribeReady)
     }
 
-    func testManifestCarriesRouteTimelineCorrelation() {
-        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
-            .manifest(
-                sessionId: "session",
-                directoryId: "dir",
-                startedAt: Date(timeIntervalSince1970: 10),
-                stoppedAt: Date(timeIntervalSince1970: 20),
-                tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
-                routeSessionId: "route-session-019",
-                autorepairAttemptIds: ["repair-1"],
-                routeInterruptionCategory: .autorepairCovered,
-                scopeApproval: acceptedScopeApproval(),
-                permissions: grantedPermissions()
-            )
-
-        XCTAssertEqual(manifest.recordingTimelineEvidence?.routeSessionId, "route-session-019")
-        XCTAssertEqual(manifest.recordingTimelineEvidence?.autorepairAttemptIds, ["repair-1"])
-        XCTAssertEqual(manifest.recordingTimelineEvidence?.interruptionCategory, .autorepairCovered)
-        XCTAssertEqual(manifest.recordingTimelineEvidence?.alignmentBand, .accepted)
-    }
-
     func testManifestCarriesMicrophoneStreamMetadata() {
         let selection = manifestRecordingMicrophoneSelection()
         let stream = AppOwnedMicrophoneStreamSession(
@@ -549,6 +549,91 @@ final class LocalRecordingManifestTests: XCTestCase {
         XCTAssertNil(decoded.microphoneSelection)
         XCTAssertNil(decoded.microphoneStream)
         XCTAssertNil(decoded.microphoneStreamHealth)
+    }
+
+    func testReadIgnoresRemovedDriverKeysAndRetainsLegacyRecorderFallbackValue() throws {
+        let manifest = LocalRecordingManifest(
+            sessionId: "compatibility-session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .saved,
+            directoryId: "dir",
+            transcriptionReadiness: .ready,
+            tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions()
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoder.encode(manifest)) as? [String: Any]
+        )
+        object["retiredDriverState"] = ["published": true]
+        object["sharedMemoryBridge"] = ["name": "/retired-bridge"]
+        object["passthroughRoute"] = ["state": "active"]
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let decoded = try decoder.decode(LocalRecordingManifest.self, from: data)
+        let retainedFallback = try decoder.decode(
+            MicrophoneStreamKind.self,
+            from: Data("\"legacy_recorder_fallback\"".utf8)
+        )
+
+        XCTAssertEqual(decoded.sessionId, manifest.sessionId)
+        XCTAssertEqual(decoded.tracks.map(\.role), [.localMic, .remoteSpeaker])
+        XCTAssertEqual(retainedFallback, .legacyRecorderFallback)
+    }
+
+    func testReadMapsRetiredProbeFailureToNonUploadableCompatibilityState() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("retired-failure-compatibility-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let manifestURL = root.appendingPathComponent("manifest.json")
+        let microphoneURL = root.appendingPathComponent("mic.wav")
+        let systemAudioURL = root.appendingPathComponent("incoming.wav")
+        try Data(repeating: 1, count: 128).write(to: microphoneURL)
+        try Data(repeating: 2, count: 128).write(to: systemAudioURL)
+        let manifest = LocalRecordingManifest(
+            sessionId: "retired-failure-compatibility-session",
+            createdAt: Date(timeIntervalSince1970: 30),
+            startedAt: Date(timeIntervalSince1970: 10),
+            stoppedAt: Date(timeIntervalSince1970: 20),
+            status: .failed,
+            directoryId: "dir",
+            transcriptionReadiness: .failed,
+            tracks: [completeTrack(role: .localMic), completeTrack(role: .remoteSpeaker)],
+            scopeApproval: acceptedScopeApproval(),
+            permissions: grantedPermissions()
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoder.encode(manifest)) as? [String: Any]
+        )
+        object["failureReason"] = "hal_probe_observed"
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let retiredData = try JSONSerialization.data(withJSONObject: object)
+        try retiredData.write(to: manifestURL)
+        let decoded = try decoder.decode(LocalRecordingManifest.self, from: retiredData)
+        let reencoded = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoder.encode(decoded)) as? [String: Any]
+        )
+        let profile = DesktopUploadQueueService.artifactProfile(
+            manifest: decoded,
+            manifestURL: manifestURL,
+            microphoneURL: microphoneURL,
+            systemAudioURL: systemAudioURL
+        )
+
+        XCTAssertEqual(decoded.failureReason, .legacyNotReady)
+        XCTAssertEqual(reencoded["failureReason"] as? String, "legacy_not_ready")
+        XCTAssertFalse(profile.isUploadable)
     }
 
     func testManifestRoundTripsMuteTruthFieldsWithoutChangingTrackRoles() throws {

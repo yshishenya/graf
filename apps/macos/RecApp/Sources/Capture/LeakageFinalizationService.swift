@@ -119,7 +119,7 @@ public struct LeakageFinalizationService: Sendable {
             LeakageDependencyDecisionRecord(
                 option: "apple_voice_processing",
                 outcome: "spike_only",
-                reason: "Public APIs are plausible but not proven to feed both virtual microphone and persisted mic.wav with stable aligned reference.",
+                reason: "Public APIs are plausible but not proven to feed the app-owned microphone track and persisted mic.wav with stable aligned reference.",
                 sourceBasis: "Apple public AVAudioEngine and VoiceProcessingIO documentation",
                 testCoverageRequired: ["controlled_leakage", "double_talk", "route_change", "alignment"]
             ),

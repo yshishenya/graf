@@ -145,20 +145,6 @@ public final class BufferedLocalRecordingSampleSource: LocalRecordingSampleSourc
     }
 }
 
-public final class SharedMemoryRecordingSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
-    private let sharedMemory: SharedAudioMemory
-
-    public init(sharedMemory: SharedAudioMemory) {
-        self.sharedMemory = sharedMemory
-    }
-
-    public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
-        let available = min(Int(sharedMemory.captureAvailable()), capacity)
-        guard available > 0 else { return 0 }
-        return sharedMemory.readCapture(dst: destination, count: available)
-    }
-}
-
 public final class LocalRecordingWriter: @unchecked Sendable {
     private static let maxDrainReadIterations = 64
     private static let acceptableStopTailPaddingMs = 100
@@ -180,9 +166,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         manifestService: LocalRecordingManifestService = LocalRecordingManifestService(),
         leakageFinalizationService: LeakageFinalizationService = LeakageFinalizationService(),
         routeMetadataService: RecordingRouteMetadataService = RecordingRouteMetadataService(),
-        sharedMemoryFactory: @escaping @Sendable () -> SharedAudioMemory? = { SharedAudioMemory() },
         microphoneSampleSourceFactory: @escaping @Sendable () -> LocalRecordingSampleSource? = { nil },
-        incomingSampleSourceFactory: (@Sendable () -> LocalRecordingSampleSource?)? = nil,
+        incomingSampleSourceFactory: @escaping @Sendable () -> LocalRecordingSampleSource? = { nil },
         microphoneInputChannelCount: Int = 1,
         incomingInputChannelCount: Int = 1,
         recordMicrophone: Bool = true
@@ -194,9 +179,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         self.microphoneSampleSourceFactory = microphoneSampleSourceFactory
         self.microphoneInputChannelCount = max(1, microphoneInputChannelCount)
         self.incomingInputChannelCount = max(1, incomingInputChannelCount)
-        self.incomingSampleSourceFactory = incomingSampleSourceFactory ?? {
-            sharedMemoryFactory().map { SharedMemoryRecordingSampleSource(sharedMemory: $0) }
-        }
+        self.incomingSampleSourceFactory = incomingSampleSourceFactory
         self.recordMicrophone = recordMicrophone
     }
 
@@ -949,7 +932,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             .failed
         case .silentInput, .noFrames, .emptyRequiredTrack, .timelineMisaligned, .formatNotReady,
              .permissionDenied, .scopeUnavailable, .cpuGateFailed, .stoppedBeforeFrames,
-             .halProbeObserved, .deviceUnavailable, .legacyNotReady, .appClosed,
+             .deviceUnavailable, .legacyNotReady, .appClosed,
              .leakageDetected, .leakageUnproven, .leakageNotMeasured,
              .insufficientReference, .derivedResidualLeakage,
              .derivedDeletionNotRegistered, .unknown:

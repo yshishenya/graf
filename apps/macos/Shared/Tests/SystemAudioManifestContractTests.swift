@@ -91,6 +91,50 @@ final class SystemAudioManifestContractTests: XCTestCase {
         XCTAssertEqual(manifest.durationDifferenceSeconds, 0)
         XCTAssertEqual(manifest.tracks.first { $0.role == .remoteSpeaker }?.sourceKind, .systemAudio)
     }
+
+    func testCurrentSystemAudioManifestRoundTripsWithoutRetiredRoutingLifecycle() throws {
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .manifest(
+                sessionId: "session",
+                directoryId: "dir",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: [
+                    completeTrack(role: .localMic),
+                    completeTrack(role: .remoteSpeaker)
+                ],
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
+            )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(manifest)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let retiredTopLevelKeys: Set<String> = [
+            "recordingTimeline",
+            "routeState",
+            "routeEvidence",
+            "retiredDriverState",
+            "sharedMemoryBridge",
+            "passthroughRoute",
+            "publicationState",
+            "appBridgeState",
+            "halProbeObserved"
+        ]
+
+        XCTAssertTrue(retiredTopLevelKeys.isDisjoint(with: Set(object.keys)))
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(LocalRecordingManifest.self, from: data)
+        XCTAssertEqual(decoded, manifest)
+        XCTAssertEqual(
+            decoded.tracks.first { $0.role == .remoteSpeaker }?.sourceKind,
+            .systemAudio
+        )
+    }
 }
 
 private func completeTrack(role: AudioTrackRole) -> LocalRecordingTrack {

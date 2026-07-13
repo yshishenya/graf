@@ -74,25 +74,11 @@ final class SystemAudioCPUGateTests: XCTestCase {
         XCTAssertEqual(evaluation.maxAppHelperCpuPercent, 26.5)
     }
 
-    func testHALProbeObservationFailsBeforeCpuThresholds() {
-        let evaluation = SystemAudioCPUGateEvaluator.evaluate(
-            samples: [
-                cpuSample(phase: .activeRecording, coreaudiod: 2, app: 2, halProbeObserved: true)
-            ],
-            phase: .activeRecording
-        )
-
-        XCTAssertFalse(evaluation.passed)
-        XCTAssertTrue(evaluation.halProbeObserved)
-        XCTAssertEqual(evaluation.failureReason, .halProbeObserved)
-    }
-
     private func cpuSample(
         phase: CaptureHealthPhase,
         coreaudiod: Double,
         app: Double,
-        helper: Double = 0,
-        halProbeObserved: Bool = false
+        helper: Double = 0
     ) -> SystemAudioCPUSample {
         SystemAudioCPUSample(
             recordingSessionId: "session",
@@ -100,8 +86,7 @@ final class SystemAudioCPUGateTests: XCTestCase {
             sampledAt: Date(timeIntervalSince1970: 1),
             coreaudiodCpuPercent: coreaudiod,
             appCpuPercent: app,
-            helperCpuPercent: helper,
-            halProbeObserved: halProbeObserved
+            helperCpuPercent: helper
         )
     }
 }

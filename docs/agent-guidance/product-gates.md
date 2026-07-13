@@ -6,9 +6,11 @@ Use this file with `.specify/memory/constitution.md`,
 ## Capture And Platform
 
 - The MVP recording path is macOS system-audio-first.
-- Virtual-driver routing is not required for MVP recording acceptance and must
-  stay parked as future advanced-routing work until a separate spec, safety
-  gate, and rollback plan exist.
+- The former separate audio-routing implementation is removed legacy. It must
+  not be packaged, started, repaired, or represented as an available fallback.
+- Any future advanced-routing work requires a new approved Spec Kit slice,
+  safety evidence, packaging model, and rollback plan; it must not revive the
+  removed implementation.
 - Capture-critical macOS implementation is native by default:
   Swift/Cocoa/ScreenCaptureKit/AVFoundation/Core Audio where appropriate.
 - Windows and other platforms require separate future native stacks and
@@ -22,9 +24,9 @@ Use this file with `.specify/memory/constitution.md`,
 ## Audio, Artifacts, And Diagnostics
 
 - Features that touch capture, recording integrity, buffering, permissions,
-  system audio, microphone capture, or future driver UX must define measurable
-  latency, dropout, track alignment, authorization, recovery, degraded-state,
-  and QA requirements.
+  system audio, microphone capture, or future advanced-routing UX must define
+  measurable latency, dropout, track alignment, authorization, recovery,
+  degraded-state, and QA requirements.
 - Diagnostics and evidence are metadata-only unless an approved spec explicitly
   says otherwise.
 - Never include raw audio, transcript text, credentials, tokens, signed URLs,

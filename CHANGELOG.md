@@ -12,7 +12,12 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- macOS recording architecture оставлена в единственном поддерживаемом виде:
+  ScreenCaptureKit/system audio и app-owned microphone source явно передаются
+  в локальный dual-track writer; отдельная legacy audio-routing реализация,
+  shared-memory bridge, runtime orchestration и setup/repair UI удалены.
+- Локальный installer теперь содержит только GRAF.app и не устанавливает,
+  обновляет, восстанавливает или удаляет привилегированный audio component.
 
 ### Исправлено
 - Streaming manual media upload снова публикует обязательный multipart OpenAPI
@@ -21,13 +26,19 @@
   проверяет изоляцию identity headers по scheme, host и port.
 
 ### Безопасность
+- App-only uninstaller больше не принимает переопределяемые через environment
+  пути удаления и действует только на точные `/Applications/GRAF.app` и
+  `/Applications/2brain Rec.app`.
 - macOS desktop cabinet больше не прикрепляет Authorization и desktop identity headers к первому WebView-запросу на внешний HTTPS origin auth-provider при восстановлении входа.
 - Support incident reports теперь редактируют клиентские строки по строгим metadata-схемам и ограничивают `local_purge_tasks` безопасными enum-значениями, чтобы encoded private content не уходил в GitHub issue.
 - Browser OAuth-вход через Yandex/VK теперь привязывает callback провайдера к браузеру, начавшему вход, через короткоживущую `__Host-` nonce cookie и не позволяет захваченным callback URL закрепить браузер жертвы за чужим аккаунтом.
 - Manual media upload endpoints теперь читают multipart body потоково после auth/CSRF checks, отклоняют oversized bodies до framework form spooling и больше не загружают весь media file в память.
 
 ### Документы
-- _Пока нет записей._
+- Активные product/architecture/QA документы переведены на app-owned
+  system-audio-first flow; исторический runtime proof сохранен только как
+  audit evidence, а для ранее установленного proof component добавлена
+  отдельная ручная и узко ограниченная cleanup-инструкция.
 
 ### Операции
 - _Пока нет записей._

@@ -1,56 +1,46 @@
 # Local Recording Smoke Matrix
 
-Feature: `008-local-recording-persistence`
+Feature baseline: `008-local-recording-persistence`; current architecture:
+`102-remove-legacy-audio-driver`.
 
 ## Scope
 
-This matrix records metadata-only evidence that a manual recording produces
-local artifacts after `Stop`. It does not validate upload, MediaScribe,
-Langfuse, dashboard notes, retention, deletion, encryption, or assisted
-auto-start.
+Confirm that manual `Record`/`Stop` persists the current app-owned
+microphone and system-audio sources locally. This smoke does not validate
+upload, MediaScribe, Langfuse, dashboard, retention, deletion, encryption, or
+assisted auto-start.
 
 ## Required Setup
 
-- Fresh app bundle built from `008-local-recording-persistence`.
-- `2brain Rec Microphone` selected as meeting microphone.
-- `2brain Rec Speaker` selected as meeting speaker.
-- Low-resource non-recording passthrough route is valid.
-- User presses `Record` manually.
-- User presses `Stop` manually.
+- Build and launch the current `GRAF.app`.
+- Grant microphone and Screen & System Audio Recording permissions.
+- Select an eligible physical microphone.
+- Start a controlled system-audio source.
+- Press `Record`, confirm the persistent local indicator, and press the
+  one-action `Stop`.
 
-## Local Artifact Checks
+## Required Evidence
 
-| Artifact | Current 008 Status | Required Evidence |
-|---|---|---|
-| `manifest.json` | User-confirmed local recording exists after `Record`/`Stop`; metadata contract accepted | Exists, valid JSON, metadata-only, no external egress |
-| `local-mic.wav` | User-confirmed local recording exists after `Record`/`Stop` | Exists and non-empty when mic frames are available |
-| `remote-speaker.wav` | Truthful saved/degraded status required per manifest | Exists and non-empty when remote speaker frames are available |
+| Artifact/state | Required result |
+|---|---|
+| `manifest.json` | Exists, metadata-only, and reports truthful saved/degraded/failed state |
+| `mic.wav` | Exists and is non-empty when microphone frames are available |
+| `incoming.wav` | Exists and is non-empty when system-audio frames are available |
+| UI | Indicator remains visible while active; saved location is exposed after stop |
+| Egress | No upload or external processing starts from local finalization |
 
 ## Target Matrix
 
-| Target | Current 008 Status | Required Evidence |
-|---|---|---|
-| Yandex Telemost | Passed 1-minute local recording persistence smoke on 2026-06-02 | Saved location, manifest, local mic track, remote speaker track or truthful degraded status |
-| Chrome | Passed 1-minute local recording persistence smoke on 2026-06-02 | Saved location, manifest, local mic track, remote speaker track or truthful degraded status |
-| Opera | Passed 1-minute local recording persistence smoke on 2026-06-02 | Saved location, manifest, local mic track, remote speaker track or truthful degraded status |
-| Zoom | Passed 1-minute local recording persistence smoke on 2026-06-02 | Saved location, manifest, local mic track, remote speaker track or truthful degraded status |
+| Target | Cleanup-slice status |
+|---|---|
+| Yandex Telemost | Fresh current-build smoke required |
+| Chrome | Fresh current-build smoke required |
+| Opera | Fresh current-build smoke required |
+| Zoom | Best-effort; fresh current-build smoke required |
+| Yandex Browser | Not accepted until explicitly run |
 
-## Manual Evidence Log
+Historical feature-008 smokes remain evidence for that completed slice, but a
+fresh smoke is required before the post-cleanup build is called release-ready.
 
-- 2026-06-02 01:19 MSK: User confirmed that pressing `Record` and then `Stop`
-  produced a local recording in the freshly rebuilt `008` app. Treat this as
-  accepted local artifact presence smoke only; target-specific meeting smoke
-  remains pending.
-- 2026-06-02 01:52 MSK: User recorded and checked a 1-minute local recording;
-  the recording saves successfully. Treat this as accepted 1-minute local
-  artifact persistence smoke. Target-specific meeting smoke remains pending
-  until recorded per Telemost, Chrome, Opera, and Zoom.
-- 2026-06-02 02:02 MSK: User confirmed the 1-minute recording save check across
-  Yandex Telemost, Chrome, Opera, and Zoom. Treat this as accepted target local
-  recording persistence smoke for feature `008`. This does not accept upload,
-  transcription, MediaScribe, Langfuse, dashboard publication, retention,
-  deletion, long-duration recording, or meeting-app mute truth.
-
-Evidence must remain metadata-only and must not include raw audio, transcript
-text, meeting content, credentials, tokens, signed URLs, passwords, or live
-secret paths.
+Evidence must not include raw audio, transcript text, meeting content,
+credentials, tokens, signed URLs, passwords, or live secret paths.

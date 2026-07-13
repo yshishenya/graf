@@ -15,8 +15,11 @@ public struct LocalRecordingStore: Sendable {
         }
     }
 
-    public static func defaultRootURL(fileManager: FileManager = .default) -> URL {
-        let base = fileManager.urls(
+    public static func defaultRootURL(
+        fileManager: FileManager = .default,
+        applicationSupportURL: URL? = nil
+    ) -> URL {
+        let base = applicationSupportURL ?? fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first ?? fileManager.temporaryDirectory

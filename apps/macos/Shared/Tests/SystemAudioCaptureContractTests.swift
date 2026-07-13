@@ -58,7 +58,7 @@ final class SystemAudioCaptureContractTests: XCTestCase {
         XCTAssertTrue(approval.notTriggerForBackgroundAudio)
     }
 
-    func testCaptureHealthUsesCombinedAppHelperCpuAndNoHALGate() {
+    func testCaptureHealthUsesCombinedAppHelperCpuAndCurrentGate() {
         let health = CaptureHealthSnapshot(
             recordingSessionId: "session",
             phase: .activeRecording,
@@ -69,7 +69,7 @@ final class SystemAudioCaptureContractTests: XCTestCase {
         )
 
         XCTAssertEqual(health.appHelperCpuPercent, 22)
-        XCTAssertTrue(health.passesNoHALGate)
+        XCTAssertTrue(health.passesCaptureHealthGate)
     }
 }
 #endif

@@ -82,4 +82,4 @@ blocked or failed smoke. A non-pass cleanup blocks `infra_smoke_ready`.
 
 021 does not implement federated auth, desktop uploader, MediaScribe processing,
 Temporal processing starts, meeting dashboard, sharing, retention/deletion
-execution, or driver packaging.
+execution, or desktop capture packaging.

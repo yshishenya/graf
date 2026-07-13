@@ -17,7 +17,7 @@ Guided metadata-only harness for the manual system-audio MVP gates.
 It builds and launches the app-only local package, then prompts the tester to
 press Record/Stop manually. It does not click UI, does not start recording by
 itself, does not inspect audio content, does not reset TCC, does not install the
-pkg, and does not run HAL probes. It holds a local caffeinate assertion during
+pkg. It holds a local caffeinate assertion during
 the run so sleep/wake gaps cannot masquerade as app responsiveness or CPU
 evidence.
 

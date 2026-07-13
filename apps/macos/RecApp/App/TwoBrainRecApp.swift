@@ -1,4 +1,3 @@
-import CoreAudio
 import AppKit
 import Network
 import SwiftUI
@@ -137,9 +136,6 @@ private struct ContentView: View {
     private static let meetingDetectionPromptWindowSize = NSSize(width: 360, height: 286)
     private static let meetingDetectionPromptVisibleMargin: CGFloat = 22
 
-    @StateObject private var passthroughCoordinator = ExperimentalPassthroughCoordinator(
-        logger: AppLog.writeRaw
-    )
     @State private var captureController = CaptureSessionController()
     @State private var localRecordingWriter = LocalRecordingWriter()
     @State private var systemAudioCaptureService = SystemAudioCaptureService(
@@ -183,7 +179,7 @@ private struct ContentView: View {
     @State private var meetingDetectionHealth: String?
     @State private var meetingDetectionPrompt: MeetingDetectionPrompt?
     @State private var meetingDetectionPromptWindow: NSWindow?
-    @State private var liveRouteSignalLevels = LiveRouteSignalLevels.inactive
+    @State private var liveRecordingLevels = LiveRecordingLevels.inactive
     @State private var localRecordingActive = false
     @State private var levelsPollInProgress = false
     @State private var uploadQueueRefreshInProgress = false
@@ -200,12 +196,7 @@ private struct ContentView: View {
     @State private var permissionOnboardingPresented = false
     @State private var permissionOnboardingRequestInProgress = false
 
-    let snapshot: LocalAudioSnapshot
-    let isChecking: Bool
     let workspaceZoom: WorkspaceZoomPreference
-    let onAutoStarted: (LocalAudioSnapshot) -> Void
-    let refresh: () -> Void
-    let runCheck: () -> Void
 
     var body: some View {
         DesktopMeetingShellView(
@@ -213,11 +204,6 @@ private struct ContentView: View {
             uploadQueueItems: uploadQueueItems,
             cabinetConfigured: desktopCabinetConfiguration != nil,
             cabinetState: desktopCabinetState,
-            statusSummary: snapshot.summary,
-            lastEventSummary: snapshot.lastEventSummary,
-            isChecking: isChecking,
-            onRefresh: refresh,
-            onRunCheck: runCheck,
             onStopRecording: {
                 Task { await stopManualRecording() }
             },
@@ -255,7 +241,7 @@ private struct ContentView: View {
                 calendarPrompt: desktopCalendarPrompt,
                 meetingDetectionStatus: meetingDetectionStatus,
                 meetingDetectionHealth: meetingDetectionHealth,
-                routeSignalLevels: liveRouteSignalLevels,
+                recordingLevels: liveRecordingLevels,
                 recordDisabled: recordingStartInProgress || recordingStopInProgress,
                 stopDisabled: recordingStartInProgress || recordingStopInProgress,
                 pauseDisabled: recordingStartInProgress || recordingStopInProgress,
@@ -308,24 +294,7 @@ private struct ContentView: View {
             )
         } diagnosticsContent: {
             VStack(alignment: .leading, spacing: 12) {
-                DriverSetupView(
-                    driverState: snapshot.driverState,
-                    microphoneState: snapshot.virtualMicrophoneState,
-                    speakerState: snapshot.virtualSpeakerState,
-                    onInstall: refresh,
-                    onRepair: refresh
-                )
-                RouteVerificationView(
-                    snapshot: snapshot.routeVerification,
-                    canVerify: true,
-                    isVerifying: isChecking,
-                    onVerify: runCheck
-                )
-                AudioHealthView(state: snapshot.healthState)
-                DiagnosticLogView(
-                    path: AppLog.fileURL.path,
-                    lastEvent: snapshot.lastEventSummary
-                )
+                DiagnosticLogView(path: AppLog.fileURL.path)
             }
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.nativeShellRegion)
         }
@@ -354,53 +323,11 @@ private struct ContentView: View {
             )
         }
         .onAppear {
-            passthroughCoordinator.recordLaunchState()
-            AppLog.write(event: "app_opened", snapshot: snapshot)
+            AppLog.writeRaw(
+                event: "app_opened",
+                detail: "capture=app_owned_system_audio microphone=app_owned"
+            )
             refreshPermissionOnboarding(reason: "app_appeared", presentIfNeeded: true)
-            if !ProcessInfo.processInfo.arguments.contains("--enable-auto-passthrough") {
-                AppLog.writeRaw(
-                    event: "passthrough_bridge_auto_start_skipped",
-                    detail: "automatic non-recording route engine disabled by default for safe launch"
-                )
-            } else {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let preflight = LocalAudioSnapshot.current()
-                    AppLog.write(event: "auto_passthrough_preflight", snapshot: preflight)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        if ProcessInfo.processInfo.arguments.contains("--enforce-low-resource-promotion-gate") {
-                            let decision = LowResourcePromotionGate().decision(for: nil)
-                            if decision.shouldUseFallback {
-                                _ = PassthroughRouteEngine.shared.switchToAccepted005Fallback(
-                                    reason: decision.reason,
-                                    logger: AppLog.writeRaw
-                                )
-                            } else {
-                                passthroughCoordinator.armAutomaticBridge()
-                            }
-                        } else {
-                            passthroughCoordinator.armAutomaticBridge()
-                        }
-                        LocalAudioSnapshot.refreshAsync(event: "auto_passthrough_ready") { updated in
-                            onAutoStarted(updated)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
-                            LocalAudioSnapshot.refreshAsync(event: "auto_passthrough_active") { updated in
-                                onAutoStarted(updated)
-                            }
-                        }
-                    }
-                }
-            }
-            if ProcessInfo.processInfo.arguments.contains("--start-passthrough") {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let state = PassthroughRouteEngine.shared.startExperimentalRoute(logger: AppLog.writeRaw)
-                    let updated = LocalAudioSnapshot.runReadinessCheck(routeEngineState: state)
-                    AppLog.write(event: "explicit_passthrough_ready", snapshot: updated)
-                    DispatchQueue.main.async {
-                        onAutoStarted(updated)
-                    }
-                }
-            }
             refreshUploadQueueAndProcess(reason: "app_appeared")
             startUploadQueueNetworkMonitorIfNeeded()
             startMeetingDetectionIfNeeded()
@@ -888,7 +815,7 @@ private struct ContentView: View {
             systemAudio: currentSystemAudio
         )
         let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
-            microphonePermissionGranted: permissionGate.snapshot.microphone == .granted
+            permissions: permissionGate.snapshot
         )
         return MeetingDetectionCapturePrerequisites(
             recordingAlreadyActive: calendarPromptRecordingIsActive,
@@ -918,15 +845,14 @@ private struct ContentView: View {
 
     @MainActor
     private func evaluatedMeetingDetectionRecordingPrerequisite(
-        microphonePermissionGranted: Bool
+        permissions: SystemAudioPermissionSnapshot
     ) -> RecordingPrerequisiteSnapshot {
         RecordingPrerequisiteGate().evaluate(
             RecordingPrerequisiteSnapshot(
-                routeState: .inactive,
-                routeEvidenceKind: .systemAudioCapture,
                 policyAllowsRecording: meetingDetectionWorkspacePolicyAllowsRecording,
-                microphonePermissionGranted: microphonePermissionGranted,
-                storageRisk: snapshot.healthState.bufferRisk,
+                microphonePermissionGranted: permissions.microphone == .granted,
+                systemAudioPermissionGranted: permissions.systemAudio == .granted,
+                storageRisk: .healthy,
                 indicatorAvailable: meetingDetectionVisibleIndicatorAvailable,
                 sourceAppEligibility: meetingDetectionWorkspacePolicyAllowsRecording ? .eligible : .policyBlocked,
                 evaluatedAt: Date()
@@ -1197,7 +1123,7 @@ private struct ContentView: View {
             systemAudio: systemAudioPermissionState
         )
         let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
-            microphonePermissionGranted: permissionGate.snapshot.microphone == .granted
+            permissions: permissionGate.snapshot
         )
 
         do {
@@ -1233,8 +1159,7 @@ private struct ContentView: View {
                 "recordingMicrophoneSelectionResult": resolvedMicrophoneSelection.selectionResult.rawValue,
                 "recordingMicrophoneInputDeviceId": resolvedMicrophoneSelection.inputDeviceId ?? "none",
                 "recordingMicrophoneInputDisplayName": resolvedMicrophoneSelection.inputDisplayName ?? "unknown",
-                "routeState": prerequisite.routeState.rawValue,
-                "routeEvidenceKind": prerequisite.routeEvidenceKind.rawValue,
+                "captureArchitecture": "app_owned_system_audio_and_microphone",
                 "recordingStartKind": meetingDetectionTarget == nil ? "manual" : "meeting_detection",
                 "meetingDetectionTargetId": meetingDetectionTarget?.targetID ?? "none",
                 "meetingDetectionBundleId": meetingDetectionTarget?.bundleID ?? "none",
@@ -1289,18 +1214,17 @@ private struct ContentView: View {
                 RecordingEvidenceService().event(
                     for: active,
                     type: .started,
-                    initiator: .user,
-                    routeState: prerequisite.routeState
+                    initiator: .user
                 )
             )
             recordingBlocker = nil
             AppLog.writeRaw(
                 event: AuditEventName.recordingStarted.rawValue,
-                detail: "sessionId=\(active.id) captureSource=system_audio scopeApprovalId=\(scopeApproval.scopeApprovalId) routeState=\(prerequisite.routeState.rawValue) routeEvidenceKind=\(prerequisite.routeEvidenceKind.rawValue) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
+                detail: "sessionId=\(active.id) captureSource=system_audio microphoneSource=app_owned scopeApprovalId=\(scopeApproval.scopeApprovalId) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
             )
         } catch {
             localRecordingActive = false
-            liveRouteSignalLevels = .inactive
+            liveRecordingLevels = .inactive
             releaseAppleProcessingCandidate(reason: .failedStart)
             activeAppleProcessingOutcome = nil
             activeMicrophoneSampleSource?.stop()
@@ -1490,7 +1414,7 @@ private struct ContentView: View {
         guard !recordingStartInProgress, !recordingStopInProgress else { return }
         recordingStopInProgress = true
         localRecordingActive = false
-        liveRouteSignalLevels = .inactive
+        liveRecordingLevels = .inactive
         defer { recordingStopInProgress = false }
 
         do {
@@ -1512,8 +1436,7 @@ private struct ContentView: View {
                 RecordingEvidenceService().event(
                     for: stopped,
                     type: .stopped,
-                    initiator: evidenceInitiator,
-                    routeState: snapshot.healthState.livePassthroughStatus ?? .inactive
+                    initiator: evidenceInitiator
                 )
             )
             recordingBlocker = nil
@@ -1556,7 +1479,7 @@ private struct ContentView: View {
             )
             activeCalendarContextEventId = nil
             localRecordingActive = false
-            liveRouteSignalLevels = .inactive
+            liveRecordingLevels = .inactive
             recordingBlocker = "Не удалось остановить запись: \(error)"
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
@@ -1642,7 +1565,7 @@ private struct ContentView: View {
         }
         let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
         localRecordingActive = false
-        liveRouteSignalLevels = .inactive
+        liveRecordingLevels = .inactive
         activeMicrophoneSampleSource?.stop()
         activeMicrophoneSampleSource = nil
         do {
@@ -1839,8 +1762,8 @@ private struct ContentView: View {
         switch snapshot.blockedReason {
         case .none:
             return ""
-        case .routeNotReady, .publicationOnly:
-            return "Запись не началась: звук еще не готов. \(action)."
+        case .captureUnavailable:
+            return "Запись не началась: источник записи занят или недоступен. \(action)."
         case .policyDisabled:
             return "Запись отключена политикой. \(action)."
         case .permissionDenied:
@@ -1911,8 +1834,8 @@ private struct ContentView: View {
     @MainActor
     private func pollRecordingLevelsIfNeeded() {
         guard localRecordingActive, !recordingStartInProgress, !recordingStopInProgress else {
-            if liveRouteSignalLevels != .inactive {
-                liveRouteSignalLevels = .inactive
+            if liveRecordingLevels != .inactive {
+                liveRecordingLevels = .inactive
             }
             return
         }
@@ -1928,20 +1851,13 @@ private struct ContentView: View {
                       localRecordingActive,
                       !recordingStartInProgress,
                       !recordingStopInProgress else {
-                    if liveRouteSignalLevels != .inactive {
-                        liveRouteSignalLevels = .inactive
+                    if liveRecordingLevels != .inactive {
+                        liveRecordingLevels = .inactive
                     }
                     return
                 }
-                let nextLevels = LiveRouteSignalLevels(
-                    isActive: recordingLevels.isRecording,
-                    microphoneLevel: recordingLevels.microphoneLevel,
-                    speakerLevel: recordingLevels.incomingLevel,
-                    microphoneUpdatedAt: recordingLevels.microphoneUpdatedAt,
-                    speakerUpdatedAt: recordingLevels.incomingUpdatedAt
-                )
-                if nextLevels != liveRouteSignalLevels {
-                    liveRouteSignalLevels = nextLevels
+                if recordingLevels != liveRecordingLevels {
+                    liveRecordingLevels = recordingLevels
                 }
             }
         }
@@ -2204,7 +2120,6 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_: Notification) {
         mainWindow = nil
         settingsWindow = nil
-        _ = PassthroughRouteEngine.shared.stop(logger: AppLog.writeRaw)
     }
 
     @objc private func applicationTerminationCleanupFinished() {
@@ -2360,537 +2275,19 @@ private extension Notification.Name {
 
 private struct AppContentRoot: View {
     @ObservedObject private var workspaceZoomStore: WorkspaceZoomStore
-    @State private var snapshot = LocalAudioSnapshot.placeholder()
-    @State private var isChecking = false
 
     init(workspaceZoomStore: WorkspaceZoomStore) {
         self.workspaceZoomStore = workspaceZoomStore
     }
 
     var body: some View {
-        ContentView(
-            snapshot: snapshot,
-            isChecking: isChecking,
-            workspaceZoom: workspaceZoomStore.preference,
-            onAutoStarted: { updated in
-                snapshot = updated
-            },
-            refresh: {
-                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Состояние обновлено")
-                AppLog.write(event: "refresh", snapshot: snapshot)
-            },
-            runCheck: {
-                isChecking = true
-                snapshot = LocalAudioSnapshot.placeholder(lastEventSummary: "Права проверяются при старте записи")
-                AppLog.write(event: "status_refresh", snapshot: snapshot)
-                isChecking = false
-            }
-        )
+        ContentView(workspaceZoom: workspaceZoomStore.preference)
         .frame(minWidth: 1040, minHeight: 680)
-    }
-}
-
-fileprivate struct LocalAudioSnapshot {
-    let driverState: DriverInstallationState
-    let virtualMicrophoneState: VirtualDeviceAvailabilityState
-    let virtualSpeakerState: VirtualDeviceAvailabilityState
-    let routeVerification: RouteVerificationSnapshot?
-    let healthState: AudioHealthState
-    let defaultInputName: String?
-    let defaultOutputName: String?
-    let defaultSystemOutputName: String?
-    let coreAudioDeviceSummary: String
-    let lastEventSummary: String
-
-    var summary: String {
-        SystemAudioDriverParkedReadiness(
-            driverState: driverState,
-            microphoneState: virtualMicrophoneState,
-            speakerState: virtualSpeakerState,
-            routeVerificationReady: routeVerification?.canShowReady == true
-        ).summary
-    }
-
-    static func placeholder(lastEventSummary: String = "Приложение открыто") -> LocalAudioSnapshot {
-        let driverExists = FileManager.default.fileExists(
-            atPath: "/Library/Audio/Plug-Ins/HAL/GrafProof.driver"
-        )
-        let driverState: DriverInstallationState = driverExists ? .installed : .notInstalled
-        let virtualDeviceState: VirtualDeviceAvailabilityState = driverExists ? .requiresRestart : .missing
-        let health = AudioHealthState(
-            driverState: driverState,
-            virtualMicState: virtualDeviceState,
-            virtualSpeakerState: virtualDeviceState,
-            microphonePermission: .unknown,
-            outputPermission: .unknown,
-            passthroughStatus: .unknown,
-            continuityStatus: "Запись системного звука использует права macOS.",
-            bufferRisk: .healthy,
-            livePassthroughStatus: .inactive,
-            recoveryActions: []
-        )
-        return LocalAudioSnapshot(
-            driverState: driverState,
-            virtualMicrophoneState: virtualDeviceState,
-            virtualSpeakerState: virtualDeviceState,
-            routeVerification: nil,
-            healthState: health,
-            defaultInputName: nil,
-            defaultOutputName: nil,
-            defaultSystemOutputName: nil,
-            coreAudioDeviceSummary: "pending",
-            lastEventSummary: lastEventSummary
-        )
-    }
-
-    static func refreshAsync(
-        event: String,
-        completion: @escaping @Sendable @MainActor (LocalAudioSnapshot) -> Void
-    ) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let updated = LocalAudioSnapshot.current()
-            AppLog.write(event: event, snapshot: updated)
-            Task { @MainActor in
-                completion(updated)
-            }
-        }
-    }
-
-    static func current(
-        routeEngineState: PassthroughRouteEngineState = PassthroughRouteEngine.shared.state
-    ) -> LocalAudioSnapshot {
-        makeSnapshot(
-            system: CoreAudioSystemSnapshot.current(),
-            routeVerification: nil,
-            routeEngineState: routeEngineState,
-            lastEventSummary: "Состояние обновлено"
-        )
-    }
-
-    static func runReadinessCheck(
-        routeEngineState: PassthroughRouteEngineState = PassthroughRouteEngine.shared.state
-    ) -> LocalAudioSnapshot {
-        let system = CoreAudioSystemSnapshot.current()
-        return makeSnapshot(
-            system: system,
-            routeVerification: routeSnapshot(
-                system: system,
-                checked: true,
-                routeEngineState: routeEngineState
-            ),
-            routeEngineState: routeEngineState,
-            lastEventSummary: readinessSummary(system: system, routeEngineState: routeEngineState)
-        )
-    }
-
-    private static func makeSnapshot(
-        system: CoreAudioSystemSnapshot,
-        routeVerification: RouteVerificationSnapshot?,
-        routeEngineState: PassthroughRouteEngineState,
-        lastEventSummary: String
-    ) -> LocalAudioSnapshot {
-        let hasMic = system.hasVirtualMicrophone
-        let hasSpeaker = system.hasVirtualSpeaker
-        let driverExists = FileManager.default.fileExists(
-            atPath: "/Library/Audio/Plug-Ins/HAL/GrafProof.driver"
-        )
-
-        let micState: VirtualDeviceAvailabilityState = hasMic ? .available : (driverExists ? .requiresRestart : .missing)
-        let speakerState: VirtualDeviceAvailabilityState = hasSpeaker ? .available : (driverExists ? .requiresRestart : .missing)
-        let driverState: DriverInstallationState = driverExists ? .installed : .notInstalled
-        let routeSnapshot = routeVerification ?? routeSnapshot(
-            system: system,
-            checked: false,
-            routeEngineState: routeEngineState
-        )
-        let recoveryActions = recoveryActions(system: system, routeSnapshot: routeSnapshot)
-        let routeIsActive = routeEngineState == .active
-
-        let health = AudioHealthState(
-            driverState: driverState,
-            virtualMicState: micState,
-            virtualSpeakerState: speakerState,
-            microphonePermission: .unknown,
-            outputPermission: .unknown,
-            physicalInput: system.defaultInput?.healthSummary(direction: .input),
-            physicalOutput: system.defaultOutput?.healthSummary(direction: .output),
-            routeVerification: routeSnapshot,
-            passthroughStatus: routeIsActive ? .healthy : .unknown,
-            continuityStatus: routeIsActive
-                ? "Локальный аудиомаршрут активен; запись начинается вручную."
-                : (hasMic && hasSpeaker
-                    ? "Виртуальные устройства видны для диагностики; запись использует права macOS."
-                    : "Запись системного звука использует права macOS."),
-            bufferRisk: .healthy,
-            livePassthroughStatus: routeIsActive ? .active : .inactive,
-            recoveryActions: recoveryActions
-        )
-
-        return LocalAudioSnapshot(
-            driverState: driverState,
-            virtualMicrophoneState: micState,
-            virtualSpeakerState: speakerState,
-            routeVerification: routeSnapshot,
-            healthState: health,
-            defaultInputName: system.defaultInput?.name,
-            defaultOutputName: system.defaultOutput?.name,
-            defaultSystemOutputName: system.defaultSystemOutput?.name,
-            coreAudioDeviceSummary: system.deviceLogSummary,
-            lastEventSummary: lastEventSummary
-        )
-    }
-
-    private static func routeSnapshot(
-        system: CoreAudioSystemSnapshot,
-        checked: Bool,
-        routeEngineState: PassthroughRouteEngineState
-    ) -> RouteVerificationSnapshot {
-        let now = Date()
-        let micResult = micRouteResult(
-            system: system,
-            checked: checked,
-            routeEngineState: routeEngineState
-        )
-        let speakerResult = speakerRouteResult(
-            system: system,
-            checked: checked,
-            routeEngineState: routeEngineState
-        )
-        let validationType: RouteValidationType = routeEngineState == .active
-            ? .appIOHeartbeat
-            : .syntheticSignal
-        return RouteVerificationSnapshot(
-            mic: RouteVerification(
-                id: "local-mic-recording-status",
-                path: .micToVirtualInput,
-                validationType: validationType,
-                target: "Local Microphone",
-                status: micResult.status,
-                failureReason: micResult.reason,
-                recoveryAction: micResult.action,
-                startedAt: now,
-                finishedAt: now
-            ),
-            speaker: RouteVerification(
-                id: "system-audio-recording-status",
-                path: .remoteOutputToVirtualSpeaker,
-                validationType: validationType,
-                target: "System Audio",
-                status: speakerResult.status,
-                failureReason: speakerResult.reason,
-                recoveryAction: speakerResult.action,
-                startedAt: now,
-                finishedAt: now
-            )
-        )
-    }
-
-    private static func micRouteResult(
-        system: CoreAudioSystemSnapshot,
-        checked: Bool,
-        routeEngineState: PassthroughRouteEngineState
-    ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
-        guard let input = system.defaultInput, input.inputChannels > 0, !input.isTwoBrainVirtual else {
-            return checked
-                ? (.failed, "physical_microphone_not_selected", "select_physical_microphone")
-                : (.notStarted, nil, "refresh_local_audio_status")
-        }
-        if routeEngineState == .active {
-            return (.passed, nil, nil)
-        }
-        return checked ? (.passed, nil, nil) : (.notStarted, nil, "refresh_local_audio_status")
-    }
-
-    private static func speakerRouteResult(
-        system: CoreAudioSystemSnapshot,
-        checked: Bool,
-        routeEngineState: PassthroughRouteEngineState
-    ) -> (status: RouteVerificationStatus, reason: String?, action: String?) {
-        let output = system.defaultOutput?.usablePhysicalOutput ??
-            system.defaultSystemOutput?.usablePhysicalOutput
-        guard output != nil else {
-            return checked
-                ? (.failed, "physical_speaker_not_selected", "select_physical_speaker")
-                : (.notStarted, nil, "refresh_local_audio_status")
-        }
-        if routeEngineState == .active {
-            return (.passed, nil, nil)
-        }
-        return checked ? (.passed, nil, nil) : (.notStarted, nil, "refresh_local_audio_status")
-    }
-
-    private static func recoveryActions(
-        system: CoreAudioSystemSnapshot,
-        routeSnapshot: RouteVerificationSnapshot
-    ) -> [String] {
-        var actions: [String] = []
-        if system.defaultInput?.isTwoBrainVirtual == true {
-            actions.append("Set macOS input back to a physical microphone while testing")
-        }
-        if system.defaultOutput?.isTwoBrainVirtual == true {
-            actions.append("Set macOS output back to physical speakers")
-        }
-        if let output = system.defaultOutput,
-           let systemOutput = system.defaultSystemOutput,
-           output.id != systemOutput.id {
-            actions.append("Default output and system output are different: \(output.name) / \(systemOutput.name)")
-        }
-        return actions
-    }
-
-    private static func readinessSummary(
-        system: CoreAudioSystemSnapshot,
-        routeEngineState: PassthroughRouteEngineState
-    ) -> String {
-        guard let input = system.defaultInput, input.inputChannels > 0, !input.isTwoBrainVirtual else {
-            return "Check failed: select a physical microphone"
-        }
-        guard system.defaultOutput?.usablePhysicalOutput != nil ||
-              system.defaultSystemOutput?.usablePhysicalOutput != nil else {
-            return "Check failed: select a physical speaker or output"
-        }
-        if routeEngineState == .active {
-            return "Check complete: \(SystemAudioStatusLabels.localAudioRouteActiveNotRecording)"
-        }
-        return "Check complete: local audio status refreshed; recording permissions are checked when you press Record"
-    }
-
-    var logDescription: String {
-        [
-            "summary=\(summary)",
-            "driver=\(driverState.rawValue)",
-            "virtualMic=\(virtualMicrophoneState.rawValue)",
-            "virtualSpeaker=\(virtualSpeakerState.rawValue)",
-            "defaultInput=\(defaultInputName ?? "none")",
-            "defaultOutput=\(defaultOutputName ?? "none")",
-            "defaultSystemOutput=\(defaultSystemOutputName ?? "none")",
-            "coreAudioDevices=\(coreAudioDeviceSummary)",
-            "micRoute=\(routeVerification?.mic.status.rawValue ?? "none")",
-            "micReason=\(routeVerification?.mic.failureReason ?? "none")",
-            "speakerRoute=\(routeVerification?.speaker.status.rawValue ?? "none")",
-            "speakerReason=\(routeVerification?.speaker.failureReason ?? "none")",
-            "passthrough=\(healthState.passthroughStatus.rawValue)"
-        ].joined(separator: " ")
-    }
-}
-
-private struct CoreAudioDeviceInfo: Equatable {
-    let id: AudioDeviceID
-    let name: String
-    let inputChannels: Int
-    let outputChannels: Int
-
-    var isTwoBrainVirtual: Bool {
-        name.localizedCaseInsensitiveContains("GRAF")
-    }
-
-    var usablePhysicalOutput: CoreAudioDeviceInfo? {
-        outputChannels > 0 && !isTwoBrainVirtual ? self : nil
-    }
-
-    func healthSummary(direction: AudioDirection) -> HealthPhysicalDeviceSummary {
-        HealthPhysicalDeviceSummary(
-            id: String(id),
-            displayName: name,
-            direction: direction,
-            className: isTwoBrainVirtual ? .unknown : .builtIn,
-            availabilityState: .available
-        )
-    }
-}
-
-private struct CoreAudioSystemSnapshot {
-    let devices: [CoreAudioDeviceInfo]
-    let defaultInputID: AudioDeviceID?
-    let defaultOutputID: AudioDeviceID?
-    let defaultSystemOutputID: AudioDeviceID?
-
-    var hasVirtualMicrophone: Bool {
-        devices.contains { $0.name == "GRAF Microphone" }
-    }
-
-    var hasVirtualSpeaker: Bool {
-        devices.contains { $0.name == "GRAF Speaker" }
-    }
-
-    var deviceLogSummary: String {
-        devices
-            .map { "\($0.name)[in=\($0.inputChannels),out=\($0.outputChannels)]" }
-            .joined(separator: "|")
-    }
-
-    var defaultInput: CoreAudioDeviceInfo? {
-        device(defaultInputID)
-    }
-
-    var defaultOutput: CoreAudioDeviceInfo? {
-        device(defaultOutputID)
-    }
-
-    var defaultSystemOutput: CoreAudioDeviceInfo? {
-        device(defaultSystemOutputID)
-    }
-
-    var bridgeInputDevice: CoreAudioDeviceInfo? {
-        if let defaultInput, defaultInput.inputChannels > 0, !defaultInput.isTwoBrainVirtual {
-            return defaultInput
-        }
-        return devices.first { $0.inputChannels > 0 && !$0.isTwoBrainVirtual }
-    }
-
-    var bridgeOutputDevice: CoreAudioDeviceInfo? {
-        if let defaultOutput, defaultOutput.outputChannels > 0, !defaultOutput.isTwoBrainVirtual {
-            return defaultOutput
-        }
-        if let defaultSystemOutput, defaultSystemOutput.outputChannels > 0, !defaultSystemOutput.isTwoBrainVirtual {
-            return defaultSystemOutput
-        }
-        return devices.first { $0.outputChannels > 0 && !$0.isTwoBrainVirtual }
-    }
-
-    static func current() -> CoreAudioSystemSnapshot {
-        let deviceIDs = readDeviceIDs()
-        let devices = deviceIDs.compactMap { id -> CoreAudioDeviceInfo? in
-            guard let name = deviceName(id) else {
-                return nil
-            }
-            return CoreAudioDeviceInfo(
-                id: id,
-                name: name,
-                inputChannels: channelCount(id, scope: kAudioDevicePropertyScopeInput),
-                outputChannels: channelCount(id, scope: kAudioDevicePropertyScopeOutput)
-            )
-        }
-
-        return CoreAudioSystemSnapshot(
-            devices: devices,
-            defaultInputID: defaultDeviceID(kAudioHardwarePropertyDefaultInputDevice),
-            defaultOutputID: defaultDeviceID(kAudioHardwarePropertyDefaultOutputDevice),
-            defaultSystemOutputID: defaultDeviceID(kAudioHardwarePropertyDefaultSystemOutputDevice)
-        )
-    }
-
-    private func device(_ id: AudioDeviceID?) -> CoreAudioDeviceInfo? {
-        guard let id else {
-            return nil
-        }
-        return devices.first { $0.id == id }
-    }
-
-    private static func readDeviceIDs() -> [AudioDeviceID] {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var dataSize: UInt32 = 0
-        let sizeStatus = AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            0,
-            nil,
-            &dataSize
-        )
-        guard sizeStatus == noErr, dataSize > 0 else {
-            return []
-        }
-
-        let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
-        var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
-        let dataStatus = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            0,
-            nil,
-            &dataSize,
-            &deviceIDs
-        )
-        guard dataStatus == noErr else {
-            return []
-        }
-
-        return deviceIDs
-    }
-
-    private static func defaultDeviceID(_ selector: AudioObjectPropertySelector) -> AudioDeviceID? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: selector,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var deviceID = AudioDeviceID(kAudioObjectUnknown)
-        var dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
-        let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            0,
-            nil,
-            &dataSize,
-            &deviceID
-        )
-        guard status == noErr, deviceID != kAudioObjectUnknown else {
-            return nil
-        }
-        return deviceID
-    }
-
-    private static func deviceName(_ deviceID: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioObjectPropertyName,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var name: CFString = "" as CFString
-        var dataSize = UInt32(MemoryLayout<CFString>.size)
-        let status = withUnsafeMutableBytes(of: &name) { rawName in
-            AudioObjectGetPropertyData(
-                deviceID,
-                &address,
-                0,
-                nil,
-                &dataSize,
-                rawName.baseAddress!
-            )
-        }
-        guard status == noErr else {
-            return nil
-        }
-        return name as String
-    }
-
-    private static func channelCount(_ deviceID: AudioDeviceID, scope: AudioObjectPropertyScope) -> Int {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreamConfiguration,
-            mScope: scope,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &dataSize) == noErr,
-              dataSize > 0 else {
-            return 0
-        }
-
-        let raw = UnsafeMutableRawPointer.allocate(
-            byteCount: Int(dataSize),
-            alignment: MemoryLayout<AudioBufferList>.alignment
-        )
-        defer { raw.deallocate() }
-
-        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, raw) == noErr else {
-            return 0
-        }
-
-        let buffers = UnsafeMutableAudioBufferListPointer(
-            raw.bindMemory(to: AudioBufferList.self, capacity: 1)
-        )
-        return buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
     }
 }
 
 private struct DiagnosticLogView: View {
     let path: String
-    let lastEvent: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -2901,7 +2298,6 @@ private struct DiagnosticLogView: View {
                     .font(.callout)
                     .fontWeight(.semibold)
             }
-            row(label: "Last event", detail: lastEvent)
             row(label: "Log file", detail: path)
         }
         .padding(16)
@@ -2929,11 +2325,6 @@ private enum AppLog {
             .appendingPathComponent("Library/Logs/GRAF", isDirectory: true)
         return base.appendingPathComponent("graf.log")
     }()
-
-    static func write(event: String, snapshot: LocalAudioSnapshot) {
-        let line = "\(timestamp()) event=\(event) \(snapshot.logDescription)\n"
-        writeLine(line)
-    }
 
     static func writeRaw(event: String, detail: String) {
         writeLine("\(timestamp()) event=\(event) detail=\(sanitize(detail))\n")

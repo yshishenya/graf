@@ -27,9 +27,6 @@ public struct LocalRecordingManifestService: Sendable {
         tracks: [LocalRecordingTrack],
         leakageFinalization: LeakageFinalization? = nil,
         failureReason: LocalRecordingFailureReason = .none,
-        routeSessionId: String? = nil,
-        autorepairAttemptIds: [String] = [],
-        routeInterruptionCategory: RouteInterruptionCategory = .none,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
         microphoneSelection: RecordingMicrophoneSelection? = nil,
@@ -120,12 +117,6 @@ public struct LocalRecordingManifestService: Sendable {
             leakageFinalization: leakageFinalization,
             failureReason: resolvedFailure,
             durationDifferenceSeconds: durationDifferenceSeconds,
-            recordingTimelineEvidence: routeTimelineEvidence(
-                routeSessionId: routeSessionId,
-                tracks: tracks,
-                autorepairAttemptIds: autorepairAttemptIds,
-                interruptionCategory: routeInterruptionCategory
-            ),
             scopeApproval: scopeApproval,
             permissions: permissions,
             microphoneSelection: microphoneSelection,
@@ -239,7 +230,7 @@ public struct LocalRecordingManifestService: Sendable {
         case .permissionDenied, .scopeUnavailable, .protectedAudioBlocked:
             .blocked
         case .directoryUnavailable, .captureFailed, .writeFailed, .finalizationFailed,
-             .timelineMisaligned, .cpuGateFailed, .halProbeObserved, .deviceUnavailable,
+             .timelineMisaligned, .cpuGateFailed, .deviceUnavailable,
              .appClosed, .leakageDetected:
             .failed
         case .emptyRequiredTrack, .formatNotReady, .silentInput, .noFrames,
@@ -257,7 +248,7 @@ public struct LocalRecordingManifestService: Sendable {
         case .none, .directoryUnavailable, .writeFailed, .finalizationFailed,
              .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
              .silentInput, .noFrames, .captureFailed, .cpuGateFailed,
-             .stoppedBeforeFrames, .halProbeObserved, .deviceUnavailable,
+             .stoppedBeforeFrames, .deviceUnavailable,
              .leakageDetected, .leakageUnproven, .leakageNotMeasured,
              .insufficientReference, .derivedResidualLeakage,
              .derivedDeletionNotRegistered, .legacyNotReady, .appClosed, .unknown:
@@ -268,7 +259,7 @@ public struct LocalRecordingManifestService: Sendable {
     private static func isFailedFailure(_ reason: LocalRecordingFailureReason) -> Bool {
         switch reason {
         case .directoryUnavailable, .writeFailed, .finalizationFailed, .captureFailed,
-             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .appClosed,
+             .cpuGateFailed, .deviceUnavailable, .appClosed,
              .leakageDetected:
             return true
         case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
@@ -289,21 +280,4 @@ public struct LocalRecordingManifestService: Sendable {
         return Double(abs(mic.durationMs - incoming.durationMs)) / 1000
     }
 
-    private func routeTimelineEvidence(
-        routeSessionId: String?,
-        tracks: [LocalRecordingTrack],
-        autorepairAttemptIds: [String],
-        interruptionCategory: RouteInterruptionCategory
-    ) -> RecordingTimelineIntegrityEvidence? {
-        guard let routeSessionId else { return nil }
-        let micDurationMs = tracks.first { $0.role == .localMic }?.durationMs ?? 0
-        let incomingDurationMs = tracks.first { $0.role == .remoteSpeaker }?.durationMs ?? 0
-        return RecordingTimelineEvidenceBuilder().evidence(
-            routeSessionId: routeSessionId,
-            autorepairAttemptIds: autorepairAttemptIds,
-            microphoneDurationMs: micDurationMs,
-            incomingDurationMs: incomingDurationMs,
-            interruptionCategory: interruptionCategory
-        )
-    }
 }

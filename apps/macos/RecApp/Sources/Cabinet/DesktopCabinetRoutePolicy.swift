@@ -333,6 +333,8 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     }
 
     private func isNativeCaptureControlRoute(_ components: [String]) -> Bool {
+        // Keep stale legacy route names denied so an old server link cannot
+        // cross the native capture-control trust boundary.
         hasAnySegment(
             components,
             [

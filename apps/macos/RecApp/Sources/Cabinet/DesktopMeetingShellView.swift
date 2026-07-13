@@ -89,11 +89,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let uploadQueueItems: [DesktopUploadQueueItem]
     private let cabinetConfigured: Bool
     private let cabinetState: DesktopCabinetState
-    private let statusSummary: String
-    private let lastEventSummary: String
-    private let isChecking: Bool
-    private let onRefresh: () -> Void
-    private let onRunCheck: () -> Void
     private let onStopRecording: () -> Void
     private let onPauseRecording: () -> Void
     private let onResumeRecording: () -> Void
@@ -109,11 +104,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         uploadQueueItems: [DesktopUploadQueueItem],
         cabinetConfigured: Bool,
         cabinetState: DesktopCabinetState,
-        statusSummary: String,
-        lastEventSummary: String,
-        isChecking: Bool,
-        onRefresh: @escaping () -> Void,
-        onRunCheck: @escaping () -> Void,
         onStopRecording: @escaping () -> Void = {},
         onPauseRecording: @escaping () -> Void = {},
         onResumeRecording: @escaping () -> Void = {},
@@ -129,11 +119,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.uploadQueueItems = uploadQueueItems
         self.cabinetConfigured = cabinetConfigured
         self.cabinetState = cabinetState
-        self.statusSummary = statusSummary
-        self.lastEventSummary = lastEventSummary
-        self.isChecking = isChecking
-        self.onRefresh = onRefresh
-        self.onRunCheck = onRunCheck
         self.onStopRecording = onStopRecording
         self.onPauseRecording = onPauseRecording
         self.onResumeRecording = onResumeRecording
@@ -584,22 +569,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             .accessibilityIdentifier("desktop-meeting-shell-settings-button")
 
             Spacer()
-
-            Button(action: onRefresh) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 30, height: 30)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7)
-                            .fill(DesktopMeetingShellChrome.shellSurfaceColor.opacity(0.62))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7)
-                            .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("Обновить состояние")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
@@ -657,14 +626,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Доверие записи", systemImage: "lock.shield")
                         .font(.system(size: 13, weight: .semibold))
-                    Text(statusSummary)
+                    Text("Системный звук и микрофон записываются приложением")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(lastEventSummary)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(12)

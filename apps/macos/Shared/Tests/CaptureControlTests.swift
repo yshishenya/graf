@@ -120,14 +120,14 @@ final class CaptureControlTests: XCTestCase {
 
         _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
         let blocked = try controller.blockStart(
-            reason: .routeNotReady,
-            recoveryAction: "Refresh local audio status before recording"
+            reason: .captureUnavailable,
+            recoveryAction: "Retry current capture setup"
         )
 
         XCTAssertEqual(blocked.state, .failed)
-        XCTAssertEqual(blocked.failureCategory, .routeNotReady)
-        XCTAssertEqual(blocked.triggerEvidence["blockedReason"], "route_not_ready")
-        XCTAssertEqual(blocked.triggerEvidence["recoveryAction"], "Refresh local audio status before recording")
+        XCTAssertEqual(blocked.failureCategory, .captureUnavailable)
+        XCTAssertEqual(blocked.triggerEvidence["blockedReason"], "capture_unavailable")
+        XCTAssertEqual(blocked.triggerEvidence["recoveryAction"], "Retry current capture setup")
         XCTAssertFalse(blocked.stopActionAvailable)
     }
 
@@ -491,18 +491,18 @@ final class CaptureControlTests: XCTestCase {
         let rejected = RecordingMicrophoneSelection(
             selectionId: "rejected",
             mode: .userSelected,
-            inputDeviceId: SelfRoutingGuard.microphoneUID,
-            inputDisplayName: SelfRoutingGuard.microphoneDisplayName,
+            inputDeviceId: "virtual-input",
+            inputDisplayName: "Loopback Virtual Audio",
             deviceClass: .otherVirtual,
-            workingDeviceKind: .twoBrainVirtual,
+            workingDeviceKind: .otherVirtual,
             selectionResult: .rejected,
-            rejectionReason: .unsupportedSelfRoutingInput,
+            rejectionReason: .unsupportedVirtualInput,
             resolvedAt: Date(timeIntervalSince1970: 10)
         )
 
         XCTAssertEqual(
             CaptureControlView.recordingMicrophoneRecoveryCopy(for: rejected),
-            "Выберите обычный микрофон. Виртуальные устройства GRAF нельзя использовать как микрофон записи."
+            "Выберите встроенный, USB, проводной или Bluetooth-микрофон для записи."
         )
     }
 

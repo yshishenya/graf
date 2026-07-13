@@ -20,7 +20,6 @@ public struct RecordingEvidenceService: Sendable {
         for session: CaptureSession,
         type: RecordingEvidenceEventType,
         initiator: RecordingEvidenceInitiator,
-        routeState: LivePassthroughStatus,
         blockedReason: RecordingStartBlocker = .none,
         recoveryAction: String? = nil
     ) -> RecordingEvidenceEvent {
@@ -30,7 +29,7 @@ public struct RecordingEvidenceService: Sendable {
             eventType: type,
             occurredAt: clock(),
             initiator: initiator,
-            routeState: routeState,
+            captureState: session.state,
             indicatorState: session.visibleIndicatorState,
             stopActionAvailable: session.stopActionAvailable,
             blockedReason: blockedReason,
@@ -48,7 +47,6 @@ public struct RecordingEvidenceService: Sendable {
             for: session,
             type: .startBlocked,
             initiator: .user,
-            routeState: prerequisite.routeState,
             blockedReason: prerequisite.blockedReason,
             recoveryAction: prerequisite.recoveryAction
         )
@@ -112,10 +110,7 @@ public struct RecordingEvidenceService: Sendable {
             "webRTCAEC3ThresholdProfileId": manifest.webRTCAEC3Outcome?.validationRows.first?.thresholdProfileId ?? "",
             "webRTCAEC3CanClaimCleanBuiltInSpeakerphone": manifest.webRTCAEC3Outcome.map { String($0.canClaimCleanBuiltInSpeakerphone) } ?? "",
             "webRTCAEC3DiagnosticSafe": manifest.webRTCAEC3Outcome.map { String($0.diagnosticSafe) } ?? "",
-            "webRTCAEC3PackageTruth": Self.webRTCAEC3PackageTruth(manifest.webRTCAEC3Outcome),
-            "routeSessionId": manifest.recordingTimelineEvidence?.routeSessionId ?? "",
-            "alignmentBand": manifest.recordingTimelineEvidence?.alignmentBand.rawValue ?? "",
-            "routeInterruptionCategory": manifest.recordingTimelineEvidence?.interruptionCategory.rawValue ?? ""
+            "webRTCAEC3PackageTruth": Self.webRTCAEC3PackageTruth(manifest.webRTCAEC3Outcome)
         ]
     }
 

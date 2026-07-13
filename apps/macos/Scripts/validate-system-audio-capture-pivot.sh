@@ -8,16 +8,14 @@ ARTIFACT_MATRIX="$EVIDENCE_DIR/artifact-matrix.md"
 DEV_DURATION="$EVIDENCE_DIR/development-30-minute.md"
 RELEASE_DURATION="$EVIDENCE_DIR/release-75-minute.md"
 CPU_GATES="$EVIDENCE_DIR/cpu-gates.md"
-NO_HAL="$EVIDENCE_DIR/no-hal-probe.md"
 SCOPE_REVIEW="$EVIDENCE_DIR/scope-review.md"
-DRIVER_PARKED="$EVIDENCE_DIR/driver-parked.md"
 
 usage() {
     cat <<'USAGE'
 validate-system-audio-capture-pivot.sh
 
-Metadata-only validation helper for feature 025. It does not start recording,
-does not inspect audio content, does not run HAL probes, and does not reset TCC.
+Metadata-only validation helper for the current system-audio capture path. It
+does not start recording, inspect audio content, or reset TCC.
 
 Modes:
   --permission-matrix
@@ -54,12 +52,11 @@ Modes:
 
   --installer-app-only
       Build the default local package and verify it contains only the desktop
-      app component, with no audio-driver package references. This is
-      metadata-only and does not install the package.
+      app component. This is metadata-only and does not install the package.
 
   --review-evidence
       Check final evidence readiness across permission, artifact, CPU,
-      no-HAL, duration, and scope review files.
+      duration, and scope review files.
 
   --self-test-cpu-evidence
       Run synthetic CPU evidence parser regression checks. Does not read or
@@ -681,7 +678,7 @@ write_synthetic_manifest() {
     directory_id="$(basename "$directory")"
     cat > "$directory/manifest.json" <<EOF
 {
-  "schemaVersion": "local-recording-manifest.v2",
+  "schemaVersion": "local-recording-manifest.v3",
   "sessionId": "synthetic-artifact-self-test",
   "createdAt": "2026-06-09T00:00:00Z",
   "startedAt": "2026-06-09T00:00:00Z",
@@ -708,7 +705,6 @@ write_synthetic_manifest() {
     "recordingSessionId": "synthetic-artifact-self-test",
     "sampledAt": "2026-06-09T00:00:01Z",
     "phase": "stop",
-    "halProbeObserved": false,
     "gateStatus": "passed",
     "failureReason": "none"
   },
@@ -933,33 +929,6 @@ EOF
     passed "synthetic final review marker parser checks passed"
 }
 
-ensure_no_forbidden_hal_requirement() {
-    if rg -n "HAL runtime probe|required virtual device|driver reinstall required|coreaudiod restart" \
-        "$PERMISSION_MATRIX" "$ARTIFACT_MATRIX" "$DEV_DURATION" "$RELEASE_DURATION" "$SCOPE_REVIEW" \
-        >/dev/null 2>&1; then
-        blocked "evidence contains forbidden HAL/virtual-device recovery wording"
-    fi
-}
-
-latest_no_hal_status() {
-    awk '
-        /^## .* No-HAL MVP Boundary$/ {
-            in_section = 1
-            status = ""
-            next
-        }
-        in_section && /^- Status: `/ {
-            line = $0
-            sub(/^- Status: `/, "", line)
-            sub(/`.*$/, "", line)
-            status = line
-        }
-        END {
-            print status
-        }
-    ' "$NO_HAL"
-}
-
 validate_permission_matrix() {
     mkdir -p "$EVIDENCE_DIR"
     require_file "$PERMISSION_MATRIX"
@@ -980,10 +949,9 @@ validate_permission_matrix() {
         printf -- '- Mode: `--permission-matrix`\n'
         printf -- '- Validator result: `blocked`\n'
         printf -- '- Reason: Manual TCC grant/deny/revoke rows are still required before acceptance.\n'
-        printf -- '- Safe checks: required rows present; blocked/degraded/not-tested rows are not counted as acceptance; this helper avoids HAL probes and driver reinstall steps.\n'
+        printf -- '- Safe checks: required rows present; blocked/degraded/not-tested rows are not counted as acceptance.\n'
     } >> "$PERMISSION_MATRIX"
 
-    ensure_no_forbidden_hal_requirement
     remaining="$(count_not_tested_rows "$PERMISSION_MATRIX")"
     [ "$remaining" = "0" ] ||
         blocked "permission matrix still has $remaining not-tested row(s); keep #307/T071 open"
@@ -1018,7 +986,6 @@ validate_artifact_matrix() {
         printf -- '- Safe checks: required rows present; `incoming.wav` remains `remote_speaker` with `systemAudio` metadata; blocked/degraded/not-tested rows are not counted as acceptance.\n'
     } >> "$ARTIFACT_MATRIX"
 
-    ensure_no_forbidden_hal_requirement
 
     accepted_rows="$(count_accepted_artifact_rows "$ARTIFACT_MATRIX")"
     if [ "$accepted_rows" != "5" ] && ! has_controlled_artifact_acceptance "$ARTIFACT_MATRIX"; then
@@ -1059,7 +1026,7 @@ validate_artifact_directory() {
         fi
     }
 
-    check_jq '.schemaVersion == "local-recording-manifest.v2"' "schemaVersion must be local-recording-manifest.v2"
+    check_jq '.schemaVersion == "local-recording-manifest.v3"' "schemaVersion must be local-recording-manifest.v3"
     check_jq '(.sessionId | type) == "string" and (.sessionId | length) > 0' "sessionId must be a non-empty string"
     check_jq '(.directoryId | type) == "string" and (.directoryId | length) > 0' "directoryId must be a non-empty string"
     expected_directory_id="$(basename "$directory")"
@@ -1077,7 +1044,7 @@ validate_artifact_directory() {
     check_jq '.diagnosticSafe == true' "diagnosticSafe must be true"
     check_jq '.failureReason == "none"' "manifest failureReason must be none for accepted artifact"
     check_jq '(.durationDifferenceSeconds | type) == "number" and .durationDifferenceSeconds >= 0 and .durationDifferenceSeconds <= 3' "durationDifferenceSeconds must be a number between 0 and 3"
-    check_jq '(.captureHealth | type) == "object" and .captureHealth.recordingSessionId == .sessionId and (.captureHealth.sampledAt | type) == "string" and .captureHealth.phase == "stop" and .captureHealth.halProbeObserved == false and .captureHealth.gateStatus == "passed" and .captureHealth.failureReason == "none"' "captureHealth must be present, match session, be stop-phase, no-HAL, passed, and failureReason none"
+    check_jq '(.captureHealth | type) == "object" and .captureHealth.recordingSessionId == .sessionId and (.captureHealth.sampledAt | type) == "string" and .captureHealth.phase == "stop" and .captureHealth.gateStatus == "passed" and .captureHealth.failureReason == "none"' "captureHealth must be present, match session, be stop-phase, passed, and failureReason none"
     check_jq '([.tracks[] | select(.role == "local_mic") | .durationMs] | length) == 1 and ([.tracks[] | select(.role == "remote_speaker") | .durationMs] | length) == 1 and ([.tracks[] | select(.role == "local_mic") | .durationMs][0] | type) == "number" and ([.tracks[] | select(.role == "remote_speaker") | .durationMs][0] | type) == "number"' "manifest must contain exactly one numeric durationMs for local_mic and remote_speaker"
     check_jq '([.tracks[] | select(.role == "local_mic") | .durationMs][0]) as $mic | ([.tracks[] | select(.role == "remote_speaker") | .durationMs][0]) as $incoming | (($mic - $incoming) as $diff | (if $diff < 0 then -$diff else $diff end) as $abs | ($abs <= 3000 and .durationDifferenceSeconds == ($abs / 1000)))' "durationDifferenceSeconds must equal the absolute mic/incoming duration difference and be <= 3"
     check_jq '.scopeApproval != null' "scopeApproval must be present"
@@ -1348,18 +1315,14 @@ validate_duration() {
 }
 
 validate_installer_app_only() {
-    mkdir -p "$EVIDENCE_DIR"
-    require_file "$DRIVER_PARKED"
-
     build_output="$(mktemp)"
     failure_file="$(mktemp)"
     stage_sidecars="$build_output.stage-sidecars"
     trap 'rm -f "$build_output" "$failure_file" "$stage_sidecars"' EXIT
 
     if ! GRAF_ALLOW_ADHOC_APP_SIGNING=1 \
-        GRAF_INCLUDE_DRIVER_COMPONENT=0 \
         sh "$ROOT_DIR/apps/macos/Installer/Scripts/build-local-installer.sh" >"$build_output" 2>&1; then
-        printf '%s\n' "default app-only package build failed" >> "$failure_file"
+        printf '%s\n' "local app package build failed" >> "$failure_file"
     fi
 
     component_dir="$ROOT_DIR/apps/macos/.build/installer/components"
@@ -1368,60 +1331,38 @@ validate_installer_app_only() {
     package="$ROOT_DIR/apps/macos/.build/installer/graf-local.pkg"
 
     [ -f "$package" ] || printf '%s\n' "missing local product package" >> "$failure_file"
+    [ -f "$distribution" ] || printf '%s\n' "missing distribution metadata" >> "$failure_file"
     [ -f "$component_dir/graf-desktop-app.pkg" ] ||
         printf '%s\n' "missing desktop app component package" >> "$failure_file"
-    if find "$component_dir" -maxdepth 1 -type f -name '*audio-driver*.pkg' | grep . >/dev/null 2>&1; then
-        printf '%s\n' "audio-driver component package is present in default build" >> "$failure_file"
-    fi
-    if [ -f "$distribution" ] && rg -n "audio-driver|graf-audio-driver" "$distribution" >/dev/null 2>&1; then
-        printf '%s\n' "distribution.xml contains audio-driver package references" >> "$failure_file"
-    fi
+
+    component_count="$(find "$component_dir" -maxdepth 1 -type f -name '*.pkg' 2>/dev/null | wc -l | tr -d ' ')"
+    [ "$component_count" = "1" ] ||
+        printf '%s\n' "expected exactly one component package, found $component_count" >> "$failure_file"
+
     if find "$stage_app_dir" \( -name '._*' -o -name '.DS_Store' \) -print > "$stage_sidecars" &&
         [ -s "$stage_sidecars" ]; then
         printf '%s\n' "desktop app staging root contains AppleDouble or Finder sidecar files" >> "$failure_file"
         sed 's/^/stage sidecar: /' "$stage_sidecars" >> "$failure_file"
     fi
 
-    append_run_header "$DRIVER_PARKED" "App-Only Installer Validator Run"
-    {
-        printf -- '- Mode: `--installer-app-only`\n'
-        printf -- '- Package: `%s`\n' "$package"
-        printf -- '- Component directory: `%s`\n' "$component_dir"
-    } >> "$DRIVER_PARKED"
-
     if [ -s "$failure_file" ]; then
-        {
-            printf -- '- Validator result: `blocked`\n'
-            printf -- '- Reason: default local package is not app-only.\n'
-            printf -- '- Findings:\n'
-            sed 's/^/  - /' "$failure_file"
-            printf -- '- Build output tail:\n\n```text\n'
-            tail -n 40 "$build_output"
-            printf '```\n'
-        } >> "$DRIVER_PARKED"
         printf '%s\n' "system_audio_capture_pivot_validation=blocked"
-        printf '%s\n' "reason=default local package is not app-only"
+        printf '%s\n' "reason=local package is not a single-app package"
         cat "$failure_file"
+        tail -n 40 "$build_output"
         exit 2
     fi
 
-    {
-        printf -- '- Validator result: `passed`\n'
-        printf -- '- Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.\n'
-    } >> "$DRIVER_PARKED"
-
-    passed "default local package is app-only"
+    passed "local package contains exactly one desktop app component and was not installed"
 }
 
 validate_review_evidence() {
     require_file "$PERMISSION_MATRIX"
     require_file "$ARTIFACT_MATRIX"
     require_file "$CPU_GATES"
-    require_file "$NO_HAL"
     require_file "$DEV_DURATION"
     require_file "$RELEASE_DURATION"
 
-    ensure_no_forbidden_hal_requirement
 
     if [ ! -f "$SCOPE_REVIEW" ]; then
         cat > "$SCOPE_REVIEW" <<'EOF'
@@ -1472,12 +1413,6 @@ EOF
     release_duration_rows="$(count_accepted_duration_rows "$RELEASE_DURATION" 75)"
     if [ "$release_duration_rows" = "0" ]; then
         printf '%s\n' "$RELEASE_DURATION has no accepted 75-minute row with all required gates passed"
-        incomplete=1
-    fi
-
-    no_hal_status="$(latest_no_hal_status)"
-    if [ "$no_hal_status" != "passed" ]; then
-        printf '%s\n' "$NO_HAL latest No-HAL MVP Boundary status is not passed: ${no_hal_status:-missing}"
         incomplete=1
     fi
 

@@ -25,8 +25,9 @@ Current accepted local baseline:
 - Feature `025-system-audio-capture-pivot` changes the MVP capture strategy to
   system-audio-first after `019` validation showed CoreAudio/HAL CPU runaway
   risk.
-- The Core Audio HAL component and virtual audio devices are no longer in the
-  MVP acceptance path. They remain future advanced-routing work.
+- Feature `102-remove-legacy-audio-driver` removes the superseded separate
+  routing implementation from source, packaging, runtime, tests, QA, and active
+  documentation. It is not an available fallback.
 - Manual `Record`/`Stop` exists with visible local recording state and
   one-action stop.
 - Local recording persistence is accepted for manual recordings.
@@ -141,8 +142,7 @@ Differentiation:
 - Unlike cloud-only meeting assistants, `2brain Rec` is deployed into the customer's environment with admin-controlled storage, retention, access, and processing policies.
 - Unlike generic recorders, `2brain Rec` provides separate local/incoming audio
   tracks, durable upload, transcript-linked playback, AI notes, and admin
-  governance. Virtual audio routing is deferred to a future advanced-routing
-  slice.
+  governance through an app-owned system-audio-first capture flow.
 
 ## 3. Target Customer
 
@@ -177,21 +177,22 @@ Not the initial ICP:
 MVP objective:
 
 - Prove that `2brain Rec` can reliably capture local microphone and incoming
-  meeting/system audio from macOS desktop calls without requiring virtual audio
-  routing, upload audio to owner-controlled infrastructure, and produce useful
-  post-call transcripts and notes through MediaScribe.
+  meeting/system audio from macOS desktop calls through app-owned sources,
+  upload audio to owner-controlled infrastructure, and produce useful post-call
+  transcripts and notes through MediaScribe.
 
 Required MVP:
 
 - macOS system-audio-first MVP with explicit microphone capture and
-  screen/system-audio capture. The product must not require a HAL virtual audio
-  driver for MVP recording acceptance.
+  screen/system-audio capture.
 
-Driver policy:
+Advanced-routing policy:
 
-- The virtual microphone/speaker driver is deferred to a future advanced
-  routing slice. It must pass separate CoreAudio CPU, installer, rollback,
-  and long-duration validation before it can affect MVP behavior.
+- The former separate routing implementation is removed legacy and must not be
+  packaged, started, repaired, or used as a fallback.
+- Any future advanced-routing product requires a new Spec Kit slice,
+  architecture, safety case, packaging model, rollback plan, and long-duration
+  validation.
 
 MVP includes:
 
@@ -232,19 +233,15 @@ MVP includes:
   - macOS desktop app: Swift (SwiftUI for UI and app logic where applicable).
   - MVP capture layer: native macOS microphone capture plus native
     Screen/System Audio capture for incoming audio.
-  - Future virtual audio layer and real-time routing bridge: Swift/C++ using
-    platform-supported audio APIs in the selected Core Audio virtual-device
-    path after separate validation.
   - Installer and packaging lifecycle: native macOS signing/notarization workflows.
 - The MVP capture plane is intentionally not a single Dart/Flutter/Electron
-  runtime, because capture permissions, local recording truth, and future
-  privileged audio routing must stay native to the OS integration layer.
+  runtime, because capture permissions and local recording truth must stay
+  native to the OS integration layer.
 - Windows, Linux, iOS, and Android are future platform phases and must be delivered through
   separate architecture slices with their own native stack and distribution model after macOS
   launch criteria are met.
 - Cross-platform frameworks can be considered only for non-capture surfaces
-  that do not own audio capture, permission, future driver, virtual-device, or
-  installer runtime behavior.
+  that do not own audio capture, permission, or installer runtime behavior.
 
 ### 4.y UI Authority And Multiplatform Surface Strategy
 
@@ -267,7 +264,7 @@ Local/native desktop surfaces are authoritative for:
 - tray/menu and floating widget state;
 - recording, pause/resume, and stop commands;
 - capture readiness and audio health;
-- capture permission and future driver install/update/repair/uninstall state;
+- capture permission and source eligibility state;
 - local buffer and disk safety;
 - local recording artifact truth;
 - offline pending recordings;
@@ -288,7 +285,7 @@ Server-driven UI or WebView-rendered remote UI MUST NOT own:
 - capture state truth;
 - local route health truth;
 - local storage safety;
-- permission and future driver recovery truth;
+- permission and capture-source recovery truth;
 - authorization gates for capture-critical actions.
 
 Server-driven schemas may be considered for non-critical settings, help content,
@@ -308,7 +305,7 @@ MVP excludes:
 - Public-link sharing by default.
 - SSO/SCIM/eDiscovery/legal hold unless pulled into enterprise pilot scope.
 - Local-only transcription package unless separately selected.
-- Virtual-device routing as an MVP requirement.
+- Alternate audio-routing architectures.
 - General-purpose meeting detection across arbitrary apps.
 - Auto-start from arbitrary system audio, media playback, notification sounds, music, videos, or non-approved apps.
 - Calendar-driven auto-start.
@@ -318,7 +315,7 @@ MVP excludes:
 ## 5. User Promises
 
 - Start recording with microphone and Screen/System Audio permissions; supported
-  desktop meetings can be captured without selecting virtual `2brain Rec` audio
+  desktop meetings can be captured without reconfiguring meeting-app audio
   devices.
 - Meeting audio, transcripts, notes, and indexes remain in customer-controlled infrastructure by default.
 - No bot is required for audio recording.
@@ -330,7 +327,6 @@ MVP excludes:
 - Desktop app.
 - System-audio capture layer.
 - Microphone capture layer.
-- Virtual audio driver/layer for future advanced-routing work.
 - Local recorder and encrypted buffer.
 - Resumable uploader.
 - Self-hosted backend.
@@ -345,7 +341,7 @@ MVP excludes:
 ## 7. Desktop App
 
 The desktop app is the primary trust surface for capture readiness, recording
-state, permission state, audio health, and future routing.
+state, permission state, and audio health.
 
 Required screens:
 
@@ -357,10 +353,9 @@ Required screens:
   language, pause/resume, stop.
 - Audio Health: microphone, system-audio capture, physical output for playback
   awareness, live meters, readiness verification, permissions, test recording,
-  test playback, diagnostic export, and future driver status when enabled.
+  test playback, and diagnostic export.
 - Settings: account/workspace, audio capture defaults, recording defaults,
-  local cache, upload queue, privacy/consent, future driver
-  install/update/repair/uninstall, diagnostics.
+  local cache, upload queue, privacy/consent, and diagnostics.
 
 Settings information architecture:
 
@@ -371,8 +366,8 @@ Settings information architecture:
 - Auto-start and auto-stop: workspace policy status, eligible apps/domains, user suppression list where allowed, auto-stop duration.
 - Privacy and retention: local buffer retention, transcript-only behavior, deletion policy summary, consent policy summary.
 - Local buffer and upload queue: disk usage, queued meetings, retry failed upload, purge eligible local cache.
-- Capture and diagnostics: permission status, future driver status when enabled,
-  install/update/repair/uninstall for future driver work, diagnostic export.
+- Capture and diagnostics: permission status, source eligibility, current
+  capture health, and diagnostic export.
 
 Settings policy conflict UX:
 
@@ -414,7 +409,7 @@ Required steps:
 5. System-audio setup: verify incoming/system audio capture with a controlled
    source and show silent/blocked/protected-source states truthfully.
 6. Meeting app setup: guide browser-based meetings and approved apps without
-   requiring virtual `2brain Rec` audio devices.
+   requiring audio-device reconfiguration.
 7. Capture verification: verify mic path and incoming/system audio path. Do not
    show fully ready unless both are validated or the missing track is explicitly
    degraded.
@@ -424,18 +419,17 @@ Acceptance criteria:
 
 - Onboarding cannot complete as fully ready unless both mic and incoming/system
   audio capture paths are validated.
-- Failed permission, server, capture, and future driver states provide specific
+- Failed permission, server, and capture states provide specific
   recovery steps.
 - User can resume onboarding after closing the app.
 - Setup distinguishes permission failure, capture failure, device failure,
-  protected/blocked audio, future driver failure, and server failure.
+  protected/blocked audio, and server failure.
 
 Required onboarding failure artifacts:
 
 - Server unavailable.
 - TLS/certificate problem.
 - Login failed.
-- Future driver install failed when future driver mode is enabled.
 - Restart required.
 - Microphone permission denied.
 - System audio permission denied where applicable.
@@ -454,7 +448,7 @@ Tray/menu and floating widget are MVP trust surfaces, not Phase 2 polish.
 Tray/menu bar required actions:
 
 - Show current state and workspace.
-- Show mic/speaker route status.
+- Show microphone/system-audio source status.
 - Start recording.
 - Start transcript-only.
 - Pause/resume.
@@ -469,7 +463,7 @@ Tray/menu bar required actions:
 Tray states:
 
 - `disconnected`
-- `driver_issue`
+- `capture_issue`
 - `ready`
 - `detecting`
 - `recording`
@@ -514,194 +508,151 @@ Acceptance criteria:
 - Widget shows when only mic or only speaker audio is being captured.
 - Invisible-recording defects are release-blocking for pilot rollout and external/customer rollout.
 
-## 10. Virtual Audio Layer
+## 10. App-Owned Audio Capture Layer
 
-Virtual-device mode must expose:
+The supported macOS capture flow uses two app-owned sources:
 
-- `2brain Rec Microphone`
-  - Appears as an input device to meeting apps.
-  - Sends selected physical microphone audio, optionally processed locally.
-  - Must not include remote participant audio.
-  - Must continue passing audio when upload, transcription, or server connection fails.
+- `SystemAudioCaptureService` captures incoming/system audio through
+  ScreenCaptureKit and exposes a buffered recording sample source.
+- `MicrophoneCaptureService` captures the eligible physical microphone and
+  exposes the microphone recording sample source.
+- The composition root explicitly injects both sources into
+  `LocalRecordingWriter`.
 
-- `2brain Rec Speaker`
-  - Appears as an output device to meeting apps.
-  - Receives remote meeting audio.
-  - Routes audio to selected physical output.
-  - Mirrors remote audio into recorder.
-  - Must not feed remote audio back into `2brain Rec Microphone`.
-
-Optional later devices:
-
-- `2brain Rec Monitor`
-- `2brain Rec Mix`
-- `2brain Rec Raw Microphone`
-- `2brain Rec Processed Microphone`
-
-Logical routing graph:
+Logical capture graph:
 
 ```mermaid
 flowchart LR
-  Mic["Physical microphone"] --> MicCapture["Mic capture"]
-  MicCapture --> Processing["Optional local processing"]
-  Processing --> VMic["2brain Rec Microphone"]
-  VMic --> MeetingApp["Meeting app"]
-  MeetingApp --> VSpeaker["2brain Rec Speaker"]
-  VSpeaker --> SpeakerMirror["Remote audio mirror"]
-  VSpeaker --> OutputRouter["Output router"]
-  OutputRouter --> PhysicalOutput["Physical speaker/headphones"]
-  MicCapture --> Recorder["Local recorder/buffer"]
-  SpeakerMirror --> Recorder
-  Recorder --> Uploader["Uploader"]
-  Uploader --> Server["Self-hosted server"]
+  System["ScreenCaptureKit system audio"] --> Incoming["Buffered incoming source"]
+  Mic["Eligible physical microphone"] --> MicSource["App-owned microphone source"]
+  Incoming --> Writer["LocalRecordingWriter"]
+  MicSource --> Writer
+  Writer --> MicFile["mic.wav"]
+  Writer --> IncomingFile["incoming.wav"]
+  Writer --> Manifest["manifest.json"]
+  Manifest --> Queue["Server-mediated upload queue"]
 ```
-
-Loop prevention requirements:
-
-- `2brain Rec Microphone` must never include audio received from `2brain Rec Speaker`.
-- `2brain Rec Speaker` must not capture or replay its own output recursively.
-- Recorder must distinguish physical mic audio from remote meeting audio.
-- Selecting a `2brain_rec` virtual device as its own source/output must be blocked with a fix action.
 
 Track requirements:
 
-- Local mic raw track.
-- Local mic processed track, if processing is enabled.
-- Remote speaker track.
-- Mixed playback track.
-- Optional screen/video track later.
+- `mic.wav`: original app-owned microphone track.
+- `incoming.wav`: original app-owned system-audio track.
+- `manifest.json`: source roles, timing, artifact readiness, degraded/failure
+  truth, and metadata-only evidence.
+- Optional processed or playback artifacts are derived; they never replace the
+  two originals as recording truth.
 
 Frame/chunk metadata:
 
 - Session ID.
-- Track ID.
-- Device ID.
-- Monotonic timestamp.
-- Wall-clock timestamp.
-- Sample rate.
-- Channel count.
-- Sequence number.
-- Dropout markers.
-- Codec.
-- SHA-256 checksum.
-- Encryption metadata.
+- Track ID and source role.
+- Monotonic and wall-clock timestamps.
+- Sample rate and channel count.
+- Sequence number and dropout/discontinuity markers.
+- Codec, byte size, checksum, and encryption metadata where applicable.
 
-Latency targets:
+Safety and acceptance:
 
-- Added mic passthrough latency preferred under 30 ms p95, acceptable under 60 ms p95.
-- Added speaker passthrough latency preferred under 30 ms p95, acceptable under 80 ms p95.
-- Recording starts within 2 seconds after user action.
-- Virtual devices available within 10 seconds after app/driver start.
-- Local chunk flush interval: 1-5 seconds.
-- Upload/STT must never block local audio passthrough.
-
-Acceptance criteria:
-
-- Virtual devices appear in OS sound settings after install.
-- Approved meeting apps can select the virtual devices.
-- Local mic and remote speaker audio are recorded as separate tracks.
-- Remote participants do not hear their own audio echoed through `2brain Rec Microphone`.
-- A 5-minute network outage does not affect live audio passthrough.
+- Recording starts only after policy, both permissions, storage, visible
+  indicator, and source eligibility pass.
+- Recording starts within 2 seconds after user action in the named reference
+  environment.
+- Upload, transcription, and server connectivity never block local capture or
+  one-action stop.
+- Local mic and incoming/system audio remain separate.
+- Missing, empty, misaligned, or unavailable required tracks are degraded or
+  failed truthfully.
 - Track timestamps remain aligned within 100 ms over a 60-minute recording.
+- Post-stop leakage checks must not claim clean separation when evidence is
+  ambiguous or contaminated.
 
-## 11. Platform Driver Requirements
-
-Driver decisions are required before Phase 0 implementation begins, not before Phase 1.
-
-Phase 0 may not start coding until the following are approved:
-
-- macOS virtual audio implementation approach.
-- Driver/component privilege model.
-- Helper/daemon/Login Item/Background Item decision.
-- Installer/signing/notarization approach.
-- Update, rollback, repair, and uninstall approach.
-- Local passthrough failure model.
-- QA hardware and macOS version matrix.
+## 11. macOS Capture And Application Packaging Requirements
 
 macOS:
 
 - macOS 14.5+.
-- Signed and notarized installer package.
 - Apple Silicon support required.
-- Intel Mac unsupported for MVP unless explicitly added by release decision and covered by the full QA matrix.
-- Core Audio AudioServerPlugIn/HAL-style virtual device or approved modern equivalent.
-- Helper/daemon only if required.
-- Microphone permission.
-- Screen & System Audio Recording permission if used.
-- Login Items/Background Items status where relevant.
-- System extension/driver approval state where relevant.
-- Guided remediation for missing permissions.
+- Intel Mac remains unsupported unless a later release decision adds the full
+  QA matrix.
+- Native Swift/SwiftUI application.
+- ScreenCaptureKit for incoming/system audio.
+- Native microphone capture for the local microphone track.
+- Microphone and Screen & System Audio Recording permissions.
+- Guided remediation for missing or revoked permissions.
+- Generic fail-closed rejection of unsupported, unknown, or unavailable
+  microphone-input classes.
 
-Windows later phase:
+Packaging:
 
-- Windows 10 build 20348+ and Windows 11.
-- Signed installer.
-- Signed driver or approved virtual audio endpoint package.
-- Architecture decision required after macOS launch: AVStream/WDM, APO, software device, or licensed SDK.
-- Silent install for Intune/SCCM/enterprise deployment.
-- Detect driver install failure, EDR blocking, pending reboot, service failure.
-- Rollback if install/update fails.
+- Signed and notarized application installer for public release.
+- The distribution contains one desktop application component.
+- Normal build, install, update, and uninstall paths contain no privileged
+  audio component, lifecycle sidecar, or Core Audio service mutation.
+- Release candidates pass installer QA on macOS 14.5 and the latest stable
+  supported macOS.
+- Updates do not interrupt active capture and are deferred while recording.
+- Failed updates roll back the application package truthfully.
+- Permission denied/revoked flows never claim capture is ready.
+- Install/update/uninstall diagnostics contain metadata only.
+- A previously installed experimental proof component is separate host state;
+  cleanup is deliberate, exact-path-only operator work and never a build/test
+  side effect.
 
-Installer/update/uninstall:
+Future platforms:
 
-- App and driver updates must be signed.
-- Release candidates must pass installer QA on macOS 14.5 and the latest stable macOS at RC time.
-- Updates must not interrupt active calls.
-- Active-call update defers without interrupting passthrough.
-- Failed updates must roll back.
-- Admins can pin or delay update channels.
-- Uninstall removes virtual devices, helpers/services, launch/login items, and stale devices.
-- Restore previous default mic/speaker where OS APIs allow.
-- App detects driver/component version.
-- Permission denied/revoked flows show guided remediation and never claim capture is ready.
-- Failed install/update/uninstall produces diagnostic evidence without raw audio.
+- Windows and other platforms require independent capture architecture,
+  distribution, safety, permission, and QA decisions after macOS launch.
+- A future platform must not inherit the removed macOS implementation by
+  default.
 
-## 12. Driver/App IPC
-
-The architecture must separate real-time audio passthrough from non-real-time control, upload, diagnostics, and UI.
+## 12. Capture Composition And Process Boundaries
 
 Required components:
 
-- Virtual audio driver or OS virtual audio component.
-- Privileged helper/service where required.
 - User-space desktop app.
+- App-owned system-audio and microphone capture services.
 - Local recorder/buffer.
-- Uploader.
-- Diagnostics collector.
+- Server-mediated uploader.
+- Metadata-only diagnostics collector.
 
-IPC planes:
+Control and data boundaries:
 
-- Control: device selection, route updates, recording start/stop/pause, policy sync, update commands.
-- Health: heartbeat, versions, permissions, route status, buffer/dropout counters, crash/restart events.
-- Data/metadata: session ID, track ID, audio format, timestamps, sequence number, dropout markers, upload cursor.
+- Control: source eligibility, recording start/stop/pause, policy, permission,
+  indicator, storage, and update state.
+- Health: permissions, capture-session state, source availability,
+  buffer/dropout counters, and crash/restart events.
+- Recording data: the two sample sources flow only into the local writer during
+  capture; desktop code does not send audio directly to MediaScribe.
+- Upload metadata: session, track, format, timestamps, checksums, sequence,
+  dropout markers, and upload cursor.
 
-IPC requirements:
+Requirements:
 
-- Version negotiation.
-- Backward-compatible app/driver updates.
-- Bounded queues and backpressure.
-- Reconnect after app/helper restart.
-- Authenticated local communication where OS-supported.
-- Authorization checks for commands that start/stop capture, change policy, update components, or export diagnostics.
-- Signed update commands and anti-rollback protection for driver/helper updates.
-- Least-privilege boundaries for helpers/services; privileged components must expose the minimum required IPC surface.
-- No network dependency for local passthrough.
+- Source injection is explicit; there is no hidden incoming-audio fallback.
+- Queues are bounded and apply backpressure without blocking capture-critical
+  callbacks.
+- App restart finalizes interrupted artifacts as degraded where possible and
+  never invents completion.
+- Authorization checks protect commands that start/stop capture, change policy,
+  update components, or export diagnostics.
+- Local recording and one-action stop do not depend on network availability.
 
 Acceptance criteria:
 
-- Restarting desktop app does not require reinstalling driver.
-- Helper/service restart restores routes or shows recoverable degraded state.
-- App/driver version mismatch is detected and reported.
-- IPC overflow cannot crash the driver.
+- A clean application build has no separate audio component dependency.
+- Current system-audio, microphone, writer, manifest, permission, indicator,
+  redaction, and package tests pass together.
+- App quit releases current capture resources and leaves metadata-only
+  resource evidence.
 
 ## 13. Diagnostics And Degraded Modes
 
 Diagnostics view must show:
 
-- Driver/app/helper/service status and versions.
-- Virtual device availability.
-- Selected physical mic/output.
-- Current route graph.
+- App and capture-service status and versions.
+- Microphone and system-audio source availability.
+- Selected physical microphone and current capture scope.
+- Current capture graph.
 - Permissions.
 - Recording mode.
 - Upload/buffer state.
@@ -725,7 +676,7 @@ Degraded scenarios:
 - Network/server unavailable.
 - Upload backlog too large.
 - Local disk buffer near full.
-- Driver/helper unavailable.
+- Capture service or required source unavailable.
 - Permission revoked.
 - Mic/output disconnected.
 - Bluetooth reconnect/profile switch.
@@ -737,7 +688,7 @@ Degraded scenarios:
 
 Recovery requirements:
 
-- Local passthrough continues where technically possible.
+- Local recording continues during network/server outages.
 - Recording continues locally during network/server outages.
 - Upload resumes from last acknowledged chunk.
 - Missing audio uses dropout markers.
@@ -853,7 +804,7 @@ Upload session fields:
 - `upload_session_id`
 - `device_id`
 - `desktop_app_version`
-- `driver_version`
+- `capture_architecture`
 - `recording_mode`
 - `source_app`
 - `started_at_wall_clock`
@@ -907,7 +858,7 @@ Required tracks by mode:
   incomplete normal recording.
 - Degraded mode: missing tracks require an unavailable reason such as
   `incoming_audio_not_validated`, `permission_denied`, `user_disabled_track`,
-  `device_failure`, `protected_audio_blocked`, `future_driver_failure`, or
+  `device_failure`, `protected_audio_blocked`, `capture_unavailable`, or
   `policy_blocked`.
 
 Required auth/device endpoints:
@@ -1033,7 +984,7 @@ Core entities:
 - `RefreshToken`
 - `Device`
 - `DeviceToken`
-- `DriverInstallation`
+- `DesktopInstallation`
 - `DeviceHealthReport`
 - `PolicySnapshot`
 - `Meeting`
@@ -1477,7 +1428,8 @@ Required screens:
 - Overview: storage, processing health, fleet health, failed uploads, policy violations, active users.
 - Policies: recording modes, consent, retention, sharing, downloads, auto-start, local buffering, transcript-only behavior.
 - Users and Roles: invite, deactivate, basic admin/non-admin role assignment, permission review.
-- Device Fleet: user, device, OS, app version, driver version, last check-in, health, policy assignment, recent errors.
+- Device Fleet: user, device, OS, app version, capture architecture, last
+  check-in, permission/source health, policy assignment, and recent errors.
 - Audit Logs: searchable/filterable event list, event detail, export where permitted.
 - Storage and Processing: object storage status, queue/workflow health, model/provider status, retention/deletion jobs.
 - Data Boundary: MediaScribe and Langfuse status, provider allowlist, blocked egress attempts.
@@ -1499,7 +1451,8 @@ Deferred enterprise/admin controls:
 
 Acceptance criteria:
 
-- Admin can determine whether capture failures are caused by device, driver, network, policy, or processing.
+- Admin can determine whether capture failures are caused by permissions,
+  capture source, device, network, policy, or processing.
 - Admin can verify retention and deletion jobs.
 - Admin actions affecting recording, retention, sharing, or deletion are audit logged.
 
@@ -1520,7 +1473,9 @@ MVP capture start policy:
 - Assisted auto-start is disabled by default for future external/customer workspaces and must be explicitly enabled by admin policy.
 - Assisted auto-start requires user acknowledgement during onboarding. If either workspace policy or user acknowledgement is missing, meeting detection may show `detecting` but must not start capture.
 - Assisted auto-start may trigger only for locked MVP approved meeting targets.
-- Assisted auto-start must require active `2brain Rec` virtual-device routing, meeting-like routed audio/call activity, satisfied consent policy, and immediate visible local capture indication.
+- Assisted auto-start must require an approved meeting target or explicit
+  user-confirmed capture scope, current recording prerequisites, satisfied
+  consent policy, and immediate visible local capture indication.
 - Assisted auto-start must never trigger from arbitrary system audio, media playback, notification sounds, music, videos, or non-approved apps.
 - If meeting-like activity is uncertain, the product must remain in `detecting` or ask the user; it must not silently start capture.
 - For MVP, assisted auto-start should prompt for confirmation unless the workspace is the internal-team dogfood workspace with explicit admin opt-in.
@@ -1598,7 +1553,7 @@ Encryption requirements:
 - Server-side encryption for object storage.
 - Database encryption at rest where deployment supports it.
 - Encrypted backups.
-- Signed installers, drivers, and updates.
+- Signed installers and application updates.
 - Scoped, revocable, rotated device tokens.
 
 Backup, restore, and deletion verification:
@@ -1642,7 +1597,7 @@ Required audit events:
 - Login/logout/session creation.
 - Failed authentication.
 - Device registration/revocation.
-- Driver installed/uninstalled/updated.
+- Desktop application installed/uninstalled/updated.
 - Recording/transcription started, paused, resumed, stopped.
 - Auto-start triggered.
 - Upload started/completed/failed.
@@ -1681,7 +1636,7 @@ Audit fields:
 
 Threat categories:
 
-- Privileged driver/helper compromise.
+- Compromised desktop capture client or update path.
 - Malicious or compromised desktop client.
 - Stolen device token.
 - Upload replay or chunk tampering.
@@ -1797,7 +1752,7 @@ Required components:
 - Audio meter.
 - Device selector.
 - Route diagram.
-- Driver health card.
+- Capture health card.
 - Waveform player.
 - Transcript segment.
 - Speaker label editor.
@@ -1901,10 +1856,11 @@ Copy rules:
 IP/trade dress rules:
 
 - Do not copy competitor brand assets, logos, icons, screenshots, color systems, typography, UI layouts, copywriting, or marketing claims.
-- Do not reverse engineer, decompile, inspect, or reuse competitor binaries, drivers, protocols, private APIs, or model behavior.
+- Do not reverse engineer, decompile, inspect, or reuse competitor binaries,
+  system components, protocols, private APIs, or model behavior.
 - Use public OS APIs, original code, licensed SDKs, and approved open-source components.
 - Maintain independent design system and product language.
-- Review STT, diarization, embedding, LLM, and driver SDK licenses before use.
+- Review STT, diarization, embedding, LLM, and capture SDK licenses before use.
 
 Acceptance criteria:
 
@@ -2015,18 +1971,22 @@ Deployment runbook acceptance on `2brain.dev`:
 - Rollback procedure is documented for app image, worker image, and database migration.
 - Logs can be inspected without exposing secrets, upload tokens, raw audio, or full transcript content by default.
 
-## 33A. Desktop Driver QA Matrix
+## 33A. Desktop Recording QA Matrix
 
-The driver QA matrix is a Phase 0/Phase 1 requirement, not a later polish item.
+The recording QA matrix is a Phase 0/Phase 1 requirement, not a later polish
+item.
 
-MVP approved app list must be locked before Phase 0 exit. The product goal is application independence through the driver, but QA still needs representative targets. Default target list:
+MVP approved app list must be locked before Phase 0 exit. System-audio capture
+is application-independent where macOS permits it, but QA still needs
+representative targets. Default target list:
 
 - Google Meet in Chrome.
 - Browser-based meetings in Chrome.
 - Browser-based meetings in Opera.
 - Browser-based meetings in Yandex Browser, if available on test machines.
 - Yandex Telemost in browser.
-- Any app that can select `2brain Rec Microphone` and `2brain Rec Speaker` should work, but only tested apps are officially supported in MVP.
+- Other targets remain best-effort until a current-build recording smoke is
+  accepted for them.
 
 OS and architecture coverage:
 
@@ -2053,16 +2013,13 @@ Scenario coverage:
 - Fresh install.
 - Upgrade.
 - Failed update rollback.
-- Active-call update deferral.
+- Active-recording update deferral.
 - Uninstall.
-- Stale-device cleanup.
-- Previous default device restoration.
 - Silent enterprise install if enterprise pilot is in scope.
 - Permission denied.
 - Permission revoked mid-session.
 - Meeting app restart.
 - Desktop app restart.
-- Helper/service restart.
 - OS audio service restart.
 - Sleep/wake.
 - Network outage.
@@ -2072,7 +2029,7 @@ Scenario coverage:
 - Physical output switch.
 - Bluetooth reconnect/profile switch.
 - Sample-rate mismatch.
-- Invalid virtual-device self-route.
+- Unsupported/unknown microphone input rejected fail-closed.
 - 30-minute call.
 - 60-minute call.
 - Transcript-only mode.
@@ -2083,14 +2040,15 @@ Pass/fail requirements:
 - Wired 60-minute test must meet p95 latency targets and stay below 0.1% dropped frames.
 - Bluetooth 60-minute test must stay below 0.5% dropped frames or document unsupported profile limitations in-product.
 - Degraded scenarios must produce expected user-visible state, dropout markers where applicable, and backend finalization behavior.
-- Release candidates cannot ship with unresolved virtual audio passthrough, recording integrity, uninstall, or rollback regressions.
+- Release candidates cannot ship with unresolved current capture, recording
+  integrity, app packaging, permission, indicator, or rollback regressions.
 
 ## 33. Roadmap
 
 Phase 0: Feasibility and architecture gates.
 
 - Select first platform.
-- Prototype virtual audio path.
+- Prototype app-owned microphone and system-audio capture.
 - Validate separate local/remote tracks.
 - Validate install, uninstall, permissions, restart behavior.
 - Benchmark STT and deployment requirements.
@@ -2100,7 +2058,8 @@ Phase 0: Feasibility and architecture gates.
 Phase 1: Pilot rollout MVP.
 
 - Desktop app for selected platform.
-- Driver-first capture path based on macOS virtual audio layer.
+- System-audio-first capture based on ScreenCaptureKit plus app-owned
+  microphone capture.
 - Assisted auto-start and configurable auto-stop, with manual record/stop override.
 - Tray/menu bar state, persistent capture indicator, and one-action stop.
 - Floating widget during active capture unless workspace policy allows hiding it and another persistent local capture indicator remains visible.
@@ -2148,26 +2107,32 @@ Phase 4: Advanced capture and intelligence.
 - AI chat over meetings.
 - Local-only transcription package.
 - Noise suppression/voice isolation.
+- Separately approved advanced-routing research only if a new product need and
+  safety case justify it.
 - Windows implementation if Phase 2 discovery is complete.
 
 ## 34. Phase Gates
 
-Phase 0 driver gates:
+Phase 0 capture gates:
 
 - Target platform selected: macOS.
-- Driver implementation approach, privilege model, installer/signing/notarization approach, update/rollback/repair/uninstall approach, and QA matrix approved before Phase 0 coding starts.
-- Virtual devices install and appear in OS audio settings.
-- Approved meeting apps can select devices.
-- Mic and remote audio captured as separate tracks.
+- App-owned microphone and ScreenCaptureKit system-audio architecture accepted.
+- Microphone and Screen & System Audio Recording permission flows validated.
+- Mic and incoming/system audio captured as separate tracks.
+- Persistent local indicator and one-action stop validated.
 - 30-minute and 60-minute call tests completed.
-- Latency/dropout targets measured.
-- Sleep/wake, device switch, app restart, network outage, server outage tested.
-- Installer/uninstaller path validated.
-- Diagnostic bundle captures driver/install failures.
+- Latency/dropout/alignment targets measured.
+- Sleep/wake, device switch, app restart, network outage, and server outage
+  tested.
+- App-only installer/uninstaller path validated.
+- Diagnostic bundle captures permission, source, artifact, and app failures
+  without content or secrets.
 
 Platform-specific Phase 0 gates:
 
-- macOS: signed/notarized installer proof, required permission flow proof, virtual audio component load proof, helper recovery proof if helper is used, clean uninstall proof.
+- macOS: signed/notarized application installer proof, required permission
+  flow proof, current capture resource-release proof, and clean app uninstall
+  proof.
 - Windows: deferred until after macOS launch. Windows must not be represented as supported during MVP.
 
 Phase 1 pilot rollout gate:
@@ -2209,7 +2174,7 @@ Recording reliability:
 - Audio dropout under 0.5% of total recorded duration in normal conditions.
 - Local buffering survives at least 5 minutes of network outage.
 - Upload recovery success after outage: 95%+.
-- Capture/driver crash rate under 1 per 100 recording hours.
+- Capture/app crash rate under 1 per 100 recording hours.
 
 Processing:
 
@@ -2241,14 +2206,14 @@ Engagement:
 
 ## 36. Acceptance Criteria
 
-Desktop/driver:
+Desktop capture:
 
-- Virtual mic/speaker appear in OS audio devices.
-- Approved apps can select virtual devices.
-- Separate mic and speaker tracks are recorded.
-- Audio passthrough continues when server/upload fails.
-- Invalid self-routing is blocked.
-- Uninstall removes virtual devices cleanly.
+- Manual recording uses the app-owned microphone and system-audio sources.
+- Both current permissions are enforced truthfully.
+- Separate mic and incoming/system-audio tracks are recorded.
+- Local recording and one-action stop continue when server/upload fails.
+- Unsupported microphone inputs are rejected fail-closed.
+- App install/update/uninstall does not mutate privileged audio components.
 
 Ingest/recovery:
 
@@ -2295,8 +2260,9 @@ Self-hosting:
 
 Required decisions:
 
-1. macOS driver implementation approach.
-2. Driver installer/signing/notarization approach.
+1. macOS app-owned microphone/system-audio capture approach (decided by ADR
+   002 and ADR 004).
+2. App-only installer/signing/notarization approach.
 3. Default mode: audio plus transcript retained.
 4. Retention UX for full-meeting deletion and keep/delete controls.
 5. MediaScribe authenticated dual-track job API contract using `X-API-Key`.
@@ -2310,19 +2276,20 @@ Required decisions:
 13. Pricing/package assumption.
 14. Support posture.
 15. Windows follow-up trigger after macOS launch.
-16. Native-per-platform technology strategy for capture/driver plane and installer lifecycle.
+16. Native-per-platform technology strategy for capture and application
+    installer lifecycle.
 
 Decision criteria:
 
 - Each decision has owner, date, selected option, rationale, and revisit trigger.
-- No Phase 0 driver implementation starts until decisions 1-2 are resolved.
+- No Phase 0 capture implementation starts until decisions 1-2 are resolved.
 - No Phase 1 implementation starts until decisions 1-16 are resolved and MediaScribe retention/deletion behavior is documented.
 - Any decision affecting data boundaries must be reflected in admin settings, onboarding copy, and audit behavior.
 
 ## 38. Open Risks
 
-- Driver development and signing delay release.
-- OS updates break virtual audio routing.
+- Application signing/notarization or permission-retention gaps delay release.
+- OS updates change ScreenCaptureKit or microphone-capture behavior.
 - Bluetooth routing and profile changes degrade quality.
 - Botless recording creates trust/legal concerns.
 - MediaScribe processing capacity may become the bottleneck for transcript turnaround.

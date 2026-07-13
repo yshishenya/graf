@@ -142,7 +142,7 @@ The reviewed Parrot repository uses a simple and useful capture shape:
 
 - ScreenCaptureKit for system audio.
 - AVAudioEngine for microphone capture.
-- no virtual audio driver requirement.
+- no separate audio-routing component.
 
 It does not appear to implement live AEC, WebRTC AEC3, Apple voice processing,
 or a package-level leakage gate. Treat it as a clean-room architecture reference
@@ -366,8 +366,8 @@ AEC3 is the most controllable path to real speakerphone support.
 ### Out Of Scope
 
 - No silent replacement of original evidence.
-- No HAL callback file I/O, allocation, logging, network calls, or unbounded
-  waits.
+- No capture callback file I/O, allocation, logging, network calls, or
+  unbounded waits.
 - No production rollout until licensing, packaging, notarization, CPU, and crash
   gates pass.
 - No claim that browser WebRTC AEC alone solves the issue.

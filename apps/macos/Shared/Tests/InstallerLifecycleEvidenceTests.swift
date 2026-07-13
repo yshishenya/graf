@@ -1,40 +1,9 @@
 import Foundation
-import TwoBrainRecShared
 
 #if canImport(XCTest)
 import XCTest
 
 final class InstallerLifecycleEvidenceTests: XCTestCase {
-    func testInstallerLifecycleEvidenceUsesCommonResultValues() {
-        let evidence = InstallerLifecycleEvidence(
-            operation: "repair",
-            preState: "installed",
-            postState: "repaired",
-            coreAudioRefreshRequired: true,
-            runtimeProbeResult: "accepted",
-            result: .passed
-        )
-
-        XCTAssertEqual(evidence.operation, "repair")
-        XCTAssertTrue(evidence.coreAudioRefreshRequired)
-        XCTAssertEqual(evidence.runtimeProbeResult, "accepted")
-        XCTAssertEqual(evidence.result, .passed)
-    }
-
-    func testSkippedLifecycleOperationIsNotAccepted() {
-        let evidence = InstallerLifecycleEvidence(
-            operation: "uninstall",
-            preState: "installed",
-            postState: "unknown",
-            coreAudioRefreshRequired: true,
-            runtimeProbeResult: "not_run",
-            result: .notAccepted
-        )
-
-        XCTAssertEqual(evidence.result, .notAccepted)
-        XCTAssertEqual(evidence.runtimeProbeResult, "not_run")
-    }
-
     func testInstallerSupportsExplicitLocalSelfSignedPermissionRetentionPath() throws {
         let source = try Self.readRepositoryFile("apps/macos/Installer/Scripts/build-local-installer.sh")
 
@@ -53,7 +22,9 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(source.contains("Apple Development|Developer ID Application|Apple Distribution|Mac Developer"))
         XCTAssertTrue(source.contains("Use an Apple Development or Developer ID Application identity for release-like builds."))
         XCTAssertFalse(source.contains("ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=\"1\""))
-        XCTAssertTrue(source.contains("GRAF_INCLUDE_DRIVER_COMPONENT:-${TWO_BRAIN_REC_INCLUDE_DRIVER_COMPONENT:-0}"))
+        XCTAssertFalse(source.contains("INCLUDE_DRIVER_COMPONENT"))
+        XCTAssertFalse(source.contains("AudioDriver"))
+        XCTAssertFalse(source.contains("Audio/Plug-Ins/HAL"))
     }
 
     func testInstallerDeclaresStableGrafAppIdentityAndPermissions() throws {
@@ -78,6 +49,20 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(readme.contains("Developer ID Installer"))
         XCTAssertTrue(readme.contains("successful notarization"))
         XCTAssertFalse(readme.localizedCaseInsensitiveContains("private key:"))
+        XCTAssertFalse(readme.localizedCaseInsensitiveContains("driver diagnostics package"))
+        XCTAssertFalse(readme.contains("GRAF_INCLUDE_DRIVER_COMPONENT"))
+    }
+
+    func testUninstallIsAppOnlyAndDoesNotMutateCoreAudio() throws {
+        let source = try Self.readRepositoryFile("apps/macos/Installer/Scripts/uninstall.sh")
+
+        XCTAssertTrue(source.contains("/Applications/GRAF.app"))
+        XCTAssertTrue(source.contains("/Applications/2brain Rec.app"))
+        XCTAssertFalse(source.contains("GRAF_APP_PATH"))
+        XCTAssertFalse(source.contains("GRAF_LEGACY_APP_PATH"))
+        XCTAssertFalse(source.contains("Audio/Plug-Ins/HAL"))
+        XCTAssertFalse(source.localizedCaseInsensitiveContains("driver"))
+        XCTAssertFalse(source.contains("coreaudiod"))
     }
 
     private static func readRepositoryFile(_ relativePath: String) throws -> String {
