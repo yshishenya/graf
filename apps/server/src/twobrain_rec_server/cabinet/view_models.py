@@ -72,23 +72,23 @@ from twobrain_rec_server.domain.statuses import (
 )
 
 STATUS_LABELS: dict[str, str] = {
-    "local_only": "Local only",
-    "uploading": "Uploading",
-    "submitted": "Submitted",
-    "processing": "Processing",
-    "ready": "Ready",
-    "partial": "Partial",
-    "blocked": "Blocked",
-    "failed": "Failed",
-    "unavailable": "Unavailable",
-    "deleted_future": "Delete planned",
+    "local_only": "Сохранено на Mac",
+    "uploading": "Отправляем",
+    "submitted": "Обрабатывается",
+    "processing": "Обрабатывается",
+    "ready": "Готово",
+    "partial": "Готово с замечаниями",
+    "blocked": "Нужна помощь",
+    "failed": "Нужна помощь",
+    "unavailable": "Нужна помощь",
+    "deleted_future": "Удаляется",
 }
 
 MEDIASCRIBE_SPEAKER_LABEL_RE = re.compile(r"^SPEAKER_\d{2,}$")
 
 SORT_LABELS: dict[str, str] = {
-    "updated_desc": "Недавно обновленные",
-    "updated_asc": "Давно обновленные",
+    "updated_desc": "Недавно обновлённые",
+    "updated_asc": "Давно обновлённые",
     "started_desc": "Новые по дате записи",
     "started_asc": "Старые по дате записи",
     "duration_desc": "Сначала длинные",
@@ -108,6 +108,13 @@ PROCESSING_STATUSES = {
 
 UNSAFE_TITLE_RE = re.compile(
     r"https?://|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|token=|password|bearer\s|(?:^|[^A-Z0-9])sk-[A-Z0-9_-]{8,}|\b(?:[A-Z0-9-]+\.)+[A-Z]{2,}/[^\s<>'\"]+",
+    re.IGNORECASE,
+)
+KNOWN_MEDIA_EXTENSION_RE = re.compile(r"\.(?:wav|mp3|m4a|mp4|mov|webm)$", re.IGNORECASE)
+GENERATED_MANUAL_UPLOAD_RE = re.compile(r"^manual[-_]upload(?:[-_][a-z0-9]+)+$", re.IGNORECASE)
+GENERATED_CAPTURE_TITLE_RE = re.compile(
+    r"^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)"
+    r"\s*-\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$",
     re.IGNORECASE,
 )
 
@@ -1074,10 +1081,10 @@ def format_duration(seconds: int) -> str:
     minutes, second = divmod(max(0, seconds), 60)
     hours, minutes = divmod(minutes, 60)
     if hours:
-        return f"{hours}h {minutes}m"
+        return f"{hours} ч {minutes} мин" if minutes else f"{hours} ч"
     if minutes:
-        return f"{minutes}m"
-    return f"{second}s"
+        return f"{minutes} мин"
+    return f"{second} с"
 
 
 def date_label(item: MeetingListItem) -> str:
@@ -1139,12 +1146,55 @@ def meeting_media_label(item: MeetingListItem) -> str:
     }[meeting_media_kind(item)]
 
 
-def safe_title(meeting: Meeting) -> str:
-    for candidate in (meeting.title, meeting.local_recording_id):
-        title = safe_title_candidate(candidate)
-        if title:
-            return title
-    return "Untitled meeting"
+def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
+    title = safe_title_candidate(meeting.title)
+    if title:
+        if GENERATED_MANUAL_UPLOAD_RE.fullmatch(title):
+            return "Загруженная запись"
+        if GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
+            return _generated_recording_title(meeting) or "Запись без названия"
+        if KNOWN_MEDIA_EXTENSION_RE.search(title):
+            return _clean_file_title(title)
+        return title
+
+    if source == "manual_upload" or GENERATED_MANUAL_UPLOAD_RE.fullmatch(
+        meeting.local_recording_id or ""
+    ):
+        return "Загруженная запись"
+    return _generated_recording_title(meeting) or "Запись без названия"
+
+
+def _clean_file_title(title: str) -> str:
+    leaf_title = re.split(r"[/\\]", title)[-1]
+    without_extension = KNOWN_MEDIA_EXTENSION_RE.sub("", leaf_title)
+    normalized = re.sub(r"_+", " ", without_extension)
+    return re.sub(r"\s+", " ", normalized).strip() or "Загруженная запись"
+
+
+def _generated_recording_title(meeting: Meeting) -> str | None:
+    started_at = meeting.started_at
+    if started_at is None:
+        return None
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    offset = meeting.recording_display_timezone_offset_minutes
+    if offset is not None and -14 * 60 <= offset <= 14 * 60:
+        started_at = started_at.astimezone(timezone(timedelta(minutes=offset)))
+    months = {
+        1: "янв",
+        2: "фев",
+        3: "мар",
+        4: "апр",
+        5: "май",
+        6: "июн",
+        7: "июл",
+        8: "авг",
+        9: "сен",
+        10: "окт",
+        11: "ноя",
+        12: "дек",
+    }
+    return f"Запись {started_at.day} {months[started_at.month]}, {started_at:%H:%M}"
 
 
 def safe_title_candidate(raw: str | None) -> str | None:
@@ -1294,6 +1344,7 @@ def build_list_item(
     upload: MeetingUploadProgressState | None = None,
 ) -> MeetingListItem:
     status = review_status(meeting, result=result, workflow=workflow)
+    source = _meeting_source(media_revision)
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
     notes_truth = notes_action_truth_state(
@@ -1301,12 +1352,12 @@ def build_list_item(
     )
     return MeetingListItem(
         meeting_id=meeting.id,
-        title=safe_title(meeting),
+        title=safe_title(meeting, source=source),
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
         recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
         duration_seconds=max(0, meeting.duration_seconds),
-        source=_meeting_source(media_revision),
+        source=source,
         status=status,
         status_label=STATUS_LABELS[status],
         status_reason=workflow.last_reason_code

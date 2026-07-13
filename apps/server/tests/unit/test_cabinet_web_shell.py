@@ -305,8 +305,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-filter-disclosure' in page
     assert 'data-sort-disclosure' in page
     assert 'aria-label="Фильтры"' in page
-    assert 'aria-label="Сортировка: Недавно обновленные"' in page
-    assert 'value="updated_desc" selected>Недавно обновленные</option>' in page
+    assert 'aria-label="Сортировка: Недавно обновлённые"' in page
+    assert 'value="updated_desc" selected>Недавно обновлённые</option>' in page
     css = _cabinet_css()
     assert "max-width: min(1120px, calc(100vw - 48px))" in css
     assert "min-height: 46px;" in css
@@ -369,6 +369,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-icon="sort"' in page
     assert 'data-icon="trash"' in page
     assert 'data-meeting-select' in page
+    assert '<span class="row-select-hit">' in page
+    assert '<span class="row-select-hit" aria-hidden="true">' not in page
     assert 'data-row-delete' in page
     assert 'data-row-delete-form' in page
     assert 'data-hx-post="/meetings/' in page
@@ -376,6 +378,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'id="delete-feedback-region"' in page
     assert 'data-delete-dialog' in page
     assert "Удалить запись?" in page
+    assert 'role="status" aria-live="polite" data-delete-error' in page
     assert "Удалить записи?" in page
     assert "Отмена" in page
     assert "Удалить" in page
@@ -390,6 +393,44 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'toolbar.dataset.selectionState = allSelected ? "all" : "partial"' in script
     assert "Снять выбор" in script
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
+
+
+def test_feature_104_removed_main_window_fragments_have_no_current_entry_point() -> None:
+    sections = (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
+    meeting_list = (
+        SERVER_ROOT
+        / "cabinet"
+        / "templates"
+        / "cabinet"
+        / "pages"
+        / "meeting_list_content.html"
+    ).read_text()
+    css = _cabinet_css()
+
+    for marker in [
+        "Пробный период 7 дней",
+        "Пригласить",
+        "Ближайшие встречи появятся",
+        "Подключить календари",
+        "Сохраненные",
+        "Скачать выбранные записи",
+        "selection_toolbar",
+    ]:
+        assert marker not in sections
+        assert marker not in meeting_list
+
+    for obsolete_selector in [
+        ".trial {",
+        ".upcoming {",
+        ".metric-grid {",
+        ".metric {",
+        ".toolbar {",
+        ".cabinet-selection-toolbar,",
+        ".first-run-download {",
+    ]:
+        assert obsolete_selector not in css
 
 
 def test_empty_meeting_list_reuses_toolbar_upload_and_native_recording() -> None:
@@ -470,7 +511,7 @@ def test_web_shell_uses_base_template_and_static_assets() -> None:
     assert f'src="{CABINET_STATIC_URL}/htmx-2.0.10.min.js"' in page
     assert f'src="{CABINET_STATIC_URL}/cabinet.js?v=' in page
     assert f'src="{CABINET_STATIC_URL}/graf-wordmark-dark.png"' in page
-    assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' not in page
+    assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' in page
     assert f'src="{CABINET_STATIC_URL}/graf-logo.svg"' not in page
     assert "Бесплатный" not in page
     assert '<body data-surface-mode="standalone_browser">' in page
@@ -628,7 +669,7 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
         "  .app-shell.desktop-embedded { grid-template-columns: var(--app-rail-width) minmax(0, 1fr); }"
     ) in css
     assert "    width: var(--app-rail-width);" in css
-    assert "  .desktop-embedded .sidebar:hover," in css
+    assert "  .desktop-embedded .sidebar:hover," not in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
     assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
 
@@ -847,8 +888,9 @@ def test_list_delete_script_json_encodes_bounded_copy(monkeypatch) -> None:
     assert "Delete &quot;quoted&quot;" in page
     assert 'confirmation_boundary: "Delete' not in script
     assert "new FormData(form)" in script
-    assert "fetch(" not in script
-    assert 'window.htmx.ajax("POST"' in script
+    assert "fetch(form.action" in script
+    assert "if (!response.ok)" in script
+    assert '"HX-Request": "true"' in script
 
 
 def test_detail_shell_renders_tabs_and_gated_actions() -> None:

@@ -88,7 +88,7 @@ public struct CaptureStatusItem: View {
             }
         }
         .padding(8)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(Self.accessibilityLabel(for: session))
         .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)
         .background(
@@ -133,27 +133,27 @@ public struct CaptureStatusItem: View {
     public static func statusLabel(for session: CaptureSession) -> String {
         switch session.state {
         case .idle:
-            return "Запись не идет"
+            return "Готово к записи"
         case .detecting:
             return "Проверяем готовность"
         case .ready:
             return "Готово к записи"
         case .starting:
-            return "Запись запускается"
+            return "Начинаем запись…"
         case .active:
-            return "Идет запись"
+            return "Идёт запись"
         case .paused:
             return "Запись на паузе"
         case .degraded:
             return "Запись с ограничением"
         case .stopping:
-            return "Останавливаем запись"
+            return "Сохраняем запись…"
         case .stopped:
-            return "Запись остановлена"
+            return "Сохранено на Mac"
         case .failed:
-            return "Запись не началась"
+            return "Нужна помощь"
         case .finalized:
-            return "Запись сохранена"
+            return "Сохранено на Mac"
         }
     }
 

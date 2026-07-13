@@ -405,7 +405,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             )
 
             XCTAssertEqual(presentation.tileTitle, "Сервер недоступен", "\(state)")
-            XCTAssertEqual(presentation.tileDetail, "Запись работает локально", "\(state)")
+            XCTAssertEqual(presentation.tileDetail, "Записи остаются на этом Mac", "\(state)")
             XCTAssertEqual(presentation.systemImage, "wifi.slash", "\(state)")
             XCTAssertEqual(presentation.tone, .error, "\(state)")
         }

@@ -9,14 +9,127 @@ import XCTest
 final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
     func testOnlineProductSidebarIsWebOwnedWhileNativeCaptureChromeRemainsNative() {
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
-        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Сохранность"])
+        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
         XCTAssertGreaterThan(DesktopMeetingShellChrome.recordingStripHeight, 0)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
         XCTAssertFalse(DesktopMeetingShellChrome.shouldShowExpandedInspector(
             manualExpanded: false,
-            hasActiveRecording: true
+            hasActionableProblem: false
+        ))
+        XCTAssertTrue(DesktopMeetingShellChrome.shouldShowExpandedInspector(
+            manualExpanded: false,
+            hasActionableProblem: true
         ))
         XCTAssertTrue(CaptureStatusItem.showsStopButton(for: makeActiveSession()))
+    }
+
+    func testNativeShellOwnsDirectStartStopAndRecordingDoesNotAutoExpandInspector() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+        let appSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(shellSource.contains("startRecordingAvailable"))
+        XCTAssertTrue(shellSource.contains("onStartRecording"))
+        XCTAssertTrue(shellSource.contains("hasActionableCaptureProblem"))
+        XCTAssertTrue(shellSource.contains("desktop-meeting-shell-start-recording-button"))
+        XCTAssertTrue(shellSource.contains("desktop-meeting-shell-stop-recording-button"))
+        XCTAssertTrue(shellSource.contains("RecordingTitlebarHUD("))
+        XCTAssertTrue(shellSource.contains("Label(\"Стоп\", systemImage: \"stop.fill\")"))
+        XCTAssertFalse(shellSource.contains("hasActiveRecording: recordingStripSession != nil"))
+        XCTAssertTrue(appSource.contains("startRecordingAvailable: CaptureControlView.shouldEnableRecordButton"))
+        XCTAssertTrue(appSource.contains("hasActionableCaptureProblem: CaptureControlView.hasActionableProblem"))
+        XCTAssertTrue(appSource.contains("onStartRecording:"))
+    }
+
+    func testNativeShellWidthAndInteractiveTargetsStayStableAtSupportedSizes() {
+        XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 52)
+        XCTAssertTrue((304...312).contains(DesktopMeetingShellChrome.expandedInspectorWidth))
+        XCTAssertGreaterThanOrEqual(
+            DesktopMeetingShellChrome.compactRailActionHitSize,
+            DesktopMeetingShellChrome.minimumInteractiveTarget
+        )
+        XCTAssertGreaterThanOrEqual(
+            DesktopMeetingShellChrome.inspectorToggleHitSize,
+            DesktopMeetingShellChrome.minimumInteractiveTarget
+        )
+        XCTAssertFalse(
+            DesktopMeetingShellChrome.shouldShowExpandedInspector(
+                manualExpanded: false,
+                hasActionableProblem: false
+            )
+        )
+    }
+
+    func testOrdinaryNativeInspectorOmitsPermanentTrustDiagnosticsAndGenericReports() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+        let appSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(shellSource.contains("Label(\"Доверие записи\""))
+        XCTAssertFalse(shellSource.contains("Label(\"Диагностика\""))
+        XCTAssertFalse(shellSource.contains("diagnosticsContent"))
+        XCTAssertFalse(appSource.contains("diagnosticsContent:"))
+        XCTAssertTrue(shellSource.contains("if meetingOwnerCustodyActionCount > 0"))
+        XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
+    }
+
+    func testRemovedNativeMainWindowFragmentsHaveNoCurrentEntryPoint() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+        let captureSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlView.swift"),
+            encoding: .utf8
+        )
+        let appSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        for forbidden in [
+            "localTodayStrip",
+            "localTodayTile(",
+            "Image(systemName: \"bookmark\")",
+            "Image(systemName: \"line.3.horizontal.decrease\")",
+            "Image(systemName: \"arrow.up.arrow.down\")",
+            "Label(\"Доверие записи\"",
+            "Label(\"Диагностика\"",
+            "diagnosticsContent"
+        ] {
+            XCTAssertFalse(shellSource.contains(forbidden), forbidden)
+        }
+        for forbidden in [
+            "private struct UploadQueueStatusView",
+            "appleProcessingStatusCopy",
+            "uploadReviewButtonTitle"
+        ] {
+            XCTAssertFalse(captureSource.contains(forbidden), forbidden)
+        }
+        for forbidden in [
+            "activeAppleProcessingOutcome",
+            "localRecordingLocation",
+            "meetingDetectionHealth",
+            "recordingBlocker = \"Не удалось поставить запись на паузу: \\(error)\"",
+            "recordingBlocker = \"Не удалось продолжить запись: \\(error)\"",
+            "recordingBlocker = \"Не удалось остановить запись: \\(error)\"",
+            "default:\n            return action"
+        ] {
+            XCTAssertFalse(appSource.contains(forbidden), forbidden)
+        }
     }
 
     func testNativeProductSidebarImplementationIsRemovedFromShellSource() throws {
@@ -153,10 +266,10 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("onSubmit: onSupportIncidentReport"))
         XCTAssertTrue(shellSource.contains("accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)"))
         XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.sendTitle))
-        XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.copyTitle))
         XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.failureMessage))
-        XCTAssertTrue(stripSource.contains(".accessibilityLabel(\"Отправить отчет разработчикам\")"))
-        XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.copyTitle)"))
+        XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.sendTitle)"))
+        XCTAssertFalse(stripSource.contains("Скопировать отчет"))
+        XCTAssertFalse(stripSource.contains("Отправить отчет"))
     }
 
     func testEmbeddedCabinetWebViewIsClippedInsideNativeShell() throws {

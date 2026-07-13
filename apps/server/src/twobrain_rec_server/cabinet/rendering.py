@@ -417,7 +417,7 @@ def _render_meeting_row(
     csrf_field = f'<input type="hidden" name="csrf_token" value="{escape(csrf_token)}">' if csrf_token else ""
     return f"""
       <article class="meeting-row cabinet-row{selected_class}" tabindex="0" aria-label="Встреча {title}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
-        <span class="row-select-hit" aria-hidden="true"><input class="row-check" type="checkbox" tabindex="-1" aria-hidden="true" data-row-contextual data-meeting-select aria-label="Выбрать запись {title}"></span>
+        <span class="row-select-hit"><input class="row-check" type="checkbox" tabindex="-1" aria-hidden="true" data-row-contextual data-meeting-select aria-label="Выбрать запись {title}"></span>
         <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
         <a class="meeting-title" href="{href}" aria-label="Открыть встречу {title}">
           <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
@@ -442,7 +442,7 @@ def _render_meeting_row_meta(item: MeetingListItem) -> str:
     if item.upload is None:
         return f"<span>{escape(_ui_text(item.status_label))}</span>"
     label = escape(item.upload.label)
-    if item.upload.progress_percent is None:
+    if not item.upload.is_active or item.upload.progress_percent is None:
         return f'<span class="upload-progress-label">{label}</span>'
     percent = max(0, min(100, item.upload.progress_percent))
     active_attr = " data-upload-progress-active" if item.upload.is_active else ""
@@ -470,7 +470,7 @@ def _render_list_delete_dialog() -> str:
           <button type="button" class="quiet" data-delete-cancel>Отмена</button>
           <button type="button" class="danger-button" data-delete-confirm>Удалить</button>
         </div>
-        <div class="dialog-error" data-delete-error hidden>Не удалось удалить запись. Попробуйте еще раз.</div>
+        <div class="dialog-error" role="status" aria-live="polite" data-delete-error hidden>Не удалось удалить запись. Попробуйте ещё раз.</div>
       </dialog>
     """
 

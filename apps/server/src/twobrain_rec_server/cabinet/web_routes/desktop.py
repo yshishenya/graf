@@ -7,10 +7,6 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
-from twobrain_rec_server.api.schemas import (
-    AccessState,
-    MeetingReviewStatus,
-)
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     set_desktop_calendar_auth_cookie,
@@ -41,11 +37,11 @@ from twobrain_rec_server.cabinet.web_routes.auth import (
     logout_current_browser_session,
 )
 from twobrain_rec_server.cabinet.web_routes.support import (
-    CabinetAccessQuery,
+    CabinetAccessFilter,
     CabinetLimitQuery,
     CabinetSearchQuery,
     CabinetSortQuery,
-    CabinetStatusQuery,
+    CabinetStatusFilter,
     CalendarConnectResultQuery,
     CalendarDisconnectResultQuery,
     CalendarPolicyLimitedQuery,
@@ -72,8 +68,8 @@ EmbeddedLogoutNextForm = Form(default="/login?next=/desktop/meetings", alias="ne
 async def embedded_meeting_list_page(
     request: Request,
     q: str | None = CabinetSearchQuery,
-    status: MeetingReviewStatus | None = CabinetStatusQuery,
-    access: AccessState | None = CabinetAccessQuery,
+    status: CabinetStatusFilter = None,
+    access: CabinetAccessFilter = None,
     sort: str = CabinetSortQuery,
     limit: int = CabinetLimitQuery,
     tenant_scope: TenantScope = WebTenantDependency,

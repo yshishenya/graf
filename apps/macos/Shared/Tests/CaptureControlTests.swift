@@ -166,6 +166,125 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(CaptureControlView.shouldEnableRecordButton(for: detecting, recordDisabled: true))
     }
 
+    func testCapturePresentationCoversReadyPermissionDetectedRecordingAndSavedStates() {
+        XCTAssertEqual(
+            CaptureControlView.primaryStatus(
+                for: nil,
+                blockedReason: nil,
+                localRecordingStatus: nil
+            ),
+            "Готово к записи"
+        )
+        XCTAssertEqual(
+            CaptureControlView.primaryStatus(
+                for: nil,
+                blockedReason: "Нужен доступ к микрофону. Откройте настройки.",
+                localRecordingStatus: nil
+            ),
+            "Нужно разрешение"
+        )
+        XCTAssertTrue(CaptureControlView.hasActionableProblem(
+            blockedReason: "Нужен доступ к микрофону"
+        ))
+        XCTAssertEqual(
+            CaptureControlView.meetingDetectionSummary(for: "Найдена встреча: Яндекс Телемост"),
+            "Встреча обнаружена"
+        )
+        XCTAssertEqual(
+            CaptureControlView.meetingDetectionSummary(for: "Запрашивать запись включено"),
+            "Автоопределение: спрашивать"
+        )
+        XCTAssertEqual(
+            CaptureControlView.primaryStatus(
+                for: makePresentationSession(state: .active, indicator: .active, canStop: true),
+                blockedReason: nil,
+                localRecordingStatus: nil
+            ),
+            "Идёт запись"
+        )
+        XCTAssertEqual(
+            CaptureControlView.primaryStatus(
+                for: makePresentationSession(state: .paused, indicator: .paused, canStop: true),
+                blockedReason: nil,
+                localRecordingStatus: nil
+            ),
+            "Запись на паузе"
+        )
+        XCTAssertEqual(
+            CaptureControlView.primaryStatus(
+                for: makePresentationSession(state: .stopping, indicator: .active, canStop: true),
+                blockedReason: nil,
+                localRecordingStatus: nil
+            ),
+            "Сохраняем запись…"
+        )
+        XCTAssertEqual(
+            CaptureStatusItem.statusLabel(
+                for: makePresentationSession(state: .stopped, indicator: .hidden, canStop: false)
+            ),
+            "Сохранено на Mac"
+        )
+        XCTAssertEqual(
+            CaptureControlView.primaryStatus(
+                for: makePresentationSession(state: .stopped, indicator: .hidden, canStop: false),
+                blockedReason: nil,
+                localRecordingStatus: nil
+            ),
+            "Сохранено на Mac"
+        )
+        XCTAssertEqual(
+            CaptureControlView.primaryStatus(
+                for: nil,
+                blockedReason: nil,
+                localRecordingStatus: "Локальная запись сохранена"
+            ),
+            "Сохранено на Mac"
+        )
+    }
+
+    func testCaptureMetersAreVisibleOnlyWhileRecordingLevelsAreActive() throws {
+        let activeLevels = LiveRecordingLevels(
+            isRecording: true,
+            microphoneLevel: 0.4,
+            incomingLevel: 0.7,
+            microphoneUpdatedAt: Date(),
+            incomingUpdatedAt: Date()
+        )
+        XCTAssertFalse(CaptureControlView.shouldShowMeters(for: .inactive))
+        XCTAssertTrue(CaptureControlView.shouldShowMeters(for: activeLevels))
+
+        let source = try String(
+            contentsOf: repositoryRootForCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source.contains("if Self.shouldShowMeters(for: recordingLevels)"))
+    }
+
+    func testOrdinaryCaptureSurfaceDoesNotRenderDebugOrReportInputs() throws {
+        let source = try String(
+            contentsOf: repositoryRootForCaptureTests()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlView.swift"),
+            encoding: .utf8
+        )
+        let bodyStart = try XCTUnwrap(source.range(of: "public var body: some View"))
+        let helpersStart = try XCTUnwrap(source.range(of: "public static func shouldShowRecordButton"))
+        let ordinaryBody = source[bodyStart.lowerBound..<helpersStart.lowerBound]
+
+        for forbidden in [
+            "meetingDetectionHealth",
+            "appleProcessingStatus",
+            "webRTCAEC3Status",
+            "localRecordingLocation",
+            "UploadQueueStatusView",
+            "onSupportIncidentReport"
+        ] {
+            XCTAssertFalse(ordinaryBody.contains(forbidden), forbidden)
+        }
+        XCTAssertFalse(source.contains("appleProcessingStatusCopy"))
+        XCTAssertTrue(source.contains("resolvedWebRTCAEC3Status"))
+    }
+
     func testMeetingDetectionControlsExposeStatusAndSettingsAccessibility() throws {
         let label = SystemAudioStatusLabels.meetingDetectionAccessibilityLabel(
             status: "detect_and_ask",
@@ -213,7 +332,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(controlsSource.contains("Image(systemName: \"gearshape\")"))
         XCTAssertTrue(controlsSource.contains("meetingDetectionSettingsButton"))
         XCTAssertTrue(shellSource.contains("settingsRailLabel = \"Настройки\""))
-        XCTAssertTrue(shellSource.contains("desktop-meeting-shell-settings-button"))
+        XCTAssertFalse(shellSource.contains("desktop-meeting-shell-settings-button"))
         XCTAssertTrue(shellSource.contains("desktop-meeting-shell-expanded-settings-button"))
         XCTAssertTrue(appSource.contains("(NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)"))
     }
@@ -324,22 +443,6 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: false))
         XCTAssertTrue(CaptureStatusItem.shouldEnablePauseButton(for: session, pauseDisabled: false))
         XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.isEmpty)
-    }
-
-    func testAppleProcessingStatusCopyForGuidanceBlockedAndUnprovenDoesNotClaimCleanRecording() throws {
-        let outcomes = [
-            controlAppleOutcome(state: .acceptedForGuidanceOnly, nextStep: .guidanceOnly, failureReason: AppleProcessingFailureReason.userSystemControlled.rawValue),
-            controlAppleOutcome(state: .blockedRouteTopology, nextStep: .deferToWebRTCAEC3, failureReason: AppleProcessingFailureReason.routeTopologyBlocked.rawValue),
-            controlAppleOutcome(state: .deferToWebRTCAEC3, nextStep: .deferToWebRTCAEC3, failureReason: AppleProcessingFailureReason.processingUnavailable.rawValue)
-        ]
-
-        for outcome in outcomes {
-            let copy = try XCTUnwrap(CaptureControlView.appleProcessingStatusCopy(for: outcome))
-
-            XCTAssertFalse(copy.localizedCaseInsensitiveContains("чист"))
-            XCTAssertFalse(copy.localizedCaseInsensitiveContains("clean"))
-            XCTAssertTrue(copy.contains("Apple"))
-        }
     }
 
     func testWebRTCAEC3StatusCopyCoversEvaluationFallbackRollbackAndAttentionStates() throws {
@@ -525,7 +628,7 @@ final class CaptureControlTests: XCTestCase {
         let queued = uploadItem(id: "queued", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
         let retrying = uploadItem(id: "retrying", state: .retrying, updatedAt: Date(timeIntervalSince1970: 30))
 
-        let summary = CaptureControlView.uploadSummary(for: [queued, retrying])
+        let summary = DesktopUploadCustodySummary.summary(for: [queued, retrying])
 
         XCTAssertEqual(summary?.primaryItem.id, "retrying")
         XCTAssertEqual(summary?.pendingCount, 2)
@@ -537,11 +640,11 @@ final class CaptureControlTests: XCTestCase {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
         let queued = uploadItem(id: "queued-local", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
 
-        let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [queued]))
+        let summary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [queued]))
 
         XCTAssertEqual(summary.title, "Запись сохранена")
         XCTAssertEqual(summary.detail, "Отправим автоматически, когда сервер будет доступен.")
-        XCTAssertNil(CaptureControlView.uploadReviewLink(for: queued, configuration: configuration))
+        XCTAssertEqual(configuration.reviewLink(for: queued).availability, .unavailable)
     }
 
     func testBlockedLocalUploadCopyDoesNotTreatAudioQualityAsHardGate() throws {
@@ -553,7 +656,7 @@ final class CaptureControlTests: XCTestCase {
             retryMode: .manualOnly
         )
 
-        let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [blocked]))
+        let summary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [blocked]))
 
         XCTAssertEqual(summary.title, "Запись сохранена")
         XCTAssertEqual(summary.detail, "Отправим автоматически, когда сервер будет доступен.")
@@ -575,8 +678,8 @@ final class CaptureControlTests: XCTestCase {
             retryMode: .automatic
         )
 
-        let manualSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [manual]))
-        let automaticSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [automatic]))
+        let manualSummary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [manual]))
+        let automaticSummary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [automatic]))
 
         XCTAssertNil(manualSummary.primaryItem.nextActionLabel)
         XCTAssertNil(automaticSummary.primaryItem.nextActionLabel)
@@ -591,8 +694,8 @@ final class CaptureControlTests: XCTestCase {
             serverTruth: ServerTruthFingerprint(acceptedBytesByTrack: ["microphone": 64])
         )
 
-        let queuedSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [queued]))
-        let uploadingSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [uploading]))
+        let queuedSummary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [queued]))
+        let uploadingSummary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [uploading]))
 
         XCTAssertFalse(queuedSummary.showsProgress)
         XCTAssertTrue(uploadingSummary.showsProgress)
@@ -610,7 +713,7 @@ final class CaptureControlTests: XCTestCase {
             syncConflictState: .authRequired
         )
 
-        let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [auth]))
+        let summary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [auth]))
 
         XCTAssertTrue(summary.accessibilityLabel.contains("Доверие записи"))
         XCTAssertTrue(summary.accessibilityLabel.contains("Нужен вход"))
@@ -630,7 +733,7 @@ final class CaptureControlTests: XCTestCase {
             syncConflictState: .serverMeetingDeleted
         )
 
-        let summary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [blocked]))
+        let summary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [blocked]))
         let report = try XCTUnwrap(summary.safeReport)
 
         XCTAssertEqual(report.normalUserAction, .sendSupportReport)
@@ -663,8 +766,27 @@ final class CaptureControlTests: XCTestCase {
             DesktopSupportIncidentActionCopy.visibleMessage(for: failed),
             DesktopSupportIncidentFixture.failureMessage
         )
-        XCTAssertEqual(DesktopSupportIncidentActionCopy.sendTitle, DesktopSupportIncidentFixture.sendReportTitle)
-        XCTAssertEqual(DesktopSupportIncidentActionCopy.copyTitle, DesktopSupportIncidentFixture.copyFallbackTitle)
+        XCTAssertEqual(DesktopSupportIncidentActionCopy.sendTitle, DesktopSupportIncidentFixture.supportTitle)
+    }
+
+    func testSupportIncidentSuccessWithoutNumberDoesNotExposePlaceholderIdentifier() {
+        let sentWithoutNumber = DesktopSupportIncidentSubmissionState(
+            state: .sent,
+            localReportFingerprint: "report_fpr_test",
+            dedupeKey: "support_dedupe_test",
+            incidentNumber: nil,
+            githubIssueNumber: nil,
+            lastSubmissionAttemptAt: Date(timeIntervalSince1970: 1)
+        )
+
+        XCTAssertEqual(
+            DesktopSupportIncidentActionCopy.visibleMessage(for: sentWithoutNumber),
+            "Запрос отправлен в поддержку."
+        )
+        XCTAssertEqual(sentWithoutNumber.accessibilityLabel, "Запрос отправлен в поддержку.")
+        XCTAssertFalse(
+            DesktopSupportIncidentActionCopy.visibleMessage(for: sentWithoutNumber)?.contains("?") == true
+        )
     }
 
     func testCompactCustodySurfaceUsesAccessibleSupportIncidentActions() throws {
@@ -673,17 +795,18 @@ final class CaptureControlTests: XCTestCase {
             contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Upload/DesktopSupportIncidentActionStrip.swift"),
             encoding: .utf8
         )
-        let captureSource = try String(
-            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlView.swift"),
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(captureSource.contains("DesktopSupportIncidentActionStrip("))
-        XCTAssertTrue(captureSource.contains("onSubmit: onSupportIncidentReport"))
-        XCTAssertTrue(stripSource.contains("Label(sendButtonTitle, systemImage: \"paperplane\")"))
-        XCTAssertTrue(stripSource.contains("Label(copyButtonTitle, systemImage: \"doc.on.doc\")"))
-        XCTAssertTrue(stripSource.contains(".accessibilityLabel(\"Отправить отчет разработчикам\")"))
-        XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.copyTitle)"))
+        XCTAssertTrue(shellSource.contains("if meetingOwnerCustodyActionCount > 0"))
+        XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
+        XCTAssertTrue(shellSource.contains("onSubmit: onSupportIncidentReport"))
+        XCTAssertTrue(stripSource.contains("Label(sendButtonTitle, systemImage: \"questionmark.bubble\")"))
+        XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.sendTitle)"))
+        XCTAssertFalse(stripSource.contains("Скопировать отчет"))
+        XCTAssertFalse(stripSource.contains("Отправить отчет"))
         XCTAssertTrue(stripSource.contains("lineLimit(3)"))
         XCTAssertTrue(stripSource.contains("fixedSize(horizontal: false, vertical: true)"))
     }
@@ -706,17 +829,39 @@ final class CaptureControlTests: XCTestCase {
             syncConflictState: .authRequired
         )
 
-        let deletedSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [deleted]))
-        let authSummary = try XCTUnwrap(CaptureControlView.uploadSummary(for: [auth]))
+        let deletedSummary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [deleted]))
+        let authSummary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [auth]))
 
         XCTAssertEqual(
             deletedSummary.detail,
-            "Нужна проверка доступа или политики рабочего пространства. Отправьте отчет, мы передадим детали поддержке/администратору."
+            "Проверьте доступ к рабочему пространству или обратитесь к администратору."
         )
         XCTAssertFalse(deletedSummary.detail.contains("/Users/test"))
+        XCTAssertFalse(deletedSummary.detail.localizedCaseInsensitiveContains("отчет"))
+        XCTAssertFalse(deletedSummary.detail.localizedCaseInsensitiveContains("диагност"))
         XCTAssertNil(deletedSummary.primaryItem.nextActionLabel)
         XCTAssertEqual(authSummary.detail, "Войдите, чтобы продолжить отправку. Локальные копии сохранены.")
         XCTAssertNil(authSummary.primaryItem.nextActionLabel)
+    }
+
+    func testCustodyFallbackCopyKeepsDiagnosticsOutOfTheUserInterface() {
+        let copyKeys = [
+            "custody.needs_admin",
+            "custody.cannot_send",
+            "custody.terminal_undelivered",
+            "custody.unknown_blocked",
+        ]
+
+        for copyKey in copyKeys {
+            let detail = DesktopUploadCustodyCopy.detail(
+                copyKey: copyKey,
+                count: 1,
+                deadline: nil
+            )
+            XCTAssertFalse(detail.localizedCaseInsensitiveContains("отчет"), copyKey)
+            XCTAssertFalse(detail.localizedCaseInsensitiveContains("диагност"), copyKey)
+            XCTAssertFalse(detail.localizedCaseInsensitiveContains("телеметр"), copyKey)
+        }
     }
 
     func testUploadReviewActionIsAvailableOnlyForUploadedServerIdentifiedItem() throws {
@@ -733,11 +878,10 @@ final class CaptureControlTests: XCTestCase {
         )
         let queued = uploadItem(id: "queued", state: .queued, updatedAt: Date(timeIntervalSince1970: 20))
 
-        let link = CaptureControlView.uploadReviewLink(for: uploaded, configuration: configuration)
-        XCTAssertEqual(link?.availability, .available)
-        XCTAssertEqual(link?.mediaRevisionId, "server-media-revision-033")
-        XCTAssertNil(CaptureControlView.uploadReviewLink(for: queued, configuration: configuration))
-        XCTAssertNil(CaptureControlView.uploadReviewLink(for: uploaded, configuration: nil))
+        let link = configuration.reviewLink(for: uploaded)
+        XCTAssertEqual(link.availability, .available)
+        XCTAssertEqual(link.mediaRevisionId, "server-media-revision-033")
+        XCTAssertEqual(configuration.reviewLink(for: queued).availability, .unavailable)
     }
 
     private func uploadItem(
@@ -790,6 +934,26 @@ final class CaptureControlTests: XCTestCase {
             )
         )
     }
+}
+
+private func makePresentationSession(
+    state: CaptureSessionState,
+    indicator: VisibleIndicatorState,
+    canStop: Bool
+) -> CaptureSession {
+    CaptureSession(
+        id: "presentation-\(state.rawValue)",
+        mode: .audioRecording,
+        state: state,
+        sourceAppEligibility: .eligible,
+        policySnapshotRef: "policy",
+        triggerEvidence: [:],
+        visibleIndicatorState: indicator,
+        stopActionAvailable: canStop,
+        bufferSummaryId: nil,
+        startedAt: Date(timeIntervalSince1970: 1_000),
+        stoppedAt: nil
+    )
 }
 
 private func repositoryRootForCaptureTests() throws -> URL {

@@ -16,7 +16,6 @@ def test_section_component_catalog_covers_composed_cabinet_regions() -> None:
         {{ sections.sidebar_navigation(nav_items, active="meetings") }}
         {{ sections.workspace_header("Команда 2brain", "Онлайн-кабинет", "2B") }}
         {{ sections.meeting_row("Проектный синк", "/meetings/1", "Готово", "audio", "26 июн", selected=True) }}
-        {{ sections.selection_toolbar(2, 5, destructive_enabled=True) }}
         {{ sections.playback_controls("Запись встречи", available=True, duration="12:40") }}
         {{ sections.detail_side_panel("Доступ", "Только безопасные сведения") }}
         {{ sections.confirmation_dialog("Удалить запись?", "Действие ограничено GRAF") }}
@@ -38,7 +37,6 @@ def test_section_component_catalog_covers_composed_cabinet_regions() -> None:
         "cabinet-sidebar-nav",
         "cabinet-workspace-header",
         "cabinet-meeting-row",
-        "cabinet-selection-toolbar",
         "cabinet-playback-controls",
         "cabinet-detail-panel",
         "cabinet-confirmation-dialog",
@@ -49,7 +47,6 @@ def test_section_component_catalog_covers_composed_cabinet_regions() -> None:
     ]:
         assert class_name in html
     assert 'aria-label="Навигация кабинета"' in html
-    assert 'role="toolbar"' in html
     assert 'role="dialog"' in html
     assert 'data-state="selected"' in html
     assert 'data-state="destructive"' in html

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Form, Query, Request
+from pydantic import BeforeValidator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.ingest import get_request_storage
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.api.schemas import AccessState, MeetingReviewStatus
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import (
@@ -30,10 +33,18 @@ PrincipalDependency = Depends(get_principal)
 WebCSRFDependency = Depends(require_web_csrf)
 StorageDependency = Depends(get_request_storage)
 CabinetSearchQuery = Query(default=None, max_length=120)
-CabinetStatusQuery = Query(default=None)
-CabinetAccessQuery = Query(default=None)
 CabinetSortQuery = Query(default="updated_desc")
 CabinetLimitQuery = Query(default=50, ge=1, le=100)
+CabinetStatusFilter = Annotated[
+    MeetingReviewStatus | None,
+    BeforeValidator(lambda value: None if value == "" else value),
+    Query(),
+]
+CabinetAccessFilter = Annotated[
+    AccessState | None,
+    BeforeValidator(lambda value: None if value == "" else value),
+    Query(),
+]
 CalendarConnectResultQuery = Query(default=None, max_length=48, alias="connect_result")
 CalendarPolicyLimitedQuery = Query(default=None, max_length=48, alias="policy_limited")
 CalendarSelectionResultQuery = Query(default=None, max_length=48, alias="selection_result")

@@ -268,7 +268,7 @@ async def _latest_upload_progress(db: AsyncSession, meeting: Meeting) -> Meeting
     )
     total = _expected_upload_total_bytes(session.expected_track_sizes)
     progress_percent = None
-    if total > 0:
+    if is_active and total > 0:
         progress_percent = max(0, min(100, round((uploaded / total) * 100)))
     return MeetingUploadProgressState(
         status=status,
@@ -299,10 +299,10 @@ def _upload_progress_label(status: str) -> str:
     }:
         return "Отправляем"
     if status in {UploadSessionStatus.FAILED.value, UploadSessionStatus.ABORTED.value, UploadSessionStatus.EXPIRED.value}:
-        return "Не отправлено"
+        return "Нужна помощь"
     if status == UploadSessionStatus.DEGRADED.value:
-        return "Отправлено с ограничениями"
-    return "Загружено"
+        return "Готово с замечаниями"
+    return "Готово"
 
 
 async def get_cabinet_meeting_review(

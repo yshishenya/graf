@@ -65,10 +65,11 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
         "is_active": True,
     }
 
-    page = client.get("/desktop/meetings?q=cabinet-upload-progress", headers=auth_headers())
+    page = client.get("/desktop/meetings", headers=auth_headers())
 
     assert page.status_code == 200
-    assert "cabinet-upload-progress" in page.text
+    assert "cabinet-upload-progress" not in page.text
+    assert "Запись без названия" in page.text
     assert "Отправляем 40%" in page.text
     assert 'aria-label="Прогресс отправки записи"' in page.text
     assert 'hx-trigger="every 3s"' in page.text
@@ -187,7 +188,28 @@ def test_cabinet_list_search_filter_sort_and_limit(client) -> None:
     assert title_sorted.status_code == 200
     titles = [item["title"] for item in title_sorted.json()["items"]]
     assert titles == sorted(titles)
-    assert titles.index("aaa-visible-fallback") < titles.index("bbb-visible-title")
+    assert "aaa-visible-fallback" not in titles
+    assert "Запись 26 июн, 08:00" in titles
+    assert "bbb-visible-title" in titles
+
+
+def test_web_meeting_filters_accept_empty_neighbor_controls(client) -> None:
+    seed_cabinet_meetings(client)
+
+    desktop = client.get(
+        "/desktop/meetings?q=&status=ready&access=&sort=updated_desc",
+        headers=auth_headers(),
+    )
+    browser = client.get(
+        "/meetings?q=&status=&access=owner&sort=updated_desc",
+        headers=auth_headers(),
+    )
+
+    assert desktop.status_code == 200
+    assert "Проектный синк" in desktop.text
+    assert "Планирование релиза" not in desktop.text
+    assert browser.status_code == 200
+    assert "Проектный синк" in browser.text
 
 
 def test_cabinet_list_and_detail_use_recording_date_with_legacy_fallback(client) -> None:
@@ -201,16 +223,17 @@ def test_cabinet_list_and_detail_use_recording_date_with_legacy_fallback(client)
 
     detail = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
     legacy_list = client.get("/api/v1/cabinet/meetings?q=legacy-no-recording-date", headers=auth_headers())
-    legacy_web = client.get("/meetings?q=legacy-no-recording-date", headers=auth_headers())
+    legacy_web = client.get("/meetings", headers=auth_headers())
 
     assert detail.status_code == 200
     assert detail.json()["meeting"]["started_at"].startswith("2026-06-16T08:00:00")
     assert legacy_list.status_code == 200
     legacy_item = legacy_list.json()["items"][0]
-    assert legacy_item["title"] == "legacy-no-recording-date"
+    assert legacy_item["title"] == "Запись без названия"
     assert legacy_item["started_at"] is None
     assert legacy_web.status_code == 200
-    assert "legacy-no-recording-date" in legacy_web.text
+    assert "legacy-no-recording-date" not in legacy_web.text
+    assert "Запись без названия" in legacy_web.text
     assert "Без даты" in legacy_web.text
 
 
@@ -232,6 +255,54 @@ def test_cabinet_list_uses_recording_display_timezone_offset_for_date_label(clie
 
     assert page.status_code == 200
     assert "27 июн" in page.text
+
+
+def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(client) -> None:
+    generated_title = "Current display system audio - 2026-07-13 12:14"
+    manual_title = "manual-upload-mrc4escf-hbo5nhsk"
+    generated = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "generated-capture-title",
+            "title": generated_title,
+            "started_at": "2026-07-13T09:14:00Z",
+            "recording_display_timezone_offset_minutes": 180,
+            "duration_seconds": 27,
+        },
+    )
+    manual = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": manual_title,
+            "title": manual_title,
+            "duration_seconds": 4_440,
+        },
+    )
+    assert generated.status_code == 200
+    assert manual.status_code == 200
+
+    generated_list = client.get(
+        "/api/v1/cabinet/meetings?q=generated-capture-title",
+        headers=auth_headers(),
+    )
+    manual_list = client.get(
+        f"/api/v1/cabinet/meetings?q={manual_title}",
+        headers=auth_headers(),
+    )
+    page = client.get("/desktop/meetings", headers=auth_headers())
+
+    assert generated_list.status_code == 200
+    assert generated_list.json()["items"][0]["title"] == "Запись 13 июл, 12:14"
+    assert manual_list.status_code == 200
+    assert manual_list.json()["items"][0]["title"] == "Загруженная запись"
+    assert generated_title not in page.text
+    assert manual_title not in page.text
+    assert "Запись 13 июл, 12:14" in page.text
+    assert "Загруженная запись" in page.text
+    assert "27 с" in page.text
+    assert "1 ч 14 мин" in page.text
 
 
 def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> None:

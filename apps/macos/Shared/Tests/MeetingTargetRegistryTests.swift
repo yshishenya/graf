@@ -118,7 +118,8 @@ final class MeetingTargetRegistryTests: XCTestCase {
         )
 
         XCTAssertTrue(body.contains("try? resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)"))
-        XCTAssertTrue(body.contains("meetingDetectionHealth = \"Реестр загружается с сервера\""))
+        XCTAssertTrue(body.contains("event: \"meeting_detection.registry_cache_unavailable\""))
+        XCTAssertTrue(body.contains("detail: \"awaitingRemote=true\""))
         XCTAssertTrue(body.contains("await refreshMeetingDetectionRegistry(reason: \"startup\")"))
         XCTAssertFalse(body.contains("try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)"))
         XCTAssertFalse(body.contains("Проверьте локальный реестр приложений"))

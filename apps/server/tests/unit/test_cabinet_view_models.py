@@ -121,10 +121,10 @@ def test_common_display_helpers_for_meeting_rows() -> None:
     assert view_models.meeting_media_label(video) == "видео"
     assert view_models.meeting_media_kind(upload) == "upload"
     assert view_models.meeting_media_label(upload) == "медиа"
-    assert view_models.format_duration(65) == "1m"
+    assert view_models.format_duration(65) == "1 мин"
     assert view_models.date_label(audio) == "16 июн"
     assert view_models.sort_label("duration_asc") == "Сначала короткие"
-    assert view_models.sort_label("unknown") == "Недавно обновленные"
+    assert view_models.sort_label("unknown") == "Недавно обновлённые"
 
 
 def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fallbacks() -> None:
@@ -149,7 +149,7 @@ def test_safe_title_uses_legacy_local_recording_fallback_without_control_charact
     meeting.title = "\x00"
     meeting.local_recording_id = "legacy-no-title"
 
-    assert view_models.safe_title(meeting) == "legacy-no-title"
+    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
 
 
 def test_safe_title_suppresses_legacy_url_or_email_title() -> None:
@@ -157,7 +157,7 @@ def test_safe_title_suppresses_legacy_url_or_email_title() -> None:
     meeting.title = "https://meet.example.com/private john@example.com"
     meeting.local_recording_id = "legacy-unsafe-title"
 
-    assert view_models.safe_title(meeting) == "legacy-unsafe-title"
+    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
 
 
 def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
@@ -165,7 +165,7 @@ def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
     meeting.title = "meet.example.test/abc-defg-hij"
     meeting.local_recording_id = "legacy-bare-link-title"
 
-    assert view_models.safe_title(meeting) == "legacy-bare-link-title"
+    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
 
 
 def test_safe_title_suppresses_unsafe_fallback_identity() -> None:
@@ -173,7 +173,7 @@ def test_safe_title_suppresses_unsafe_fallback_identity() -> None:
     meeting.title = "meet.example.test/abc-defg-hij"
     meeting.local_recording_id = "john@example.com"
 
-    assert view_models.safe_title(meeting) == "Untitled meeting"
+    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
 
 
 def test_safe_title_does_not_suppress_normal_words_that_contain_sk_dash() -> None:
@@ -181,6 +181,57 @@ def test_safe_title_does_not_suppress_normal_words_that_contain_sk_dash() -> Non
     meeting.title = "Risk-review"
 
     assert view_models.safe_title(meeting) == "Risk-review"
+
+
+def test_safe_title_keeps_only_the_file_name_when_legacy_title_contains_a_path() -> None:
+    unix_path = _meeting()
+    unix_path.title = "/Users/example/private/Team_sync.mp3"
+    windows_path = _meeting()
+    windows_path.title = r"C:\\Users\\example\\private\\Team_sync.mp3"
+
+    assert view_models.safe_title(unix_path) == "Team sync"
+    assert view_models.safe_title(windows_path) == "Team sync"
+
+
+def test_meeting_list_presentation_humanizes_generated_titles_files_and_durations() -> None:
+    generated = _meeting()
+    generated.title = "Current display system audio - 2026-07-13 12:14"
+    generated.started_at = datetime(2026, 7, 13, 9, 14, tzinfo=UTC)
+    generated.recording_display_timezone_offset_minutes = 180
+
+    generated_without_time = _meeting()
+    generated_without_time.title = "Yandex Telemost - 2026-07-10 13:00"
+    generated_without_time.started_at = None
+
+    manual = _meeting()
+    manual.title = "manual-upload-mrc4escf-hbo5nhsk"
+    manual.started_at = None
+
+    file_title = _meeting()
+    file_title.title = "4p_12_01 PM - Встреча с Технониколь_Инфобез.mp3"
+
+    assert view_models.safe_title(generated) == "Запись 13 июл, 12:14"
+    assert view_models.safe_title(generated_without_time) == "Запись без названия"
+    assert view_models.safe_title(manual, source="manual_upload") == "Загруженная запись"
+    assert view_models.safe_title(file_title) == "4p 12 01 PM - Встреча с Технониколь Инфобез"
+    assert view_models.format_duration(27) == "27 с"
+    assert view_models.format_duration(14 * 60) == "14 мин"
+    assert view_models.format_duration(74 * 60) == "1 ч 14 мин"
+
+
+def test_list_status_labels_are_user_results_not_pipeline_terms() -> None:
+    assert view_models.STATUS_LABELS == {
+        "local_only": "Сохранено на Mac",
+        "uploading": "Отправляем",
+        "submitted": "Обрабатывается",
+        "processing": "Обрабатывается",
+        "ready": "Готово",
+        "partial": "Готово с замечаниями",
+        "blocked": "Нужна помощь",
+        "failed": "Нужна помощь",
+        "unavailable": "Нужна помощь",
+        "deleted_future": "Удаляется",
+    }
 
 
 def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:

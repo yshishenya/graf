@@ -51,7 +51,6 @@ def test_cabinet_component_fixtures_are_metadata_safe() -> None:
         {% import "cabinet/components/sections.html" as sections %}
         {{ sections.workspace_header(fixture.workspace_name, fixture.workspace_subtitle, "2B") }}
         {{ sections.meeting_row(fixture.meeting_title, "/meetings/synthetic", fixture.status_label, "audio", "26 июн") }}
-        {{ sections.selection_toolbar(fixture.count, fixture.total) }}
         """
     )
 
@@ -148,6 +147,23 @@ def test_rendered_cabinet_pages_do_not_include_storage_or_dependency_identifiers
     body = list_response.text + detail_response.text
     for marker in forbidden:
         assert marker not in body
+
+
+def test_ordinary_meeting_list_does_not_render_internal_state_fields(client) -> None:
+    seed_cabinet_meetings(client)
+
+    response = client.get("/desktop/meetings", headers=auth_headers())
+
+    assert response.status_code == 200
+    for marker in {
+        "local_recording_id",
+        "processing_status",
+        "status_reason",
+        "mediascribe",
+        "schema_version",
+        "/Users/",
+    }:
+        assert marker not in response.text.lower()
 
 
 def test_manual_upload_surface_and_error_copy_are_metadata_safe(client) -> None:

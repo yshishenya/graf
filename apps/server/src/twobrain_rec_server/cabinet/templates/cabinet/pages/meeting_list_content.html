@@ -5,7 +5,7 @@
     <header class="cabinet-topbar">
       <div class="cabinet-titleline">
         <h1>Мои встречи</h1>
-        <span>{{ sort_label }}</span>
+        <span data-current-sort-label>{{ sort_label }}</span>
       </div>
       <form class="cabinet-list-controls" method="get" action="{{ filter_action }}"
         data-hx-get="{{ filter_action }}"
@@ -17,14 +17,14 @@
         <div class="cabinet-search-control">
           <span aria-hidden="true">{{ icons.icon("search") }}</span>
           <label class="sr-only" for="meeting-search">Поиск встреч</label>
-          <input id="meeting-search" name="q" type="search" value="{{ query_value }}" placeholder="Поиск встреч" aria-label="Поиск встреч" autocomplete="off">
+          <input id="meeting-search" name="q" type="search" value="{{ query_value }}" placeholder="Поиск встреч…" aria-label="Поиск встреч" autocomplete="off">
         </div>
 
         <details class="cabinet-control-disclosure{% if status_value or access_value %} is-active{% endif %}" data-filter-disclosure>
           <summary class="icon-control" aria-label="Фильтры">
             {{ icons.icon("filter") }}
             <span class="cabinet-control-label">Фильтры</span>
-            {% if status_value or access_value %}<span class="cabinet-control-count" aria-label="Активных фильтров: {{ (1 if status_value else 0) + (1 if access_value else 0) }}">{{ (1 if status_value else 0) + (1 if access_value else 0) }}</span>{% endif %}
+            <span class="cabinet-control-count" aria-label="Активных фильтров: {{ (1 if status_value else 0) + (1 if access_value else 0) }}"{% if not status_value and not access_value %} hidden{% endif %}>{{ (1 if status_value else 0) + (1 if access_value else 0) }}</span>
           </summary>
           <div class="cabinet-control-popover" role="group" aria-label="Параметры фильтрации">
             <label for="meeting-status">Статус</label>
@@ -32,7 +32,7 @@
               <option value=""{% if not status_value %} selected{% endif %}>Все статусы</option>
               <option value="ready"{% if status_value == "ready" %} selected{% endif %}>Готово</option>
               <option value="processing"{% if status_value == "processing" %} selected{% endif %}>В обработке</option>
-              <option value="partial"{% if status_value == "partial" %} selected{% endif %}>Частично</option>
+              <option value="partial"{% if status_value == "partial" %} selected{% endif %}>С замечаниями</option>
               <option value="failed"{% if status_value == "failed" %} selected{% endif %}>Нужна помощь</option>
             </select>
             <label for="meeting-access">Доступ</label>
@@ -55,7 +55,7 @@
             <select id="meeting-sort" name="sort">
               <option value="started_desc"{% if sort_value == "started_desc" %} selected{% endif %}>Сначала новые</option>
               <option value="started_asc"{% if sort_value == "started_asc" %} selected{% endif %}>Сначала старые</option>
-              <option value="updated_desc"{% if sort_value == "updated_desc" %} selected{% endif %}>Недавно обновленные</option>
+              <option value="updated_desc"{% if sort_value == "updated_desc" %} selected{% endif %}>Недавно обновлённые</option>
               <option value="duration_asc"{% if sort_value == "duration_asc" %} selected{% endif %}>Сначала короткие</option>
               <option value="duration_desc"{% if sort_value == "duration_desc" %} selected{% endif %}>Сначала длинные</option>
               <option value="title_asc"{% if sort_value == "title_asc" %} selected{% endif %}>По названию</option>
@@ -63,10 +63,8 @@
           </div>
         </details>
 
-        {% if filters_active %}
-        <a class="icon-control cabinet-filter-reset" href="{{ filter_action }}" data-filter-reset aria-label="Сбросить поиск и фильтры">{{ icons.icon("x") }}<span class="cabinet-control-label">Сбросить</span></a>
-        {% endif %}
-        <button class="new-button manual-upload-trigger" type="button" data-manual-upload-open>
+        <a class="icon-control cabinet-filter-reset" href="{{ filter_action }}" data-filter-reset aria-label="Сбросить поиск и фильтры"{% if not filters_active %} hidden{% endif %}>{{ icons.icon("x") }}<span class="cabinet-control-label">Сбросить</span></a>
+        <button class="new-button manual-upload-trigger" type="button" data-manual-upload-open aria-label="Загрузить запись">
           {{ icons.icon("upload") }}<span>Загрузить</span>
         </button>
       </form>

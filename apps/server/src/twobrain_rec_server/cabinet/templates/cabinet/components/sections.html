@@ -20,7 +20,7 @@
 {% macro cabinet_sidebar(navigation, embedded=False, static_url="", csrf_token=None) -%}
 <aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>
   <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Развернуть меню" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
-  {{ workspace_header("ГРАФ", navigation.workspace_subtitle, wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
+  {{ workspace_header("ГРАФ", navigation.workspace_subtitle, mark_src=static_url ~ "/graf-icon.png", wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
   {{ sidebar_navigation(navigation.items, active=navigation.active) }}
   <div class="sidebar-foot">
     <form class="sidebar-logout" method="post" action="{{ '/desktop/meetings' if embedded else '/logout' }}">
@@ -43,11 +43,11 @@
 {%- endmacro %}
 
 {% macro workspace_header(name, subtitle, initials="2B", mark_src=None, wordmark_src=None, wordmark_srcset=None) -%}
-<header class="cabinet-workspace-header{% if wordmark_src and not mark_src %} cabinet-workspace-header--wordmark-only{% endif %}">
+<header class="cabinet-workspace-header{% if wordmark_src and mark_src %} cabinet-workspace-header--brand{% elif wordmark_src %} cabinet-workspace-header--wordmark-only{% endif %}">
   {%- if mark_src or not wordmark_src -%}
   <span class="cabinet-workspace-header__avatar" aria-hidden="true">
     {%- if mark_src -%}
-    <img class="brand-logo" src="{{ mark_src }}" alt="">
+    <img class="brand-logo" src="{{ mark_src }}" width="34" height="34" alt="">
     {%- else -%}
     {{ initials }}
     {%- endif -%}
@@ -55,7 +55,7 @@
   {%- endif -%}
   <span class="cabinet-workspace-header__text">
     {%- if wordmark_src -%}
-    <img class="cabinet-workspace-header__wordmark" src="{{ wordmark_src }}"{% if wordmark_srcset %} srcset="{{ wordmark_srcset }}"{% endif %} alt="{{ name }}">
+    <img class="cabinet-workspace-header__wordmark" src="{{ wordmark_src }}"{% if wordmark_srcset %} srcset="{{ wordmark_srcset }}"{% endif %} width="243" height="90" alt="{{ name }}">
     {%- else -%}
     <strong>{{ name }}</strong>
     {%- endif -%}
@@ -74,15 +74,6 @@
   {{ ui.status_label(status_label, "disabled" if disabled else "normal") }}
   <span class="cabinet-meeting-row__date">{{ date_label }}</span>
 </article>
-{%- endmacro %}
-
-{% macro selection_toolbar(count=0, total=0, destructive_enabled=False) -%}
-<div class="cabinet-selection-toolbar" role="toolbar" aria-label="Выбор записей" data-state="{{ 'selected' if count else 'empty' }}">
-  <span>{{ count }} / {{ total }} выбрано</span>
-  {{ ui.button("Снять выбор", variant="quiet", disabled=(count == 0)) }}
-  {{ ui.icon_button("download", "Скачать выбранные записи", disabled=True) }}
-  {{ ui.icon_button("trash", "Удалить выбранные записи", destructive=True, disabled=(not destructive_enabled)) }}
-</div>
 {%- endmacro %}
 
 {% macro playback_controls(label="Запись", available=True, duration="00:00") -%}

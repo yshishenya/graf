@@ -2,23 +2,15 @@ import SwiftUI
 import TwoBrainRecShared
 
 public struct CaptureControlView: View {
-    public static let uploadReviewButtonTitle = "Открыть обзор"
-
     private let session: CaptureSession?
     private let blockedReason: String?
     private let localRecordingStatus: String?
-    private let localRecordingLocation: String?
     private let muteTruthWarning: String?
-    private let appleProcessingStatus: String?
-    private let webRTCAEC3Status: AppRecordingStatus?
     private let recordingMicrophoneSelection: RecordingMicrophoneSelection?
     private let recordingMicrophoneInputs: [PhysicalAudioDevice]
     private let selectedRecordingMicrophoneDeviceId: String?
-    private let uploadQueueItems: [DesktopUploadQueueItem]
-    private let cabinetConfiguration: DesktopCabinetConfiguration?
     private let calendarPrompt: DesktopCalendarPrompt?
     private let meetingDetectionStatus: String?
-    private let meetingDetectionHealth: String?
     private let recordingLevels: LiveRecordingLevels
     private let recordDisabled: Bool
     private let stopDisabled: Bool
@@ -28,28 +20,21 @@ public struct CaptureControlView: View {
     private let onPause: () -> Void
     private let onResume: () -> Void
     private let onSelectRecordingMicrophone: (String?) -> Void
-    private let onUploadReview: (URL) -> Void
-    private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let onCalendarPromptPrimary: (DesktopCalendarPrompt) -> Void
     private let onCalendarPromptDismiss: (DesktopCalendarPrompt) -> Void
     private let onMeetingDetectionSettings: () -> Void
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     public init(
         session: CaptureSession?,
         blockedReason: String? = nil,
         localRecordingStatus: String? = nil,
-        localRecordingLocation: String? = nil,
         muteTruthWarning: String? = nil,
-        appleProcessingStatus: String? = nil,
-        webRTCAEC3Status: AppRecordingStatus? = nil,
         recordingMicrophoneSelection: RecordingMicrophoneSelection? = nil,
         recordingMicrophoneInputs: [PhysicalAudioDevice] = [],
         selectedRecordingMicrophoneDeviceId: String? = nil,
-        uploadQueueItems: [DesktopUploadQueueItem] = [],
-        cabinetConfiguration: DesktopCabinetConfiguration? = nil,
         calendarPrompt: DesktopCalendarPrompt? = nil,
         meetingDetectionStatus: String? = nil,
-        meetingDetectionHealth: String? = nil,
         recordingLevels: LiveRecordingLevels = .inactive,
         recordDisabled: Bool = false,
         stopDisabled: Bool = false,
@@ -59,10 +44,6 @@ public struct CaptureControlView: View {
         onPause: @escaping () -> Void = {},
         onResume: @escaping () -> Void = {},
         onSelectRecordingMicrophone: @escaping (String?) -> Void = { _ in },
-        onUploadReview: @escaping (URL) -> Void = { _ in },
-        onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
-            throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
-        },
         onCalendarPromptPrimary: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
         onCalendarPromptDismiss: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
         onMeetingDetectionSettings: @escaping () -> Void = {}
@@ -70,18 +51,12 @@ public struct CaptureControlView: View {
         self.session = session
         self.blockedReason = blockedReason
         self.localRecordingStatus = localRecordingStatus
-        self.localRecordingLocation = localRecordingLocation
         self.muteTruthWarning = muteTruthWarning
-        self.appleProcessingStatus = appleProcessingStatus
-        self.webRTCAEC3Status = webRTCAEC3Status ?? session?.webRTCAEC3Status
         self.recordingMicrophoneSelection = recordingMicrophoneSelection
         self.recordingMicrophoneInputs = recordingMicrophoneInputs
         self.selectedRecordingMicrophoneDeviceId = selectedRecordingMicrophoneDeviceId
-        self.uploadQueueItems = uploadQueueItems
-        self.cabinetConfiguration = cabinetConfiguration
         self.calendarPrompt = calendarPrompt
         self.meetingDetectionStatus = meetingDetectionStatus
-        self.meetingDetectionHealth = meetingDetectionHealth
         self.recordingLevels = recordingLevels
         self.recordDisabled = recordDisabled
         self.stopDisabled = stopDisabled
@@ -91,16 +66,14 @@ public struct CaptureControlView: View {
         self.onPause = onPause
         self.onResume = onResume
         self.onSelectRecordingMicrophone = onSelectRecordingMicrophone
-        self.onUploadReview = onUploadReview
-        self.onSupportIncidentReport = onSupportIncidentReport
         self.onCalendarPromptPrimary = onCalendarPromptPrimary
         self.onCalendarPromptDismiss = onCalendarPromptDismiss
         self.onMeetingDetectionSettings = onMeetingDetectionSettings
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
+            HStack(alignment: .center, spacing: DesktopMeetingShellChrome.spacingMedium) {
                 if let session {
                     CaptureStatusItem(
                         session: session,
@@ -111,9 +84,22 @@ public struct CaptureControlView: View {
                         onResume: onResume
                     )
                 } else {
-                    Label(SystemAudioStatusLabels.recordingIdle, systemImage: "record.circle")
+                    Label(
+                        Self.primaryStatus(
+                            for: session,
+                            blockedReason: blockedReason,
+                            localRecordingStatus: localRecordingStatus
+                        ),
+                        systemImage: Self.hasActionableProblem(blockedReason: blockedReason)
+                            ? "exclamationmark.triangle.fill"
+                            : "record.circle"
+                    )
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(
+                            Self.hasActionableProblem(blockedReason: blockedReason)
+                                ? Color.orange
+                                : secondaryTextColor
+                        )
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
@@ -122,9 +108,10 @@ public struct CaptureControlView: View {
 
                 if Self.shouldShowRecordButton(for: session) {
                     Button(action: onRecord) {
-                        Label("Начать", systemImage: "record.circle")
+                        Label(SystemAudioStatusLabels.recordButtonTitle, systemImage: "record.circle")
                     }
                     .buttonStyle(.borderedProminent)
+                    .frame(minHeight: DesktopMeetingShellChrome.controlHeight)
                     .disabled(!Self.shouldEnableRecordButton(for: session, recordDisabled: recordDisabled))
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                     .accessibilityLabel(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
@@ -134,11 +121,16 @@ public struct CaptureControlView: View {
             }
 
             if let blockedReason, !blockedReason.isEmpty {
-                Label(blockedReason, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
+                StatusNoteView(
+                    icon: "exclamationmark.triangle.fill",
+                    title: Self.primaryStatus(
+                        for: session,
+                        blockedReason: blockedReason,
+                        localRecordingStatus: localRecordingStatus
+                    ),
+                    detail: blockedReason,
+                    iconColor: .orange
+                )
                     .accessibilityLabel(blockedReason)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.blockerBanner)
             }
@@ -151,20 +143,15 @@ public struct CaptureControlView: View {
                 )
             }
 
-            if let meetingDetectionStatus, !meetingDetectionStatus.isEmpty {
+            if let meetingDetectionSummary = Self.meetingDetectionSummary(for: meetingDetectionStatus) {
                 HStack(alignment: .top, spacing: 10) {
                     StatusNoteView(
                         icon: "dot.radiowaves.left.and.right",
-                        title: SystemAudioStatusLabels.meetingDetectionSettingsTitle,
-                        detail: meetingDetectionHealth.map { "\(meetingDetectionStatus). \($0)" } ?? meetingDetectionStatus,
-                        iconColor: .secondary
+                        title: meetingDetectionSummary,
+                        detail: "Настройте, когда GRAF должен предлагать запись.",
+                        iconColor: secondaryTextColor
                     )
-                    .accessibilityLabel(
-                        SystemAudioStatusLabels.meetingDetectionAccessibilityLabel(
-                            status: meetingDetectionStatus,
-                            health: meetingDetectionHealth
-                        )
-                    )
+                    .accessibilityLabel(meetingDetectionSummary)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionStatus)
 
                     Button(action: onMeetingDetectionSettings) {
@@ -179,31 +166,37 @@ public struct CaptureControlView: View {
             }
 
             if !recordingMicrophoneInputs.isEmpty || recordingMicrophoneSelection != nil {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Menu {
-                        Button("По умолчанию macOS") {
-                            onSelectRecordingMicrophone(nil)
-                        }
-                        ForEach(recordingMicrophoneInputs, id: \.id) { input in
-                            Button(input.displayName) {
-                                onSelectRecordingMicrophone(input.id)
+                DisclosureGroup {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Menu {
+                            Button("По умолчанию macOS") {
+                                onSelectRecordingMicrophone(nil)
                             }
+                            ForEach(recordingMicrophoneInputs, id: \.id) { input in
+                                Button(input.displayName) {
+                                    onSelectRecordingMicrophone(input.id)
+                                }
+                            }
+                        } label: {
+                            Label(recordingMicrophoneMenuTitle, systemImage: "mic")
                         }
-                    } label: {
-                        Label(recordingMicrophoneMenuTitle, systemImage: "mic")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .accessibilityLabel(SystemAudioStatusLabels.recordingMicrophoneMenuAccessibilityLabel)
-                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingMicrophoneMenu)
+                        .menuStyle(.borderlessButton)
+                        .accessibilityLabel(SystemAudioStatusLabels.recordingMicrophoneMenuAccessibilityLabel)
+                        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingMicrophoneMenu)
 
-                    if let status = Self.recordingMicrophoneStatus(for: recordingMicrophoneSelection) {
-                        Text(status)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingMicrophoneStatus)
+                        if let status = Self.recordingMicrophoneStatus(for: recordingMicrophoneSelection) {
+                            Text(status)
+                                .font(.caption2)
+                                .foregroundStyle(secondaryTextColor)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingMicrophoneStatus)
+                        }
                     }
+                    .padding(.top, 8)
+                } label: {
+                    Label("Микрофон", systemImage: "mic")
+                        .font(.caption.weight(.semibold))
                 }
             }
 
@@ -219,7 +212,7 @@ public struct CaptureControlView: View {
             if let localRecordingStatus, !localRecordingStatus.isEmpty {
                 StatusNoteView(
                     icon: localRecordingStatusIcon,
-                    title: localRecordingStatusTitle,
+                    title: Self.localRecordingSummary(for: localRecordingStatus),
                     detail: localRecordingStatusDetail,
                     iconColor: localRecordingStatusStyle
                 )
@@ -230,62 +223,23 @@ public struct CaptureControlView: View {
             if let muteTruthWarning, !muteTruthWarning.isEmpty {
                 StatusNoteView(
                     icon: "shield.lefthalf.filled.badge.checkmark",
-                    title: "Mute встречи не подтвержден",
+                    title: "Не удалось проверить микрофон во встрече",
                     detail: muteTruthWarning,
-                    iconColor: .secondary
+                    iconColor: secondaryTextColor
                 )
                     .accessibilityLabel(muteTruthWarning)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.muteTruthWarning)
             }
 
-            if let appleProcessingStatus, !appleProcessingStatus.isEmpty {
-                StatusNoteView(
-                    icon: "waveform.and.mic",
-                    title: "Apple voice processing",
-                    detail: appleProcessingStatus,
-                    iconColor: .secondary
-                )
-                .accessibilityLabel(appleProcessingStatus)
-                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.appleProcessingStatus)
-            }
+            if Self.shouldShowMeters(for: recordingLevels) {
+                Divider()
 
-            if let webRTCAEC3Status,
-               let statusCopy = Self.webRTCAEC3StatusCopy(for: webRTCAEC3Status) {
-                StatusNoteView(
-                    icon: Self.webRTCAEC3StatusIconName(for: webRTCAEC3Status.state),
-                    title: Self.webRTCAEC3StatusTitle(for: webRTCAEC3Status.state),
-                    detail: statusCopy,
-                    iconColor: Self.webRTCAEC3StatusStyle(for: webRTCAEC3Status)
-                )
-                .accessibilityLabel("\(Self.webRTCAEC3StatusTitle(for: webRTCAEC3Status.state)): \(statusCopy)")
-                .accessibilityIdentifier(Self.webRTCAEC3StatusAccessibilityIdentifier(for: webRTCAEC3Status.state))
-            }
-
-            if let localRecordingLocation, !localRecordingLocation.isEmpty {
-                Text("Локальная копия сохранена")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .accessibilityLabel(SystemAudioStatusLabels.localRecordingLocationAccessibilityLabel(localRecordingLocation))
-                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingLocation)
-            }
-
-            if let summary = Self.uploadSummary(for: uploadQueueItems) {
-                UploadQueueStatusView(
-                    summary: summary,
-                    reviewLink: Self.uploadReviewLink(for: summary.primaryItem, configuration: cabinetConfiguration),
-                    onReview: onUploadReview,
-                    onSupportIncidentReport: onSupportIncidentReport
+                LiveRecordingMetersView(
+                    recordingLevels: recordingLevels
                 )
             }
-
-            Divider()
-
-            LiveRecordingMetersView(
-                recordingLevels: recordingLevels
-            )
         }
-        .padding(16)
+        .padding(DesktopMeetingShellChrome.spacingLarge)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(SystemAudioStatusLabels.captureRegion)
         .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.captureControls)
@@ -303,17 +257,99 @@ public struct CaptureControlView: View {
         shouldShowRecordButton(for: session) && !recordDisabled
     }
 
-    public static func uploadSummary(for items: [DesktopUploadQueueItem]) -> DesktopUploadCustodySummary? {
-        DesktopUploadCustodySummary.summary(for: items)
+    public static func hasActionableProblem(blockedReason: String?) -> Bool {
+        guard let blockedReason else { return false }
+        return !blockedReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    public static func uploadReviewLink(
-        for item: DesktopUploadQueueItem,
-        configuration: DesktopCabinetConfiguration?
-    ) -> UploadReviewLink? {
-        guard let configuration else { return nil }
-        let link = configuration.reviewLink(for: item)
-        return link.availability == .available ? link : nil
+    public static func primaryStatus(
+        for session: CaptureSession?,
+        blockedReason: String?,
+        localRecordingStatus: String?
+    ) -> String {
+        if let session, CaptureStatusItem.showsStopButton(for: session) {
+            return captureStatus(for: session.state)
+        }
+        if hasActionableProblem(blockedReason: blockedReason) {
+            let normalized = blockedReason?.lowercased() ?? ""
+            if normalized.contains("разреш") || normalized.contains("доступ") {
+                return "Нужно разрешение"
+            }
+            return "Нужна помощь"
+        }
+        if let localRecordingStatus, !localRecordingStatus.isEmpty {
+            return localRecordingSummary(for: localRecordingStatus)
+        }
+        guard let session else {
+            return "Готово к записи"
+        }
+        return captureStatus(for: session.state)
+    }
+
+    public static func meetingDetectionSummary(for status: String?) -> String? {
+        guard let status else { return nil }
+        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        if normalized.contains("Найдена встреча") || normalized.contains("Найден кандидат") {
+            return "Встреча обнаружена"
+        }
+        if normalized.contains("Запрашивать запись включено") {
+            return "Автоопределение: спрашивать"
+        }
+        if normalized.contains("Запрос записи отключен") {
+            return "Автоопределение выключено"
+        }
+        if normalized.contains("Автозапись") {
+            return "Автоопределение: включено"
+        }
+        if normalized == "Недоступно" {
+            return "Автоопределение недоступно"
+        }
+        return "Автоопределение: включено"
+    }
+
+    public static func localRecordingSummary(for status: String) -> String {
+        let normalized = status.lowercased()
+        if normalized.contains("не сохран") || normalized.contains("заблок") {
+            return "Нужна помощь"
+        }
+        if normalized.contains("сохран") {
+            return "Сохранено на Mac"
+        }
+        if normalized.contains("пауз") {
+            return "Запись на паузе"
+        }
+        if normalized.contains("идет") || normalized.contains("идёт") {
+            return "Идёт запись"
+        }
+        return status
+    }
+
+    public static func shouldShowMeters(for recordingLevels: LiveRecordingLevels) -> Bool {
+        recordingLevels.isRecording
+    }
+
+    private static func captureStatus(for state: CaptureSessionState) -> String {
+        switch state {
+        case .idle, .ready:
+            return "Готово к записи"
+        case .detecting:
+            return "Проверяем готовность"
+        case .starting:
+            return "Начинаем запись…"
+        case .active:
+            return "Идёт запись"
+        case .paused:
+            return "Запись на паузе"
+        case .degraded:
+            return "Запись с ограничением"
+        case .stopping:
+            return "Сохраняем запись…"
+        case .stopped, .finalized:
+            return "Сохранено на Mac"
+        case .failed:
+            return "Нужна помощь"
+        }
     }
 
     nonisolated public static func resolvedWebRTCAEC3Status(
@@ -450,28 +486,6 @@ public struct CaptureControlView: View {
         }
     }
 
-    public static func appleProcessingStatusCopy(for outcome: AppleProcessingOutcome?) -> String? {
-        guard let outcome else { return nil }
-        switch outcome.primaryOutcome {
-        case .acceptedForBuiltinSpeakerphone:
-            return outcome.canClaimCleanBuiltinSpeakerphone
-                ? "Apple проверка принята для встроенного маршрута; итог все равно сверяется с локальным пакетом."
-                : "Apple проверка требует полного набора подтверждений перед пользовательским обещанием."
-        case .acceptedForGuidanceOnly:
-            return "Apple проверка доступна только как подсказка; запись остается проверкой локального пакета."
-        case .acceptedForHeadsetRoutesOnly:
-            return "Apple проверка применима только к гарнитурам и проводным маршрутам; режим встроенных динамиков и микрофона остается без нового обещания."
-        case .blockedRouteTopology:
-            return "Apple проверка маршрута заблокирована; продолжаем без повышения обещания для встроенных динамиков и микрофона."
-        case .blockedQuality:
-            return "Apple проверка качества заблокирована; локальная запись остается с текущими ограничениями."
-        case .blockedStability:
-            return "Apple проверка стабильности заблокирована; вариант отключен до новой проверки."
-        case .deferToWebRTCAEC3:
-            return "Apple проверка не доказала рабочий маршрут; следующий вариант - WebRTC AEC3."
-        }
-    }
-
     nonisolated public static func webRTCAEC3StatusCopy(for status: AppRecordingStatus?) -> String? {
         guard let status else { return nil }
         if !status.diagnosticSafe || status.copySafety != .safe || !status.matchesPackageTruth {
@@ -563,19 +577,6 @@ public struct CaptureControlView: View {
         }
     }
 
-    nonisolated public static func webRTCAEC3StatusToneName(for state: WebRTCAEC3AppStatusState) -> String {
-        switch state {
-        case .promotedBuiltinRoute:
-            return "success"
-        case .candidateBlocked, .requiresUserAttention:
-            return "attention"
-        case .rolledBackToOriginal, .fallbackRelevant:
-            return "warning"
-        case .evaluatingAEC3, .usingOriginalMicTruth, .notEvaluated, .notApplicable:
-            return "secondary"
-        }
-    }
-
     nonisolated public static func webRTCAEC3StatusAccessibilityIdentifier(
         for state: WebRTCAEC3AppStatusState
     ) -> String {
@@ -615,6 +616,10 @@ public struct CaptureControlView: View {
             return input.displayName
         }
         return "По умолчанию macOS"
+    }
+
+    private var secondaryTextColor: Color {
+        colorSchemeContrast == .increased ? Color.primary.opacity(0.82) : Color.secondary
     }
 
     private var localRecordingStatusIcon: String {
@@ -673,16 +678,6 @@ public struct CaptureControlView: View {
         return localRecordingStatus
     }
 
-    private static func webRTCAEC3StatusStyle(for status: AppRecordingStatus) -> Color {
-        switch webRTCAEC3StatusToneName(for: status.state) {
-        case "success":
-            return .green
-        case "attention", "warning":
-            return .orange
-        default:
-            return .secondary
-        }
-    }
 }
 
 private struct CalendarPromptView: View {
@@ -787,113 +782,6 @@ private struct StatusNoteView: View {
             }
         }
     }
-}
-
-private struct UploadQueueStatusView: View {
-    let summary: DesktopUploadCustodySummary
-    let reviewLink: UploadReviewLink?
-    let onReview: (URL) -> Void
-    let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                HStack(spacing: 6) {
-                    Image(systemName: iconName)
-                        .foregroundStyle(statusColor)
-                    Text(summary.title)
-                        .foregroundStyle(.primary)
-                }
-                .font(.caption)
-                .fontWeight(.semibold)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                Spacer()
-                Text(summary.pendingCount > 1 ? "\(summary.pendingCount)" : summary.ownerLabel)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            if summary.showsProgress {
-                ProgressView(value: summary.progressFraction)
-                    .progressViewStyle(.linear)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(summary.detail)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                if let destination = reviewLink?.destination {
-                    Button {
-                        onReview(destination)
-                    } label: {
-                        Label(CaptureControlView.uploadReviewButtonTitle, systemImage: "rectangle.stack")
-                    }
-                    .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-
-            DesktopSupportIncidentActionStrip(
-                summary: summary,
-                onSubmit: onSupportIncidentReport
-            )
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(statusColor.opacity(0.18), lineWidth: 1)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(summary.accessibilityLabel)
-        .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.uploadTruthRegion)
-    }
-
-    private var iconName: String {
-        if summary.copyKey == "custody.unknown_blocked" {
-            return "exclamationmark.icloud.fill"
-        }
-        switch summary.primaryProjection.custodyState {
-        case .delivered, .finalized, .processing:
-            return "checkmark.icloud.fill"
-        case .partialUploaded, .uploadSessionCreated:
-            return "icloud.and.arrow.up"
-        case .retainedAwaitingCondition, .cannotSend:
-            return "exclamationmark.icloud.fill"
-        case .serverUnknownLocalSaved, .serverRegistered:
-            return "tray.and.arrow.up"
-        case .terminalUndelivered:
-            return "xmark.icloud"
-        }
-    }
-
-    private var statusColor: Color {
-        if summary.copyKey == "custody.unknown_blocked" {
-            return .orange
-        }
-        switch summary.primaryProjection.custodyState {
-        case .delivered, .finalized, .processing:
-            return .green
-        case .partialUploaded, .uploadSessionCreated, .serverRegistered:
-            return .blue
-        case .serverUnknownLocalSaved:
-            return .secondary
-        case .retainedAwaitingCondition:
-            return .orange
-        case .cannotSend, .terminalUndelivered:
-            return .red
-        }
-    }
-
 }
 
 private struct LiveRecordingMetersView: View {
