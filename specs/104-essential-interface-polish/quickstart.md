@@ -62,6 +62,29 @@ This evidence validates the specification package for task/issue sync and
 implementation; it does not claim production code or runtime states are already
 implemented.
 
+## 2B. Implementation Baseline
+
+Baseline captured on 2026-07-13 before any feature-104 product-code change:
+
+- server command: the exact focused command in section 3;
+- server result: `74 passed`, `0 failed`, `1 warning` in `25.95s`;
+- server warning: the environment's existing Starlette deprecation warning for
+  the `httpx` compatibility import in `fastapi.testclient`; no product-test
+  failure accompanied it;
+- macOS command: the exact focused command in section 4;
+- macOS result: `58 tests`, `0 failures`, build and selected suites successful;
+- known pre-existing product-test failures in this baseline: `0`;
+- unrelated worktree changes preserved and excluded from feature evidence:
+  `.specify/templates/checklist-template.md`,
+  `.specify/templates/plan-template.md`, `AGENTS.md`, and
+  `docs/agent-guidance/ponytail-upstream.md`.
+
+The selected Stitch project `8185028688921991455` and screen
+`e3c3421bd78e4320845d072c6a7193cc` were rechecked at `1280×760` and
+`1040×680`. Synthetic design-time before/target artifacts remain outside git
+under the local Codex visualization workspace. Only the viewport and state
+identifiers are recorded here; no private meeting metadata is included.
+
 ## 3. Focused Server Tests
 
 ```sh

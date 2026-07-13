@@ -17,8 +17,8 @@
 
 **Purpose**: Freeze current proof and protect unrelated worktree state before product code changes.
 
-- [ ] T001 Run the focused baseline server/macOS commands and record command, count, result, and known pre-existing failures in `specs/104-essential-interface-polish/quickstart.md`
-- [ ] T002 Confirm the selected Stitch project/screen and its `1280×760`/`1040×680` accessibility evidence against `specs/104-essential-interface-polish/visual-target.md`, capture metadata-safe before states for all applicable matrix rows outside git, and record only viewport/state identifiers in `specs/104-essential-interface-polish/quickstart.md`
+- [X] T001 Run the focused baseline server/macOS commands and record command, count, result, and known pre-existing failures in `specs/104-essential-interface-polish/quickstart.md`
+- [X] T002 Confirm the selected Stitch project/screen and its `1280×760`/`1040×680` accessibility evidence against `specs/104-essential-interface-polish/visual-target.md`, capture metadata-safe before states for all applicable matrix rows outside git, and record only viewport/state identifiers in `specs/104-essential-interface-polish/quickstart.md`
 
 ---
 
