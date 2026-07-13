@@ -23,10 +23,15 @@ metadata-only evidence остаются подробной историей ре
   refreshes the public download package with the local self-signed build so
   the owner machine can update from the hosted package while the Developer ID
   path remains out of scope.
-- Feature `098-calendar-auto-context-match` is implemented, validated and
-  committed as `13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb` on its feature branch,
-  but is not merged, released, deployed or production-smoked yet. A desktop
-  recording start may request a server-owned,
+- Feature `098-calendar-auto-context-match` is implemented, released and live
+  in production. Feature PR
+  [#3270](https://github.com/yshishenya/crisp/pull/3270) merged as
+  `979dc497c1575baa886ce5d74d414e898f5ea464`; feature release
+  [`v2026.07.13.2`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.2)
+  introduced the behavior, and smoke-cleanup hotfix
+  [`v2026.07.13.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.3)
+  is deployed at exact SHA `f0e3ee4aef81c5d7a58cf632b6513b7f38414dc9`.
+  A desktop recording start may request a server-owned,
   24-hour match attempt without blocking capture; the deterministic matcher
   accepts only one fresh eligible event, keeps overlaps/back-to-back cases
   ambiguous, and safely skips private/free-busy, all-day, stale, manual-upload
@@ -49,13 +54,16 @@ metadata-only evidence остаются подробной историей ре
   is the database receipt. User-approved Chrome QA also passes the web and
   embedded list/matched/recurring/ambiguity/correction/clear flow with keyboard
   focus and durable-state checks. That pass found and closed an invalid nested
-  chooser-link/grid-wrap defect before the final screenshot rerun. PR
-  [#3270](https://github.com/yshishenya/crisp/pull/3270) is merged as
-  `979dc497c1575baa886ce5d74d414e898f5ea464`; CalVer `v2026.07.13.2` is
-  prepared but not published. Production migration/deploy/runtime smoke and
-  installed-app evidence still remain. Feature `097` and its
-  resumable standalone Codex Security scan stay separately deferred by user
-  instruction and are not counted as 098 acceptance evidence.
+  chooser-link/grid-wrap defect before the final screenshot rerun. Production
+  is at migration `0021_calendar_auto_context_match (head)`; backup and restore
+  rehearsal, RLS verification, synthetic no-context upload, cleanup, public
+  live/ready probes and an independent zero-residue read-back all pass. The
+  clear/ambiguous and browser/embedded receipts remain synthetic same-code QA,
+  not a claim that private production calendars were inspected. Older app
+  builds must be updated to gain feature 098; the server-only `.3` hotfix has
+  no `apps/macos` diff and requires no additional reinstall. Feature `097` and
+  its resumable standalone Codex Security scan stay separately deferred by
+  user instruction and are not counted as 098 acceptance evidence.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and

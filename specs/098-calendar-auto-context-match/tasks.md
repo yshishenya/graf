@@ -257,9 +257,11 @@ follows; no issue is closed by local evidence alone.
 | T091–T102 | #3172–#3183 | `validation/implementation-evidence.md` |
 | T103–T104 | #3184–#3185 | `validation/pr-closeout.md` |
 
-T105–T109 / #3186–#3190 remain open for merge, release, deploy, production
-proof and final cleanup. Completed task issues remain open until post-merge
-evidence and closure comments are available.
+T105–T108 are complete with merge, release, deploy and production evidence in
+`validation/release-closeout.md`. Their issues and the already completed
+T001–T104 issues remain open only until detailed post-release closure comments
+are published. T109 / #3190 remains open for that tracker and workspace
+cleanup.
 
 ---
 
@@ -268,9 +270,9 @@ evidence and closure comments are available.
 **Purpose**: Complete the active goal's release obligation after PR merge; do not substitute local CI for production proof.
 
 - [X] T105 After PR merge, choose the next CalVer and run `./scripts/prepare-release.sh YYYY.MM.DD.N`, recording the version and generated diff in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
-- [ ] T106 Publish the matching tag and Russian GitHub Release notes with changes, validation, migration/compatibility, known limitations, PR/issues and deferred audit in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
-- [ ] T107 Run `infra/scripts/cd-remote.sh --dry-run`, resolve every gate, then run `infra/scripts/cd-remote.sh --execute` only when met and record backup/rollback/deployed SHA in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
-- [ ] T108 Prove production health, migration state, clear/no-context/ambiguous behavior, browser/embedded parity and installed macOS app impact without private content in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
+- [X] T106 Publish the matching tag and Russian GitHub Release notes with changes, validation, migration/compatibility, known limitations, PR/issues and deferred audit in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
+- [X] T107 Run `infra/scripts/cd-remote.sh --dry-run`, resolve every gate, then run `infra/scripts/cd-remote.sh --execute` only when met and record backup/rollback/deployed SHA in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
+- [X] T108 Prove production health, migration state, clear/no-context/ambiguous behavior, browser/embedded parity and installed macOS app impact without private content in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
 - [ ] T109 Close task-backed GitHub issues only after evidence comments, update `docs/current-product-status.md`, verify branch/worktree cleanup, and record that feature 097 plus the standalone security audit remain separately deferred in `specs/098-calendar-auto-context-match/validation/release-closeout.md`
 
 ---
