@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,7 +52,9 @@ async def meeting_list_page(
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     response = await list_cabinet_meetings(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -81,17 +83,21 @@ async def meeting_list_page(
 async def meeting_detail_page(
     request: Request,
     meeting_id: UUID,
+    calendar_context_action: str | None = Query(default=None, pattern="^change$"),
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     response = await get_cabinet_meeting_review(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
+        include_calendar_correction_candidates=calendar_context_action == "change",
     )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")

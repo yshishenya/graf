@@ -342,6 +342,30 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .activity-list { display: grid; gap: 8px; }
 .activity-item { border-top: 1px solid var(--line-soft); padding-top: 8px; display: grid; gap: 2px; }
 .truth-copy { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.calendar-context-chooser { display: grid; gap: 14px; }
+.calendar-context-chooser form { display: grid; gap: 12px; }
+.calendar-context-chooser fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.calendar-context-chooser legend { margin-bottom: 10px; color: var(--text); font-weight: 750; }
+.calendar-context-choices { display: grid; gap: 8px; }
+.calendar-context-choice {
+  min-width: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  cursor: pointer;
+  background: var(--surface);
+}
+.calendar-context-choice:hover { border-color: var(--line); }
+.calendar-context-choice:has(input:checked) { border-color: var(--accent); }
+.calendar-context-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.calendar-context-choice input { margin-top: 3px; }
+.calendar-context-choice__body { min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.calendar-context-clear { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.calendar-context-clear button { justify-self: start; }
 .delete-confirmation { border: 1px solid rgba(255,107,107,.35); border-radius: 8px; padding: 12px; display: grid; gap: 10px; background: rgba(255,107,107,.05); }
 .delete-confirmation strong { color: #ffd6d6; }
 .report-layout { max-width: 980px; display: grid; gap: 18px; padding-bottom: 96px; }
@@ -1234,8 +1258,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .meeting-row.cabinet-row {
   grid-template-columns: 24px 24px minmax(0, 1fr) 32px 64px;
-  min-height: 46px;
-  padding: 4px 12px;
+  min-height: 64px;
+  padding: 8px 12px;
   gap: 8px;
 }
 .meeting-row.cabinet-row:hover { background: #2c2f33; }
@@ -1404,7 +1428,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .detail-layout { grid-template-columns: 1fr; }
   .right-panel { position: static; }
   .meeting-row { grid-template-columns: 24px minmax(0, 1fr); padding: 12px; }
-  .meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto; min-height: 48px; }
+  .meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto; min-height: 64px; }
   .meeting-row.cabinet-row .meeting-date { grid-column: 5; }
   .meeting-row.cabinet-row .row-delete-form { grid-column: 4; }
   .meeting-row.cabinet-row .row-delete { opacity: 1; }
@@ -1570,6 +1594,10 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   }
 }
 @media (max-width: 540px) {
+  .calendar-context-choice { padding: 10px; }
+  .calendar-context-chooser .row-actions,
+  .calendar-context-chooser .row-actions button,
+  .calendar-context-chooser form > button { width: 100%; }
   .auth-page { padding: 18px 14px 28px; }
   .auth-panel { padding: 18px; }
   .auth-download {

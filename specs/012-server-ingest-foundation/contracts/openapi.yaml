@@ -917,38 +917,6 @@ paths:
           - type: string
           - type: 'null'
           title: X-Client-Version
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  contentMediaType: application/octet-stream
-                  title: File
-                duration_seconds:
-                  type: integer
-                  exclusiveMinimum: 0.0
-                  title: Duration Seconds
-                title:
-                  anyOf:
-                  - type: string
-                    maxLength: 500
-                  - type: 'null'
-                  title: Title
-                local_recording_id:
-                  anyOf:
-                  - type: string
-                    maxLength: 240
-                    minLength: 1
-                    pattern: ^[^\x00-\x1f\x7f]+$
-                  - type: 'null'
-                  title: Local Recording Id
-              required:
-              - file
-              - duration_seconds
       responses:
         '202':
           description: Successful Response
@@ -1004,6 +972,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  contentMediaType: application/octet-stream
+                  title: File
+                duration_seconds:
+                  type: integer
+                  exclusiveMinimum: 0.0
+                  title: Duration Seconds
+                title:
+                  anyOf:
+                  - type: string
+                    maxLength: 500
+                  - type: 'null'
+                  title: Title
+                local_recording_id:
+                  anyOf:
+                  - type: string
+                    maxLength: 240
+                    minLength: 1
+                    pattern: ^[^\x00-\x1f\x7f]+$
+                  - type: 'null'
+                  title: Local Recording Id
+              required:
+              - file
+              - duration_seconds
   /api/v1/desktop/recordings/{local_recording_id}/sync-state:
     get:
       tags:
@@ -2930,6 +2930,89 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/desktop/recordings/{local_recording_id}/calendar-context/resolve:
+    post:
+      tags:
+      - calendar
+      summary: Resolve Desktop Recording Calendar Context
+      operationId: resolveRecordingCalendarContext
+      parameters:
+      - name: local_recording_id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 240
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Local Recording Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 240
+          title: Idempotency-Key
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveRecordingCalendarContextRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveRecordingCalendarContextResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/meetings/{meeting_id}/calendar-context:
     put:
       tags:
@@ -2990,6 +3073,72 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PutMeetingCalendarContextRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingCalendarContextResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - calendar
+      summary: Get Meeting Calendar Context
+      operationId: get_meeting_calendar_context_api_v1_meetings__meeting_id__calendar_context_get
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
       responses:
         '200':
           description: Successful Response
@@ -5203,6 +5352,19 @@ paths:
           - type: string
           - type: 'null'
           title: X-Client-Version
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualMediaUploadResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
       requestBody:
         required: true
         content:
@@ -5235,19 +5397,6 @@ paths:
               required:
               - file
               - duration_seconds
-      responses:
-        '202':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ManualMediaUploadResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}:
     get:
       tags:
@@ -6795,6 +6944,132 @@ components:
       - expires_at
       - provider
       title: AuthStartResponse
+    CalendarContextCandidateView:
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        safe_title:
+          anyOf:
+          - type: string
+            maxLength: 500
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Safe Title
+        starts_at:
+          type: string
+          format: date-time
+          title: Starts At
+        ends_at:
+          type: string
+          format: date-time
+          title: Ends At
+        safe_source_label:
+          type: string
+          maxLength: 160
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Safe Source Label
+        roster_state:
+          $ref: '#/components/schemas/CalendarContextRosterState'
+          default: not_available
+        participant_count:
+          type: integer
+          minimum: 0.0
+          title: Participant Count
+          default: 0
+      additionalProperties: false
+      type: object
+      required:
+      - event_id
+      - starts_at
+      - ends_at
+      - safe_source_label
+      title: CalendarContextCandidateView
+    CalendarContextConfidence:
+      type: string
+      enum:
+      - high
+      - selected
+      - ambiguous
+      - none
+      title: CalendarContextConfidence
+    CalendarContextDecisionSource:
+      type: string
+      enum:
+      - automatic
+      - user
+      - system_skip
+      - legacy
+      title: CalendarContextDecisionSource
+    CalendarContextReasonCode:
+      type: string
+      enum:
+      - single_fresh_candidate
+      - multiple_time_candidates
+      - back_to_back_boundary
+      - no_matching_event
+      - weak_event_signal
+      - private_free_busy_skipped
+      - all_day_skipped
+      - selected_source_stale
+      - latest_sync_failed
+      - calendar_not_connected
+      - calendar_not_selected
+      - calendar_unavailable
+      - manual_upload_skipped
+      - offline_or_unknown_skipped
+      - prestart_not_reached
+      - user_selected
+      - user_declined
+      - user_cleared
+      - meeting_deleted
+      title: CalendarContextReasonCode
+    CalendarContextRosterState:
+      type: string
+      enum:
+      - available
+      - not_available
+      - hidden
+      title: CalendarContextRosterState
+    CalendarContextRosterView:
+      properties:
+        roster_state:
+          $ref: '#/components/schemas/CalendarContextRosterState'
+          default: not_available
+        participant_count:
+          type: integer
+          minimum: 0.0
+          title: Participant Count
+          default: 0
+        participants:
+          items:
+            $ref: '#/components/schemas/CalendarRosterSnapshotItem'
+          type: array
+          maxItems: 100
+          title: Participants
+      additionalProperties: false
+      type: object
+      title: CalendarContextRosterView
+    CalendarContextState:
+      type: string
+      enum:
+      - matched_auto
+      - matched_user
+      - ambiguous
+      - no_context
+      - skipped_private
+      - skipped_all_day
+      - skipped_stale_calendar
+      - calendar_unavailable
+      - skipped_offline_or_unknown
+      - skipped_manual_upload
+      - declined_by_user
+      - cleared_by_user
+      - deleted
+      - legacy_linked
+      title: CalendarContextState
     CalendarDisconnectResponse:
       properties:
         source_id:
@@ -6881,6 +7156,27 @@ components:
       - ends_at
       - title_state
       title: CalendarEventSummary
+    CalendarMatchAttemptState:
+      type: string
+      enum:
+      - matched_auto
+      - matched_user
+      - provisional_prestart
+      - ambiguous
+      - no_context
+      - skipped_private
+      - skipped_all_day
+      - skipped_stale_calendar
+      - calendar_unavailable
+      - declined_by_user
+      title: CalendarMatchAttemptState
+    CalendarMatchDecisionIntent:
+      type: string
+      enum:
+      - automatic
+      - user_selected
+      - user_declined
+      title: CalendarMatchDecisionIntent
     CalendarProviderListResponse:
       properties:
         providers:
@@ -6924,13 +7220,21 @@ components:
       properties:
         participant_kind:
           type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
           title: Participant Kind
         response_status:
           type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
           title: Response Status
         display_name:
           anyOf:
           - type: string
+            maxLength: 240
+            pattern: ^[^\x00-\x1f\x7f]+$
           - type: 'null'
           title: Display Name
         email_present:
@@ -6939,12 +7243,19 @@ components:
           default: false
         workspace_relation:
           type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
           title: Workspace Relation
           default: unknown
         recipient_candidate_class:
           type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
           title: Recipient Candidate Class
           default: unknown
+      additionalProperties: false
       type: object
       required:
       - participant_kind
@@ -6957,11 +7268,11 @@ components:
           title: Available
           default: false
         roster_state:
-          type: string
-          title: Roster State
+          $ref: '#/components/schemas/CalendarContextRosterState'
           default: not_available
         participant_count:
           type: integer
+          minimum: 0.0
           title: Participant Count
           default: 0
         source:
@@ -6975,9 +7286,56 @@ components:
           items:
             $ref: '#/components/schemas/CalendarRosterParticipantView'
           type: array
+          maxItems: 100
           title: Participants
+      additionalProperties: false
       type: object
       title: CalendarRosterReviewState
+    CalendarRosterSnapshotItem:
+      properties:
+        participant_kind:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Participant Kind
+        response_status:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Response Status
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 240
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Display Name
+        email_present:
+          type: boolean
+          title: Email Present
+          default: false
+        workspace_relation:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Workspace Relation
+          default: unknown
+        recipient_candidate_class:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Recipient Candidate Class
+          default: unknown
+      additionalProperties: false
+      type: object
+      required:
+      - participant_kind
+      - response_status
+      title: CalendarRosterSnapshotItem
     CalendarSourceListResponse:
       properties:
         sources:
@@ -7182,6 +7540,16 @@ components:
             pattern: ^[^\x00-\x1f\x7f]+$
           - type: 'null'
           title: Title
+        title_source:
+          anyOf:
+          - $ref: '#/components/schemas/DesktopMeetingTitleSource'
+          - type: 'null'
+        calendar_match_attempt_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Calendar Match Attempt Id
         started_at:
           anyOf:
           - type: string
@@ -7205,6 +7573,7 @@ components:
           type: integer
           exclusiveMinimum: 0.0
           title: Duration Seconds
+      additionalProperties: false
       type: object
       required:
       - local_recording_id
@@ -7680,6 +8049,14 @@ components:
           title: Events
       type: object
       title: DesktopCalendarPromptResponse
+    DesktopMeetingTitleSource:
+      type: string
+      enum:
+      - user_confirmed
+      - app_context
+      - generic
+      - unknown
+      title: DesktopMeetingTitleSource
     DesktopRecordingSyncStateResponse:
       properties:
         local_recording_id:
@@ -8533,27 +8910,113 @@ components:
           - type: 'null'
           title: Event Id
         context_state:
-          type: string
-          enum:
-          - linked
-          - unlinked
-          - no_context
-          title: Context State
+          $ref: '#/components/schemas/CalendarContextState'
         context_confidence:
           anyOf:
-          - type: string
+          - $ref: '#/components/schemas/CalendarContextConfidence'
           - type: 'null'
-          title: Context Confidence
+        reason_code:
+          anyOf:
+          - $ref: '#/components/schemas/CalendarContextReasonCode'
+          - type: 'null'
+        decision_source:
+          anyOf:
+          - $ref: '#/components/schemas/CalendarContextDecisionSource'
+          - type: 'null'
         title_source:
           anyOf:
+          - $ref: '#/components/schemas/MeetingTitleSource'
           - type: string
+            enum:
+            - user
+            - user_or_generic
+            - unknown
           - type: 'null'
           title: Title Source
+        matched_title:
+          anyOf:
+          - type: string
+            maxLength: 500
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Matched Title
+        matched_event_starts_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Matched Event Starts At
+        matched_event_ends_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Matched Event Ends At
+        candidate_count:
+          type: integer
+          minimum: 0.0
+          title: Candidate Count
+          default: 0
+        candidates:
+          items:
+            $ref: '#/components/schemas/CalendarContextCandidateView'
+          type: array
+          maxItems: 10
+          title: Candidates
+        roster:
+          anyOf:
+          - $ref: '#/components/schemas/CalendarContextRosterView'
+          - type: 'null'
+        previous_recurring_meeting:
+          anyOf:
+          - $ref: '#/components/schemas/PreviousRecurringMeetingView'
+          - type: 'null'
+        can_change:
+          type: boolean
+          title: Can Change
+          default: false
+        can_clear:
+          type: boolean
+          title: Can Clear
+          default: false
+      additionalProperties: false
       type: object
       required:
       - meeting_id
       - context_state
       title: MeetingCalendarContextResponse
+    MeetingCalendarContextSummary:
+      properties:
+        state:
+          $ref: '#/components/schemas/CalendarContextState'
+        label:
+          type: string
+          maxLength: 160
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Label
+        reason_label:
+          anyOf:
+          - type: string
+            maxLength: 240
+            minLength: 1
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Reason Label
+        title_source:
+          anyOf:
+          - $ref: '#/components/schemas/MeetingTitleSource'
+          - type: 'null'
+        needs_owner_action:
+          type: boolean
+          title: Needs Owner Action
+          default: false
+      additionalProperties: false
+      type: object
+      required:
+      - state
+      - label
+      title: MeetingCalendarContextSummary
     MeetingDetectionAdminActionRequest:
       properties:
         reason_code:
@@ -9283,6 +9746,14 @@ components:
           anyOf:
           - $ref: '#/components/schemas/MeetingUploadProgressState'
           - type: 'null'
+        calendar_context:
+          anyOf:
+          - $ref: '#/components/schemas/MeetingCalendarContextSummary'
+          - type: 'null'
+        previous_recurring_meeting:
+          anyOf:
+          - $ref: '#/components/schemas/PreviousRecurringMeetingView'
+          - type: 'null'
         future_slots:
           items:
             $ref: '#/components/schemas/SlotState'
@@ -9374,7 +9845,13 @@ components:
           - type: 'null'
           title: Title
         title_source:
-          type: string
+          anyOf:
+          - $ref: '#/components/schemas/MeetingTitleSource'
+          - type: string
+            enum:
+            - user
+            - user_or_generic
+            - unknown
           title: Title Source
           default: generic
         media_revision:
@@ -9402,6 +9879,10 @@ components:
           - type: integer
           - type: 'null'
           title: Recording Display Timezone Offset Minutes
+        calendar_context:
+          anyOf:
+          - $ref: '#/components/schemas/MeetingCalendarContextSummary'
+          - type: 'null'
         created_at:
           anyOf:
           - type: string
@@ -9420,6 +9901,14 @@ components:
       properties:
         meeting:
           $ref: '#/components/schemas/MeetingListItem'
+        calendar_context:
+          anyOf:
+          - $ref: '#/components/schemas/MeetingCalendarContextSummary'
+          - type: 'null'
+        calendar_context_detail:
+          anyOf:
+          - $ref: '#/components/schemas/MeetingCalendarContextResponse'
+          - type: 'null'
         provenance:
           $ref: '#/components/schemas/MeetingProvenance'
         processing:
@@ -9665,6 +10154,17 @@ components:
       - evidence
       - requiredSignals
       title: MeetingTargetRegistryTarget
+    MeetingTitleSource:
+      type: string
+      enum:
+      - user_confirmed
+      - calendar
+      - app_context
+      - generic
+      - upload_provided
+      - file_name_derived
+      - legacy_unknown
+      title: MeetingTitleSource
     MeetingUploadProgressState:
       properties:
         status:
@@ -10042,6 +10542,40 @@ components:
           title: Included Sources
       type: object
       title: PlaybackReviewState
+    PreviousRecurringMeetingReadiness:
+      type: string
+      enum:
+      - notes_ready
+      - transcript_ready
+      - processing
+      - unavailable
+      title: PreviousRecurringMeetingReadiness
+    PreviousRecurringMeetingView:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        safe_title:
+          anyOf:
+          - type: string
+            maxLength: 500
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Safe Title
+        started_at:
+          type: string
+          format: date-time
+          title: Started At
+        readiness_state:
+          $ref: '#/components/schemas/PreviousRecurringMeetingReadiness'
+      additionalProperties: false
+      type: object
+      required:
+      - meeting_id
+      - started_at
+      - readiness_state
+      title: PreviousRecurringMeetingView
     Problem:
       properties:
         type:
@@ -10339,6 +10873,8 @@ components:
           type: string
           enum:
           - manual_selection
+          - ambiguity_resolution
+          - correction
           - current_event_prompt
           - event_start_prompt
           title: Context Reason
@@ -10372,6 +10908,68 @@ components:
       required:
       - status
       title: ReadyResponse
+    ResolveRecordingCalendarContextRequest:
+      properties:
+        recording_started_at:
+          type: string
+          format: date-time
+          title: Recording Started At
+        decision_intent:
+          $ref: '#/components/schemas/CalendarMatchDecisionIntent'
+        event_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Event Id
+        contract_version:
+          type: string
+          const: calendar_auto_context_v1
+          title: Contract Version
+      additionalProperties: false
+      type: object
+      required:
+      - recording_started_at
+      - decision_intent
+      - contract_version
+      title: ResolveRecordingCalendarContextRequest
+    ResolveRecordingCalendarContextResponse:
+      properties:
+        attempt_id:
+          type: string
+          format: uuid
+          title: Attempt Id
+        context_state:
+          $ref: '#/components/schemas/CalendarMatchAttemptState'
+        reason_code:
+          $ref: '#/components/schemas/CalendarContextReasonCode'
+        context_confidence:
+          $ref: '#/components/schemas/CalendarContextConfidence'
+        candidate_count:
+          type: integer
+          minimum: 0.0
+          title: Candidate Count
+        matcher_version:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Matcher Version
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+      additionalProperties: false
+      type: object
+      required:
+      - attempt_id
+      - context_state
+      - reason_code
+      - context_confidence
+      - candidate_count
+      - matcher_version
+      - expires_at
+      title: ResolveRecordingCalendarContextResponse
     RetentionRunRequest:
       properties:
         limit:

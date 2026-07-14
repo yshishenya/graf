@@ -69,7 +69,12 @@
         </button>
       </form>
     </header>
-
+    {% if upcoming_content %}
+    <section class="upcoming cabinet-card" aria-label="Ближайшие встречи">
+      <div class="section-title">Ближайшие</div>
+      {{ upcoming_content }}
+    </section>
+    {% endif %}
     <div class="meeting-toolbar">
       <div class="section-title" data-list-title tabindex="-1">Записи встреч</div>
       <div class="selection-toolbar" role="toolbar" aria-label="Действия с выбранными записями" data-selection-toolbar hidden data-visible-total="{{ visible_total }}">

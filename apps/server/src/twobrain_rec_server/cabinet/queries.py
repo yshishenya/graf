@@ -8,11 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import (
     AccessState,
+    MeetingActivityItem,
+    MeetingActivityResponse,
+    MeetingCalendarContextResponse,
     MeetingFilterState,
     MeetingListResponse,
     MeetingReviewResponse,
     MeetingReviewStatus,
     MeetingUploadProgressState,
+    PreviousRecurringMeetingView,
 )
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.cabinet.access import decide_meeting_access, share_panel_state
@@ -21,11 +25,19 @@ from twobrain_rec_server.cabinet.egress import (
     artifact_egress_states,
     review_playback_state,
 )
-from twobrain_rec_server.cabinet.view_models import build_list_item, build_review_response
+from twobrain_rec_server.cabinet.view_models import (
+    build_list_item,
+    build_review_response,
+    previous_recurring_meeting_readiness,
+    safe_title,
+)
+from twobrain_rec_server.calendar.audit import calendar_context_activity_projections
 from twobrain_rec_server.calendar.service import (
     SELECTABLE_CALENDAR_VISIBILITIES,
     calendar_event_matches_preferences,
     get_calendar_settings_preferences,
+    get_meeting_calendar_context_response,
+    list_owner_context_correction_candidates,
     list_provider_presets,
 )
 from twobrain_rec_server.db.models import (
@@ -69,7 +81,9 @@ async def get_calendar_settings_surface(
         )
     )
     source_ids = [source.id for source in sources]
-    calendars_by_source: dict[object, list[ExternalCalendar]] = {source.id: [] for source in sources}
+    calendars_by_source: dict[object, list[ExternalCalendar]] = {
+        source.id: [] for source in sources
+    }
     if source_ids:
         calendars = list(
             await db.scalars(
@@ -138,18 +152,10 @@ async def _calendar_settings_preview_events(
     if preference is None or not preference.include_private_free_busy_prompt_candidates:
         query = query.where(
             CalendarEventSnapshot.safe_to_show_in_list.is_(True),
-            CalendarEventSnapshot.privacy_class.notin_(
-                {"private", "free_busy", "free_busy_only"}
-            ),
+            CalendarEventSnapshot.privacy_class.notin_({"private", "free_busy", "free_busy_only"}),
         )
-    rows = list(
-        await db.scalars(
-            query.limit(81)
-        )
-    )
-    return [
-        event for event in rows if calendar_event_matches_preferences(event, preference)
-    ][:8]
+    rows = list(await db.scalars(query.limit(81)))
+    return [event for event in rows if calendar_event_matches_preferences(event, preference)][:8]
 
 
 async def list_cabinet_meetings(
@@ -169,7 +175,9 @@ async def list_cabinet_meetings(
     )
     if q:
         pattern = f"%{q.strip()}%"
-        query = query.where(or_(Meeting.title.ilike(pattern), Meeting.local_recording_id.ilike(pattern)))
+        query = query.where(
+            or_(Meeting.title.ilike(pattern), Meeting.local_recording_id.ilike(pattern))
+        )
     query = _apply_sort(query, sort)
     meetings = (await db.scalars(query)).all()
 
@@ -185,7 +193,9 @@ async def list_cabinet_meetings(
             continue
         if access is not None and decision.state != access:
             continue
-        media_revision = await _latest_media_revision(db, workspace_id=workspace_id, meeting_id=meeting.id)
+        media_revision = await _latest_media_revision(
+            db, workspace_id=workspace_id, meeting_id=meeting.id
+        )
         media_revision_id = media_revision.id if media_revision is not None else None
         workflow = await _latest_workflow(
             db,
@@ -205,8 +215,22 @@ async def list_cabinet_meetings(
             meeting_id=meeting.id,
             processing_result_id=result.id if result is not None else None,
         )
-        artifacts = await artifact_egress_states(db, meeting=meeting, access=decision, result=result)
+        artifacts = await artifact_egress_states(
+            db, meeting=meeting, access=decision, result=result
+        )
         upload_progress = await _latest_upload_progress(db, meeting)
+        calendar_context = await _calendar_context_link(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+        )
+        previous_recurring_meeting = await _previous_recurring_meeting(
+            db,
+            workspace_id=workspace_id,
+            viewer_user_id=viewer_user_id,
+            meeting_id=meeting.id,
+            current_link=calendar_context,
+        )
         item = build_list_item(
             meeting,
             media_revision=media_revision,
@@ -217,6 +241,8 @@ async def list_cabinet_meetings(
             outcome_set=outcome_set,
             outcome_items=[],
             upload=upload_progress,
+            calendar_context=calendar_context,
+            previous_recurring_meeting=previous_recurring_meeting,
         )
         if status is not None and item.status != status:
             continue
@@ -233,7 +259,9 @@ async def list_cabinet_meetings(
     )
 
 
-async def _latest_upload_progress(db: AsyncSession, meeting: Meeting) -> MeetingUploadProgressState | None:
+async def _latest_upload_progress(
+    db: AsyncSession, meeting: Meeting
+) -> MeetingUploadProgressState | None:
     session = await db.scalar(
         select(UploadSession)
         .where(
@@ -298,7 +326,11 @@ def _upload_progress_label(status: str) -> str:
         UploadSessionStatus.FINALIZING.value,
     }:
         return "Отправляем"
-    if status in {UploadSessionStatus.FAILED.value, UploadSessionStatus.ABORTED.value, UploadSessionStatus.EXPIRED.value}:
+    if status in {
+        UploadSessionStatus.FAILED.value,
+        UploadSessionStatus.ABORTED.value,
+        UploadSessionStatus.EXPIRED.value,
+    }:
         return "Нужна помощь"
     if status == UploadSessionStatus.DEGRADED.value:
         return "Готово с замечаниями"
@@ -311,6 +343,7 @@ async def get_cabinet_meeting_review(
     workspace_id: UUID,
     meeting_id: UUID,
     viewer_user_id: UUID,
+    include_calendar_correction_candidates: bool = False,
 ) -> MeetingReviewResponse | None:
     meeting = await db.scalar(
         select(Meeting).where(
@@ -328,7 +361,9 @@ async def get_cabinet_meeting_review(
     )
     if not decision.can_view:
         return None
-    media_revision = await _latest_media_revision(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    media_revision = await _latest_media_revision(
+        db, workspace_id=workspace_id, meeting_id=meeting_id
+    )
     media_revision_id = media_revision.id if media_revision is not None else None
     workflow = await _latest_workflow(
         db,
@@ -381,6 +416,30 @@ async def get_cabinet_meeting_review(
         )
         .order_by(ProcessingDependencyState.updated_at.desc())
     )
+    calendar_context = await _calendar_context_link(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
+    calendar_context_detail = await get_meeting_calendar_context_read_model(
+        db,
+        workspace_id=workspace_id,
+        viewer_user_id=viewer_user_id,
+        meeting_id=meeting_id,
+    )
+    if include_calendar_correction_candidates and calendar_context_detail.can_change:
+        correction_candidates = await list_owner_context_correction_candidates(
+            db,
+            workspace_id=workspace_id,
+            owner_user_id=viewer_user_id,
+            meeting_id=meeting_id,
+        )
+        calendar_context_detail = calendar_context_detail.model_copy(
+            update={
+                "candidate_count": len(correction_candidates),
+                "candidates": correction_candidates,
+            }
+        )
     return build_review_response(
         meeting,
         media_revision=media_revision,
@@ -392,9 +451,18 @@ async def get_cabinet_meeting_review(
         access=decision.to_schema(),
         share=await share_panel_state(db, meeting, decision),
         artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
-        review_playback=await review_playback_state(db, meeting=meeting, access=decision, result=result),
-        calendar_roster=await _calendar_roster_state(db, workspace_id=workspace_id, meeting_id=meeting_id),
-        activity=await activity_response(
+        review_playback=await review_playback_state(
+            db, meeting=meeting, access=decision, result=result
+        ),
+        calendar_roster=await _calendar_roster_state(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            link=calendar_context,
+        ),
+        calendar_context=calendar_context,
+        calendar_context_detail=calendar_context_detail,
+        activity=await _meeting_activity_response(
             db,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
@@ -405,15 +473,199 @@ async def get_cabinet_meeting_review(
     )
 
 
-async def _calendar_roster_state(db: AsyncSession, *, workspace_id: UUID, meeting_id: UUID):
-    link = await db.scalar(
+async def _meeting_activity_response(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    viewer_user_id: UUID,
+) -> MeetingActivityResponse:
+    base = await activity_response(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=viewer_user_id,
+    )
+    calendar_items = [
+        MeetingActivityItem(
+            event_id=projection.event_id,
+            event_type=projection.event_type,
+            actor_label=("You" if projection.actor_user_id == viewer_user_id else "User"),
+            artifact_class=None,
+            outcome="completed",
+            reason=projection.reason,
+            created_at=projection.created_at,
+        )
+        for projection in await calendar_context_activity_projections(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+        )
+    ]
+    items = sorted(
+        [*base.items, *calendar_items],
+        key=lambda item: (item.created_at, str(item.event_id)),
+        reverse=True,
+    )[:50]
+    return MeetingActivityResponse(
+        meeting_id=meeting_id,
+        redaction_state="metadata_only",
+        items=items,
+    )
+
+
+async def _calendar_context_link(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> RecordingCalendarContextLink | None:
+    return await db.scalar(
         select(RecordingCalendarContextLink).where(
             RecordingCalendarContextLink.workspace_id == workspace_id,
             RecordingCalendarContextLink.meeting_id == meeting_id,
-            RecordingCalendarContextLink.unlinked_at.is_(None),
         )
     )
+
+
+async def get_meeting_calendar_context_read_model(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    viewer_user_id: UUID,
+    meeting_id: UUID,
+) -> MeetingCalendarContextResponse:
+    """Return current context plus one independently authorized series pointer."""
+
+    response = await get_meeting_calendar_context_response(
+        db,
+        workspace_id=workspace_id,
+        viewer_user_id=viewer_user_id,
+        meeting_id=meeting_id,
+    )
+    current_link = await _calendar_context_link(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
+    previous = await _previous_recurring_meeting(
+        db,
+        workspace_id=workspace_id,
+        viewer_user_id=viewer_user_id,
+        meeting_id=meeting_id,
+        current_link=current_link,
+    )
+    return response.model_copy(update={"previous_recurring_meeting": previous})
+
+
+async def _previous_recurring_meeting(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    viewer_user_id: UUID,
+    meeting_id: UUID,
+    current_link: RecordingCalendarContextLink | None,
+) -> PreviousRecurringMeetingView | None:
+    if (
+        current_link is None
+        or current_link.context_state not in {"matched_auto", "matched_user"}
+        or current_link.recurring_series_key_sha256 is None
+        or current_link.matched_event_starts_at is None
+    ):
+        return None
+
+    row = (
+        await db.execute(
+            select(RecordingCalendarContextLink, Meeting)
+            .join(
+                Meeting,
+                Meeting.id == RecordingCalendarContextLink.meeting_id,
+            )
+            .where(
+                RecordingCalendarContextLink.workspace_id == workspace_id,
+                Meeting.workspace_id == workspace_id,
+                RecordingCalendarContextLink.meeting_id != meeting_id,
+                RecordingCalendarContextLink.context_state.in_({"matched_auto", "matched_user"}),
+                RecordingCalendarContextLink.recurring_series_key_sha256
+                == current_link.recurring_series_key_sha256,
+                RecordingCalendarContextLink.matched_event_starts_at
+                < current_link.matched_event_starts_at,
+            )
+            .order_by(
+                RecordingCalendarContextLink.matched_event_starts_at.desc(),
+                RecordingCalendarContextLink.id.desc(),
+            )
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        return None
+    _previous_link, previous_meeting = row
+    access = await decide_meeting_access(
+        db,
+        previous_meeting,
+        workspace_id=workspace_id,
+        viewer_user_id=viewer_user_id,
+    )
+    if not access.can_view or previous_meeting.started_at is None:
+        return None
+
+    media_revision = await _latest_media_revision(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=previous_meeting.id,
+    )
+    result = await _latest_result(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=previous_meeting.id,
+        media_revision_id=media_revision.id if media_revision is not None else None,
+    )
+    outcome_set = await _latest_outcome_set(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=previous_meeting.id,
+        processing_result_id=result.id if result is not None else None,
+    )
+    started_at = previous_meeting.started_at
+    started_at = (
+        started_at.replace(tzinfo=UTC) if started_at.tzinfo is None else started_at.astimezone(UTC)
+    )
+    return PreviousRecurringMeetingView(
+        meeting_id=previous_meeting.id,
+        safe_title=safe_title(previous_meeting),
+        started_at=started_at,
+        readiness_state=previous_recurring_meeting_readiness(
+            previous_meeting,
+            result=result,
+            outcome_set=outcome_set,
+        ),
+    )
+
+
+async def _calendar_roster_state(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    link: RecordingCalendarContextLink | None = None,
+):
+    link = link or await _calendar_context_link(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
     if link is None:
+        return None
+    from twobrain_rec_server.cabinet.view_models import (
+        calendar_roster_snapshot_state,
+        calendar_roster_state,
+    )
+
+    snapshot = calendar_roster_snapshot_state(link)
+    if snapshot is not None:
+        return snapshot
+    if link.context_state != "legacy_linked" or link.calendar_event_snapshot_id is None:
         return None
     participants = (
         await db.scalars(
@@ -428,8 +680,6 @@ async def _calendar_roster_state(db: AsyncSession, *, workspace_id: UUID, meetin
             )
         )
     ).all()
-    from twobrain_rec_server.cabinet.view_models import calendar_roster_state
-
     return calendar_roster_state(participants)
 
 
@@ -453,8 +703,8 @@ async def _latest_workflow(
     media_revision_id: UUID | None = None,
 ) -> ProcessingWorkflow | None:
     query = select(ProcessingWorkflow).where(
-            ProcessingWorkflow.workspace_id == workspace_id,
-            ProcessingWorkflow.meeting_id == meeting_id,
+        ProcessingWorkflow.workspace_id == workspace_id,
+        ProcessingWorkflow.meeting_id == meeting_id,
     )
     if media_revision_id is not None:
         query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
@@ -469,12 +719,14 @@ async def _latest_result(
     media_revision_id: UUID | None = None,
 ) -> ProcessingResult | None:
     query = select(ProcessingResult).where(
-            ProcessingResult.workspace_id == workspace_id,
-            ProcessingResult.meeting_id == meeting_id,
+        ProcessingResult.workspace_id == workspace_id,
+        ProcessingResult.meeting_id == meeting_id,
     )
     if media_revision_id is not None:
         query = query.where(ProcessingResult.media_revision_id == media_revision_id)
-    return await db.scalar(query.order_by(ProcessingResult.imported_at.desc(), ProcessingResult.created_at.desc()))
+    return await db.scalar(
+        query.order_by(ProcessingResult.imported_at.desc(), ProcessingResult.created_at.desc())
+    )
 
 
 async def _latest_media_revision(
@@ -520,7 +772,9 @@ async def latest_processing_result(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> ProcessingResult | None:
-    media_revision = await _latest_media_revision(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    media_revision = await _latest_media_revision(
+        db, workspace_id=workspace_id, meeting_id=meeting_id
+    )
     return await _latest_result(
         db,
         workspace_id=workspace_id,

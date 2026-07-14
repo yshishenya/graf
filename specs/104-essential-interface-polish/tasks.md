@@ -234,9 +234,25 @@ The smallest independently useful slice is US1 after baseline: remove disabled/d
 
 - The user authorized scoped feature commits after validation; no task authorizes production deployment, release publication, installer replacement, or inclusion of unrelated worktree changes.
 - Private runtime screenshots stay outside git; only synthetic or metadata-safe evidence may be committed.
-- Preserve the pre-existing user changes in `.specify/templates/checklist-template.md`, `.specify/templates/plan-template.md`, `AGENTS.md`, and `docs/agent-guidance/ponytail-upstream.md`.
+- The four initially unrelated visible changes in
+  `.specify/templates/checklist-template.md`,
+  `.specify/templates/plan-template.md`, `AGENTS.md`, and
+  `docs/agent-guidance/ponytail-upstream.md` were traced to local snapshot
+  `4081ef18` (`Codex worktree snapshot: archive-cleanup`), reviewed as valid
+  managed-guidance updates, and isolated in commit `a8f835ac`; they are not
+  feature-104 implementation code.
+- The generated Spec Kit worktree overlay remains hidden with `skip-worktree`
+  by the repository bootstrap contract and is intentionally excluded from the
+  feature diff.
 - Apply the Ponytail ladder: delete proven noise, reuse existing helpers/native semantics, add no dependency, and avoid broad refactors.
 - Implementation commit: `10abb936` (`feat(interface): завершить полировку главного окна`).
+- Final native-state correction commit: `8dd1c409`
+  (`fix(interface): завершить native state polish фичи 104`).
+- Integration with current `origin/master` preserves feature 098's safe
+  calendar context while rendering `Ближайшие` only for a real authorized
+  future recurring occurrence; focused crossover suites pass `168` server and
+  `149` macOS tests, and the post-resolution full gate passes `642` Swift tests,
+  `1426` server tests, `4` skips, and `ContractValidation: PASS`.
 - T016, T028, and T036 are closed by combined metadata-safe evidence: the real
   GRAF shell was exercised unlocked for onboarding, compact/expanded idle,
   offline, and retry; the final production capture views were exercised in an

@@ -1,5 +1,97 @@
 import Foundation
 
+public enum DesktopCalendarMatchDecisionIntent: String, Codable, Equatable, Sendable {
+    case automatic
+    case userSelected = "user_selected"
+    case userDeclined = "user_declined"
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: rawValue) ?? .unknown
+    }
+}
+
+public enum DesktopCalendarMatchAttemptState: String, Codable, Equatable, Sendable {
+    case matchedAuto = "matched_auto"
+    case matchedUser = "matched_user"
+    case provisionalPrestart = "provisional_prestart"
+    case ambiguous
+    case noContext = "no_context"
+    case skippedPrivate = "skipped_private"
+    case skippedAllDay = "skipped_all_day"
+    case skippedStaleCalendar = "skipped_stale_calendar"
+    case calendarUnavailable = "calendar_unavailable"
+    case declinedByUser = "declined_by_user"
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: rawValue) ?? .unknown
+    }
+}
+
+public enum DesktopCalendarContextConfidence: String, Codable, Equatable, Sendable {
+    case high
+    case selected
+    case ambiguous
+    case none
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: rawValue) ?? .unknown
+    }
+}
+
+public struct DesktopCalendarContextResolveRequest: Encodable, Equatable, Sendable {
+    public static let currentContractVersion = "calendar_auto_context_v1"
+
+    public let recordingStartedAt: Date
+    public let decisionIntent: DesktopCalendarMatchDecisionIntent
+    public let eventId: String?
+    public let contractVersion: String
+
+    public init(
+        recordingStartedAt: Date,
+        decisionIntent: DesktopCalendarMatchDecisionIntent,
+        eventId: String? = nil,
+        contractVersion: String = "calendar_auto_context_v1"
+    ) {
+        self.recordingStartedAt = recordingStartedAt
+        self.decisionIntent = decisionIntent
+        self.eventId = decisionIntent == .userSelected ? eventId : nil
+        self.contractVersion = contractVersion
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case recordingStartedAt = "recording_started_at"
+        case decisionIntent = "decision_intent"
+        case eventId = "event_id"
+        case contractVersion = "contract_version"
+    }
+}
+
+public struct DesktopCalendarContextResolveResponse: Decodable, Equatable, Sendable {
+    public let attemptId: String
+    public let contextState: DesktopCalendarMatchAttemptState
+    public let reasonCode: String
+    public let contextConfidence: DesktopCalendarContextConfidence
+    public let candidateCount: Int
+    public let matcherVersion: String
+    public let expiresAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case attemptId = "attempt_id"
+        case contextState = "context_state"
+        case reasonCode = "reason_code"
+        case contextConfidence = "context_confidence"
+        case candidateCount = "candidate_count"
+        case matcherVersion = "matcher_version"
+        case expiresAt = "expires_at"
+    }
+}
+
 public enum CalendarEventTitleState: String, Codable, Sendable {
     case available
     case privateRedacted = "private_redacted"

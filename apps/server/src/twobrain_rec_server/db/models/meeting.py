@@ -25,6 +25,11 @@ class Meeting(Base):
     device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
     local_recording_id: Mapped[str] = mapped_column(String(240), nullable=False)
     title: Mapped[str | None] = mapped_column(String(500))
+    title_source: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="legacy_unknown"
+    )
+    title_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    create_request_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recording_display_timezone_offset_minutes: Mapped[int | None] = mapped_column(Integer)

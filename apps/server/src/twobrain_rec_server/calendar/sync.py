@@ -16,13 +16,17 @@ from twobrain_rec_server.db.models import (
     ExternalCalendar,
 )
 
+MAX_CONFERENCE_LINK_HASHES_PER_EVENT = 10
+
 
 def future_sync_horizon(now: datetime | None = None) -> tuple[datetime, datetime]:
     start = now or datetime.now(UTC)
     return start, start + timedelta(days=365)
 
 
-def record_source_sync_failure(source: CalendarSource, *, reason: str, now: datetime | None = None) -> dict[str, str]:
+def record_source_sync_failure(
+    source: CalendarSource, *, reason: str, now: datetime | None = None
+) -> dict[str, str]:
     failure = safe_credential_failure(reason)
     finished_at = now or datetime.now(UTC)
     source.last_sync_finished_at = finished_at
@@ -79,12 +83,21 @@ async def upsert_event_snapshot(
     snapshot.description = event.description
     snapshot.location = event.location
     snapshot.privacy_class = event.privacy_class
+    bounded_conference_links = _bounded_conference_links(event.conference_links)
     snapshot.conference_summary_json = {
         "meeting_link_present": event.meeting_link_present,
-        "provider_families": sorted({link.get("provider_family", "generic") for link in event.conference_links}),
+        "provider_families": sorted(
+            {link.get("provider_family", "generic") for link in bounded_conference_links}
+        ),
+        "url_hashes": [link["url_hash"] for link in bounded_conference_links],
     }
     snapshot.provider_extras_json = event.provider_extras | {
-        "recipient_candidate_count": sum(1 for participant in event.participants if participant.get("recipient_candidate_class") not in {"resource", "room", "group", "unavailable"}),
+        "recipient_candidate_count": sum(
+            1
+            for participant in event.participants
+            if participant.get("recipient_candidate_class")
+            not in {"resource", "room", "group", "unavailable"}
+        ),
         "roster_state": "available" if event.participants else "not_available",
         "participant_count": event.participant_count,
         "provider_family": event.provider_family,
@@ -94,14 +107,24 @@ async def upsert_event_snapshot(
     snapshot.safe_to_use_as_title = event.title_state == "available"
     snapshot.attachments_metadata_json = event.attachments_metadata
     snapshot.sensitivity_reasons_json = [
-        field for field, state in event.limitation_states.items() if state in {"private_redacted", "free_busy_only"}
+        field
+        for field, state in event.limitation_states.items()
+        if state in {"private_redacted", "free_busy_only"}
     ]
     snapshot.source_created_at = event.source_created_at
     snapshot.source_updated_at = event.source_updated_at
     await db.flush()
 
-    await db.execute(delete(CalendarParticipant).where(CalendarParticipant.calendar_event_snapshot_id == snapshot.id))
-    await db.execute(delete(ConferenceLinkCandidate).where(ConferenceLinkCandidate.calendar_event_snapshot_id == snapshot.id))
+    await db.execute(
+        delete(CalendarParticipant).where(
+            CalendarParticipant.calendar_event_snapshot_id == snapshot.id
+        )
+    )
+    await db.execute(
+        delete(ConferenceLinkCandidate).where(
+            ConferenceLinkCandidate.calendar_event_snapshot_id == snapshot.id
+        )
+    )
     for participant in event.participants:
         db.add(
             CalendarParticipant(
@@ -116,7 +139,7 @@ async def upsert_event_snapshot(
                 recipient_candidate_class=participant.get("recipient_candidate_class", "unknown"),
             )
         )
-    for link in event.conference_links:
+    for link in bounded_conference_links:
         db.add(
             ConferenceLinkCandidate(
                 calendar_event_snapshot_id=snapshot.id,
@@ -130,6 +153,20 @@ async def upsert_event_snapshot(
             )
         )
     return snapshot
+
+
+def _bounded_conference_links(links: list[dict]) -> list[dict]:
+    """Keep deterministic, hashed meeting identity evidence within the matcher cap."""
+
+    deduped: dict[str, dict] = {}
+    for link in links:
+        url_hash = link.get("url_hash")
+        if not isinstance(url_hash, str) or not url_hash or len(url_hash) > 80 or "://" in url_hash:
+            continue
+        deduped.setdefault(url_hash, link)
+    return [
+        deduped[url_hash] for url_hash in sorted(deduped)[:MAX_CONFERENCE_LINK_HASHES_PER_EVENT]
+    ]
 
 
 async def apply_calendar_sync_result(
@@ -166,5 +203,10 @@ async def apply_calendar_sync_result(
     ]
     if seen_ids:
         stale_conditions.append(CalendarEventSnapshot.id.not_in(seen_ids))
-    await db.execute(update(CalendarEventSnapshot).where(*stale_conditions).values(source_deleted_at=finished_at))
+    await db.execute(
+        update(CalendarEventSnapshot)
+        .where(*stale_conditions)
+        .values(source_deleted_at=finished_at)
+        .execution_options(synchronize_session="fetch")
+    )
     return synced_snapshots

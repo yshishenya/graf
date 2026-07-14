@@ -23,6 +23,47 @@ metadata-only evidence остаются подробной историей ре
   refreshes the public download package with the local self-signed build so
   the owner machine can update from the hosted package while the Developer ID
   path remains out of scope.
+- Feature `098-calendar-auto-context-match` is implemented, released and live
+  in production. Feature PR
+  [#3270](https://github.com/yshishenya/crisp/pull/3270) merged as
+  `979dc497c1575baa886ce5d74d414e898f5ea464`; feature release
+  [`v2026.07.13.2`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.2)
+  introduced the behavior, and smoke-cleanup hotfix
+  [`v2026.07.13.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.3)
+  is deployed at exact SHA `f0e3ee4aef81c5d7a58cf632b6513b7f38414dc9`.
+  A desktop recording start may request a server-owned,
+  24-hour match attempt without blocking capture; the deterministic matcher
+  accepts only one fresh eligible event, keeps overlaps/back-to-back cases
+  ambiguous, and safely skips private/free-busy, all-day, stale, manual-upload
+  and offline/unknown paths. Meeting creation atomically consumes only a
+  same-owner/same-workspace attempt and persists one immutable context snapshot
+  with safe title, time, bounded roster and hashed recurring-series evidence.
+  Replaceable app/generic titles may use the safe calendar title; user,
+  upload/file and legacy titles remain authoritative, and visible titles remain
+  stable after correction or clear. Browser and embedded review reuse the same
+  owner-managed chooser, no-context explanations, roster-not-speaker copy and
+  independently authorized previous-series pointer. Calendar participants do
+  not create access, shares, recipients, delivery or speaker-name assignment.
+  Current focused evidence passes `145` unit/read-model, `99` contract, `162`
+  integration, `195` focused macOS and `72` authorization/privacy tests;
+  SQLite migration checks and disposable PostgreSQL/RLS probes pass with
+  cleanup. Canonical local CI also passes with `631` macOS tests, `1414` server
+  tests passed and `4` skipped, Ruff, compile, Compose rendering and deployment
+  evidence scan. Its intentionally non-live RLS boundary reports that a
+  PostgreSQL test URL is required; the separate disposable PostgreSQL/RLS run
+  is the database receipt. User-approved Chrome QA also passes the web and
+  embedded list/matched/recurring/ambiguity/correction/clear flow with keyboard
+  focus and durable-state checks. That pass found and closed an invalid nested
+  chooser-link/grid-wrap defect before the final screenshot rerun. Production
+  is at migration `0021_calendar_auto_context_match (head)`; backup and restore
+  rehearsal, RLS verification, synthetic no-context upload, cleanup, public
+  live/ready probes and an independent zero-residue read-back all pass. The
+  clear/ambiguous and browser/embedded receipts remain synthetic same-code QA,
+  not a claim that private production calendars were inspected. Older app
+  builds must be updated to gain feature 098; the server-only `.3` hotfix has
+  no `apps/macos` diff and requires no additional reinstall. Feature `097` and
+  its resumable standalone Codex Security scan stay separately deferred by
+  user instruction and are not counted as 098 acceptance evidence.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and
@@ -773,6 +814,13 @@ the current accepted implementation or `012` ingest slice.
   meetings later.
 - `direct-object-upload`: future upload optimization only after a separate
   security and lifecycle review; `012` remains `server_mediated`.
+- Calendar/contact-based speaker-name suggestions remain a separate future
+  identity capability after `098-calendar-auto-context-match`. Feature `098`
+  treats calendar participants only as invited roster metadata: they do not
+  rename `SPEAKER_XX` transcript/diarization labels, create access or share
+  grants, become recipients, or trigger delivery. Any future implementation
+  requires its own consent, confidence, correction, speaker-truth, privacy and
+  authorization design and evidence.
 - Browser/packaging evidence still pending: Yandex Browser smoke, long-duration
   30/60 minute integrity, and signed/notarized installer evidence.
 - `mediascribe-large-audio-proxy-ceiling`: do not raise MediaScribe just

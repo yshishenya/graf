@@ -194,6 +194,50 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertEqual(DesktopUploadClient.createMeetingPayload(for: item).title, "Meeting - 1970-01-01 00:00")
     }
 
+    func testCreateMeetingPayloadIncludesPersistedTitleSourceAndOpaqueCalendarAttempt() throws {
+        var item = makeQueueItem(recordingMetadata: RecordingDisplayMetadata(
+            recordingStartedAt: CalendarSettingsFixtures.recordingStartedAt,
+            recordingStoppedAt: CalendarSettingsFixtures.recordingStartedAt.addingTimeInterval(60),
+            title: "Zoom - 2026-07-13 03:26",
+            titleStatus: .generated,
+            titleSource: .appContext,
+            titleConfidence: .high,
+            titleGeneratedAt: CalendarSettingsFixtures.recordingStartedAt,
+            safeFileBasename: "2026-07-13_03-26_zoom_ab12cd",
+            stableSuffix: "ab12cd"
+        ))
+        item.calendarMatchAttemptId = CalendarSettingsFixtures.attemptID
+
+        let payload = DesktopUploadClient.createMeetingPayload(for: item)
+        let json = String(decoding: try JSONEncoder().encode(payload), as: UTF8.self)
+
+        XCTAssertEqual(payload.title_source, .appContext)
+        XCTAssertEqual(payload.calendar_match_attempt_id, CalendarSettingsFixtures.attemptID)
+        XCTAssertTrue(json.contains("\"title_source\":\"app_context\""))
+        XCTAssertTrue(json.contains("\"calendar_match_attempt_id\":\"" + CalendarSettingsFixtures.attemptID + "\""))
+    }
+
+    func testCreateMeetingPayloadAfterResolveFailureOmitsCalendarAttempt() throws {
+        let item = makeQueueItem(recordingMetadata: RecordingDisplayMetadata(
+            recordingStartedAt: CalendarSettingsFixtures.recordingStartedAt,
+            recordingStoppedAt: CalendarSettingsFixtures.recordingStartedAt.addingTimeInterval(60),
+            title: "Meeting - 2026-07-13 03:26",
+            titleStatus: .generated,
+            titleSource: .generic,
+            titleConfidence: .medium,
+            titleGeneratedAt: CalendarSettingsFixtures.recordingStartedAt,
+            safeFileBasename: "2026-07-13_03-26_meeting_ab12cd",
+            stableSuffix: "ab12cd"
+        ))
+
+        let payload = DesktopUploadClient.createMeetingPayload(for: item)
+        let json = String(decoding: try JSONEncoder().encode(payload), as: UTF8.self)
+
+        XCTAssertNil(item.calendarMatchAttemptId)
+        XCTAssertNil(payload.calendar_match_attempt_id)
+        XCTAssertFalse(json.contains("calendar_match_attempt_id"))
+    }
+
     func testConfiguredHeadersIncludeBearerTokenWithoutPersistingSecrets() {
         let headers = DesktopUploadClient.configuredHeaders(from: [
             "GRAF_CLIENT_VERSION": "smoke-014",

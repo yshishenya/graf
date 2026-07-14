@@ -5,6 +5,11 @@ from datetime import UTC, date, datetime, time, timedelta
 from hashlib import sha256
 from typing import Any
 
+from twobrain_rec_server.domain.metadata_text import (
+    contains_forbidden_metadata_text,
+    safe_metadata_text,
+)
+
 RAW_EXTRA_MARKERS = ("raw", "payload", "token", "secret", "authorization")
 
 
@@ -55,13 +60,18 @@ def normalize_calendar_event(event: dict[str, Any]) -> NormalizedCalendarEvent:
     ends_at = _coerce_datetime(event.get("ends_at") or _default_end(starts_at, event))
     if ends_at <= starts_at:
         ends_at = starts_at + timedelta(minutes=1)
-    title = event.get("title")
-    title_state = str(event.get("title_state") or _title_state(title, event))
+    raw_title = event.get("title")
+    title_state = str(event.get("title_state") or _title_state(raw_title, event))
+    if title_state == "available" and contains_forbidden_metadata_text(raw_title or ""):
+        title_state = "policy_hidden"
+    title = safe_metadata_text(raw_title, max_length=500) if title_state == "available" else None
     description_state = str(event.get("description_state") or title_state)
     privacy_class = str(event.get("privacy_class", "unknown"))
     content_available = privacy_class.lower() not in {"private", "confidential", "free_busy_only"}
     participants = normalize_calendar_participants(event.get("participants") or [])
-    conference_links = [dict(link) for link in event.get("conference_links") or []] if content_available else []
+    conference_links = (
+        [dict(link) for link in event.get("conference_links") or []] if content_available else []
+    )
     return NormalizedCalendarEvent(
         provider_family=str(event["provider_family"]),
         provider_calendar_id=event.get("provider_calendar_id"),
@@ -76,7 +86,7 @@ def normalize_calendar_event(event: dict[str, Any]) -> NormalizedCalendarEvent:
         original_start=_optional_datetime(event.get("original_start")),
         all_day=bool(event.get("all_day", False)),
         floating_time=bool(event.get("floating_time", False)),
-        title=title if title_state == "available" else None,
+        title=title,
         description=event.get("description") if description_state == "available" else None,
         location=event.get("location") if content_available else None,
         title_state=title_state,
@@ -84,7 +94,9 @@ def normalize_calendar_event(event: dict[str, Any]) -> NormalizedCalendarEvent:
         privacy_class=privacy_class,
         participants=participants,
         conference_links=conference_links,
-        attachments_metadata=_safe_attachment_metadata(event.get("attachments_metadata") or []) if content_available else [],
+        attachments_metadata=_safe_attachment_metadata(event.get("attachments_metadata") or [])
+        if content_available
+        else [],
         provider_extras=_safe_provider_extras(event.get("provider_extras") or {}),
         limitation_states=dict(event.get("limitation_states") or {}),
         recurrence_rule=event.get("recurrence_rule"),
@@ -103,7 +115,9 @@ def normalize_icalendar_event(
     provider_calendar_id: str | None = None,
 ) -> NormalizedCalendarEvent:
     fields = _parse_vevent_fields(icalendar_text)
-    privacy_class = "private" if fields.get("CLASS", "").lower() in {"private", "confidential"} else "public"
+    privacy_class = (
+        "private" if fields.get("CLASS", "").lower() in {"private", "confidential"} else "public"
+    )
     source_status = fields.get("STATUS", "unknown").lower()
     starts_at = _parse_ical_datetime(fields["DTSTART"])
     recurrence_id = fields.get("RECURRENCE-ID")
@@ -121,13 +135,19 @@ def normalize_icalendar_event(
         "floating_time": fields["DTSTART"].endswith("Z") is False and "T" in fields["DTSTART"],
         "timezone": "UTC" if fields["DTSTART"].endswith("Z") else None,
         "title": fields.get("SUMMARY") if public_content else None,
-        "title_state": "available" if fields.get("SUMMARY") and public_content else "private_redacted",
+        "title_state": "available"
+        if fields.get("SUMMARY") and public_content
+        else "private_redacted",
         "description": fields.get("DESCRIPTION") if public_content else None,
-        "description_state": "available" if fields.get("DESCRIPTION") and public_content else "private_redacted",
+        "description_state": "available"
+        if fields.get("DESCRIPTION") and public_content
+        else "private_redacted",
         "location": fields.get("LOCATION") if public_content else None,
         "transparency": fields.get("TRANSP"),
         "privacy_class": privacy_class,
-        "conference_links": [] if source_status == "cancelled" or not public_content else [
+        "conference_links": []
+        if source_status == "cancelled" or not public_content
+        else [
             {
                 "provider_family": link.provider_family,
                 "source_field": "icalendar",
@@ -139,7 +159,9 @@ def normalize_icalendar_event(
             for link in _extract_ical_links(fields)
         ],
         "provider_extras": {"icalendar_source": "VEVENT"},
-        "attachments_metadata": [{"source_field": "ATTACH", "available": True}] if fields.get("ATTACH") else [],
+        "attachments_metadata": [{"source_field": "ATTACH", "available": True}]
+        if fields.get("ATTACH")
+        else [],
         "limitation_states": {},
         "recurrence_rule": {"rrule": fields["RRULE"]} if fields.get("RRULE") else None,
         "recurrence_exceptions": [{"exdate": fields["EXDATE"]}] if fields.get("EXDATE") else [],
@@ -199,7 +221,10 @@ def normalize_calendar_participants(participants: list[dict[str, Any]]) -> list[
     seen: set[tuple[str, str | None]] = set()
     for participant in participants:
         item = _normalize_participant(participant)
-        key = (item["participant_kind"], (item.get("email") or item.get("display_name") or "").lower() or None)
+        key = (
+            item["participant_kind"],
+            (item.get("email") or item.get("display_name") or "").lower() or None,
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -217,7 +242,7 @@ def _normalize_participant(participant: dict[str, Any]) -> dict[str, Any]:
         "response_status": response_status,
         "email": email,
         "email_hash": participant.get("email_hash") or _email_hash(email),
-        "display_name": participant.get("display_name"),
+        "display_name": safe_metadata_text(participant.get("display_name"), max_length=240),
         "workspace_relation": workspace_relation,
         "recipient_candidate_class": participant.get("recipient_candidate_class")
         or _recipient_candidate_class(participant_kind, response_status, email, workspace_relation),
@@ -307,4 +332,6 @@ def _parse_vevent_fields(icalendar_text: str) -> dict[str, str]:
 def _extract_ical_links(fields: dict[str, str]):
     from twobrain_rec_server.calendar.conference_links import extract_conference_link_candidates
 
-    return extract_conference_link_candidates(fields.get("LOCATION"), fields.get("DESCRIPTION"), fields.get("URL"))
+    return extract_conference_link_candidates(
+        fields.get("LOCATION"), fields.get("DESCRIPTION"), fields.get("URL")
+    )

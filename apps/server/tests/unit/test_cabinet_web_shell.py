@@ -1,10 +1,11 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from twobrain_rec_server.api.schemas import (
     ArtifactDeletionState,
     ArtifactEgressState,
+    CalendarContextCandidateView,
     DeletionVerificationReport,
     GovernanceActionState,
     GovernanceActionSummary,
@@ -12,6 +13,7 @@ from twobrain_rec_server.api.schemas import (
     LocalPurgeTask,
     MeetingAccessState,
     MeetingActivityResponse,
+    MeetingCalendarContextSummary,
     MeetingFilterState,
     MeetingListItem,
     MeetingListResponse,
@@ -33,6 +35,7 @@ from twobrain_rec_server.api.schemas import (
     TranscriptReviewState,
     TranscriptSegmentView,
 )
+from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 from twobrain_rec_server.cabinet.deletion_rendering import render_deletion_report_page
 from twobrain_rec_server.cabinet.rendering import (
     render_calendar_settings_page,
@@ -70,10 +73,18 @@ def _cabinet_js() -> str:
 
 def _governance() -> GovernanceActionSummary:
     return GovernanceActionSummary(
-        share=GovernanceActionState(state="available", label="Share", reason="Login-required sharing", destructive=False),
-        export=GovernanceActionState(state="disabled", label="Export package", reason="No package", destructive=False),
-        download=GovernanceActionState(state="disabled", label="Download", reason="No artifact", destructive=False),
-        retention=GovernanceActionState(state="planned", label="Retention policy planned", reason="future", destructive=False),
+        share=GovernanceActionState(
+            state="available", label="Share", reason="Login-required sharing", destructive=False
+        ),
+        export=GovernanceActionState(
+            state="disabled", label="Export package", reason="No package", destructive=False
+        ),
+        download=GovernanceActionState(
+            state="disabled", label="Download", reason="No artifact", destructive=False
+        ),
+        retention=GovernanceActionState(
+            state="planned", label="Retention policy planned", reason="future", destructive=False
+        ),
         delete=GovernanceActionState(
             state="planned",
             label="Delete this meeting everywhere GRAF controls",
@@ -125,7 +136,7 @@ def _notes_truth() -> NotesActionTruthState:
     )
 
 
-def _item() -> MeetingListItem:
+def _item(*, calendar_context: MeetingCalendarContextSummary | None = None) -> MeetingListItem:
     return MeetingListItem(
         meeting_id=uuid4(),
         title="Проектный синк",
@@ -144,6 +155,7 @@ def _item() -> MeetingListItem:
         access=_access(),
         artifacts=_artifacts(),
         governance=_governance(),
+        calendar_context=calendar_context,
         future_slots=[
             SlotState(state="planned", label="Star", reason="future"),
             SlotState(state="planned", label="Tag", reason="future"),
@@ -151,8 +163,10 @@ def _item() -> MeetingListItem:
     )
 
 
-def _review() -> MeetingReviewResponse:
-    item = _item()
+def _review(
+    *, calendar_context: MeetingCalendarContextSummary | None = None
+) -> MeetingReviewResponse:
+    item = _item(calendar_context=calendar_context)
     return MeetingReviewResponse(
         meeting=item,
         provenance=MeetingProvenance(
@@ -172,10 +186,21 @@ def _review() -> MeetingReviewResponse:
             updated_at=None,
             next_action="wait",
         ),
-        transcript=TranscriptReviewState(available=False, language=None, degraded_reason="processing", search_enabled=False, segments=[]),
-        speakers=SpeakerReviewState(available=False, assignment_state="reserved", degraded_reason="processing", speakers=[]),
+        transcript=TranscriptReviewState(
+            available=False,
+            language=None,
+            degraded_reason="processing",
+            search_enabled=False,
+            segments=[],
+        ),
+        speakers=SpeakerReviewState(
+            available=False, assignment_state="reserved", degraded_reason="processing", speakers=[]
+        ),
+        calendar_context=calendar_context,
         notes=NotesReviewState(available=False, sections=[], unavailable_reason="processing"),
-        playback=PlaybackReviewState(available=False, duration_seconds=120, speed_options=[0.75, 1.0, 1.25, 1.5, 2.0]),
+        playback=PlaybackReviewState(
+            available=False, duration_seconds=120, speed_options=[0.75, 1.0, 1.25, 1.5, 2.0]
+        ),
         governance=_governance(),
         access=_access(),
         share=SharePanelState(
@@ -302,57 +327,63 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Загрузить медиа" not in page
     assert page.count('id="meeting-search"') == 1
     assert 'aria-label="Поиск встреч"' in page
-    assert 'data-filter-disclosure' in page
-    assert 'data-sort-disclosure' in page
+    assert "data-filter-disclosure" in page
+    assert "data-sort-disclosure" in page
     assert 'aria-label="Фильтры"' in page
     assert 'aria-label="Сортировка: Недавно обновлённые"' in page
     assert 'value="updated_desc" selected>Недавно обновлённые</option>' in page
     css = _cabinet_css()
     assert "max-width: min(1120px, calc(100vw - 48px))" in css
-    assert "min-height: 46px;" in css
+    assert "min-height: 64px;" in css
     assert ".meeting-title { display: block; min-width: 0;" in css
-    assert ".meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto;" in css
+    assert (
+        ".meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto;"
+        in css
+    )
     assert ".desktop-embedded .cabinet-list-controls {" in css
     assert "grid-template-columns: minmax(0, 1fr) 32px;" in css
     assert ":focus-visible" in css
     assert "hero" not in page.lower()
-    assert 'data-selection-toolbar' in page
-    assert 'data-manual-upload-open' in page
-    assert 'data-manual-upload-dialog' in page
+    assert "data-selection-toolbar" in page
+    assert "data-manual-upload-open" in page
+    assert "data-manual-upload-dialog" in page
     assert 'data-upload-endpoint="/api/v1/cabinet/media-uploads"' in page
-    assert 'data-manual-upload-dropzone' in page
-    assert 'data-manual-upload-file-card' in page
-    assert 'data-manual-upload-file-name' in page
-    assert 'data-upload-activity-list' in page
-    assert 'data-manual-upload-validation' in page
-    assert 'data-manual-upload-percent' not in page
-    assert 'data-manual-upload-progress' not in page
-    assert 'data-manual-upload-accepted' not in page
+    assert "data-manual-upload-dropzone" in page
+    assert "data-manual-upload-file-card" in page
+    assert "data-manual-upload-file-name" in page
+    assert "data-upload-activity-list" in page
+    assert "data-manual-upload-validation" in page
+    assert "data-manual-upload-percent" not in page
+    assert "data-manual-upload-progress" not in page
+    assert "data-manual-upload-accepted" not in page
     assert "Перетащите файл сюда" in page
     assert 'name="duration_seconds"' in page
     assert 'type="hidden" name="duration_seconds"' in page
     assert 'type="number" name="duration_seconds"' not in page
     assert "Автозаполним" not in page
-    assert 'data-manual-upload-submit' in page
+    assert "data-manual-upload-submit" in page
     assert 'aria-live="polite"' in page
-    assert 'data-selection-toggle' in page
+    assert "data-selection-toggle" in page
     assert 'class="cabinet-list-controls"' in page
     assert 'method="get"' in page
     assert 'data-hx-target="#meeting-list-region"' in page
     assert 'data-hx-select="#meeting-list-region"' in page
-    assert 'data-clear-selection' in page
-    assert 'data-list-title' in page
+    assert "data-clear-selection" in page
+    assert "data-list-title" in page
     assert "Выбрано 0 / 1" in page
     assert "Выбрать все видимые записи" in page
     assert "Скачивание появится позже" not in page
-    assert 'data-download-disabled' not in page
+    assert "data-download-disabled" not in page
     assert 'aria-label="Сохраненные"' not in page
     assert 'aria-label="Применить фильтры"' not in page
     assert 'class="toolbar-icons"' not in page
     assert '<input class="row-check selection-toggle" type="checkbox" data-selection-toggle' in page
     assert "padding-left: 13px;" in css
     assert ".selection-toggle {\n  flex: 0 0 16px;" in css
-    assert ".row-check {\n  accent-color: var(--accent);\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  margin: 0;" in css
+    assert (
+        ".row-check {\n  accent-color: var(--accent);\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  margin: 0;"
+        in css
+    )
     assert "selectionToggle.indeterminate = rows.length > 0 && !allSelected" in _cabinet_js()
     assert ".row-check {\n  appearance: none;" not in css
     assert ".row-check:checked::after" not in css
@@ -368,15 +399,15 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-icon="filter"' in page
     assert 'data-icon="sort"' in page
     assert 'data-icon="trash"' in page
-    assert 'data-meeting-select' in page
+    assert "data-meeting-select" in page
     assert '<span class="row-select-hit">' in page
     assert '<span class="row-select-hit" aria-hidden="true">' not in page
-    assert 'data-row-delete' in page
-    assert 'data-row-delete-form' in page
+    assert "data-row-delete" in page
+    assert "data-row-delete-form" in page
     assert 'data-hx-post="/meetings/' in page
     assert 'name="confirmation_boundary"' in page
     assert 'id="delete-feedback-region"' in page
-    assert 'data-delete-dialog' in page
+    assert "data-delete-dialog" in page
     assert "Удалить запись?" in page
     assert 'role="status" aria-live="polite" data-delete-error' in page
     assert "Удалить записи?" in page
@@ -400,12 +431,7 @@ def test_feature_104_removed_main_window_fragments_have_no_current_entry_point()
         SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
     ).read_text()
     meeting_list = (
-        SERVER_ROOT
-        / "cabinet"
-        / "templates"
-        / "cabinet"
-        / "pages"
-        / "meeting_list_content.html"
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "pages" / "meeting_list_content.html"
     ).read_text()
     css = _cabinet_css()
 
@@ -447,8 +473,8 @@ def test_empty_meeting_list_reuses_toolbar_upload_and_native_recording() -> None
     assert "Первый запуск" not in page
     assert "Установите GRAF" not in page
     assert 'href="/download"' not in page
-    assert 'data-manual-upload-empty-open' not in page
-    assert page.count('data-manual-upload-open') == 1
+    assert "data-manual-upload-empty-open" not in page
+    assert page.count("data-manual-upload-open") == 1
     assert "Подключить календари" not in page
 
 
@@ -469,17 +495,22 @@ def test_active_list_filters_expose_one_reset_without_extra_request_control() ->
     page = render_meeting_list_page(
         MeetingListResponse(
             items=[_item()],
-            filters=MeetingFilterState(q="синк", status="processing", access=None, sort="started_desc"),
+            filters=MeetingFilterState(
+                q="синк", status="processing", access=None, sort="started_desc"
+            ),
             generated_at=datetime.now(UTC),
         )
     )
 
     assert page.count('id="meeting-search"') == 1
-    assert page.count('data-filter-reset') == 1
+    assert page.count("data-filter-reset") == 1
     assert 'href="/meetings"' in page
     assert 'aria-label="Сбросить поиск и фильтры"' in page
     assert 'aria-label="Применить фильтры"' not in page
-    assert 'data-hx-trigger="input changed delay:150ms from:#meeting-search, change from:select, submit"' in page
+    assert (
+        'data-hx-trigger="input changed delay:150ms from:#meeting-search, change from:select, submit"'
+        in page
+    )
 
 
 def test_meeting_list_dynamic_selection_keeps_one_shell_boundary() -> None:
@@ -562,7 +593,10 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
 
     assert calendar_settings_page.count("data-cabinet-shell") == 1
     assert calendar_settings_page.count('data-shell-scroll="contained"') == 1
-    assert '<a class="skip-link" href="#calendar-settings-region">К содержимому</a>' in calendar_settings_page
+    assert (
+        '<a class="skip-link" href="#calendar-settings-region">К содержимому</a>'
+        in calendar_settings_page
+    )
     assert calendar_settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert calendar_settings_page.count('aria-label="Навигация кабинета"') == 1
     assert calendar_settings_page.count('aria-current="page"') == 1
@@ -604,13 +638,19 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
 
     for page in (list_page, detail_page):
         assert "<!doctype html>" in page
-        assert 'class="app-shell desktop-embedded" data-shell-scroll="contained" data-cabinet-shell' in page
+        assert (
+            'class="app-shell desktop-embedded" data-shell-scroll="contained" data-cabinet-shell'
+            in page
+        )
         assert '<body data-surface-mode="desktop_embedded">' in page
         assert 'href="/desktop/meetings"' in page
 
-    assert 'data-manual-upload-open' in list_page
-    assert 'class="new-button manual-upload-trigger" type="button" data-manual-upload-open' in list_page
-    assert 'data-manual-upload-dialog' in list_page
+    assert "data-manual-upload-open" in list_page
+    assert (
+        'class="new-button manual-upload-trigger" type="button" data-manual-upload-open'
+        in list_page
+    )
+    assert "data-manual-upload-dialog" in list_page
     assert 'data-upload-surface="desktop_embedded"' in list_page
     assert 'href="/desktop/upload"' not in list_page
     assert "Администрирование" not in list_page
@@ -639,12 +679,7 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
     assert ".sidebar {\n  position: sticky;" in css
     assert "  height: 100vh;\n  overflow-x: hidden;\n  overflow-y: auto;" in css
     assert (
-        ".main,\n"
-        ".cabinet-main {\n"
-        "  height: 100vh;\n"
-        "  min-height: 0;\n"
-        "  overflow-y: auto;\n"
-        "}"
+        ".main,\n.cabinet-main {\n  height: 100vh;\n  min-height: 0;\n  overflow-y: auto;\n}"
     ) in css
     assert "max-height: calc(100vh - 48px);" in css
     assert '.app-shell[data-mobile-scroll="page"] {' in css
@@ -689,7 +724,7 @@ def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> No
     assert page.count('aria-label="Навигация кабинета"') == 1
     assert page.count('aria-current="page"') == 1
     assert 'href="#">' not in page
-    assert 'data-cabinet-rail-toggle' in page
+    assert "data-cabinet-rail-toggle" in page
     assert 'aria-controls="cabinet-sidebar"' in page
     assert 'aria-expanded="false"' in page
     assert 'data-icon="panel-left-open"' in page
@@ -713,16 +748,32 @@ def test_settings_shell_renders_calendar_connection_anchor() -> None:
 
 
 def test_calendar_settings_reuses_common_cabinet_shell() -> None:
-    page = render_calendar_settings_page(calendar_settings_surface(provider_payloads=[], sources=[]), embedded=True)
+    page = render_calendar_settings_page(
+        calendar_settings_surface(provider_payloads=[], sources=[]), embedded=True
+    )
 
-    assert page.count('data-cabinet-shell') == 1
+    assert page.count("data-cabinet-shell") == 1
     assert '<aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>' in page
-    assert 'data-cabinet-rail-toggle' in page
+    assert "data-cabinet-rail-toggle" in page
     assert 'data-active-nav="settings"' in page
     assert 'href="/desktop/settings/integrations/calendar"' in page
     assert page.count('class="sidebar-foot"') == 1
     assert "Пробный период" not in page
     assert "GRAF" in page
+
+
+def test_098_calendar_settings_renders_auto_context_filter_boundary_once() -> None:
+    page = render_calendar_settings_page(
+        calendar_settings_surface(provider_payloads=[], sources=[]),
+        embedded=True,
+    )
+
+    copy = (
+        "Эти фильтры управляют подсказками и списком ближайших встреч. "
+        "Приватные события и события на весь день не используются для "
+        "автоматического контекста записи."
+    )
+    assert page.count(copy) == 1
 
 
 def test_sidebar_markup_lives_in_reusable_sections_macro() -> None:
@@ -731,7 +782,9 @@ def test_sidebar_markup_lives_in_reusable_sections_macro() -> None:
         SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
     ).read_text()
 
-    assert all('<aside class="sidebar"' not in path.read_text() for path in pages_dir.glob("*.html"))
+    assert all(
+        '<aside class="sidebar"' not in path.read_text() for path in pages_dir.glob("*.html")
+    )
     assert sections_template.count('<aside class="sidebar"') == 1
     assert "{% macro cabinet_sidebar(" in sections_template
     assert "{{ cabinet_sidebar(" in sections_template
@@ -807,7 +860,9 @@ def test_list_shell_renders_server_upload_progress_in_recording_row() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(
             items=[item],
-            filters=MeetingFilterState(q="uploading", status=None, access=None, sort="updated_desc"),
+            filters=MeetingFilterState(
+                q="uploading", status=None, access=None, sort="updated_desc"
+            ),
             generated_at=datetime.now(UTC),
         ),
         poll_url="/meetings?q=uploading",
@@ -817,7 +872,7 @@ def test_list_shell_renders_server_upload_progress_in_recording_row() -> None:
     assert 'aria-label="Прогресс отправки записи"' in page
     assert 'aria-valuenow="60"' in page
     assert 'style="width: 60%"' in page
-    assert 'data-upload-progress-active' in page
+    assert "data-upload-progress-active" in page
     assert 'hx-trigger="every 3s"' in page
     assert 'hx-get="/meetings?q=uploading"' in page
     assert "◁" not in page
@@ -873,7 +928,9 @@ def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
 
 
 def test_list_delete_script_json_encodes_bounded_copy(monkeypatch) -> None:
-    monkeypatch.setattr("twobrain_rec_server.cabinet.rendering.BOUNDED_DELETE_COPY", 'Delete "quoted"\ncopy')
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.rendering.BOUNDED_DELETE_COPY", 'Delete "quoted"\ncopy'
+    )
 
     page = render_meeting_list_page(
         MeetingListResponse(
@@ -966,7 +1023,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert '<audio data-playback-player controls preload="metadata"' not in page
     assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
     assert 'data-source-mode="stored_review_m4a"' in page
-    assert 'data-playback-toggle' in page
+    assert "data-playback-toggle" in page
     assert 'data-playback-skip="-15"' in page
     assert 'data-playback-skip="15"' in page
     assert "data-playback-current" in page
@@ -1085,7 +1142,10 @@ def test_detail_shell_renders_unavailable_playback_without_audio_element() -> No
 
     page = render_meeting_detail_page(review)
 
-    assert '<section class="playback-bar detail-playback is-unavailable" data-source-mode="none">' in page
+    assert (
+        '<section class="playback-bar detail-playback is-unavailable" data-source-mode="none">'
+        in page
+    )
     assert "Аудио закрыто политикой доступа" in page
     assert "<audio" not in page
     assert "data-playback-player" not in page
@@ -1093,7 +1153,9 @@ def test_detail_shell_renders_unavailable_playback_without_audio_element() -> No
 
 def test_detail_shell_reserves_notes_assistant_template_without_internal_feature_labels() -> None:
     review = _review()
-    review.notes = NotesReviewState(available=False, sections=[], unavailable_reason="generation_future")
+    review.notes = NotesReviewState(
+        available=False, sections=[], unavailable_reason="generation_future"
+    )
 
     page = render_meeting_detail_page(review)
 
@@ -1105,7 +1167,7 @@ def test_detail_shell_reserves_notes_assistant_template_without_internal_feature
     assert "AI notes are reserved for a later feature" not in page
     assert "No generated summary is shown yet" not in page
     assert "<h3>Ассистент</h3>" in page
-    assert "<button type=\"button\" disabled>Ассистент</button>" in page
+    assert '<button type="button" disabled>Ассистент</button>' in page
     assert "<h3>Шаблон</h3>" in page
     assert "feature 016" not in page.lower()
     assert "feature:016" not in page.lower()
@@ -1252,11 +1314,11 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     assert 'class="tab active" role="tab" id="detail-tab-recording"' in page
     assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
     assert 'data-detail-panel="recording"' in page
-    assert 'data-playback-shell' in page
-    assert 'data-playback-player' in page
-    assert 'data-playback-progress' in page
+    assert "data-playback-shell" in page
+    assert "data-playback-player" in page
+    assert "data-playback-progress" in page
     assert 'data-seek-seconds="0.0"' in page
-    assert 'data-speaker-timeline' in page
+    assert "data-speaker-timeline" in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert page.count("data-lane-segment") == 1
     assert 'data-outcome-source-basis="stored_output"' in page
@@ -1319,13 +1381,152 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
     assert 'id="detail-tab-outcomes" aria-selected="false"' in page
     assert 'data-detail-panel="outcomes" hidden' in page
     assert 'data-detail-panel="recording"' in page
-    assert 'data-playback-shell' in page
+    assert "data-playback-shell" in page
     assert 'data-source-mode="stored_review_m4a"' in page
-    assert 'data-speaker-timeline' in page
+    assert "data-speaker-timeline" in page
     assert 'data-outcome-source-basis="stored_output"' in page
     assert "60%" in page
     assert 'window.location.hash === "#outcomes"' in _cabinet_js()
     assert page.count("data-outcome-category=") == 8
+
+
+def test_098_auto_calendar_context_renders_once_in_web_and_embedded_list_and_detail() -> None:
+    # FR-033/FR-043/FR-048: all cabinet surfaces reuse one exact product label.
+    summary = MeetingCalendarContextSummary(
+        state="matched_auto",
+        label="Из календаря",
+        title_source="calendar",
+        needs_owner_action=False,
+    )
+    item = _item(calendar_context=summary)
+    list_response = MeetingListResponse(
+        items=[item],
+        filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+        generated_at=datetime.now(UTC),
+    )
+    review = _review(calendar_context=summary)
+
+    pages = {
+        "web-list": render_meeting_list_page(list_response),
+        "embedded-list": render_meeting_list_page(list_response, embedded=True),
+        "web-detail": render_meeting_detail_page(review),
+        "embedded-detail": render_meeting_detail_page(review, embedded=True),
+    }
+
+    for surface, page in pages.items():
+        assert page.count("Из календаря") == 1, surface
+        assert "calendar context title" not in page.lower()
+        assert "attendee@example.test" not in page
+
+
+def test_098_private_skip_reason_renders_only_in_owner_detail() -> None:
+    # FR-010/FR-033/FR-042: protected reason is absent from list/accessibility text.
+    generic = MeetingCalendarContextSummary(
+        state="skipped_private",
+        label="Без контекста календаря",
+        title_source="generic",
+        needs_owner_action=False,
+    )
+    owner = MeetingCalendarContextSummary(
+        state="skipped_private",
+        label="Без контекста календаря",
+        reason_label="Приватное событие пропущено",
+        title_source="generic",
+        needs_owner_action=False,
+    )
+
+    list_page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item(calendar_context=generic)],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+    detail_page = render_meeting_detail_page(_review(calendar_context=owner))
+
+    assert "Приватное событие пропущено" not in list_page
+    assert detail_page.count("Приватное событие пропущено") == 1
+
+
+def test_098_ambiguity_chooser_uses_safe_native_controls_and_graf_primitives() -> None:
+    # FR-014/FR-033/FR-037; SC-003/SC-013: owner choice is explicit, safe and keyboard-native.
+    context = MeetingCalendarContextSummary(
+        state="ambiguous",
+        label="Нужно выбрать встречу",
+        title_source="generic",
+        needs_owner_action=True,
+    )
+    candidates = [
+        CalendarContextCandidateView(
+            event_id=UUID("98000000-0000-0000-0000-000000000001"),
+            safe_title="Синтетический дизайн-ревью",
+            starts_at=datetime(2026, 7, 13, 9, 0, tzinfo=UTC),
+            ends_at=datetime(2026, 7, 13, 10, 0, tzinfo=UTC),
+            safe_source_label="Рабочий календарь",
+        ),
+        CalendarContextCandidateView(
+            event_id=UUID("98000000-0000-0000-0000-000000000002"),
+            safe_title="Синтетический планинг",
+            starts_at=datetime(2026, 7, 13, 9, 30, tzinfo=UTC),
+            ends_at=datetime(2026, 7, 13, 10, 30, tzinfo=UTC),
+            safe_source_label="Рабочий календарь",
+        ),
+    ]
+    # T050 is deliberately test-first: attach the planned bounded projection without
+    # weakening the current strict response schema before T052/T055/T056 implement it.
+    object.__setattr__(context, "candidates", candidates)
+    object.__setattr__(context, "can_change", True)
+    object.__setattr__(context, "can_clear", False)
+
+    page = render_meeting_detail_page(
+        _review(calendar_context=context),
+        csrf_token="synthetic-calendar-context-csrf",
+    )
+
+    assert "Несколько встреч подходят по времени. GRAF ничего не выбрал." in page
+    assert "data-calendar-context-chooser" in page
+    chooser_tag = page[page.rfind("<section", 0, page.index("data-calendar-context-chooser")) :]
+    assert 'class="' in chooser_tag
+    chooser_classes = chooser_tag.split(">", 1)[0].split('class="', 1)[1].split('"', 1)[0].split()
+    assert "panel" in chooser_classes
+    assert "<fieldset" in page
+    assert "<legend>Выберите встречу</legend>" in page
+    assert page.count('type="radio"') == 2
+    assert page.count('name="event_id"') == 2
+    assert 'aria-describedby="calendar-context-choice-help"' in page
+    assert 'id="calendar-context-chooser-heading"' in page
+    assert 'tabindex="-1"' in page
+    assert "autofocus" in page
+    assert 'id="calendar-context-result"' in page
+    assert 'aria-live="polite"' in page
+    assert "Сохранить выбор" in page
+    assert "Продолжить без календаря" in page
+    assert "Синтетический дизайн-ревью" in page
+    assert "Синтетический планинг" in page
+    assert page.count("Рабочий календарь") == 2
+    assert "09:00" in page
+    assert "10:30" in page
+    assert "private-candidate-title" not in page
+    assert "hidden-calendar-attendee@example.test" not in page
+    assert "passcode=" not in page
+
+
+def test_098_calendar_context_state_copy_has_bounded_ru_en_pairs() -> None:
+    # FR-033/FR-042/FR-051: ambiguity/correction copy is localized product language, not enum text.
+    expected = {
+        "matched_user": ("Выбрано вами", "Selected by you"),
+        "ambiguous": ("Нужно выбрать встречу", "Choose a meeting"),
+        "no_context": ("Без календарного контекста", "No calendar context"),
+        "declined_by_user": (
+            "Вы начали запись без календарного контекста",
+            "You started recording without calendar context",
+        ),
+        "cleared_by_user": ("Контекст убран вами", "Context removed by you"),
+    }
+
+    for state, (ru_copy, en_copy) in expected.items():
+        assert cabinet_view_models.calendar_context_state_copy(state, locale="ru") == ru_copy
+        assert cabinet_view_models.calendar_context_state_copy(state, locale="en") == en_copy
 
 
 def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
@@ -1342,7 +1543,14 @@ def test_embedded_shell_removes_native_capture_controls_and_copy() -> None:
 
     assert "desktop-embedded" in html
     assert "Recording &amp; Transcript" not in html
-    for forbidden in ["Record live", "Stop", "Screen Recording", "Noise", "Accent", "Krisp Devices"]:
+    for forbidden in [
+        "Record live",
+        "Stop",
+        "Screen Recording",
+        "Noise",
+        "Accent",
+        "Krisp Devices",
+    ]:
         assert forbidden not in html
 
 
@@ -1387,7 +1595,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
     assert '<audio data-playback-player controls preload="metadata"' not in page
     assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
     assert 'data-source-mode="stored_review_m4a"' in page
-    assert 'data-playback-toggle' in page
+    assert "data-playback-toggle" in page
     assert 'data-playback-skip="-15"' in page
     assert 'data-playback-skip="15"' in page
     assert 'data-seek-seconds="12.5"' in page

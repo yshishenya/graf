@@ -163,6 +163,8 @@ private struct ContentView: View {
     @State private var desktopCalendarPrompt: DesktopCalendarPrompt?
     @State private var desktopCalendarRefreshInProgress = false
     @State private var activeCalendarContextEventId: String?
+    @State private var activeCalendarMatchAttemptId: String?
+    @State private var activeCalendarMatchLocalRecordingId: String?
     @State private var meetingDetectionSettingsStore = MeetingDetectionSettingsStore()
     @State private var meetingDetectionSettings = MeetingDetectionSettings()
     @State private var meetingDetectionRegistryStore: MeetingTargetRegistryStore?
@@ -467,8 +469,13 @@ private struct ContentView: View {
             openURL: { url in
                 NSWorkspace.shared.open(url)
             },
-            startRecording: {
-                Task { await startManualRecording(calendarContextEventId: prompt.eventId) }
+            startRecording: { decisionIntent, eventId in
+                Task {
+                    await startManualRecording(
+                        calendarContextEventId: eventId,
+                        calendarMatchDecisionIntent: decisionIntent
+                    )
+                }
             },
             dismiss: { dismissed in
                 dismissCalendarPrompt(dismissed)
@@ -1031,14 +1038,16 @@ private struct ContentView: View {
     @MainActor
     private func startManualRecording(
         calendarContextEventId: String? = nil,
+        calendarMatchDecisionIntent: DesktopCalendarMatchDecisionIntent = .automatic,
         meetingDetectionTarget: MeetingDetectionRecordingTarget? = nil
     ) async {
         guard !recordingStartInProgress, !recordingStopInProgress else { return }
         if let captureSession, CaptureStatusItem.showsStopButton(for: captureSession) {
             return
         }
-        let trimmedCalendarContextEventId = calendarContextEventId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        activeCalendarContextEventId = trimmedCalendarContextEventId?.isEmpty == false ? trimmedCalendarContextEventId : nil
+        activeCalendarContextEventId = calendarContextEventId
+        activeCalendarMatchAttemptId = nil
+        activeCalendarMatchLocalRecordingId = nil
         recordingStartInProgress = true
         defer { recordingStartInProgress = false }
 
@@ -1162,11 +1171,12 @@ private struct ContentView: View {
             )
             let limitationCopyShownAt = Date()
             let appleProcessingOutcome = appleProcessingOutcomeForRecording(sessionId: starting.id)
+            let recordingStartedAt = Date()
             _ = try await systemAudioCaptureService.start(
                 sessionId: starting.id,
                 permissionState: permissionGate.snapshot.systemAudio,
                 scopeApproval: scopeApproval,
-                startedAt: Date()
+                startedAt: recordingStartedAt
             )
             let incomingSource = systemAudioCaptureService.incomingSampleSource
             let microphoneSource = try microphoneCaptureService.startAppOwnedMicrophoneSampleSource(
@@ -1181,7 +1191,7 @@ private struct ContentView: View {
             )
             let directory = try await localRecordingWriter.startAsync(
                 sessionId: starting.id,
-                startedAt: Date(),
+                startedAt: recordingStartedAt,
                 scopeApproval: scopeApproval,
                 permissions: permissionGate.snapshot,
                 microphoneSelection: resolvedMicrophoneSelection,
@@ -1193,6 +1203,23 @@ private struct ContentView: View {
             localRecordingActive = true
             let active = try captureController.markCapturing()
             captureSession = active
+            if let command = DesktopCalendarResolvePolicy.commandAfterCaptureStarted(
+                localRecordingActive: localRecordingActive,
+                localRecordingId: directory.directoryId,
+                recordingStartedAt: recordingStartedAt,
+                decisionIntent: calendarMatchDecisionIntent,
+                eventId: calendarContextEventId
+            ) {
+                activeCalendarMatchLocalRecordingId = command.localRecordingId
+                Task {
+                    await resolveCalendarContextAfterCaptureStarted(
+                        localRecordingId: command.localRecordingId,
+                        recordingStartedAt: command.recordingStartedAt,
+                        decisionIntent: command.decisionIntent,
+                        eventId: command.eventId
+                    )
+                }
+            }
             recordingEvidenceEvents.append(
                 RecordingEvidenceService().event(
                     for: active,
@@ -1216,7 +1243,7 @@ private struct ContentView: View {
                 reason: "start_failure_cleanup",
                 failureReason: releasedSystemAudioSession?.failureReason ?? .none
             )
-            activeCalendarContextEventId = nil
+            clearActiveCalendarMatchState()
             let failureCategory = recordingStartFailureCategory(for: error)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
@@ -1227,6 +1254,70 @@ private struct ContentView: View {
                 detail: "category=\(failureCategory.rawValue) error=\(error)"
             )
         }
+    }
+
+    @MainActor
+    private func resolveCalendarContextAfterCaptureStarted(
+        localRecordingId: String,
+        recordingStartedAt: Date,
+        decisionIntent: DesktopCalendarMatchDecisionIntent,
+        eventId: String?
+    ) async {
+        defer {
+            let queueHasRecording = (try? desktopUploadQueueService.loadItems().contains {
+                $0.directoryId == localRecordingId
+            }) == true
+            if DesktopCalendarResolvePolicy.shouldProcessQueuedRecording(
+                queueHasRecording: queueHasRecording
+            ) {
+                refreshUploadQueueAndProcess(reason: "calendar_context_resolve_completed")
+            }
+        }
+
+        guard let client = DesktopUploadClient.configuredFromEnvironment() else {
+            AppLog.writeRaw(
+                event: "calendar.context_resolve_unavailable",
+                detail: "localRecordingId=\(localRecordingId) reason=client_not_configured"
+            )
+            return
+        }
+
+        do {
+            let response = try await client.resolveCalendarContext(
+                localRecordingId: localRecordingId,
+                request: DesktopCalendarContextResolveRequest(
+                    recordingStartedAt: recordingStartedAt,
+                    decisionIntent: decisionIntent,
+                    eventId: eventId
+                )
+            )
+            let attemptId = response.attemptId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !attemptId.isEmpty else { return }
+
+            if activeCalendarMatchLocalRecordingId == localRecordingId {
+                activeCalendarMatchAttemptId = attemptId
+            }
+            _ = try desktopUploadQueueService.persistCalendarMatchAttempt(
+                localRecordingId: localRecordingId,
+                attemptId: attemptId
+            )
+            AppLog.writeRaw(
+                event: "calendar.context_resolved",
+                detail: "localRecordingId=\(localRecordingId) state=\(response.contextState.rawValue)"
+            )
+        } catch {
+            AppLog.writeRaw(
+                event: "calendar.context_resolve_unavailable",
+                detail: "localRecordingId=\(localRecordingId) reason=calendar_unavailable"
+            )
+        }
+    }
+
+    @MainActor
+    private func clearActiveCalendarMatchState() {
+        activeCalendarContextEventId = nil
+        activeCalendarMatchAttemptId = nil
+        activeCalendarMatchLocalRecordingId = nil
     }
 
     @MainActor
@@ -1247,9 +1338,10 @@ private struct ContentView: View {
                 manifest: manifest,
                 directoryURL: recordingDirectory,
                 reason: reason,
-                calendarContextEventId: activeCalendarContextEventId
+                calendarContextEventId: activeCalendarContextEventId,
+                calendarMatchAttemptId: activeCalendarMatchAttemptId
             )
-            activeCalendarContextEventId = nil
+            clearActiveCalendarMatchState()
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
                 detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=\(reason) failureReason=\(manifest.failureReason.rawValue)"
@@ -1435,9 +1527,10 @@ private struct ContentView: View {
                 manifest: manifest,
                 directoryURL: recordingDirectory,
                 reason: enqueueReason,
-                calendarContextEventId: activeCalendarContextEventId
+                calendarContextEventId: activeCalendarContextEventId,
+                calendarMatchAttemptId: activeCalendarMatchAttemptId
             )
-            activeCalendarContextEventId = nil
+            clearActiveCalendarMatchState()
             AppLog.writeRaw(
                 event: AuditEventName.recordingStopped.rawValue,
                 detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
@@ -1455,7 +1548,7 @@ private struct ContentView: View {
                 reason: "stop_failure_cleanup",
                 failureReason: releasedSystemAudioSession?.failureReason ?? .none
             )
-            activeCalendarContextEventId = nil
+            clearActiveCalendarMatchState()
             localRecordingActive = false
             liveRecordingLevels = .inactive
             recordingBlocker = "Не удалось завершить запись. Проверьте локальную копию в списке записей."
@@ -1552,9 +1645,10 @@ private struct ContentView: View {
                 manifest: manifest,
                 directoryURL: recordingDirectory,
                 reason: "app_exit_resource_release",
-                calendarContextEventId: activeCalendarContextEventId
+                calendarContextEventId: activeCalendarContextEventId,
+                calendarMatchAttemptId: activeCalendarMatchAttemptId
             )
-            activeCalendarContextEventId = nil
+            clearActiveCalendarMatchState()
             AppLog.writeRaw(
                 event: AuditEventName.localRecordingDegraded.rawValue,
                 detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=app_exit_resource_release failureReason=\(manifest.failureReason.rawValue)"
@@ -1697,7 +1791,8 @@ private struct ContentView: View {
         manifest: LocalRecordingManifest,
         directoryURL: URL?,
         reason: String,
-        calendarContextEventId: String? = nil
+        calendarContextEventId: String? = nil,
+        calendarMatchAttemptId: String? = nil
     ) {
         guard let directoryURL else { return }
         do {
@@ -1705,7 +1800,8 @@ private struct ContentView: View {
                 manifest: manifest,
                 directoryURL: directoryURL,
                 reason: reason,
-                calendarContextEventId: calendarContextEventId
+                calendarContextEventId: calendarContextEventId,
+                calendarMatchAttemptId: calendarMatchAttemptId
             )
             uploadQueueItems = try desktopUploadQueueService.loadItems()
             let event: AuditEventName = switch item.state {

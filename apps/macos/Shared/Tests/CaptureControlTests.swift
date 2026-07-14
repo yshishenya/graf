@@ -495,15 +495,65 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(source.contains("calendarPrompt") && source.contains(".task { await startManualRecording() }"))
     }
 
-    func testCalendarPromptRecordActionPassesEventIdToRecordingStart() throws {
+    func testCalendarPromptSelectionProducesResolveCommandWithEventID() throws {
+        let command = try XCTUnwrap(
+            DesktopCalendarResolvePolicy.commandAfterCaptureStarted(
+                localRecordingActive: true,
+                localRecordingId: "synthetic-calendar-recording",
+                recordingStartedAt: Date(timeIntervalSince1970: 98),
+                decisionIntent: .userSelected,
+                eventId: "synthetic-calendar-event"
+            )
+        )
+
+        XCTAssertEqual(command.localRecordingId, "synthetic-calendar-recording")
+        XCTAssertEqual(command.decisionIntent, .userSelected)
+        XCTAssertEqual(command.eventId, "synthetic-calendar-event")
+    }
+
+    // FR-032, FR-049, SC-010: synthetic calendar resolution stays behind visible capture truth.
+    func testCalendarResolveRemainsNonBlockingAndStopStaysAvailable() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 98) },
+            idFactory: { "synthetic-calendar-capture" },
+            policySnapshotProvider: { "synthetic-policy" }
+        )
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        _ = try controller.start()
+        let active = try controller.markCapturing()
+        let beforeCapture = DesktopCalendarResolvePolicy.commandAfterCaptureStarted(
+            localRecordingActive: false,
+            localRecordingId: "synthetic-calendar-capture",
+            recordingStartedAt: Date(timeIntervalSince1970: 98),
+            decisionIntent: .automatic,
+            eventId: nil
+        )
+        let afterCapture = DesktopCalendarResolvePolicy.commandAfterCaptureStarted(
+            localRecordingActive: true,
+            localRecordingId: "synthetic-calendar-capture",
+            recordingStartedAt: Date(timeIntervalSince1970: 98),
+            decisionIntent: .automatic,
+            eventId: nil
+        )
+
+        XCTAssertTrue(active.stopActionAvailable)
+        XCTAssertTrue(CaptureStatusItem.showsStopButton(for: active))
+        XCTAssertNil(beforeCapture)
+        XCTAssertEqual(afterCapture?.decisionIntent, .automatic)
+    }
+
+    // FR-032 and plan performance gate: calendar resolution cannot delay upload startup.
+    func testCalendarResolveCannotGateUploadQueueProcessing() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
                 .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("startManualRecording(calendarContextEventId: prompt.eventId)"))
-        XCTAssertTrue(source.contains("calendarContextEventId: activeCalendarContextEventId"))
+        XCTAssertFalse(source.contains("shouldWaitForCalendarResolve"))
+        XCTAssertFalse(source.contains("if !shouldWaitForCalendarResolve"))
+        XCTAssertTrue(source.contains("refreshUploadQueueAndProcess(reason: \"enqueue_\\(reason)\")"))
     }
 
     func testCaptureControlsCanShowMuteTruthWarningWithoutBlockingStop() {

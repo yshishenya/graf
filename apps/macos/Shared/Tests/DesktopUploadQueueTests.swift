@@ -643,6 +643,230 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(try service.loadItems().first?.calendarContextEventId, eventId)
     }
 
+    func testEnqueuePersistsOpaqueCalendarAttempt() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "calendar-auto-package",
+            sessionId: "calendar-auto-session"
+        )
+        let manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try service.enqueue(
+            manifest: manifest,
+            directoryURL: package.directoryURL,
+            reason: "calendar_auto_resolved",
+            calendarMatchAttemptId: CalendarSettingsFixtures.attemptID
+        )
+        let saved = try XCTUnwrap(service.loadItems().first)
+        let persistedQueue = try String(contentsOf: queueURL, encoding: .utf8)
+
+        XCTAssertEqual(item.calendarMatchAttemptId, CalendarSettingsFixtures.attemptID)
+        XCTAssertNil(item.calendarContextEventId)
+        XCTAssertEqual(saved.calendarMatchAttemptId, CalendarSettingsFixtures.attemptID)
+        XCTAssertFalse(persistedQueue.contains("calendarMatchDecisionIntent"))
+    }
+
+    // FR-032: a late resolve cannot mutate the create payload after upload has started.
+    func testLateCalendarAttemptCannotChangeStartedUploadIdentity() {
+        let queued = makeQueueItem(state: .queued, retryMode: .automatic)
+        let uploading = queued.withTransition(
+            to: .uploading,
+            now: Date(timeIntervalSince1970: 200)
+        )
+        var alreadyAttempted = queued
+        alreadyAttempted.attemptCount = 1
+
+        XCTAssertTrue(DesktopUploadQueueService.canPersistCalendarMatchAttempt(in: queued))
+        XCTAssertFalse(DesktopUploadQueueService.canPersistCalendarMatchAttempt(in: uploading))
+        XCTAssertFalse(DesktopUploadQueueService.canPersistCalendarMatchAttempt(in: alreadyAttempted))
+    }
+
+    func testEnqueuePersistsSelectedEventAndOpaqueAttemptsWithoutChangingCaptureTruth() throws {
+        // FR-038/FR-051: server attempts own intent; the queue keeps only IDs needed by upload.
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let selectedPackage = try makeRecordingPackage(
+            root: root,
+            directoryId: "calendar-selected-package",
+            sessionId: "calendar-selected-session"
+        )
+        let declinedPackage = try makeRecordingPackage(
+            root: root,
+            directoryId: "calendar-declined-package",
+            sessionId: "calendar-declined-session"
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        let selectedEventId = "98000000-0000-0000-0000-000000000001"
+
+        _ = try service.enqueue(
+            manifest: LocalRecordingManifestService().read(from: selectedPackage.manifestURL),
+            directoryURL: selectedPackage.directoryURL,
+            reason: "calendar_user_selected",
+            calendarContextEventId: selectedEventId,
+            calendarMatchAttemptId: "98000000-0000-0000-0000-000000000011"
+        )
+        _ = try service.enqueue(
+            manifest: LocalRecordingManifestService().read(from: declinedPackage.manifestURL),
+            directoryURL: declinedPackage.directoryURL,
+            reason: "calendar_user_declined",
+            calendarMatchAttemptId: "98000000-0000-0000-0000-000000000012"
+        )
+        let saved = try service.loadItems()
+        let selected = try XCTUnwrap(saved.first { $0.directoryId == "calendar-selected-package" })
+        let declined = try XCTUnwrap(saved.first { $0.directoryId == "calendar-declined-package" })
+
+        XCTAssertEqual(selected.calendarContextEventId, selectedEventId)
+        XCTAssertEqual(selected.calendarMatchAttemptId, "98000000-0000-0000-0000-000000000011")
+        XCTAssertNil(declined.calendarContextEventId)
+        XCTAssertEqual(declined.calendarMatchAttemptId, "98000000-0000-0000-0000-000000000012")
+    }
+
+    func testRefreshAndRetryPreserveOpaqueCalendarAttempt() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "calendar-retry-package",
+            sessionId: "calendar-retry-session"
+        )
+        let manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+        let queueURL = root.appendingPathComponent("queue.json")
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        let initial = try initialService.enqueue(
+            manifest: manifest,
+            directoryURL: package.directoryURL,
+            reason: "calendar_auto_resolved",
+            calendarMatchAttemptId: CalendarSettingsFixtures.attemptID
+        )
+
+        let retried = try initialService.retry(itemId: initial.id)
+        let restartedService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+        let refreshed = try XCTUnwrap(restartedService.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertEqual(retried.calendarMatchAttemptId, CalendarSettingsFixtures.attemptID)
+        XCTAssertEqual(refreshed.calendarMatchAttemptId, CalendarSettingsFixtures.attemptID)
+        XCTAssertEqual(refreshed.attemptCount, initial.attemptCount)
+    }
+
+    func testResolveFailureDoesNotFabricateCalendarAttemptDuringEnqueue() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "calendar-failed-package",
+            sessionId: "calendar-failed-session"
+        )
+        let manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let item = try service.enqueue(
+            manifest: manifest,
+            directoryURL: package.directoryURL,
+            reason: "calendar_resolve_failed"
+        )
+
+        XCTAssertNil(item.calendarMatchAttemptId)
+        XCTAssertNil(try service.loadItems().first?.calendarMatchAttemptId)
+    }
+
+    // FR-012, FR-049: recovery discovery is not a retrospective calendar-match trigger.
+    func testRecoveryScanDoesNotFabricateCalendarAttemptAndKeepsOrdinaryUploadAvailable() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(
+            root: root,
+            directoryId: "calendar-recovery-package",
+            sessionId: "calendar-recovery-session"
+        )
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let recovered = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let createPayload = DesktopUploadClient.createMeetingPayload(for: recovered)
+
+        XCTAssertNil(recovered.calendarMatchAttemptId)
+        XCTAssertNil(createPayload.calendar_match_attempt_id)
+        XCTAssertEqual(recovered.state, .queued)
+        XCTAssertEqual(recovered.retryMode, .automatic)
+        XCTAssertTrue(recovered.artifactProfile.isUploadable)
+    }
+
+    // FR-012, FR-032: a failed live resolve remains no-context across retry/restart.
+    func testFailedResolveRetryAndRecoveryScanPreserveTruthfulAttemptAbsence() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "calendar-failed-retry-package",
+            sessionId: "calendar-failed-retry-session"
+        )
+        let manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+        let queueURL = root.appendingPathComponent("queue.json")
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+
+        let failedResolveItem = try service.enqueue(
+            manifest: manifest,
+            directoryURL: package.directoryURL,
+            reason: "calendar_resolve_failed"
+        )
+        let retried = try service.retry(itemId: failedResolveItem.id)
+        let restartedService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+        let recovered = try XCTUnwrap(restartedService.scanAndEnqueueCompletedRecordings().first)
+
+        XCTAssertNil(failedResolveItem.calendarMatchAttemptId)
+        XCTAssertNil(retried.calendarMatchAttemptId)
+        XCTAssertNil(recovered.calendarMatchAttemptId)
+        XCTAssertNil(DesktopUploadClient.createMeetingPayload(for: recovered).calendar_match_attempt_id)
+        XCTAssertEqual(recovered.state, .queued)
+        XCTAssertEqual(recovered.retryMode, .automatic)
+        XCTAssertTrue(recovered.artifactProfile.isUploadable)
+    }
+
     func testQualityLeakageStateDoesNotBlockStructurallyValidPackageUpload() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

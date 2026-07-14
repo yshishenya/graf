@@ -91,9 +91,13 @@ async def request_meeting_deletion(
     storage: object | None = None,
 ) -> DeletionRequestResponse:
     if confirmation_boundary != BOUNDED_DELETE_COPY:
-        raise ProblemDetail(status=422, code="invalid_deletion_confirmation", title="Invalid deletion confirmation")
+        raise ProblemDetail(
+            status=422, code="invalid_deletion_confirmation", title="Invalid deletion confirmation"
+        )
     if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
-        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is already active")
+        raise ProblemDetail(
+            status=409, code="meeting_deletion_active", title="Meeting deletion is already active"
+        )
     active_request = await db.scalar(
         select(MeetingDeletionRequest)
         .where(MeetingDeletionRequest.workspace_id == meeting.workspace_id)
@@ -102,7 +106,9 @@ async def request_meeting_deletion(
         .order_by(desc(MeetingDeletionRequest.created_at))
     )
     if active_request is not None:
-        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is already active")
+        raise ProblemDetail(
+            status=409, code="meeting_deletion_active", title="Meeting deletion is already active"
+        )
 
     now = datetime.now(UTC)
     deletion_request = MeetingDeletionRequest(
@@ -148,7 +154,7 @@ async def request_meeting_deletion(
 
     meeting.deletion_state = DeletionState.DELETING.value
     meeting.deletion_requested_at = now
-    await account_meeting_calendar_context_deletion(
+    calendar_context_artifact_count = await account_meeting_calendar_context_deletion(
         db,
         meeting=meeting,
         actor_user_id=actor_user_id,
@@ -162,7 +168,9 @@ async def request_meeting_deletion(
     )
     outcomes_materialized = await _mark_outcomes_deleting(db, meeting=meeting)
     post_egress_safe_reason = await _post_egress_safe_reason(db, meeting=meeting)
-    purged_artifact_classes = await _purge_server_controlled_content(db, meeting=meeting, storage=storage)
+    purged_artifact_classes = await _purge_server_controlled_content(
+        db, meeting=meeting, storage=storage
+    )
     artifact_states = _initial_artifact_states(
         meeting,
         deletion_request.id,
@@ -171,6 +179,7 @@ async def request_meeting_deletion(
         post_egress_safe_reason=post_egress_safe_reason,
         outcomes_materialized=outcomes_materialized,
         purged_artifact_classes=purged_artifact_classes,
+        calendar_context_accounted=calendar_context_artifact_count > 0,
     )
     report = MeetingDeletionReport(
         workspace_id=meeting.workspace_id,
@@ -179,10 +188,7 @@ async def request_meeting_deletion(
         overall_state=DeletionState.DELETING.value,
         summary_label="Deleting meeting",
         bounded_copy=BOUNDED_DELETE_COPY,
-        artifact_summary_json=[
-            _artifact_state_json(state)
-            for state in artifact_states
-        ],
+        artifact_summary_json=[_artifact_state_json(state) for state in artifact_states],
         backup_state=DeletionArtifactState.PENDING_EXPIRY.value,
         local_purge_state=(
             DeletionArtifactState.LOCAL_PENDING.value
@@ -219,7 +225,9 @@ async def deletion_report_response(
         .order_by(desc(MeetingDeletionReport.updated_at))
     )
     if report is None:
-        raise ProblemDetail(status=404, code="deletion_report_not_found", title="Deletion report not found")
+        raise ProblemDetail(
+            status=404, code="deletion_report_not_found", title="Deletion report not found"
+        )
     artifact_states = (
         await db.scalars(
             select(MeetingDeletionArtifactState)
@@ -240,7 +248,10 @@ async def deletion_report_response(
     ).all()
     deletion_request = await db.get(MeetingDeletionRequest, report.deletion_request_id)
     activity_rows = []
-    if deletion_request is not None and deletion_request.request_source == DeletionRequestSource.RETENTION_JOB.value:
+    if (
+        deletion_request is not None
+        and deletion_request.request_source == DeletionRequestSource.RETENTION_JOB.value
+    ):
         activity_rows.append(
             retention_policy_activity_row(policy_snapshot_id=deletion_request.policy_snapshot_id)
         )
@@ -437,6 +448,7 @@ def _initial_artifact_states(
     post_egress_safe_reason: str = "Delivered copies are outside GRAF control",
     outcomes_materialized: bool = False,
     purged_artifact_classes: set[DeletionArtifactClass] | None = None,
+    calendar_context_accounted: bool = False,
 ) -> list[MeetingDeletionArtifactState]:
     purged_artifact_classes = purged_artifact_classes or set()
     local_purge_state = (
@@ -444,7 +456,9 @@ def _initial_artifact_states(
         if local_purge_requested
         else DeletionArtifactState.NOT_APPLICABLE
     )
-    local_purge_reason = "Local purge pending" if local_purge_requested else "Local purge task not created yet"
+    local_purge_reason = (
+        "Local purge pending" if local_purge_requested else "Local purge task not created yet"
+    )
     backup_reason = (
         f"backup_expiry_days:{backup_expiry_days}"
         if backup_expiry_days is not None
@@ -465,23 +479,124 @@ def _initial_artifact_states(
         else "Meeting outcomes not materialized"
     )
     rows = [
-        (DeletionArtifactClass.MEETING_ROW, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, "Meeting row retained as deletion report metadata"),
-        (DeletionArtifactClass.MEDIA_REVISION, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, MEDIA_REVISION_DELETION_SAFE_REASON),
-        (DeletionArtifactClass.AUDIO_OBJECT, DeletionControlScope.CONTROLLED, _purge_state(DeletionArtifactClass.AUDIO_OBJECT, purged_artifact_classes), _purge_reason("Server audio", DeletionArtifactClass.AUDIO_OBJECT, purged_artifact_classes)),
-        (DeletionArtifactClass.TRANSCRIPT, DeletionControlScope.CONTROLLED, _purge_state(DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes), _purge_reason("Transcript", DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes)),
-        (DeletionArtifactClass.DIARIZATION, DeletionControlScope.CONTROLLED, _purge_state(DeletionArtifactClass.DIARIZATION, purged_artifact_classes), _purge_reason("Diarization", DeletionArtifactClass.DIARIZATION, purged_artifact_classes)),
-        (DeletionArtifactClass.NOTES_SUMMARY, DeletionControlScope.CONTROLLED, outcomes_state, outcomes_reason),
-        (DeletionArtifactClass.EXPORT_PACKAGE, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Export package purge requested"),
-        (DeletionArtifactClass.SHARE_GRANT, DeletionControlScope.CONTROLLED, DeletionArtifactState.PURGE_REQUESTED, "Share grants disabled for this meeting"),
-        (DeletionArtifactClass.UPLOAD_TEMP, DeletionControlScope.CONTROLLED, _purge_state(DeletionArtifactClass.UPLOAD_TEMP, purged_artifact_classes), _purge_reason("Temporary upload", DeletionArtifactClass.UPLOAD_TEMP, purged_artifact_classes)),
-        (DeletionArtifactClass.PROCESSING_WORKFLOW, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, "Workflow metadata retained without content"),
-        (DeletionArtifactClass.MEDIASCRIBE, DeletionControlScope.EXTERNAL, DeletionArtifactState.UNKNOWN, "External deletion support is not confirmed"),
-        (DeletionArtifactClass.LANGFUSE, DeletionControlScope.EXTERNAL, DeletionArtifactState.METADATA_RETAINED, "Langfuse is metadata-only by default"),
-        (DeletionArtifactClass.DIAGNOSTICS, DeletionControlScope.CONTROLLED, DeletionArtifactState.METADATA_RETAINED, "Diagnostics metadata retained without content"),
-        (DeletionArtifactClass.BACKUP, DeletionControlScope.BACKUP, DeletionArtifactState.PENDING_EXPIRY, backup_reason),
-        (DeletionArtifactClass.LOCAL_DESKTOP_BUFFER, DeletionControlScope.LOCAL_DEVICE, local_purge_state, local_purge_reason),
-        (DeletionArtifactClass.POST_EGRESS_COPY, DeletionControlScope.POST_EGRESS, DeletionArtifactState.OUTSIDE_2BRAIN_CONTROL, post_egress_safe_reason),
-        (DeletionArtifactClass.SEARCH_INDEX, DeletionControlScope.CONTROLLED, DeletionArtifactState.NOT_APPLICABLE, "Search index is not materialized in this MVP seed"),
+        (
+            DeletionArtifactClass.MEETING_ROW,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.METADATA_RETAINED,
+            "Meeting row retained as deletion report metadata",
+        ),
+        (
+            DeletionArtifactClass.CALENDAR_CONTEXT,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.PURGED
+            if calendar_context_accounted
+            else DeletionArtifactState.NOT_APPLICABLE,
+            "Calendar context snapshot purged"
+            if calendar_context_accounted
+            else "Calendar context not materialized",
+        ),
+        (
+            DeletionArtifactClass.MEDIA_REVISION,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.METADATA_RETAINED,
+            MEDIA_REVISION_DELETION_SAFE_REASON,
+        ),
+        (
+            DeletionArtifactClass.AUDIO_OBJECT,
+            DeletionControlScope.CONTROLLED,
+            _purge_state(DeletionArtifactClass.AUDIO_OBJECT, purged_artifact_classes),
+            _purge_reason(
+                "Server audio", DeletionArtifactClass.AUDIO_OBJECT, purged_artifact_classes
+            ),
+        ),
+        (
+            DeletionArtifactClass.TRANSCRIPT,
+            DeletionControlScope.CONTROLLED,
+            _purge_state(DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes),
+            _purge_reason("Transcript", DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes),
+        ),
+        (
+            DeletionArtifactClass.DIARIZATION,
+            DeletionControlScope.CONTROLLED,
+            _purge_state(DeletionArtifactClass.DIARIZATION, purged_artifact_classes),
+            _purge_reason(
+                "Diarization", DeletionArtifactClass.DIARIZATION, purged_artifact_classes
+            ),
+        ),
+        (
+            DeletionArtifactClass.NOTES_SUMMARY,
+            DeletionControlScope.CONTROLLED,
+            outcomes_state,
+            outcomes_reason,
+        ),
+        (
+            DeletionArtifactClass.EXPORT_PACKAGE,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.PURGE_REQUESTED,
+            "Export package purge requested",
+        ),
+        (
+            DeletionArtifactClass.SHARE_GRANT,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.PURGE_REQUESTED,
+            "Share grants disabled for this meeting",
+        ),
+        (
+            DeletionArtifactClass.UPLOAD_TEMP,
+            DeletionControlScope.CONTROLLED,
+            _purge_state(DeletionArtifactClass.UPLOAD_TEMP, purged_artifact_classes),
+            _purge_reason(
+                "Temporary upload", DeletionArtifactClass.UPLOAD_TEMP, purged_artifact_classes
+            ),
+        ),
+        (
+            DeletionArtifactClass.PROCESSING_WORKFLOW,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.METADATA_RETAINED,
+            "Workflow metadata retained without content",
+        ),
+        (
+            DeletionArtifactClass.MEDIASCRIBE,
+            DeletionControlScope.EXTERNAL,
+            DeletionArtifactState.UNKNOWN,
+            "External deletion support is not confirmed",
+        ),
+        (
+            DeletionArtifactClass.LANGFUSE,
+            DeletionControlScope.EXTERNAL,
+            DeletionArtifactState.METADATA_RETAINED,
+            "Langfuse is metadata-only by default",
+        ),
+        (
+            DeletionArtifactClass.DIAGNOSTICS,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.METADATA_RETAINED,
+            "Diagnostics metadata retained without content",
+        ),
+        (
+            DeletionArtifactClass.BACKUP,
+            DeletionControlScope.BACKUP,
+            DeletionArtifactState.PENDING_EXPIRY,
+            backup_reason,
+        ),
+        (
+            DeletionArtifactClass.LOCAL_DESKTOP_BUFFER,
+            DeletionControlScope.LOCAL_DEVICE,
+            local_purge_state,
+            local_purge_reason,
+        ),
+        (
+            DeletionArtifactClass.POST_EGRESS_COPY,
+            DeletionControlScope.POST_EGRESS,
+            DeletionArtifactState.OUTSIDE_2BRAIN_CONTROL,
+            post_egress_safe_reason,
+        ),
+        (
+            DeletionArtifactClass.SEARCH_INDEX,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.NOT_APPLICABLE,
+            "Search index is not materialized in this MVP seed",
+        ),
     ]
     return [
         MeetingDeletionArtifactState(

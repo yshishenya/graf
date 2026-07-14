@@ -13,11 +13,17 @@ from tests.fixtures.cabinet_access import (
     audit_events,
     auth_headers_for,
 )
-from tests.fixtures.calendar import calendar_event_fixture
+from tests.fixtures.calendar import attendee_heavy_event_fixture, calendar_event_fixture
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.calendar.normalize import normalize_calendar_event
 from twobrain_rec_server.calendar.sync import upsert_event_snapshot
-from twobrain_rec_server.db.models import CalendarSource, ExternalCalendar, MeetingShareGrant
+from twobrain_rec_server.db.models import (
+    CalendarSource,
+    ExportPackage,
+    ExternalCalendar,
+    MeetingEgressAuditEvent,
+    MeetingShareGrant,
+)
 
 
 def test_login_required_share_link_resolves_for_grantee_and_can_be_revoked(client) -> None:
@@ -81,7 +87,72 @@ def test_calendar_attendees_do_not_create_meeting_share_grants(client) -> None:
     assert grant_count == 0
 
 
-def _seed_calendar_event_with_external_attendee(client) -> str:
+def test_us6_roster_heavy_match_has_zero_share_or_delivery_side_effects(client) -> None:
+    # FR-021/SC-008: recipient-candidate metadata remains inert after a real match.
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "calendar-roster-heavy-no-delivery-098",
+            "duration_seconds": 900,
+        },
+    )
+    assert meeting.status_code == 200
+    meeting_id = UUID(meeting.json()["meeting_id"])
+    event_id = _seed_calendar_event_with_external_attendee(client, attendee_count=25)
+    before = _meeting_side_effect_counts(client, meeting_id)
+
+    linked = client.put(
+        f"/api/v1/meetings/{meeting_id}/calendar-context",
+        headers=auth_headers(),
+        json={"event_id": event_id, "context_reason": "manual_selection"},
+    )
+    review = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}",
+        headers=auth_headers(),
+    )
+    after = _meeting_side_effect_counts(client, meeting_id)
+
+    assert linked.status_code == 200
+    assert review.status_code == 200
+    roster = linked.json()["roster"]
+    assert roster["participant_count"] == 25
+    assert len(roster["participants"]) == 25
+    forbidden_action_fields = {
+        "access_grant_id",
+        "delivery_state",
+        "message_recipient",
+        "recipient_email",
+        "report_recipient",
+        "send",
+        "share_grant_id",
+        "summary_recipient",
+    }
+    for participant in roster["participants"]:
+        assert forbidden_action_fields.isdisjoint(participant)
+        assert participant["email_present"] is True
+        assert participant["recipient_candidate_class"] == "external"
+    assert review.json()["share"]["active_grants"] == []
+    assert (
+        after
+        == before
+        == {
+            "egress_events": 0,
+            "export_packages": 0,
+            "share_grants": 0,
+        }
+    )
+    serialized = linked.text + review.text
+    assert "guest@external.test" not in serialized
+    for index in range(1, 25):
+        assert f"attendee-{index}@example.test" not in serialized
+
+
+def _seed_calendar_event_with_external_attendee(
+    client,
+    *,
+    attendee_count: int = 1,
+) -> str:
     source_response = client.post(
         "/api/v1/calendar/sources",
         headers=auth_headers(),
@@ -95,15 +166,31 @@ def _seed_calendar_event_with_external_attendee(client) -> str:
     )
     source_id = UUID(source_response.json()["source"]["source_id"])
     sessionmaker = client.app_state["sessionmaker"]
+    participants = attendee_heavy_event_fixture(count=attendee_count)["participants"]
+    participants[0] = {
+        **participants[0],
+        "email": "guest@external.test",
+        "email_hash": "sha256:synthetic-external-guest",
+        "display_name": "External Guest",
+        "workspace_relation": "external",
+        "recipient_candidate_class": "external",
+    }
 
     async def seed() -> str:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
-            calendar = await session.scalar(select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id))
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
             starts_at = datetime.now(UTC) + timedelta(minutes=5)
             snapshot = await upsert_event_snapshot(
                 session,
-                TenantScope(organization_id=ORG_ID, workspace_id=WORKSPACE_ID, user_id=USER_ID, device_id=DEVICE_ID),
+                TenantScope(
+                    organization_id=ORG_ID,
+                    workspace_id=WORKSPACE_ID,
+                    user_id=USER_ID,
+                    device_id=DEVICE_ID,
+                ),
                 source,
                 calendar,
                 normalize_calendar_event(
@@ -111,14 +198,7 @@ def _seed_calendar_event_with_external_attendee(client) -> str:
                         "caldav_yandex",
                         starts_at=starts_at,
                         ends_at=starts_at + timedelta(hours=1),
-                        participants=[
-                            {
-                                "participant_kind": "required_attendee",
-                                "email": "guest@external.test",
-                                "display_name": "External Guest",
-                                "response_status": "accepted",
-                            }
-                        ],
+                        participants=participants,
                     )
                 ),
             )
@@ -133,6 +213,32 @@ def _share_grant_count(client, meeting_id: UUID) -> int:
 
     async def count() -> int:
         async with sessionmaker() as session:
-            return await session.scalar(select(func.count()).select_from(MeetingShareGrant).where(MeetingShareGrant.meeting_id == meeting_id))
+            return await session.scalar(
+                select(func.count())
+                .select_from(MeetingShareGrant)
+                .where(MeetingShareGrant.meeting_id == meeting_id)
+            )
 
     return int(asyncio.run(count()))
+
+
+def _meeting_side_effect_counts(client, meeting_id: UUID) -> dict[str, int]:
+    async def count() -> dict[str, int]:
+        async with client.app_state["sessionmaker"]() as session:
+            counts: dict[str, int] = {}
+            for key, model in (
+                ("egress_events", MeetingEgressAuditEvent),
+                ("export_packages", ExportPackage),
+                ("share_grants", MeetingShareGrant),
+            ):
+                counts[key] = int(
+                    await session.scalar(
+                        select(func.count())
+                        .select_from(model)
+                        .where(model.meeting_id == meeting_id)
+                    )
+                    or 0
+                )
+            return counts
+
+    return asyncio.run(count())

@@ -373,3 +373,41 @@ Scoped feature commits are approved after their named validation passes and thei
   before one redundant post-build cold-launch screenshot, but no separate view
   path remained untested; the final source, release build, and full gate are
   green.
+
+## 13. Post-Master Integration Evidence — 2026-07-14
+
+Feature 104 was reconciled with current `origin/master`, including the merged
+feature `098-calendar-auto-context-match`, before closeout:
+
+- safe server-issued calendar match/context state, retry behavior, and the
+  recurring-series previous-meeting pointer remain intact;
+- `Ближайшие` is rendered only for a real, authorized future occurrence from
+  the recurring series; the main meeting screen does not restore an empty
+  calendar placeholder or a duplicate `Подключить календари` call to action;
+- capture start still resolves calendar context without restoring a raw local
+  recording-path presentation state;
+- human failure copy, compact meeting-first navigation, contextual selection,
+  and debug-free status presentation remain the feature-104 authority.
+
+Post-reconciliation focused validation:
+
+- server crossover suite: `168 passed`, `0 failed`, with the existing
+  Starlette/httpx deprecation warning only;
+- macOS crossover suite: `149 tests`, `0 failures`;
+- Ruff check and format check: clean;
+- conflict-marker and whitespace checks: clean.
+
+Canonical full repository gate after conflict resolution:
+
+- macOS Swift tests: `642 tests`, `0 failures`;
+- `ContractValidation: PASS`;
+- server: `1426 passed`, `4 skipped`, `0 failed`, with the same existing
+  Starlette/httpx deprecation warning;
+- Ruff, Python compile, production Compose config, and deployment evidence scan:
+  clean;
+- PostgreSQL RLS runtime validation remains explicitly skipped when its
+  disposable test database is unavailable, as designed by the gate;
+- final result: `ci_local_result=pass`.
+
+No production deploy, release publication, package installation, or installed
+app replacement was performed during this integration.
