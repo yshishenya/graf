@@ -201,6 +201,26 @@ def test_safe_title_keeps_only_the_file_name_when_legacy_title_contains_a_path()
     assert view_models.safe_title(windows_path) == "Team sync"
 
 
+def test_safe_title_strips_every_explicit_manual_upload_extension() -> None:
+    for extension in (
+        "wav",
+        "mp3",
+        "m4a",
+        "aac",
+        "flac",
+        "ogg",
+        "mp4",
+        "mov",
+        "m4v",
+        "webm",
+        "mkv",
+    ):
+        meeting = _meeting()
+        meeting.title = f"Team_sync.{extension}"
+
+        assert view_models.safe_title(meeting) == "Team sync"
+
+
 def test_meeting_list_presentation_humanizes_generated_titles_files_and_durations() -> None:
     generated = _meeting()
     generated.title = "Current display system audio - 2026-07-13 12:14"

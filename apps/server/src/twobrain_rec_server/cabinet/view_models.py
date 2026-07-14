@@ -157,11 +157,10 @@ PROCESSING_STATUSES = {
     ProcessingStatus.IMPORTING.value,
 }
 
-UNSAFE_TITLE_RE = re.compile(
-    r"https?://|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|token=|password|bearer\s|(?:^|[^A-Z0-9])sk-[A-Z0-9_-]{8,}|\b(?:[A-Z0-9-]+\.)+[A-Z]{2,}/[^\s<>'\"]+",
+KNOWN_MEDIA_EXTENSION_RE = re.compile(
+    r"\.(?:wav|mp3|m4a|aac|flac|ogg|mp4|mov|m4v|webm|mkv)$",
     re.IGNORECASE,
 )
-KNOWN_MEDIA_EXTENSION_RE = re.compile(r"\.(?:wav|mp3|m4a|mp4|mov|webm)$", re.IGNORECASE)
 GENERATED_MANUAL_UPLOAD_RE = re.compile(r"^manual[-_]upload(?:[-_][a-z0-9]+)+$", re.IGNORECASE)
 GENERATED_CAPTURE_TITLE_RE = re.compile(
     r"^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)"
@@ -1089,20 +1088,16 @@ class CabinetNavigationItem:
     label: str
     href: str
     icon: str
-    enabled: bool = True
-    count: int | None = None
 
 
 @dataclass(frozen=True)
 class CabinetNavigationModel:
     active: str
     items: tuple[CabinetNavigationItem, ...]
-    workspace_title: str = "Личный"
-    workspace_subtitle: str = ""
 
 
 def cabinet_navigation(
-    *, active: str = "meetings", pending_actions: int = 6, embedded: bool = False
+    *, active: str = "meetings", embedded: bool = False
 ) -> CabinetNavigationModel:
     meetings_href = "/desktop/meetings" if embedded else "/meetings"
     settings_href = (
@@ -1112,9 +1107,9 @@ def cabinet_navigation(
         CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "calendar-days"),
         CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
     )
-    enabled_ids = {item.id for item in items if item.enabled}
+    item_ids = {item.id for item in items}
     return CabinetNavigationModel(
-        active=active if active in enabled_ids else "meetings",
+        active=active if active in item_ids else "meetings",
         items=items,
     )
 

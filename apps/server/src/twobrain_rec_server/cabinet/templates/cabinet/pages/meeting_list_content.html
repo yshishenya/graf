@@ -20,11 +20,11 @@
           <input id="meeting-search" name="q" type="search" value="{{ query_value }}" placeholder="Поиск встреч…" aria-label="Поиск встреч" autocomplete="off">
         </div>
 
-        <details class="cabinet-control-disclosure{% if status_value or access_value %} is-active{% endif %}" data-filter-disclosure>
+        <details class="cabinet-control-disclosure{% if active_filter_count %} is-active{% endif %}" data-filter-disclosure>
           <summary class="icon-control" aria-label="Фильтры">
             {{ icons.icon("filter") }}
             <span class="cabinet-control-label">Фильтры</span>
-            <span class="cabinet-control-count" aria-label="Активных фильтров: {{ (1 if status_value else 0) + (1 if access_value else 0) }}"{% if not status_value and not access_value %} hidden{% endif %}>{{ (1 if status_value else 0) + (1 if access_value else 0) }}</span>
+            <span class="cabinet-control-count" aria-label="Активных фильтров: {{ active_filter_count }}"{% if not active_filter_count %} hidden{% endif %}>{{ active_filter_count }}</span>
           </summary>
           <div class="cabinet-control-popover" role="group" aria-label="Параметры фильтрации">
             <label for="meeting-status">Статус</label>

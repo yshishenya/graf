@@ -94,7 +94,7 @@ def render_meeting_list_page(
         ),
         active_filter_count=sum(
             value is not None and value != ""
-            for value in (response.filters.q, response.filters.status, response.filters.access)
+            for value in (response.filters.status, response.filters.access)
         ),
         upcoming_content=trusted_component_html(
             _render_upcoming_recurring(response, embedded=embedded),

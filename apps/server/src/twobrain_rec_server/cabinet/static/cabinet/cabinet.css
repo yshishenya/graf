@@ -759,11 +759,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .cabinet-list-controls input,
 .cabinet-list-controls select { min-height: 32px; }
-.cabinet-list-control-icon {
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-}
 .cabinet-card {
   background: var(--surface);
   border: 1px solid var(--line-soft);
@@ -1177,10 +1172,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   flex: 0 0 16px;
 }
 .selection-count { font-weight: 800; color: #f0edff; white-space: nowrap; line-height: 32px; }
-.selection-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
-.selection-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--line); }
 .danger-button { color: #ffd6d6; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.08); }
-.toolbar-icons { display: flex; align-items: center; gap: 8px; }
 .icon-control {
   width: 32px;
   height: 32px;
@@ -1206,29 +1198,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-.tooltip-wrap {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-}
-.tooltip-wrap:hover::after, .tooltip-wrap:focus-visible::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: 50%;
-  top: calc(100% + 8px);
-  z-index: 20;
-  width: max-content;
-  max-width: 220px;
-  transform: translateX(-50%);
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #24272a;
-  color: var(--text);
-  box-shadow: 0 12px 28px rgba(0,0,0,.32);
-  font-size: 12px;
-  white-space: normal;
 }
 .new-button {
   min-height: 32px;
@@ -1401,27 +1370,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .cabinet-workspace { max-width: none; }
   .desktop-embedded .cabinet-workspace { max-width: none; }
   .cabinet-topbar { align-items: stretch; flex-direction: column; }
-  .cabinet-list-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px auto; min-width: 0; }
-  .cabinet-list-controls input,
-  .cabinet-list-controls select { grid-column: span 2; }
-  .cabinet-list-control-icon { display: none; }
   .desktop-embedded .cabinet-list-controls {
-    grid-template-columns: minmax(0, 1fr) 32px;
     gap: 8px;
-  }
-  .desktop-embedded .cabinet-list-controls input {
-    grid-column: 1;
-    min-height: 32px;
-  }
-  .desktop-embedded .cabinet-list-controls select,
-  .desktop-embedded .cabinet-list-controls .cabinet-list-control-icon,
-  .desktop-embedded .cabinet-list-controls .new-button:not([data-manual-upload-open]) {
-    display: none;
-  }
-  .desktop-embedded .cabinet-list-controls .icon-control[type="submit"] {
-    width: 32px;
-    height: 32px;
-    min-height: 32px;
   }
   .topline { flex-direction: column; align-items: stretch; }
   .action-row { justify-content: flex-start; }
@@ -1435,7 +1385,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .meeting-toolbar { align-items: flex-start; flex-wrap: wrap; }
   .settings-section { grid-template-columns: 1fr; }
   .settings-actions { justify-content: flex-start; }
-  .selection-actions { justify-content: flex-start; }
   .meeting-row > .state-list, .meeting-row > .row-actions { grid-column: 2; justify-self: start; }
   .segment { display: block; }
   .segment .speaker, .segment .text { margin-top: 6px; }
@@ -1576,21 +1525,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   }
   .desktop-embedded .cabinet-sidebar-nav__item .ui-icon {
     justify-self: center;
-  }
-  .desktop-embedded .cabinet-sidebar-nav__count {
-    position: absolute;
-    left: 27px;
-    top: 4px;
-    min-width: 16px;
-    min-height: 16px;
-    padding: 0 4px;
-    font-size: 10px;
-  }
-  .desktop-embedded.is-rail-pinned .cabinet-sidebar-nav__count {
-    position: static;
-    min-width: 20px;
-    min-height: 20px;
-    font-size: 12px;
   }
 }
 @media (max-width: 540px) {

@@ -340,8 +340,10 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
         ".meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto;"
         in css
     )
-    assert ".desktop-embedded .cabinet-list-controls {" in css
-    assert "grid-template-columns: minmax(0, 1fr) 32px;" in css
+    assert (
+        ".cabinet-list-controls {\n  width: auto;\n  min-width: 0;\n  margin-left: auto;\n  display: flex;"
+        in css
+    )
     assert ":focus-visible" in css
     assert "hero" not in page.lower()
     assert "data-selection-toolbar" in page
@@ -447,14 +449,24 @@ def test_feature_104_removed_main_window_fragments_have_no_current_entry_point()
         assert marker not in sections
         assert marker not in meeting_list
 
+    assert "item.enabled" not in sections
+    assert "item.count" not in sections
+
     for obsolete_selector in [
         ".trial {",
         ".upcoming {",
         ".metric-grid {",
         ".metric {",
         ".toolbar {",
+        ".toolbar-icons {",
         ".cabinet-selection-toolbar,",
         ".first-run-download {",
+        ".selection-actions {",
+        ".selection-divider {",
+        ".tooltip-wrap {",
+        ".cabinet-sidebar-nav__count {",
+        ".cabinet-list-control-icon {",
+        ".desktop-embedded .cabinet-list-controls select,",
     ]:
         assert obsolete_selector not in css
 
@@ -506,6 +518,7 @@ def test_active_list_filters_expose_one_reset_without_extra_request_control() ->
     assert page.count("data-filter-reset") == 1
     assert 'href="/meetings"' in page
     assert 'aria-label="Сбросить поиск и фильтры"' in page
+    assert 'aria-label="Активных фильтров: 1"' in page
     assert 'aria-label="Применить фильтры"' not in page
     assert (
         'data-hx-trigger="input changed delay:150ms from:#meeting-search, change from:select, submit"'
