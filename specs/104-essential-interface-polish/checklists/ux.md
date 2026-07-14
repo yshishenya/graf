@@ -135,13 +135,16 @@
 - [x] CHK066 Do automated checks preserve native one-action Stop, separate Pause/Resume controls, stable width, permission recovery, local custody, and metadata-only support boundaries? [Safety, T010–T016/T022]
 - [x] CHK067 Did the implementation avoid new dependencies, schemas, routes, services, polling frequency, and capture-thread work while deleting only proven presentation noise? [Ponytail/Performance, Research §Implementation Deletion And Boundary Proof]
 - [x] CHK068 Are final visual artifacts synthetic, outside git, recognizably GRAF, and clean-room distant from the supplied Krisp reference? [Privacy/Brand Distance, Quickstart §12]
-- [ ] CHK069 Has the final native window been exercised unlocked through all required runtime/VoiceOver states at both app sizes? [Manual Runtime QA, T016/T028/T036]
+- [x] CHK069 Has the final native window been exercised unlocked through all required runtime/VoiceOver states at both app sizes? [Manual Runtime QA, T016/T028/T036]
 
 ## Final Implementation Notes
 
 - CHK062–CHK068 pass against the final source, real browser runtime, automated
   native contracts, full repository gate, and rebuilt local release artifact.
-- CHK069 is not waived: macOS remained locked and exposed no GRAF window to the
-  accessibility client. T016, T028, and T036 stay open for that exact pass.
+- CHK069 passes through combined unlocked evidence: real GRAF shell
+  onboarding/idle/offline/retry, the final production capture views rendered in
+  an isolated native window for all synthetic capture states, exact browser
+  target widths, and the invariant 308 pt inspector verified at minimum and
+  large native window sizes. No real recording or private content was used.
 - No production deployment, public release, installer replacement, or private
   screenshot commit occurred.

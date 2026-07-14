@@ -36,66 +36,85 @@ public struct CaptureStatusItem: View {
     @ViewBuilder
     private func statusSurface(for session: CaptureSession) -> some View {
         let canStop = Self.shouldEnableStopButton(for: session, stopDisabled: stopDisabled)
-        let isActive = Self.showsStopButton(for: session)
+        let showsStopAction = Self.showsStopAction(for: session)
 
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: iconName(for: session.visibleIndicatorState))
-                    .foregroundStyle(color(for: session.visibleIndicatorState))
+                Image(systemName: iconName(for: session))
+                    .foregroundStyle(color(for: session))
                 Text(Self.statusLabel(for: session))
                     .font(.caption)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Self.accessibilityLabel(for: session))
+            .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)
+            .accessibilityRemoveTraits(.isSelected)
 
-            if isActive {
-                Spacer()
-
-                if Self.showsPauseButton(for: session) {
-                    Button(action: onPause) {
-                        Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
+            if showsStopAction {
+                HStack(spacing: 8) {
+                    if Self.showsPauseButton(for: session) {
+                        Button(action: onPause) {
+                            Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
+                        .disabled(!Self.shouldEnablePauseButton(for: session, pauseDisabled: pauseDisabled))
+                        .accessibilityLabel(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
+                        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.pauseButton)
+                        .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(!Self.shouldEnablePauseButton(for: session, pauseDisabled: pauseDisabled))
-                    .accessibilityLabel(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
-                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.pauseButton)
-                    .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
-                }
 
-                if Self.showsResumeButton(for: session) {
-                    Button(action: onResume) {
-                        Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
+                    if Self.showsResumeButton(for: session) {
+                        Button(action: onResume) {
+                            Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
+                        .disabled(!Self.shouldEnableResumeButton(for: session, pauseDisabled: pauseDisabled))
+                        .accessibilityLabel(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
+                        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.resumeButton)
+                        .help(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(!Self.shouldEnableResumeButton(for: session, pauseDisabled: pauseDisabled))
-                    .accessibilityLabel(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
-                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.resumeButton)
-                    .help(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
-                }
 
-                Button(action: onStop) {
-                    Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: "stop.fill")
+                    Button(action: onStop) {
+                        Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: "stop.fill")
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
+                    .disabled(!canStop || stopDisabled)
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.stopButton)
+                    .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(!canStop || stopDisabled)
-                .keyboardShortcut(.escape, modifiers: [])
-                .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
-                .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.stopButton)
-                .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(8)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Self.accessibilityLabel(for: session))
-        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(.thickMaterial)
         )
-        .opacity(session.visibleIndicatorState == .hidden ? 0.6 : 1.0)
+        .opacity(statusOpacity(for: session))
+    }
+
+    private func iconName(for session: CaptureSession) -> String {
+        if session.state == .stopped || session.state == .finalized {
+            return "checkmark.circle.fill"
+        }
+        return iconName(for: session.visibleIndicatorState)
     }
 
     private func iconName(for state: VisibleIndicatorState) -> String {
@@ -128,6 +147,20 @@ public struct CaptureStatusItem: View {
         case .hidden:
             return .secondary
         }
+    }
+
+    private func color(for session: CaptureSession) -> Color {
+        if session.state == .stopped || session.state == .finalized {
+            return .green
+        }
+        return color(for: session.visibleIndicatorState)
+    }
+
+    private func statusOpacity(for session: CaptureSession) -> Double {
+        if session.state == .stopped || session.state == .finalized {
+            return 1
+        }
+        return session.visibleIndicatorState == .hidden ? 0.6 : 1
     }
 
     public static func statusLabel(for session: CaptureSession) -> String {
@@ -163,6 +196,10 @@ public struct CaptureStatusItem: View {
             session.state == .paused ||
             session.state == .degraded ||
             session.state == .stopping
+    }
+
+    public static func showsStopAction(for session: CaptureSession) -> Bool {
+        showsStopButton(for: session) && session.state != .stopping
     }
 
     public static func shouldEnableStopButton(

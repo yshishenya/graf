@@ -61,6 +61,8 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertEqual(stopping.state, .stopping)
         XCTAssertTrue(stopping.stopActionAvailable)
+        XCTAssertTrue(CaptureStatusItem.showsStopButton(for: stopping))
+        XCTAssertFalse(CaptureStatusItem.showsStopAction(for: stopping))
         XCTAssertEqual(stopped.state, .stopped)
         XCTAssertEqual(stopped.stopReason, .userRequested)
         XCTAssertFalse(stopped.stopActionAvailable)
@@ -186,6 +188,78 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(CaptureControlView.hasActionableProblem(
             blockedReason: "Нужен доступ к микрофону"
         ))
+        XCTAssertFalse(CaptureControlView.shouldShowIdleStatus(
+            blockedReason: "Нужен доступ к микрофону",
+            localRecordingStatus: nil,
+            calendarPrompt: nil
+        ))
+        XCTAssertFalse(CaptureControlView.shouldShowIdleStatus(
+            blockedReason: nil,
+            localRecordingStatus: "Локальная запись сохранена",
+            calendarPrompt: nil
+        ))
+        XCTAssertTrue(CaptureControlView.shouldShowIdleStatus(
+            blockedReason: nil,
+            localRecordingStatus: nil,
+            calendarPrompt: nil
+        ))
+        let recordPrompt = DesktopCalendarPrompt(
+            id: "record-prompt",
+            kind: .record,
+            eventId: "event",
+            title: "Встреча обнаружена",
+            message: "Начать запись?",
+            primaryActionTitle: "Начать запись",
+            accessibilityLabel: "Обнаружена встреча"
+        )
+        XCTAssertFalse(CaptureControlView.shouldShowIdleStatus(
+            blockedReason: nil,
+            localRecordingStatus: nil,
+            calendarPrompt: recordPrompt
+        ))
+        XCTAssertFalse(CaptureControlView.shouldShowDirectRecordButton(
+            for: nil,
+            calendarPrompt: recordPrompt
+        ))
+        XCTAssertTrue(CaptureControlView.shouldShowDirectRecordButton(
+            for: nil,
+            calendarPrompt: nil
+        ))
+        let activeSession = makePresentationSession(
+            state: .active,
+            indicator: .active,
+            canStop: true
+        )
+        XCTAssertTrue(CaptureControlView.shouldShowSessionStatus(
+            for: activeSession,
+            blockedReason: "Запись продолжается с ограничением"
+        ))
+        XCTAssertFalse(CaptureControlView.shouldShowLocalRecordingStatus(
+            "Локальная запись идёт",
+            for: activeSession
+        ))
+        let savedSession = makePresentationSession(
+            state: .finalized,
+            indicator: .hidden,
+            canStop: false
+        )
+        XCTAssertFalse(CaptureControlView.shouldShowLocalRecordingStatus(
+            "Локальная запись сохранена",
+            for: savedSession
+        ))
+        XCTAssertTrue(CaptureControlView.shouldShowLocalRecordingStatus(
+            "Локальная запись сохранена с ограничениями",
+            for: savedSession
+        ))
+        let failedSession = makePresentationSession(
+            state: .failed,
+            indicator: .error,
+            canStop: false
+        )
+        XCTAssertFalse(CaptureControlView.shouldShowSessionStatus(
+            for: failedSession,
+            blockedReason: "Не удалось начать запись"
+        ))
         XCTAssertEqual(
             CaptureControlView.meetingDetectionSummary(for: "Найдена встреча: Яндекс Телемост"),
             "Встреча обнаружена"
@@ -283,6 +357,13 @@ final class CaptureControlTests: XCTestCase {
         }
         XCTAssertFalse(source.contains("appleProcessingStatusCopy"))
         XCTAssertTrue(source.contains("resolvedWebRTCAEC3Status"))
+        XCTAssertFalse(ordinaryBody.contains("HStack(alignment: .top, spacing: 18)"))
+        XCTAssertTrue(
+            ordinaryBody.contains(
+                ".frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)"
+            )
+        )
+        XCTAssertFalse(ordinaryBody.contains("Spacer(minLength: 0)"))
     }
 
     func testMeetingDetectionControlsExposeStatusAndSettingsAccessibility() throws {

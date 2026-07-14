@@ -109,7 +109,18 @@ final class AppControlAccessibilityTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains(".accessibilityElement(children: .contain)"))
-        XCTAssertFalse(source.contains(".accessibilityElement(children: .combine)"))
+        XCTAssertTrue(source.contains(".accessibilityElement(children: .combine)"))
+        XCTAssertTrue(source.contains(".accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)"))
+        XCTAssertTrue(source.contains(".accessibilityRemoveTraits(.isSelected)"))
+        XCTAssertTrue(source.contains("VStack(alignment: .leading, spacing: 8)"))
+        XCTAssertGreaterThanOrEqual(
+            source.components(
+                separatedBy: ".frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)"
+            ).count - 1,
+            3
+        )
+        XCTAssertTrue(source.contains("checkmark.circle.fill"))
+        XCTAssertTrue(source.contains("session.state == .stopped || session.state == .finalized"))
     }
 
     func testDesktopCaptureChromeUsesFeature104DensityAndContrastContracts() throws {

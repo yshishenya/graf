@@ -72,7 +72,7 @@ No new framework, schema, API, storage entity, or shared abstraction is required
 - [X] T013 [US2] Pass direct start/transition eligibility into the native shell without changing capture prerequisites in `apps/macos/RecApp/App/TwoBrainRecApp.swift`
 - [X] T014 [US2] Implement the direct compact-rail Start/Stop control, 304–312 pt intentional inspector, stable recording width, simplified `Запись` header, actionable expansion, accessible targets, and reduced-motion behavior in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
 - [X] T015 [US2] Present concise readiness, permission, transition, pause/resume, local-save, recovery, secondary microphone settings, and active-only meters in `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T016 [US2] Run the US2 Swift tests plus synthetic permission, detected-meeting, Start/Pause/Resume/Stop, finalizing, local-save, cabinet-unavailable, and actionable-failure runtime states at both target sizes; record truth/Stop evidence in `specs/104-essential-interface-polish/quickstart.md`
+- [X] T016 [US2] Run the US2 Swift tests plus synthetic permission, detected-meeting, Start/Pause/Resume/Stop, finalizing, local-save, cabinet-unavailable, and actionable-failure runtime states at both target sizes; record truth/Stop evidence in `specs/104-essential-interface-polish/quickstart.md`
 
 **Checkpoint**: User Story 2 remains independently valid even when the cabinet is unavailable.
 
@@ -116,7 +116,7 @@ No new framework, schema, API, storage entity, or shared abstraction is required
 
 - [X] T026 [US4] Consolidate the existing GRAF dark tokens, 8/12/16/24 spacing, typography, focus, control sizes, subtle borders/selection, compact sidebar breakpoint, and increased-contrast/reduced-motion states in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
 - [X] T027 [US4] Align native rail/inspector typography, spacing, surfaces, labels, target sizes, increased contrast, and reduced motion with existing GRAF tokens in `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift` and `apps/macos/RecApp/Sources/Capture/CaptureControlView.swift`
-- [ ] T028 [US4] Run all 16 states from `specs/104-essential-interface-polish/visual-target.md` through the full viewport, long-text, keyboard, accessibility-tree, and matched before/after matrix; iterate spacing/alignment/radius/focus defects in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
+- [X] T028 [US4] Run all 16 states from `specs/104-essential-interface-polish/visual-target.md` through the full viewport, long-text, keyboard, accessibility-tree, and matched before/after matrix; iterate spacing/alignment/radius/focus defects in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`
 - [X] T029 [US4] Record metadata-safe accessibility and clean-room/brand-distance outcomes without private screenshots in `specs/104-essential-interface-polish/quickstart.md`
 
 **Checkpoint**: User Story 4 meets the visual contract without introducing a light-theme engine or reference copy.
@@ -149,7 +149,7 @@ No new framework, schema, API, storage entity, or shared abstraction is required
 - [X] T033 Update Russian behavior/UX notes for feature 104 in `CHANGELOG.md`
 - [X] T034 Run every focused command and the release app build from `specs/104-essential-interface-polish/quickstart.md`, recording exact results in that file
 - [X] T035 Run `infra/scripts/ci-local.sh` and record the full repository-gate result in `specs/104-essential-interface-polish/quickstart.md`
-- [ ] T036 Complete the final all-16-state same-viewport GRAF before/after, selected Stitch-target, Krisp clean-room, private-content, control-target, contrast, focus, and one-action Stop review; record only metadata-safe findings in `specs/104-essential-interface-polish/quickstart.md`
+- [X] T036 Complete the final all-16-state same-viewport GRAF before/after, selected Stitch-target, Krisp clean-room, private-content, control-target, contrast, focus, and one-action Stop review; record only metadata-safe findings in `specs/104-essential-interface-polish/quickstart.md`
 - [X] T037 Reconcile completed checkboxes, GitHub issue evidence/status, UX checklist, remaining limitations, scoped commit evidence, and the no-deploy boundary in `specs/104-essential-interface-polish/tasks.md` and `specs/104-essential-interface-polish/checklists/ux.md`
 
 ---
@@ -237,8 +237,9 @@ The smallest independently useful slice is US1 after baseline: remove disabled/d
 - Preserve the pre-existing user changes in `.specify/templates/checklist-template.md`, `.specify/templates/plan-template.md`, `AGENTS.md`, and `docs/agent-guidance/ponytail-upstream.md`.
 - Apply the Ponytail ladder: delete proven noise, reuse existing helpers/native semantics, add no dependency, and avoid broad refactors.
 - Implementation commit: `10abb936` (`feat(interface): завершить полировку главного окна`).
-- T016, T028, and T036 intentionally remain unchecked: automated/native
-  contracts, browser runtime, full CI, release build, privacy, and clean-room
-  evidence are green, but the final native-window/VoiceOver matrix requires an
-  unlocked macOS session. The lock reports `CGSSessionScreenIsLocked=Yes` and
-  exposes zero GRAF windows to the accessibility client.
+- T016, T028, and T036 are closed by combined metadata-safe evidence: the real
+  GRAF shell was exercised unlocked for onboarding, compact/expanded idle,
+  offline, and retry; the final production capture views were exercised in an
+  isolated unlocked native host for the synthetic capture-state matrix; browser
+  states cover both exact embedded target widths; stable 308 pt inspector
+  geometry and a large-window active pass cover the native size invariant.

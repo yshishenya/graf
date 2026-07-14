@@ -73,8 +73,8 @@ public struct CaptureControlView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
-            HStack(alignment: .center, spacing: DesktopMeetingShellChrome.spacingMedium) {
-                if let session {
+            VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
+                if let session, Self.shouldShowSessionStatus(for: session, blockedReason: blockedReason) {
                     CaptureStatusItem(
                         session: session,
                         stopDisabled: stopDisabled,
@@ -83,7 +83,11 @@ public struct CaptureControlView: View {
                         onPause: onPause,
                         onResume: onResume
                     )
-                } else {
+                } else if session == nil && Self.shouldShowIdleStatus(
+                    blockedReason: blockedReason,
+                    localRecordingStatus: localRecordingStatus,
+                    calendarPrompt: calendarPrompt
+                ) {
                     Label(
                         Self.primaryStatus(
                             for: session,
@@ -104,14 +108,14 @@ public struct CaptureControlView: View {
                         .minimumScaleFactor(0.85)
                 }
 
-                Spacer()
-
-                if Self.shouldShowRecordButton(for: session) {
+                if Self.shouldShowDirectRecordButton(for: session, calendarPrompt: calendarPrompt) {
                     Button(action: onRecord) {
                         Label(SystemAudioStatusLabels.recordButtonTitle, systemImage: "record.circle")
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .frame(minHeight: DesktopMeetingShellChrome.controlHeight)
+                    .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
                     .disabled(!Self.shouldEnableRecordButton(for: session, recordDisabled: recordDisabled))
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                     .accessibilityLabel(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
@@ -143,7 +147,8 @@ public struct CaptureControlView: View {
                 )
             }
 
-            if let meetingDetectionSummary = Self.meetingDetectionSummary(for: meetingDetectionStatus) {
+            if calendarPrompt == nil,
+               let meetingDetectionSummary = Self.meetingDetectionSummary(for: meetingDetectionStatus) {
                 HStack(alignment: .top, spacing: 10) {
                     StatusNoteView(
                         icon: "dot.radiowaves.left.and.right",
@@ -209,7 +214,8 @@ public struct CaptureControlView: View {
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingMicrophoneRecovery)
             }
 
-            if let localRecordingStatus, !localRecordingStatus.isEmpty {
+            if let localRecordingStatus,
+               Self.shouldShowLocalRecordingStatus(localRecordingStatus, for: session) {
                 StatusNoteView(
                     icon: localRecordingStatusIcon,
                     title: Self.localRecordingSummary(for: localRecordingStatus),
@@ -257,9 +263,48 @@ public struct CaptureControlView: View {
         shouldShowRecordButton(for: session) && !recordDisabled
     }
 
+    public static func shouldShowDirectRecordButton(
+        for session: CaptureSession?,
+        calendarPrompt: DesktopCalendarPrompt?
+    ) -> Bool {
+        shouldShowRecordButton(for: session) && calendarPrompt?.kind != .record
+    }
+
     public static func hasActionableProblem(blockedReason: String?) -> Bool {
         guard let blockedReason else { return false }
         return !blockedReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public static func shouldShowSessionStatus(
+        for session: CaptureSession,
+        blockedReason: String?
+    ) -> Bool {
+        CaptureStatusItem.showsStopButton(for: session) ||
+            !hasActionableProblem(blockedReason: blockedReason)
+    }
+
+    public static func shouldShowIdleStatus(
+        blockedReason: String?,
+        localRecordingStatus: String?,
+        calendarPrompt: DesktopCalendarPrompt?
+    ) -> Bool {
+        guard !hasActionableProblem(blockedReason: blockedReason) else { return false }
+        guard calendarPrompt?.kind != .record else { return false }
+        return localRecordingStatus?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+    }
+
+    public static func shouldShowLocalRecordingStatus(
+        _ localRecordingStatus: String,
+        for session: CaptureSession?
+    ) -> Bool {
+        let normalized = localRecordingStatus.lowercased()
+        let carriesActionableDetail = ["огранич", "заблок", "не сохран", "degraded", "blocked", "failed"]
+            .contains { normalized.contains($0) }
+        if carriesActionableDetail {
+            return true
+        }
+        guard let session else { return true }
+        return localRecordingSummary(for: localRecordingStatus) != captureStatus(for: session.state)
     }
 
     public static func primaryStatus(
@@ -781,6 +826,7 @@ private struct StatusNoteView: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -808,7 +854,7 @@ private struct LiveRecordingMetersView: View {
                     .foregroundStyle(summaryColor)
             }
 
-            HStack(alignment: .top, spacing: 18) {
+            VStack(alignment: .leading, spacing: 12) {
                 meterRow(
                     title: SystemAudioStatusLabels.microphoneTitle,
                     detail: microphoneDetail,

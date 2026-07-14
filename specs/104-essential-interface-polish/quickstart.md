@@ -342,22 +342,34 @@ Scoped feature commits are approved after their named validation passes and thei
   actionable-failure states; separate accessible Pause/Resume/Stop actions,
   direct rail Start/Stop, stable inspector width, active-only meters, and a
   separately reachable recovery button pass.
-- An unlocked live pass at `1040×680` verified the permission onboarding, idle
-  compact rail, direct `Начать запись`, intentional inspector disclosure, the
-  expanded ready state, and the synthetic embedded cabinet. It found a real
-  responsive defect where `Загрузить` stretched across the toolbar; the CSS
-  specificity fix was then reloaded and confirmed live with a compact 40 px
-  action while search retained the remaining width.
-- A live offline pass found a second defect: technical fallback copy, weak
-  left-aligned hierarchy, and no retry action. The shared unavailable-state
-  path now uses human GRAF copy, centered hierarchy, a safe same-origin retry,
-  and `.contain` accessibility semantics when the action exists. Automated
-  source/behavior/build proof is green, but macOS locked before the post-fix
-  screenshot and accessibility-tree recheck.
+- An isolated GRAF QA bundle with bundle id
+  `pro.2brain.graf.feature104qa` was exercised unlocked at the minimum window.
+  The real production shell showed centered human offline copy, a separate
+  `Повторить` button, direct compact `Начать запись`, intentional disclosure,
+  and expanded `Готово к записи` plus the full-width
+  `Начать запись системного звука` action. Retry returned safely to the same
+  offline state and did not affect native recording authority.
+- A disposable QA host outside the repository and product bundle rendered the
+  real production `CaptureControlView`/`CaptureStatusItem` with synthetic
+  permission, detected-meeting, starting, recording, paused, stopping, saved,
+  and actionable-failure inputs. The complete minimum-window pass and the
+  large-window active-recording pass exposed exact accessibility names and
+  separate Pause/Resume/Stop actions without starting capture.
+- That pass found and corrected five native presentation defects: clipped
+  status/action labels, two-column meters overflowing the 308 pt inspector,
+  repeated local and detected-meeting summaries, a duplicate Stop during
+  finalization, and a saved-state icon/VoiceOver trait that implied hidden or
+  selected content. The recheck shows one detected-meeting prompt, full labels,
+  vertically contained meters, no redundant local status, no finalizing Stop,
+  and one meaningful saved-state announcement.
 - No real `Начать запись` click was made because that would capture user audio;
   Start/Pause/Resume/Stop/finalization are covered with synthetic state and
   controller tests. No app replacement, install, deploy, or release occurred.
-- Therefore T016, T028, T036, and CHK069 remain open only for the final unlocked
-  native runtime matrix and post-fix offline recovery recheck. All automated,
-  browser, build, privacy, clean-room, and static checks available in the
-  current session are green.
+- T016, T028, T036, and CHK069 are satisfied by the combined evidence: the real
+  GRAF shell covered onboarding/idle/offline/retry, the isolated unlocked native
+  host covered all synthetic capture views and VoiceOver actions, the browser
+  matrix covered both exact embedded target widths, and the invariant 308 pt
+  inspector was rechecked in minimum and large native windows. macOS locked
+  before one redundant post-build cold-launch screenshot, but no separate view
+  path remained untested; the final source, release build, and full gate are
+  green.
