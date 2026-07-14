@@ -1320,6 +1320,7 @@ final class DesktopUploadQueueTests: XCTestCase {
                 mediaRevisionId: "server-media-revision-m4a",
                 uploadSessionId: "server-upload-session-without-m4a",
                 acceptedBytesByTrack: ["manifest": 32],
+                expectedTrackRoles: ["microphone", "system", "manifest"],
                 desktopTruthRule: "server_ranges_authoritative"
             )
         )
@@ -1344,7 +1345,14 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(refreshed.uploadSessionId, "server-upload-session-without-m4a")
         XCTAssertEqual(refreshed.serverTruth.uploadSessionId, "server-upload-session-without-m4a")
         XCTAssertEqual(refreshed.serverTruth.acceptedBytesByTrack["manifest"], 32)
-        XCTAssertTrue(refreshed.artifactProfile.trackCompleteness.contains { $0.transportRole == .playback })
+        XCTAssertEqual(
+            refreshed.serverTruth.expectedTrackRoles,
+            ["microphone", "system", "manifest"]
+        )
+        XCTAssertEqual(
+            refreshed.artifactProfile.trackCompleteness.map(\.transportRole),
+            [.microphone, .system, .manifest, .playback]
+        )
     }
 
     func testProcessDueItemsReconcilesBeforeUploadAndPersistsServerRanges() async throws {

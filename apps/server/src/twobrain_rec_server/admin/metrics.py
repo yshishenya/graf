@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,8 +9,16 @@ from twobrain_rec_server.admin.queries import AdminWorkspaceContext
 from twobrain_rec_server.db.models import (
     AdminAuditEvent,
     Meeting,
+    PlaybackBackfillRun,
+    PlaybackNormalizationAttempt,
+    PlaybackNormalizationJob,
     WorkspaceMembership,
     WorkspaceUsageDaily,
+)
+from twobrain_rec_server.normalization.statuses import (
+    AttemptState,
+    JobState,
+    NormalizationReason,
 )
 
 METRIC_FAMILIES = ("adoption", "usage", "funnel", "reliability", "governance")
@@ -77,6 +85,10 @@ async def get_admin_metrics(
         )
         or 0
     )
+    playback_normalization = await _playback_normalization_metrics(
+        db,
+        workspace_id=context.workspace_id,
+    )
     cards = [
         _card(
             "active_users",
@@ -124,6 +136,17 @@ async def get_admin_metrics(
             date_window=usage_window,
         ),
         _card(
+            "playback_normalization_backlog",
+            "reliability",
+            "Очередь подготовки аудио",
+            "Автоматическая очередь записей, которым ещё нужен готовый звук",
+            "playback normalization jobs",
+            "normalization_store",
+            int(playback_normalization["backlog_total"]),
+            "/admin/metrics?family=reliability",
+            date_window=usage_window,
+        ),
+        _card(
             "admin_audit_events",
             "governance",
             "События аудита",
@@ -137,7 +160,148 @@ async def get_admin_metrics(
     ]
     if family:
         cards = [card for card in cards if card["family"] == family]
-    return {"metrics": cards}
+    return {
+        "metrics": cards,
+        "playback_normalization": playback_normalization,
+    }
+
+
+async def _playback_normalization_metrics(
+    db: AsyncSession,
+    *,
+    workspace_id,
+) -> dict[str, object]:
+    run_states = {
+        str(state): int(count)
+        for state, count in (
+            await db.execute(
+                select(PlaybackBackfillRun.state, func.count())
+                .where(PlaybackBackfillRun.workspace_id == workspace_id)
+                .group_by(PlaybackBackfillRun.state)
+                .order_by(PlaybackBackfillRun.state)
+            )
+        ).all()
+    }
+    job_states = {
+        str(state): int(count)
+        for state, count in (
+            await db.execute(
+                select(PlaybackNormalizationJob.state, func.count())
+                .where(PlaybackNormalizationJob.workspace_id == workspace_id)
+                .group_by(PlaybackNormalizationJob.state)
+                .order_by(PlaybackNormalizationJob.state)
+            )
+        ).all()
+    }
+    allowed_reasons = {reason.value for reason in NormalizationReason}
+    reason_counts = {
+        str(reason): int(count)
+        for reason, count in (
+            await db.execute(
+                select(PlaybackNormalizationJob.reason_code, func.count())
+                .where(
+                    PlaybackNormalizationJob.workspace_id == workspace_id,
+                    PlaybackNormalizationJob.reason_code.is_not(None),
+                )
+                .group_by(PlaybackNormalizationJob.reason_code)
+                .order_by(PlaybackNormalizationJob.reason_code)
+            )
+        ).all()
+        if str(reason) in allowed_reasons
+    }
+    backlog_states = (
+        JobState.QUEUED.value,
+        JobState.RUNNING.value,
+        JobState.PUBLISHING.value,
+        JobState.RETRY_WAIT.value,
+    )
+    backlog_total = sum(job_states.get(state, 0) for state in backlog_states)
+    oldest_created_at = await db.scalar(
+        select(func.min(PlaybackNormalizationJob.created_at)).where(
+            PlaybackNormalizationJob.workspace_id == workspace_id,
+            PlaybackNormalizationJob.state.in_(backlog_states),
+        )
+    )
+    oldest_age_seconds = 0
+    if oldest_created_at is not None:
+        if oldest_created_at.tzinfo is None:
+            oldest_created_at = oldest_created_at.replace(tzinfo=UTC)
+        oldest_age_seconds = max(
+            0,
+            int((datetime.now(UTC) - oldest_created_at).total_seconds()),
+        )
+    retry_cycle_buckets = {"0": 0, "1": 0, "2": 0, "3_plus": 0}
+    for retry_cycle_count, count in (
+        await db.execute(
+            select(PlaybackNormalizationJob.retry_cycle_count, func.count())
+            .where(PlaybackNormalizationJob.workspace_id == workspace_id)
+            .group_by(PlaybackNormalizationJob.retry_cycle_count)
+        )
+    ).all():
+        bucket = str(retry_cycle_count) if retry_cycle_count < 3 else "3_plus"
+        retry_cycle_buckets[bucket] = retry_cycle_buckets.get(bucket, 0) + int(count)
+    cleanup_pending_count = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(PlaybackNormalizationAttempt)
+            .where(
+                PlaybackNormalizationAttempt.workspace_id == workspace_id,
+                PlaybackNormalizationAttempt.state == AttemptState.CLEANUP_PENDING.value,
+            )
+        )
+        or 0
+    )
+    last_safe_heartbeat_at = await db.scalar(
+        select(func.max(PlaybackNormalizationJob.last_heartbeat_at)).where(
+            PlaybackNormalizationJob.workspace_id == workspace_id
+        )
+    )
+    if last_safe_heartbeat_at is not None and last_safe_heartbeat_at.tzinfo is None:
+        last_safe_heartbeat_at = last_safe_heartbeat_at.replace(tzinfo=UTC)
+    backfill_row = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(PlaybackBackfillRun.evaluated_count), 0),
+                func.coalesce(func.sum(PlaybackBackfillRun.preserve_valid_count), 0),
+                func.coalesce(func.sum(PlaybackBackfillRun.validate_candidate_count), 0),
+                func.coalesce(func.sum(PlaybackBackfillRun.normalize_source_count), 0),
+                func.coalesce(func.sum(PlaybackBackfillRun.unavailable_source_count), 0),
+                func.coalesce(func.sum(PlaybackBackfillRun.ready_count), 0),
+                func.coalesce(func.sum(PlaybackBackfillRun.terminal_count), 0),
+                func.coalesce(func.sum(PlaybackBackfillRun.cancelled_count), 0),
+            ).where(PlaybackBackfillRun.workspace_id == workspace_id)
+        )
+    ).one()
+    backfill_progress = {
+        key: int(value)
+        for key, value in zip(
+            (
+                "evaluated",
+                "preserve_valid",
+                "validate_candidate",
+                "normalize_source",
+                "unavailable_source",
+                "ready",
+                "terminal",
+                "cancelled",
+            ),
+            backfill_row,
+            strict=True,
+        )
+    }
+    return {
+        "run_states": run_states,
+        "job_states": job_states,
+        "reason_counts": reason_counts,
+        "backlog_total": backlog_total,
+        "oldest_backlog_age_seconds": oldest_age_seconds,
+        "retry_cycle_buckets": retry_cycle_buckets,
+        "cleanup_pending_count": cleanup_pending_count,
+        "last_safe_heartbeat_at": (
+            last_safe_heartbeat_at.isoformat() if last_safe_heartbeat_at is not None else None
+        ),
+        "backfill_progress": backfill_progress,
+    }
 
 
 def _card(

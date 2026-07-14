@@ -12,9 +12,10 @@ class FakeTemporalClient:
         *,
         id: str,
         task_queue: str,
+        **options: object,
     ) -> dict[str, object]:
         if id in self.starts:
             return self.starts[id]
-        handle = {"workflow_id": id, "run_id": f"run-{len(self.starts) + 1}", "payload": payload, "workflow": workflow, "task_queue": task_queue}
+        handle = {"workflow_id": id, "run_id": f"run-{len(self.starts) + 1}", "payload": payload, "workflow": workflow, "task_queue": task_queue, "options": options}
         self.starts[id] = handle
         return handle

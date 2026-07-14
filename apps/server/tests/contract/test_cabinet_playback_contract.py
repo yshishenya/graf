@@ -5,7 +5,7 @@ from tests.fixtures.cabinet import seed_cabinet_meetings
 from tests.fixtures.cabinet_access import add_retained_playback_m4a
 
 
-def test_ready_detail_keeps_playback_unavailable_until_m4a_artifact_exists(client) -> None:
+def test_ready_detail_reports_automatic_preparation_until_m4a_artifact_exists(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
@@ -14,12 +14,19 @@ def test_ready_detail_keeps_playback_unavailable_until_m4a_artifact_exists(clien
     payload = response.json()
     playback = payload["playback"]
     assert playback["available"] is False
-    assert playback["unavailable_reason"] == "no_audio"
+    assert playback["state"] == "preparing"
+    assert playback["reason_code"] == "normalization_queued"
+    assert playback["automatic_recovery"] is True
+    assert playback["can_play"] is False
+    assert playback["action"] == "disabled"
+    assert playback["unavailable_reason"] == "processing"
     assert playback["source_mode"] == "none"
     assert "playback_path" not in playback or playback["playback_path"] is None
     assert playback["duration_seconds"] > 0
     assert playback["speed_options"] == [0.75, 1.0, 1.25, 1.5, 2.0]
-    audio_artifact = next(artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio")
+    audio_artifact = next(
+        artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio"
+    )
     assert audio_artifact["state"] == "policy_blocked"
     assert audio_artifact["action"] == "disabled"
 

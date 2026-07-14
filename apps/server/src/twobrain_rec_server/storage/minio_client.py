@@ -1,4 +1,7 @@
+import os
+import stat
 from collections.abc import AsyncIterator, Iterator
+from hashlib import sha256
 from pathlib import Path
 from typing import BinaryIO
 
@@ -10,6 +13,13 @@ from twobrain_rec_server.config import Settings, get_settings
 
 MISSING_OBJECT_CODES = {"NoSuchKey", "NoSuchObject"}
 DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
+STORAGE_READINESS_OBJECT_KEY = "_system/readiness/ready"
+
+
+class StorageTransferError(RuntimeError):
+    def __init__(self, reason_code: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(f"Storage transfer failed: {reason_code}")
 
 
 class MinioStorage:
@@ -30,10 +40,31 @@ class MinioStorage:
         await to_thread.run_sync(self.ensure_bucket)
 
     def is_ready(self) -> bool:
-        return self.client.bucket_exists(self.settings.minio_bucket)
+        try:
+            self.client.stat_object(
+                self.settings.minio_bucket,
+                STORAGE_READINESS_OBJECT_KEY,
+            )
+        except S3Error as exc:
+            if exc.code in MISSING_OBJECT_CODES:
+                return False
+            raise
+        return True
 
     async def is_ready_async(self) -> bool:
         return await to_thread.run_sync(self.is_ready)
+
+    def object_exists(self, object_key: str) -> bool:
+        try:
+            self.client.stat_object(self.settings.minio_bucket, object_key)
+        except S3Error as exc:
+            if exc.code in MISSING_OBJECT_CODES:
+                return False
+            raise
+        return True
+
+    async def object_exists_async(self, object_key: str) -> bool:
+        return await to_thread.run_sync(self.object_exists, object_key)
 
     def put_stream(self, object_key: str, stream: BinaryIO, length: int) -> None:
         self.client.put_object(
@@ -98,6 +129,165 @@ class MinioStorage:
     ) -> int:
         return await to_thread.run_sync(
             lambda: self.download_to_path(object_key, destination_path, chunk_size=chunk_size)
+        )
+
+    def download_verified_to_path(
+        self,
+        object_key: str,
+        destination_path: str | Path,
+        *,
+        expected_length: int,
+        expected_sha256: str,
+        max_bytes: int,
+        chunk_size: int = DOWNLOAD_CHUNK_BYTES,
+    ) -> int:
+        if (
+            expected_length <= 0
+            or expected_length > max_bytes
+            or len(expected_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in expected_sha256.lower())
+            or chunk_size <= 0
+        ):
+            raise StorageTransferError("source_mismatch")
+        try:
+            response = self.client.get_object(self.settings.minio_bucket, object_key)
+        except S3Error as exc:
+            if exc.code in MISSING_OBJECT_CODES:
+                raise StorageTransferError("source_missing") from exc
+            raise StorageTransferError("storage_unavailable") from exc
+
+        destination = Path(destination_path)
+        descriptor = -1
+        total = 0
+        digest = sha256()
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(destination, flags, 0o600)
+            while True:
+                chunk = response.read(min(chunk_size, max_bytes - total + 1))
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > expected_length or total > max_bytes:
+                    raise StorageTransferError("source_mismatch")
+                digest.update(chunk)
+                view = memoryview(chunk)
+                while view:
+                    written = os.write(descriptor, view)
+                    view = view[written:]
+            os.fsync(descriptor)
+            if total != expected_length or digest.hexdigest() != expected_sha256.lower():
+                raise StorageTransferError("source_mismatch")
+            return total
+        except StorageTransferError:
+            destination.unlink(missing_ok=True)
+            raise
+        except OSError as exc:
+            destination.unlink(missing_ok=True)
+            raise StorageTransferError("temporary_storage_unavailable") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            response.close()
+            response.release_conn()
+
+    async def download_verified_to_path_async(
+        self,
+        object_key: str,
+        destination_path: str | Path,
+        *,
+        expected_length: int,
+        expected_sha256: str,
+        max_bytes: int,
+        chunk_size: int = DOWNLOAD_CHUNK_BYTES,
+    ) -> int:
+        return await to_thread.run_sync(
+            lambda: self.download_verified_to_path(
+                object_key,
+                destination_path,
+                expected_length=expected_length,
+                expected_sha256=expected_sha256,
+                max_bytes=max_bytes,
+                chunk_size=chunk_size,
+            )
+        )
+
+    def upload_verified_path(
+        self,
+        object_key: str,
+        source_path: str | Path,
+        *,
+        expected_length: int,
+        expected_sha256: str,
+        max_bytes: int,
+        chunk_size: int = DOWNLOAD_CHUNK_BYTES,
+    ) -> None:
+        source = Path(source_path)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(source, flags)
+        except OSError as exc:
+            raise StorageTransferError("generated_output_invalid") from exc
+        try:
+            before = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_size != expected_length
+                or not 0 < before.st_size <= max_bytes
+            ):
+                raise StorageTransferError("generated_output_invalid")
+            digest = sha256()
+            total = 0
+            while True:
+                chunk = os.read(descriptor, chunk_size)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise StorageTransferError("generated_output_invalid")
+                digest.update(chunk)
+            if total != expected_length or digest.hexdigest() != expected_sha256.lower():
+                raise StorageTransferError("generated_output_invalid")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            with os.fdopen(os.dup(descriptor), "rb", closefd=True) as stream:
+                self.client.put_object(
+                    self.settings.minio_bucket,
+                    object_key,
+                    stream,
+                    length=expected_length,
+                    part_size=max(chunk_size, 5 * 1024 * 1024),
+                )
+            after = os.fstat(descriptor)
+            if (
+                after.st_size != before.st_size
+                or after.st_mtime_ns != before.st_mtime_ns
+                or after.st_ctime_ns != before.st_ctime_ns
+            ):
+                raise StorageTransferError("generated_output_invalid")
+        except S3Error as exc:
+            raise StorageTransferError("storage_unavailable") from exc
+        finally:
+            os.close(descriptor)
+
+    async def upload_verified_path_async(
+        self,
+        object_key: str,
+        source_path: str | Path,
+        *,
+        expected_length: int,
+        expected_sha256: str,
+        max_bytes: int,
+        chunk_size: int = DOWNLOAD_CHUNK_BYTES,
+    ) -> None:
+        await to_thread.run_sync(
+            lambda: self.upload_verified_path(
+                object_key,
+                source_path,
+                expected_length=expected_length,
+                expected_sha256=expected_sha256,
+                max_bytes=max_bytes,
+                chunk_size=chunk_size,
+            )
         )
 
     def iter_object(

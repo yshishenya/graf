@@ -9,6 +9,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingAccessState,
     MeetingCalendarContextSummary,
     MeetingListItem,
+    PlaybackPreparationState,
     SlotState,
 )
 from twobrain_rec_server.cabinet import view_models
@@ -55,6 +56,121 @@ def _owner_access() -> MeetingAccessState:
         can_manage_team_visibility=True,
         can_download=True,
         can_export=True,
+    )
+
+
+def test_playback_read_model_is_independent_from_transcript_processing_state() -> None:
+    durable = PlaybackPreparationState(
+        state="available",
+        reason_code="canonical_ready",
+        label="Аудио готово",
+        can_play=True,
+    )
+
+    for processing_state in ("processing", "failed", "ready"):
+        playback = view_models.playback_state(
+            _meeting(),
+            processing_state,
+            durable,
+        )
+
+        assert playback.state == "available"
+        assert playback.can_play is True
+        assert playback.available is True
+        assert playback.playback_path is not None
+
+
+def test_playback_preparing_state_never_creates_a_dead_player_path() -> None:
+    playback = view_models.playback_state(
+        _meeting(),
+        "ready",
+        PlaybackPreparationState(
+            state="preparing",
+            reason_code="normalization_retry_wait",
+            label="Подготовка занимает больше времени. GRAF продолжит автоматически",
+            automatic_recovery=True,
+        ),
+    )
+
+    assert playback.state == "preparing"
+    assert playback.automatic_recovery is True
+    assert playback.can_play is False
+    assert playback.available is False
+    assert playback.playback_path is None
+
+
+def test_playback_reason_copy_has_complete_bounded_ru_en_pairs() -> None:
+    expected = {
+        "normalization_queued": (
+            "Аудио готовится автоматически",
+            "Audio is being prepared automatically",
+        ),
+        "normalization_running": (
+            "Аудио готовится автоматически",
+            "Audio is being prepared automatically",
+        ),
+        "normalization_publishing": (
+            "Завершаем подготовку аудио",
+            "Finishing audio preparation",
+        ),
+        "normalization_retry_wait": (
+            "Подготовка занимает больше времени. GRAF продолжит автоматически",
+            "Preparation is taking longer. GRAF will continue automatically",
+        ),
+        "reconciliation_pending": (
+            "GRAF автоматически восстанавливает подготовку аудио",
+            "GRAF is automatically recovering audio preparation",
+        ),
+        "canonical_artifact_missing": (
+            "GRAF автоматически восстанавливает аудио",
+            "GRAF is automatically recovering the audio",
+        ),
+        "empty_source": ("В исходном файле нет данных", "The source file is empty"),
+        "no_audio": (
+            "В файле нет пригодной аудиодорожки",
+            "The file has no usable audio track",
+        ),
+        "ambiguous_audio_tracks": (
+            "В файле несколько равноправных аудиодорожек",
+            "The file has multiple equally valid audio tracks",
+        ),
+        "unsupported_media": (
+            "Формат или кодек файла не поддерживается",
+            "The file format or codec is not supported",
+        ),
+        "encrypted_media": (
+            "Защищённый файл нельзя подготовить для воспроизведения",
+            "Protected media cannot be prepared for playback",
+        ),
+        "corrupt_source": (
+            "Файл повреждён и не может быть воспроизведён",
+            "The file is corrupt and cannot be played",
+        ),
+        "limit_exceeded": (
+            "Файл превышает допустимые параметры",
+            "The file exceeds supported limits",
+        ),
+        "source_missing": (
+            "Исходный файл больше не хранится в GRAF",
+            "The source file is no longer retained by GRAF",
+        ),
+        "source_mismatch": (
+            "Целостность исходного файла не подтверждена",
+            "Source file integrity could not be confirmed",
+        ),
+    }
+
+    for reason_code, (ru_copy, en_copy) in expected.items():
+        assert view_models.playback_reason_copy(reason_code, locale="ru") == ru_copy
+        assert view_models.playback_reason_copy(reason_code, locale="en") == en_copy
+        assert "retry" not in en_copy.casefold()
+        assert "re-upload" not in en_copy.casefold()
+
+    assert view_models.playback_reason_copy("private-new-reason", locale="ru") == (
+        "Аудио недоступно"
+    )
+    assert view_models.playback_reason_copy("private-new-reason", locale="en") == (
+        "Audio is unavailable"
     )
 
 

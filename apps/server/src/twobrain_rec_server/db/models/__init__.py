@@ -69,6 +69,11 @@ from twobrain_rec_server.db.models.meeting_detection import (
     MeetingTargetRegistryEntry,
     MeetingTargetRegistryVersion,
 )
+from twobrain_rec_server.db.models.normalization import (
+    PlaybackBackfillRun,
+    PlaybackNormalizationAttempt,
+    PlaybackNormalizationJob,
+)
 from twobrain_rec_server.db.models.outcomes import (
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
@@ -114,6 +119,9 @@ __all__ = [
     "MeetingTargetRegistryEntry",
     "MeetingTargetRegistryVersion",
     "Organization",
+    "PlaybackBackfillRun",
+    "PlaybackNormalizationAttempt",
+    "PlaybackNormalizationJob",
     "ProcessingAuditEvent",
     "ProcessingDependencyState",
     "ProcessingPlaceholder",

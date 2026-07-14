@@ -14,6 +14,8 @@ def _production_settings(**overrides):
         "minio_bucket": "twobrain-rec-ingest",
         "web_csrf_secret": "prod-web-csrf-secret-32-bytes-minimum",
         "auth_ru_local_storage_attested": True,
+        "playback_normalization_enabled": True,
+        "temporal_address": "rec-temporal:7233",
     }
     values.update(overrides)
     return Settings(**values)
@@ -25,8 +27,76 @@ def test_production_config_accepts_non_local_runtime_credentials() -> None:
     assert settings.env == "production"
 
 
+def test_non_web_production_runtime_does_not_require_web_csrf_secret() -> None:
+    settings = _production_settings(
+        web_runtime_enabled=False,
+        web_csrf_secret="twobrain_rec_dev_web_csrf_secret",
+    )
+
+    assert settings.web_runtime_enabled is False
+
+
+def test_web_production_runtime_still_rejects_default_csrf_secret() -> None:
+    with pytest.raises(ValidationError, match="web_csrf_secret"):
+        _production_settings(web_csrf_secret="twobrain_rec_dev_web_csrf_secret")
+
+
 def test_default_upload_part_contract_is_one_gib() -> None:
     assert Settings().max_upload_part_bytes == 1_073_741_824
+
+
+def test_playback_normalization_defaults_are_bounded_and_isolated() -> None:
+    settings = Settings(playback_normalization_enabled=True)
+
+    assert settings.playback_normalization_task_queue != settings.temporal_task_queue
+    assert settings.playback_normalization_worker_concurrency == 1
+    assert settings.playback_normalization_output_max_bytes == 128 * 1024 * 1024
+    assert settings.playback_normalization_work_budget_bytes >= (
+        settings.max_package_bytes
+        + settings.playback_normalization_output_max_bytes
+        + settings.playback_normalization_work_reserve_bytes
+    )
+
+
+def test_playback_normalization_rejects_shared_queue_and_unsafe_budget() -> None:
+    with pytest.raises(ValidationError, match="task queue"):
+        Settings(
+            playback_normalization_enabled=True,
+            playback_normalization_task_queue="twobrain-rec-processing",
+        )
+    with pytest.raises(ValidationError, match="work budget"):
+        Settings(
+            playback_normalization_enabled=True,
+            playback_normalization_work_budget_bytes=1024,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "unsafe_value", "message"),
+    [
+        ("playback_normalization_max_streams", 17, "stream limit"),
+        ("playback_normalization_max_audio_streams", 9, "audio stream limit"),
+        ("playback_normalization_probe_stdout_max_bytes", 262_145, "probe stdout cap"),
+        ("playback_normalization_process_stderr_max_bytes", 1_048_577, "stderr cap"),
+    ],
+)
+def test_playback_normalization_rejects_runtime_cap_drift(
+    field_name: str,
+    unsafe_value: int,
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        Settings(playback_normalization_enabled=True, **{field_name: unsafe_value})
+
+
+def test_production_allows_playback_dispatch_to_remain_disabled_during_staged_rollout() -> None:
+    settings = _production_settings(
+        playback_normalization_enabled=False,
+        playback_normalization_automatic_dispatch_enabled=False,
+    )
+
+    assert settings.playback_normalization_enabled is False
+    assert settings.playback_normalization_automatic_dispatch_enabled is False
 
 
 @pytest.mark.parametrize(

@@ -48,6 +48,9 @@ from twobrain_rec_server.ingest.processing_dispatch import dispatch_processing_a
 from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
 from twobrain_rec_server.ingest.sessions import create_upload_session
 from twobrain_rec_server.ingest.status import get_upload_session_status
+from twobrain_rec_server.normalization.pickup import (
+    dispatch_normalization_after_accepted_commit,
+)
 from twobrain_rec_server.storage.minio_client import get_storage
 
 PROBLEM_RESPONSES = {
@@ -419,6 +422,14 @@ async def finalize_session(
         manifest_sha256=payload.manifest_sha256,
         tracks=payload.tracks,
         storage=storage,
+    )
+    await commit_if_available(db)
+    await dispatch_normalization_after_accepted_commit(
+        db=db,
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        media_revision_id=session.media_revision_id or meeting.media_revision_id,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     processing = await dispatch_processing_after_finalize(
         db=db,

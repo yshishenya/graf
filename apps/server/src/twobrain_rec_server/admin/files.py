@@ -158,10 +158,7 @@ async def record_admin_review_access(
     meeting = await _load_workspace_meeting(db, context.workspace_id, meeting_id)
     decision = await _decision_for_meeting(db, context=context, meeting=meeting)
     access = admin_meeting_access(context)
-    result = await latest_processing_result(
-        db, workspace_id=context.workspace_id, meeting_id=meeting.id
-    )
-    review_state = await review_playback_state(db, meeting=meeting, access=access, result=result)
+    review_state = await review_playback_state(db, meeting=meeting, access=access)
     allowed = decision.allowed and review_state.state == "available"
     await write_admin_audit_event(
         db,
@@ -172,16 +169,10 @@ async def record_admin_review_access(
         target_kind="meeting",
         target_id=str(meeting.id),
         outcome="allowed" if allowed else "denied",
-        reason_code=decision.outcome.value
-        if not decision.allowed
-        else (review_state.reason or review_state.state),
+        reason_code=decision.outcome.value if not decision.allowed else review_state.reason_code,
     )
     if not allowed:
-        code = (
-            decision.outcome.value
-            if not decision.allowed
-            else (review_state.reason or "review_unavailable")
-        )
+        code = decision.outcome.value if not decision.allowed else review_state.reason_code
         raise ProblemDetail(status=409, code=code, title="Meeting review unavailable")
     return {
         "meeting_id": str(meeting.id),
@@ -204,7 +195,7 @@ async def admin_file_summary(
     )
     access = admin_meeting_access(context)
     egress_states = await artifact_egress_states(db, meeting=meeting, access=access, result=result)
-    review_state = await review_playback_state(db, meeting=meeting, access=access, result=result)
+    review_state = await review_playback_state(db, meeting=meeting, access=access)
     artifact_stats = await _artifact_stats(db, meeting=meeting)
     artifact_classes = _artifact_classes(artifact_stats, result)
     available_downloads = [
@@ -280,10 +271,14 @@ async def _decision_for_meeting(
     )
     deletion_state = meeting.deletion_state or DeletionState.NONE.value
     retention_state = meeting.retention_policy_state or RetentionPolicyState.NOT_CONFIGURED.value
-    retention_or_lifecycle_block = retention_state in {
-        RetentionPolicyState.BLOCKED.value,
-        RetentionPolicyState.UNSAFE.value,
-    } or deletion_state == DeletionState.POLICY_BLOCKED.value
+    retention_or_lifecycle_block = (
+        retention_state
+        in {
+            RetentionPolicyState.BLOCKED.value,
+            RetentionPolicyState.UNSAFE.value,
+        }
+        or deletion_state == DeletionState.POLICY_BLOCKED.value
+    )
     post_egress_limit = deletion_state == DeletionState.POST_EGRESS_LIMIT.value
     return admin_file_access_decision(
         actor_role=context.actor_role,

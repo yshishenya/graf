@@ -87,6 +87,9 @@ Tables:
 - `meeting_detection_review_actions`
 - `meeting_detection_non_target_rules`
 - `meeting_detection_telemetry_rate_limit_buckets`
+- `playback_normalization_jobs`
+- `playback_normalization_attempts`
+- `playback_backfill_runs`
 
 `workspace_invitations` and `admin_audit_events` use the direct workspace policy
 for normal request and worker contexts, and additionally allow `auth_bootstrap` only when
@@ -94,6 +97,13 @@ for normal request and worker contexts, and additionally allow `auth_bootstrap` 
 the current organization. This lets provider callback completion find matching
 pending invitations and write the metadata-only completion audit event without
 exposing quota, usage, or other admin tables to auth bootstrap contexts.
+
+Feature 099 keeps its two scheduler operations out of the historical global
+maintenance predicate. `playback_normalization_inventory` and
+`playback_normalization_dispatch` receive normalization-specific `FOR SELECT`
+policies only on `playback_normalization_jobs` and `playback_backfill_runs`.
+`playback_normalization_attempts`, scheduler DML, and every content/artifact
+operation require the exact request/worker workspace predicate.
 
 ## Inherited Workspace Tables
 

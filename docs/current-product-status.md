@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-13
+Date: 2026-07-14
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -64,6 +64,78 @@ metadata-only evidence остаются подробной историей ре
   no `apps/macos` diff and requires no additional reinstall. Feature `097` and
   its resumable standalone Codex Security scan stay separately deferred by
   user instruction and are not counted as 098 acceptance evidence.
+- Feature `099-review-m4a-normalization` is implemented and focused-gate
+  validated on branch `codex/099-review-m4a-normalization`, but is not yet
+  committed, PR-reviewed, merged, released or deployed. It gives every new
+  first-party recording and supported manual upload one server-prepared,
+  fully decoded canonical `meeting-review.m4a`; an already canonical M4A is
+  reused byte-for-byte, a layout-only mismatch is remuxed without audio loss,
+  and every other supported valid retained source is converted automatically.
+  The user and workspace administrator receive no retry, repair, reprocess or
+  backfill action: transient failures remain automatic, while only objectively
+  invalid, unsupported, no-audio or missing retained sources can finish with a
+  clear unavailable reason. Existing records are inventoried before mutation
+  and then reuse, regenerate or report unavailable without fabricating source
+  media. Playback uses only the validated canonical object, supports byte
+  ranges without full-object request memory, and keeps playback readiness
+  independent from transcript/summary readiness. Candidate, source, attempt
+  and canonical objects participate in RLS, retention and deletion accounting;
+  deletion wins every tested queued/running/publishing/retry race. The new
+  `0022_playback_normalization` migration and isolated non-root media worker
+  are required at deploy. The worker has one-activity concurrency, 1 CPU,
+  1 GiB memory, 128 PIDs, a 6 GiB logical work budget, a 128 MiB output cap,
+  bounded FFmpeg/FFprobe output and automatic free-capacity preflight. A
+  near-four-hour dual-source synthetic package of about 5 GiB completed the
+  full local production-equivalent normalization pipeline in `185.236` seconds
+  with canonical/full-decode success, zero OOM events and zero
+  container/volume/image residue. Focused
+  evidence currently includes `497` focused server tests, a post-fix
+  `21`-test resource/workflow/worker regression, `42` migration-focused and a
+  final `19/19` disposable PostgreSQL/RLS role-policy run, `139` unchanged
+  macOS regressions, the 14-case container matrix, authorized working-copy
+  conversion with original hashes preserved, and deletion/cleanup evidence.
+  The uncommitted working copy has been integrated onto current `master` at
+  `98d57f7431d302b0d2060fb020fc2b320f854753`, including the separate `.7`
+  interface release. Canonical repository CI passes on that integrated base:
+  macOS `643/643`, server `1713 passed, 21 skipped`, Ruff, Python compile,
+  Compose rendering and deployment-evidence scan, with
+  `ci_local_result=pass` and exit code `0`; a fresh native disposable
+  PostgreSQL run also passes `23/23` plus the direct RLS probe with zero
+  cluster residue. After independent review found a transaction-local tenant
+  context gap across internal commits, the central PostgreSQL session boundary
+  was repaired and its three exact restricted-media-role regressions plus the
+  full normalization PostgreSQL file passed `3/3` and `12/12` respectively.
+  T100 local synthetic UI acceptance is complete. Real Chrome and the embedded
+  macOS cabinet show the same preparing/ready/unavailable and
+  transcript-independent states with no repair control. Chrome Play/Pause held
+  `10.9s`, forward seek reached `25.9s`, two tabs shared durable status while
+  keeping independent playback position, and automatic preparing-to-ready
+  refresh produced another Play/Pause/seek sequence through `24.5s`. The
+  backend returned `206` with `Content-Range: bytes 0-35620/35621`. Embedded
+  Play/Pause held `2.3s`, forward seeks reached `17.3s` and `32.3s`, and a
+  post-seek cycle held `33.7s`; app close did not stop publication and relaunch
+  read `Аудио готово`. Wide/narrow, keyboard focus, system light/dark
+  preference and reduced-motion checks pass, with no Chrome console errors.
+  A post-merge-base Chrome rerun against the `.7` cabinet also passed: the
+  preparing state automatically became a `readyState=4` player, Play reached
+  `1.935s`, Pause held `10.532s`, seek reached `25.532s`, and the browser
+  received the same `206` Range response. Both `1440x900` and `740x900` had no
+  horizontal overflow, reduced motion remained bounded, and cleanup residue
+  was zero. The final browser pass also recovered automatically from synthetic
+  `503`, login-redirect and disconnect responses with visible status copy; a
+  confirmed delete changed an already-polling detail to the terminal
+  unavailable state, returned `404` and did not resurrect the player after a
+  delayed publication attempt.
+  The initial control-channel-only top-level navigation block was recovered by
+  the documented manual URL handoff; it is no longer a T100 limitation.
+  Feature 099 changes server behavior and macOS regression tests only;
+  it has no macOS app-source diff and does not require an app rebuild or
+  reinstall. All 116 task-backed GitHub issues remain open until PR evidence.
+  Feature 097 and its resumable standalone Codex Security scan remain deferred
+  and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
+  complete it. Release `v2026.07.14.7` is already owned by the separate
+  «новый главный экран GRAF» rollout and will not be reused for 099; the first
+  free higher CalVer must be re-checked only after the 099 merge.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and

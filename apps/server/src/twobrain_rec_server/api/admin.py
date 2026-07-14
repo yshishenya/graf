@@ -757,9 +757,13 @@ async def get_admin_metrics_route(
             status=503, code="admin_store_unavailable", title="Admin store unavailable"
         )
     context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
-    return await get_admin_metrics(
+    metrics = await get_admin_metrics(
         db, context=context, family=family, date_from=date_from, date_to=date_to
     )
+    return {
+        "metrics": metrics["metrics"],
+        "playback_normalization": metrics["playback_normalization"],
+    }
 
 
 @router.get("/audit", operation_id="getAdminAudit")

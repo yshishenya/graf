@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.calendar import _credential_encryption_key
+from twobrain_rec_server.api.ingest import get_request_storage
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.cabinet.queries import (
@@ -261,6 +262,7 @@ async def _calendar_context_review_response(
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
+        storage=get_request_storage(request),
     )
     if review is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")

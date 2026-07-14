@@ -72,6 +72,32 @@ def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance
     assert PRIVATE_EXTERNAL_JOB_ID not in response.text
 
 
+def test_missing_canonical_object_projects_automatic_recovery_in_api_and_web(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A stale")
+    client.app_state["storage"].delete_object(
+        f"tests/cabinet/{seeds.ready_id}/meeting-review.m4a"
+    )
+
+    api_response = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers()
+    )
+    web_response = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
+
+    assert api_response.status_code == 200
+    assert api_response.json()["playback"] | {
+        "state": "preparing",
+        "reason_code": "canonical_artifact_missing",
+        "automatic_recovery": True,
+        "can_play": False,
+    } == api_response.json()["playback"]
+    assert web_response.status_code == 200
+    assert 'data-playback-state="preparing"' in web_response.text
+    assert 'data-playback-reason="canonical_artifact_missing"' in web_response.text
+    assert 'data-playback-poll-active="true"' in web_response.text
+    assert "data-playback-player" not in web_response.text
+
+
 def test_098_calendar_roster_uses_exact_invitee_not_speaker_copy_on_both_surfaces(
     client,
 ) -> None:
@@ -210,6 +236,47 @@ def test_manual_upload_detail_handoff_keeps_processing_truth_separate_from_revie
     assert page.status_code == 200
     assert "Транскрипт готовится" in page.text
     assert "Итоги готовятся" in page.text
+
+
+def test_manual_upload_ready_playback_reports_uploaded_media_provenance(client) -> None:
+    uploaded = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={
+            "title": "Manual playback provenance",
+            "duration_seconds": "60",
+            "local_recording_id": "manual-playback-provenance",
+        },
+        files={"file": ("meeting.wav", deterministic_wav_bytes(80), "audio/wav")},
+    )
+    assert uploaded.status_code == 202
+    meeting_id = UUID(uploaded.json()["meeting"]["meeting_id"])
+    add_retained_playback_m4a(client, meeting_id, b"\x00\x00\x00\x18ftypM4A manual")
+
+    response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+
+    assert response.status_code == 200
+    assert response.json()["playback"]["included_sources"] == ["uploaded_media"]
+
+
+def test_two_tabs_and_reconnect_read_the_same_automatic_playback_recovery(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    path = f"/meetings/{seeds.ready_id}"
+
+    first_tab = client.get(path, headers=auth_headers())
+    second_tab = client.get(path, headers=auth_headers())
+    reconnect = client.get(path, headers=auth_headers() | {"HX-Request": "true"})
+
+    assert first_tab.status_code == second_tab.status_code == reconnect.status_code == 200
+    for response in (first_tab, second_tab, reconnect):
+        assert 'data-playback-state="preparing"' in response.text
+        assert 'data-playback-reason="normalization_queued"' in response.text
+        assert 'data-playback-poll-active="true"' in response.text
+        assert f'data-playback-poll-url="{path}"' in response.text
+        assert "Повторить" not in response.text
+        assert "retry-normalization" not in response.text
+    assert 'data-cabinet-fragment="meeting-detail"' not in first_tab.text
+    assert 'data-cabinet-fragment="meeting-detail"' in reconnect.text
 
 
 def test_cabinet_and_desktop_sync_review_states_match_for_result_states(client) -> None:

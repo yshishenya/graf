@@ -29,6 +29,8 @@ from twobrain_rec_server.api.schemas import (
     OutcomeItemView,
     OutcomeProvenanceView,
     OutcomeSourceReferenceView,
+    PlaybackPreparationReasonCode,
+    PlaybackPreparationState,
     PlaybackReviewState,
     PreviousRecurringMeetingReadiness,
     PreviousRecurringMeetingView,
@@ -138,6 +140,74 @@ CALENDAR_CONTEXT_STATE_COPY: dict[str, dict[str, str]] = {
     },
 }
 
+PLAYBACK_TERMINAL_REASON: dict[str, PlaybackPreparationReasonCode] = {
+    "empty_source": "empty_source",
+    "no_audio": "no_audio",
+    "ambiguous_audio_tracks": "ambiguous_audio_tracks",
+    "unsupported_container": "unsupported_media",
+    "unsupported_codec": "unsupported_media",
+    "encrypted_media": "encrypted_media",
+    "corrupt_source": "corrupt_source",
+    "stream_limit_exceeded": "limit_exceeded",
+    "duration_limit_exceeded": "limit_exceeded",
+    "source_size_limit_exceeded": "limit_exceeded",
+    "source_missing": "source_missing",
+    "source_mismatch": "source_mismatch",
+}
+
+PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
+    "ru": {
+        "normalization_queued": "Аудио готовится автоматически",
+        "normalization_running": "Аудио готовится автоматически",
+        "normalization_publishing": "Завершаем подготовку аудио",
+        "normalization_retry_wait": (
+            "Подготовка занимает больше времени. GRAF продолжит автоматически"
+        ),
+        "reconciliation_pending": "GRAF автоматически восстанавливает подготовку аудио",
+        "canonical_artifact_missing": "GRAF автоматически восстанавливает аудио",
+        "canonical_ready": "Аудио готово",
+        "access_denied": "Аудио недоступно",
+        "empty_source": "В исходном файле нет данных",
+        "no_audio": "В файле нет пригодной аудиодорожки",
+        "ambiguous_audio_tracks": "В файле несколько равноправных аудиодорожек",
+        "unsupported_media": "Формат или кодек файла не поддерживается",
+        "encrypted_media": "Защищённый файл нельзя подготовить для воспроизведения",
+        "corrupt_source": "Файл повреждён и не может быть воспроизведён",
+        "limit_exceeded": "Файл превышает допустимые параметры",
+        "source_missing": "Исходный файл больше не хранится в GRAF",
+        "source_mismatch": "Целостность исходного файла не подтверждена",
+        "meeting_deleting": "Аудио удаляется",
+        "meeting_deleted": "Аудио удалено",
+        "audio_purged": "Аудио удалено",
+        "fallback": "Аудио недоступно",
+    },
+    "en": {
+        "normalization_queued": "Audio is being prepared automatically",
+        "normalization_running": "Audio is being prepared automatically",
+        "normalization_publishing": "Finishing audio preparation",
+        "normalization_retry_wait": (
+            "Preparation is taking longer. GRAF will continue automatically"
+        ),
+        "reconciliation_pending": "GRAF is automatically recovering audio preparation",
+        "canonical_artifact_missing": "GRAF is automatically recovering the audio",
+        "canonical_ready": "Audio is ready",
+        "access_denied": "Audio is unavailable",
+        "empty_source": "The source file is empty",
+        "no_audio": "The file has no usable audio track",
+        "ambiguous_audio_tracks": "The file has multiple equally valid audio tracks",
+        "unsupported_media": "The file format or codec is not supported",
+        "encrypted_media": "Protected media cannot be prepared for playback",
+        "corrupt_source": "The file is corrupt and cannot be played",
+        "limit_exceeded": "The file exceeds supported limits",
+        "source_missing": "The source file is no longer retained by GRAF",
+        "source_mismatch": "Source file integrity could not be confirmed",
+        "meeting_deleting": "Audio is being deleted",
+        "meeting_deleted": "Audio was deleted",
+        "audio_purged": "Audio was deleted",
+        "fallback": "Audio is unavailable",
+    },
+}
+
 
 def calendar_context_state_copy(state: str, *, locale: str = "ru") -> str:
     language = locale if locale in CALENDAR_CONTEXT_STATE_COPY else "ru"
@@ -145,6 +215,16 @@ def calendar_context_state_copy(state: str, *, locale: str = "ru") -> str:
         state,
         CALENDAR_CONTEXT_STATE_COPY[language]["no_context"],
     )
+
+
+def playback_terminal_reason(reason_code: str | None) -> PlaybackPreparationReasonCode:
+    return PLAYBACK_TERMINAL_REASON.get(reason_code or "", "unsupported_media")
+
+
+def playback_reason_copy(reason_code: str, *, locale: str = "ru") -> str:
+    language = locale if locale in PLAYBACK_REASON_COPY else "ru"
+    copy = PLAYBACK_REASON_COPY[language]
+    return copy.get(reason_code, copy["fallback"])
 
 
 PROCESSING_STATUSES = {
@@ -1442,6 +1522,7 @@ def build_list_item(
     upload: MeetingUploadProgressState | None = None,
     calendar_context: RecordingCalendarContextLink | None = None,
     previous_recurring_meeting: PreviousRecurringMeetingView | None = None,
+    playback: PlaybackPreparationState | None = None,
 ) -> MeetingListItem:
     status = review_status(meeting, result=result, workflow=workflow)
     source = _meeting_source(media_revision)
@@ -1483,6 +1564,7 @@ def build_list_item(
             public_projection=True,
         ),
         previous_recurring_meeting=previous_recurring_meeting,
+        playback=playback or PlaybackPreparationState(),
     )
 
 
@@ -2292,69 +2374,47 @@ def _outcome_state_reason(state: str) -> str:
 def playback_state(
     meeting: Meeting,
     status: MeetingReviewStatus,
-    review_playback: ArtifactEgressState | None = None,
+    review_playback: PlaybackPreparationState | None = None,
+    *,
+    media_revision: MediaRevision | None = None,
 ) -> PlaybackReviewState:
+    del status  # Playback preparation has its own durable state machine.
     duration_seconds = max(0, meeting.duration_seconds)
-    if status in {"processing", "submitted", "blocked", "local_only", "uploading"}:
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="processing",
-            policy_label="Аудио еще готовится",
-        )
-    if status == "failed":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="failed",
-            policy_label="Аудио недоступно из-за ошибки обработки",
-        )
-    if status == "deleted_future":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="deleting",
-            policy_label="Аудио удаляется",
-        )
-    if review_playback is None or review_playback.state == "missing":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="no_audio",
-            policy_label="Аудио недоступно",
-        )
-    if review_playback.state in {"policy_blocked", "owner_only"}:
-        reason = (
-            "access_denied" if review_playback.label == "Access required" else "policy_disabled"
-        )
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason=reason,
-            policy_label="Аудио закрыто политикой доступа",
-        )
-    if review_playback.state == "deleted":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="deleting",
-            policy_label="Аудио удаляется",
-        )
-    if status not in {"ready", "partial"} or review_playback.state != "available":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="review_audio_unavailable",
-            policy_label="Аудио для проверки недоступно",
+    durable = review_playback or PlaybackPreparationState()
+    unavailable_reason = {
+        "preparing": "processing",
+        "deleting": "deleting",
+        "deleted": "deleted",
+    }.get(durable.state)
+    if unavailable_reason is None:
+        unavailable_reason = (
+            "none"
+            if durable.can_play
+            else "access_denied"
+            if durable.reason_code == "access_denied"
+            else "no_audio"
+            if durable.reason_code in {"empty_source", "no_audio", "source_missing"}
+            else "failed"
         )
     return PlaybackReviewState(
-        available=True,
+        **durable.model_dump(),
+        available=durable.can_play,
         duration_seconds=duration_seconds,
-        unavailable_reason="none",
-        playback_path=f"/api/v1/cabinet/meetings/{meeting.id}/playback",
-        policy_label="Аудио доступно для проверки",
-        source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        unavailable_reason=unavailable_reason,
+        playback_path=(
+            f"/api/v1/cabinet/meetings/{meeting.id}/playback" if durable.can_play else None
+        ),
+        policy_label=durable.label,
+        source_mode="stored_review_m4a" if durable.can_play else "none",
+        included_sources=(
+            ["uploaded_media"]
+            if durable.can_play
+            and media_revision is not None
+            and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+            else ["local_microphone", "incoming_system"]
+            if durable.can_play
+            else []
+        ),
     )
 
 
@@ -2392,7 +2452,7 @@ def build_review_response(
     access: MeetingAccessState | None = None,
     share: SharePanelState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
-    review_playback: ArtifactEgressState | None = None,
+    review_playback: PlaybackPreparationState | None = None,
     calendar_roster: CalendarRosterReviewState | None = None,
     calendar_context: RecordingCalendarContextLink | None = None,
     calendar_context_detail: MeetingCalendarContextResponse | None = None,
@@ -2410,6 +2470,7 @@ def build_review_response(
         access=access_state,
         artifacts=artifact_states,
         calendar_context=calendar_context,
+        playback=review_playback,
     )
     status = cast(MeetingReviewStatus, item.status)
     notes_truth = notes_action_truth_state(
@@ -2417,7 +2478,12 @@ def build_review_response(
     )
     item.notes_available = notes_truth.summary.state == "available"
     item.notes_action_truth = notes_truth
-    playback = playback_state(meeting, status, review_playback)
+    playback = playback_state(
+        meeting,
+        status,
+        review_playback,
+        media_revision=media_revision,
+    )
     force_speaker_labels = (
         media_revision is not None
         and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value

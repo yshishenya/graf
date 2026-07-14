@@ -50,6 +50,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     CalendarSyncResultQuery,
     LoginDbDependency,
     PrincipalDependency,
+    StorageDependency,
     WebCSRFDependency,
     WebDbDependency,
     WebTenantDependency,
@@ -74,6 +75,7 @@ async def embedded_meeting_list_page(
     limit: int = CabinetLimitQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
@@ -84,6 +86,7 @@ async def embedded_meeting_list_page(
         db,
         workspace_id=tenant_scope.workspace_id,
         viewer_user_id=principal.user_id,
+        storage=storage,
         q=q,
         status=status,
         group_status_filter=True,
@@ -135,6 +138,7 @@ async def embedded_meeting_detail_page(
     calendar_context_action: str | None = Query(default=None, pattern="^change$"),
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
@@ -146,13 +150,18 @@ async def embedded_meeting_detail_page(
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
+        storage=storage,
         include_calendar_correction_candidates=calendar_context_action == "change",
     )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     if _is_hx_request(request):
         return cabinet_html_response(
-            render_meeting_detail_fragment(response, embedded=True),
+            render_meeting_detail_fragment(
+                response,
+                embedded=True,
+                poll_url=_request_path_with_query(request),
+            ),
             hx_request=True,
         )
     return cabinet_html_response(
@@ -160,6 +169,7 @@ async def embedded_meeting_detail_page(
             response,
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
+            poll_url=_request_path_with_query(request),
         )
     )
 

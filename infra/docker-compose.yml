@@ -10,7 +10,9 @@ services:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
-      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_WEB_RUNTIME_ENABLED: "true"
+      TWOBRAIN_WEB_CSRF_SECRET_FILE: /run/secrets/twobrain_web_csrf_secret
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_app:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
       TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
       TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
       TWOBRAIN_MINIO_ACCESS_KEY: __DOCKER_SECRET_FILE__
@@ -58,10 +60,12 @@ services:
       TWOBRAIN_PRODUCT_ANALYTICS_CAMPAIGN_READINESS_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_CAMPAIGN_READINESS_APPROVED:-false}
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED: ${TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED:-true}
+      TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED: ${TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED:-true}
       TWOBRAIN_PROCESSING_ENABLED: "true"
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
     secrets:
-      - source: twobrain_postgres_password
+      - source: twobrain_postgres_app_password
         target: twobrain_postgres_password
       - source: twobrain_minio_api_access_key
         target: twobrain_minio_api_access_key
@@ -110,7 +114,7 @@ services:
           cpus: "2.0"
           memory: 2g
     depends_on:
-      rec-migrate:
+      rec-db-runtime-bootstrap:
         condition: service_completed_successfully
       rec-postgres:
         condition: service_healthy
@@ -129,13 +133,14 @@ services:
       context: ..
       dockerfile: infra/server/Dockerfile
     restart: unless-stopped
-    user: root
+    user: twobrain
     env_file:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
+      TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
       TWOBRAIN_PROCESSING_ENABLED: "true"
-      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_app:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
       TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
       TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
       TWOBRAIN_MINIO_ACCESS_KEY: __DOCKER_SECRET_FILE__
@@ -147,19 +152,29 @@ services:
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
       TWOBRAIN_MEDIASCRIBE_API_KEY_FILE: /run/secrets/twobrain_mediascribe_api_key
     secrets:
-      - source: twobrain_postgres_password
+      - source: twobrain_postgres_app_password
         target: twobrain_postgres_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_minio_api_access_key
         target: twobrain_minio_api_access_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_minio_api_secret_key
         target: twobrain_minio_api_secret_key
-      - source: twobrain_web_csrf_secret
-        target: twobrain_web_csrf_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_mediascribe_api_key
         target: twobrain_mediascribe_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
     command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
     depends_on:
-      rec-migrate:
+      rec-db-runtime-bootstrap:
         condition: service_completed_successfully
       rec-temporal:
         condition: service_started
@@ -179,6 +194,91 @@ services:
           memory: 1g
     networks:
       - rec-private
+
+  rec-media-worker:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+      target: media-runtime
+    restart: unless-stopped
+    init: true
+    user: twobrain
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    cpus: "1.0"
+    mem_limit: 1g
+    env_file:
+      - ./env/rec.production.env.example
+    environment:
+      TWOBRAIN_ENV: production
+      TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
+      TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED: "true"
+      TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED: ${TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED:-true}
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_media:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_SECRET_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_ACCESS_KEY_FILE: /run/secrets/twobrain_minio_media_access_key
+      TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_media_secret_key
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_PLAYBACK_NORMALIZATION_TASK_QUEUE: twobrain-rec-playback-normalization
+      TWOBRAIN_PLAYBACK_NORMALIZATION_WORKER_CONCURRENCY: "1"
+      TWOBRAIN_PLAYBACK_NORMALIZATION_WORK_DIRECTORY: /var/lib/twobrain-rec/playback-normalization
+      TMPDIR: /var/lib/twobrain-rec/playback-normalization
+    secrets:
+      - source: twobrain_postgres_media_password
+        target: twobrain_postgres_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_minio_media_access_key
+        target: twobrain_minio_media_access_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_minio_media_secret_key
+        target: twobrain_minio_media_secret_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+    command: ["python", "-m", "twobrain_rec_server.normalization.worker"]
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/verify_playback_normalization_worker_ready.py"]
+      interval: 10s
+      timeout: 8s
+      retries: 18
+      start_period: 20s
+    volumes:
+      - rec-media-work:/var/lib/twobrain-rec/playback-normalization
+    depends_on:
+      rec-db-runtime-bootstrap:
+        condition: service_completed_successfully
+      rec-temporal:
+        condition: service_started
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+          pids: 128
+    networks:
+      - rec-media-private
 
   rec-temporal:
     image: temporalio/auto-setup:1.27.2
@@ -217,6 +317,7 @@ services:
           memory: 1g
     networks:
       - rec-private
+      - rec-media-private
 
   rec-migrate:
     build:
@@ -227,6 +328,7 @@ services:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
+      TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
       TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
       TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
       TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
@@ -245,11 +347,199 @@ services:
         target: twobrain_minio_api_secret_key
       - source: twobrain_smoke_credential
         target: twobrain_smoke_credential
-      - source: twobrain_web_csrf_secret
-        target: twobrain_web_csrf_secret
     command: ["alembic", "upgrade", "head"]
     depends_on:
       rec-postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+    networks:
+      - rec-private
+
+  rec-db-runtime-bootstrap:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: "no"
+    user: twobrain
+    environment:
+      TWOBRAIN_DB_HOST: rec-postgres
+      TWOBRAIN_DB_PORT: "5432"
+      TWOBRAIN_DB_OWNER_PASSWORD_FILE: /run/secrets/twobrain_postgres_owner_password
+      TWOBRAIN_DB_APP_PASSWORD_FILE: /run/secrets/twobrain_postgres_app_password
+      TWOBRAIN_DB_MAINTENANCE_PASSWORD_FILE: /run/secrets/twobrain_postgres_maintenance_password
+      TWOBRAIN_DB_MEDIA_PASSWORD_FILE: /run/secrets/twobrain_postgres_media_password
+    secrets:
+      - source: twobrain_postgres_password
+        target: twobrain_postgres_owner_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_postgres_app_password
+        target: twobrain_postgres_app_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_postgres_maintenance_password
+        target: twobrain_postgres_maintenance_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_postgres_media_password
+        target: twobrain_postgres_media_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
+    command: ["python", "/app/scripts/bootstrap_runtime_database_roles.py"]
+    depends_on:
+      rec-migrate:
+        condition: service_completed_successfully
+      rec-postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256m
+    networks:
+      - rec-private
+
+  rec-maintenance:
+    profiles: ["operations"]
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: "no"
+    init: true
+    user: twobrain
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1770,uid=100,gid=101
+    env_file:
+      - ./env/rec.production.env.example
+    environment:
+      TWOBRAIN_ENV: production
+      TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_maintenance:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_SECRET_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_ACCESS_KEY_FILE: /run/secrets/twobrain_minio_api_access_key
+      TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_api_secret_key
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+    secrets:
+      - source: twobrain_postgres_maintenance_password
+        target: twobrain_postgres_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_minio_api_access_key
+        target: twobrain_minio_api_access_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_minio_api_secret_key
+        target: twobrain_minio_api_secret_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+    depends_on:
+      rec-db-runtime-bootstrap:
+        condition: service_completed_successfully
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+    networks:
+      - rec-private
+
+  rec-reprocess-maintenance:
+    profiles: ["operations"]
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: "no"
+    init: true
+    user: twobrain
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1770,uid=100,gid=101
+    env_file:
+      - ./env/rec.production.env.example
+    environment:
+      TWOBRAIN_ENV: production
+      TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
+      TWOBRAIN_PROCESSING_ENABLED: "true"
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_maintenance:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_SECRET_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_ACCESS_KEY_FILE: /run/secrets/twobrain_minio_api_access_key
+      TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_api_secret_key
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_MEDIASCRIBE_API_KEY_FILE: /run/secrets/twobrain_mediascribe_api_key
+    secrets:
+      - source: twobrain_postgres_maintenance_password
+        target: twobrain_postgres_password
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_minio_api_access_key
+        target: twobrain_minio_api_access_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_minio_api_secret_key
+        target: twobrain_minio_api_secret_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_mediascribe_api_key
+        target: twobrain_mediascribe_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+    depends_on:
+      rec-db-runtime-bootstrap:
+        condition: service_completed_successfully
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
         condition: service_healthy
     logging:
       driver: json-file
@@ -293,6 +583,7 @@ services:
           memory: 2g
     networks:
       - rec-private
+      - rec-media-private
 
   rec-minio:
     image: minio/minio:RELEASE.2025-05-24T17-08-30Z
@@ -325,6 +616,7 @@ services:
           memory: 2g
     networks:
       - rec-private
+      - rec-media-private
 
   rec-minio-init:
     image: minio/mc:RELEASE.2025-05-21T01-59-54Z
@@ -342,6 +634,10 @@ services:
         target: twobrain_minio_api_access_key
       - source: twobrain_minio_api_secret_key
         target: twobrain_minio_api_secret_key
+      - source: twobrain_minio_media_access_key
+        target: twobrain_minio_media_access_key
+      - source: twobrain_minio_media_secret_key
+        target: twobrain_minio_media_secret_key
     entrypoint:
       - /bin/sh
       - -c
@@ -350,8 +646,12 @@ services:
         MINIO_ROOT_PASSWORD="$$(cat /run/secrets/twobrain_minio_root_password)"
         TWOBRAIN_MINIO_API_ACCESS_KEY="$$(cat /run/secrets/twobrain_minio_api_access_key)"
         TWOBRAIN_MINIO_API_SECRET_KEY="$$(cat /run/secrets/twobrain_minio_api_secret_key)"
+        TWOBRAIN_MINIO_MEDIA_ACCESS_KEY="$$(cat /run/secrets/twobrain_minio_media_access_key)"
+        TWOBRAIN_MINIO_MEDIA_SECRET_KEY="$$(cat /run/secrets/twobrain_minio_media_secret_key)"
         mc alias set rec http://rec-minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
         mc mb --ignore-existing "rec/$$TWOBRAIN_MINIO_BUCKET"
+        printf 'ready\n' >/tmp/storage-readiness
+        mc cp /tmp/storage-readiness "rec/$$TWOBRAIN_MINIO_BUCKET/_system/readiness/ready"
         mc admin user add rec "$$TWOBRAIN_MINIO_API_ACCESS_KEY" "$$TWOBRAIN_MINIO_API_SECRET_KEY" || true
         cat >/tmp/rec-api-policy.json <<'JSON'
         {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/*"]}]}
@@ -359,6 +659,13 @@ services:
         mc admin policy rm rec twobrain-rec-api || true
         mc admin policy create rec twobrain-rec-api /tmp/rec-api-policy.json
         mc admin policy attach rec twobrain-rec-api --user "$$TWOBRAIN_MINIO_API_ACCESS_KEY"
+        mc admin user add rec "$$TWOBRAIN_MINIO_MEDIA_ACCESS_KEY" "$$TWOBRAIN_MINIO_MEDIA_SECRET_KEY" || true
+        cat >/tmp/rec-media-policy.json <<'JSON'
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/_system/readiness/ready","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/media/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/microphone/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/system/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/playback/parts/*"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/playback-normalization/revisions/*/attempts/*/meeting-review.m4a"]}]}
+        JSON
+        mc admin policy rm rec twobrain-rec-media || true
+        mc admin policy create rec twobrain-rec-media /tmp/rec-media-policy.json
+        mc admin policy attach rec twobrain-rec-media --user "$$TWOBRAIN_MINIO_MEDIA_ACCESS_KEY"
     logging:
       driver: json-file
       options:
@@ -375,6 +682,9 @@ services:
 networks:
   rec-private:
     name: twobrain-rec-private
+  rec-media-private:
+    name: twobrain-rec-media-private
+    internal: true
   postal-network:
     external: true
     name: ${TWOBRAIN_POSTAL_DOCKER_NETWORK:-postal_postal-network}
@@ -384,10 +694,18 @@ volumes:
     name: twobrain-rec-postgres-data
   rec-minio-data:
     name: twobrain-rec-minio-data
+  rec-media-work:
+    name: twobrain-rec-media-work
 
 secrets:
   twobrain_postgres_password:
     file: ${TWOBRAIN_POSTGRES_PASSWORD_FILE:-./secrets/twobrain_postgres_password}
+  twobrain_postgres_app_password:
+    file: ${TWOBRAIN_POSTGRES_APP_PASSWORD_FILE:-./secrets/twobrain_postgres_app_password}
+  twobrain_postgres_maintenance_password:
+    file: ${TWOBRAIN_POSTGRES_MAINTENANCE_PASSWORD_FILE:-./secrets/twobrain_postgres_maintenance_password}
+  twobrain_postgres_media_password:
+    file: ${TWOBRAIN_POSTGRES_MEDIA_PASSWORD_FILE:-./secrets/twobrain_postgres_media_password}
   twobrain_minio_root_user:
     file: ${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}
   twobrain_minio_root_password:
@@ -396,6 +714,10 @@ secrets:
     file: ${TWOBRAIN_MINIO_API_ACCESS_KEY_FILE:-./secrets/twobrain_minio_api_access_key}
   twobrain_minio_api_secret_key:
     file: ${TWOBRAIN_MINIO_API_SECRET_KEY_FILE:-./secrets/twobrain_minio_api_secret_key}
+  twobrain_minio_media_access_key:
+    file: ${TWOBRAIN_MINIO_MEDIA_ACCESS_KEY_FILE:-./secrets/twobrain_minio_media_access_key}
+  twobrain_minio_media_secret_key:
+    file: ${TWOBRAIN_MINIO_MEDIA_SECRET_KEY_FILE:-./secrets/twobrain_minio_media_secret_key}
   twobrain_smoke_credential:
     file: ${TWOBRAIN_SMOKE_CREDENTIAL_FILE:-./secrets/twobrain_smoke_credential}
   graf_credential_encryption_key:

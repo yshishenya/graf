@@ -176,6 +176,7 @@ async def list_cabinet_meetings(
     *,
     workspace_id: UUID,
     viewer_user_id: UUID,
+    storage: object | None = None,
     q: str | None = None,
     status: MeetingReviewStatus | None = None,
     group_status_filter: bool = False,
@@ -247,6 +248,12 @@ async def list_cabinet_meetings(
         artifacts = await artifact_egress_states(
             db, meeting=meeting, access=decision, result=result
         )
+        playback = await review_playback_state(
+            db,
+            meeting=meeting,
+            access=decision,
+            storage=storage,
+        )
         upload_progress = await _latest_upload_progress(db, meeting)
         calendar_context = await _calendar_context_link(
             db,
@@ -272,6 +279,7 @@ async def list_cabinet_meetings(
             upload=upload_progress,
             calendar_context=calendar_context,
             previous_recurring_meeting=previous_recurring_meeting,
+            playback=playback,
         )
         if matching_statuses is not None and item.status not in matching_statuses:
             continue
@@ -444,6 +452,7 @@ async def get_cabinet_meeting_review(
     workspace_id: UUID,
     meeting_id: UUID,
     viewer_user_id: UUID,
+    storage: object | None = None,
     include_calendar_correction_candidates: bool = False,
 ) -> MeetingReviewResponse | None:
     meeting = await db.scalar(
@@ -553,7 +562,10 @@ async def get_cabinet_meeting_review(
         share=await share_panel_state(db, meeting, decision),
         artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
         review_playback=await review_playback_state(
-            db, meeting=meeting, access=decision, result=result
+            db,
+            meeting=meeting,
+            access=decision,
+            storage=storage,
         ),
         calendar_roster=await _calendar_roster_state(
             db,

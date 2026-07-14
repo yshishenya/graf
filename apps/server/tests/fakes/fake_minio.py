@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
 
@@ -8,6 +8,7 @@ DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
 @dataclass
 class FakeMinioStorage:
     objects: dict[str, bytes] = field(default_factory=dict)
+    deleted_keys: list[str] = field(default_factory=list)
     ensured: bool = False
     fail_put: bool = False
 
@@ -16,6 +17,12 @@ class FakeMinioStorage:
 
     def is_ready(self) -> bool:
         return True
+
+    def object_exists(self, object_key: str) -> bool:
+        return object_key in self.objects
+
+    async def object_exists_async(self, object_key: str) -> bool:
+        return self.object_exists(object_key)
 
     def put_bytes(self, object_key: str, data: bytes) -> None:
         self.objects[object_key] = data
@@ -80,4 +87,30 @@ class FakeMinioStorage:
         return chunks()
 
     def delete_object(self, object_key: str) -> None:
+        self.deleted_keys.append(object_key)
         self.objects.pop(object_key, None)
+
+
+class FailOnceDeleteStorage:
+    """Delegate storage that fails the first delete after a selected object exists."""
+
+    def __init__(self, delegate: FakeMinioStorage) -> None:
+        self.delegate = delegate
+        self.fail_keys: set[str] = set()
+        self.failed_keys: set[str] = set()
+
+    def arm(self, object_key: str) -> None:
+        self.fail_keys.add(object_key)
+
+    def delete_object(self, object_key: str) -> None:
+        if (
+            object_key in self.fail_keys
+            and object_key not in self.failed_keys
+            and self.delegate.object_exists(object_key)
+        ):
+            self.failed_keys.add(object_key)
+            raise RuntimeError("configured one-shot delete failure")
+        self.delegate.delete_object(object_key)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.delegate, name)

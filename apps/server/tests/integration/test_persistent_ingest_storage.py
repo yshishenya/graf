@@ -134,7 +134,7 @@ def test_upload_session_persists_expected_roles_separately_from_expected_sizes(c
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
         json={
-            "expected_tracks": ["manifest", "system"],
+            "expected_tracks": ["manifest", "microphone", "system"],
             "expected_track_sizes": {"manifest": 8},
         },
     )
@@ -148,7 +148,7 @@ def test_upload_session_persists_expected_roles_separately_from_expected_sizes(c
             return session.expected_track_roles, session.expected_track_sizes
 
     roles, sizes = client.portal.call(persisted_expectations)
-    assert roles == ["manifest", "system"]
+    assert roles == ["manifest", "microphone", "system"]
     assert sizes == {"manifest": 8}
 
 
@@ -163,7 +163,7 @@ def test_upload_session_rejects_size_for_unexpected_track_role(client) -> None:
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
         json={
-            "expected_tracks": ["system"],
+            "expected_tracks": ["manifest", "media"],
             "expected_track_sizes": {"microphone": 8},
         },
     )

@@ -29,6 +29,21 @@ def test_runtime_openapi_matches_committed_contract(client) -> None:
     assert runtime == committed
 
 
+def test_canonical_contract_owns_playback_preparation_projection(client) -> None:
+    runtime = client.get("/openapi.json").json()
+    committed = yaml.safe_load(CONTRACT_PATH.read_text(encoding="utf-8"))
+
+    for schema_name in ("PlaybackPreparationState", "PlaybackReviewState"):
+        assert (
+            runtime["components"]["schemas"][schema_name]
+            == committed["components"]["schemas"][schema_name]
+        )
+    assert (
+        runtime["components"]["schemas"]["MeetingListItem"]["properties"]["playback"]
+        == committed["components"]["schemas"]["MeetingListItem"]["properties"]["playback"]
+    )
+
+
 def test_problem_schema_uses_request_id_not_trace_id(client) -> None:
     schema = client.get("/openapi.json").json()
     problem = schema["components"]["schemas"]["Problem"]["properties"]

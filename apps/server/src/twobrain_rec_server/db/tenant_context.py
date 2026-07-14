@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
+from sqlalchemy.orm import Session, SessionTransaction
 
 from twobrain_rec_server.auth.context import TenantScope
 
@@ -15,6 +17,8 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "production_smoke_cleanup",
         "backup_restore_rehearsal",
         "operator_diagnostics",
+        "playback_normalization_inventory",
+        "playback_normalization_dispatch",
     }
 )
 
@@ -28,10 +32,66 @@ ALLOWED_TENANT_CONTEXT_KINDS = frozenset(("request", "worker"))
 ALLOWED_WORKSPACE_AUTH_CONTEXT_KINDS = frozenset(("auth_public", "auth_bootstrap"))
 
 
+@event.listens_for(Session, "after_begin")
+def _restore_transaction_local_context(
+    session: Session,
+    _transaction: SessionTransaction,
+    connection: Connection,
+) -> None:
+    """Replay validated tenant settings whenever a session opens a new transaction.
+
+    PostgreSQL RLS context intentionally uses transaction-local GUCs so pooled
+    connections cannot leak one tenant into another. AsyncSession keeps
+    ``session.info`` across commit and rollback, however, so a reused request or
+    worker session must replay that same validated context on its next
+    transaction before any protected statement runs.
+    """
+
+    settings = session.info.get("tenant_context")
+    if not isinstance(settings, dict) or connection.dialect.name != "postgresql":
+        return
+    for name, value in settings.items():
+        connection.execute(
+            text("select set_config(:setting_name, :setting_value, true)"),
+            {"setting_name": name, "setting_value": value},
+        )
+
+
 def _require_context_kind(value: str, allowed: frozenset[str], label: str) -> None:
     if value not in allowed:
         expected = ", ".join(sorted(allowed))
         raise ValueError(f"Unsupported {label}: {value}; expected one of {expected}")
+
+
+def require_database_context(
+    session: AsyncSession,
+    *,
+    allowed_context_kinds: frozenset[str],
+    workspace_id: UUID | None = None,
+    maintenance_operation: str | None = None,
+) -> None:
+    """Fail before a protected query when production context is absent or too broad."""
+
+    settings = session.info.get("tenant_context")
+    if not isinstance(settings, dict):
+        if session.get_bind().dialect.name == "postgresql":
+            raise RuntimeError("database tenant context is required")
+        return
+    context_kind = settings.get("app.context_kind")
+    if context_kind not in allowed_context_kinds:
+        raise RuntimeError("database tenant context kind is not allowed")
+    if maintenance_operation is not None and (
+        context_kind != "maintenance"
+        or settings.get("app.maintenance_operation") != maintenance_operation
+        or settings.get("app.maintenance_feature_area") != "playback_normalization"
+    ):
+        raise RuntimeError("database maintenance context is not exact")
+    if (
+        workspace_id is not None
+        and context_kind in ALLOWED_TENANT_CONTEXT_KINDS
+        and settings.get("app.workspace_id") != str(workspace_id)
+    ):
+        raise RuntimeError("database tenant workspace does not match")
 
 
 @dataclass(frozen=True, slots=True)

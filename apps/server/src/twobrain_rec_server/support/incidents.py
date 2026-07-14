@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -7,14 +8,25 @@ from hashlib import sha256
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.models.normalization import PlaybackNormalizationJob
 from twobrain_rec_server.db.models.support import (
     SUPPORT_INCIDENT_GITHUB_REPO,
     SupportIncident,
     SupportIncidentRateLimitBucket,
+)
+from twobrain_rec_server.normalization.audit import (
+    add_normalization_audit_event,
+    build_audit_receipt,
+)
+from twobrain_rec_server.normalization.statuses import (
+    NormalizationReason,
+    PlannedAction,
+    TriggerKind,
 )
 from twobrain_rec_server.support.github_issues import (
     GitHubIssueClientError,
@@ -49,6 +61,210 @@ class SupportIncidentSubmissionError(RuntimeError):
         self.code = code
         self.title = title
         self.detail = detail
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackNormalizationIncidentResult:
+    incident_id: str
+    created: bool
+
+
+async def record_playback_normalization_incident(
+    *,
+    db: AsyncSession,
+    job: PlaybackNormalizationJob,
+    reason_code: NormalizationReason,
+    cooldown_cycle: int,
+    recorded_at: datetime | None = None,
+) -> PlaybackNormalizationIncidentResult:
+    """Persist one content-free operational incident for a cooldown escalation."""
+
+    if cooldown_cycle < 1:
+        raise ValueError("cooldown_cycle must be positive")
+    now = recorded_at or datetime.now(UTC)
+    receipt = build_audit_receipt(
+        "playback_normalization_incident_recorded",
+        {"reason_code": reason_code.value, "cooldown_cycle": cooldown_cycle},
+    )
+    job_fingerprint = "job_fpr_" + sha256(str(job.id).encode("utf-8")).hexdigest()[:20]
+    profile_fingerprint = "profile_fpr_" + sha256(
+        job.profile_version.encode("utf-8")
+    ).hexdigest()[:20]
+    dedupe_material = ":".join(
+        (str(job.id), job.profile_version, reason_code.value, str(cooldown_cycle))
+    )
+    dedupe_key = "playback_norm_" + sha256(dedupe_material.encode("utf-8")).hexdigest()
+    report = {
+        "schema_version": "playback_normalization_incident_v1",
+        "redaction_state": "metadata_only",
+        "problem_code": "playback_normalization.retry_cycle_exhausted",
+        "failure_category": reason_code.value,
+        "retry_class": "automatic",
+        "job_fingerprint": job_fingerprint,
+        "profile_fingerprint": profile_fingerprint,
+        "cooldown_cycle": cooldown_cycle,
+        "audit_event": receipt.event_type,
+    }
+    report_fingerprint = "report_fpr_" + sha256(
+        json.dumps(report, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    existing = await db.scalar(
+        select(SupportIncident).where(
+            SupportIncident.workspace_id == job.workspace_id,
+            SupportIncident.dedupe_key == dedupe_key,
+        )
+    )
+    if existing is not None:
+        existing.last_duplicate_received_at = now
+        existing.last_received_at = now
+        await db.flush()
+        return PlaybackNormalizationIncidentResult(
+            incident_id=str(existing.id),
+            created=False,
+        )
+
+    incident = SupportIncident(
+        workspace_id=job.workspace_id,
+        reporter_user_id=job.requested_by_user_id,
+        device_id=job.source_device_id,
+        dedupe_key=dedupe_key,
+        problem_code="playback_normalization.retry_cycle_exhausted",
+        failure_category=reason_code.value,
+        retry_class="automatic",
+        status="system_recorded",
+        affected_count=1,
+        safe_affected_identities=[job_fingerprint],
+        latest_safe_report_json=report,
+        latest_safe_report_fingerprint=report_fingerprint,
+        first_received_at=now,
+        last_received_at=now,
+        redaction_result="accepted",
+        github_repo=SUPPORT_INCIDENT_GITHUB_REPO,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(incident)
+            await db.flush()
+    except IntegrityError:
+        existing = await db.scalar(
+            select(SupportIncident).where(
+                SupportIncident.workspace_id == job.workspace_id,
+                SupportIncident.dedupe_key == dedupe_key,
+            )
+        )
+        if existing is None:
+            raise
+        return PlaybackNormalizationIncidentResult(
+            incident_id=str(existing.id),
+            created=False,
+        )
+    add_normalization_audit_event(
+        db,
+        workspace_id=job.workspace_id,
+        meeting_id=job.meeting_id,
+        media_revision_id=job.media_revision_id,
+        actor_user_id=job.requested_by_user_id,
+        device_id=job.source_device_id,
+        event_type=receipt.event_type,
+        metadata={"reason_code": reason_code.value, "cooldown_cycle": cooldown_cycle},
+        created_at=now,
+    )
+    return PlaybackNormalizationIncidentResult(incident_id=str(incident.id), created=True)
+
+
+async def record_impossible_legacy_normalization_incident(
+    *,
+    db: AsyncSession,
+    job: PlaybackNormalizationJob,
+    reason_code: NormalizationReason,
+    recorded_at: datetime | None = None,
+) -> PlaybackNormalizationIncidentResult:
+    """Persist exactly one metadata-only incident for an impossible legacy source."""
+
+    if job.trigger_kind != TriggerKind.LEGACY_BACKFILL.value or reason_code not in {
+        NormalizationReason.SOURCE_MISSING,
+        NormalizationReason.SOURCE_MISMATCH,
+    }:
+        raise ValueError("legacy source incident identity is invalid")
+    now = recorded_at or datetime.now(UTC)
+    receipt = build_audit_receipt(
+        "playback_normalization_legacy_source_unavailable",
+        {
+            "reason_code": reason_code.value,
+            "trigger_kind": TriggerKind.LEGACY_BACKFILL.value,
+            "planned_action": PlannedAction.UNAVAILABLE_SOURCE.value,
+        },
+    )
+    job_fingerprint = "job_fpr_" + sha256(str(job.id).encode("utf-8")).hexdigest()[:20]
+    profile_fingerprint = "profile_fpr_" + sha256(
+        job.profile_version.encode("utf-8")
+    ).hexdigest()[:20]
+    dedupe_key = "playback_norm_legacy_" + sha256(
+        f"{job.id}:{job.profile_version}:{reason_code.value}".encode()
+    ).hexdigest()
+    report = {
+        "schema_version": "playback_normalization_incident_v1",
+        "redaction_state": "metadata_only",
+        "problem_code": "playback_normalization.legacy_source_unavailable",
+        "failure_category": reason_code.value,
+        "retry_class": "terminal",
+        "job_fingerprint": job_fingerprint,
+        "profile_fingerprint": profile_fingerprint,
+        "audit_event": receipt.event_type,
+    }
+    report_fingerprint = "report_fpr_" + sha256(
+        json.dumps(report, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    existing = await db.scalar(
+        select(SupportIncident).where(
+            SupportIncident.workspace_id == job.workspace_id,
+            SupportIncident.dedupe_key == dedupe_key,
+        )
+    )
+    if existing is not None:
+        existing.last_duplicate_received_at = now
+        existing.last_received_at = now
+        await db.flush()
+        return PlaybackNormalizationIncidentResult(
+            incident_id=str(existing.id),
+            created=False,
+        )
+    incident = SupportIncident(
+        workspace_id=job.workspace_id,
+        reporter_user_id=job.requested_by_user_id,
+        device_id=job.source_device_id,
+        dedupe_key=dedupe_key,
+        problem_code="playback_normalization.legacy_source_unavailable",
+        failure_category=reason_code.value,
+        retry_class="terminal",
+        status="system_recorded",
+        affected_count=1,
+        safe_affected_identities=[job_fingerprint],
+        latest_safe_report_json=report,
+        latest_safe_report_fingerprint=report_fingerprint,
+        first_received_at=now,
+        last_received_at=now,
+        redaction_result="accepted",
+        github_repo=SUPPORT_INCIDENT_GITHUB_REPO,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(incident)
+            await db.flush()
+    except IntegrityError:
+        existing = await db.scalar(
+            select(SupportIncident).where(
+                SupportIncident.workspace_id == job.workspace_id,
+                SupportIncident.dedupe_key == dedupe_key,
+            )
+        )
+        if existing is None:
+            raise
+        return PlaybackNormalizationIncidentResult(
+            incident_id=str(existing.id),
+            created=False,
+        )
+    return PlaybackNormalizationIncidentResult(incident_id=str(incident.id), created=True)
 
 
 async def submit_support_incident(

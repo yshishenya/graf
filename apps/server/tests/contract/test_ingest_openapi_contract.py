@@ -16,6 +16,28 @@ def auth_headers() -> dict[str, str]:
     }
 
 
+def test_normalization_remains_internal_to_existing_accepted_ingest_routes(
+    client: TestClient,
+) -> None:
+    paths = client.app.openapi()["paths"]
+    forbidden_mutation_fragments = (
+        "/normalization",
+        "/normalize",
+        "/reprocess",
+        "/backfill",
+        "/playback/retry",
+    )
+
+    assert not any(
+        fragment in path
+        for path in paths
+        for fragment in forbidden_mutation_fragments
+    )
+    assert set(paths["/api/v1/media-uploads"]) == {"post"}
+    assert set(paths["/api/v1/upload-sessions/{session_id}/finalize"]) == {"post"}
+    assert set(paths["/api/v1/internal/processing/pickup"]) == {"post"}
+
+
 def test_happy_path_contract_exposes_server_mediated_ingest(client: TestClient) -> None:
     meeting_response = client.post(
         "/api/v1/meetings",

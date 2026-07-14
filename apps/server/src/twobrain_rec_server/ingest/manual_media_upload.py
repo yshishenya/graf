@@ -24,6 +24,9 @@ from twobrain_rec_server.ingest.processing_dispatch import (
 )
 from twobrain_rec_server.ingest.sessions import create_upload_session
 from twobrain_rec_server.ingest.store import MeetingRecord, UploadSessionRecord
+from twobrain_rec_server.normalization.pickup import (
+    dispatch_normalization_after_accepted_commit,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +57,9 @@ def _track_descriptor(
     )
 
 
-def _manifest_bytes(*, duration_seconds: int, media_sha256: str, media_byte_length: int, content_type: str) -> bytes:
+def _manifest_bytes(
+    *, duration_seconds: int, media_sha256: str, media_byte_length: int, content_type: str
+) -> bytes:
     payload = {
         "schema_version": 1,
         "source_kind": MediaRevisionSourceKind.MANUAL_UPLOAD.value,
@@ -97,10 +102,14 @@ async def accept_manual_media_upload(
 ) -> ManualMediaUploadResult:
     if file.byte_length == 0:
         file.stream.close()
-        raise ProblemDetail(status=400, code="empty_media_upload", title="Uploaded media file is empty")
+        raise ProblemDetail(
+            status=400, code="empty_media_upload", title="Uploaded media file is empty"
+        )
     if file.byte_length > settings.max_upload_part_bytes:
         file.stream.close()
-        raise ProblemDetail(status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded")
+        raise ProblemDetail(
+            status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded"
+        )
 
     media_sha256 = file.sha256
     recording_id = local_recording_id or f"manual-upload-{media_sha256[:32]}"
@@ -201,6 +210,8 @@ async def accept_manual_media_upload(
             tracks=[manifest, media],
             storage=storage,
         )
+        if db is not None:
+            await db.commit()
     except IngestLimitViolation as exc:
         raise ProblemDetail(
             status=413,
@@ -209,6 +220,13 @@ async def accept_manual_media_upload(
             detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
         ) from exc
 
+    await dispatch_normalization_after_accepted_commit(
+        db=db,
+        settings=settings,
+        tenant_scope=tenant_scope,
+        media_revision_id=session.media_revision_id or meeting.media_revision_id,
+        temporal_client=temporal_client,
+    )
     processing = await dispatch_processing_after_finalize(
         db=db,
         settings=settings,
@@ -217,6 +235,8 @@ async def accept_manual_media_upload(
         session=session,
         temporal_client=temporal_client,
     )
+    if db is not None:
+        await db.commit()
     return ManualMediaUploadResult(
         meeting=meeting,
         calendar_context=calendar_context,

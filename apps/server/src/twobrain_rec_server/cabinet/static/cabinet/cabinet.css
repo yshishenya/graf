@@ -230,6 +230,21 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .row-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .row-meta { color: var(--muted); font-size: 12px; display: flex; gap: 9px; flex-wrap: wrap; }
 .upload-progress-label { color: #9ec8ff; font-weight: 650; }
+.playback-state-token {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.playback-state-token.is-available { color: #9fe2c0; border-color: rgba(77, 196, 139, .38); }
+.playback-state-token.is-preparing { color: #9ec8ff; border-color: rgba(92, 155, 235, .38); }
+.playback-state-token.is-unavailable,
+.playback-state-token.is-deleting,
+.playback-state-token.is-deleted { color: #c7cbd2; }
 .upload-progress-meter {
   width: min(180px, 40vw);
   height: 6px;
@@ -316,6 +331,17 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   padding: 24px;
 }
 .empty-state strong { display: block; color: var(--text); margin-bottom: 6px; }
+.playback-terminal-state {
+  min-height: 260px;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+.playback-terminal-state strong { color: var(--text); }
+.playback-terminal-state:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .right-panel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -395,6 +421,11 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   justify-content: space-between;
   gap: 16px;
 }
+.playback-bar.is-preparing { border-top-color: rgba(92, 155, 235, .48); }
+.playback-bar.is-unavailable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
 .playback-audio { display: none; }
 .playback-controls {
   display: flex;
@@ -425,6 +456,12 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   background: transparent;
   color: #e5e7eb;
   font-weight: 800;
+}
+.playback-error {
+  margin: 0;
+  color: #f3a6a6;
+  text-align: center;
+  font-size: 12px;
 }
 .playback-progress-row {
   display: grid;

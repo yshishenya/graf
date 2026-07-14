@@ -307,6 +307,7 @@ def _meeting_list_should_poll(response: MeetingListResponse, *, poll_empty: bool
     return any(
         (item.upload is not None and item.upload.is_active)
         or item.status in {"uploading", "processing"}
+        or item.playback.state == "preparing"
         for item in response.items
     )
 
@@ -316,11 +317,13 @@ def render_meeting_detail_page(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    poll_url: str | None = None,
 ) -> str:
     content = _render_meeting_detail_content(
         review,
         embedded=embedded,
         csrf_token=csrf_token,
+        poll_url=poll_url,
     )
     return _page_shell(
         review.meeting.title,
@@ -337,6 +340,7 @@ def render_meeting_detail_fragment(
     embedded: bool = False,
     csrf_token: str | None = None,
     focus_calendar_context: bool = False,
+    poll_url: str | None = None,
 ) -> str:
     return render_template(
         "cabinet/fragments/meeting_detail.html",
@@ -346,6 +350,7 @@ def render_meeting_detail_fragment(
                 embedded=embedded,
                 csrf_token=csrf_token,
                 focus_calendar_context=focus_calendar_context,
+                poll_url=poll_url,
             ),
             source="meeting_detail.content",
         ),
@@ -358,6 +363,7 @@ def _render_meeting_detail_content(
     embedded: bool,
     csrf_token: str | None = None,
     focus_calendar_context: bool = False,
+    poll_url: str | None = None,
 ) -> str:
     transcript = trusted_component_html(
         _render_transcript(review.transcript.segments), source="meeting_detail.transcript"
@@ -382,6 +388,9 @@ def _render_meeting_detail_content(
         status_label=_ui_text(review.meeting.status_label),
         media_revision_id=str(review.provenance.media_revision_id or ""),
         local_media_revision_id=review.provenance.local_media_revision_id or "",
+        playback_poll_url=poll_url or "",
+        playback_poll_active="true" if review.playback.state == "preparing" else "false",
+        playback_live_label=review.playback.label,
         recording_tab=recording_tab,
         access_chip=trusted_component_html(
             _render_access_chip(review.meeting.access), source="meeting_detail.access_chip"
@@ -522,11 +531,12 @@ def _render_meeting_row(
 
 def _render_meeting_row_meta(item: MeetingListItem) -> str:
     calendar_context = _render_list_calendar_context(item)
+    playback = _render_list_playback_state(item)
     if item.upload is None:
-        return f"<span>{escape(_ui_text(item.status_label))}</span>{calendar_context}"
+        return f"<span>{escape(_ui_text(item.status_label))}</span>{playback}{calendar_context}"
     label = escape(item.upload.label)
     if not item.upload.is_active or item.upload.progress_percent is None:
-        return f'<span class="upload-progress-label">{label}</span>{calendar_context}'
+        return f'<span class="upload-progress-label">{label}</span>{playback}{calendar_context}'
     percent = max(0, min(100, item.upload.progress_percent))
     active_attr = " data-upload-progress-active" if item.upload.is_active else ""
     return f"""
@@ -534,8 +544,27 @@ def _render_meeting_row_meta(item: MeetingListItem) -> str:
       <span class="upload-progress-meter" role="progressbar" aria-label="Прогресс отправки записи" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{percent}">
         <span class="upload-progress-meter__bar" style="width: {percent}%"></span>
       </span>
+      {playback}
       {calendar_context}
     """
+
+
+def _render_list_playback_state(item: MeetingListItem) -> str:
+    state = item.playback.state
+    compact_label = {
+        "preparing": "Аудио готовится",
+        "available": "Аудио готово",
+        "unavailable": "Аудио недоступно",
+        "deleting": "Аудио удаляется",
+        "deleted": "Аудио удалено",
+    }[state]
+    return (
+        f'<span class="playback-state-token is-{escape(state)}" '
+        f'data-playback-state="{escape(state)}" '
+        f'data-playback-reason="{escape(item.playback.reason_code)}" '
+        f'aria-label="Статус аудио: {escape(item.playback.label)}">'
+        f"{escape(compact_label)}</span>"
+    )
 
 
 def _render_upcoming_recurring(response: MeetingListResponse, *, embedded: bool) -> str:
@@ -897,17 +926,18 @@ def _render_timestamp(segment: TranscriptSegmentView) -> str:
 
 
 def _render_playback(review: MeetingReviewResponse) -> str:
-    if review.playback.available and review.playback.playback_path:
+    if review.playback.can_play and review.playback.playback_path:
         speed_options = ",".join(f"{speed:g}" for speed in review.playback.speed_options)
         return f"""
-          <section class="playback-bar detail-playback" data-playback-shell data-source-mode="{escape(review.playback.source_mode)}">
+          <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-describedby="playback-live-status">
             <audio class="playback-audio" data-playback-player preload="metadata" src="{escape(review.playback.playback_path)}"></audio>
             <div class="playback-controls" aria-label="Управление воспроизведением">
               <button type="button" class="playback-round" data-playback-skip="-15" aria-label="Назад на 15 секунд">15</button>
-              <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести">Play</button>
+              <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести">▶</button>
               <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд">15</button>
               <button type="button" class="playback-speed" data-playback-speed-toggle data-speed-options="{escape(speed_options)}">1x</button>
             </div>
+            <p class="playback-error" data-playback-error role="status" aria-live="polite" hidden>Воспроизведение временно недоступно.</p>
             <div class="playback-progress-row">
               <span class="playback-time" data-playback-current>00:00</span>
               <input class="playback-progress" data-playback-progress type="range" min="0" max="{review.playback.duration_seconds}" step="0.1" value="0" aria-label="Позиция записи">
@@ -916,9 +946,17 @@ def _render_playback(review: MeetingReviewResponse) -> str:
             {_render_playback_speaker_timeline(review)}
           </section>
         """
+    focus_attribute = (
+        ""
+        if review.playback.state == "preparing"
+        else ' role="status" tabindex="0" aria-live="off"'
+    )
+    state_classes = "is-unavailable"
+    if review.playback.state != "unavailable":
+        state_classes += f" is-{escape(review.playback.state)}"
     return f"""
-      <section class="playback-bar detail-playback is-unavailable" data-source-mode="{escape(review.playback.source_mode)}">
-        <span>{escape(review.playback.policy_label)}</span>
+      <section class="playback-bar detail-playback {state_classes}" data-playback-state="{escape(review.playback.state)}" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-describedby="playback-live-status"{focus_attribute}>
+        <span>{escape(review.playback.label)}</span>
         <span>{_duration(review.playback.duration_seconds)}</span>
       </section>
     """

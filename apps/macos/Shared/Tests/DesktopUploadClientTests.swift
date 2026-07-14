@@ -48,12 +48,20 @@ final class DesktopUploadClientTests: XCTestCase {
     }
 
     func testUploadFileDescriptorsRespectExistingServerSessionRoles() {
+        let item = makeQueueItem(includePlaybackM4A: true)
         let descriptors = DesktopUploadClient.uploadFileDescriptors(
-            for: makeQueueItem(includePlaybackM4A: true),
+            for: item,
             expectedRoles: [.microphone, .system, .manifest]
         )
 
         XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest])
+        XCTAssertEqual(
+            DesktopUploadClient.idempotencyKey(item: item, scope: "upload-session"),
+            DesktopUploadClient.idempotencyKey(
+                item: makeQueueItem(includePlaybackM4A: false),
+                scope: "upload-session"
+            )
+        )
     }
 
     func testUploadFileDescriptorsTreatEmptyExpectedRolesAsUnrestrictedLegacySession() {

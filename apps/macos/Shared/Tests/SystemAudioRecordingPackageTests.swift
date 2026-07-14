@@ -144,6 +144,11 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         let reviewURL = directory.directoryURL.appendingPathComponent("meeting-review.m4a")
         let reviewFile = try AVAudioFile(forReading: reviewURL)
         XCTAssertEqual(Set(manifest.tracks.map(\.role)), Set([.localMic, .remoteSpeaker]))
+        XCTAssertEqual(manifest.mediaScribeSourceMode, "dual")
+        XCTAssertEqual(Set(manifest.tracks.map(\.fileName)), Set(["mic.wav", "incoming.wav"]))
+        XCTAssertFalse(manifest.tracks.contains { $0.fileName == "meeting-review.m4a" })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.localMicURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.remoteSpeakerURL.path))
         let byteCount = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: reviewURL.path)[.size] as? NSNumber)
             .intValue
         XCTAssertGreaterThan(byteCount, 1_000)

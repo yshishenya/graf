@@ -19,6 +19,8 @@ def test_production_disables_interactive_docs_and_openapi_json(tmp_path) -> None
             minio_bucket="test-bucket",
             web_csrf_secret="prod-web-csrf-secret-32-bytes-minimum",
             auth_ru_local_storage_attested=True,
+            playback_normalization_enabled=True,
+            temporal_address="rec-temporal:7233",
         )
     )
 
