@@ -3,6 +3,8 @@
 
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let pendingDeleteRows = [];
+  let deleteReturnFocus = null;
+  let deleteReturnMeetingId = "";
 
   const plural = (value, one, few, many) => {
     const mod10 = value % 10;
@@ -16,6 +18,24 @@
   const allRows = () => Array.from(currentList()?.querySelectorAll("[data-meeting-row]") || []);
   const selectedRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]")?.checked);
   const deletingLabel = (value) => `Вы удаляете ${value} ${plural(value, "запись", "записи", "записей")}.`;
+
+  const listInteractionIsActive = () => {
+    const region = document.querySelector("#meeting-list-region");
+    if (!region) return false;
+    const modalIsOpen = document.querySelector("[data-delete-dialog][open], [data-manual-upload-dialog][open]");
+    return Boolean(modalIsOpen) || region.contains(document.activeElement) || region.matches(":hover") || selectedRows().length > 0;
+  };
+
+  const setRowContextualAvailability = (row, visible) => {
+    row?.querySelectorAll("[data-row-contextual]").forEach((control) => {
+      control.setAttribute("aria-hidden", visible ? "false" : "true");
+      control.tabIndex = visible ? 0 : -1;
+    });
+  };
+
+  const isUsableFocusTarget = (target) => target instanceof HTMLElement &&
+    target.isConnected &&
+    target.closest("[hidden], [aria-hidden='true']") === null;
 
   const updateSelection = () => {
     const list = currentList();
@@ -37,7 +57,9 @@
     }
     if (listTitle) listTitle.hidden = rows.length > 0;
     allRows().forEach((row) => {
-      row.classList.toggle("is-selected", row.querySelector("[data-meeting-select]")?.checked === true);
+      const selected = row.querySelector("[data-meeting-select]")?.checked === true;
+      row.classList.toggle("is-selected", selected);
+      if (selected) setRowContextualAvailability(row, true);
     });
   };
 
@@ -47,6 +69,8 @@
     const title = dialog.querySelector("[data-delete-title]");
     const count = dialog.querySelector("[data-delete-count]");
     const error = dialog.querySelector("[data-delete-error]");
+    deleteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    deleteReturnMeetingId = deleteReturnFocus?.closest("[data-meeting-row]")?.dataset.meetingId || "";
     pendingDeleteRows = rows.filter(Boolean);
     if (!pendingDeleteRows.length) return;
     if (error) error.hidden = true;
@@ -54,38 +78,48 @@
     if (count) count.textContent = deletingLabel(pendingDeleteRows.length);
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
+    dialog.querySelector("[data-delete-cancel]")?.focus({ preventScroll: true });
   };
 
-  const closeDeleteDialog = () => {
+  const closeDeleteDialog = ({ restoreFocus = true } = {}) => {
     const dialog = document.querySelector("[data-delete-dialog]");
     pendingDeleteRows = [];
     if (!dialog) return;
     if (typeof dialog.close === "function") dialog.close();
     else dialog.removeAttribute("open");
-  };
-
-  const formValues = (form) => {
-    const values = {};
-    new FormData(form).forEach((value, key) => {
-      if (typeof value === "string") values[key] = value;
-    });
-    return values;
+    const currentReturnRow = allRows().find((row) => row.dataset.meetingId === deleteReturnMeetingId);
+    const rowDeleteControl = currentReturnRow?.querySelector("[data-row-delete]");
+    const returnControl = isUsableFocusTarget(deleteReturnFocus)
+      ? deleteReturnFocus
+      : isUsableFocusTarget(rowDeleteControl) ? rowDeleteControl : null;
+    if (restoreFocus && returnControl) {
+      setRowContextualAvailability(currentReturnRow, true);
+      returnControl.focus({ preventScroll: true });
+    } else if (restoreFocus) {
+      document.querySelector("[data-list-title]")?.focus({ preventScroll: true });
+    }
+    deleteReturnFocus = null;
+    deleteReturnMeetingId = "";
   };
 
   const submitDeletionForm = async (form) => {
-    if (window.htmx?.ajax) {
-      const headers = {};
-      if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
-      await window.htmx.ajax("POST", form.action, {
-        target: "#delete-feedback-region",
-        swap: "innerHTML",
-        select: "[data-cabinet-fragment='deletion-feedback']",
-        values: formValues(form),
-        headers
-      });
-      return;
-    }
-    form.submit();
+    const headers = {
+      "HX-Request": "true",
+      "HX-Target": "delete-feedback-region"
+    };
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+    const response = await fetch(form.action, {
+      method: "POST",
+      body: new FormData(form),
+      credentials: "same-origin",
+      headers
+    });
+    if (!response.ok) throw new Error("deletion_request_failed");
+    const responseDocument = new DOMParser().parseFromString(await response.text(), "text/html");
+    const feedback = responseDocument.querySelector("[data-cabinet-fragment='deletion-feedback']");
+    const target = document.querySelector("#delete-feedback-region");
+    if (!feedback || !target) throw new Error("deletion_feedback_missing");
+    target.replaceChildren(document.importNode(feedback, true));
   };
 
   const initMeetingList = () => {
@@ -94,6 +128,17 @@
       return;
     }
     document.body.dataset.cabinetMeetingListReady = "true";
+    const deleteDialog = document.querySelector("[data-delete-dialog]");
+    deleteDialog?.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDeleteDialog();
+    });
+    document.body.addEventListener("htmx:beforeRequest", (event) => {
+      const source = event.detail?.elt || event.target;
+      if (source instanceof Element && source.matches("[data-upload-progress-poll]") && listInteractionIsActive()) {
+        event.preventDefault();
+      }
+    });
     document.body.addEventListener("change", (event) => {
       if (event.target.closest("[data-meeting-select]")) updateSelection();
     });
@@ -105,6 +150,17 @@
       }
       if (event.target.closest("[data-selection-delete]")) {
         openDeleteDialog(selectedRows());
+        return;
+      }
+      if (event.target.closest("[data-clear-selection]")) {
+        const returnRow = selectedRows()[0];
+        allRows().forEach((row) => {
+          const checkbox = row.querySelector("[data-meeting-select]");
+          if (checkbox) checkbox.checked = false;
+          setRowContextualAvailability(row, row.contains(document.activeElement));
+        });
+        updateSelection();
+        (returnRow?.isConnected ? returnRow : document.querySelector("[data-list-title]"))?.focus({ preventScroll: true });
         return;
       }
       if (event.target.closest("[data-delete-cancel]")) {
@@ -120,6 +176,7 @@
           if (checkbox) checkbox.checked = shouldSelectAll;
         });
         updateSelection();
+        if (!shouldSelectAll) rows[0]?.focus({ preventScroll: true });
         return;
       }
       const confirm = event.target.closest("[data-delete-confirm]");
@@ -127,13 +184,14 @@
         if (!pendingDeleteRows.length) return;
         const dialog = document.querySelector("[data-delete-dialog]");
         const error = dialog?.querySelector("[data-delete-error]");
+        if (error) error.hidden = true;
         confirm.disabled = true;
-        confirm.textContent = "Удаляем...";
-        let failures = 0;
+        confirm.textContent = "Удаляем…";
+        const failedRows = [];
         for (const row of pendingDeleteRows) {
           const form = row.querySelector("[data-row-delete-form]");
           if (!form) {
-            failures += 1;
+            failedRows.push(row);
             continue;
           }
           try {
@@ -142,16 +200,17 @@
             if (checkbox) checkbox.checked = false;
             row.dataset.deletionRequested = "true";
           } catch (_err) {
-            failures += 1;
+            failedRows.push(row);
           }
         }
         confirm.disabled = false;
         confirm.textContent = "Удалить";
         updateSelection();
-        if (failures && error) {
-          error.textContent = failures === 1 ? "Не удалось удалить одну запись. Попробуйте еще раз." : `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте еще раз.`;
+        if (failedRows.length && error) {
+          const failures = failedRows.length;
+          error.textContent = failures === 1 ? "Не удалось удалить одну запись. Попробуйте ещё раз." : `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте ещё раз.`;
           error.hidden = false;
-          pendingDeleteRows = [];
+          pendingDeleteRows = failedRows;
           return;
         }
         closeDeleteDialog();
@@ -164,7 +223,95 @@
       checkbox.checked = !checkbox.checked;
       updateSelection();
     });
+    document.body.addEventListener("pointerover", (event) => {
+      const row = event.target.closest?.("[data-meeting-row]");
+      if (row) setRowContextualAvailability(row, true);
+    });
+    document.body.addEventListener("pointerout", (event) => {
+      const row = event.target.closest?.("[data-meeting-row]");
+      if (!row || row.contains(event.relatedTarget)) return;
+      const selected = row.querySelector("[data-meeting-select]")?.checked === true;
+      if (!selected && !row.contains(document.activeElement)) setRowContextualAvailability(row, false);
+    });
+    document.body.addEventListener("focusin", (event) => {
+      const row = event.target.closest?.("[data-meeting-row]");
+      if (row) setRowContextualAvailability(row, true);
+    });
+    document.body.addEventListener("focusout", (event) => {
+      const row = event.target.closest?.("[data-meeting-row]");
+      if (!row) return;
+      window.setTimeout(() => {
+        const selected = row.querySelector("[data-meeting-select]")?.checked === true;
+        if (!selected && !row.contains(document.activeElement)) setRowContextualAvailability(row, false);
+      }, 0);
+    });
+    allRows().forEach((row) => setRowContextualAvailability(row, false));
     updateSelection();
+  };
+
+  const initListDisclosures = () => {
+    const form = document.querySelector(".cabinet-list-controls");
+    if (form && form.dataset.refinementReady !== "true") {
+      form.dataset.refinementReady = "true";
+      const syncRefinementState = () => {
+        const status = form.querySelector("#meeting-status");
+        const access = form.querySelector("#meeting-access");
+        const search = form.querySelector("#meeting-search");
+        const sort = form.querySelector("#meeting-sort");
+        const filterDisclosure = form.querySelector("[data-filter-disclosure]");
+        const filterCount = filterDisclosure?.querySelector(".cabinet-control-count");
+        const reset = form.querySelector("[data-filter-reset]");
+        const activeFilterCount = Number(Boolean(status?.value)) + Number(Boolean(access?.value));
+        filterDisclosure?.classList.toggle("is-active", activeFilterCount > 0);
+        if (filterCount) {
+          filterCount.hidden = activeFilterCount === 0;
+          filterCount.textContent = String(activeFilterCount);
+          filterCount.setAttribute("aria-label", `Активных фильтров: ${activeFilterCount}`);
+        }
+        if (reset) reset.hidden = !(search?.value.trim() || activeFilterCount > 0);
+        const sortLabel = sort?.selectedOptions[0]?.textContent?.trim();
+        if (sortLabel) {
+          const visibleSortLabel = document.querySelector("[data-current-sort-label]");
+          if (visibleSortLabel) visibleSortLabel.textContent = sortLabel;
+          form.querySelector("[data-sort-disclosure] > summary")?.setAttribute("aria-label", `Сортировка: ${sortLabel}`);
+        }
+      };
+      form.addEventListener("input", syncRefinementState);
+      form.addEventListener("change", syncRefinementState);
+      syncRefinementState();
+    }
+    document.querySelectorAll("[data-filter-disclosure], [data-sort-disclosure]").forEach((details) => {
+      if (details.dataset.disclosureReady === "true") return;
+      details.dataset.disclosureReady = "true";
+      details.addEventListener("toggle", () => {
+        if (!details.open) return;
+        document.querySelectorAll("[data-filter-disclosure], [data-sort-disclosure]").forEach((peer) => {
+          if (peer !== details) peer.open = false;
+        });
+      });
+    });
+    if (document.body.dataset.listDisclosureDismissReady !== "true") {
+      document.body.dataset.listDisclosureDismissReady = "true";
+      document.body.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        const details = event.target instanceof Element
+          ? event.target.closest("[data-filter-disclosure], [data-sort-disclosure]")
+          : null;
+        const openDisclosure = details?.open
+          ? details
+          : document.querySelector("[data-filter-disclosure][open], [data-sort-disclosure][open]");
+        if (!openDisclosure) return;
+        openDisclosure.open = false;
+        openDisclosure.querySelector("summary")?.focus({ preventScroll: true });
+      });
+      document.body.addEventListener("click", (event) => {
+        if (!(event.target instanceof Element)) return;
+        if (event.target.closest("[data-filter-disclosure], [data-sort-disclosure]")) return;
+        document.querySelectorAll("[data-filter-disclosure][open], [data-sort-disclosure][open]").forEach((details) => {
+          details.open = false;
+        });
+      });
+    }
   };
 
   const initCodeForms = () => {
@@ -388,8 +535,8 @@
 
   const uploadMessages = {
     request_validation_error: "Проверьте файл.",
-    csrf_token_missing: "Сессия устарела. Обновите страницу и попробуйте еще раз.",
-    csrf_token_invalid: "Сессия устарела. Обновите страницу и попробуйте еще раз.",
+    csrf_token_missing: "Сессия устарела. Обновите страницу и попробуйте ещё раз.",
+    csrf_token_invalid: "Сессия устарела. Обновите страницу и попробуйте ещё раз.",
     auth_session_required_for_manual_upload: "Войдите снова, чтобы загрузить файл.",
     auth_session_invalid: "Войдите снова, чтобы загрузить файл.",
     auth_session_expired: "Войдите снова, чтобы загрузить файл.",
@@ -401,7 +548,7 @@
     idempotency_conflict: "Эта попытка отличается от уже начатой загрузки. Выберите файл заново."
   };
 
-  const safeUploadMessage = (code) => uploadMessages[code] || "Не удалось загрузить файл. Попробуйте еще раз.";
+  const safeUploadMessage = (code) => uploadMessages[code] || "Не удалось загрузить файл. Попробуйте ещё раз.";
 
   const formatBytes = (value) => {
     if (!Number.isFinite(value) || value <= 0) return "";
@@ -543,7 +690,7 @@
         activity.progress?.removeAttribute("aria-valuenow");
         if (activity.progressBar) activity.progressBar.style.width = "36%";
         if (activity.percentLabel) {
-          activity.percentLabel.textContent = "...";
+          activity.percentLabel.textContent = "…";
           activity.percentLabel.hidden = false;
         }
       }
@@ -641,7 +788,7 @@
       activity.xhr = xhr;
       activity.accepted = false;
       setActivityProgress(activity, 0, true);
-      setActivityState(activity, "uploading", continued ? "Продолжаем загрузку..." : "Загружаем файл...");
+      setActivityState(activity, "uploading", continued ? "Продолжаем загрузку…" : "Загружаем файл…");
 
       xhr.upload.onprogress = (event) => {
         if (!event.lengthComputable) {
@@ -650,7 +797,7 @@
         }
         const percent = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
         setActivityProgress(activity, percent, true);
-        setActivityState(activity, "uploading", "Загружаем файл...");
+        setActivityState(activity, "uploading", "Загружаем файл…");
       };
       xhr.onload = async () => {
         activity.xhr = null;
@@ -676,7 +823,7 @@
       };
       xhr.onerror = () => {
         activity.xhr = null;
-        setActivityState(activity, "failed", "Передача не подтверждена. Попробуйте еще раз.", "error");
+        setActivityState(activity, "failed", "Передача не подтверждена. Попробуйте ещё раз.", "error");
       };
       xhr.onabort = () => {
         activity.xhr = null;
@@ -704,7 +851,7 @@
       if (fileCard) fileCard.hidden = false;
       if (fileName) fileName.textContent = selectedFile.name || "Файл без названия";
       if (fileMeta) fileMeta.textContent = formatBytes(selectedFile.size);
-      if (fileDuration) fileDuration.textContent = "Проверяем...";
+      if (fileDuration) fileDuration.textContent = "Проверяем…";
       if (dropTitle) dropTitle.textContent = "Файл выбран";
       dropZone?.classList.add("has-file");
       setValidation();
@@ -856,6 +1003,7 @@
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
+    initListDisclosures();
     initCodeForms();
     initMeetingList();
     initManualUpload();
@@ -870,6 +1018,8 @@
       target.querySelectorAll("[data-meeting-select]").forEach((input) => {
         input.checked = false;
       });
+      target.querySelectorAll("[data-meeting-row]").forEach((row) => setRowContextualAvailability(row, false));
+      updateSelection();
     }
     initCabinet();
   });

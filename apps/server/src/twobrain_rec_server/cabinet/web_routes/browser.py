@@ -7,10 +7,6 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
-from twobrain_rec_server.api.schemas import (
-    AccessState,
-    MeetingReviewStatus,
-)
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
@@ -27,11 +23,11 @@ from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
 )
 from twobrain_rec_server.cabinet.web_routes.support import (
-    CabinetAccessQuery,
+    CabinetAccessFilter,
     CabinetLimitQuery,
     CabinetSearchQuery,
     CabinetSortQuery,
-    CabinetStatusQuery,
+    CabinetStatusFilter,
     PrincipalDependency,
     WebDbDependency,
     WebTenantDependency,
@@ -47,8 +43,8 @@ router = APIRouter(tags=["cabinet-web"])
 async def meeting_list_page(
     request: Request,
     q: str | None = CabinetSearchQuery,
-    status: MeetingReviewStatus | None = CabinetStatusQuery,
-    access: AccessState | None = CabinetAccessQuery,
+    status: CabinetStatusFilter = None,
+    access: CabinetAccessFilter = None,
     sort: str = CabinetSortQuery,
     limit: int = CabinetLimitQuery,
     tenant_scope: TenantScope = WebTenantDependency,
@@ -65,6 +61,8 @@ async def meeting_list_page(
         viewer_user_id=principal.user_id,
         q=q,
         status=status,
+        group_status_filter=True,
+        visible_title_search=True,
         access=access,
         sort=sort,
         limit=limit,

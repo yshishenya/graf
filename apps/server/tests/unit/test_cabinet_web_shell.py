@@ -317,16 +317,21 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     )
 
     assert "Мои встречи" in page
-    assert "Ближайшие" in page
-    assert "Ближайшие встречи появятся после подключения календаря." in page
-    assert 'href="/settings/integrations/calendar"' in page
-    assert "Подключить календари" in page
+    assert "Ближайшие" not in page
+    assert "Подключить календари" not in page
+    assert "Пробный период" not in page
+    assert "Пригласить" not in page
     assert "Командный синк" not in page
     assert "Записи встреч" in page
     assert "<span>Загрузить</span>" in page
     assert "Загрузить медиа" not in page
-    assert "Недавно обновленные" in page
-    assert 'value="updated_desc" selected>Недавно обновленные</option>' in page
+    assert page.count('id="meeting-search"') == 1
+    assert 'aria-label="Поиск встреч"' in page
+    assert "data-filter-disclosure" in page
+    assert "data-sort-disclosure" in page
+    assert 'aria-label="Фильтры"' in page
+    assert 'aria-label="Сортировка: Недавно обновлённые"' in page
+    assert 'value="updated_desc" selected>Недавно обновлённые</option>' in page
     css = _cabinet_css()
     assert "max-width: min(1120px, calc(100vw - 48px))" in css
     assert "min-height: 64px;" in css
@@ -335,8 +340,10 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
         ".meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto;"
         in css
     )
-    assert ".desktop-embedded .cabinet-list-controls {" in css
-    assert "grid-template-columns: minmax(0, 1fr) 32px;" in css
+    assert (
+        ".cabinet-list-controls {\n  width: auto;\n  min-width: 0;\n  margin-left: auto;\n  display: flex;"
+        in css
+    )
     assert ":focus-visible" in css
     assert "hero" not in page.lower()
     assert "data-selection-toolbar" in page
@@ -363,13 +370,15 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'method="get"' in page
     assert 'data-hx-target="#meeting-list-region"' in page
     assert 'data-hx-select="#meeting-list-region"' in page
-    assert "data-clear-selection" not in page
+    assert "data-clear-selection" in page
     assert "data-list-title" in page
     assert "Выбрано 0 / 1" in page
     assert "Выбрать все видимые записи" in page
-    assert "Скачивание появится позже" in page
-    assert 'data-tooltip="Скачивание появится позже"' in page
-    assert 'disabled aria-disabled="true" data-download-disabled' in page
+    assert "Скачивание появится позже" not in page
+    assert "data-download-disabled" not in page
+    assert 'aria-label="Сохраненные"' not in page
+    assert 'aria-label="Применить фильтры"' not in page
+    assert 'class="toolbar-icons"' not in page
     assert '<input class="row-check selection-toggle" type="checkbox" data-selection-toggle' in page
     assert "padding-left: 13px;" in css
     assert ".selection-toggle {\n  flex: 0 0 16px;" in css
@@ -387,12 +396,14 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert ".row-icon .ui-icon { width: 14px; height: 14px; }" in css
     assert "stroke-width: 2;" in css
     assert 'data-icon="audio"' in page
-    assert 'data-icon="bookmark"' in page
-    assert 'data-icon="download"' in page
+    assert 'data-icon="bookmark"' not in page
+    assert 'data-icon="download"' not in page
     assert 'data-icon="filter"' in page
     assert 'data-icon="sort"' in page
     assert 'data-icon="trash"' in page
     assert "data-meeting-select" in page
+    assert '<span class="row-select-hit">' in page
+    assert '<span class="row-select-hit" aria-hidden="true">' not in page
     assert "data-row-delete" in page
     assert "data-row-delete-form" in page
     assert 'data-hx-post="/meetings/' in page
@@ -400,6 +411,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'id="delete-feedback-region"' in page
     assert "data-delete-dialog" in page
     assert "Удалить запись?" in page
+    assert 'role="status" aria-live="polite" data-delete-error' in page
     assert "Удалить записи?" in page
     assert "Отмена" in page
     assert "Удалить" in page
@@ -416,7 +428,50 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
 
 
-def test_empty_meeting_list_starts_with_app_download_handoff() -> None:
+def test_feature_104_removed_main_window_fragments_have_no_current_entry_point() -> None:
+    sections = (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
+    meeting_list = (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "pages" / "meeting_list_content.html"
+    ).read_text()
+    css = _cabinet_css()
+
+    for marker in [
+        "Пробный период 7 дней",
+        "Пригласить",
+        "Ближайшие встречи появятся",
+        "Подключить календари",
+        "Сохраненные",
+        "Скачать выбранные записи",
+        "selection_toolbar",
+    ]:
+        assert marker not in sections
+        assert marker not in meeting_list
+
+    assert "item.enabled" not in sections
+    assert "item.count" not in sections
+
+    for obsolete_selector in [
+        ".trial {",
+        ".upcoming {",
+        ".metric-grid {",
+        ".metric {",
+        ".toolbar {",
+        ".toolbar-icons {",
+        ".cabinet-selection-toolbar,",
+        ".first-run-download {",
+        ".selection-actions {",
+        ".selection-divider {",
+        ".tooltip-wrap {",
+        ".cabinet-sidebar-nav__count {",
+        ".cabinet-list-control-icon {",
+        ".desktop-embedded .cabinet-list-controls select,",
+    ]:
+        assert obsolete_selector not in css
+
+
+def test_empty_meeting_list_reuses_toolbar_upload_and_native_recording() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(
             items=[],
@@ -425,13 +480,14 @@ def test_empty_meeting_list_starts_with_app_download_handoff() -> None:
         )
     )
 
-    assert "Первый запуск" in page
-    assert "Установите GRAF" in page
-    assert 'href="/download">Скачать приложение</a>' in page
-    assert "data-manual-upload-empty-open" in page
-    assert "<span>Загрузить</span>" in page
-    assert "Загрузить медиа" not in page
-    assert "Подключить календари" in page
+    assert "Пока нет записей" in page
+    assert "Начните запись в приложении или загрузите файл кнопкой выше." in page
+    assert "Первый запуск" not in page
+    assert "Установите GRAF" not in page
+    assert 'href="/download"' not in page
+    assert "data-manual-upload-empty-open" not in page
+    assert page.count("data-manual-upload-open") == 1
+    assert "Подключить календари" not in page
 
 
 def test_non_empty_meeting_list_does_not_show_first_run_download_handoff() -> None:
@@ -445,6 +501,29 @@ def test_non_empty_meeting_list_does_not_show_first_run_download_handoff() -> No
 
     assert "Первый запуск" not in page
     assert 'href="/download">Скачать приложение</a>' not in page
+
+
+def test_active_list_filters_expose_one_reset_without_extra_request_control() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(
+                q="синк", status="processing", access=None, sort="started_desc"
+            ),
+            generated_at=datetime.now(UTC),
+        )
+    )
+
+    assert page.count('id="meeting-search"') == 1
+    assert page.count("data-filter-reset") == 1
+    assert 'href="/meetings"' in page
+    assert 'aria-label="Сбросить поиск и фильтры"' in page
+    assert 'aria-label="Активных фильтров: 1"' in page
+    assert 'aria-label="Применить фильтры"' not in page
+    assert (
+        'data-hx-trigger="input changed delay:150ms from:#meeting-search, change from:select, submit"'
+        in page
+    )
 
 
 def test_meeting_list_dynamic_selection_keeps_one_shell_boundary() -> None:
@@ -476,7 +555,7 @@ def test_web_shell_uses_base_template_and_static_assets() -> None:
     assert f'src="{CABINET_STATIC_URL}/htmx-2.0.10.min.js"' in page
     assert f'src="{CABINET_STATIC_URL}/cabinet.js?v=' in page
     assert f'src="{CABINET_STATIC_URL}/graf-wordmark-dark.png"' in page
-    assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' not in page
+    assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' in page
     assert f'src="{CABINET_STATIC_URL}/graf-logo.svg"' not in page
     assert "Бесплатный" not in page
     assert '<body data-surface-mode="standalone_browser">' in page
@@ -512,7 +591,8 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
         assert 'data-active-nav="meetings"' in page
         assert 'href="/meetings"' in page
         assert 'href="/settings/integrations/calendar"' in page
-        assert "Пробный период 7 дней" in page
+        assert "Пробный период" not in page
+        assert "Пригласить" not in page
         assert "GRAF" in page
 
     assert settings_page.count("data-cabinet-shell") == 1
@@ -637,7 +717,7 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
         "  .app-shell.desktop-embedded { grid-template-columns: var(--app-rail-width) minmax(0, 1fr); }"
     ) in css
     assert "    width: var(--app-rail-width);" in css
-    assert "  .desktop-embedded .sidebar:hover," in css
+    assert "  .desktop-embedded .sidebar:hover," not in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
     assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
 
@@ -664,8 +744,10 @@ def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> No
     assert 'aria-current="page"' in page
     assert 'href="/desktop/meetings"' in page
     assert 'href="/desktop/settings/integrations/calendar"' in page
-    for icon in ("search", "calendar-days", "users-round", "list-checks", "activity", "settings"):
+    for icon in ("search", "calendar-days", "settings"):
         assert f'data-icon="{icon}"' in page
+    for removed_icon in ("users-round", "list-checks", "activity"):
+        assert f'data-icon="{removed_icon}"' not in page
 
 
 def test_settings_shell_renders_calendar_connection_anchor() -> None:
@@ -689,7 +771,7 @@ def test_calendar_settings_reuses_common_cabinet_shell() -> None:
     assert 'data-active-nav="settings"' in page
     assert 'href="/desktop/settings/integrations/calendar"' in page
     assert page.count('class="sidebar-foot"') == 1
-    assert "Пробный период 7 дней" in page
+    assert "Пробный период" not in page
     assert "GRAF" in page
 
 
@@ -835,7 +917,7 @@ def test_desktop_empty_list_polls_for_new_local_uploads() -> None:
         poll_url="/desktop/meetings",
     )
 
-    assert "Нет встреч для выбранного фильтра." in page
+    assert "Пока нет записей" in page
     assert 'hx-trigger="every 3s"' in page
     assert 'hx-get="/desktop/meetings"' in page
 
@@ -876,8 +958,9 @@ def test_list_delete_script_json_encodes_bounded_copy(monkeypatch) -> None:
     assert "Delete &quot;quoted&quot;" in page
     assert 'confirmation_boundary: "Delete' not in script
     assert "new FormData(form)" in script
-    assert "fetch(" not in script
-    assert 'window.htmx.ajax("POST"' in script
+    assert "fetch(form.action" in script
+    assert "if (!response.ok)" in script
+    assert '"HX-Request": "true"' in script
 
 
 def test_detail_shell_renders_tabs_and_gated_actions() -> None:

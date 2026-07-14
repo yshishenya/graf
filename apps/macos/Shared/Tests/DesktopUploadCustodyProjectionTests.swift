@@ -203,6 +203,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.retryClass, .automatic)
         XCTAssertEqual(projection.normalUserAction, .none)
         XCTAssertEqual(projection.copyKey, "custody.retention_warning")
+        XCTAssertTrue(projection.requiresUserAttention)
     }
 
     func testRetentionExpiredKeepsEvidenceActionInsteadOfSilentLoss() {
@@ -333,7 +334,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertTrue(report.safeAffectedIdentities.allSatisfy { $0.hasPrefix("affected_fpr_") })
     }
 
-    func testMeetingOwnerActionBadgeCountsOnlyRealOwnerActions() {
+    func testAttentionBadgeCountsActionsAndRetentionWarningsButNotRoutineProgress() {
         let auth = custodyFixtureQueueItem(
             id: "auth",
             state: .blocked,
@@ -353,10 +354,64 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
             state: .retrying,
             retryMode: .automatic
         )
+        let support = custodyFixtureQueueItem(
+            id: "support",
+            state: .blocked,
+            retryMode: .manualOnly
+        ).withTransition(
+            to: .blocked,
+            now: Date(timeIntervalSince1970: 400),
+            failureCategory: .localResource,
+            failureReason: "local_artifacts_not_uploadable",
+            retryMode: .manualOnly,
+            syncConflictState: .localFilesMissing
+        )
+        let retentionWarning = custodyFixtureQueueItem(
+            id: "retention-warning",
+            state: .retrying,
+            retryMode: .automatic,
+            retentionDeadline: Date(timeIntervalSince1970: 1_100)
+        )
 
-        let count = DesktopUploadCustodySummary.meetingOwnerActionCount(for: [auth, admin, automatic])
+        let count = DesktopUploadCustodySummary.attentionItemCount(
+            for: [auth, admin, support, automatic, retentionWarning],
+            now: Date(timeIntervalSince1970: 1_000)
+        )
 
-        XCTAssertEqual(count, 1)
+        XCTAssertEqual(count, 4)
+    }
+
+    func testAttentionIdentityChangesWhenOneItemEscalatesWithoutChangingCount() throws {
+        let warning = custodyFixtureQueueItem(
+            id: "same-item",
+            state: .retrying,
+            retryMode: .automatic,
+            retentionDeadline: Date(timeIntervalSince1970: 1_100)
+        )
+        let terminal = custodyFixtureQueueItem(
+            id: "same-item",
+            state: .failed,
+            retryMode: .terminal,
+            syncConflictState: .retentionExpired,
+            retentionDeadline: Date(timeIntervalSince1970: 1_100)
+        )
+
+        let warningSummary = try XCTUnwrap(
+            DesktopUploadCustodySummary.summaries(
+                for: [warning],
+                now: Date(timeIntervalSince1970: 1_000)
+            ).first
+        )
+        let terminalSummary = try XCTUnwrap(
+            DesktopUploadCustodySummary.summaries(
+                for: [terminal],
+                now: Date(timeIntervalSince1970: 1_200)
+            ).first
+        )
+
+        XCTAssertEqual(warningSummary.pendingCount, terminalSummary.pendingCount)
+        XCTAssertNotEqual(warningSummary.stableIdentity, terminalSummary.stableIdentity)
+        XCTAssertEqual(terminalSummary.primaryProjection.normalUserAction, .sendSupportReport)
     }
 
     func testSafeIncidentReportUsesMetadataOnlyAdminTruth() throws {

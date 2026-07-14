@@ -1361,6 +1361,9 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
         ),
     ]
 
+    settings_page = client.get("/settings/integrations/calendar", headers=auth_headers())
+    assert settings_page.status_code == 200
+
     seen_source_ids = []
     for name, source_kwargs, expected_result, expected_notice in cases:
         source_id = asyncio.run(seed_source(name, **source_kwargs))
@@ -1374,7 +1377,7 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
         )
         elapsed = perf_counter() - started
 
-        assert elapsed < 2
+        assert elapsed < 2, f"{name}: manual sync request took {elapsed:.3f}s"
         assert response.status_code == 303
         assert (
             response.headers["location"]

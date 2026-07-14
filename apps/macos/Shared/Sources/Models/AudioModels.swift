@@ -1408,8 +1408,7 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
         self.copyFallbackAvailable = copyFallbackAvailable
         self.accessibilityLabel = accessibilityLabel ?? Self.defaultAccessibilityLabel(
             state: state,
-            incidentNumber: incidentNumber,
-            copyFallbackAvailable: copyFallbackAvailable
+            incidentNumber: incidentNumber
         )
     }
 
@@ -1423,7 +1422,7 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
             localReportFingerprint: reportFingerprint,
             dedupeKey: dedupeKey,
             lastSubmissionAttemptAt: attemptedAt,
-            accessibilityLabel: "Отправляем отчет разработчикам."
+            accessibilityLabel: "Отправляем запрос в поддержку…"
         )
     }
 
@@ -1443,7 +1442,7 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
             githubIssueNumber: githubIssueNumber,
             lastSubmissionAttemptAt: attemptedAt,
             copyFallbackAvailable: copyFallbackAvailable,
-            accessibilityLabel: "Отчет отправлен. Мы разберемся. Номер: \(incidentNumber)."
+            accessibilityLabel: "Запрос отправлен в поддержку. Номер: \(incidentNumber)."
         )
     }
 
@@ -1462,7 +1461,7 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
             lastFailureCategory: failureCategory,
             lastFailureCode: failureCode,
             copyFallbackAvailable: true,
-            accessibilityLabel: "Не удалось отправить отчет. Скопируйте отчет и отправьте в поддержку."
+            accessibilityLabel: "Не удалось связаться с поддержкой. Попробуйте ещё раз."
         )
     }
 
@@ -1471,28 +1470,29 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
             state: .unavailable,
             lastSubmissionAttemptAt: attemptedAt,
             copyFallbackAvailable: false,
-            accessibilityLabel: "Отчет сейчас недоступен."
+            accessibilityLabel: "Поддержка сейчас недоступна. Попробуйте позже."
         )
     }
 
     private static func defaultAccessibilityLabel(
         state: DesktopSupportIncidentSubmissionStatus,
-        incidentNumber: String?,
-        copyFallbackAvailable: Bool
+        incidentNumber: String?
     ) -> String {
         switch state {
         case .notSent:
-            return "Отчет еще не отправлен."
+            return "Запрос в поддержку не отправлен."
         case .sending:
-            return "Отправляем отчет разработчикам."
+            return "Отправляем запрос в поддержку…"
         case .sent:
-            return "Отчет отправлен. Мы разберемся. Номер: \(incidentNumber ?? "неизвестен")."
+            guard let incidentNumber = incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !incidentNumber.isEmpty else {
+                return "Запрос отправлен в поддержку."
+            }
+            return "Запрос отправлен в поддержку. Номер: \(incidentNumber)."
         case .failedWithCopyFallback:
-            return copyFallbackAvailable
-                ? "Не удалось отправить отчет. Скопируйте отчет и отправьте в поддержку."
-                : "Не удалось отправить отчет."
+            return "Не удалось связаться с поддержкой. Попробуйте ещё раз."
         case .unavailable:
-            return "Отчет сейчас недоступен."
+            return "Поддержка сейчас недоступна. Попробуйте позже."
         }
     }
 }

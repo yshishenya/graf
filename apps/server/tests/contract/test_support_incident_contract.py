@@ -21,7 +21,7 @@ def test_support_incident_contract_creates_private_issue_server_side(client: Tes
     assert body["github_issue_number"] == 123
     assert body["dedupe_status"] == "created"
     assert body["copy_fallback_available"] is True
-    assert body["user_message"] == "Отчет отправлен. Мы разберемся. Номер: CUST-123"
+    assert body["user_message"] == "Запрос отправлен в поддержку. Номер: CUST-123"
     assert len(fake_github.created_issues) == 1
     assert "github_token" not in response.text
 

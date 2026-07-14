@@ -154,8 +154,6 @@ private struct ContentView: View {
     @State private var recordingBlocker: String?
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
     @State private var localRecordingManifest: LocalRecordingManifest?
-    @State private var activeAppleProcessingOutcome: AppleProcessingOutcome?
-    @State private var localRecordingLocation: String?
     @State private var selectedRecordingMicrophoneDeviceId: String?
     @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
@@ -178,7 +176,6 @@ private struct ContentView: View {
     @State private var meetingDetectionTask: Task<Void, Never>?
     @State private var meetingDetectionAdvanceTask: Task<Void, Never>?
     @State private var meetingDetectionStatus = "Ожидает запуск"
-    @State private var meetingDetectionHealth: String?
     @State private var meetingDetectionPrompt: MeetingDetectionPrompt?
     @State private var meetingDetectionPromptWindow: NSWindow?
     @State private var liveRecordingLevels = LiveRecordingLevels.inactive
@@ -206,6 +203,17 @@ private struct ContentView: View {
             uploadQueueItems: uploadQueueItems,
             cabinetConfigured: desktopCabinetConfiguration != nil,
             cabinetState: desktopCabinetState,
+            startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton(
+                for: captureSession,
+                calendarPrompt: desktopCalendarPrompt
+            ) && !recordingStartInProgress && !recordingStopInProgress,
+            recordingTransitionInProgress: recordingStartInProgress || recordingStopInProgress,
+            hasActionableCaptureProblem: CaptureControlView.hasActionableProblem(
+                blockedReason: recordingBlocker
+            ) || desktopCalendarPrompt?.kind == .record,
+            onStartRecording: {
+                Task { await startManualRecording() }
+            },
             onStopRecording: {
                 Task { await stopManualRecording() }
             },
@@ -226,23 +234,12 @@ private struct ContentView: View {
                 session: captureSession,
                 blockedReason: recordingBlocker,
                 localRecordingStatus: localRecordingStatusText,
-                localRecordingLocation: localRecordingLocation,
                 muteTruthWarning: meetingMuteTruthWarningText,
-                appleProcessingStatus: CaptureControlView.appleProcessingStatusCopy(
-                    for: activeAppleProcessingOutcome ?? localRecordingManifest?.appleProcessingOutcome
-                ),
-                webRTCAEC3Status: CaptureControlView.resolvedWebRTCAEC3Status(
-                    for: captureSession,
-                    manifest: localRecordingManifest
-                ),
                 recordingMicrophoneSelection: recordingMicrophoneSelection,
                 recordingMicrophoneInputs: microphoneCaptureService.availableRecordingMicrophoneInputs(),
                 selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
-                uploadQueueItems: uploadQueueItems,
-                cabinetConfiguration: desktopCabinetConfiguration,
                 calendarPrompt: desktopCalendarPrompt,
                 meetingDetectionStatus: meetingDetectionStatus,
-                meetingDetectionHealth: meetingDetectionHealth,
                 recordingLevels: liveRecordingLevels,
                 recordDisabled: recordingStartInProgress || recordingStopInProgress,
                 stopDisabled: recordingStartInProgress || recordingStopInProgress,
@@ -264,12 +261,6 @@ private struct ContentView: View {
                     recordingMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
                         selectedInputDeviceId: inputDeviceId
                     )
-                },
-                onUploadReview: { route in
-                    selectedCabinetRoute = route
-                },
-                onSupportIncidentReport: { itemIds in
-                    try await submitSupportIncidentReport(itemIds: itemIds)
                 },
                 onCalendarPromptPrimary: { prompt in
                     handleCalendarPromptPrimary(prompt)
@@ -294,11 +285,6 @@ private struct ContentView: View {
                     AppLog.writeRaw(event: event, detail: detail)
                 }
             )
-        } diagnosticsContent: {
-            VStack(alignment: .leading, spacing: 12) {
-                DiagnosticLogView(path: AppLog.fileURL.path)
-            }
-            .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.nativeShellRegion)
         }
         .sheet(isPresented: $permissionOnboardingPresented) {
             DesktopPermissionOnboardingView(
@@ -525,7 +511,6 @@ private struct ContentView: View {
             startMeetingDetectionIfNeeded()
             meetingDetectionStatus = meetingDetectionStatusText()
         } catch {
-            meetingDetectionHealth = "Настройки автоопределения временно недоступны"
             AppLog.writeRaw(event: "meeting_detection.settings_reload_failed", detail: "error=settings_unavailable")
         }
     }
@@ -537,14 +522,16 @@ private struct ContentView: View {
             meetingDetectionSettings = try meetingDetectionSettingsStore.load()
         } catch {
             meetingDetectionStatus = "Недоступно"
-            meetingDetectionHealth = "Настройки автоопределения недоступны"
             AppLog.writeRaw(event: "meeting_detection.start_failed", detail: "error=settings_unavailable")
             return
         }
         meetingDetectionRegistryStore = buildMeetingDetectionRegistryStore()
         if (try? resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)) == nil {
             meetingDetectionRegistry = nil
-            meetingDetectionHealth = "Реестр загружается с сервера"
+            AppLog.writeRaw(
+                event: "meeting_detection.registry_cache_unavailable",
+                detail: "awaitingRemote=true"
+            )
         }
         configureMeetingDetectionUploaderIfNeeded()
         meetingDetectionStatus = meetingDetectionStatusText()
@@ -594,7 +581,10 @@ private struct ContentView: View {
         }
         let resolution = try store.resolve(remoteData: remoteData, remoteETag: remoteETag)
         meetingDetectionRegistry = resolution.document
-        meetingDetectionHealth = "Реестр \(resolution.document.registryVersion), источник \(resolution.source.rawValue)"
+        AppLog.writeRaw(
+            event: "meeting_detection.registry_resolved",
+            detail: "version=\(resolution.document.registryVersion) source=\(resolution.source.rawValue)"
+        )
         NotificationCenter.default.post(name: .twoBrainRecMeetingTargetRegistryDidChange, object: nil)
     }
 
@@ -631,11 +621,9 @@ private struct ContentView: View {
             var fallbackErrorCode: String?
             do {
                 try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)
-                meetingDetectionHealth = "Удаленный реестр временно недоступен; используется сохраненный реестр"
             } catch let fallbackError {
                 fallbackErrorCode = safeMeetingDetectionRegistryRefreshErrorCode(fallbackError)
                 meetingDetectionRegistry = nil
-                meetingDetectionHealth = "Реестр встреч недоступен; автоопределение временно выключено"
             }
             meetingDetectionStatus = meetingDetectionStatusText()
             let fallbackDetail = fallbackErrorCode.map { " fallback=\($0)" } ?? ""
@@ -804,11 +792,11 @@ private struct ContentView: View {
         guard let uploader = meetingDetectionTelemetryUploader else { return }
         do {
             let outcome = try await uploader.uploadPending()
-            meetingDetectionHealth = outcome.skippedReason.map {
-                "Телеметрия не отправлена: \($0)"
-            } ?? "Телеметрия кандидатов: отправлено \(outcome.uploadedCount)"
+            AppLog.writeRaw(
+                event: "meeting_detection.telemetry_upload_completed",
+                detail: "reason=\(reason) uploadedCount=\(outcome.uploadedCount) skipped=\(outcome.skippedReason != nil)"
+            )
         } catch {
-            meetingDetectionHealth = "Телеметрия кандидатов будет отправлена позже"
             AppLog.writeRaw(event: "meeting_detection.telemetry_upload_failed", detail: "reason=\(reason) error=upload_unavailable")
         }
     }
@@ -1043,7 +1031,6 @@ private struct ContentView: View {
             try meetingDetectionSettingsStore.save(meetingDetectionSettings)
             NotificationCenter.default.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
         } catch {
-            meetingDetectionHealth = "Настройки автоопределения временно не сохранены"
             AppLog.writeRaw(event: "meeting_detection.settings_save_failed", detail: "error=settings_unavailable")
         }
     }
@@ -1065,8 +1052,6 @@ private struct ContentView: View {
         defer { recordingStartInProgress = false }
 
         localRecordingManifest = nil
-        activeAppleProcessingOutcome = nil
-        localRecordingLocation = nil
         recordingBlocker = nil
         let scopeApproval: CaptureScopeApproval
         do {
@@ -1215,11 +1200,9 @@ private struct ContentView: View {
                 limitationCopyShownAt: limitationCopyShownAt,
                 appleProcessingOutcome: appleProcessingOutcome
             )
-            activeAppleProcessingOutcome = appleProcessingOutcome
             localRecordingActive = true
             let active = try captureController.markCapturing()
             captureSession = active
-            localRecordingLocation = directory.directoryURL.path
             if let command = DesktopCalendarResolvePolicy.commandAfterCaptureStarted(
                 localRecordingActive: localRecordingActive,
                 localRecordingId: directory.directoryId,
@@ -1253,7 +1236,6 @@ private struct ContentView: View {
             localRecordingActive = false
             liveRecordingLevels = .inactive
             releaseAppleProcessingCandidate(reason: .failedStart)
-            activeAppleProcessingOutcome = nil
             activeMicrophoneSampleSource?.stop()
             activeMicrophoneSampleSource = nil
             let releasedSystemAudioSession = try? await systemAudioCaptureService.stop()
@@ -1352,7 +1334,6 @@ private struct ContentView: View {
         do {
             let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
             localRecordingManifest = manifest
-            localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
             enqueueLocalRecordingForUpload(
                 manifest: manifest,
                 directoryURL: recordingDirectory,
@@ -1465,7 +1446,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(paused.id) localMicTreatment=silenced stopAvailable=\(paused.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось поставить запись на паузу: \(error)"
+            recordingBlocker = "Не удалось поставить запись на паузу. Запись продолжается; попробуйте ещё раз."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "pause_failed error=\(error)"
@@ -1489,7 +1470,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(active.id) localMicTreatment=capturing stopAvailable=\(active.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось продолжить запись: \(error)"
+            recordingBlocker = "Не удалось продолжить запись. Она остаётся на паузе; попробуйте ещё раз или остановите её."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "resume_failed error=\(error)"
@@ -1522,8 +1503,6 @@ private struct ContentView: View {
             let stopped = try captureController.completeStop()
             captureSession = stopped
             localRecordingManifest = manifest
-            activeAppleProcessingOutcome = nil
-            localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
             recordingEvidenceEvents.append(
                 RecordingEvidenceService().event(
                     for: stopped,
@@ -1559,7 +1538,6 @@ private struct ContentView: View {
         } catch {
             let failureCategory = recordingStopFailureCategory(for: error)
             releaseAppleProcessingCandidate(reason: .stop)
-            activeAppleProcessingOutcome = nil
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
             }
@@ -1573,7 +1551,7 @@ private struct ContentView: View {
             clearActiveCalendarMatchState()
             localRecordingActive = false
             liveRecordingLevels = .inactive
-            recordingBlocker = "Не удалось остановить запись: \(error)"
+            recordingBlocker = "Не удалось завершить запись. Проверьте локальную копию в списке записей."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "category=\(failureCategory.rawValue) error=\(error)"
@@ -1642,7 +1620,6 @@ private struct ContentView: View {
     private func releaseCaptureResourcesForAppExit() async {
         stopMeetingDetection()
         releaseAppleProcessingCandidate(reason: .appQuit)
-        activeAppleProcessingOutcome = nil
         let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
         await finalizeLocalRecordingForAppExit(
             failureReason: releasedSystemAudioSession?.failureReason ?? .none
@@ -1664,7 +1641,6 @@ private struct ContentView: View {
         do {
             let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
             localRecordingManifest = manifest
-            localRecordingLocation = recordingDirectory?.path ?? localRecordingLocation
             enqueueLocalRecordingForUpload(
                 manifest: manifest,
                 directoryURL: recordingDirectory,
@@ -1869,9 +1845,9 @@ private struct ContentView: View {
         case .indicatorUnavailable:
             return "Запись не началась: локальный индикатор недоступен. \(action)."
         case .sourceAppIneligible:
-            return "Запись не началась: источник не подтвержден. \(action)."
+            return "Запись не началась: источник не подтверждён. \(action)."
         case .alreadyRecording:
-            return "Запись уже идет."
+            return "Запись уже идёт."
         case .captureFailed:
             return "Запись не началась: системный звук не запустился. \(action)."
         case .unknown:
@@ -1891,8 +1867,22 @@ private struct ContentView: View {
             return "Разрешите доступ к микрофону"
         case "grant_system_audio":
             return "Разрешите запись системного звука"
+        case "Review workspace recording policy":
+            return "Проверьте политику записи рабочего пространства"
+        case "Use an approved meeting target":
+            return "Откройте поддерживаемое приложение встречи"
+        case "Enable recording policy before starting":
+            return "Разрешите запись в настройках рабочего пространства"
+        case "Grant microphone permission in System Settings":
+            return "Разрешите доступ к микрофону в Системных настройках"
+        case "Grant Screen & System Audio permission in System Settings":
+            return "Разрешите запись экрана и системного звука в Системных настройках"
+        case "Free local storage or reduce retention before recording":
+            return "Освободите место на Mac"
+        case "Restore visible capture indicator before recording":
+            return "Перезапустите GRAF и повторите попытку"
         default:
-            return action
+            return "Проверьте настройки записи"
         }
     }
 
@@ -1916,7 +1906,7 @@ private struct ContentView: View {
         case .failed:
             return "Локальная запись не сохранена"
         case .active:
-            return "Локальная запись идет"
+            return "Локальная запись идёт"
         }
     }
 
@@ -2379,39 +2369,6 @@ private struct AppContentRoot: View {
     var body: some View {
         ContentView(workspaceZoom: workspaceZoomStore.preference)
         .frame(minWidth: 1040, minHeight: 680)
-    }
-}
-
-private struct DiagnosticLogView: View {
-    let path: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "doc.text.magnifyingglass")
-                    .foregroundStyle(.blue)
-                Text("Diagnostics")
-                    .font(.callout)
-                    .fontWeight(.semibold)
-            }
-            row(label: "Log file", detail: path)
-        }
-        .padding(16)
-    }
-
-    private func row(label: String, detail: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 90, alignment: .leading)
-            Text(detail)
-                .font(.body)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
-            Spacer()
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 

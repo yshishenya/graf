@@ -12,51 +12,51 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
     case malformedResponse
     case blockedRoute
 
-    private static let calendarCredentialBoundary = "Mac не хранит пароли календаря; ручная запись доступна без календаря."
+    private static let localRecordingBoundary = "Запись на этом Mac остаётся доступна."
 
     public var userMessage: String {
         switch self {
         case .notConfigured:
-            return "Подключите рабочее пространство GRAF, чтобы просматривать встречи здесь. \(Self.calendarCredentialBoundary)"
+            return "Подключите рабочее пространство GRAF, чтобы видеть встречи. \(Self.localRecordingBoundary)"
         case .loading:
-            return "Загружаем рабочее пространство встреч. Управление записью остается в приложении."
+            return "Загружаем встречи. Управление записью остаётся в приложении."
         case .ready:
-            return "Рабочее пространство встреч готово."
+            return "Встречи загружены."
         case .offline:
-            return "Кабинет недоступен. Проверьте соединение с сервером Rec. \(Self.calendarCredentialBoundary)"
+            return "Не удалось загрузить встречи. Проверьте интернет-соединение. \(Self.localRecordingBoundary)"
         case .timeout:
-            return "Кабинет долго отвечает. Попробуйте еще раз. \(Self.calendarCredentialBoundary)"
+            return "Загрузка встреч заняла слишком много времени. Проверьте интернет-соединение и повторите попытку. \(Self.localRecordingBoundary)"
         case .expiredSession:
-            return "Войдите снова. \(Self.calendarCredentialBoundary)"
+            return "Войдите снова, чтобы видеть встречи. \(Self.localRecordingBoundary)"
         case .accessDenied:
-            return "Не удалось подтвердить доступ. \(Self.calendarCredentialBoundary)"
+            return "Не удалось подтвердить доступ к встречам. Обратитесь к владельцу рабочего пространства."
         case .notFound:
-            return "Не удалось подтвердить доступ к этому разделу. \(Self.calendarCredentialBoundary)"
+            return "Не удалось подтвердить доступ к этому разделу."
         case .malformedResponse:
-            return "Кабинет вернул неожиданный ответ. \(Self.calendarCredentialBoundary)"
+            return "Не удалось загрузить встречи. Повторите попытку. \(Self.localRecordingBoundary)"
         case .blockedRoute:
-            return "Это действие вне встроенного кабинета. \(Self.calendarCredentialBoundary)"
+            return "Этот раздел нельзя открыть внутри GRAF."
         }
     }
 
     public var unavailableTitle: String {
         switch self {
         case .expiredSession:
-            return "Нужен вход в кабинет"
+            return "Нужно войти"
         case .accessDenied:
-            return "Нет доступа к кабинету"
+            return "Нет доступа к встречам"
         case .notFound:
-            return "Обзор не найден"
+            return "Раздел недоступен"
         case .offline, .timeout:
-            return "Кабинет временно недоступен"
+            return "Встречи временно недоступны"
         case .notConfigured:
-            return "Кабинет не настроен"
+            return "Встречи не подключены"
         case .blockedRoute:
-            return "Действие ограничено"
+            return "Раздел недоступен"
         case .malformedResponse:
-            return "Нужна проверка кабинета"
+            return "Не удалось загрузить встречи"
         case .loading, .ready:
-            return "Кабинет встреч"
+            return "Встречи"
         }
     }
 
@@ -83,8 +83,21 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .expiredSession:
             return "Войти в кабинет"
+        case .offline, .timeout, .malformedResponse:
+            return "Повторить"
         default:
             return nil
+        }
+    }
+
+    public var recoverySystemImage: String {
+        switch self {
+        case .expiredSession:
+            return "person.crop.circle"
+        case .offline, .timeout, .malformedResponse:
+            return "arrow.clockwise"
+        default:
+            return "arrow.right"
         }
     }
 
@@ -216,6 +229,8 @@ public enum DesktopCabinetWorkspace {
         switch state {
         case .expiredSession:
             return .embedded(loginRoute(configuration: configuration))
+        case .offline, .timeout, .malformedResponse:
+            return .embedded(configuration.meetingsURL())
         default:
             return nil
         }
@@ -228,6 +243,8 @@ public enum DesktopCabinetWorkspace {
         switch state {
         case .expiredSession:
             return .embedded(loginRoute(configuration: configuration, next: "/desktop/settings/integrations/calendar"))
+        case .offline, .timeout, .malformedResponse:
+            return .embedded(configuration.calendarSettingsURL())
         default:
             return recoveryTarget(for: state, configuration: configuration)
         }

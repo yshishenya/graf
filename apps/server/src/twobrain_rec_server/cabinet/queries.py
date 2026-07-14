@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, asc, desc, func, nullslast, or_, select
+from sqlalchemy import Select, asc, desc, exists, func, nullslast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import (
@@ -26,6 +26,7 @@ from twobrain_rec_server.cabinet.egress import (
     review_playback_state,
 )
 from twobrain_rec_server.cabinet.view_models import (
+    AUTHORITATIVE_TITLE_SOURCES,
     build_list_item,
     build_review_response,
     previous_recurring_meeting_readiness,
@@ -58,8 +59,20 @@ from twobrain_rec_server.db.models import (
     UploadPart,
     UploadSession,
 )
-from twobrain_rec_server.domain.statuses import DeletionState, UploadSessionStatus
+from twobrain_rec_server.domain.statuses import (
+    DeletionState,
+    MediaRevisionSourceKind,
+    UploadSessionStatus,
+)
 from twobrain_rec_server.outcomes.service import load_outcome_items
+
+WEB_STATUS_FILTER_GROUPS: dict[MeetingReviewStatus, frozenset[MeetingReviewStatus]] = {
+    "processing": frozenset({"processing", "submitted"}),
+    "failed": frozenset({"failed", "blocked", "unavailable"}),
+}
+GENERATED_TITLE_MONTH_FRAGMENTS = frozenset(
+    {"янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"}
+)
 
 
 async def get_calendar_settings_surface(
@@ -165,6 +178,8 @@ async def list_cabinet_meetings(
     viewer_user_id: UUID,
     q: str | None = None,
     status: MeetingReviewStatus | None = None,
+    group_status_filter: bool = False,
+    visible_title_search: bool = False,
     access: AccessState | None = None,
     sort: str = "updated_desc",
     limit: int = 50,
@@ -173,13 +188,17 @@ async def list_cabinet_meetings(
         Meeting.workspace_id == workspace_id,
         or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == DeletionState.NONE.value),
     )
-    if q:
-        pattern = f"%{q.strip()}%"
-        query = query.where(
-            or_(Meeting.title.ilike(pattern), Meeting.local_recording_id.ilike(pattern))
-        )
+    if q and (search_filter := _meeting_search_candidate_filter(q)) is not None:
+        query = query.where(search_filter)
     query = _apply_sort(query, sort)
     meetings = (await db.scalars(query)).all()
+    matching_statuses = (
+        WEB_STATUS_FILTER_GROUPS.get(status, frozenset({status}))
+        if status is not None and group_status_filter
+        else frozenset({status})
+        if status is not None
+        else None
+    )
 
     items = []
     for meeting in meetings:
@@ -196,6 +215,16 @@ async def list_cabinet_meetings(
         media_revision = await _latest_media_revision(
             db, workspace_id=workspace_id, meeting_id=meeting.id
         )
+        if q and not _meeting_matches_query(
+            meeting,
+            q,
+            source="manual_upload"
+            if media_revision is not None
+            and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+            else None,
+            visible_title_only=visible_title_search,
+        ):
+            continue
         media_revision_id = media_revision.id if media_revision is not None else None
         workflow = await _latest_workflow(
             db,
@@ -244,7 +273,7 @@ async def list_cabinet_meetings(
             calendar_context=calendar_context,
             previous_recurring_meeting=previous_recurring_meeting,
         )
-        if status is not None and item.status != status:
+        if matching_statuses is not None and item.status not in matching_statuses:
             continue
         items.append(item)
         if sort != "title_asc" and len(items) >= limit:
@@ -257,6 +286,78 @@ async def list_cabinet_meetings(
         filters=MeetingFilterState(q=q, status=status, access=access, sort=sort),
         generated_at=datetime.now(UTC),
     )
+
+
+def _meeting_matches_query(
+    meeting: Meeting,
+    query: str,
+    *,
+    source: str | None,
+    visible_title_only: bool,
+) -> bool:
+    normalized_query = " ".join(query.casefold().split())
+    if not normalized_query:
+        return True
+    visible_title = safe_title(meeting, source=source)
+    candidates = (
+        (visible_title,)
+        if visible_title_only
+        else (meeting.title, meeting.local_recording_id, visible_title)
+    )
+    return any(
+        normalized_query in " ".join(candidate.casefold().split())
+        for candidate in candidates
+        if candidate
+    )
+
+
+def _meeting_search_candidate_filter(query: str):
+    normalized_query = " ".join(query.casefold().split())
+    if not normalized_query:
+        return None
+
+    pattern = _escaped_contains_pattern(normalized_query)
+    direct_matches = or_(
+        Meeting.title.ilike(pattern, escape="\\"),
+        Meeting.local_recording_id.ilike(pattern, escape="\\"),
+        func.replace(Meeting.title, "_", " ").ilike(pattern, escape="\\"),
+        func.replace(Meeting.local_recording_id, "_", " ").ilike(pattern, escape="\\"),
+    )
+    display_only_candidates = []
+    if _query_can_match_generated_recording_title(normalized_query):
+        display_only_candidates.append(Meeting.title_source.notin_(AUTHORITATIVE_TITLE_SOURCES))
+    if normalized_query in "загруженная запись":
+        display_only_candidates.append(
+            or_(
+                Meeting.title.ilike("manual-upload-%"),
+                Meeting.title.ilike("manual_upload_%"),
+                Meeting.local_recording_id.ilike("manual-upload-%"),
+                Meeting.local_recording_id.ilike("manual_upload_%"),
+                exists(
+                    select(MediaRevision.id).where(
+                        MediaRevision.workspace_id == Meeting.workspace_id,
+                        MediaRevision.meeting_id == Meeting.id,
+                        MediaRevision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value,
+                    )
+                ),
+            )
+        )
+    return or_(direct_matches, *display_only_candidates)
+
+
+def _escaped_contains_pattern(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _query_can_match_generated_recording_title(normalized_query: str) -> bool:
+    if normalized_query in "запись без названия" or normalized_query.startswith("запись"):
+        return True
+    if any(fragment in normalized_query for fragment in GENERATED_TITLE_MONTH_FRAGMENTS):
+        return True
+    if any(character.isdigit() for character in normalized_query):
+        return True
+    return "," in normalized_query or ":" in normalized_query
 
 
 async def _latest_upload_progress(
@@ -296,7 +397,7 @@ async def _latest_upload_progress(
     )
     total = _expected_upload_total_bytes(session.expected_track_sizes)
     progress_percent = None
-    if total > 0:
+    if is_active and total > 0:
         progress_percent = max(0, min(100, round((uploaded / total) * 100)))
     return MeetingUploadProgressState(
         status=status,
@@ -331,10 +432,10 @@ def _upload_progress_label(status: str) -> str:
         UploadSessionStatus.ABORTED.value,
         UploadSessionStatus.EXPIRED.value,
     }:
-        return "Не отправлено"
+        return "Нужна помощь"
     if status == UploadSessionStatus.DEGRADED.value:
-        return "Отправлено с ограничениями"
-    return "Загружено"
+        return "Готово с замечаниями"
+    return "Готово"
 
 
 async def get_cabinet_meeting_review(

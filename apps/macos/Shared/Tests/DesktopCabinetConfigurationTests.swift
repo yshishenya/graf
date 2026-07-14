@@ -117,7 +117,7 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         XCTAssertTrue(message.localizedCaseInsensitiveContains("войдите"))
     }
 
-    func testCalendarUnavailableMessagesExplainCredentialBoundaryAndManualRecording() {
+    func testUnavailableMessagesStayHumanAndMetadataOnly() {
         let states: [DesktopCabinetState] = [
             .notConfigured,
             .offline,
@@ -131,11 +131,14 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
 
         for state in states {
             let message = state.userMessage
-            XCTAssertTrue(message.localizedCaseInsensitiveContains("mac не хранит пароли календаря"), "\(state)")
-            XCTAssertTrue(message.localizedCaseInsensitiveContains("ручная запись"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("сервером rec"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("пароли календаря"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("oauth"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("provider"), "\(state)")
         }
+
+        XCTAssertTrue(DesktopCabinetState.offline.userMessage.contains("Запись на этом Mac остаётся доступна"))
+        XCTAssertEqual(DesktopCabinetState.offline.recoveryActionTitle, "Повторить")
     }
 
     func testAllCabinetStateMessagesStayMetadataOnly() {

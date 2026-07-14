@@ -135,5 +135,5 @@ async def create_support_incident(
         github_issue_url=result.github_issue_url,
         dedupe_status=result.dedupe_status,
         affected_count=result.affected_count,
-        user_message=f"Отчет отправлен. Мы разберемся. Номер: {result.incident_id}",
+        user_message=f"Запрос отправлен в поддержку. Номер: {result.incident_id}",
     )

@@ -2189,7 +2189,7 @@ public enum SystemAudioStatusLabels {
     public static let localRecordingPausedStatus =
         "Запись на паузе. Остановить можно в любой момент."
     public static let meetingMuteTruthLimitationCopy =
-        "GRAF не может проверить mute в этой встрече. Чтобы локальная речь не попала в запись, используйте Паузу или Остановить в GRAF."
+        "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Паузу» или «Остановить» в GRAF."
     public static let captureAudioTitle = "Уровни записи"
     public static let microphoneTitle = "Микрофон"
     public static let incomingTitle = "Встреча"
@@ -2257,10 +2257,6 @@ public enum SystemAudioStatusLabels {
         "\(title): \(detail)"
     }
 
-    public static func localRecordingLocationAccessibilityLabel(_ path: String) -> String {
-        "Путь локальной записи: \(path)"
-    }
-
     public static func calendarPromptAccessibilityLabel(title: String, action: String) -> String {
         "\(title). \(action). Запись не начинается автоматически."
     }
@@ -2289,11 +2285,9 @@ public enum SystemAudioAccessibilityIdentifier {
     public static let recordingMicrophoneStatus = "systemAudio.recordingMicrophone.status"
     public static let recordingMicrophoneRecovery = "systemAudio.recordingMicrophone.recovery"
     public static let muteTruthWarning = "systemAudio.muteTruth.warning"
-    public static let appleProcessingStatus = "systemAudio.appleProcessing.status"
     public static let webRTCAEC3Status = "systemAudio.webRTCAEC3.status"
     public static let webRTCAEC3FallbackStatus = "systemAudio.webRTCAEC3.fallback.status"
     public static let webRTCAEC3RollbackStatus = "systemAudio.webRTCAEC3.rollback.status"
-    public static let localRecordingLocation = "systemAudio.localRecording.location"
     public static let calendarPrompt = "systemAudio.calendar.prompt"
     public static let calendarPromptPrimaryButton = "systemAudio.calendar.prompt.primary"
     public static let calendarPromptDismissButton = "systemAudio.calendar.prompt.dismiss"

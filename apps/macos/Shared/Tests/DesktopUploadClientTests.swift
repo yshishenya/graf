@@ -399,7 +399,7 @@ final class DesktopUploadClientTests: XCTestCase {
           "dedupe_status": "created",
           "affected_count": 1,
           "copy_fallback_available": true,
-          "user_message": "Отчет отправлен. Мы разберемся. Номер: CUST-123"
+          "user_message": "Запрос отправлен в поддержку. Номер: CUST-123"
         }
         """.data(using: .utf8)!
 

@@ -6,10 +6,9 @@ import XCTest
 
 struct DesktopSupportIncidentFixture {
     static let schemaVersion = "desktop-support-incident.v1"
-    static let successMessage = "Отчет отправлен. Мы разберемся. Номер: CUST-123"
-    static let failureMessage = "Не удалось отправить. Скопируйте отчет и отправьте в поддержку."
-    static let copyFallbackTitle = "Скопировать отчет"
-    static let sendReportTitle = "Отправить отчет"
+    static let successMessage = "Запрос отправлен в поддержку. Номер: CUST-123"
+    static let failureMessage = "Не удалось связаться с поддержкой. Попробуйте ещё раз."
+    static let supportTitle = "Связаться с поддержкой"
 
     static func incidentNumber(_ issueNumber: Int = 123) -> String {
         "CUST-\(issueNumber)"

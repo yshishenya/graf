@@ -42,6 +42,98 @@ def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None
     }
 
 
+def test_public_status_filters_remain_exact_while_web_labels_group_related_states(client) -> None:
+    status_rows = (
+        ("submitted", ProcessingStatus.NOT_SUBMITTED),
+        ("processing", ProcessingStatus.POLLING),
+        ("blocked", ProcessingStatus.BLOCKED),
+        ("failed", ProcessingStatus.FAILED_TERMINAL),
+        ("unavailable", ProcessingStatus.CANCELED),
+    )
+
+    async def seed_status_rows() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    Meeting(
+                        id=uuid4(),
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id=f"status-group-{status}",
+                        title=f"Status group {status}",
+                        started_at=datetime(2026, 7, 14, 8, 0, tzinfo=UTC),
+                        duration_seconds=60,
+                        status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
+                        processing_status=processing_status.value,
+                    )
+                    for status, processing_status in status_rows
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_status_rows)
+
+    processing = client.get(
+        "/api/v1/cabinet/meetings?q=status-group&status=processing",
+        headers=auth_headers(),
+    )
+    needs_help = client.get(
+        "/api/v1/cabinet/meetings?q=status-group&status=failed",
+        headers=auth_headers(),
+    )
+    web_processing = client.get(
+        "/meetings",
+        params={"q": "Status group", "status": "processing"},
+        headers=auth_headers(),
+    )
+    web_needs_help = client.get(
+        "/desktop/meetings",
+        params={"q": "Status group", "status": "failed"},
+        headers=auth_headers(),
+    )
+
+    assert processing.status_code == 200
+    assert {item["status"] for item in processing.json()["items"]} == {"processing"}
+    assert needs_help.status_code == 200
+    assert {item["status"] for item in needs_help.json()["items"]} == {"failed"}
+    assert web_processing.status_code == 200
+    assert "Status group submitted" in web_processing.text
+    assert "Status group processing" in web_processing.text
+    assert "Status group failed" not in web_processing.text
+    assert web_needs_help.status_code == 200
+    assert "Status group blocked" in web_needs_help.text
+    assert "Status group failed" in web_needs_help.text
+    assert "Status group unavailable" in web_needs_help.text
+    assert "Status group processing" not in web_needs_help.text
+
+
+def test_search_prefilters_nonmatching_rows_before_access_and_media_projection(
+    client, monkeypatch
+) -> None:
+    seed_cabinet_meetings(client)
+
+    async def fail_if_projected(*_args, **_kwargs):
+        raise AssertionError("nonmatching rows must be filtered in SQL")
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.queries.decide_meeting_access",
+        fail_if_projected,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.queries._latest_media_revision",
+        fail_if_projected,
+    )
+
+    response = client.get(
+        "/api/v1/cabinet/meetings?q=definitely-missing-title",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
 def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) -> None:
     meeting = client.post(
         "/api/v1/meetings",
@@ -69,6 +161,14 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
     response = client.get(
         "/api/v1/cabinet/meetings?q=cabinet-upload-progress", headers=auth_headers()
     )
+    hidden_identifier_page = client.get(
+        "/desktop/meetings?q=cabinet-upload-progress", headers=auth_headers()
+    )
+    visible_title_page = client.get(
+        "/desktop/meetings",
+        params={"q": "Запись без названия"},
+        headers=auth_headers(),
+    )
 
     assert response.status_code == 200
     item = response.json()["items"][0]
@@ -81,11 +181,17 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
         "progress_percent": 40,
         "is_active": True,
     }
+    assert hidden_identifier_page.status_code == 200
+    assert "Ничего не найдено" in hidden_identifier_page.text
+    assert "data-meeting-row" not in hidden_identifier_page.text
+    assert visible_title_page.status_code == 200
+    assert "Запись без названия" in visible_title_page.text
 
-    page = client.get("/desktop/meetings?q=cabinet-upload-progress", headers=auth_headers())
+    page = client.get("/desktop/meetings", headers=auth_headers())
 
     assert page.status_code == 200
-    assert "cabinet-upload-progress" in page.text
+    assert "cabinet-upload-progress" not in page.text
+    assert "Запись без названия" in page.text
     assert "Отправляем 40%" in page.text
     assert 'aria-label="Прогресс отправки записи"' in page.text
     assert 'hx-trigger="every 3s"' in page.text
@@ -125,7 +231,8 @@ def test_desktop_empty_meeting_list_polls_for_new_local_uploads(client) -> None:
     response = client.get("/desktop/meetings?q=missing-local-upload", headers=auth_headers())
 
     assert response.status_code == 200
-    assert "Нет встреч для выбранного фильтра." in response.text
+    assert "Ничего не найдено" in response.text
+    assert "Измените запрос или сбросьте фильтры." in response.text
     assert 'hx-trigger="every 3s"' in response.text
     assert 'hx-get="/desktop/meetings?q=missing-local-upload"' in response.text
 
@@ -209,7 +316,28 @@ def test_cabinet_list_search_filter_sort_and_limit(client) -> None:
     assert title_sorted.status_code == 200
     titles = [item["title"] for item in title_sorted.json()["items"]]
     assert titles == sorted(titles)
-    assert titles.index("aaa-visible-fallback") < titles.index("bbb-visible-title")
+    assert "aaa-visible-fallback" not in titles
+    assert "Запись 26 июн, 08:00" in titles
+    assert "bbb-visible-title" in titles
+
+
+def test_web_meeting_filters_accept_empty_neighbor_controls(client) -> None:
+    seed_cabinet_meetings(client)
+
+    desktop = client.get(
+        "/desktop/meetings?q=&status=ready&access=&sort=updated_desc",
+        headers=auth_headers(),
+    )
+    browser = client.get(
+        "/meetings?q=&status=&access=owner&sort=updated_desc",
+        headers=auth_headers(),
+    )
+
+    assert desktop.status_code == 200
+    assert "Проектный синк" in desktop.text
+    assert "Планирование релиза" not in desktop.text
+    assert browser.status_code == 200
+    assert "Проектный синк" in browser.text
 
 
 def test_cabinet_list_and_detail_use_recording_date_with_legacy_fallback(client) -> None:
@@ -225,16 +353,17 @@ def test_cabinet_list_and_detail_use_recording_date_with_legacy_fallback(client)
     legacy_list = client.get(
         "/api/v1/cabinet/meetings?q=legacy-no-recording-date", headers=auth_headers()
     )
-    legacy_web = client.get("/meetings?q=legacy-no-recording-date", headers=auth_headers())
+    legacy_web = client.get("/meetings", headers=auth_headers())
 
     assert detail.status_code == 200
     assert detail.json()["meeting"]["started_at"].startswith("2026-06-16T08:00:00")
     assert legacy_list.status_code == 200
     legacy_item = legacy_list.json()["items"][0]
-    assert legacy_item["title"] == "legacy-no-recording-date"
+    assert legacy_item["title"] == "Запись без названия"
     assert legacy_item["started_at"] is None
     assert legacy_web.status_code == 200
-    assert "legacy-no-recording-date" in legacy_web.text
+    assert "legacy-no-recording-date" not in legacy_web.text
+    assert "Запись без названия" in legacy_web.text
     assert "Без даты" in legacy_web.text
 
 
@@ -243,19 +372,87 @@ def test_cabinet_list_uses_recording_display_timezone_offset_for_date_label(clie
         "/api/v1/meetings",
         headers=auth_headers(),
         json={
-            "local_recording_id": "timezone-offset-label",
-            "title": "Meeting - 2026-06-27 00:30",
-            "started_at": "2026-06-26T21:30:00Z",
+            "local_recording_id": "timezone-crossing-visible-day",
+            "title": "Meeting - 2026-07-13 23:30",
+            "started_at": "2026-07-13T23:30:00Z",
             "recording_display_timezone_offset_minutes": 180,
             "duration_seconds": 60,
         },
     )
     assert response.status_code == 200
 
-    page = client.get("/meetings?q=timezone-offset-label", headers=auth_headers())
+    page = client.get("/meetings", params={"q": "14"}, headers=auth_headers())
 
     assert page.status_code == 200
-    assert "27 июн" in page.text
+    assert "Запись 14 июл, 02:30" in page.text
+    assert "timezone-crossing-visible-day" not in page.text
+
+
+def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(client) -> None:
+    generated_title = "Current display system audio - 2026-07-13 12:14"
+    manual_title = "manual-upload-mrc4escf-hbo5nhsk"
+    generated = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "generated-capture-title",
+            "title": generated_title,
+            "title_source": "app_context",
+            "started_at": "2026-07-13T09:14:00Z",
+            "recording_display_timezone_offset_minutes": 180,
+            "duration_seconds": 27,
+        },
+    )
+    manual = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": manual_title,
+            "title": manual_title,
+            "duration_seconds": 4_440,
+        },
+    )
+    assert generated.status_code == 200
+    assert manual.status_code == 200
+
+    generated_list = client.get(
+        "/api/v1/cabinet/meetings?q=generated-capture-title",
+        headers=auth_headers(),
+    )
+    manual_list = client.get(
+        f"/api/v1/cabinet/meetings?q={manual_title}",
+        headers=auth_headers(),
+    )
+    generated_visible_search = client.get(
+        "/api/v1/cabinet/meetings",
+        params={"q": "Запись 13 июл, 12:14"},
+        headers=auth_headers(),
+    )
+    manual_visible_search = client.get(
+        "/api/v1/cabinet/meetings",
+        params={"q": "Загруженная запись"},
+        headers=auth_headers(),
+    )
+    page = client.get("/desktop/meetings", headers=auth_headers())
+
+    assert generated_list.status_code == 200
+    assert generated_list.json()["items"][0]["title"] == "Запись 13 июл, 12:14"
+    assert manual_list.status_code == 200
+    assert manual_list.json()["items"][0]["title"] == "Загруженная запись"
+    assert generated_visible_search.status_code == 200
+    assert [item["meeting_id"] for item in generated_visible_search.json()["items"]] == [
+        generated.json()["meeting_id"]
+    ]
+    assert manual_visible_search.status_code == 200
+    assert [item["meeting_id"] for item in manual_visible_search.json()["items"]] == [
+        manual.json()["meeting_id"]
+    ]
+    assert generated_title not in page.text
+    assert manual_title not in page.text
+    assert "Запись 13 июл, 12:14" in page.text
+    assert "Загруженная запись" in page.text
+    assert "27 с" in page.text
+    assert "1 ч 14 мин" in page.text
 
 
 def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> None:
@@ -265,19 +462,25 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
 
     assert response.status_code == 200
     assert "Мои встречи" in response.text
-    assert "Ближайшие" in response.text
-    assert "Ближайшие встречи появятся после подключения календаря." in response.text
-    assert 'href="/settings/integrations/calendar"' in response.text
-    assert "Подключить календари" in response.text
+    assert "Ближайшие" not in response.text
+    assert "Подключить календари" not in response.text
+    assert "Пробный период" not in response.text
+    assert "Пригласить" not in response.text
     assert "Командный синк" not in response.text
     assert "Записи встреч" in response.text
     assert "<span>Загрузить</span>" in response.text
     assert "Загрузить медиа" not in response.text
     assert "Фильтры" in response.text
     assert "Сортировка" in response.text
+    assert response.text.count('id="meeting-search"') == 1
+    assert 'aria-label="Поиск встреч"' in response.text
+    assert "data-filter-disclosure" in response.text
+    assert "data-sort-disclosure" in response.text
+    assert 'aria-label="Сохраненные"' not in response.text
+    assert 'aria-label="Применить фильтры"' not in response.text
     assert 'value="started_desc"' in response.text
     assert 'value="started_asc"' in response.text
-    assert "Новые по дате записи" in response.text
+    assert "Сначала новые" in response.text
     assert "Проектный синк" in response.text
     assert "data-cabinet-shell" in response.text
     assert "data-cabinet-navigation" in response.text
@@ -355,11 +558,13 @@ def test_098_recurring_pointer_has_browser_and_embedded_meeting_list_route_parit
     previous_id = _create_recurring_list_pair(client)
     responses = {
         "web": client.get(
-            "/meetings?q=t082-recurring-current",
+            "/meetings",
+            params={"q": "Synthetic T082 Current"},
             headers=auth_headers(),
         ),
         "embedded": client.get(
-            "/desktop/meetings?q=t082-recurring-current",
+            "/desktop/meetings",
+            params={"q": "Synthetic T082 Current"},
             headers=auth_headers(),
         ),
     }

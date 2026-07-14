@@ -89,7 +89,13 @@ def render_meeting_list_page(
         status_value=response.filters.status or "",
         access_value=response.filters.access or "",
         sort_value=response.filters.sort,
-        calendar_settings_href=_settings_path(embedded),
+        filters_active=bool(
+            response.filters.q or response.filters.status or response.filters.access
+        ),
+        active_filter_count=sum(
+            value is not None and value != ""
+            for value in (response.filters.status, response.filters.access)
+        ),
         upcoming_content=trusted_component_html(
             _render_upcoming_recurring(response, embedded=embedded),
             source="meeting_list.upcoming_recurring",
@@ -241,7 +247,16 @@ def _render_meeting_list_region(
         for item in response.items
     )
     if not rows:
-        rows = '<div class="empty-state">Нет встреч для выбранного фильтра.</div>'
+        if response.filters.q or response.filters.status or response.filters.access:
+            rows = (
+                '<div class="empty-state"><strong>Ничего не найдено</strong>'
+                "<span>Измените запрос или сбросьте фильтры.</span></div>"
+            )
+        else:
+            rows = (
+                '<div class="empty-state"><strong>Пока нет записей</strong>'
+                "<span>Начните запись в приложении или загрузите файл кнопкой выше.</span></div>"
+            )
     poll_attrs = _meeting_list_poll_attrs(response, poll_url=poll_url, poll_empty=embedded)
     content = f"""
       <section class="list-card cabinet-card" aria-label="Записи встреч" data-meeting-list{poll_attrs}>
@@ -470,14 +485,8 @@ def _render_meeting_row(
     csrf_token: str | None = None,
 ) -> str:
     meeting_path = f"{_base_path(embedded)}/{item.meeting_id}"
-    needs_context_choice = bool(
-        item.calendar_context and item.calendar_context.needs_owner_action
-    )
-    href = (
-        f"{meeting_path}#calendar-context-chooser"
-        if needs_context_choice
-        else meeting_path
-    )
+    needs_context_choice = bool(item.calendar_context and item.calendar_context.needs_owner_action)
+    href = f"{meeting_path}#calendar-context-chooser" if needs_context_choice else meeting_path
     delete_action = f"{meeting_path}/deletion-requests"
     selected_class = " is-selected" if selected else ""
     source_icon, source_label = _meeting_media_icon(item)
@@ -489,10 +498,10 @@ def _render_meeting_row(
         else ""
     )
     return f"""
-      <article class="meeting-row cabinet-row{selected_class}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
-        <input class="row-check" type="checkbox" data-meeting-select aria-label="Выбрать запись {title}">
-        <span class="row-icon" data-media-kind="{source_label}" aria-label="{source_label}" title="{source_label}">{source_icon}</span>
-        <a class="meeting-title" href="{href}">
+      <article class="meeting-row cabinet-row{selected_class}" tabindex="0" aria-label="Встреча {title}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
+        <span class="row-select-hit"><input class="row-check" type="checkbox" tabindex="-1" aria-hidden="true" data-row-contextual data-meeting-select aria-label="Выбрать запись {title}"></span>
+        <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
+        <a class="meeting-title" href="{href}" aria-label="Открыть встречу {title}">
           <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
           <span class="row-meta">{row_meta}</span>
         </a>
@@ -503,7 +512,7 @@ def _render_meeting_row(
           data-hx-swap="innerHTML">
           {csrf_field}
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
-          <button class="row-delete icon-button" type="button" data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>
+          <button class="row-delete icon-button" type="button" tabindex="-1" aria-hidden="true" data-row-contextual data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>
           <noscript><button class="row-delete-noscript" type="submit">Удалить</button></noscript>
         </form>
         <span class="meeting-date">{_date_label(item)}</span>
@@ -516,7 +525,7 @@ def _render_meeting_row_meta(item: MeetingListItem) -> str:
     if item.upload is None:
         return f"<span>{escape(_ui_text(item.status_label))}</span>{calendar_context}"
     label = escape(item.upload.label)
-    if item.upload.progress_percent is None:
+    if not item.upload.is_active or item.upload.progress_percent is None:
         return f'<span class="upload-progress-label">{label}</span>{calendar_context}'
     percent = max(0, min(100, item.upload.progress_percent))
     active_attr = " data-upload-progress-active" if item.upload.is_active else ""
@@ -563,12 +572,7 @@ def _render_upcoming_recurring(response: MeetingListResponse, *, embedded: bool)
         )
     if rows:
         return f'<div class="calendar-upcoming-list">{"".join(rows)}</div>'
-    return f"""
-      <div class="calendar-empty">
-        <div class="muted">Ближайшие встречи появятся после подключения календаря.</div>
-        <a class="button quiet calendar-connect-link" href="{_settings_path(embedded)}">Подключить календари</a>
-      </div>
-    """
+    return ""
 
 
 def _render_previous_recurring_pointer(
@@ -628,10 +632,7 @@ def _render_list_calendar_context(item: MeetingListItem) -> str:
     )
     if not context.needs_owner_action:
         return label
-    return (
-        f'{label}<span class="mini-link calendar-context-list-action">'
-        "Выбрать</span>"
-    )
+    return f'{label}<span class="mini-link calendar-context-list-action">Выбрать</span>'
 
 
 def _render_calendar_context_chooser(
@@ -868,7 +869,7 @@ def _render_list_delete_dialog() -> str:
           <button type="button" class="quiet" data-delete-cancel>Отмена</button>
           <button type="button" class="danger-button" data-delete-confirm>Удалить</button>
         </div>
-        <div class="dialog-error" data-delete-error hidden>Не удалось удалить запись. Попробуйте еще раз.</div>
+        <div class="dialog-error" role="status" aria-live="polite" data-delete-error hidden>Не удалось удалить запись. Попробуйте ещё раз.</div>
       </dialog>
     """
 

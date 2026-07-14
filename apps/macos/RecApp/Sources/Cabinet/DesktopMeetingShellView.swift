@@ -3,8 +3,14 @@ import SwiftUI
 import TwoBrainRecShared
 
 public enum DesktopMeetingShellChrome {
+    public static let spacingSmall: CGFloat = 8
+    public static let spacingMedium: CGFloat = 12
+    public static let spacingLarge: CGFloat = 16
+    public static let spacingXLarge: CGFloat = 24
+    public static let controlHeight: CGFloat = 36
+    public static let minimumInteractiveTarget: CGFloat = 40
     public static let collapsedInspectorWidth: CGFloat = 52
-    public static let expandedInspectorWidth: CGFloat = 336
+    public static let expandedInspectorWidth: CGFloat = 308
     public static let shellBackgroundHex = "#191a1c"
     public static let shellRailHex = "#202224"
     public static let shellSurfaceHex = "#242629"
@@ -15,12 +21,16 @@ public enum DesktopMeetingShellChrome {
     public static let shellRailColor = Color(red: 0.125, green: 0.133, blue: 0.141)
     public static let shellSurfaceColor = Color(red: 0.141, green: 0.149, blue: 0.161)
     public static let shellStrokeColor = Color.white.opacity(0.08)
+    public static let shellHighContrastStrokeColor = Color.white.opacity(0.42)
     public static let recordingStripColor = Color(red: 0.204, green: 0.125, blue: 0.529)
     public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
     public static let recordingStripHeight: CGFloat = 44
     public static let idleShowsNativeTopBar = false
     public static let fontStackDescription = "SF Pro Text / system"
-    public static let compactRailLabels = ["Запись", "Сохранность"]
+    public static let compactRailLabels = ["Статус записи", "Локальная сохранность"]
+    public static let compactRailStartLabel = "Начать запись"
+    public static let compactRailStopLabel = "Остановить запись"
+    public static let compactRailActionHitSize: CGFloat = 40
     public static let settingsRailLabel = "Настройки"
     public static let webEmbeddedBackgroundNSColor = NSColor(
         srgbRed: 0.098,
@@ -37,8 +47,8 @@ public enum DesktopMeetingShellChrome {
     public static let inspectorToggleCollapsedLabel = "Показать панель управления"
     public static let inspectorToggleExpandedLabel = "Скрыть панель управления"
 
-    public static func shouldShowExpandedInspector(manualExpanded: Bool, hasActiveRecording _: Bool) -> Bool {
-        manualExpanded
+    public static func shouldShowExpandedInspector(manualExpanded: Bool, hasActionableProblem: Bool) -> Bool {
+        manualExpanded || hasActionableProblem
     }
 
     public static func recordingTitle(for mode: CaptureMode) -> String {
@@ -84,11 +94,15 @@ private extension Array where Element == DesktopUploadQueueItem {
     }
 }
 
-public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: View, DiagnosticsContent: View>: View {
+public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: View>: View {
     private let session: CaptureSession?
     private let uploadQueueItems: [DesktopUploadQueueItem]
     private let cabinetConfigured: Bool
     private let cabinetState: DesktopCabinetState
+    private let startRecordingAvailable: Bool
+    private let recordingTransitionInProgress: Bool
+    private let hasActionableCaptureProblem: Bool
+    private let onStartRecording: () -> Void
     private let onStopRecording: () -> Void
     private let onPauseRecording: () -> Void
     private let onResumeRecording: () -> Void
@@ -96,14 +110,20 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
-    private let diagnosticsContent: DiagnosticsContent
     @State private var inspectorExpanded = false
+    @State private var attentionExpansionDismissed = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     public init(
         session: CaptureSession?,
         uploadQueueItems: [DesktopUploadQueueItem],
         cabinetConfigured: Bool,
         cabinetState: DesktopCabinetState,
+        startRecordingAvailable: Bool = false,
+        recordingTransitionInProgress: Bool = false,
+        hasActionableCaptureProblem: Bool = false,
+        onStartRecording: @escaping () -> Void = {},
         onStopRecording: @escaping () -> Void = {},
         onPauseRecording: @escaping () -> Void = {},
         onResumeRecording: @escaping () -> Void = {},
@@ -112,13 +132,16 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
         },
         @ViewBuilder captureControls: () -> CaptureControls,
-        @ViewBuilder meetingsWorkspace: () -> MeetingsWorkspace,
-        @ViewBuilder diagnosticsContent: () -> DiagnosticsContent
+        @ViewBuilder meetingsWorkspace: () -> MeetingsWorkspace
     ) {
         self.session = session
         self.uploadQueueItems = uploadQueueItems
         self.cabinetConfigured = cabinetConfigured
         self.cabinetState = cabinetState
+        self.startRecordingAvailable = startRecordingAvailable
+        self.recordingTransitionInProgress = recordingTransitionInProgress
+        self.hasActionableCaptureProblem = hasActionableCaptureProblem
+        self.onStartRecording = onStartRecording
         self.onStopRecording = onStopRecording
         self.onPauseRecording = onPauseRecording
         self.onResumeRecording = onResumeRecording
@@ -126,7 +149,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.onSupportIncidentReport = onSupportIncidentReport
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
-        self.diagnosticsContent = diagnosticsContent()
     }
 
     public var body: some View {
@@ -139,13 +161,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .clipped()
-                .overlay(alignment: .topTrailing) {
-                    InspectorDisclosureButton(isExpanded: expandedInspectorVisible) {
-                        inspectorExpanded = !expandedInspectorVisible
-                    }
-                    .padding(.top, DesktopMeetingShellChrome.inspectorToggleTopInset)
-                    .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleTrailingInset)
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -153,13 +168,24 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .background {
             RecordingTitlebarAccessory(
                 session: recordingStripSession,
+                transitionInProgress: recordingTransitionInProgress,
                 onStop: onStopRecording,
                 onPause: onPauseRecording,
                 onResume: onResumeRecording
             )
             .frame(width: 0, height: 0)
         }
-        .animation(.easeInOut(duration: 0.18), value: expandedInspectorVisible)
+        .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18), value: expandedInspectorVisible)
+        .onChange(of: hasActionableCaptureProblem) { _, isActionable in
+            if isActionable {
+                attentionExpansionDismissed = false
+            }
+        }
+        .onChange(of: attentionCustodySignature) { _, attentionSignature in
+            if !attentionSignature.isEmpty {
+                attentionExpansionDismissed = false
+            }
+        }
         .accessibilityIdentifier("desktop-meeting-shell")
     }
 
@@ -191,23 +217,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var localMeetingsWorkspace: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            localTodayStrip
+        VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingLarge) {
+            localCabinetStatus
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .center) {
-                    Text("Записи")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    Spacer()
-                    HStack(spacing: 10) {
-                        Image(systemName: "bookmark")
-                        Image(systemName: "line.3.horizontal.decrease")
-                        Image(systemName: "arrow.up.arrow.down")
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
+                Text("Записи на этом Mac")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
 
                 if localQueueRows.isEmpty {
                     localEmptyState
@@ -227,60 +243,25 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                            .stroke(shellStrokeColor, lineWidth: 1)
                     )
                 }
             }
         }
     }
 
-    private var localTodayStrip: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Сегодня")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                localTodayTile(
-                    date: "Сейчас",
-                    title: captureStatusText,
-                    detail: custodySummary?.title ?? "Готово",
-                    icon: captureStatusIcon,
-                    color: captureStatusColor
-                )
-                localTodayTile(
-                    date: "Кабинет",
-                    title: cabinetStatusPresentation.tileTitle,
-                    detail: cabinetStatusPresentation.tileDetail,
-                    icon: cabinetStatusPresentation.systemImage,
-                    color: cabinetStatusColor
-                )
-            }
-        }
-    }
-
-    private func localTodayTile(date: String, title: String, detail: String, icon: String, color: Color) -> some View {
-        HStack(spacing: 10) {
-            VStack(spacing: 2) {
-                Text(date)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Image(systemName: icon)
-                    .foregroundStyle(color)
-            }
-            .frame(width: 52)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(Color.secondary.opacity(0.08))
-            )
-
+    private var localCabinetStatus: some View {
+        HStack(spacing: DesktopMeetingShellChrome.spacingMedium) {
+            Image(systemName: cabinetStatusPresentation.systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(cabinetStatusColor)
+                .frame(width: 24)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
+                Text(cabinetStatusPresentation.tileTitle)
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .lineLimit(1)
-                Text(detail)
+                Text(cabinetStatusPresentation.tileDetail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -295,8 +276,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                .stroke(shellStrokeColor, lineWidth: 1)
         )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(cabinetStatusPresentation.tileTitle). \(cabinetStatusPresentation.tileDetail)")
     }
 
     private var localEmptyState: some View {
@@ -317,7 +300,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                .stroke(shellStrokeColor, lineWidth: 1)
         )
     }
 
@@ -328,20 +311,28 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         return DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode(uploadQueueItems)
     }
 
-    private var custodySummary: DesktopUploadCustodySummary? {
-        DesktopUploadCustodySummary.summary(for: uploadQueueItems)
-    }
-
     private var custodyDetailSummaries: [DesktopUploadCustodySummary] {
         DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
     }
 
-    private var meetingOwnerCustodyActionCount: Int {
-        DesktopUploadCustodySummary.meetingOwnerActionCount(for: uploadQueueItems)
+    private var attentionCustodySummaries: [DesktopUploadCustodySummary] {
+        custodyDetailSummaries.filter { summary in
+            summary.primaryProjection.requiresUserAttention
+        }
+    }
+
+    private var attentionCustodyItemCount: Int {
+        DesktopUploadCustodySummary.attentionItemCount(for: uploadQueueItems)
+    }
+
+    private var attentionCustodySignature: String {
+        attentionCustodySummaries.map { summary in
+            "\(summary.stableIdentity)|\(summary.primaryProjection.normalUserAction.rawValue)|\(summary.pendingCount)"
+        }.joined(separator: ";")
     }
 
     private var showsLocalDeleteConfirmationCopy: Bool {
-        custodyDetailSummaries.contains { summary in
+        attentionCustodySummaries.contains { summary in
             summary.primaryProjection.custodyState == .cannotSend ||
                 summary.primaryProjection.custodyState == .terminalUndelivered
         }
@@ -378,7 +369,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                .stroke(shellStrokeColor, lineWidth: 1)
         )
     }
 
@@ -431,14 +422,14 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private func localRecordingDetail(for item: DesktopUploadQueueItem) -> String {
         if item.state == .uploaded {
             return item.serverTruth.meetingId == nil
-                ? "Локальная копия сохранена, сервер не подтвержден"
-                : "Готова к обзору"
+                ? "Сохранено на Mac; сервер пока не подтвердил запись"
+                : "Готово к просмотру"
         }
         if item.state == .queued && item.serverTruth.meetingId == nil {
-            return "Сохранена локально, ждет отправки"
+            return "Сохранено на Mac; отправим автоматически"
         }
         if item.state == .retrying && item.serverTruth.meetingId == nil {
-            return "Сохранена локально, повторим отправку"
+            return "Сохранено на Mac; повторим отправку автоматически"
         }
         if item.state == .blocked {
             let projection = DesktopUploadCustodyProjection(item: item)
@@ -452,7 +443,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private func localRecordingAccessibilityLabel(for item: DesktopUploadQueueItem) -> String {
-        let reviewState = item.serverTruth.mediaRevisionId == nil ? "" : ". Серверная медиа-ревизия подтверждена"
+        let reviewState = item.serverTruth.mediaRevisionId == nil ? "" : ". Запись получена сервером"
         return "\(localRecordingTitle(for: item)), \(localRecordingDetail(for: item)), \(localRecordingDuration(for: item))\(reviewState)"
     }
 
@@ -461,9 +452,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         let minutes = seconds / 60
         let remainder = seconds % 60
         if minutes == 0 {
-            return "\(remainder)с"
+            return "\(remainder) с"
         }
-        return "\(minutes)м \(remainder)с"
+        return remainder == 0 ? "\(minutes) мин" : "\(minutes) мин \(remainder) с"
     }
 
     private func localRecordingDateText(for date: Date) -> String {
@@ -527,52 +518,103 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var compactInspector: some View {
-        VStack(spacing: 12) {
-            Color.clear
-                .frame(
-                    width: DesktopMeetingShellChrome.inspectorToggleHitSize,
-                    height: DesktopMeetingShellChrome.inspectorToggleHitSize
-                )
-
+        VStack(spacing: DesktopMeetingShellChrome.spacingSmall) {
             railIcon(
                 captureStatusIcon,
-                selected: session != nil,
+                selected: session != nil || hasActionableCaptureProblem,
                 color: captureStatusColor
             )
-            .help(DesktopMeetingShellChrome.compactRailLabels[0])
+            .frame(
+                width: DesktopMeetingShellChrome.compactRailActionHitSize,
+                height: DesktopMeetingShellChrome.compactRailActionHitSize
+            )
+            .help(captureStatusText)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(DesktopMeetingShellChrome.compactRailLabels[0]): \(captureStatusText)")
+            .accessibilityIdentifier("desktop-meeting-shell-recording-status")
 
-            if meetingOwnerCustodyActionCount > 0 {
-                Text("\(meetingOwnerCustodyActionCount)")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .frame(width: 30, height: 24)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7)
-                            .fill(Color.orange.opacity(0.82))
-                    )
-                    .help("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется действие")
-            } else if let custodySummary {
-                railIcon(
-                    "internaldrive",
-                    selected: false,
-                    color: .secondary
+            compactCaptureAction
+
+            if attentionCustodyItemCount > 0 {
+                Button {
+                    attentionExpansionDismissed = false
+                    inspectorExpanded = true
+                } label: {
+                    Text("\(attentionCustodyItemCount)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill(Color.orange.opacity(0.82))
+                        )
+                }
+                .buttonStyle(.plain)
+                .frame(
+                    width: DesktopMeetingShellChrome.minimumInteractiveTarget,
+                    height: DesktopMeetingShellChrome.minimumInteractiveTarget
                 )
-                .help(custodySummary.accessibilityLabel)
+                .contentShape(Rectangle())
+                .help("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется внимание")
+                .accessibilityLabel("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется внимание")
             }
-
-            Button(action: onOpenSettings) {
-                railIcon("gearshape", selected: false, color: .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(DesktopMeetingShellChrome.settingsRailLabel)
-            .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
-            .accessibilityIdentifier("desktop-meeting-shell-settings-button")
 
             Spacer()
+
+            InspectorDisclosureButton(isExpanded: false) {
+                toggleInspector()
+            }
+            .accessibilityIdentifier("desktop-meeting-shell-inspector-toggle")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 6)
+        .padding(.vertical, DesktopMeetingShellChrome.spacingMedium)
         .background(DesktopMeetingShellChrome.shellRailColor)
+    }
+
+    @ViewBuilder
+    private var compactCaptureAction: some View {
+        if let session = recordingStripSession {
+            Button(role: .destructive, action: onStopRecording) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(
+                        width: DesktopMeetingShellChrome.compactRailActionHitSize,
+                        height: DesktopMeetingShellChrome.compactRailActionHitSize
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.red.opacity(0.88))
+                    )
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .disabled(recordingTransitionInProgress || !session.stopActionAvailable)
+            .help(DesktopMeetingShellChrome.compactRailStopLabel)
+            .accessibilityLabel(DesktopMeetingShellChrome.compactRailStopLabel)
+            .accessibilityIdentifier("desktop-meeting-shell-stop-recording-button")
+        } else {
+            Button(action: onStartRecording) {
+                Image(systemName: recordingTransitionInProgress ? "clock" : "record.circle.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(
+                        width: DesktopMeetingShellChrome.compactRailActionHitSize,
+                        height: DesktopMeetingShellChrome.compactRailActionHitSize
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(DesktopMeetingShellChrome.shellAccentColor)
+                    )
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .disabled(!startRecordingAvailable || recordingTransitionInProgress)
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .help(DesktopMeetingShellChrome.compactRailStartLabel)
+            .accessibilityLabel(DesktopMeetingShellChrome.compactRailStartLabel)
+            .accessibilityIdentifier("desktop-meeting-shell-start-recording-button")
+        }
     }
 
     private func railIcon(_ icon: String, selected: Bool, color: Color = .secondary) -> some View {
@@ -592,26 +634,29 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private var inspector: some View {
         ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
                 HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Управление")
-                            .font(.system(size: 15, weight: .semibold))
-                        Text("Локальное управление")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("Запись")
+                        .font(.system(size: 15, weight: .semibold))
                     Spacer()
                     Button(action: onOpenSettings) {
                         Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
                             .labelStyle(.iconOnly)
                     }
                     .buttonStyle(.borderless)
+                    .frame(
+                        minWidth: DesktopMeetingShellChrome.controlHeight,
+                        minHeight: DesktopMeetingShellChrome.controlHeight
+                    )
                     .help(DesktopMeetingShellChrome.settingsRailLabel)
                     .accessibilityLabel(DesktopMeetingShellChrome.settingsRailLabel)
                     .accessibilityIdentifier("desktop-meeting-shell-expanded-settings-button")
+
+                    InspectorDisclosureButton(isExpanded: true) {
+                        toggleInspector()
+                    }
+                    .accessibilityIdentifier("desktop-meeting-shell-inspector-toggle")
                 }
-                .padding(.trailing, DesktopMeetingShellChrome.inspectorToggleHitSize)
 
                 captureControls
                     .background(
@@ -620,41 +665,14 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                            .stroke(shellStrokeColor, lineWidth: 1)
                     )
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Доверие записи", systemImage: "lock.shield")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Системный звук и микрофон записываются приложением")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-                )
-
-                if !custodyDetailSummaries.isEmpty {
+                if attentionCustodyItemCount > 0 {
                     custodyDetailsDisclosure
                 }
-
-                DisclosureGroup {
-                    diagnosticsContent
-                        .padding(.top, 8)
-                } label: {
-                    Label("Диагностика", systemImage: "stethoscope")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-                )
             }
-            .padding(14)
+            .padding(DesktopMeetingShellChrome.spacingLarge)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -664,7 +682,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var custodyDetailsDisclosure: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(custodyDetailSummaries, id: \.stableIdentity) { summary in
+                ForEach(attentionCustodySummaries, id: \.stableIdentity) { summary in
                     custodyDetailRow(summary)
                 }
 
@@ -759,8 +777,22 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var expandedInspectorVisible: Bool {
         DesktopMeetingShellChrome.shouldShowExpandedInspector(
             manualExpanded: inspectorExpanded,
-            hasActiveRecording: recordingStripSession != nil
+            hasActionableProblem: hasInspectorAttention && !attentionExpansionDismissed
         )
+    }
+
+    private var hasInspectorAttention: Bool {
+        hasActionableCaptureProblem || attentionCustodyItemCount > 0
+    }
+
+    private func toggleInspector() {
+        if expandedInspectorVisible {
+            inspectorExpanded = false
+            attentionExpansionDismissed = hasInspectorAttention
+        } else {
+            attentionExpansionDismissed = false
+            inspectorExpanded = true
+        }
     }
 
     private var recordingStripSession: CaptureSession? {
@@ -771,8 +803,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var captureStatusText: String {
-        guard let session else { return "Готово к записи" }
-        return CaptureStatusItem.statusLabel(for: session)
+        if let session {
+            return CaptureStatusItem.statusLabel(for: session)
+        }
+        return hasInspectorAttention ? "Требуется внимание" : "Готово к записи"
     }
 
     private var captureStatusIcon: String {
@@ -801,6 +835,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         default:
             return .secondary
         }
+    }
+
+    private var shellStrokeColor: Color {
+        colorSchemeContrast == .increased
+            ? DesktopMeetingShellChrome.shellHighContrastStrokeColor
+            : DesktopMeetingShellChrome.shellStrokeColor
     }
 
     private var cabinetStatusPresentation: DesktopMeetingShellCabinetStatusPresentation {
@@ -845,7 +885,7 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
         guard cabinetConfigured else {
             return DesktopMeetingShellCabinetStatusPresentation(
                 tileTitle: "Локальный режим",
-                tileDetail: "Сохраняются здесь",
+                tileDetail: "Записи остаются на этом Mac",
                 systemImage: "wifi.slash",
                 tone: .warning
             )
@@ -855,21 +895,21 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
         case .ready:
             return DesktopMeetingShellCabinetStatusPresentation(
                 tileTitle: "Сервер доступен",
-                tileDetail: "Вход подтвержден",
+                tileDetail: "Вход выполнен",
                 systemImage: "checkmark.circle",
                 tone: .success
             )
         case .loading:
             return DesktopMeetingShellCabinetStatusPresentation(
                 tileTitle: "Проверяем сервер",
-                tileDetail: "Ждем ответ кабинета",
+                tileDetail: "Подключаемся…",
                 systemImage: "clock",
                 tone: .neutral
             )
         case .offline, .timeout:
             return DesktopMeetingShellCabinetStatusPresentation(
                 tileTitle: "Сервер недоступен",
-                tileDetail: "Запись работает локально",
+                tileDetail: "Записи остаются на этом Mac",
                 systemImage: "wifi.slash",
                 tone: .error
             )
@@ -903,15 +943,15 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
             )
         case .blockedRoute:
             return DesktopMeetingShellCabinetStatusPresentation(
-                tileTitle: "Ограничено",
-                tileDetail: "Откройте снаружи",
+                tileTitle: "Кабинет не открылся",
+                tileDetail: "Откройте GRAF в браузере",
                 systemImage: "hand.raised",
                 tone: .warning
             )
         case .notConfigured:
             return DesktopMeetingShellCabinetStatusPresentation(
                 tileTitle: "Локальный режим",
-                tileDetail: "Сохраняются здесь",
+                tileDetail: "Записи остаются на этом Mac",
                 systemImage: "wifi.slash",
                 tone: .warning
             )
@@ -921,6 +961,7 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
 
 private struct RecordingTitlebarAccessory: NSViewRepresentable {
     let session: CaptureSession?
+    let transitionInProgress: Bool
     let onStop: () -> Void
     let onPause: () -> Void
     let onResume: () -> Void
@@ -932,6 +973,7 @@ private struct RecordingTitlebarAccessory: NSViewRepresentable {
     func updateNSView(_ nsView: RecordingTitlebarAccessoryAnchor, context _: Context) {
         nsView.update(
             session: session,
+            transitionInProgress: transitionInProgress,
             onStop: onStop,
             onPause: onPause,
             onResume: onResume
@@ -945,6 +987,7 @@ private struct RecordingTitlebarAccessory: NSViewRepresentable {
 
 private final class RecordingTitlebarAccessoryAnchor: NSView {
     private var session: CaptureSession?
+    private var transitionInProgress = false
     private var onStop: () -> Void = {}
     private var onPause: () -> Void = {}
     private var onResume: () -> Void = {}
@@ -954,11 +997,13 @@ private final class RecordingTitlebarAccessoryAnchor: NSView {
 
     func update(
         session: CaptureSession?,
+        transitionInProgress: Bool,
         onStop: @escaping () -> Void,
         onPause: @escaping () -> Void,
         onResume: @escaping () -> Void
     ) {
         self.session = session
+        self.transitionInProgress = transitionInProgress
         self.onStop = onStop
         self.onPause = onPause
         self.onResume = onResume
@@ -994,6 +1039,7 @@ private final class RecordingTitlebarAccessoryAnchor: NSView {
 
         let rootView = AnyView(RecordingTitlebarHUD(
             session: session,
+            transitionInProgress: transitionInProgress,
             onStop: onStop,
             onPause: onPause,
             onResume: onResume
@@ -1025,6 +1071,7 @@ private final class RecordingTitlebarAccessoryAnchor: NSView {
 
 private struct RecordingTitlebarHUD: View {
     let session: CaptureSession
+    let transitionInProgress: Bool
     let onStop: () -> Void
     let onPause: () -> Void
     let onResume: () -> Void
@@ -1093,7 +1140,7 @@ private struct RecordingTitlebarHUD: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(!session.stopActionAvailable)
+            .disabled(!session.stopActionAvailable || transitionInProgress)
             .accessibilityLabel(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
             .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
         } else if CaptureStatusItem.showsResumeButton(for: session) {
@@ -1102,7 +1149,7 @@ private struct RecordingTitlebarHUD: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(!session.stopActionAvailable)
+            .disabled(!session.stopActionAvailable || transitionInProgress)
             .accessibilityLabel(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
             .help(SystemAudioStatusLabels.resumeButtonAccessibilityLabel)
         }
@@ -1114,7 +1161,7 @@ private struct RecordingTitlebarHUD: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .tint(.red)
-            .disabled(!session.stopActionAvailable)
+            .disabled(!session.stopActionAvailable || transitionInProgress)
             .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
             .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
         }
@@ -1145,6 +1192,7 @@ private struct InspectorDisclosureButton: View {
     let isExpanded: Bool
     let action: () -> Void
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -1172,10 +1220,9 @@ private struct InspectorDisclosureButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.12)) {
-                isHovering = hovering
-            }
+            isHovering = hovering
         }
+        .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
         .help(accessibilityLabel)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(isExpanded ? "Сворачивает правую панель" : "Раскрывает правую панель")

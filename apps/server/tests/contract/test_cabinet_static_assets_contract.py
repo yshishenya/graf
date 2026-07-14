@@ -79,18 +79,67 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "sessionStorage" not in script
 
 
+def test_cabinet_js_uses_product_facing_ellipsis_in_async_states() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+
+    for legacy_copy in [
+        '"Удаляем..."',
+        '"Загружаем файл..."',
+        '"Продолжаем загрузку..."',
+        '"Проверяем..."',
+    ]:
+        assert legacy_copy not in script
+    for product_copy in [
+        '"Удаляем…"',
+        '"Загружаем файл…"',
+        '"Продолжаем загрузку…"',
+        '"Проверяем…"',
+    ]:
+        assert product_copy in script
+
+
 def test_cabinet_js_owns_component_dom_behavior() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 
     for marker in [
         "data-code-form",
+        "syncRefinementState",
         "auth-leaving",
         "data-delete-dialog",
         "activateDetailTab",
         "data-playback-player",
         "new FormData(form)",
+        '"HX-Request": "true"',
+        "if (!response.ok)",
+        "const failedRows = []",
+        "pendingDeleteRows = failedRows",
+        "target.replaceChildren(document.importNode(feedback, true))",
+        'dialog.querySelector("[data-delete-cancel]")?.focus({ preventScroll: true })',
+        'deleteDialog?.addEventListener("cancel"',
+        'source.matches("[data-upload-progress-poll]")',
+        "listInteractionIsActive()",
+        'document.querySelector("[data-delete-dialog][open], [data-manual-upload-dialog][open]")',
+        "deleteReturnMeetingId",
+        "isUsableFocusTarget(deleteReturnFocus)",
+        "target.closest(\"[hidden], [aria-hidden='true']\") === null",
+        "returnRow?.isConnected ? returnRow",
+        "if (!shouldSelectAll) rows[0]?.focus({ preventScroll: true })",
+        "closeDeleteDialog();",
+        'event.key !== "Escape"',
+        'openDisclosure.querySelector("summary")?.focus({ preventScroll: true })',
+        'event.target.closest("[data-filter-disclosure], [data-sort-disclosure]")',
     ]:
         assert marker in script
+
+
+def test_collapsed_sidebar_only_expands_through_the_explicit_toggle() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    assert ".desktop-embedded.is-rail-pinned .sidebar" in css
+    assert ".desktop-embedded .sidebar:hover" not in css
+    assert ".desktop-embedded .sidebar:focus-within" not in css
+    assert ".desktop-embedded .sidebar-foot {\n    visibility: hidden;\n  }" in css
+    assert ".desktop-embedded.is-rail-pinned .sidebar-foot {\n    visibility: visible;\n  }" in css
 
 
 def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
@@ -144,3 +193,50 @@ def test_auth_static_assets_keep_compact_panel_and_code_autosubmit() -> None:
     assert "requestSubmit" in script
     assert "slots.every((target) => target.value.length === 1)" in script
     assert "submitted = true" in script
+
+
+def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    for marker in [
+        "--space-1: 8px;",
+        "--space-2: 12px;",
+        "--space-3: 16px;",
+        "--space-4: 24px;",
+        "--control-height: 36px;",
+        "--meeting-row-height: 48px;",
+        "--focus-ring: #b6aaff;",
+        "--app-sidebar-width: 176px;",
+        "--app-rail-width: 64px;",
+        "outline: 2px solid var(--focus-ring);",
+        ".meeting-row.cabinet-row:hover,\n.meeting-row.cabinet-row:focus-within",
+        "grid-template-columns: var(--app-rail-width) minmax(0, 1fr);",
+        "@media (max-width: 1120px)",
+        ".new-button.manual-upload-trigger > span",
+        ".desktop-embedded .cabinet-list-controls .manual-upload-trigger {",
+        "grid-column: auto;",
+        ".cabinet-workspace-header--brand .cabinet-workspace-header__avatar",
+        '[data-icon="panel-left-close"]',
+        "@media (prefers-contrast: more)",
+        "@media (prefers-reduced-motion: reduce)",
+    ]:
+        assert marker in css
+
+    assert "min-height: var(--meeting-row-height);" in css
+    assert "min-height: var(--control-height);" in css
+    assert "overflow-x: hidden" in css
+    assert (
+        ".desktop-embedded .cabinet-list-controls .manual-upload-trigger {\n"
+        "    grid-column: auto;\n"
+        "    width: 40px;\n"
+        "    min-width: 40px;\n"
+        "    padding: 0;\n"
+        "  }"
+    ) in css
+    assert (
+        ".desktop-embedded .cabinet-list-controls .manual-upload-trigger {\n"
+        "    grid-column: 1 / -1;\n"
+        "    width: 100%;\n"
+        "  }"
+    ) not in css
+    assert 'aria-label="Сохраненные"' not in css

@@ -11,11 +11,11 @@ final class CaptureIndicatorTests: XCTestCase {
 
         XCTAssertEqual(
             CaptureStatusItem.statusLabel(for: session),
-            "Идет запись"
+            "Идёт запись"
         )
         XCTAssertEqual(
             CaptureStatusItem.accessibilityLabel(for: session),
-            "Идет запись. Кнопка остановки доступна."
+            "Идёт запись. Кнопка остановки доступна."
         )
     }
 
@@ -35,6 +35,7 @@ final class CaptureIndicatorTests: XCTestCase {
     func testStoppedSessionAllowsRecordButtonToReturn() {
         let session = makeSession(state: .stopped, indicator: .hidden, stopAvailable: false)
 
+        XCTAssertEqual(CaptureStatusItem.statusLabel(for: session), "Сохранено на Mac")
         XCTAssertFalse(CaptureStatusItem.showsStopButton(for: session))
         XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: session))
     }

@@ -135,6 +135,10 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
     public let metadataSafety: DesktopUploadCustodyMetadataSafety
     public let progressFraction: Double
 
+    public var requiresUserAttention: Bool {
+        normalUserAction != .none || copyKey == "custody.retention_warning"
+    }
+
     public init(item: DesktopUploadQueueItem, now: Date = Date()) {
         let rule = Self.rule(for: item, now: now)
         self.itemId = item.id
@@ -648,13 +652,12 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
             .map { $0 }
     }
 
-    public static func meetingOwnerActionCount(
+    public static func attentionItemCount(
         for items: [DesktopUploadQueueItem],
         now: Date = Date()
     ) -> Int {
         visibleCandidates(for: items, now: now).filter { candidate in
-            candidate.projection.owner == .meetingOwner &&
-                candidate.projection.normalUserAction != .none
+            candidate.projection.requiresUserAttention
         }.count
     }
 
@@ -1516,20 +1519,20 @@ public enum DesktopUploadCustodyCopy {
         case "custody.needs_workspace":
             return "Выберите, куда отправить записи. Локальные копии сохранены."
         case "custody.needs_admin":
-            return "Нужна проверка доступа или политики рабочего пространства. Отправьте отчет, мы передадим детали поддержке/администратору."
+            return "Проверьте доступ к рабочему пространству или обратитесь к администратору."
         case "custody.cannot_send":
-            return "Локальная копия сохранена. Диагностика не содержит аудио и текст встречи."
+            return "Локальная копия сохранена на этом Mac. Свяжитесь с поддержкой, если проблема повторится."
         case "custody.retention_warning":
             if let deadline {
                 return "Локальная копия сохранена до \(dateText(deadline)) по политике хранения."
             }
             return "Локальная копия сохранена до срока политики хранения."
         case "custody.terminal_undelivered":
-            return "Автоматическая отправка уже не выполнится. Локальная копия сохранена на этом Mac. Отправьте отчет, чтобы мы проверили, можно ли помочь."
+            return "Автоматическая отправка не выполнится. Локальная копия сохранена на этом Mac. Свяжитесь с поддержкой, если запись ещё нужна."
         case "custody.known_by_server":
             return "Серверный список показывает актуальное состояние."
         default:
-            return "Локальная копия сохранена. Подробности доступны в безопасном отчете."
+            return "Локальная копия сохранена на этом Mac. Свяжитесь с поддержкой, если нужна помощь."
         }
     }
 
