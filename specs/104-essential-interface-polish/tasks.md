@@ -252,7 +252,16 @@ The smallest independently useful slice is US1 after baseline: remove disabled/d
   calendar context while rendering `Ближайшие` only for a real authorized
   future recurring occurrence; focused crossover suites pass `168` server and
   `149` macOS tests, and the post-resolution full gate passes `642` Swift tests,
-  `1426` server tests, `4` skips, and `ContractValidation: PASS`.
+  `1427` server tests, `4` skips, and `ContractValidation: PASS`.
+- Post-PR review removed the last dead navigation/CSS states, fixed accepted-
+  media title cleanup, filter counting, and compact embedded filter access;
+  the focused regression set passes `105` tests and final dead-state scans find
+  no remaining selectors or model branches.
+- A pre-existing calendar manual-sync timing assertion failed two loaded full
+  suites by `5–28 ms`; profiling showed that it timed a cold app/client before
+  the settings page a user must open to reach the action. The test-only fix now
+  models that entry point while preserving the original `<2s` requirement, and
+  the final full repository gate is green.
 - T016, T028, and T036 are closed by combined metadata-safe evidence: the real
   GRAF shell was exercised unlocked for onboarding, compact/expanded idle,
   offline, and retry; the final production capture views were exercised in an

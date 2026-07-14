@@ -401,7 +401,7 @@ Canonical full repository gate after conflict resolution:
 
 - macOS Swift tests: `642 tests`, `0 failures`;
 - `ContractValidation: PASS`;
-- server: `1426 passed`, `4 skipped`, `0 failed`, with the same existing
+- server: `1427 passed`, `4 skipped`, `0 failed`, with the same existing
   Starlette/httpx deprecation warning;
 - Ruff, Python compile, production Compose config, and deployment evidence scan:
   clean;
@@ -411,3 +411,46 @@ Canonical full repository gate after conflict resolution:
 
 No production deploy, release publication, package installation, or installed
 app replacement was performed during this integration.
+
+## 14. Post-PR Review Evidence — 2026-07-14
+
+The ready PR received an additional code, interaction-contract, and dead-state
+review. Every confirmed finding was corrected before the final commit:
+
+- manual-upload titles now strip every explicitly accepted media extension;
+- the active-filter count follows the status/access contract and does not count
+  a search query;
+- removed navigation fields and template branches no longer leave unreachable
+  workspace, count, or enabled state behind;
+- obsolete bulk-action, tooltip, toolbar, navigation-count, and compact-control
+  CSS was deleted;
+- the expanded native inspector keeps the embedded status, access, and sort
+  controls available instead of hiding them at its WebView width.
+
+Review validation:
+
+- focused server regression set: `105 passed`, `0 failed`, with the existing
+  Starlette/httpx deprecation warning only;
+- the manual calendar-sync timing scenario now starts from its real user entry
+  point — a successfully rendered settings page — and keeps the original
+  `<2s` feedback contract; the endpoint performs no provider wait or external
+  call;
+- the production cabinet rendering was rechecked after CSS cleanup at
+  `772×680` and `988×680`: `scrollWidth == clientWidth`, toolbar controls stay
+  `36 px` high, search uses the remaining width, and upload, filter, sort, and
+  both popovers remain visible without overlap;
+- dead-selector and removed-navigation-state scans: `0` findings;
+- final full repository gate: `642` macOS tests with `0` failures,
+  `ContractValidation: PASS`, `1427 passed`, `4 skipped`, one existing server
+  deprecation warning, Ruff/compile/Compose/evidence checks clean, and
+  `ci_local_result=pass`;
+- final Spec Kit traceability and code review: no critical blockers, unmapped
+  requirements, conflict markers, unsafe ordinary-UI copy, or remaining
+  actionable findings.
+
+The two pre-fix full-suite failures were both the pre-existing calendar timing
+assertion exceeding `2.000s` by `0.005s` and `0.028s`; all other `1426` tests
+passed in both runs. Profiling showed that the test timed a cold app/client
+before the settings page a user must open to reach manual sync. The test-only
+correction models that entry point and preserves the two-second requirement; it
+is not feature-104 product code and remains explicit in the diff and evidence.
