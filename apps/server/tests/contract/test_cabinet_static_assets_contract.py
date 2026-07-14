@@ -136,6 +136,8 @@ def test_collapsed_sidebar_only_expands_through_the_explicit_toggle() -> None:
     assert ".desktop-embedded.is-rail-pinned .sidebar" in css
     assert ".desktop-embedded .sidebar:hover" not in css
     assert ".desktop-embedded .sidebar:focus-within" not in css
+    assert ".desktop-embedded .sidebar-foot {\n    visibility: hidden;\n  }" in css
+    assert ".desktop-embedded.is-rail-pinned .sidebar-foot {\n    visibility: visible;\n  }" in css
 
 
 def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:

@@ -3126,11 +3126,17 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
     opacity: 0;
     pointer-events: none;
   }
+  .desktop-embedded .sidebar-foot {
+    visibility: hidden;
+  }
   .desktop-embedded.is-rail-pinned .cabinet-workspace-header__text,
   .desktop-embedded.is-rail-pinned .cabinet-sidebar-nav__label,
   .desktop-embedded.is-rail-pinned .sidebar-foot {
     opacity: 1;
     pointer-events: auto;
+  }
+  .desktop-embedded.is-rail-pinned .sidebar-foot {
+    visibility: visible;
   }
   .desktop-embedded .cabinet-workspace-header {
     min-height: 40px;

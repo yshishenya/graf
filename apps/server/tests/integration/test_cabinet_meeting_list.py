@@ -42,6 +42,60 @@ def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None
     }
 
 
+def test_cabinet_status_filters_cover_every_state_with_the_same_user_label(client) -> None:
+    status_rows = (
+        ("submitted", ProcessingStatus.NOT_SUBMITTED),
+        ("processing", ProcessingStatus.POLLING),
+        ("blocked", ProcessingStatus.BLOCKED),
+        ("failed", ProcessingStatus.FAILED_TERMINAL),
+        ("unavailable", ProcessingStatus.CANCELED),
+    )
+
+    async def seed_status_rows() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    Meeting(
+                        id=uuid4(),
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id=f"status-group-{status}",
+                        title=f"Status group {status}",
+                        started_at=datetime(2026, 7, 14, 8, 0, tzinfo=UTC),
+                        duration_seconds=60,
+                        status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
+                        processing_status=processing_status.value,
+                    )
+                    for status, processing_status in status_rows
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_status_rows)
+
+    processing = client.get(
+        "/api/v1/cabinet/meetings?q=status-group&status=processing",
+        headers=auth_headers(),
+    )
+    needs_help = client.get(
+        "/api/v1/cabinet/meetings?q=status-group&status=failed",
+        headers=auth_headers(),
+    )
+
+    assert processing.status_code == 200
+    assert {item["status"] for item in processing.json()["items"]} == {
+        "submitted",
+        "processing",
+    }
+    assert needs_help.status_code == 200
+    assert {item["status"] for item in needs_help.json()["items"]} == {
+        "blocked",
+        "failed",
+        "unavailable",
+    }
+
+
 def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) -> None:
     meeting = client.post(
         "/api/v1/meetings",

@@ -426,6 +426,11 @@ review. Every confirmed finding was corrected before the final commit:
   CSS was deleted;
 - the expanded native inspector keeps the embedded status, access, and sort
   controls available instead of hiding them at its WebView width.
+- the visible `В обработке` filter includes `submitted` and `processing`, while
+  `Нужна помощь` includes `blocked`, `failed`, and `unavailable`, matching the
+  status wording shown in rows;
+- the collapsed embedded sidebar removes its hidden footer from keyboard and
+  accessibility navigation until the user explicitly expands the rail.
 
 Review validation:
 
@@ -440,8 +445,10 @@ Review validation:
   `36 px` high, search uses the remaining width, and upload, filter, sort, and
   both popovers remain visible without overlap;
 - dead-selector and removed-navigation-state scans: `0` findings;
+- focused grouped-filter/sidebar regression set: `72 passed`, `0 failed`, with
+  the existing Starlette/httpx deprecation warning only;
 - final full repository gate: `642` macOS tests with `0` failures,
-  `ContractValidation: PASS`, `1427 passed`, `4 skipped`, one existing server
+  `ContractValidation: PASS`, `1428 passed`, `4 skipped`, one existing server
   deprecation warning, Ruff/compile/Compose/evidence checks clean, and
   `ci_local_result=pass`;
 - final Spec Kit traceability and code review: no critical blockers, unmapped
@@ -454,3 +461,11 @@ passed in both runs. Profiling showed that the test timed a cold app/client
 before the settings page a user must open to reach manual sync. The test-only
 correction models that entry point and preserves the two-second requirement; it
 is not feature-104 product code and remains explicit in the diff and evidence.
+
+The previous-head automated review raised four comments. The compact-popover
+comment was already fixed, and the grouped-status and hidden-sidebar-focus
+comments produced the regressions above. The proposed raw report-copy fallback
+was intentionally not restored: FR-007 and the capture-surface contract require
+contextual `Связаться с поддержкой` without exposing report contents in the
+ordinary UI; the metadata-only report, redaction, submission, and retry services
+remain intact.

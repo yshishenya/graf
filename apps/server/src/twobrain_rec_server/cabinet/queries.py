@@ -61,6 +61,11 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.domain.statuses import DeletionState, UploadSessionStatus
 from twobrain_rec_server.outcomes.service import load_outcome_items
 
+STATUS_FILTER_GROUPS: dict[MeetingReviewStatus, frozenset[MeetingReviewStatus]] = {
+    "processing": frozenset({"processing", "submitted"}),
+    "failed": frozenset({"failed", "blocked", "unavailable"}),
+}
+
 
 async def get_calendar_settings_surface(
     db: AsyncSession,
@@ -180,6 +185,9 @@ async def list_cabinet_meetings(
         )
     query = _apply_sort(query, sort)
     meetings = (await db.scalars(query)).all()
+    matching_statuses = (
+        STATUS_FILTER_GROUPS.get(status, frozenset({status})) if status is not None else None
+    )
 
     items = []
     for meeting in meetings:
@@ -244,7 +252,7 @@ async def list_cabinet_meetings(
             calendar_context=calendar_context,
             previous_recurring_meeting=previous_recurring_meeting,
         )
-        if status is not None and item.status != status:
+        if matching_statuses is not None and item.status not in matching_statuses:
             continue
         items.append(item)
         if sort != "title_asc" and len(items) >= limit:

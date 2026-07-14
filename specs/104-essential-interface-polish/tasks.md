@@ -257,6 +257,12 @@ The smallest independently useful slice is US1 after baseline: remove disabled/d
   media title cleanup, filter counting, and compact embedded filter access;
   the focused regression set passes `105` tests and final dead-state scans find
   no remaining selectors or model branches.
+- Follow-up review aligned grouped status filters with every row state carrying
+  the same user-facing label and removed the collapsed sidebar footer from the
+  tab order; the focused regression set passes `72` tests. Raw support-report
+  copy remains intentionally hidden under FR-007 while the safe submission and
+  retry path stays available. The final full gate passes `642` macOS and `1428`
+  server tests with `4` skips and `ContractValidation: PASS`.
 - A pre-existing calendar manual-sync timing assertion failed two loaded full
   suites by `5–28 ms`; profiling showed that it timed a cold app/client before
   the settings page a user must open to reach the action. The test-only fix now
