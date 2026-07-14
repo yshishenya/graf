@@ -247,6 +247,37 @@ def test_meeting_list_presentation_humanizes_generated_titles_files_and_duration
     assert view_models.format_duration(74 * 60) == "1 ч 14 мин"
 
 
+def test_safe_title_preserves_authoritative_calendar_user_and_upload_titles() -> None:
+    calendar = _meeting()
+    calendar.title = "Meeting - 2026-07-13 12:14"
+    calendar.title_source = "calendar"
+
+    user = _meeting()
+    user.title = "Roadmap.mp3"
+    user.title_source = "user_confirmed"
+
+    upload = _meeting()
+    upload.title = "Quarterly_sync.mp3"
+    upload.title_source = "upload_provided"
+
+    derived = _meeting()
+    derived.title = "Quarterly_sync.mp3"
+    derived.title_source = "file_name_derived"
+
+    assert view_models.safe_title(calendar) == "Meeting - 2026-07-13 12:14"
+    assert view_models.safe_title(user) == "Roadmap.mp3"
+    assert view_models.safe_title(upload) == "Quarterly_sync.mp3"
+    assert view_models.safe_title(derived) == "Quarterly sync"
+
+
+def test_safe_title_removes_local_path_from_authoritative_title_without_rewriting_name() -> None:
+    meeting = _meeting()
+    meeting.title = "/Users/example/private/Roadmap.mp3"
+    meeting.title_source = "user_confirmed"
+
+    assert view_models.safe_title(meeting) == "Roadmap.mp3"
+
+
 def test_list_status_labels_are_user_results_not_pipeline_terms() -> None:
     assert view_models.STATUS_LABELS == {
         "local_only": "Сохранено на Mac",

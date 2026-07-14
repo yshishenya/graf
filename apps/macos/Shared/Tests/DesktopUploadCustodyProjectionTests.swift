@@ -333,7 +333,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertTrue(report.safeAffectedIdentities.allSatisfy { $0.hasPrefix("affected_fpr_") })
     }
 
-    func testMeetingOwnerActionBadgeCountsOnlyRealOwnerActions() {
+    func testActionableBadgeCountsOwnerAdminAndSupportActions() {
         let auth = custodyFixtureQueueItem(
             id: "auth",
             state: .blocked,
@@ -353,10 +353,24 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
             state: .retrying,
             retryMode: .automatic
         )
+        let support = custodyFixtureQueueItem(
+            id: "support",
+            state: .blocked,
+            retryMode: .manualOnly
+        ).withTransition(
+            to: .blocked,
+            now: Date(timeIntervalSince1970: 400),
+            failureCategory: .localResource,
+            failureReason: "local_artifacts_not_uploadable",
+            retryMode: .manualOnly,
+            syncConflictState: .localFilesMissing
+        )
 
-        let count = DesktopUploadCustodySummary.meetingOwnerActionCount(for: [auth, admin, automatic])
+        let count = DesktopUploadCustodySummary.actionableItemCount(
+            for: [auth, admin, support, automatic]
+        )
 
-        XCTAssertEqual(count, 1)
+        XCTAssertEqual(count, 3)
     }
 
     func testSafeIncidentReportUsesMetadataOnlyAdminTruth() throws {

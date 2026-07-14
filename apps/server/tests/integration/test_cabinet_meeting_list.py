@@ -345,6 +345,7 @@ def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(clien
         json={
             "local_recording_id": "generated-capture-title",
             "title": generated_title,
+            "title_source": "app_context",
             "started_at": "2026-07-13T09:14:00Z",
             "recording_display_timezone_offset_minutes": 180,
             "duration_seconds": 27,
@@ -370,12 +371,30 @@ def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(clien
         f"/api/v1/cabinet/meetings?q={manual_title}",
         headers=auth_headers(),
     )
+    generated_visible_search = client.get(
+        "/api/v1/cabinet/meetings",
+        params={"q": "Запись 13 июл, 12:14"},
+        headers=auth_headers(),
+    )
+    manual_visible_search = client.get(
+        "/api/v1/cabinet/meetings",
+        params={"q": "Загруженная запись"},
+        headers=auth_headers(),
+    )
     page = client.get("/desktop/meetings", headers=auth_headers())
 
     assert generated_list.status_code == 200
     assert generated_list.json()["items"][0]["title"] == "Запись 13 июл, 12:14"
     assert manual_list.status_code == 200
     assert manual_list.json()["items"][0]["title"] == "Загруженная запись"
+    assert generated_visible_search.status_code == 200
+    assert [item["meeting_id"] for item in generated_visible_search.json()["items"]] == [
+        generated.json()["meeting_id"]
+    ]
+    assert manual_visible_search.status_code == 200
+    assert [item["meeting_id"] for item in manual_visible_search.json()["items"]] == [
+        manual.json()["meeting_id"]
+    ]
     assert generated_title not in page.text
     assert manual_title not in page.text
     assert "Запись 13 июл, 12:14" in page.text

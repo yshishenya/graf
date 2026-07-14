@@ -42,8 +42,9 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("RecordingTitlebarHUD("))
         XCTAssertTrue(shellSource.contains("Label(\"Стоп\", systemImage: \"stop.fill\")"))
         XCTAssertFalse(shellSource.contains("hasActiveRecording: recordingStripSession != nil"))
-        XCTAssertTrue(appSource.contains("startRecordingAvailable: CaptureControlView.shouldEnableRecordButton"))
-        XCTAssertTrue(appSource.contains("hasActionableCaptureProblem: CaptureControlView.hasActionableProblem"))
+        XCTAssertTrue(appSource.contains("startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton"))
+        XCTAssertTrue(appSource.contains("calendarPrompt: desktopCalendarPrompt"))
+        XCTAssertTrue(appSource.contains("|| desktopCalendarPrompt?.kind == .record"))
         XCTAssertTrue(appSource.contains("onStartRecording:"))
     }
 
@@ -81,7 +82,8 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertFalse(shellSource.contains("Label(\"Диагностика\""))
         XCTAssertFalse(shellSource.contains("diagnosticsContent"))
         XCTAssertFalse(appSource.contains("diagnosticsContent:"))
-        XCTAssertTrue(shellSource.contains("if meetingOwnerCustodyActionCount > 0"))
+        XCTAssertTrue(shellSource.contains("if actionableCustodyItemCount > 0"))
+        XCTAssertTrue(shellSource.contains("actionableCustodySummaries"))
         XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
     }
 

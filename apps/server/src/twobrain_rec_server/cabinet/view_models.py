@@ -167,6 +167,7 @@ GENERATED_CAPTURE_TITLE_RE = re.compile(
     r"\s*-\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$",
     re.IGNORECASE,
 )
+AUTHORITATIVE_TITLE_SOURCES = frozenset({"user_confirmed", "calendar", "upload_provided"})
 CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "caldav_yandex": (
         "Яндекс Календарь",
@@ -1211,6 +1212,8 @@ def meeting_media_label(item: MeetingListItem) -> str:
 def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
     title = safe_title_candidate(meeting.title)
     if title:
+        if meeting.title_source in AUTHORITATIVE_TITLE_SOURCES:
+            return _authoritative_title(title)
         if GENERATED_MANUAL_UPLOAD_RE.fullmatch(title):
             return "Загруженная запись"
         if GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
@@ -1224,6 +1227,12 @@ def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
     ):
         return "Загруженная запись"
     return _generated_recording_title(meeting) or "Запись без названия"
+
+
+def _authoritative_title(title: str) -> str:
+    if title.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:[/\\]", title):
+        return re.split(r"[/\\]", title)[-1].strip() or "Запись без названия"
+    return title
 
 
 def _clean_file_title(title: str) -> str:

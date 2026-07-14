@@ -648,13 +648,12 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
             .map { $0 }
     }
 
-    public static func meetingOwnerActionCount(
+    public static func actionableItemCount(
         for items: [DesktopUploadQueueItem],
         now: Date = Date()
     ) -> Int {
         visibleCandidates(for: items, now: now).filter { candidate in
-            candidate.projection.owner == .meetingOwner &&
-                candidate.projection.normalUserAction != .none
+            candidate.projection.normalUserAction != .none
         }.count
     }
 

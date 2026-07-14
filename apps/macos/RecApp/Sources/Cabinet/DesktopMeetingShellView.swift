@@ -181,7 +181,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 actionableExpansionDismissed = false
             }
         }
-        .onChange(of: meetingOwnerCustodyActionCount) { _, actionCount in
+        .onChange(of: actionableCustodyItemCount) { _, actionCount in
             if actionCount > 0 {
                 actionableExpansionDismissed = false
             }
@@ -315,12 +315,18 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
     }
 
-    private var meetingOwnerCustodyActionCount: Int {
-        DesktopUploadCustodySummary.meetingOwnerActionCount(for: uploadQueueItems)
+    private var actionableCustodySummaries: [DesktopUploadCustodySummary] {
+        custodyDetailSummaries.filter { summary in
+            summary.primaryProjection.normalUserAction != .none
+        }
+    }
+
+    private var actionableCustodyItemCount: Int {
+        DesktopUploadCustodySummary.actionableItemCount(for: uploadQueueItems)
     }
 
     private var showsLocalDeleteConfirmationCopy: Bool {
-        custodyDetailSummaries.contains { summary in
+        actionableCustodySummaries.contains { summary in
             summary.primaryProjection.custodyState == .cannotSend ||
                 summary.primaryProjection.custodyState == .terminalUndelivered
         }
@@ -523,12 +529,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
             compactCaptureAction
 
-            if meetingOwnerCustodyActionCount > 0 {
+            if actionableCustodyItemCount > 0 {
                 Button {
                     actionableExpansionDismissed = false
                     inspectorExpanded = true
                 } label: {
-                    Text("\(meetingOwnerCustodyActionCount)")
+                    Text("\(actionableCustodyItemCount)")
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.white)
                         .frame(width: 30, height: 24)
@@ -656,7 +662,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                             .stroke(shellStrokeColor, lineWidth: 1)
                     )
 
-                if meetingOwnerCustodyActionCount > 0 {
+                if actionableCustodyItemCount > 0 {
                     custodyDetailsDisclosure
                 }
             }
@@ -670,7 +676,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var custodyDetailsDisclosure: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(custodyDetailSummaries, id: \.stableIdentity) { summary in
+                ForEach(actionableCustodySummaries, id: \.stableIdentity) { summary in
                     custodyDetailRow(summary)
                 }
 
@@ -770,7 +776,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var hasInspectorActionableProblem: Bool {
-        hasActionableCaptureProblem || meetingOwnerCustodyActionCount > 0
+        hasActionableCaptureProblem || actionableCustodyItemCount > 0
     }
 
     private func toggleInspector() {

@@ -58,7 +58,11 @@ from twobrain_rec_server.db.models import (
     UploadPart,
     UploadSession,
 )
-from twobrain_rec_server.domain.statuses import DeletionState, UploadSessionStatus
+from twobrain_rec_server.domain.statuses import (
+    DeletionState,
+    MediaRevisionSourceKind,
+    UploadSessionStatus,
+)
 from twobrain_rec_server.outcomes.service import load_outcome_items
 
 STATUS_FILTER_GROUPS: dict[MeetingReviewStatus, frozenset[MeetingReviewStatus]] = {
@@ -178,11 +182,6 @@ async def list_cabinet_meetings(
         Meeting.workspace_id == workspace_id,
         or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == DeletionState.NONE.value),
     )
-    if q:
-        pattern = f"%{q.strip()}%"
-        query = query.where(
-            or_(Meeting.title.ilike(pattern), Meeting.local_recording_id.ilike(pattern))
-        )
     query = _apply_sort(query, sort)
     meetings = (await db.scalars(query)).all()
     matching_statuses = (
@@ -204,6 +203,15 @@ async def list_cabinet_meetings(
         media_revision = await _latest_media_revision(
             db, workspace_id=workspace_id, meeting_id=meeting.id
         )
+        if q and not _meeting_matches_query(
+            meeting,
+            q,
+            source="manual_upload"
+            if media_revision is not None
+            and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+            else None,
+        ):
+            continue
         media_revision_id = media_revision.id if media_revision is not None else None
         workflow = await _latest_workflow(
             db,
@@ -264,6 +272,18 @@ async def list_cabinet_meetings(
         items=items,
         filters=MeetingFilterState(q=q, status=status, access=access, sort=sort),
         generated_at=datetime.now(UTC),
+    )
+
+
+def _meeting_matches_query(meeting: Meeting, query: str, *, source: str | None) -> bool:
+    normalized_query = " ".join(query.casefold().split())
+    if not normalized_query:
+        return True
+    candidates = (meeting.title, meeting.local_recording_id, safe_title(meeting, source=source))
+    return any(
+        normalized_query in " ".join(candidate.casefold().split())
+        for candidate in candidates
+        if candidate
     )
 
 

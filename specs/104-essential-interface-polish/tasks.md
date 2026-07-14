@@ -261,7 +261,12 @@ The smallest independently useful slice is US1 after baseline: remove disabled/d
   the same user-facing label and removed the collapsed sidebar footer from the
   tab order; the focused regression set passes `72` tests. Raw support-report
   copy remains intentionally hidden under FR-007 while the safe submission and
-  retry path stays available. The final full gate passes `642` macOS and `1428`
+  retry path stays available.
+- The next automated review closed four cross-surface boundaries: compact start
+  respects calendar record prompts, actionable custody is not limited to the
+  meeting-owner role, authoritative titles remain unchanged, and search matches
+  the visible humanized title. Focused checks pass `76` macOS and `58` server
+  tests. The final full gate passes `642` macOS and `1430`
   server tests with `4` skips and `ContractValidation: PASS`.
 - A pre-existing calendar manual-sync timing assertion failed two loaded full
   suites by `5–28 ms`; profiling showed that it timed a cold app/client before

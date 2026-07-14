@@ -447,8 +447,12 @@ Review validation:
 - dead-selector and removed-navigation-state scans: `0` findings;
 - focused grouped-filter/sidebar regression set: `72 passed`, `0 failed`, with
   the existing Starlette/httpx deprecation warning only;
+- focused visible-title/search regression set: `58 passed`, `0 failed`, with
+  the existing Starlette/httpx deprecation warning only;
+- focused calendar-prompt/custody native regression set: `76 tests`, `0`
+  failures;
 - final full repository gate: `642` macOS tests with `0` failures,
-  `ContractValidation: PASS`, `1428 passed`, `4 skipped`, one existing server
+  `ContractValidation: PASS`, `1430 passed`, `4 skipped`, one existing server
   deprecation warning, Ruff/compile/Compose/evidence checks clean, and
   `ci_local_result=pass`;
 - final Spec Kit traceability and code review: no critical blockers, unmapped
@@ -469,3 +473,10 @@ was intentionally not restored: FR-007 and the capture-surface contract require
 contextual `Связаться с поддержкой` without exposing report contents in the
 ordinary UI; the metadata-only report, redaction, submission, and retry services
 remain intact.
+
+The next automated review found four additional cross-surface boundaries. The
+compact record action now defers to an active calendar record prompt; actionable
+custody summaries include owner, admin, support, and policy-owned next steps;
+authoritative titles are preserved; and list search matches the humanized title
+shown to the user. Each boundary has a focused regression and the full gate
+above was rerun after the fixes.

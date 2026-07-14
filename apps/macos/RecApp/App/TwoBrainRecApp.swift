@@ -203,14 +203,14 @@ private struct ContentView: View {
             uploadQueueItems: uploadQueueItems,
             cabinetConfigured: desktopCabinetConfiguration != nil,
             cabinetState: desktopCabinetState,
-            startRecordingAvailable: CaptureControlView.shouldEnableRecordButton(
+            startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton(
                 for: captureSession,
-                recordDisabled: recordingStartInProgress || recordingStopInProgress
-            ),
+                calendarPrompt: desktopCalendarPrompt
+            ) && !recordingStartInProgress && !recordingStopInProgress,
             recordingTransitionInProgress: recordingStartInProgress || recordingStopInProgress,
             hasActionableCaptureProblem: CaptureControlView.hasActionableProblem(
                 blockedReason: recordingBlocker
-            ),
+            ) || desktopCalendarPrompt?.kind == .record,
             onStartRecording: {
                 Task { await startManualRecording() }
             },
