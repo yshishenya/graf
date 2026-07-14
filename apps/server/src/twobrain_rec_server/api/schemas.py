@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -1112,7 +1112,7 @@ MeetingReviewStatus = Literal[
 ]
 MeetingSource = Literal["desktop_recording", "video_recording", "manual_upload", "unknown"]
 PrimaryAction = Literal["open", "wait", "retry_future", "open_status", "unavailable"]
-SourceRoleView = Literal["local_microphone", "incoming_system", "unknown"]
+SourceRoleView = Literal["local_microphone", "incoming_system", "uploaded_media", "unknown"]
 PlaybackUnavailableReason = Literal[
     "none",
     "no_audio",
@@ -1128,6 +1128,35 @@ PlaybackUnavailableReason = Literal[
     "storage_unavailable",
 ]
 PlaybackSourceMode = Literal["none", "stored_review_m4a"]
+PlaybackPreparationStateValue = Literal[
+    "preparing",
+    "available",
+    "unavailable",
+    "deleting",
+    "deleted",
+]
+PlaybackPreparationReasonCode = Literal[
+    "normalization_queued",
+    "normalization_running",
+    "normalization_publishing",
+    "normalization_retry_wait",
+    "reconciliation_pending",
+    "canonical_artifact_missing",
+    "canonical_ready",
+    "access_denied",
+    "empty_source",
+    "no_audio",
+    "ambiguous_audio_tracks",
+    "unsupported_media",
+    "encrypted_media",
+    "corrupt_source",
+    "limit_exceeded",
+    "source_missing",
+    "source_mismatch",
+    "meeting_deleting",
+    "meeting_deleted",
+    "audio_purged",
+]
 GovernanceState = Literal[
     "available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"
 ]
@@ -1371,6 +1400,15 @@ class MeetingUploadProgressState(BaseModel):
     is_active: bool = False
 
 
+class PlaybackPreparationState(BaseModel):
+    state: PlaybackPreparationStateValue = "unavailable"
+    reason_code: PlaybackPreparationReasonCode = "no_audio"
+    label: str = "Аудио недоступно"
+    automatic_recovery: bool = False
+    can_play: bool = False
+    action: Literal["disabled"] = "disabled"
+
+
 class MeetingListItem(BaseModel):
     meeting_id: UUID
     title: str
@@ -1395,6 +1433,7 @@ class MeetingListItem(BaseModel):
     upload: MeetingUploadProgressState | None = None
     calendar_context: MeetingCalendarContextSummary | None = None
     previous_recurring_meeting: PreviousRecurringMeetingView | None = None
+    playback: PlaybackPreparationState = Field(default_factory=PlaybackPreparationState)
     future_slots: list[SlotState] = Field(default_factory=list)
 
 
@@ -1495,7 +1534,7 @@ class NotesReviewState(BaseModel):
     ]
 
 
-class PlaybackReviewState(BaseModel):
+class PlaybackReviewState(PlaybackPreparationState):
     available: bool = False
     duration_seconds: int = Field(default=0, ge=0)
     speed_options: list[float] = Field(default_factory=lambda: [0.75, 1.0, 1.25, 1.5, 2.0])
@@ -1504,6 +1543,20 @@ class PlaybackReviewState(BaseModel):
     policy_label: str = "Аудио недоступно"
     source_mode: PlaybackSourceMode = "none"
     included_sources: list[SourceRoleView] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def align_legacy_playback_fields(self) -> Self:
+        # Older internal callers construct the review model with `available`.
+        # Keep that compatibility while the durable API truth is `can_play`.
+        if self.available and not self.can_play:
+            self.can_play = True
+            self.state = "available"
+            self.reason_code = "canonical_ready"
+        elif self.can_play and not self.available:
+            self.available = True
+        if self.policy_label != "Аудио недоступно" and self.label == "Аудио недоступно":
+            self.label = self.policy_label
+        return self
 
 
 class MeetingReviewResponse(BaseModel):

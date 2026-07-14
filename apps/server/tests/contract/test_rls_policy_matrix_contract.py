@@ -51,6 +51,10 @@ CALENDAR_AUTO_CONTEXT_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0021_calendar_auto_context_match.py"
 )
+PLAYBACK_NORMALIZATION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0022_playback_normalization.py"
+)
 CONTRACT = REPO_ROOT / "specs/031-rls-hardening/contracts/rls-policy-matrix.md"
 
 
@@ -67,6 +71,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + CALENDAR_SETTINGS_MIGRATION.read_text(encoding="utf-8")
         + MEETING_DETECTION_MIGRATION.read_text(encoding="utf-8")
         + CALENDAR_AUTO_CONTEXT_MIGRATION.read_text(encoding="utf-8")
+        + PLAYBACK_NORMALIZATION_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):
@@ -81,7 +86,9 @@ def test_rls_policy_contract_names_every_covered_table() -> None:
 
 
 def test_migration_and_contract_share_maintenance_operations() -> None:
-    migration_text = MIGRATION.read_text(encoding="utf-8")
+    migration_text = MIGRATION.read_text(encoding="utf-8") + PLAYBACK_NORMALIZATION_MIGRATION.read_text(
+        encoding="utf-8"
+    )
 
     for operation_name in sorted(RLS_ALLOWED_MAINTENANCE_OPERATIONS):
         assert operation_name in migration_text

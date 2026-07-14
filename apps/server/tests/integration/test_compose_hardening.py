@@ -1,3 +1,4 @@
+import json
 import shlex
 import tomllib
 from pathlib import Path
@@ -6,14 +7,30 @@ import yaml
 
 REPO_ROOT = Path(__file__).parents[4]
 COMPOSE_PATH = REPO_ROOT / "infra/docker-compose.yml"
+DEV_COMPOSE_PATH = REPO_ROOT / "infra/docker-compose.dev.yml"
 ENV_TEMPLATE_PATH = REPO_ROOT / "infra/env/rec.production.env.example"
 DOCKERFILE_PATH = REPO_ROOT / "infra/server/Dockerfile"
 CONSTRAINTS_PATH = REPO_ROOT / "apps/server/constraints.txt"
 UV_LOCK_PATH = REPO_ROOT / "apps/server/uv.lock"
 
 
+class _ComposeLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_compose_override(loader, node):
+    return loader.construct_sequence(node)
+
+
+_ComposeLoader.add_constructor("!override", _construct_compose_override)
+
+
 def _compose() -> dict:
     return yaml.safe_load(COMPOSE_PATH.read_text())
+
+
+def _dev_compose() -> dict:
+    return yaml.load(DEV_COMPOSE_PATH.read_text(), Loader=_ComposeLoader)
 
 
 def _active_env_template_keys() -> set[str]:
@@ -24,6 +41,14 @@ def _active_env_template_keys() -> set[str]:
             continue
         keys.add(stripped.split("=", maxsplit=1)[0])
     return keys
+
+
+def _media_minio_policy(compose: dict) -> dict:
+    script = compose["services"]["rec-minio-init"]["entrypoint"][-1]
+    lines = script.splitlines()
+    marker = "cat >/tmp/rec-media-policy.json <<'JSON'"
+    marker_index = next(index for index, line in enumerate(lines) if line.strip() == marker)
+    return json.loads(lines[marker_index + 1].strip())
 
 
 def test_production_compose_api_has_healthcheck_and_localhost_bind_policy() -> None:
@@ -41,12 +66,16 @@ def test_production_compose_sets_log_rotation_and_resource_limits_for_services()
 
     for service_name in [
         "rec-api",
+        "rec-db-runtime-bootstrap",
+        "rec-maintenance",
+        "rec-reprocess-maintenance",
         "rec-migrate",
         "rec-postgres",
         "rec-minio",
         "rec-minio-init",
         "rec-temporal",
         "rec-processing-worker",
+        "rec-media-worker",
     ]:
         service = compose["services"][service_name]
         assert service["logging"]["driver"] == "json-file"
@@ -59,10 +88,14 @@ def test_production_compose_sets_log_rotation_and_resource_limits_for_services()
 def test_production_compose_runs_migrations_before_api_readiness() -> None:
     compose = _compose()
     migrate = compose["services"]["rec-migrate"]
+    bootstrap = compose["services"]["rec-db-runtime-bootstrap"]
     api = compose["services"]["rec-api"]
 
     assert migrate["command"] == ["alembic", "upgrade", "head"]
-    assert api["depends_on"]["rec-migrate"]["condition"] == "service_completed_successfully"
+    assert bootstrap["depends_on"]["rec-migrate"]["condition"] == ("service_completed_successfully")
+    assert api["depends_on"]["rec-db-runtime-bootstrap"]["condition"] == (
+        "service_completed_successfully"
+    )
 
 
 def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
@@ -70,8 +103,8 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     constraints = CONSTRAINTS_PATH.read_text()
 
     assert "constraints.txt" in dockerfile
-    assert "pip install --constraint constraints.txt \".\"" in dockerfile
-    assert "\".[dev]\"" not in dockerfile
+    assert 'pip install --constraint constraints.txt "."' in dockerfile
+    assert '".[dev]"' not in dockerfile
     assert "pytest" not in constraints
     assert "ruff" not in constraints
     assert "fastapi==" in constraints
@@ -130,10 +163,15 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
 
     for secret_name in [
         "twobrain_postgres_password",
+        "twobrain_postgres_app_password",
+        "twobrain_postgres_maintenance_password",
+        "twobrain_postgres_media_password",
         "twobrain_minio_root_user",
         "twobrain_minio_root_password",
         "twobrain_minio_api_access_key",
         "twobrain_minio_api_secret_key",
+        "twobrain_minio_media_access_key",
+        "twobrain_minio_media_secret_key",
         "twobrain_smoke_credential",
         "twobrain_web_csrf_secret",
         "twobrain_support_incident_github_token",
@@ -143,7 +181,7 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
     api = compose["services"]["rec-api"]
     api_secret_sources = {secret["source"] for secret in api["secrets"]}
     assert {
-        "twobrain_postgres_password",
+        "twobrain_postgres_app_password",
         "twobrain_minio_api_access_key",
         "twobrain_minio_api_secret_key",
         "twobrain_smoke_credential",
@@ -171,8 +209,113 @@ def test_production_env_template_does_not_broadcast_service_specific_secret_file
             "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE",
             "TWOBRAIN_LANGFUSE_CREDENTIAL_FILE",
             "TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE",
+            "TWOBRAIN_WEB_CSRF_SECRET_FILE",
         }
     )
+
+
+def test_production_runtime_database_roles_are_least_privilege_and_bootstrapped() -> None:
+    compose = _compose()
+    services = compose["services"]
+    api = services["rec-api"]
+    processing = services["rec-processing-worker"]
+    maintenance = services["rec-maintenance"]
+    reprocess = services["rec-reprocess-maintenance"]
+    media = services["rec-media-worker"]
+    migrate = services["rec-migrate"]
+    bootstrap = services["rec-db-runtime-bootstrap"]
+
+    assert "//twobrain_rec_app:" in api["environment"]["TWOBRAIN_DATABASE_URL"]
+    assert "//twobrain_rec_app:" in processing["environment"]["TWOBRAIN_DATABASE_URL"]
+    assert "//twobrain_rec_maintenance:" in maintenance["environment"]["TWOBRAIN_DATABASE_URL"]
+    assert "//twobrain_rec_maintenance:" in reprocess["environment"]["TWOBRAIN_DATABASE_URL"]
+    assert "//twobrain_rec_media:" in media["environment"]["TWOBRAIN_DATABASE_URL"]
+    assert "//twobrain_rec:" in migrate["environment"]["TWOBRAIN_DATABASE_URL"]
+    assert {secret["source"] for secret in api["secrets"]} >= {"twobrain_postgres_app_password"}
+    assert {secret["source"] for secret in processing["secrets"]} >= {
+        "twobrain_postgres_app_password"
+    }
+    assert {secret["source"] for secret in maintenance["secrets"]} >= {
+        "twobrain_postgres_maintenance_password"
+    }
+    assert {secret["source"] for secret in reprocess["secrets"]} >= {
+        "twobrain_postgres_maintenance_password"
+    }
+    assert {secret["source"] for secret in media["secrets"]} >= {"twobrain_postgres_media_password"}
+    assert bootstrap["command"] == [
+        "python",
+        "/app/scripts/bootstrap_runtime_database_roles.py",
+    ]
+    assert {secret["source"] for secret in bootstrap["secrets"]} == {
+        "twobrain_postgres_password",
+        "twobrain_postgres_app_password",
+        "twobrain_postgres_maintenance_password",
+        "twobrain_postgres_media_password",
+    }
+
+
+def test_only_api_receives_web_runtime_secret() -> None:
+    compose = _compose()
+    services = compose["services"]
+    api = services["rec-api"]
+
+    assert api["environment"]["TWOBRAIN_WEB_RUNTIME_ENABLED"] == "true"
+    assert api["environment"]["TWOBRAIN_WEB_CSRF_SECRET_FILE"] == (
+        "/run/secrets/twobrain_web_csrf_secret"
+    )
+    for service_name in (
+        "rec-processing-worker",
+        "rec-maintenance",
+        "rec-reprocess-maintenance",
+        "rec-media-worker",
+        "rec-migrate",
+    ):
+        service = services[service_name]
+        assert service["environment"]["TWOBRAIN_WEB_RUNTIME_ENABLED"] == "false"
+        assert "TWOBRAIN_WEB_CSRF_SECRET_FILE" not in service["environment"]
+        assert "twobrain_web_csrf_secret" not in {secret["source"] for secret in service["secrets"]}
+
+
+def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secrets() -> None:
+    compose = _compose()
+    service = compose["services"]["rec-maintenance"]
+    secret_sources = {secret["source"] for secret in service["secrets"]}
+
+    assert service["profiles"] == ["operations"]
+    assert service["user"] == "twobrain"
+    assert service["read_only"] is True
+    assert service["cap_drop"] == ["ALL"]
+    assert service["security_opt"] == ["no-new-privileges:true"]
+    assert service["networks"] == ["rec-private"]
+    assert secret_sources == {
+        "twobrain_postgres_maintenance_password",
+        "twobrain_minio_api_access_key",
+        "twobrain_minio_api_secret_key",
+    }
+    assert "twobrain_mediascribe_api_key" not in secret_sources
+    assert "twobrain_web_csrf_secret" not in secret_sources
+
+
+def test_reprocess_runtime_is_explicit_hardened_and_scoped_to_recovery_secrets() -> None:
+    compose = _compose()
+    service = compose["services"]["rec-reprocess-maintenance"]
+    secret_sources = {secret["source"] for secret in service["secrets"]}
+
+    assert service["profiles"] == ["operations"]
+    assert service["user"] == "twobrain"
+    assert service["read_only"] is True
+    assert service["cap_drop"] == ["ALL"]
+    assert service["security_opt"] == ["no-new-privileges:true"]
+    assert service["networks"] == ["rec-private"]
+    assert secret_sources == {
+        "twobrain_postgres_maintenance_password",
+        "twobrain_minio_api_access_key",
+        "twobrain_minio_api_secret_key",
+        "twobrain_mediascribe_api_key",
+    }
+    assert "twobrain_web_csrf_secret" not in secret_sources
+    assert "twobrain_smoke_credential" not in secret_sources
+    assert "twobrain_support_incident_github_token" not in secret_sources
 
 
 def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() -> None:
@@ -191,7 +334,10 @@ def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() ->
     assert temporal["user"] == "root"
     assert 'POSTGRES_PWD="$$(cat /run/secrets/twobrain_postgres_password)"' in entrypoint
     assert "/etc/temporal/entrypoint.sh autosetup" in entrypoint
-    assert {"source": "twobrain_postgres_password", "target": "twobrain_postgres_password"} in temporal["secrets"]
+    assert {
+        "source": "twobrain_postgres_password",
+        "target": "twobrain_postgres_password",
+    } in temporal["secrets"]
     assert temporal["depends_on"]["rec-postgres"]["condition"] == "service_healthy"
 
 
@@ -207,9 +353,138 @@ def test_production_api_autostarts_processing_and_worker_can_read_processing_sec
     assert "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE" not in api_env
     assert api["depends_on"]["rec-temporal"]["condition"] == "service_started"
     assert "twobrain_mediascribe_api_key" not in api_secret_sources
-    assert worker["user"] == "root"
-    assert worker["environment"]["TWOBRAIN_MEDIASCRIBE_API_KEY_FILE"] == "/run/secrets/twobrain_mediascribe_api_key"
-    assert {"source": "twobrain_mediascribe_api_key", "target": "twobrain_mediascribe_api_key"} in worker["secrets"]
+    assert worker["user"] == "twobrain"
+    assert (
+        worker["environment"]["TWOBRAIN_MEDIASCRIBE_API_KEY_FILE"]
+        == "/run/secrets/twobrain_mediascribe_api_key"
+    )
+    assert any(secret["source"] == "twobrain_mediascribe_api_key" for secret in worker["secrets"])
+
+
+def test_media_worker_is_isolated_non_root_and_has_no_mediascribe_secret() -> None:
+    compose = _compose()
+    worker = compose["services"]["rec-media-worker"]
+    worker_env = worker["environment"]
+    secret_sources = {secret["source"] for secret in worker["secrets"]}
+
+    assert worker["build"]["target"] == "media-runtime"
+    assert worker["user"] == "twobrain"
+    assert worker["read_only"] is True
+    assert worker["cap_drop"] == ["ALL"]
+    assert worker["security_opt"] == ["no-new-privileges:true"]
+    assert worker["pids_limit"] == 128
+    assert worker["cpus"] == "1.0"
+    assert worker["mem_limit"] == "1g"
+    assert worker_env["TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED"] == "true"
+    assert worker_env["TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED"] == (
+        "${TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED:-true}"
+    )
+    assert worker_env["TWOBRAIN_PLAYBACK_NORMALIZATION_TASK_QUEUE"] == (
+        "twobrain-rec-playback-normalization"
+    )
+    assert worker_env["TWOBRAIN_PLAYBACK_NORMALIZATION_WORKER_CONCURRENCY"] == "1"
+    assert worker["healthcheck"]["test"] == [
+        "CMD",
+        "python",
+        "/app/scripts/verify_playback_normalization_worker_ready.py",
+    ]
+    assert "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE" not in worker_env
+    assert "twobrain_mediascribe_api_key" not in secret_sources
+    assert worker_env["TWOBRAIN_MINIO_ACCESS_KEY_FILE"] == (
+        "/run/secrets/twobrain_minio_media_access_key"
+    )
+    assert worker_env["TWOBRAIN_MINIO_SECRET_KEY_FILE"] == (
+        "/run/secrets/twobrain_minio_media_secret_key"
+    )
+    assert {
+        "twobrain_minio_media_access_key",
+        "twobrain_minio_media_secret_key",
+    } <= secret_sources
+    assert "twobrain_minio_api_access_key" not in secret_sources
+    assert "twobrain_minio_api_secret_key" not in secret_sources
+    assert worker["volumes"] == ["rec-media-work:/var/lib/twobrain-rec/playback-normalization"]
+    assert worker["networks"] == ["rec-media-private"]
+    assert compose["networks"]["rec-media-private"]["internal"] is True
+    for dependency in ("rec-postgres", "rec-minio", "rec-temporal"):
+        assert "rec-media-private" in compose["services"][dependency]["networks"]
+    for unrelated in ("rec-api", "rec-processing-worker", "rec-migrate", "rec-minio-init"):
+        assert "rec-media-private" not in compose["services"][unrelated]["networks"]
+
+
+def test_dev_media_worker_keeps_the_same_non_root_resource_boundary() -> None:
+    compose = _dev_compose()
+    worker = compose["services"]["rec-media-worker"]
+
+    assert worker["user"] == "twobrain"
+    assert worker["init"] is True
+    assert worker["read_only"] is True
+    assert worker["cap_drop"] == ["ALL"]
+    assert worker["security_opt"] == ["no-new-privileges:true"]
+    assert worker["pids_limit"] == 128
+    assert worker["cpus"] == "1.0"
+    assert worker["mem_limit"] == "1g"
+    assert worker["environment"]["TWOBRAIN_PLAYBACK_NORMALIZATION_WORKER_CONCURRENCY"] == "1"
+    assert worker["environment"]["TWOBRAIN_MINIO_ACCESS_KEY"] == "twobrain_rec_media"
+    assert worker["healthcheck"]["test"][-1] == (
+        "/app/scripts/verify_playback_normalization_worker_ready.py"
+    )
+    assert worker["networks"] == ["rec-media-private"]
+
+
+def test_media_worker_minio_policy_is_prefix_scoped_without_bucket_listing() -> None:
+    for compose in (_compose(), _dev_compose()):
+        policy = _media_minio_policy(compose)
+        statements = policy["Statement"]
+        actions = {action for statement in statements for action in statement["Action"]}
+        resources_by_action = {
+            action: {
+                resource
+                for statement in statements
+                if action in statement["Action"]
+                for resource in statement["Resource"]
+            }
+            for action in actions
+        }
+
+        assert "s3:ListBucket" not in actions
+        assert resources_by_action["s3:DeleteObject"] == {
+            "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
+            "artifacts/playback-normalization/revisions/*/attempts/*/meeting-review.m4a"
+        }
+        assert (
+            "arn:aws:s3:::twobrain-rec-ingest/_system/readiness/ready"
+            in resources_by_action["s3:GetObject"]
+        )
+        assert all(
+            "/sessions/*/tracks/" not in resource
+            for resource in resources_by_action["s3:DeleteObject"]
+        )
+
+
+def test_minio_init_publishes_storage_readiness_sentinel() -> None:
+    for compose in (_compose(), _dev_compose()):
+        script = compose["services"]["rec-minio-init"]["entrypoint"][-1]
+        assert "_system/readiness/ready" in script
+    assert compose["networks"]["rec-media-private"]["internal"] is True
+
+
+def test_dockerfile_keeps_ffmpeg_in_media_target_only() -> None:
+    dockerfile = DOCKERFILE_PATH.read_text()
+    media_block = dockerfile.split("FROM base AS media-runtime", maxsplit=1)[1].split(
+        "FROM base AS runtime",
+        maxsplit=1,
+    )[0]
+    runtime_block = dockerfile.split("FROM base AS runtime", maxsplit=1)[1]
+
+    assert (
+        DOCKERFILE_PATH.read_text()
+        .splitlines()[0]
+        .startswith("FROM python:3.13-slim-bookworm@sha256:")
+    )
+    assert "snapshot.debian.org/archive/debian/20260518T000000Z" in media_block
+    assert "apt-get install --no-install-recommends --yes ffmpeg=7:5.1.9-0+deb12u1" in (media_block)
+    assert "USER twobrain" in media_block
+    assert "ffmpeg" not in runtime_block
 
 
 def test_production_api_allows_runtime_public_analytics_overrides() -> None:
@@ -217,7 +492,10 @@ def test_production_api_allows_runtime_public_analytics_overrides() -> None:
     api_env = compose["services"]["rec-api"]["environment"]
     worker_env = compose["services"]["rec-processing-worker"]["environment"]
 
-    assert api_env["TWOBRAIN_PUBLIC_ANALYTICS_ENABLED"] == "${TWOBRAIN_PUBLIC_ANALYTICS_ENABLED:-false}"
+    assert (
+        api_env["TWOBRAIN_PUBLIC_ANALYTICS_ENABLED"]
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_ENABLED:-false}"
+    )
     assert (
         api_env["TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID"]
         == "${TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID:-}"
@@ -226,7 +504,10 @@ def test_production_api_allows_runtime_public_analytics_overrides() -> None:
         api_env["TWOBRAIN_PUBLIC_ANALYTICS_VALIDATION_MODE"]
         == "${TWOBRAIN_PUBLIC_ANALYTICS_VALIDATION_MODE:-disabled}"
     )
-    assert api_env["TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED"] == "${TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED:-false}"
+    assert (
+        api_env["TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED"]
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_REPLAY_ENABLED:-false}"
+    )
     assert (
         api_env["TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION"]
         == "${TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION:-2026-07-08.1}"
@@ -235,6 +516,6 @@ def test_production_api_allows_runtime_public_analytics_overrides() -> None:
 
 
 def test_remote_cd_blocks_static_postgres_pwd_in_compose_config() -> None:
-    script = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
+    script = (REPO_ROOT / "infra/scripts/cd-remote-runtime.sh").read_text()
 
     assert "POSTGRES_PWD:" in script

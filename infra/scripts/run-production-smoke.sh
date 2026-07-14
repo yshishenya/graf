@@ -64,14 +64,16 @@ cleanup_smoke_auth_session() {
     cleanup_args+=(--auth-session-id "$SMOKE_AUTH_SESSION_ID")
   fi
   if [[ "$mode" == "best_effort" ]]; then
-    docker compose -f infra/docker-compose.yml exec -T rec-api "${cleanup_args[@]}" \
+    docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+      "${cleanup_args[@]}" \
       >"$SMOKE_AUTH_CLEANUP_JSON" 2>/tmp/twobrain-rec-smoke-auth-cleanup.err || true
     docker compose -f infra/docker-compose.yml exec -T rec-api sh -c 'rm -f "$1"' _ "$SMOKE_TOKEN_FILE" \
       >/dev/null 2>&1 || true
     return 0
   fi
 
-  docker compose -f infra/docker-compose.yml exec -T rec-api "${cleanup_args[@]}" \
+  docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+    "${cleanup_args[@]}" \
     >"$SMOKE_AUTH_CLEANUP_JSON"
   require_json_status "$SMOKE_AUTH_CLEANUP_JSON" auth_cleanup_result pass
   SMOKE_AUTH_CLEANED="1"
@@ -95,12 +97,14 @@ cleanup_smoke_artifacts() {
     fi
   fi
   if [[ "$mode" == "best_effort" ]]; then
-    docker compose -f infra/docker-compose.yml exec -T rec-api "${cleanup_args[@]}" \
+    docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+      "${cleanup_args[@]}" \
       >"$SMOKE_ARTIFACT_CLEANUP_JSON" 2>/tmp/twobrain-rec-smoke-cleanup.err || true
     return 0
   fi
 
-  docker compose -f infra/docker-compose.yml exec -T rec-api "${cleanup_args[@]}" \
+  docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+    "${cleanup_args[@]}" \
     >"$SMOKE_ARTIFACT_CLEANUP_JSON"
   require_json_status "$SMOKE_ARTIFACT_CLEANUP_JSON" cleanup_result pass
   SMOKE_ARTIFACTS_CLEANED="1"

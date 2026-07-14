@@ -22,6 +22,8 @@ from twobrain_rec_server.db.models import (
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import (
+    MediaRevisionSourceKind,
+    MediaRevisionStatus,
     MediaScribeJobStatus,
     ProcessingAvailabilityStatus,
     ProcessingDependencyName,
@@ -30,6 +32,10 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
     SummaryStatus,
     TrackRole,
+)
+from twobrain_rec_server.ingest.media_revisions import (
+    authoritative_track_roles,
+    authoritative_track_sha256_by_role,
 )
 from twobrain_rec_server.mediascribe.schemas import MediaScribeResult
 from twobrain_rec_server.processing.audit import safe_audit_metadata
@@ -113,28 +119,62 @@ async def load_processing_source(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
 ) -> ProcessingSourceArtifacts | None:
-    query = select(TrackArtifact).where(
-        TrackArtifact.workspace_id == workspace_id,
-        TrackArtifact.meeting_id == meeting_id,
-        TrackArtifact.status == "stored",
+    revision_query = select(MediaRevision).where(
+        MediaRevision.workspace_id == workspace_id,
+        MediaRevision.meeting_id == meeting_id,
+        MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+        MediaRevision.immutable.is_(True),
+        MediaRevision.manifest_sha256.is_not(None),
     )
     if media_revision_id is not None:
-        query = query.where(TrackArtifact.media_revision_id == media_revision_id)
-    artifacts = await db.scalars(query)
-    mic: TrackArtifact | None = None
-    incoming: TrackArtifact | None = None
-    source: TrackArtifact | None = None
+        revision_query = revision_query.where(MediaRevision.id == media_revision_id)
+    else:
+        revision_query = revision_query.order_by(
+            desc(MediaRevision.revision_number),
+            desc(MediaRevision.updated_at),
+        )
+    revision = await db.scalar(revision_query)
+    if revision is None or not revision.track_sha256_by_role:
+        return None
+    try:
+        expected_digests = authoritative_track_sha256_by_role(
+            source_kind=revision.source_kind,
+            digests_by_role=revision.track_sha256_by_role,
+        )
+        expected_roles = authoritative_track_roles(revision.source_kind)
+    except ValueError:
+        return None
+    artifacts = list(
+        await db.scalars(
+            select(TrackArtifact).where(
+                TrackArtifact.workspace_id == workspace_id,
+                TrackArtifact.meeting_id == meeting_id,
+                TrackArtifact.media_revision_id == revision.id,
+                TrackArtifact.status == "stored",
+                TrackArtifact.track_role.in_(expected_roles),
+            )
+        )
+    )
+    artifacts_by_role: dict[str, TrackArtifact] = {}
     for artifact in artifacts:
-        if artifact.track_role == TrackRole.MICROPHONE.value:
-            mic = artifact
-        elif artifact.track_role == TrackRole.SYSTEM.value:
-            incoming = artifact
-        elif artifact.track_role == TrackRole.MEDIA.value:
-            source = artifact
-    if source is not None:
-        return ProcessingSourceArtifacts(request_mode="single_track", source_artifact=source)
-    if mic is not None and incoming is not None:
-        return ProcessingSourceArtifacts(request_mode="dual_track", mic_artifact=mic, incoming_artifact=incoming)
+        if artifact.track_role in artifacts_by_role:
+            return None
+        if artifact.sha256 != expected_digests.get(artifact.track_role):
+            return None
+        artifacts_by_role[artifact.track_role] = artifact
+    if set(artifacts_by_role) != set(expected_roles):
+        return None
+    if revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value:
+        return ProcessingSourceArtifacts(
+            request_mode="single_track",
+            source_artifact=artifacts_by_role[TrackRole.MEDIA.value],
+        )
+    if revision.source_kind == MediaRevisionSourceKind.INITIAL_RECORDING.value:
+        return ProcessingSourceArtifacts(
+            request_mode="dual_track",
+            mic_artifact=artifacts_by_role[TrackRole.MICROPHONE.value],
+            incoming_artifact=artifacts_by_role[TrackRole.SYSTEM.value],
+        )
     return None
 
 

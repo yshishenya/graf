@@ -7,7 +7,11 @@ from pydantic import AliasChoices, AnyUrl, Field, PositiveInt, field_validator, 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ALLOWED_READINESS_VERDICTS = ("not_ready", "blocked", "infra_smoke_ready")
-FORBIDDEN_READINESS_VERDICTS = ("production_ready", "user_rollout_ready", "internal_user_pilot_ready")
+FORBIDDEN_READINESS_VERDICTS = (
+    "production_ready",
+    "user_rollout_ready",
+    "internal_user_pilot_ready",
+)
 SMOKE_IDENTITY_CLASS = "internal_smoke"
 SUPPORT_INCIDENT_GITHUB_OWNER = "yshishenya"
 SUPPORT_INCIDENT_GITHUB_REPO = "crisp"
@@ -35,8 +39,11 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8080
     log_level: str = "INFO"
+    web_runtime_enabled: bool = True
 
-    database_url: str = "postgresql+asyncpg://twobrain_rec:twobrain_rec@localhost:54329/twobrain_rec"
+    database_url: str = (
+        "postgresql+asyncpg://twobrain_rec:twobrain_rec@localhost:54329/twobrain_rec"
+    )
 
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "twobrain_rec"
@@ -128,6 +135,31 @@ class Settings(BaseSettings):
     temporal_namespace: str = "default"
     temporal_task_queue: str = "twobrain-rec-processing"
 
+    playback_normalization_enabled: bool = False
+    playback_normalization_automatic_dispatch_enabled: bool = True
+    playback_normalization_task_queue: str = "twobrain-rec-playback-normalization"
+    playback_normalization_work_directory: Path = Path(
+        "/var/lib/twobrain-rec/playback-normalization"
+    )
+    playback_normalization_probe_timeout_seconds: PositiveInt = Field(default=60)
+    playback_normalization_activity_timeout_seconds: PositiveInt = Field(default=21_600)
+    playback_normalization_workflow_timeout_seconds: PositiveInt = Field(default=43_200)
+    playback_normalization_heartbeat_seconds: PositiveInt = Field(default=30)
+    playback_normalization_reconcile_interval_seconds: PositiveInt = Field(default=60)
+    playback_normalization_work_budget_bytes: PositiveInt = Field(default=6_442_450_944)
+    playback_normalization_output_max_bytes: PositiveInt = Field(default=134_217_728)
+    playback_normalization_work_reserve_bytes: PositiveInt = Field(default=268_435_456)
+    playback_normalization_probe_stdout_max_bytes: PositiveInt = Field(default=262_144)
+    playback_normalization_process_stderr_max_bytes: PositiveInt = Field(default=1_048_576)
+    playback_normalization_max_streams: PositiveInt = Field(default=16)
+    playback_normalization_max_audio_streams: PositiveInt = Field(default=8)
+    playback_normalization_worker_concurrency: PositiveInt = Field(default=1)
+    playback_normalization_workspace_page_size: PositiveInt = Field(default=50)
+    playback_normalization_inventory_page_size: PositiveInt = Field(default=100)
+    playback_normalization_dispatch_batch_size: PositiveInt = Field(default=25)
+    playback_normalization_ffmpeg_path: Path = Path("/usr/bin/ffmpeg")
+    playback_normalization_ffprobe_path: Path = Path("/usr/bin/ffprobe")
+
     max_recording_duration_seconds: PositiveInt = Field(default=14_400)
     max_track_bytes: PositiveInt = Field(default=2_684_354_560)
     max_package_bytes: PositiveInt = Field(default=5_368_709_120)
@@ -194,7 +226,9 @@ class Settings(BaseSettings):
     def validate_public_analytics_validation_mode(cls, value: str) -> str:
         normalized = value.strip().lower()
         if normalized not in {"disabled", "render_only", "provider_smoke"}:
-            raise ValueError("public_analytics_validation_mode must be disabled, render_only, or provider_smoke")
+            raise ValueError(
+                "public_analytics_validation_mode must be disabled, render_only, or provider_smoke"
+            )
         return normalized
 
     @field_validator("product_analytics_validation_mode")
@@ -202,7 +236,9 @@ class Settings(BaseSettings):
     def validate_product_analytics_validation_mode(cls, value: str) -> str:
         normalized = value.strip().lower()
         if normalized not in {"disabled", "render_only", "provider_smoke"}:
-            raise ValueError("product_analytics_validation_mode must be disabled, render_only, or provider_smoke")
+            raise ValueError(
+                "product_analytics_validation_mode must be disabled, render_only, or provider_smoke"
+            )
         return normalized
 
     @field_validator("product_analytics_provider_mode")
@@ -223,17 +259,91 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
+    def validate_playback_normalization_safety(self) -> "Settings":
+        if not self.playback_normalization_enabled:
+            return self
+        if not self.playback_normalization_task_queue.strip():
+            raise ValueError("playback normalization task queue must be explicit")
+        if self.playback_normalization_task_queue == self.temporal_task_queue:
+            raise ValueError("playback normalization task queue must be isolated from processing")
+        if self.playback_normalization_worker_concurrency != 1:
+            raise ValueError("playback normalization worker concurrency must be exactly 1")
+        if self.playback_normalization_workspace_page_size != 50:
+            raise ValueError("playback normalization workspace page must remain exactly 50")
+        if self.playback_normalization_inventory_page_size != 100:
+            raise ValueError("playback normalization inventory page must remain exactly 100")
+        if self.playback_normalization_dispatch_batch_size != 25:
+            raise ValueError("playback normalization dispatch batch must remain exactly 25")
+        if self.playback_normalization_max_streams != 16:
+            raise ValueError("playback normalization stream limit must remain exactly 16")
+        if self.playback_normalization_max_audio_streams != 8:
+            raise ValueError("playback normalization audio stream limit must remain exactly 8")
+        if self.playback_normalization_probe_stdout_max_bytes != 262_144:
+            raise ValueError("playback normalization probe stdout cap must remain exactly 256 KiB")
+        if self.playback_normalization_process_stderr_max_bytes != 1_048_576:
+            raise ValueError("playback normalization process stderr cap must remain exactly 1 MiB")
+        if self.playback_normalization_output_max_bytes != 134_217_728:
+            raise ValueError("playback normalization output cap must remain exactly 128 MiB")
+        required_work_budget = (
+            self.max_package_bytes
+            + self.playback_normalization_output_max_bytes
+            + self.playback_normalization_work_reserve_bytes
+        )
+        if self.playback_normalization_work_budget_bytes < required_work_budget:
+            raise ValueError(
+                "playback normalization work budget is below accepted package plus reserves"
+            )
+        if (
+            self.playback_normalization_probe_timeout_seconds
+            >= self.playback_normalization_activity_timeout_seconds
+            or self.playback_normalization_activity_timeout_seconds
+            > self.playback_normalization_workflow_timeout_seconds
+        ):
+            raise ValueError("playback normalization timeout ordering is unsafe")
+        if (
+            self.playback_normalization_heartbeat_seconds
+            >= self.playback_normalization_reconcile_interval_seconds
+        ):
+            raise ValueError("playback normalization heartbeat must be shorter than reconciliation")
+        if self.env.lower() == "production":
+            if not self.temporal_address:
+                raise ValueError("production playback normalization requires temporal_address")
+            if not self.playback_normalization_work_directory.is_absolute():
+                raise ValueError(
+                    "production playback normalization work directory must be absolute"
+                )
+            if not self.playback_normalization_ffmpeg_path.is_absolute():
+                raise ValueError("production playback normalization ffmpeg path must be absolute")
+            if not self.playback_normalization_ffprobe_path.is_absolute():
+                raise ValueError("production playback normalization ffprobe path must be absolute")
+        return self
+
+    @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
         if self.public_analytics_enabled and self.public_analytics_yandex_metrica_id is None:
-            raise ValueError("production public analytics requires public_analytics_yandex_metrica_id")
+            raise ValueError(
+                "production public analytics requires public_analytics_yandex_metrica_id"
+            )
         if self.public_analytics_yandex_metrica_id is not None:
             counter_id = self.public_analytics_yandex_metrica_id.strip()
             lowered_counter_id = counter_id.lower()
-            placeholder_markers = ("test", "replace", "changeme", "google", "gtm", "ga4", "measurement")
-            if not counter_id.isdigit() or any(marker in lowered_counter_id for marker in placeholder_markers):
-                raise ValueError("production public_analytics_yandex_metrica_id must be a real numeric Yandex counter ID")
+            placeholder_markers = (
+                "test",
+                "replace",
+                "changeme",
+                "google",
+                "gtm",
+                "ga4",
+                "measurement",
+            )
+            if not counter_id.isdigit() or any(
+                marker in lowered_counter_id for marker in placeholder_markers
+            ):
+                raise ValueError(
+                    "production public_analytics_yandex_metrica_id must be a real numeric Yandex counter ID"
+                )
         if self.product_analytics_retention_min_days < 90:
             raise ValueError("production product analytics retention must be at least 90 days")
         if self.product_analytics_enabled and self.product_analytics_validation_mode == "disabled":
@@ -242,26 +352,38 @@ class Settings(BaseSettings):
             raise ValueError("production product analytics requires an explicit provider mode")
         if self.product_analytics_posthog_enabled:
             if self.product_analytics_posthog_host is None:
-                raise ValueError("production PostHog product analytics requires product_analytics_posthog_host")
+                raise ValueError(
+                    "production PostHog product analytics requires product_analytics_posthog_host"
+                )
             if self.product_analytics_posthog_project_key_file is None:
                 raise ValueError(
                     "production PostHog product analytics requires product_analytics_posthog_project_key_file"
                 )
-        if self.product_analytics_yandex_all_pages_enabled or self.product_analytics_yandex_offline_enabled:
+        if (
+            self.product_analytics_yandex_all_pages_enabled
+            or self.product_analytics_yandex_offline_enabled
+        ):
             if self.product_analytics_yandex_counter_id is None:
-                raise ValueError("production Yandex product analytics requires product_analytics_yandex_counter_id")
+                raise ValueError(
+                    "production Yandex product analytics requires product_analytics_yandex_counter_id"
+                )
             yandex_counter_id = self.product_analytics_yandex_counter_id.strip()
             lowered_yandex_counter_id = yandex_counter_id.lower()
             if not yandex_counter_id.isdigit() or any(
-                marker in lowered_yandex_counter_id for marker in ("test", "replace", "changeme", "google", "gtm")
+                marker in lowered_yandex_counter_id
+                for marker in ("test", "replace", "changeme", "google", "gtm")
             ):
-                raise ValueError("production product_analytics_yandex_counter_id must be a real numeric Yandex counter ID")
+                raise ValueError(
+                    "production product_analytics_yandex_counter_id must be a real numeric Yandex counter ID"
+                )
         if self.product_analytics_direct_desktop_egress_enabled and not (
             self.product_analytics_direct_desktop_egress_approved
             and self.product_analytics_legal_approved
             and self.product_analytics_provider_smoke_approved
         ):
-            raise ValueError("direct desktop product analytics egress requires legal/security/QA/provider approval")
+            raise ValueError(
+                "direct desktop product analytics egress requires legal/security/QA/provider approval"
+            )
         required_secret_files = {
             "postgres_password_file": self.postgres_password_file,
             "minio_access_key_file": self.minio_access_key_file,
@@ -269,7 +391,9 @@ class Settings(BaseSettings):
             "smoke_credential_file": self.smoke_credential_file,
             "mediascribe_api_key_file": self.mediascribe_api_key_file,
             "credential_encryption_key_file": self.credential_encryption_key_file,
-            "web_csrf_secret_file": self.web_csrf_secret_file,
+            "web_csrf_secret_file": (
+                self.web_csrf_secret_file if self.web_runtime_enabled else None
+            ),
             "support_incident_github_token_file": self.support_incident_github_token_file,
             "product_analytics_posthog_project_key_file": self.product_analytics_posthog_project_key_file,
             "product_analytics_yandex_oauth_token_file": self.product_analytics_yandex_oauth_token_file,
@@ -278,12 +402,16 @@ class Settings(BaseSettings):
             if path is None:
                 continue
             if not path.is_file():
-                raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}")
+                raise ValueError(
+                    f"production Docker secret file is missing or unreadable: {field_name}"
+                )
             try:
                 with path.open("r", encoding="utf-8"):
                     pass
             except OSError as exc:
-                raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}") from exc
+                raise ValueError(
+                    f"production Docker secret file is missing or unreadable: {field_name}"
+                ) from exc
         if self.processing_enabled and not self.temporal_address:
             raise ValueError("production processing requires temporal_address")
         if (
@@ -313,20 +441,28 @@ class Settings(BaseSettings):
                 raise ValueError("production email login delivery requires postal_api_url")
             if self.postal_api_key_file is None:
                 raise ValueError("production email login delivery requires postal_api_key_file")
-            if self.email_login_from_address is None or not _is_valid_email_address(self.email_login_from_address):
-                raise ValueError("production email login delivery requires a valid email_login_from_address")
+            if self.email_login_from_address is None or not _is_valid_email_address(
+                self.email_login_from_address
+            ):
+                raise ValueError(
+                    "production email login delivery requires a valid email_login_from_address"
+                )
             if not self.postal_api_key_file.is_file():
-                raise ValueError("production Docker secret file is missing or unreadable: postal_api_key_file")
+                raise ValueError(
+                    "production Docker secret file is missing or unreadable: postal_api_key_file"
+                )
             if self.postal_api_key_file.read_text(encoding="utf-8").strip() == "":
                 raise ValueError("production Postal API key file must be non-empty")
         if self.postgres_password_file is not None:
             postgres_password = self.postgres_password_file.read_text(encoding="utf-8").strip()
-            self.database_url = self.database_url.replace("__POSTGRES_PASSWORD__", quote(postgres_password, safe=""))
+            self.database_url = self.database_url.replace(
+                "__POSTGRES_PASSWORD__", quote(postgres_password, safe="")
+            )
         if self.minio_access_key_file is not None:
             self.minio_access_key = self.minio_access_key_file.read_text(encoding="utf-8").strip()
         if self.minio_secret_key_file is not None:
             self.minio_secret_key = self.minio_secret_key_file.read_text(encoding="utf-8").strip()
-        if self.web_csrf_secret_file is not None:
+        if self.web_runtime_enabled and self.web_csrf_secret_file is not None:
             self.web_csrf_secret = self.web_csrf_secret_file.read_text(encoding="utf-8").strip()
         provider_secret_files = {
             "yandex_client_secret_file": self.yandex_client_secret_file,
@@ -337,9 +473,13 @@ class Settings(BaseSettings):
             if path is None:
                 continue
             if not path.is_file():
-                raise ValueError(f"production Docker secret file is missing or unreadable: {field_name}")
+                raise ValueError(
+                    f"production Docker secret file is missing or unreadable: {field_name}"
+                )
             if path.read_text(encoding="utf-8").strip() == "":
-                raise ValueError(f"production auth provider secret file must be non-empty: {field_name}")
+                raise ValueError(
+                    f"production auth provider secret file must be non-empty: {field_name}"
+                )
         placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
         insecure_client_ids = {
             self.yandex_client_id.lower(),
@@ -351,9 +491,13 @@ class Settings(BaseSettings):
             raise ValueError("production auth provider IDs must be explicit and non-placeholder")
         unsafe_hosts = ("localhost", "127.0.0.1", "0.0.0.0", "::1")
         if any(host in self.database_url for host in unsafe_hosts):
-            raise ValueError("production database_url must not point at localhost or wildcard hosts")
+            raise ValueError(
+                "production database_url must not point at localhost or wildcard hosts"
+            )
         if self.minio_endpoint.split(":", maxsplit=1)[0] in unsafe_hosts:
-            raise ValueError("production minio_endpoint must not point at localhost or wildcard hosts")
+            raise ValueError(
+                "production minio_endpoint must not point at localhost or wildcard hosts"
+            )
         dev_secrets = {
             "twobrain_rec",
             "twobrain_rec_dev_secret",
@@ -364,12 +508,17 @@ class Settings(BaseSettings):
         }
         if self.minio_access_key in dev_secrets or self.minio_secret_key in dev_secrets:
             raise ValueError("production MinIO API credentials must not use development defaults")
-        if self.web_csrf_secret in dev_secrets or len(self.web_csrf_secret) < 32:
+        if self.web_runtime_enabled and (
+            self.web_csrf_secret in dev_secrets or len(self.web_csrf_secret) < 32
+        ):
             raise ValueError("production web_csrf_secret must be explicit and non-placeholder")
         root_markers = ("root", "admin")
         if any(marker in self.minio_access_key.lower() for marker in root_markers):
             raise ValueError("production MinIO API access key must not be a root/admin credential")
-        if self.smoke_identity_class is not None and self.smoke_identity_class != SMOKE_IDENTITY_CLASS:
+        if (
+            self.smoke_identity_class is not None
+            and self.smoke_identity_class != SMOKE_IDENTITY_CLASS
+        ):
             raise ValueError("production smoke identity class must be internal_smoke")
         if self.auth_storage_region_tag.strip().lower() != "ru":
             raise ValueError("production auth storage region must be ru")
@@ -381,8 +530,12 @@ class Settings(BaseSettings):
             self.smoke_user_id,
             self.smoke_device_id,
         )
-        if any(identifier in LOCAL_DEV_SMOKE_IDS for identifier in smoke_ids if identifier is not None):
-            raise ValueError("production smoke identity/device must not reuse local development seed identifiers")
+        if any(
+            identifier in LOCAL_DEV_SMOKE_IDS for identifier in smoke_ids if identifier is not None
+        ):
+            raise ValueError(
+                "production smoke identity/device must not reuse local development seed identifiers"
+            )
         return self
 
 

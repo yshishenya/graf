@@ -7,7 +7,14 @@ from sqlalchemy import select
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.artifacts import deterministic_wav_bytes
-from twobrain_rec_server.db.models import RecordingCalendarContextLink, TrackArtifact
+from tests.integration.test_playback_normalization_dispatch import (
+    CommitObservingTemporalClient,
+)
+from twobrain_rec_server.db.models import (
+    PlaybackNormalizationJob,
+    RecordingCalendarContextLink,
+    TrackArtifact,
+)
 
 
 def test_manual_media_upload_creates_single_media_artifact_and_starts_processing(client) -> None:
@@ -47,6 +54,48 @@ def test_manual_media_upload_creates_single_media_artifact_and_starts_processing
     import asyncio
 
     assert asyncio.run(load_artifact_roles()) == ["manifest", "media"]
+
+
+def test_manual_media_upload_commits_and_starts_normalization_without_processing(client) -> None:
+    temporal = CommitObservingTemporalClient(client.app_state["sessionmaker"])
+    client.app.state.settings.playback_normalization_enabled = True
+    client.app.state.settings.processing_enabled = False
+    client.app.state.temporal_client = temporal
+
+    response = client.post(
+        "/api/v1/media-uploads",
+        headers=auth_headers(),
+        data={
+            "title": "Manual normalization",
+            "duration_seconds": "60",
+            "local_recording_id": "manual-normalization-post-commit",
+        },
+        files={"file": ("meeting.wav", deterministic_wav_bytes(256), "audio/wav")},
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    revision_id = body["meeting"]["media_revision"]["media_revision_id"]
+    workflow_id = f"playback-normalization/{revision_id}/v1"
+    assert temporal.job_was_committed_before_start is True
+    assert workflow_id in temporal.starts
+    assert all(not started_id.startswith("processing/") for started_id in temporal.starts)
+    assert body["workflow_started"] is False
+
+    async def load_job() -> PlaybackNormalizationJob | None:
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == UUID(body["meeting"]["meeting_id"])
+                )
+            )
+
+    job = client.portal.call(load_job)
+    assert job is not None
+    assert job.source_kind == "manual_upload"
+    assert job.planned_action == "normalize_source"
+    assert job.state == "queued"
+    assert job.workflow_id == workflow_id
 
 
 def test_manual_media_upload_rejects_empty_file(client) -> None:

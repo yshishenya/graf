@@ -6,6 +6,7 @@ from twobrain_rec_server.readiness.feature_ids import (
     FEATURE_050_ID,
     FEATURE_051_ID,
     FEATURE_052_ID,
+    FEATURE_099_ID,
 )
 
 
@@ -1092,5 +1093,22 @@ def build_default_evidence(
                 ),
             ]
         )
+    if feature == FEATURE_099_ID:
+        evidence.append(
+            ReadinessEvidence(
+                id="feature-099-media-worker-capability",
+                type="runtime",
+                source="specs/099-review-m4a-normalization/validation/us6-lifecycle.md",
+                captured_at=captured_at,
+                scope=(
+                    "Capability-only media-worker dependency, schema, storage, queue, "
+                    "private-temp and synthetic full-decode evidence."
+                ),
+                strength="local_runtime",
+                forbidden_content_scan="pass",
+                limitations=[
+                    "Worker capability does not prove an individual recording, legacy backfill run, or production user journey is complete."
+                ],
+            )
+        )
     return evidence
-

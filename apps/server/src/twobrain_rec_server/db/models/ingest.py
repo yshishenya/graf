@@ -5,11 +5,14 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -108,6 +111,59 @@ class TemporaryUploadObject(Base):
 
 class TrackArtifact(Base):
     __tablename__ = "track_artifacts"
+    __table_args__ = (
+        CheckConstraint(
+            """
+            (
+                normalization_profile_version is null
+                and validated_at is null
+                and source_fingerprint_sha256 is null
+                and validation_version is null
+            )
+            or
+            (
+                normalization_profile_version = 'review_m4a_aac_lc_48k_mono_64k_v1'
+                and validated_at is not null
+                and source_fingerprint_sha256 is not null
+                and validation_version = 'playback_validator_v1'
+                and derivation_kind is not null
+                and track_role = 'playback'
+                and status = 'stored'
+                and media_revision_id is not null
+            )
+            """,
+            name="track_artifact_validation_bundle",
+        ),
+        CheckConstraint(
+            "derivation_kind is null or track_role = 'playback'",
+            name="track_artifact_derivation_role",
+        ),
+        Index(
+            "uq_track_artifacts_canonical_playback",
+            "workspace_id",
+            "media_revision_id",
+            unique=True,
+            postgresql_where=text(
+                "track_role = 'playback' and status = 'stored' "
+                "and normalization_profile_version = "
+                "'review_m4a_aac_lc_48k_mono_64k_v1' "
+                "and validated_at is not null"
+            ),
+            sqlite_where=text(
+                "track_role = 'playback' and status = 'stored' "
+                "and normalization_profile_version = "
+                "'review_m4a_aac_lc_48k_mono_64k_v1' "
+                "and validated_at is not null"
+            ),
+        ),
+        Index(
+            "ix_track_artifacts_workspace_meeting_role_status",
+            "workspace_id",
+            "meeting_id",
+            "track_role",
+            "status",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
@@ -122,6 +178,11 @@ class TrackArtifact(Base):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     storage_object_key: Mapped[str] = mapped_column(String(1000), nullable=False)
     status: Mapped[str] = mapped_column(String(64), default="stored")
+    normalization_profile_version: Mapped[str | None] = mapped_column(String(120))
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    derivation_kind: Mapped[str | None] = mapped_column(String(64))
+    source_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64))
+    validation_version: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

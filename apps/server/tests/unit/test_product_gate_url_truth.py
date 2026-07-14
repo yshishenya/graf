@@ -9,7 +9,7 @@ def test_product_public_url_is_rec_2brain_pro_across_governance_sources() -> Non
     constitution = (ROOT / ".specify/memory/constitution.md").read_text()
     product_gates = (ROOT / "docs/agent-guidance/product-gates.md").read_text()
     prd = (ROOT / "docs/prd-voice-layer-final.md").read_text()
-    deploy_script = (ROOT / "infra/scripts/cd-remote.sh").read_text()
+    deploy_script = (ROOT / "infra/scripts/cd-remote-runtime.sh").read_text()
 
     canonical = "https://rec.2brain.pro"
 

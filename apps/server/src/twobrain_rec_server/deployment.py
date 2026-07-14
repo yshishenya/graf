@@ -13,6 +13,10 @@ from twobrain_rec_server.config import (
     LOCAL_DEV_SMOKE_IDS,
     SMOKE_IDENTITY_CLASS,
 )
+from twobrain_rec_server.normalization.statuses import (
+    CANONICAL_PROFILE_VERSION,
+    VALIDATION_VERSION,
+)
 from twobrain_rec_server.observability.redaction import contains_forbidden_evidence_content
 
 ReadinessVerdict = Literal["not_ready", "blocked", "infra_smoke_ready"]
@@ -139,6 +143,9 @@ class RollbackDecisionRecord(BaseModel):
     cleanup_obligations: list[str] = Field(default_factory=list)
     residue_owner: str | None = None
     residue_follow_up_reason: str | None = None
+    rollback_target: Literal["raw_pre_099", "compatibility_099", "forward_fix"] | None = None
+    dispatch_stopped: bool | None = None
+    legacy_playback_guard_retained: bool | None = None
 
     @model_validator(mode="after")
     def validate_decision_boundary(self) -> RollbackDecisionRecord:
@@ -146,6 +153,82 @@ class RollbackDecisionRecord(BaseModel):
             raise ValueError("restore/rollback decisions require prior state reference")
         if self.cleanup_obligations and not (self.residue_owner and self.residue_follow_up_reason):
             raise ValueError("cleanup obligations require residue owner and follow-up reason")
+        if self.trigger == "playback_normalization_compatibility":
+            if self.rollback_target not in {"compatibility_099", "forward_fix"}:
+                raise ValueError("playback normalization rollback cannot target a raw pre-099 binary")
+            if self.dispatch_stopped is not True:
+                raise ValueError("playback normalization dispatch must stop before rollback")
+            if self.legacy_playback_guard_retained is not True:
+                raise ValueError("playback normalization rollback must retain the legacy playback guard")
+        return self
+
+
+class PlaybackNormalizationDeploymentEvidence(BaseModel):
+    """Metadata-only release gates for the 099 worker capability and recovery path."""
+
+    scope: Literal["playback_normalization_capability"] = "playback_normalization_capability"
+    readiness_state: Literal["ready", "degraded", "blocked"]
+    runtime_sha: str
+    profile_version: Literal[CANONICAL_PROFILE_VERSION]
+    validation_version: Literal[VALIDATION_VERSION]
+    migration_0022_result: GateResult
+    image_capability_result: GateResult
+    profile_contract_result: GateResult
+    media_worker_result: GateResult
+    automatic_retry_result: GateResult
+    backfill_inventory_result: GateResult
+    range_playback_result: GateResult
+    cleanup_result: GateResult
+    forbidden_metadata_result: GateResult
+
+    @model_validator(mode="after")
+    def validate_ready_boundary(self) -> PlaybackNormalizationDeploymentEvidence:
+        if self.readiness_state != "ready":
+            return self
+        gate_results = {
+            "migration_0022_result": self.migration_0022_result,
+            "image_capability_result": self.image_capability_result,
+            "profile_contract_result": self.profile_contract_result,
+            "media_worker_result": self.media_worker_result,
+            "automatic_retry_result": self.automatic_retry_result,
+            "backfill_inventory_result": self.backfill_inventory_result,
+            "range_playback_result": self.range_playback_result,
+            "cleanup_result": self.cleanup_result,
+            "forbidden_metadata_result": self.forbidden_metadata_result,
+        }
+        non_pass = [name for name, result in gate_results.items() if result != "pass"]
+        if non_pass:
+            raise ValueError(
+                "playback normalization ready requires pass gates: " + ", ".join(non_pass)
+            )
+        return self
+
+
+class PlaybackNormalizationRollingVersionState(BaseModel):
+    """Allowed additive rollout state: migration, API, capable worker, dispatch."""
+
+    migration_0022_present: bool
+    api_contract: Literal["pre_099", "099"]
+    media_worker_contract: Literal["absent", "099"]
+    automatic_dispatch_enabled: bool
+    api_runtime_sha: str | None = None
+    media_worker_runtime_sha: str | None = None
+    profile_version: Literal[CANONICAL_PROFILE_VERSION] = CANONICAL_PROFILE_VERSION
+    validation_version: Literal[VALIDATION_VERSION] = VALIDATION_VERSION
+
+    @model_validator(mode="after")
+    def validate_additive_order(self) -> PlaybackNormalizationRollingVersionState:
+        if self.api_contract == "099" and not self.migration_0022_present:
+            raise ValueError("099 API requires migration 0022 before rollout")
+        if self.media_worker_contract == "099" and self.api_contract != "099":
+            raise ValueError("099 media worker requires the compatible 099 API contract")
+        if self.automatic_dispatch_enabled and self.media_worker_contract != "099":
+            raise ValueError("automatic dispatch requires a compatible media worker")
+        if self.media_worker_contract == "099":
+            if not self.api_runtime_sha or not self.media_worker_runtime_sha:
+                raise ValueError("099 API and media worker require recorded runtime SHAs")
+            if self.api_runtime_sha != self.media_worker_runtime_sha:
+                raise ValueError("099 API and media worker runtime SHA must match")
         return self
 
 
@@ -261,6 +344,7 @@ ROLLBACK_TRIGGER_DECISIONS: dict[str, Literal["halt", "restore", "rollback", "bl
     "smoke_upload": "rollback",
     "forbidden_content": "halt",
     "cleanup": "blocked",
+    "playback_normalization_compatibility": "rollback",
 }
 
 
@@ -270,12 +354,29 @@ def rollback_decision_for_trigger(
     prior_state_reference: str | None = None,
     residue_owner: str | None = None,
     residue_follow_up_reason: str | None = None,
+    rollback_target: Literal["raw_pre_099", "compatibility_099", "forward_fix"] | None = None,
+    dispatch_stopped: bool | None = None,
+    legacy_playback_guard_retained: bool | None = None,
 ) -> RollbackDecisionRecord:
     if trigger not in ROLLBACK_TRIGGER_DECISIONS:
         raise ValueError(f"unsupported rollback trigger: {trigger}")
     decision = ROLLBACK_TRIGGER_DECISIONS[trigger]
+    if trigger == "playback_normalization_compatibility":
+        if rollback_target == "raw_pre_099":
+            raise ValueError("playback normalization rollback cannot use a raw pre-099 binary")
+        if rollback_target not in {"compatibility_099", "forward_fix"}:
+            raise ValueError("playback normalization rollback requires a guarded target")
+        if dispatch_stopped is not True:
+            raise ValueError("playback normalization dispatch must stop before rollback")
+        if legacy_playback_guard_retained is not True:
+            raise ValueError("playback normalization rollback must retain the legacy playback guard")
     cleanup_obligations = []
-    if trigger in {"smoke_upload", "cleanup", "forbidden_content"}:
+    if trigger in {
+        "smoke_upload",
+        "cleanup",
+        "forbidden_content",
+        "playback_normalization_compatibility",
+    }:
         cleanup_obligations.append("record smoke residue and remove Rec-owned database/object artifacts before retry")
     return RollbackDecisionRecord(
         trigger=trigger,
@@ -284,6 +385,9 @@ def rollback_decision_for_trigger(
         cleanup_obligations=cleanup_obligations,
         residue_owner=residue_owner,
         residue_follow_up_reason=residue_follow_up_reason,
+        rollback_target=rollback_target,
+        dispatch_stopped=dispatch_stopped,
+        legacy_playback_guard_retained=legacy_playback_guard_retained,
     )
 
 

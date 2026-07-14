@@ -123,13 +123,19 @@ def _is_forbidden_live_database_url(database_url: str) -> bool:
 
 
 async def _create_probe_role(migration_url: str) -> tuple[str, str]:
-    role_name = f"twobrain_rls_probe_{uuid4().hex[:16]}"
+    role_name = "twobrain_rec_maintenance"
     password = uuid4().hex
     engine = create_async_engine(migration_url, isolation_level="AUTOCOMMIT")
     try:
         async with engine.begin() as conn:
             quoted_role = _quote_identifier(role_name)
-            await conn.execute(text(f"create role {quoted_role} login password {_quote_literal(password)}"))
+            await conn.execute(
+                text(
+                    f"create role {quoted_role} login password {_quote_literal(password)} "
+                    "nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls"
+                )
+            )
+            await conn.execute(text(f"alter role {quoted_role} set row_security = on"))
             await conn.execute(text(f"grant usage on schema public to {quoted_role}"))
             await conn.execute(
                 text(f"grant select, insert, update, delete on all tables in schema public to {quoted_role}")

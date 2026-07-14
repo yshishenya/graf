@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Header, Query, Request, status
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,6 +103,53 @@ CabinetAccessQuery = Query(default=None)
 CabinetSortQuery = Query(default="updated_desc")
 CabinetLimitQuery = Query(default=50, ge=1, le=100)
 
+PLAYBACK_BINARY_SCHEMA = {"type": "string", "format": "binary"}
+PLAYBACK_COMMON_HEADERS = {
+    "Accept-Ranges": {
+        "description": "Supported byte range unit. Always `bytes`.",
+        "schema": {"type": "string"},
+    },
+    "Content-Disposition": {
+        "description": "Safe inline playback filename.",
+        "schema": {"type": "string"},
+    },
+    "Content-Length": {
+        "description": "Number of bytes in this response body.",
+        "schema": {"type": "integer"},
+    },
+}
+PLAYBACK_PROBLEM_CONTENT = {
+    "application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}
+}
+PLAYBACK_RESPONSES = {
+    200: {
+        "description": "Complete canonical review M4A.",
+        "content": {"audio/mp4": {"schema": PLAYBACK_BINARY_SCHEMA}},
+        "headers": PLAYBACK_COMMON_HEADERS,
+    },
+    206: {
+        "description": "Requested byte range from the canonical review M4A.",
+        "content": {"audio/mp4": {"schema": PLAYBACK_BINARY_SCHEMA}},
+        "headers": {
+            **PLAYBACK_COMMON_HEADERS,
+            "Content-Range": {
+                "description": "Returned byte interval and complete object length.",
+                "schema": {"type": "string"},
+            },
+        },
+    },
+    404: {"description": "Meeting not found.", "content": PLAYBACK_PROBLEM_CONTENT},
+    409: {"description": "Playback is not available.", "content": PLAYBACK_PROBLEM_CONTENT},
+    416: {
+        "description": "Requested byte range is malformed or unsatisfiable.",
+        "content": PLAYBACK_PROBLEM_CONTENT,
+    },
+    503: {
+        "description": "Canonical storage is temporarily unavailable.",
+        "content": PLAYBACK_PROBLEM_CONTENT,
+    },
+}
+
 
 def _is_hx_request(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
@@ -121,14 +169,18 @@ async def list_cabinet_meetings_route(
     limit: int = CabinetLimitQuery,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
     db: AsyncSession | None = DbDependency,
 ) -> MeetingListResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     return await list_cabinet_meetings(
         db,
         workspace_id=tenant_scope.workspace_id,
         viewer_user_id=principal.user_id,
+        storage=storage,
         q=q,
         status=status,
         access=access,
@@ -196,15 +248,19 @@ async def get_cabinet_meeting_review_route(
     meeting_id: UUID,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
     db: AsyncSession | None = DbDependency,
 ) -> MeetingReviewResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     response = await get_cabinet_meeting_review(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
+        storage=storage,
     )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
@@ -224,14 +280,18 @@ async def get_meeting_access_state_route(
     db: AsyncSession | None = DbDependency,
 ) -> MeetingAccessResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    result = await latest_processing_result(db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id)
+    result = await latest_processing_result(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id
+    )
     return MeetingAccessResponse(
         meeting_id=meeting.id,
         access=decision.to_schema(),
@@ -259,7 +319,9 @@ async def create_meeting_deletion_request_route(
     db: AsyncSession | None = DbDependency,
 ) -> DeletionRequestResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -302,7 +364,9 @@ async def get_meeting_deletion_report_route(
     db: AsyncSession | None = DbDependency,
 ) -> DeletionVerificationReport:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting = await _authorized_lifecycle_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -325,7 +389,9 @@ async def get_meeting_lifecycle_state_route(
     db: AsyncSession | None = DbDependency,
 ) -> DeletionLifecycleState:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting = await _authorized_lifecycle_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -349,7 +415,9 @@ async def retry_meeting_deletion_route(
     db: AsyncSession | None = DbDependency,
 ) -> DeletionRequestResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting = await _authorized_lifecycle_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -378,7 +446,9 @@ async def list_meeting_activity_route(
     db: AsyncSession | None = DbDependency,
 ) -> MeetingActivityResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -409,7 +479,9 @@ async def create_meeting_share_grant_route(
     db: AsyncSession | None = DbDependency,
 ) -> ShareGrantResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, _decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -446,7 +518,9 @@ async def revoke_meeting_share_grant_route(
     db: AsyncSession | None = DbDependency,
 ) -> Response:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, _decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -478,7 +552,9 @@ async def resolve_login_required_share_link_route(
     db: AsyncSession | None = DbDependency,
 ) -> RedirectResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting = await resolve_share_token(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -496,10 +572,18 @@ async def resolve_login_required_share_link_route(
     "/cabinet/meetings/{meeting_id}/playback",
     operation_id="playCabinetMeetingAudio",
     dependencies=[PrincipalDependency, DeviceDependency],
+    response_class=StreamingResponse,
+    responses=PLAYBACK_RESPONSES,
 )
 async def play_cabinet_meeting_audio_route(
     meeting_id: UUID,
-    request: Request,
+    range_header: Annotated[
+        str | None,
+        Header(
+            alias="Range",
+            description="Optional single RFC 9110 byte range, for example `bytes=0-1023`.",
+        ),
+    ] = None,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
@@ -507,23 +591,23 @@ async def play_cabinet_meeting_audio_route(
     db: AsyncSession | None = DbDependency,
 ) -> Response:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    result = await latest_processing_result(db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id)
     playback = await playback_artifact(
         db,
         storage=storage,
         meeting=meeting,
         access=decision,
-        result=result,
         actor_user_id=principal.user_id,
         device_id=device.device_id,
-        range_header=request.headers.get("range"),
+        range_header=range_header,
     )
     await db.commit()
     return StreamingResponse(
@@ -549,14 +633,18 @@ async def download_meeting_artifact_route(
     db: AsyncSession | None = DbDependency,
 ) -> Response:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    result = await latest_processing_result(db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id)
+    result = await latest_processing_result(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id
+    )
     download = await download_artifact(
         db,
         storage=storage,
@@ -601,14 +689,18 @@ async def create_meeting_export_package_route(
     db: AsyncSession | None = DbDependency,
 ) -> ExportPackageResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    result = await latest_processing_result(db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id)
+    result = await latest_processing_result(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id
+    )
     response = await create_export_package(
         db,
         meeting=meeting,
@@ -636,7 +728,9 @@ async def download_meeting_export_package_route(
     db: AsyncSession | None = DbDependency,
 ) -> Response:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -675,7 +769,9 @@ async def run_retention_scan_route(
     db: AsyncSession | None = DbDependency,
 ) -> RetentionRunResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
     retention_payload = payload or RetentionRunRequest()
     response = await run_retention_scan(
@@ -702,7 +798,9 @@ async def list_desktop_local_purge_tasks_route(
     db: AsyncSession | None = DbDependency,
 ) -> LocalPurgeTaskList:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     tasks = await list_local_purge_tasks(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -725,7 +823,9 @@ async def acknowledge_desktop_local_purge_task_route(
     db: AsyncSession | None = DbDependency,
 ) -> LocalPurgeTask:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     task = await acknowledge_local_purge_task(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -793,4 +893,6 @@ async def _authorized_lifecycle_meeting(
 
 def _ensure_lifecycle_manager(decision) -> None:
     if decision.state != "owner" and decision.role not in {"owner", "admin"}:
-        raise ProblemDetail(status=403, code="deletion_forbidden", title="Deletion is not available")
+        raise ProblemDetail(
+            status=403, code="deletion_forbidden", title="Deletion is not available"
+        )

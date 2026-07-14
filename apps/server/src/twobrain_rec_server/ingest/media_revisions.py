@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
+from hashlib import sha256
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,8 +46,64 @@ def track_sha256_by_role(tracks: Iterable[object]) -> dict[str, str]:
             role_value = track.track_role
             role = str(getattr(role_value, "value", role_value))
             digest = str(track.sha256)
-        by_role[role] = digest
+        if role != "playback":
+            by_role[role] = digest
     return by_role
+
+
+def authoritative_track_roles(
+    source_kind: MediaRevisionSourceKind | str,
+) -> tuple[str, ...]:
+    source_kind_value = str(getattr(source_kind, "value", source_kind))
+    if source_kind_value == MediaRevisionSourceKind.INITIAL_RECORDING.value:
+        return ("microphone", "system")
+    if source_kind_value == MediaRevisionSourceKind.MANUAL_UPLOAD.value:
+        return ("media",)
+    raise ValueError("unsupported media revision source kind")
+
+
+def authoritative_track_sha256_by_role(
+    *,
+    source_kind: MediaRevisionSourceKind | str,
+    digests_by_role: Mapping[str, str],
+) -> dict[str, str]:
+    authoritative_roles = authoritative_track_roles(source_kind)
+    missing = [role for role in authoritative_roles if role not in digests_by_role]
+    if missing:
+        raise ValueError("accepted media revision is missing authoritative source digests")
+    return {role: str(digests_by_role[role]) for role in authoritative_roles}
+
+
+def source_fingerprint_sha256(
+    *,
+    media_revision_id: UUID,
+    source_kind: MediaRevisionSourceKind | str,
+    manifest_sha256: str,
+    track_sha256_by_role: Mapping[str, str],
+    duration_seconds: int | None,
+) -> str:
+    source_kind_value = str(getattr(source_kind, "value", source_kind))
+    authoritative = authoritative_track_sha256_by_role(
+        source_kind=source_kind_value,
+        digests_by_role=track_sha256_by_role,
+    )
+    canonical_value = {
+        "duration_seconds": duration_seconds,
+        "manifest_sha256": manifest_sha256,
+        "media_revision_id": str(media_revision_id),
+        "source_kind": source_kind_value,
+        "tracks": [
+            {"role": role, "sha256": authoritative[role]}
+            for role in sorted(authoritative)
+        ],
+    }
+    encoded = json.dumps(
+        canonical_value,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
 
 
 def ensure_media_revision_fingerprint_is_immutable(

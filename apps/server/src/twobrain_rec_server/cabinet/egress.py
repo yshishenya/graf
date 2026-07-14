@@ -20,26 +20,39 @@ from twobrain_rec_server.api.schemas import (
     ExportPackageResponse,
     MeetingActivityItem,
     MeetingActivityResponse,
+    PlaybackPreparationState,
 )
 from twobrain_rec_server.cabinet.access import AccessDecision
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
-from twobrain_rec_server.cabinet.view_models import format_timestamp
+from twobrain_rec_server.cabinet.view_models import (
+    format_timestamp,
+    playback_reason_copy,
+    playback_terminal_reason,
+)
 from twobrain_rec_server.db.models import (
     ExportPackage,
+    MediaRevision,
     Meeting,
     MeetingArtifactPolicy,
     MeetingEgressAuditEvent,
+    PlaybackNormalizationJob,
     ProcessingResult,
     TrackArtifact,
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
+    MediaRevisionStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
-    ProcessingStatus,
     SummaryStatus,
     TrackRole,
+)
+from twobrain_rec_server.normalization.media import MAX_OUTPUT_BYTES
+from twobrain_rec_server.normalization.statuses import (
+    CANONICAL_PROFILE_VERSION,
+    VALIDATION_VERSION,
+    JobState,
 )
 from twobrain_rec_server.observability.redaction import redact_mapping
 
@@ -147,8 +160,12 @@ async def artifact_egress_states(
 ) -> list[ArtifactEgressState]:
     if meeting_deletion_active(meeting):
         return _deleted_artifact_states()
-    policy = await resolve_artifact_policy(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
-    audio_artifacts = await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    policy = await resolve_artifact_policy(
+        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+    )
+    audio_artifacts = await stored_audio_artifacts(
+        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+    )
     states = [
         _audio_state(policy.audio_download, access, audio_artifacts),
         _transcript_state(policy.transcript_download, access, result),
@@ -189,28 +206,59 @@ async def stored_audio_artifacts(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> list[TrackArtifact]:
-    return (
-        await db.scalars(
-            select(TrackArtifact)
-            .where(
-                TrackArtifact.workspace_id == workspace_id,
-                TrackArtifact.meeting_id == meeting_id,
-                TrackArtifact.track_role.in_(
-                    [TrackRole.PLAYBACK.value, TrackRole.SYSTEM.value, TrackRole.MICROPHONE.value]
-                ),
-                TrackArtifact.status == "stored",
-            )
-            .order_by(TrackArtifact.track_role.desc())
-        )
-    ).all()
+    revision = await _latest_accepted_media_revision(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
+    if revision is None:
+        return []
+    job = await _normalization_job_for_revision(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=revision.id,
+    )
+    if job is None or job.state != JobState.READY.value:
+        return []
+    artifact = await _validated_canonical_artifact(db, job=job)
+    return [artifact] if artifact is not None else []
 
 
-def _is_stored_review_m4a(artifact: TrackArtifact) -> bool:
+def _is_stored_review_m4a(
+    artifact: TrackArtifact,
+    *,
+    job: PlaybackNormalizationJob | None = None,
+) -> bool:
+    source_fingerprint = artifact.source_fingerprint_sha256 or ""
     return (
-        artifact.codec == "m4a-aac-lc"
+        artifact.track_role == TrackRole.PLAYBACK.value
+        and artifact.status == "stored"
+        and artifact.media_revision_id is not None
+        and artifact.codec == "m4a-aac-lc"
         and artifact.sample_rate_hz == 48_000
         and artifact.channel_count == 1
-        and artifact.byte_length > 0
+        and artifact.duration_seconds > 0
+        and 0 < artifact.byte_length <= MAX_OUTPUT_BYTES
+        and len(artifact.sha256) == 64
+        and artifact.normalization_profile_version == CANONICAL_PROFILE_VERSION
+        and artifact.validation_version == VALIDATION_VERSION
+        and artifact.validated_at is not None
+        and len(source_fingerprint) == 64
+        and artifact.derivation_kind is not None
+        and (
+            job is None
+            or (
+                job.state == JobState.READY.value
+                and job.canonical_track_artifact_id == artifact.id
+                and job.workspace_id == artifact.workspace_id
+                and job.meeting_id == artifact.meeting_id
+                and job.media_revision_id == artifact.media_revision_id
+                and job.profile_version == artifact.normalization_profile_version
+                and job.validation_version == artifact.validation_version
+                and job.source_fingerprint_sha256 == artifact.source_fingerprint_sha256
+            )
+        )
     )
 
 
@@ -219,55 +267,193 @@ async def review_playback_state(
     *,
     meeting: Meeting,
     access: AccessDecision,
-    result: ProcessingResult | None,
-) -> ArtifactEgressState:
-    if meeting_deletion_active(meeting):
-        return ArtifactEgressState(
-            artifact_class="audio",
-            state="deleted",
-            label="Review audio deleting",
-            reason="meeting_deletion_active",
-            action="disabled",
+    storage: object | None = None,
+) -> PlaybackPreparationState:
+    deletion_state = meeting.deletion_state or DeletionState.NONE.value
+    if deletion_state != DeletionState.NONE.value:
+        deleted = deletion_state == DeletionState.COMPLETE.value or meeting.deleted_at is not None
+        return PlaybackPreparationState(
+            state="deleted" if deleted else "deleting",
+            reason_code="meeting_deleted" if deleted else "meeting_deleting",
+            label=playback_reason_copy("meeting_deleted" if deleted else "meeting_deleting"),
         )
     if not access.can_view:
-        return ArtifactEgressState(
-            artifact_class="audio",
-            state="policy_blocked",
-            label="Access required",
-            reason="Viewer cannot access this meeting.",
-            action="disabled",
-        )
-    if result is None or result.status != ProcessingResultStatus.IMPORTED.value:
-        reason = _playback_result_unavailable_reason(meeting, result)
-        state = "failed" if reason in {"processing_failed", "review_result_not_imported"} else "processing"
-        return ArtifactEgressState(
-            artifact_class="audio",
-            state=state,
-            label="Review audio unavailable",
-            reason=reason,
-            action="disabled",
+        return PlaybackPreparationState(
+            state="unavailable",
+            reason_code="access_denied",
+            label=playback_reason_copy("access_denied"),
         )
 
-    artifacts = {
-        artifact.track_role: artifact
-        for artifact in await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
-    }
-    playback = artifacts.get(TrackRole.PLAYBACK.value)
-    if playback is not None and _is_stored_review_m4a(playback):
-        return ArtifactEgressState(
-            artifact_class="audio",
-            state="available",
-            label="Review playback",
-            reason="stored_review_m4a",
-            action="disabled",
-        )
-    return ArtifactEgressState(
-        artifact_class="audio",
-        state="missing",
-        label="Review audio unavailable",
-        reason="missing_playback_artifact",
-        action="disabled",
+    revision = await _latest_accepted_media_revision(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
     )
+    if revision is None:
+        return PlaybackPreparationState(
+            state="unavailable",
+            reason_code="no_audio",
+            label=playback_reason_copy("no_audio"),
+        )
+    job = await _normalization_job_for_revision(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=revision.id,
+    )
+    if job is None:
+        return PlaybackPreparationState(
+            state="preparing",
+            reason_code="reconciliation_pending",
+            label=playback_reason_copy("reconciliation_pending"),
+            automatic_recovery=True,
+        )
+
+    if job.state == JobState.READY.value:
+        playback = await _validated_canonical_artifact(db, job=job)
+        if playback is not None:
+            object_exists = await _canonical_object_exists(
+                storage,
+                object_key=playback.storage_object_key,
+            )
+            if object_exists is not False and (object_exists is not None or storage is None):
+                return PlaybackPreparationState(
+                    state="available",
+                    reason_code="canonical_ready",
+                    label=playback_reason_copy("canonical_ready"),
+                    can_play=True,
+                )
+            if object_exists is None:
+                return PlaybackPreparationState(
+                    state="preparing",
+                    reason_code="reconciliation_pending",
+                    label=playback_reason_copy("reconciliation_pending"),
+                    automatic_recovery=True,
+                )
+        return PlaybackPreparationState(
+            state="preparing",
+            reason_code="canonical_artifact_missing",
+            label=playback_reason_copy("canonical_artifact_missing"),
+            automatic_recovery=True,
+        )
+
+    preparing = {
+        JobState.QUEUED.value: "normalization_queued",
+        JobState.RUNNING.value: "normalization_running",
+        JobState.PUBLISHING.value: "normalization_publishing",
+        JobState.RETRY_WAIT.value: "normalization_retry_wait",
+    }.get(job.state)
+    if preparing is not None:
+        return PlaybackPreparationState(
+            state="preparing",
+            reason_code=preparing,
+            label=playback_reason_copy(preparing),
+            automatic_recovery=True,
+        )
+
+    if job.state == JobState.TERMINAL.value:
+        reason_code = playback_terminal_reason(job.reason_code)
+        return PlaybackPreparationState(
+            state="unavailable",
+            reason_code=reason_code,
+            label=playback_reason_copy(reason_code),
+        )
+
+    if job.state == JobState.CANCELLED.value:
+        deleted = job.reason_code in {"meeting_deleted", "audio_purged"}
+        reason_code = (
+            "audio_purged"
+            if job.reason_code == "audio_purged"
+            else ("meeting_deleted" if deleted else "meeting_deleting")
+        )
+        return PlaybackPreparationState(
+            state="deleted" if deleted else "deleting",
+            reason_code=reason_code,
+            label=playback_reason_copy(reason_code),
+        )
+
+    return PlaybackPreparationState(
+        state="preparing",
+        reason_code="reconciliation_pending",
+        label=playback_reason_copy("reconciliation_pending"),
+        automatic_recovery=True,
+    )
+
+
+async def _latest_accepted_media_revision(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> MediaRevision | None:
+    return await db.scalar(
+        select(MediaRevision)
+        .where(
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.meeting_id == meeting_id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+        )
+        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
+    )
+
+
+async def _normalization_job_for_revision(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID,
+) -> PlaybackNormalizationJob | None:
+    return await db.scalar(
+        select(PlaybackNormalizationJob).where(
+            PlaybackNormalizationJob.workspace_id == workspace_id,
+            PlaybackNormalizationJob.meeting_id == meeting_id,
+            PlaybackNormalizationJob.media_revision_id == media_revision_id,
+            PlaybackNormalizationJob.profile_version == CANONICAL_PROFILE_VERSION,
+        )
+    )
+
+
+async def _validated_canonical_artifact(
+    db: AsyncSession,
+    *,
+    job: PlaybackNormalizationJob,
+) -> TrackArtifact | None:
+    if job.canonical_track_artifact_id is None:
+        return None
+    artifact = await db.scalar(
+        select(TrackArtifact).where(
+            TrackArtifact.id == job.canonical_track_artifact_id,
+            TrackArtifact.workspace_id == job.workspace_id,
+            TrackArtifact.meeting_id == job.meeting_id,
+            TrackArtifact.media_revision_id == job.media_revision_id,
+        )
+    )
+    if artifact is None or not _is_stored_review_m4a(artifact, job=job):
+        return None
+    return artifact
+
+
+async def _canonical_object_exists(
+    storage: object | None,
+    *,
+    object_key: str,
+) -> bool | None:
+    if storage is None:
+        return None
+    exists_async = getattr(storage, "object_exists_async", None)
+    if callable(exists_async):
+        try:
+            return bool(await exists_async(object_key))
+        except Exception:
+            return None
+    exists = getattr(storage, "object_exists", None)
+    if not callable(exists):
+        return None
+    try:
+        return bool(await to_thread.run_sync(exists, object_key))
+    except Exception:
+        return None
 
 
 async def download_artifact(
@@ -295,7 +481,9 @@ async def download_artifact(
             metadata={"artifact_class": artifact_class, "outcome": "denied"},
         )
         await db.commit()
-        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
+        raise ProblemDetail(
+            status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
+        )
     states = {
         state.artifact_class: state
         for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result)
@@ -327,7 +515,11 @@ async def download_artifact(
         outcome="allowed",
         artifact_class=artifact_class,
         policy_reason="policy_allowed",
-        metadata={"artifact_class": artifact_class, "viewer_access_state": access.state, "request_class": "download"},
+        metadata={
+            "artifact_class": artifact_class,
+            "viewer_access_state": access.state,
+            "request_class": "download",
+        },
     )
     if artifact_class == "audio":
         try:
@@ -352,7 +544,11 @@ async def download_artifact(
                 outcome="denied",
                 artifact_class=artifact_class,
                 policy_reason=exc.reason,
-                metadata={"artifact_class": artifact_class, "outcome": "denied", "request_class": "download"},
+                metadata={
+                    "artifact_class": artifact_class,
+                    "outcome": "denied",
+                    "request_class": "download",
+                },
             )
             await db.commit()
             raise ProblemDetail(status=status, code=code, title=title) from exc
@@ -388,13 +584,17 @@ async def download_artifact(
         meeting_id=meeting.id,
         actor_user_id=actor_user_id,
         device_id=device_id,
-        event_type="download_stream_prepared" if artifact_class == "audio" else "download_completed",
+        event_type="download_stream_prepared"
+        if artifact_class == "audio"
+        else "download_completed",
         outcome="prepared" if artifact_class == "audio" else "completed",
         artifact_class=artifact_class,
         policy_reason="policy_allowed",
         metadata=download_metadata,
     )
-    return DownloadArtifact(filename=filename, media_type=media_type, body=body, byte_length=byte_length)
+    return DownloadArtifact(
+        filename=filename, media_type=media_type, body=body, byte_length=byte_length
+    )
 
 
 async def playback_artifact(
@@ -403,7 +603,6 @@ async def playback_artifact(
     storage: object,
     meeting: Meeting,
     access: AccessDecision,
-    result: ProcessingResult | None,
     actor_user_id: UUID,
     device_id: UUID,
     range_header: str | None = None,
@@ -416,16 +615,18 @@ async def playback_artifact(
             device_id=device_id,
             reason="meeting_deletion_active",
         )
-        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
+        raise ProblemDetail(
+            status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
+        )
 
-    playback_state = await review_playback_state(db, meeting=meeting, access=access, result=result)
-    if playback_state.state != "available":
+    playback_state = await review_playback_state(db, meeting=meeting, access=access)
+    if not playback_state.can_play:
         await _record_playback_denied(
             db,
             meeting=meeting,
             actor_user_id=actor_user_id,
             device_id=device_id,
-            reason=playback_state.reason,
+            reason=playback_state.reason_code,
         )
         await db.commit()
         raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
@@ -541,7 +742,9 @@ async def _stored_review_m4a_artifact(
 ) -> TrackArtifact:
     artifacts = {
         artifact.track_role: artifact
-        for artifact in await stored_audio_artifacts(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+        for artifact in await stored_audio_artifacts(
+            db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+        )
     }
     playback = artifacts.get(TrackRole.PLAYBACK.value)
     if playback is None or not _is_stored_review_m4a(playback):
@@ -560,7 +763,9 @@ async def _stream_storage_object(
     if iter_object is None:
         raise ReviewAudioBuildError("storage_unavailable")
     try:
-        return await to_thread.run_sync(lambda: iter_object(object_key, offset=offset, length=length))
+        return await to_thread.run_sync(
+            lambda: iter_object(object_key, offset=offset, length=length)
+        )
     except KeyError as exc:
         raise ReviewAudioBuildError("storage_unavailable") from exc
     except Exception as exc:
@@ -650,24 +855,6 @@ async def _record_playback_denied(
     )
 
 
-def _playback_result_unavailable_reason(meeting: Meeting, result: ProcessingResult | None) -> str:
-    if result is not None:
-        return "review_result_not_imported"
-    if meeting.processing_status in {ProcessingStatus.FAILED_TERMINAL.value, ProcessingStatus.FAILED_RETRYABLE.value}:
-        return "processing_failed"
-    if meeting.processing_status in {
-        ProcessingStatus.PENDING_PROCESSING.value,
-        ProcessingStatus.STARTING.value,
-        ProcessingStatus.WORKFLOW_STARTED.value,
-        ProcessingStatus.SUBMITTING.value,
-        ProcessingStatus.SUBMITTED.value,
-        ProcessingStatus.POLLING.value,
-        ProcessingStatus.IMPORTING.value,
-    }:
-        return "processing_not_ready"
-    return "review_result_unavailable"
-
-
 async def create_export_package(
     db: AsyncSession,
     *,
@@ -691,7 +878,9 @@ async def create_export_package(
             policy_reason="meeting_deletion_active",
             metadata={"artifact_class": "package", "outcome": "denied"},
         )
-        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
+        raise ProblemDetail(
+            status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
+        )
     states = {
         state.artifact_class: state
         for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result)
@@ -707,17 +896,27 @@ async def create_export_package(
             event_type="export_denied",
             artifact_class="package",
             outcome="denied",
-            policy_reason=package_state.reason if package_state is not None else "package_export_unavailable",
+            policy_reason=package_state.reason
+            if package_state is not None
+            else "package_export_unavailable",
             metadata={"artifact_class": "package", "outcome": "denied"},
         )
         await db.commit()
         raise ProblemDetail(status=409, code="export_unavailable", title="Export unavailable")
     requested = [artifact for artifact in requested_artifacts if artifact != "package"]
-    included = [artifact for artifact in requested if states.get(artifact) is not None and states[artifact].state == "available"]
+    included = [
+        artifact
+        for artifact in requested
+        if states.get(artifact) is not None and states[artifact].state == "available"
+    ]
     excluded = [
         ExportPackageExclusion(
             artifact_class=artifact,
-            policy_reason=(states[artifact].reason if states.get(artifact) is not None else "unsupported_artifact")
+            policy_reason=(
+                states[artifact].reason
+                if states.get(artifact) is not None
+                else "unsupported_artifact"
+            )
             or "unavailable",
         )
         for artifact in requested
@@ -777,7 +976,11 @@ async def create_export_package(
         artifact_class="package",
         outcome="completed",
         policy_reason="policy_filtered_package",
-        metadata={"artifact_class": "package", "export_id": str(package.id), "byte_length": len(body)},
+        metadata={
+            "artifact_class": "package",
+            "export_id": str(package.id),
+            "byte_length": len(body),
+        },
     )
     return ExportPackageResponse(
         export_id=package.id,
@@ -809,7 +1012,9 @@ async def export_package_bytes(
             policy_reason="meeting_deletion_active",
             metadata={"artifact_class": "package", "outcome": "denied"},
         )
-        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is in progress")
+        raise ProblemDetail(
+            status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
+        )
     if not access.can_export:
         raise ProblemDetail(status=403, code="export_forbidden", title="Export is not available")
     package = await db.scalar(
@@ -833,7 +1038,11 @@ async def export_package_bytes(
         artifact_class="package",
         outcome="completed",
         policy_reason="ready_package_downloaded",
-        metadata={"artifact_class": "package", "export_id": str(package.id), "byte_length": len(body)},
+        metadata={
+            "artifact_class": "package",
+            "export_id": str(package.id),
+            "byte_length": len(body),
+        },
     )
     return DownloadArtifact(
         filename="meeting-export.json",
@@ -873,7 +1082,9 @@ async def activity_response(
         )
         for event in events
     ]
-    return MeetingActivityResponse(meeting_id=meeting_id, redaction_state="metadata_only", items=items)
+    return MeetingActivityResponse(
+        meeting_id=meeting_id, redaction_state="metadata_only", items=items
+    )
 
 
 def meeting_deletion_active(meeting: Meeting) -> bool:
@@ -893,7 +1104,9 @@ def _deleted_artifact_states() -> list[ArtifactEgressState]:
     ]
 
 
-def _audio_state(policy_value: str, access: AccessDecision, artifacts: list[TrackArtifact]) -> ArtifactEgressState:
+def _audio_state(
+    policy_value: str, access: AccessDecision, artifacts: list[TrackArtifact]
+) -> ArtifactEgressState:
     blocked = _policy_blocked_state("audio", policy_value, access)
     if blocked is not None:
         return blocked
@@ -922,7 +1135,9 @@ def _audio_state(policy_value: str, access: AccessDecision, artifacts: list[Trac
     )
 
 
-def _transcript_state(policy_value: str, access: AccessDecision, result: ProcessingResult | None) -> ArtifactEgressState:
+def _transcript_state(
+    policy_value: str, access: AccessDecision, result: ProcessingResult | None
+) -> ArtifactEgressState:
     blocked = _policy_blocked_state("transcript", policy_value, access)
     if blocked is not None:
         return blocked
@@ -962,7 +1177,9 @@ def _transcript_state(policy_value: str, access: AccessDecision, result: Process
     )
 
 
-def _summary_state(policy_value: str, access: AccessDecision, result: ProcessingResult | None) -> ArtifactEgressState:
+def _summary_state(
+    policy_value: str, access: AccessDecision, result: ProcessingResult | None
+) -> ArtifactEgressState:
     blocked = _policy_blocked_state("summary", policy_value, access)
     if blocked is not None:
         return blocked

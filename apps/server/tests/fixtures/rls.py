@@ -63,6 +63,9 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "meeting_detection_review_actions",
     "meeting_detection_non_target_rules",
     "meeting_detection_telemetry_rate_limit_buckets",
+    "playback_normalization_jobs",
+    "playback_normalization_attempts",
+    "playback_backfill_runs",
 }
 
 RLS_INHERITED_WORKSPACE_TABLES = {
@@ -88,4 +91,6 @@ RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "production_smoke_cleanup",
     "backup_restore_rehearsal",
     "operator_diagnostics",
+    "playback_normalization_inventory",
+    "playback_normalization_dispatch",
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 
 from anyio import to_thread
@@ -127,6 +128,7 @@ async def submit_to_mediascribe(
                     media_artifact.storage_object_key,
                     media_path,
                     expected_bytes=media_artifact.byte_length,
+                    expected_sha256=media_artifact.sha256,
                 )
                 with media_path.open("rb") as media_file:
                     response = await mediascribe_client.submit_single_track(
@@ -147,12 +149,14 @@ async def submit_to_mediascribe(
                     mic.storage_object_key,
                     mic_path,
                     expected_bytes=mic.byte_length,
+                    expected_sha256=mic.sha256,
                 )
                 await _stage_artifact(
                     storage,
                     incoming.storage_object_key,
                     incoming_path,
                     expected_bytes=incoming.byte_length,
+                    expected_sha256=incoming.sha256,
                 )
                 with mic_path.open("rb") as mic_file, incoming_path.open("rb") as incoming_file:
                     response = await mediascribe_client.submit_dual_track(
@@ -217,7 +221,14 @@ def _ensure_temp_capacity(temp_dir: Path, expected_bytes: int) -> None:
         raise TempStorageUnavailableError(PROCESSING_TEMP_STORAGE_UNAVAILABLE)
 
 
-async def _stage_artifact(storage: object, object_key: str, target_path: Path, *, expected_bytes: int) -> None:
+async def _stage_artifact(
+    storage: object,
+    object_key: str,
+    target_path: Path,
+    *,
+    expected_bytes: int,
+    expected_sha256: str,
+) -> None:
     download_to_path_async = getattr(storage, "download_to_path_async", None)
     download_to_path = getattr(storage, "download_to_path", None)
     try:
@@ -239,6 +250,20 @@ async def _stage_artifact(storage: object, object_key: str, target_path: Path, *
         raise ArtifactStagingError("storage_object_not_staged") from exc
     if downloaded != expected_bytes or actual_bytes != expected_bytes:
         raise ArtifactStagingError("storage_object_size_mismatch")
+    try:
+        actual_sha256 = await to_thread.run_sync(_sha256_file, target_path)
+    except OSError as exc:
+        raise ArtifactStagingError("storage_object_not_staged") from exc
+    if actual_sha256 != expected_sha256:
+        raise ArtifactStagingError("storage_object_digest_mismatch")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(DOWNLOAD_CHUNK_BYTES):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 async def poll_and_import_mediascribe_result(

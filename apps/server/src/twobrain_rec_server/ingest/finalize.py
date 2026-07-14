@@ -37,6 +37,7 @@ from twobrain_rec_server.ingest.store import (
     persist_meeting,
     persist_upload_session,
 )
+from twobrain_rec_server.normalization.service import upsert_playback_normalization_job
 from twobrain_rec_server.storage.object_keys import build_final_artifact_prefix
 
 FINALIZE_STREAM_CHUNK_BYTES = 4 * 1024 * 1024
@@ -442,6 +443,12 @@ async def finalize_upload(
             manifest_sha256,
             finalized_track_object_keys,
             commit=False,
+        )
+        await upsert_playback_normalization_job(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=session.media_revision_id or meeting.media_revision_id,
         )
         await persist_audit_event(db, event, commit=False)
     except Exception as exc:

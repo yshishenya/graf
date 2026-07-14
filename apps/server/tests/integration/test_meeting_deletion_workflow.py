@@ -41,6 +41,11 @@ def test_manual_deletion_persists_request_audit_report_and_meeting_lifecycle(cli
     assert {row.artifact_class for row in persisted["artifact_states"]} >= {
         "meeting_row",
         "audio_object",
+        "playback_candidate",
+        "playback_canonical",
+        "normalization_attempt_temp",
+        "normalization_job",
+        "normalization_backfill",
         "transcript",
         "diarization",
         "mediascribe",

@@ -321,6 +321,9 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Подключить календари" not in page
     assert "Пробный период" not in page
     assert "Пригласить" not in page
+    assert 'data-playback-status-surface="list"' in page
+    assert 'data-playback-state="unavailable"' in page
+    assert 'data-playback-reason="no_audio"' in page
     assert "Командный синк" not in page
     assert "Записи встреч" in page
     assert "<span>Загрузить</span>" in page
@@ -353,6 +356,10 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "data-manual-upload-dropzone" in page
     assert "data-manual-upload-file-card" in page
     assert "data-manual-upload-file-name" in page
+    assert 'accept="audio/*' not in page
+    assert 'video/*' not in page
+    for extension in (".rf64", ".w64", ".adts", ".flac", ".mkv"):
+        assert extension in page
     assert "data-upload-activity-list" in page
     assert "data-manual-upload-validation" in page
     assert "data-manual-upload-percent" not in page
@@ -922,6 +929,31 @@ def test_desktop_empty_list_polls_for_new_local_uploads() -> None:
     assert 'hx-get="/desktop/meetings"' in page
 
 
+def test_ready_meeting_list_polls_while_playback_is_preparing() -> None:
+    item = _item().model_copy(
+        update={
+            "status": "ready",
+            "playback": PlaybackReviewState(
+                state="preparing",
+                reason_code="normalization_running",
+                label="Аудио готовится",
+                automatic_recovery=True,
+            ),
+        }
+    )
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[item],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="updated_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        poll_url="/meetings",
+    )
+
+    assert "data-upload-progress-poll" in page
+    assert 'hx-get="/meetings"' in page
+
+
 def test_list_delete_ui_keeps_bounded_copy_and_metadata_only_surface() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(
@@ -961,6 +993,7 @@ def test_list_delete_script_json_encodes_bounded_copy(monkeypatch) -> None:
     assert "fetch(form.action" in script
     assert "if (!response.ok)" in script
     assert '"HX-Request": "true"' in script
+    assert "playbackRecoveryRequest = fetch(pollUrl" in script
 
 
 def test_detail_shell_renders_tabs_and_gated_actions() -> None:
@@ -1031,12 +1064,18 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     page = render_meeting_detail_page(review)
 
     assert 'class="playback-bar detail-playback"' in page
+    assert "data-playback-transcript" in page
+    assert 'data-playback-live-status role="status" aria-live="polite"' in page
     assert "data-playback-shell" in page
     assert '<audio class="playback-audio" data-playback-player preload="metadata"' in page
     assert '<audio data-playback-player controls preload="metadata"' not in page
     assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
     assert 'data-source-mode="stored_review_m4a"' in page
     assert "data-playback-toggle" in page
+    assert 'data-playback-toggle aria-label="Воспроизвести">▶</button>' in page
+    assert "data-playback-error" in page
+    assert 'role="status" aria-live="polite" hidden' in page
+    assert "Воспроизведение временно недоступно." in page
     assert 'data-playback-skip="-15"' in page
     assert 'data-playback-skip="15"' in page
     assert "data-playback-current" in page
@@ -1048,6 +1087,19 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     script = _cabinet_js()
     assert "currentTime = seekSeconds" in script
     assert "syncTime();" in script
+    assert 'toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести")' in script
+    assert "player.addEventListener(\"error\", reportPlaybackFailure)" in script
+    assert "recoverySignature(currentPlayback) === recoverySignature(nextPlayback)" in script
+    assert "currentPlayback.replaceWith(nextPlayback)" in script
+    assert "currentTranscript.replaceWith(nextTranscript)" in script
+    assert "response.status === 404 || response.status === 410" in script
+    assert "renderPlaybackTerminalState(detail)" in script
+    assert "!response.ok || response.redirected" in script
+    assert "showPlaybackRecoveryNotice(detail)" in script
+    assert "clearPlaybackRecoveryNotice(detail)" in script
+    assert "Не удалось обновить статус. GRAF попробует снова автоматически." in script
+    assert "dataset.playbackRecoveryCopy" in script
+    assert "stopPlaybackRecoveryPolling()" in script
 
 
 def test_cabinet_web_py_no_longer_owns_inline_page_scripts() -> None:
@@ -1155,13 +1207,95 @@ def test_detail_shell_renders_unavailable_playback_without_audio_element() -> No
 
     page = render_meeting_detail_page(review)
 
-    assert (
-        '<section class="playback-bar detail-playback is-unavailable" data-source-mode="none">'
-        in page
-    )
+    assert 'class="playback-bar detail-playback is-unavailable"' in page
+    assert 'data-playback-state="unavailable"' in page
+    assert 'data-playback-reason="no_audio"' in page
+    assert 'data-source-mode="none"' in page
     assert "Аудио закрыто политикой доступа" in page
     assert "<audio" not in page
+
+
+def test_detail_shell_renders_all_non_playable_states_without_repair_controls() -> None:
+    cases = (
+        (
+            "preparing",
+            "normalization_retry_wait",
+            "Подготовка занимает больше времени. GRAF продолжит автоматически",
+            True,
+        ),
+        ("unavailable", "unsupported_media", "Формат файла не поддерживается", False),
+        ("deleting", "meeting_deleting", "Аудио удаляется", False),
+        ("deleted", "meeting_deleted", "Аудио удалено", False),
+    )
+
+    for state, reason_code, label, automatic_recovery in cases:
+        review = _review()
+        review.playback = PlaybackReviewState(
+            state=state,
+            reason_code=reason_code,
+            label=label,
+            automatic_recovery=automatic_recovery,
+            can_play=False,
+            action="disabled",
+            available=False,
+            duration_seconds=120,
+            unavailable_reason=(
+                "processing"
+                if state == "preparing"
+                else "deleting"
+                if state == "deleting"
+                else "deleted"
+                if state == "deleted"
+                else "failed"
+            ),
+        )
+
+        page = render_meeting_detail_page(review)
+
+        assert f'data-playback-state="{state}"' in page
+        assert f'data-playback-reason="{reason_code}"' in page
+        assert label in page
+        assert "<audio" not in page
+        forbidden_controls = (
+            "data-playback-retry",
+            "reprocess-playback",
+            "start-playback-backfill",
+            ">повторить<",
+            ">загрузить заново<",
+        )
+        assert not any(marker in page.casefold() for marker in forbidden_controls)
+        if state == "preparing":
+            assert 'aria-live="polite"' in page
     assert "data-playback-player" not in page
+
+
+def test_terminal_playback_copy_renders_as_plain_status_without_user_work() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        state="unavailable",
+        reason_code="corrupt_source",
+        label=cabinet_view_models.playback_reason_copy("corrupt_source", locale="ru"),
+        can_play=False,
+        action="disabled",
+        available=False,
+        duration_seconds=120,
+        unavailable_reason="failed",
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert "Файл повреждён и не может быть воспроизведён" in page
+    assert 'role="status" tabindex="0"' in page
+    assert "<audio" not in page
+    forbidden = (
+        "retry",
+        "reprocess",
+        "backfill",
+        "повторить",
+        "загрузить заново",
+        "обратитесь к администратору",
+    )
+    assert not any(marker in page.casefold() for marker in forbidden)
 
 
 def test_detail_shell_reserves_notes_assistant_template_without_internal_feature_labels() -> None:

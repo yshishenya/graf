@@ -1,3 +1,4 @@
+import asyncio
 from hashlib import sha256
 from uuid import UUID
 
@@ -6,7 +7,14 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
-from twobrain_rec_server.db.models import IngestAuditEvent, Meeting, TrackArtifact, UploadSession
+from twobrain_rec_server.db.models import (
+    IngestAuditEvent,
+    MediaRevision,
+    Meeting,
+    PlaybackNormalizationJob,
+    TrackArtifact,
+    UploadSession,
+)
 from twobrain_rec_server.domain.statuses import MeetingStatus, UploadSessionStatus
 from twobrain_rec_server.ingest import store as store_module
 
@@ -469,6 +477,55 @@ def test_finalize_cleans_materialized_track_after_persistence_failure(client: Te
     assert cached_meeting.status == before_meeting_status == MeetingStatus.UPLOADING
     assert cached_session.status == before_session_status == UploadSessionStatus.UPLOADING
     assert cached_session.finalized_at is None
+
+
+def test_normalization_job_failure_rolls_back_accepted_source_transaction(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "normalization-job-transaction", "duration_seconds": 60},
+    ).json()
+    session_id, tracks = _create_session_with_parts(client, meeting_id=meeting["meeting_id"])
+
+    async def fail_job_upsert(*_args, **_kwargs):
+        raise RuntimeError("simulated normalization job persistence failure")
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.ingest.finalize.upsert_playback_normalization_job",
+        fail_job_upsert,
+    )
+
+    response = _finalize(client, session_id, tracks, str(tracks[0]["sha256"]))
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "persistence_unavailable"
+
+    async def persisted_truth():
+        async with client.app_state["sessionmaker"]() as db:
+            revision = await db.get(MediaRevision, UUID(meeting["media_revision"]["media_revision_id"]))
+            artifacts = (
+                await db.scalars(
+                    select(TrackArtifact).where(
+                        TrackArtifact.meeting_id == UUID(meeting["meeting_id"])
+                    )
+                )
+            ).all()
+            jobs = (
+                await db.scalars(
+                    select(PlaybackNormalizationJob).where(
+                        PlaybackNormalizationJob.meeting_id == UUID(meeting["meeting_id"])
+                    )
+                )
+            ).all()
+            return revision, artifacts, jobs
+
+    revision, artifacts, jobs = asyncio.run(persisted_truth())
+    assert revision.status == "pending_upload"
+    assert artifacts == []
+    assert jobs == []
 
 
 def _track_artifacts_for_meeting(client: TestClient, meeting_id: str) -> list[tuple[str, int, str]]:

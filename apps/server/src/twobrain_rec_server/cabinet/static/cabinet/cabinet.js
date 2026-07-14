@@ -5,6 +5,8 @@
   let pendingDeleteRows = [];
   let deleteReturnFocus = null;
   let deleteReturnMeetingId = "";
+  let playbackRecoveryTimer = null;
+  let playbackRecoveryRequest = null;
 
   const plural = (value, one, few, many) => {
     const mod10 = value % 10;
@@ -426,6 +428,20 @@
       const duration = shell.querySelector("[data-playback-duration]");
       const progress = shell.querySelector("[data-playback-progress]");
       const speedToggle = shell.querySelector("[data-playback-speed-toggle]");
+      const playbackError = shell.querySelector("[data-playback-error]");
+      const setToggleState = (playing) => {
+        if (!toggle) return;
+        toggle.textContent = playing ? "Ⅱ" : "▶";
+        toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести");
+      };
+      const reportPlaybackFailure = () => {
+        if (playbackError) playbackError.hidden = false;
+        setToggleState(false);
+      };
+      const play = () => {
+        if (playbackError) playbackError.hidden = true;
+        return player.play().catch(reportPlaybackFailure);
+      };
       const syncTime = () => {
         if (current) current.textContent = formatTime(player.currentTime);
         if (progress) progress.value = String(player.currentTime || 0);
@@ -437,13 +453,15 @@
       });
       player.addEventListener("timeupdate", syncTime);
       player.addEventListener("play", () => {
-        if (toggle) toggle.textContent = "Pause";
+        setToggleState(true);
       });
       player.addEventListener("pause", () => {
-        if (toggle) toggle.textContent = "Play";
+        setToggleState(false);
       });
+      player.addEventListener("ended", () => setToggleState(false));
+      player.addEventListener("error", reportPlaybackFailure);
       toggle?.addEventListener("click", () => {
-        if (player.paused) player.play().catch(() => {});
+        if (player.paused) play();
         else player.pause();
       });
       shell.querySelectorAll("[data-playback-skip]").forEach((button) => {
@@ -470,7 +488,7 @@
           if (!Number.isFinite(seekSeconds)) return;
           player.currentTime = seekSeconds;
           syncTime();
-          player.play().catch(() => {});
+          play();
         });
       });
       if (speedToggle) {
@@ -1000,6 +1018,135 @@
     });
   };
 
+  const stopPlaybackRecoveryPolling = () => {
+    if (!playbackRecoveryTimer) return;
+    window.clearInterval(playbackRecoveryTimer);
+    playbackRecoveryTimer = null;
+  };
+
+  const renderPlaybackTerminalState = (detail) => {
+    detail.dataset.playbackPollActive = "false";
+    detail.removeAttribute("data-playback-poll-url");
+    stopPlaybackRecoveryPolling();
+    const terminal = document.createElement("section");
+    terminal.className = "playback-terminal-state";
+    terminal.dataset.playbackState = "unavailable";
+    terminal.setAttribute("role", "status");
+    terminal.setAttribute("tabindex", "-1");
+    const title = document.createElement("strong");
+    title.textContent = "Запись больше недоступна";
+    const body = document.createElement("span");
+    body.textContent = "Эта страница больше не может показывать запись.";
+    terminal.append(title, body);
+    detail.replaceChildren(terminal);
+    terminal.focus();
+  };
+
+  const playbackRecoveryCopy = "Не удалось обновить статус. GRAF попробует снова автоматически.";
+
+  const showPlaybackRecoveryNotice = (detail) => {
+    const playback = detail.querySelector(".detail-playback");
+    const liveStatus = detail.querySelector("[data-playback-live-status]");
+    if (playback && !playback.querySelector("[data-playback-recovery-copy]")) {
+      const notice = document.createElement("p");
+      notice.className = "truth-copy playback-recovery-copy";
+      notice.dataset.playbackRecoveryCopy = "";
+      notice.textContent = playbackRecoveryCopy;
+      playback.append(notice);
+    }
+    if (liveStatus && liveStatus.textContent !== playbackRecoveryCopy) {
+      liveStatus.textContent = playbackRecoveryCopy;
+    }
+  };
+
+  const clearPlaybackRecoveryNotice = (detail) => {
+    detail.querySelector("[data-playback-recovery-copy]")?.remove();
+  };
+
+  const refreshPlaybackRecovery = async () => {
+    const detail = document.querySelector("[data-playback-poll-url]");
+    if (!detail || detail.dataset.playbackPollActive !== "true" || playbackRecoveryRequest) return;
+    const pollUrl = detail.dataset.playbackPollUrl;
+    if (!pollUrl) return;
+    playbackRecoveryRequest = fetch(pollUrl, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "HX-Request": "true" }
+    });
+    try {
+      const response = await playbackRecoveryRequest;
+      if (response.status === 404 || response.status === 410) {
+        renderPlaybackTerminalState(detail);
+        return;
+      }
+      if (!response.ok || response.redirected) {
+        showPlaybackRecoveryNotice(detail);
+        return;
+      }
+      const documentFragment = new DOMParser().parseFromString(await response.text(), "text/html");
+      const nextDetail = documentFragment.querySelector("[data-playback-poll-url]");
+      const currentPlayback = detail.querySelector(".detail-playback");
+      const nextPlayback = nextDetail?.querySelector(".detail-playback");
+      const currentTranscript = detail.querySelector("[data-playback-transcript]");
+      const nextTranscript = nextDetail?.querySelector("[data-playback-transcript]");
+      const currentLiveStatus = detail.querySelector("[data-playback-live-status]");
+      const nextLiveStatus = nextDetail?.querySelector("[data-playback-live-status]");
+      if (!nextDetail || !currentPlayback || !nextPlayback || !currentTranscript || !nextTranscript) {
+        showPlaybackRecoveryNotice(detail);
+        return;
+      }
+      clearPlaybackRecoveryNotice(detail);
+      detail.dataset.playbackPollActive = nextDetail.dataset.playbackPollActive || "false";
+      const recoverySignature = (node) => [
+        node.dataset.playbackState || "",
+        node.dataset.sourceMode || "",
+        (node.textContent || "").trim()
+      ].join("\u001f");
+      const playbackUnchanged = recoverySignature(currentPlayback) === recoverySignature(nextPlayback);
+      const playbackChanged = !playbackUnchanged;
+      const transcriptChanged = currentTranscript.innerHTML !== nextTranscript.innerHTML;
+      currentPlayback.dataset.playbackReason = nextPlayback.dataset.playbackReason || "";
+      if (currentLiveStatus && nextLiveStatus && currentLiveStatus.textContent !== nextLiveStatus.textContent) {
+        currentLiveStatus.textContent = nextLiveStatus.textContent || "";
+      }
+      if (!playbackChanged && !transcriptChanged) {
+        initPlaybackRecoveryPolling();
+        return;
+      }
+      if (playbackChanged) currentPlayback.replaceWith(nextPlayback);
+      if (transcriptChanged) currentTranscript.replaceWith(nextTranscript);
+      initPlayback();
+      initPlaybackRecoveryPolling();
+    } catch {
+      showPlaybackRecoveryNotice(detail);
+      return;
+    } finally {
+      playbackRecoveryRequest = null;
+    }
+  };
+
+  const initPlaybackRecoveryPolling = () => {
+    const detail = document.querySelector("[data-playback-poll-url]");
+    const active = detail?.dataset.playbackPollActive === "true";
+    if (!active && playbackRecoveryTimer) {
+      stopPlaybackRecoveryPolling();
+      return;
+    }
+    if (active && !playbackRecoveryTimer) {
+      playbackRecoveryTimer = window.setInterval(() => {
+        if (!document.hidden) refreshPlaybackRecovery();
+      }, 3000);
+    }
+    if (document.body.dataset.playbackRecoveryListeners !== "true") {
+      document.body.dataset.playbackRecoveryListeners = "true";
+      window.addEventListener("online", refreshPlaybackRecovery);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) refreshPlaybackRecovery();
+      });
+    }
+  };
+
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
@@ -1009,6 +1156,7 @@
     initManualUpload();
     initDetailTabs();
     initPlayback();
+    initPlaybackRecoveryPolling();
     initCalendarSettings();
   };
 

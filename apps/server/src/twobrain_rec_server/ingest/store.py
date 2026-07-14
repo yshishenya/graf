@@ -645,7 +645,7 @@ async def persist_finalized_tracks(
                     byte_length=track.byte_length,
                     sha256=track.sha256,
                     storage_object_key=storage_object_key,
-                    status="stored",
+                    status="candidate" if track.track_role is TrackRole.PLAYBACK else "stored",
                 )
             )
     existing_manifest = await db.scalar(select(ManifestSnapshot).where(ManifestSnapshot.meeting_id == meeting.id))

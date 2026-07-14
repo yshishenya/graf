@@ -79,6 +79,9 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "meeting_detection_review_actions",
         "meeting_detection_non_target_rules",
         "meeting_detection_telemetry_rate_limit_buckets",
+        "playback_normalization_jobs",
+        "playback_normalization_attempts",
+        "playback_backfill_runs",
     }
 )
 

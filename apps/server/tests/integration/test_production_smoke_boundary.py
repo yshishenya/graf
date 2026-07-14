@@ -35,6 +35,7 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
 
     assert "python scripts/issue_smoke_auth_session.py" in script
     assert "python scripts/cleanup_smoke_auth_session.py" in script
+    assert "run --rm --no-deps -T rec-maintenance" in script
     assert "require_json_status \"$SMOKE_AUTH_CLEANUP_JSON\" auth_cleanup_result pass" in script
     assert "require_json_status \"$SMOKE_ARTIFACT_CLEANUP_JSON\" cleanup_result pass" in script
     assert "trap cleanup_on_exit EXIT" in script
@@ -48,11 +49,16 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
 
 
 def test_remote_cd_deploys_processing_runtime_services() -> None:
-    script = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
+    wrapper = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
+    runtime = (REPO_ROOT / "infra/scripts/cd-remote-runtime.sh").read_text()
 
-    assert "docker compose -f infra/docker-compose.yml up -d --build" in script
-    assert "rec-temporal" in script
-    assert "rec-processing-worker" in script
+    assert 'bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"' in wrapper
+    assert '"${compose[@]}" build' in runtime
+    assert "rec-temporal" in runtime
+    assert "rec-processing-worker" in runtime
+    assert "rec-maintenance" in runtime
+    assert "rec-reprocess-maintenance" in runtime
+    assert "rec-media-worker" in runtime
 
 
 def test_issue_smoke_auth_session_dry_run_never_writes_raw_token(tmp_path: Path) -> None:

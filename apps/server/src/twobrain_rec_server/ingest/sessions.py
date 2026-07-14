@@ -9,6 +9,10 @@ from twobrain_rec_server.domain.statuses import TrackRole
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
 from twobrain_rec_server.ingest.lifecycle_guards import ensure_meeting_accepts_uploads
+from twobrain_rec_server.ingest.manifest import (
+    ManifestValidationError,
+    validate_required_track_roles,
+)
 from twobrain_rec_server.ingest.store import (
     UploadSessionRecord,
     load_active_upload_session_for_meeting,
@@ -30,6 +34,14 @@ async def create_upload_session(
     idempotency_key: str | None = None,
 ) -> UploadSessionRecord:
     expected_track_roles = expected_track_roles or [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
+    try:
+        validate_required_track_roles(set(expected_track_roles))
+    except ManifestValidationError as exc:
+        raise ProblemDetail(
+            status=400,
+            code="invalid_expected_track_roles",
+            title=str(exc),
+        ) from exc
     for size in (expected_track_sizes or {}).values():
         if size < 0:
             raise ProblemDetail(status=400, code="invalid_expected_track_size", title="Expected track size must be non-negative")

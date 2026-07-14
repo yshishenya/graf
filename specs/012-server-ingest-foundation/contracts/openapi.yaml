@@ -6094,6 +6094,16 @@ paths:
           type: string
           format: uuid
           title: Meeting Id
+      - name: Range
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional single RFC 9110 byte range, for example `bytes=0-1023`.
+          title: Range
+        description: Optional single RFC 9110 byte range, for example `bytes=0-1023`.
       - name: X-User-Id
         in: header
         required: false
@@ -6136,10 +6146,73 @@ paths:
           title: X-Client-Version
       responses:
         '200':
-          description: Successful Response
+          description: Complete canonical review M4A.
           content:
-            application/json:
-              schema: {}
+            audio/mp4:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Accept-Ranges:
+              description: Supported byte range unit. Always `bytes`.
+              schema:
+                type: string
+            Content-Disposition:
+              description: Safe inline playback filename.
+              schema:
+                type: string
+            Content-Length:
+              description: Number of bytes in this response body.
+              schema:
+                type: integer
+        '206':
+          description: Requested byte range from the canonical review M4A.
+          content:
+            audio/mp4:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Accept-Ranges:
+              description: Supported byte range unit. Always `bytes`.
+              schema:
+                type: string
+            Content-Disposition:
+              description: Safe inline playback filename.
+              schema:
+                type: string
+            Content-Length:
+              description: Number of bytes in this response body.
+              schema:
+                type: integer
+            Content-Range:
+              description: Returned byte interval and complete object length.
+              schema:
+                type: string
+        '404':
+          description: Meeting not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Playback is not available.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '416':
+          description: Requested byte range is malformed or unsatisfiable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Canonical storage is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '422':
           description: Validation Error
           content:
@@ -9754,6 +9827,8 @@ components:
           anyOf:
           - $ref: '#/components/schemas/PreviousRecurringMeetingView'
           - type: 'null'
+        playback:
+          $ref: '#/components/schemas/PlaybackPreparationState'
         future_slots:
           items:
             $ref: '#/components/schemas/SlotState'
@@ -9807,6 +9882,7 @@ components:
             enum:
             - local_microphone
             - incoming_system
+            - uploaded_media
             - unknown
           type: array
           title: Source Roles
@@ -10482,8 +10558,116 @@ components:
       required:
       - evidence_kind
       title: OutcomeSourceReferenceView
+    PlaybackPreparationState:
+      properties:
+        state:
+          type: string
+          enum:
+          - preparing
+          - available
+          - unavailable
+          - deleting
+          - deleted
+          title: State
+          default: unavailable
+        reason_code:
+          type: string
+          enum:
+          - normalization_queued
+          - normalization_running
+          - normalization_publishing
+          - normalization_retry_wait
+          - reconciliation_pending
+          - canonical_artifact_missing
+          - canonical_ready
+          - access_denied
+          - empty_source
+          - no_audio
+          - ambiguous_audio_tracks
+          - unsupported_media
+          - encrypted_media
+          - corrupt_source
+          - limit_exceeded
+          - source_missing
+          - source_mismatch
+          - meeting_deleting
+          - meeting_deleted
+          - audio_purged
+          title: Reason Code
+          default: no_audio
+        label:
+          type: string
+          title: Label
+          default: Аудио недоступно
+        automatic_recovery:
+          type: boolean
+          title: Automatic Recovery
+          default: false
+        can_play:
+          type: boolean
+          title: Can Play
+          default: false
+        action:
+          type: string
+          const: disabled
+          title: Action
+          default: disabled
+      type: object
+      title: PlaybackPreparationState
     PlaybackReviewState:
       properties:
+        state:
+          type: string
+          enum:
+          - preparing
+          - available
+          - unavailable
+          - deleting
+          - deleted
+          title: State
+          default: unavailable
+        reason_code:
+          type: string
+          enum:
+          - normalization_queued
+          - normalization_running
+          - normalization_publishing
+          - normalization_retry_wait
+          - reconciliation_pending
+          - canonical_artifact_missing
+          - canonical_ready
+          - access_denied
+          - empty_source
+          - no_audio
+          - ambiguous_audio_tracks
+          - unsupported_media
+          - encrypted_media
+          - corrupt_source
+          - limit_exceeded
+          - source_missing
+          - source_mismatch
+          - meeting_deleting
+          - meeting_deleted
+          - audio_purged
+          title: Reason Code
+          default: no_audio
+        label:
+          type: string
+          title: Label
+          default: Аудио недоступно
+        automatic_recovery:
+          type: boolean
+          title: Automatic Recovery
+          default: false
+        can_play:
+          type: boolean
+          title: Can Play
+          default: false
+        action:
+          type: string
+          const: disabled
+          title: Action
+          default: disabled
         available:
           type: boolean
           title: Available
@@ -10537,6 +10721,7 @@ components:
             enum:
             - local_microphone
             - incoming_system
+            - uploaded_media
             - unknown
           type: array
           title: Included Sources
@@ -11148,6 +11333,7 @@ components:
             enum:
             - local_microphone
             - incoming_system
+            - uploaded_media
             - unknown
           type: array
           title: Source Roles
@@ -11401,6 +11587,7 @@ components:
           enum:
           - local_microphone
           - incoming_system
+          - uploaded_media
           - unknown
           title: Source Role
         text:

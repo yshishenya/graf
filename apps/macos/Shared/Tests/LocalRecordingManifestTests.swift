@@ -23,6 +23,9 @@ final class LocalRecordingManifestTests: XCTestCase {
 
         XCTAssertEqual(manifest.status, .saved)
         XCTAssertEqual(manifest.transcriptionReadiness, .ready)
+        XCTAssertEqual(manifest.mediaScribeSourceMode, "dual")
+        XCTAssertEqual(manifest.tracks.map(\.role), [.localMic, .remoteSpeaker])
+        XCTAssertFalse(manifest.tracks.contains { $0.fileName == "meeting-review.m4a" })
         XCTAssertTrue(manifest.isComplete)
         XCTAssertFalse(manifest.externalEgressStarted)
         XCTAssertFalse(manifest.transcriptionStarted)

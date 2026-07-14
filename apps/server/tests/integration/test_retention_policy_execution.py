@@ -8,10 +8,12 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fixtures.processing import create_finalized_meeting
 from twobrain_rec_server.db.models import (
     Meeting,
     MeetingDeletionRequest,
     MeetingLifecycleAuditEvent,
+    PlaybackNormalizationJob,
     RetentionPolicySnapshot,
     WorkspaceMembership,
 )
@@ -141,6 +143,56 @@ def test_retention_scan_fails_closed_when_policy_is_unsafe(client) -> None:
     assert persisted["operator_event"].meeting_id is None
     assert persisted["operator_event"].outcome == "blocked"
     assert persisted["operator_event"].safe_reason == "retention_policy_missing_or_unsafe"
+
+
+def test_retention_deletion_cancels_active_normalization_without_user_action(client) -> None:
+    finalized = create_finalized_meeting(client, "retention-active-normalization")
+    meeting_id = UUID(str(finalized["meeting"]["meeting_id"]))
+
+    async def make_eligible() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id
+                )
+            )
+            assert meeting is not None and job is not None
+            meeting.processing_status = ProcessingStatus.PROCESSED.value
+            meeting.retention_policy_state = RetentionPolicyState.ACTIVE.value
+            meeting.retention_delete_after = datetime.now(UTC) - timedelta(minutes=1)
+            await db.commit()
+            return job.id
+
+    job_id = asyncio.run(make_eligible())
+    response = client.post(
+        "/api/v1/internal/retention/run",
+        headers=auth_headers(),
+        json={"limit": 20, "dry_run": False},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["created_requests"] == 1
+
+    async def load_truth():
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.get(Meeting, meeting_id), await db.get(
+                PlaybackNormalizationJob, job_id
+            )
+
+    meeting, job = asyncio.run(load_truth())
+    assert meeting.deletion_state == "deleting"
+    assert meeting.retention_policy_state == "expired"
+    assert job.state == "cancelled"
+    assert job.reason_code == "meeting_deleting"
+
+    report = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
+        headers=auth_headers(),
+    )
+    rows = {row["artifact_class"]: row for row in report.json()["artifact_states"]}
+    assert rows["normalization_job"]["state"] == "metadata_retained"
+    assert "storage_object_key" not in report.text.lower()
 
 
 async def _set_owner_role(client, role: str) -> None:
