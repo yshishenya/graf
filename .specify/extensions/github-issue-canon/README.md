@@ -47,7 +47,7 @@ From a project initialized with Spec Kit:
 
 ```sh
 specify extension add github-issue-canon \
-  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/archive/refs/heads/main.zip
+  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/archive/refs/tags/v0.2.6.zip
 ```
 
 For local development:
@@ -59,12 +59,14 @@ specify extension add github-issue-canon \
 
 ## Automatic Bootstrap
 
-Add this extension install step to your personal `speckit-bootstrap` wrapper
-after the core `git` and `agent-context` extensions are installed:
+Use `speckit-bootstrap` after the core `git` and `agent-context` extensions are
+installed. Bootstrap `v0.6.0+` resolves the latest extension tag to its immutable
+commit archive and records the complete installed tree in the project lock.
+For a manual equivalent pinned to this release:
 
 ```sh
 specify extension add github-issue-canon \
-  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/archive/refs/heads/main.zip
+  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/archive/refs/tags/v0.2.6.zip
 ```
 
 This repository includes no upstream Spec Kit changes.

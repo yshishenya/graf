@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-07-08T00:00:00Z",
+  "updated_at": "2026-07-13T00:00:00Z",
   "extensions": {
     "github-issue-canon": {
       "name": "GitHub Issue Canon",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "description": "Installs and enforces a Russian Spec Kit-traceable GitHub issue and PR canon around task-to-issue sync",
       "author": "yshishenya",
       "repository": "https://github.com/yshishenya/spec-kit-ext-github-issue-canon",
-      "download_url": "https://github.com/yshishenya/spec-kit-ext-github-issue-canon/archive/refs/heads/main.zip",
+      "download_url": "https://github.com/yshishenya/spec-kit-ext-github-issue-canon/archive/refs/tags/v0.2.6.zip",
       "license": "MIT",
       "verified": false,
       "tags": [
