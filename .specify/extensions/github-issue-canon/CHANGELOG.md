@@ -6,6 +6,15 @@ All notable changes to this project are documented in this file.
 
 - No entries yet.
 
+## [0.2.6] - 2026-07-13
+
+### Changed
+
+- Published immutable tag-based install URLs in the catalog and README instead
+  of mutable `main` archives.
+- Documented compatibility with `speckit-bootstrap` v0.6.0 tree-integrity locks;
+  extension behavior and project-facing canon remain unchanged.
+
 ## [0.2.5] - 2026-07-08
 
 ### Fixed
