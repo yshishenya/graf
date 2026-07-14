@@ -254,6 +254,14 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         }
 
         XCTAssertEqual(runtime.startCount, 1)
+        // The service reports the failed start before its detached cleanup finishes.
+        // Wait only for that bounded cleanup instead of depending on task scheduling.
+        for _ in 0..<50 {
+            if runtime.stopCount == 1 {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
         XCTAssertEqual(runtime.stopCount, 1)
     }
 
