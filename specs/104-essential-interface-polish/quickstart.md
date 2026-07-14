@@ -501,3 +501,25 @@ true`, `dialogOpen == false`, and focus on the visible `Записи встре�
 The canonical full gate then passes `642` macOS tests, `ContractValidation:
 PASS`, `1431` server tests with `4` skips, and all lint/compile/Compose/evidence
 checks with `ci_local_result=pass`.
+
+The fourth automated review found three remaining projection/state-change
+boundaries, all closed on the reviewed head:
+
+- browser and embedded search now match only the human title rendered in the
+  meeting row, so a hidden local recording ID cannot surface a humanized row;
+  the public API deliberately retains its existing technical search contract;
+- generated visible-title candidates remain eligible for numeric day/time
+  fragments after applying the recording display timezone, including a UTC
+  recording whose visible local day is different;
+- the native inspector observes an identity/action signature for attention
+  summaries, so a dismissed panel reopens when the underlying custody problem
+  escalates without changing the item count.
+
+Focused evidence after these corrections: `30` server tests and `77` macOS
+tests pass with no failures; Ruff format/check and whitespace validation are
+clean. The canonical full gate then passes `643` macOS tests,
+`ContractValidation: PASS`, `1431` server tests with `4` skips, the one existing
+Starlette/httpx deprecation warning, and all lint/compile/Compose/evidence
+checks with `ci_local_result=pass`. PostgreSQL RLS runtime validation remains
+explicitly blocked without the disposable test database, and no production
+probe was attempted.

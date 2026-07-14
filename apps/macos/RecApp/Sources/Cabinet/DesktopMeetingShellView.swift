@@ -181,8 +181,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 attentionExpansionDismissed = false
             }
         }
-        .onChange(of: attentionCustodyItemCount) { _, attentionCount in
-            if attentionCount > 0 {
+        .onChange(of: attentionCustodySignature) { _, attentionSignature in
+            if !attentionSignature.isEmpty {
                 attentionExpansionDismissed = false
             }
         }
@@ -323,6 +323,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private var attentionCustodyItemCount: Int {
         DesktopUploadCustodySummary.attentionItemCount(for: uploadQueueItems)
+    }
+
+    private var attentionCustodySignature: String {
+        attentionCustodySummaries.map { summary in
+            "\(summary.stableIdentity)|\(summary.primaryProjection.normalUserAction.rawValue)|\(summary.pendingCount)"
+        }.joined(separator: ";")
     }
 
     private var showsLocalDeleteConfirmationCopy: Bool {

@@ -83,11 +83,13 @@ def test_public_status_filters_remain_exact_while_web_labels_group_related_state
         headers=auth_headers(),
     )
     web_processing = client.get(
-        "/meetings?q=status-group&status=processing",
+        "/meetings",
+        params={"q": "Status group", "status": "processing"},
         headers=auth_headers(),
     )
     web_needs_help = client.get(
-        "/desktop/meetings?q=status-group&status=failed",
+        "/desktop/meetings",
+        params={"q": "Status group", "status": "failed"},
         headers=auth_headers(),
     )
 
@@ -159,6 +161,14 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
     response = client.get(
         "/api/v1/cabinet/meetings?q=cabinet-upload-progress", headers=auth_headers()
     )
+    hidden_identifier_page = client.get(
+        "/desktop/meetings?q=cabinet-upload-progress", headers=auth_headers()
+    )
+    visible_title_page = client.get(
+        "/desktop/meetings",
+        params={"q": "Запись без названия"},
+        headers=auth_headers(),
+    )
 
     assert response.status_code == 200
     item = response.json()["items"][0]
@@ -171,6 +181,11 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
         "progress_percent": 40,
         "is_active": True,
     }
+    assert hidden_identifier_page.status_code == 200
+    assert "Ничего не найдено" in hidden_identifier_page.text
+    assert "data-meeting-row" not in hidden_identifier_page.text
+    assert visible_title_page.status_code == 200
+    assert "Запись без названия" in visible_title_page.text
 
     page = client.get("/desktop/meetings", headers=auth_headers())
 
@@ -357,19 +372,20 @@ def test_cabinet_list_uses_recording_display_timezone_offset_for_date_label(clie
         "/api/v1/meetings",
         headers=auth_headers(),
         json={
-            "local_recording_id": "timezone-offset-label",
-            "title": "Meeting - 2026-06-27 00:30",
-            "started_at": "2026-06-26T21:30:00Z",
+            "local_recording_id": "timezone-crossing-visible-day",
+            "title": "Meeting - 2026-07-13 23:30",
+            "started_at": "2026-07-13T23:30:00Z",
             "recording_display_timezone_offset_minutes": 180,
             "duration_seconds": 60,
         },
     )
     assert response.status_code == 200
 
-    page = client.get("/meetings?q=timezone-offset-label", headers=auth_headers())
+    page = client.get("/meetings", params={"q": "14"}, headers=auth_headers())
 
     assert page.status_code == 200
-    assert "27 июн" in page.text
+    assert "Запись 14 июл, 02:30" in page.text
+    assert "timezone-crossing-visible-day" not in page.text
 
 
 def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(client) -> None:
@@ -542,11 +558,13 @@ def test_098_recurring_pointer_has_browser_and_embedded_meeting_list_route_parit
     previous_id = _create_recurring_list_pair(client)
     responses = {
         "web": client.get(
-            "/meetings?q=t082-recurring-current",
+            "/meetings",
+            params={"q": "Synthetic T082 Current"},
             headers=auth_headers(),
         ),
         "embedded": client.get(
-            "/desktop/meetings?q=t082-recurring-current",
+            "/desktop/meetings",
+            params={"q": "Synthetic T082 Current"},
             headers=auth_headers(),
         ),
     }

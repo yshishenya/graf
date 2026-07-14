@@ -276,6 +276,15 @@ The smallest independently useful slice is US1 after baseline: remove disabled/d
   retention warnings remain visible even when no immediate button is required.
   Focused checks pass `30` server and `76` macOS tests, and a Chromium DOM
   exercise confirms focus returns to the visible list heading.
+- The fourth automated review closed the last three observed projection and
+  state-change boundaries: browser/embedded search no longer matches hidden
+  local recording IDs while the public API remains compatible; numeric
+  day/time fragments can find a generated title after recording-timezone
+  projection; and a changed custody problem reopens a dismissed inspector even
+  when the attention count is unchanged. Focused checks pass `30` server and
+  `77` macOS tests. The full repository gate passes `643` macOS tests,
+  `ContractValidation: PASS`, `1431` server tests with `4` skips, and all
+  lint/compile/Compose/evidence checks with `ci_local_result=pass`.
 - A pre-existing calendar manual-sync timing assertion failed two loaded full
   suites by `5–28 ms`; profiling showed that it timed a cold app/client before
   the settings page a user must open to reach the action. The test-only fix now

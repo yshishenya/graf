@@ -381,6 +381,39 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(count, 4)
     }
 
+    func testAttentionIdentityChangesWhenOneItemEscalatesWithoutChangingCount() throws {
+        let warning = custodyFixtureQueueItem(
+            id: "same-item",
+            state: .retrying,
+            retryMode: .automatic,
+            retentionDeadline: Date(timeIntervalSince1970: 1_100)
+        )
+        let terminal = custodyFixtureQueueItem(
+            id: "same-item",
+            state: .failed,
+            retryMode: .terminal,
+            syncConflictState: .retentionExpired,
+            retentionDeadline: Date(timeIntervalSince1970: 1_100)
+        )
+
+        let warningSummary = try XCTUnwrap(
+            DesktopUploadCustodySummary.summaries(
+                for: [warning],
+                now: Date(timeIntervalSince1970: 1_000)
+            ).first
+        )
+        let terminalSummary = try XCTUnwrap(
+            DesktopUploadCustodySummary.summaries(
+                for: [terminal],
+                now: Date(timeIntervalSince1970: 1_200)
+            ).first
+        )
+
+        XCTAssertEqual(warningSummary.pendingCount, terminalSummary.pendingCount)
+        XCTAssertNotEqual(warningSummary.stableIdentity, terminalSummary.stableIdentity)
+        XCTAssertEqual(terminalSummary.primaryProjection.normalUserAction, .sendSupportReport)
+    }
+
     func testSafeIncidentReportUsesMetadataOnlyAdminTruth() throws {
         let item = custodyFixtureQueueItem(
             id: "admin-incident",

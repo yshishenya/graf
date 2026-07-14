@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -180,6 +179,7 @@ async def list_cabinet_meetings(
     q: str | None = None,
     status: MeetingReviewStatus | None = None,
     group_status_filter: bool = False,
+    visible_title_search: bool = False,
     access: AccessState | None = None,
     sort: str = "updated_desc",
     limit: int = 50,
@@ -222,6 +222,7 @@ async def list_cabinet_meetings(
             if media_revision is not None
             and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
             else None,
+            visible_title_only=visible_title_search,
         ):
             continue
         media_revision_id = media_revision.id if media_revision is not None else None
@@ -287,11 +288,22 @@ async def list_cabinet_meetings(
     )
 
 
-def _meeting_matches_query(meeting: Meeting, query: str, *, source: str | None) -> bool:
+def _meeting_matches_query(
+    meeting: Meeting,
+    query: str,
+    *,
+    source: str | None,
+    visible_title_only: bool,
+) -> bool:
     normalized_query = " ".join(query.casefold().split())
     if not normalized_query:
         return True
-    candidates = (meeting.title, meeting.local_recording_id, safe_title(meeting, source=source))
+    visible_title = safe_title(meeting, source=source)
+    candidates = (
+        (visible_title,)
+        if visible_title_only
+        else (meeting.title, meeting.local_recording_id, visible_title)
+    )
     return any(
         normalized_query in " ".join(candidate.casefold().split())
         for candidate in candidates
@@ -343,7 +355,9 @@ def _query_can_match_generated_recording_title(normalized_query: str) -> bool:
         return True
     if any(fragment in normalized_query for fragment in GENERATED_TITLE_MONTH_FRAGMENTS):
         return True
-    return re.search(r"(?:^|\s)\d{1,2}:\d{2}(?:$|\s)", normalized_query) is not None
+    if any(character.isdigit() for character in normalized_query):
+        return True
+    return "," in normalized_query or ":" in normalized_query
 
 
 async def _latest_upload_progress(

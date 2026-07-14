@@ -87,6 +87,7 @@ async def embedded_meeting_list_page(
         q=q,
         status=status,
         group_status_filter=True,
+        visible_title_search=True,
         access=access,
         sort=sort,
         limit=limit,

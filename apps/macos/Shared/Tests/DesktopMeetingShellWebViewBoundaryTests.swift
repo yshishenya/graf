@@ -85,6 +85,8 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("if attentionCustodyItemCount > 0"))
         XCTAssertTrue(shellSource.contains("attentionCustodySummaries"))
         XCTAssertTrue(shellSource.contains("primaryProjection.requiresUserAttention"))
+        XCTAssertTrue(shellSource.contains(".onChange(of: attentionCustodySignature)"))
+        XCTAssertTrue(shellSource.contains("summary.stableIdentity"))
         XCTAssertTrue(shellSource.contains("Требуется внимание"))
         XCTAssertFalse(shellSource.contains("Требуется действие"))
         XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
