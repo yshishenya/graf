@@ -268,6 +268,14 @@ The smallest independently useful slice is US1 after baseline: remove disabled/d
   the visible humanized title. Focused checks pass `76` macOS and `58` server
   tests. The final full gate passes `642` macOS and `1430`
   server tests with `4` skips and `ContractValidation: PASS`.
+- The third automated review closed four additional regression boundaries:
+  successful bulk deletion no longer restores focus into a hidden selection
+  toolbar; public API status filters remain exact while web labels retain their
+  grouped behavior; SQL search prefilters stored fields before access/media
+  projection and only admits bounded display-title fallbacks when relevant;
+  retention warnings remain visible even when no immediate button is required.
+  Focused checks pass `30` server and `76` macOS tests, and a Chromium DOM
+  exercise confirms focus returns to the visible list heading.
 - A pre-existing calendar manual-sync timing assertion failed two loaded full
   suites by `5–28 ms`; profiling showed that it timed a cold app/client before
   the settings page a user must open to reach the action. The test-only fix now

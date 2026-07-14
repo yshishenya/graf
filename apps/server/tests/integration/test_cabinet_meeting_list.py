@@ -42,7 +42,7 @@ def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None
     }
 
 
-def test_cabinet_status_filters_cover_every_state_with_the_same_user_label(client) -> None:
+def test_public_status_filters_remain_exact_while_web_labels_group_related_states(client) -> None:
     status_rows = (
         ("submitted", ProcessingStatus.NOT_SUBMITTED),
         ("processing", ProcessingStatus.POLLING),
@@ -82,18 +82,54 @@ def test_cabinet_status_filters_cover_every_state_with_the_same_user_label(clien
         "/api/v1/cabinet/meetings?q=status-group&status=failed",
         headers=auth_headers(),
     )
+    web_processing = client.get(
+        "/meetings?q=status-group&status=processing",
+        headers=auth_headers(),
+    )
+    web_needs_help = client.get(
+        "/desktop/meetings?q=status-group&status=failed",
+        headers=auth_headers(),
+    )
 
     assert processing.status_code == 200
-    assert {item["status"] for item in processing.json()["items"]} == {
-        "submitted",
-        "processing",
-    }
+    assert {item["status"] for item in processing.json()["items"]} == {"processing"}
     assert needs_help.status_code == 200
-    assert {item["status"] for item in needs_help.json()["items"]} == {
-        "blocked",
-        "failed",
-        "unavailable",
-    }
+    assert {item["status"] for item in needs_help.json()["items"]} == {"failed"}
+    assert web_processing.status_code == 200
+    assert "Status group submitted" in web_processing.text
+    assert "Status group processing" in web_processing.text
+    assert "Status group failed" not in web_processing.text
+    assert web_needs_help.status_code == 200
+    assert "Status group blocked" in web_needs_help.text
+    assert "Status group failed" in web_needs_help.text
+    assert "Status group unavailable" in web_needs_help.text
+    assert "Status group processing" not in web_needs_help.text
+
+
+def test_search_prefilters_nonmatching_rows_before_access_and_media_projection(
+    client, monkeypatch
+) -> None:
+    seed_cabinet_meetings(client)
+
+    async def fail_if_projected(*_args, **_kwargs):
+        raise AssertionError("nonmatching rows must be filtered in SQL")
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.queries.decide_meeting_access",
+        fail_if_projected,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.queries._latest_media_revision",
+        fail_if_projected,
+    )
+
+    response = client.get(
+        "/api/v1/cabinet/meetings?q=definitely-missing-title",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
 
 
 def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) -> None:

@@ -480,3 +480,24 @@ custody summaries include owner, admin, support, and policy-owned next steps;
 authoritative titles are preserved; and list search matches the humanized title
 shown to the user. Each boundary has a focused regression and the full gate
 above was rerun after the fixes.
+
+The third automated review found four more boundary regressions, all closed on
+the reviewed head:
+
+- successful bulk deletion ignores focus targets inside a hidden ancestor and
+  falls back to the visible list heading;
+- `/api/v1/cabinet/meetings` keeps exact enum status semantics, while only the
+  browser and embedded web routes expand the two human-facing status groups;
+- search applies an escaped SQL prefilter to stored title/local ID fields before
+  any per-meeting access or media projection, with display-title candidates
+  admitted only for generated/manual-upload wording that can actually match;
+- the native inspector treats an approaching local-retention deadline as
+  important attention even though it has no immediate user action.
+
+Focused evidence after these corrections: `30` server tests and `76` macOS
+tests pass with no failures. A production-script Chromium DOM exercise drove a
+selected row through successful bulk deletion and confirmed `toolbarHidden ==
+true`, `dialogOpen == false`, and focus on the visible `Записи встреч` heading.
+The canonical full gate then passes `642` macOS tests, `ContractValidation:
+PASS`, `1431` server tests with `4` skips, and all lint/compile/Compose/evidence
+checks with `ci_local_result=pass`.

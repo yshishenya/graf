@@ -120,6 +120,8 @@ def test_cabinet_js_owns_component_dom_behavior() -> None:
         "listInteractionIsActive()",
         'document.querySelector("[data-delete-dialog][open], [data-manual-upload-dialog][open]")',
         "deleteReturnMeetingId",
+        "isUsableFocusTarget(deleteReturnFocus)",
+        "target.closest(\"[hidden], [aria-hidden='true']\") === null",
         "returnRow?.isConnected ? returnRow",
         "if (!shouldSelectAll) rows[0]?.focus({ preventScroll: true })",
         "closeDeleteDialog();",

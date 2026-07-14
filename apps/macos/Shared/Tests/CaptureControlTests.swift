@@ -931,8 +931,8 @@ final class CaptureControlTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(shellSource.contains("if actionableCustodyItemCount > 0"))
-        XCTAssertTrue(shellSource.contains("actionableCustodySummaries"))
+        XCTAssertTrue(shellSource.contains("if attentionCustodyItemCount > 0"))
+        XCTAssertTrue(shellSource.contains("attentionCustodySummaries"))
         XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
         XCTAssertTrue(shellSource.contains("onSubmit: onSupportIncidentReport"))
         XCTAssertTrue(stripSource.contains("Label(sendButtonTitle, systemImage: \"questionmark.bubble\")"))

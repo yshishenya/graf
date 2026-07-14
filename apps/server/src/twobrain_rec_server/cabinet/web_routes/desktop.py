@@ -86,6 +86,7 @@ async def embedded_meeting_list_page(
         viewer_user_id=principal.user_id,
         q=q,
         status=status,
+        group_status_filter=True,
         access=access,
         sort=sort,
         limit=limit,

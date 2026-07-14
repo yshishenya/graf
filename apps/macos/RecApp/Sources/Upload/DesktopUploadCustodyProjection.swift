@@ -135,6 +135,10 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
     public let metadataSafety: DesktopUploadCustodyMetadataSafety
     public let progressFraction: Double
 
+    public var requiresUserAttention: Bool {
+        normalUserAction != .none || copyKey == "custody.retention_warning"
+    }
+
     public init(item: DesktopUploadQueueItem, now: Date = Date()) {
         let rule = Self.rule(for: item, now: now)
         self.itemId = item.id
@@ -648,12 +652,12 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
             .map { $0 }
     }
 
-    public static func actionableItemCount(
+    public static func attentionItemCount(
         for items: [DesktopUploadQueueItem],
         now: Date = Date()
     ) -> Int {
         visibleCandidates(for: items, now: now).filter { candidate in
-            candidate.projection.normalUserAction != .none
+            candidate.projection.requiresUserAttention
         }.count
     }
 

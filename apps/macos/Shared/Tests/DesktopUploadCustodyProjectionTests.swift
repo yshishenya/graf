@@ -203,6 +203,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.retryClass, .automatic)
         XCTAssertEqual(projection.normalUserAction, .none)
         XCTAssertEqual(projection.copyKey, "custody.retention_warning")
+        XCTAssertTrue(projection.requiresUserAttention)
     }
 
     func testRetentionExpiredKeepsEvidenceActionInsteadOfSilentLoss() {
@@ -333,7 +334,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertTrue(report.safeAffectedIdentities.allSatisfy { $0.hasPrefix("affected_fpr_") })
     }
 
-    func testActionableBadgeCountsOwnerAdminAndSupportActions() {
+    func testAttentionBadgeCountsActionsAndRetentionWarningsButNotRoutineProgress() {
         let auth = custodyFixtureQueueItem(
             id: "auth",
             state: .blocked,
@@ -365,12 +366,19 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
             retryMode: .manualOnly,
             syncConflictState: .localFilesMissing
         )
-
-        let count = DesktopUploadCustodySummary.actionableItemCount(
-            for: [auth, admin, support, automatic]
+        let retentionWarning = custodyFixtureQueueItem(
+            id: "retention-warning",
+            state: .retrying,
+            retryMode: .automatic,
+            retentionDeadline: Date(timeIntervalSince1970: 1_100)
         )
 
-        XCTAssertEqual(count, 3)
+        let count = DesktopUploadCustodySummary.attentionItemCount(
+            for: [auth, admin, support, automatic, retentionWarning],
+            now: Date(timeIntervalSince1970: 1_000)
+        )
+
+        XCTAssertEqual(count, 4)
     }
 
     func testSafeIncidentReportUsesMetadataOnlyAdminTruth() throws {

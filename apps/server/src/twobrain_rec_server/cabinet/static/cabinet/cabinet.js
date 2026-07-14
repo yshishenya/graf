@@ -33,6 +33,10 @@
     });
   };
 
+  const isUsableFocusTarget = (target) => target instanceof HTMLElement &&
+    target.isConnected &&
+    target.closest("[hidden], [aria-hidden='true']") === null;
+
   const updateSelection = () => {
     const list = currentList();
     const toolbar = document.querySelector("[data-selection-toolbar]");
@@ -84,8 +88,11 @@
     if (typeof dialog.close === "function") dialog.close();
     else dialog.removeAttribute("open");
     const currentReturnRow = allRows().find((row) => row.dataset.meetingId === deleteReturnMeetingId);
-    const returnControl = deleteReturnFocus?.isConnected ? deleteReturnFocus : currentReturnRow?.querySelector("[data-row-delete]");
-    if (restoreFocus && returnControl instanceof HTMLElement) {
+    const rowDeleteControl = currentReturnRow?.querySelector("[data-row-delete]");
+    const returnControl = isUsableFocusTarget(deleteReturnFocus)
+      ? deleteReturnFocus
+      : isUsableFocusTarget(rowDeleteControl) ? rowDeleteControl : null;
+    if (restoreFocus && returnControl) {
       setRowContextualAvailability(currentReturnRow, true);
       returnControl.focus({ preventScroll: true });
     } else if (restoreFocus) {

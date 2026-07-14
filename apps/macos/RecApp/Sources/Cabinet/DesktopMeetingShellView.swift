@@ -111,7 +111,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     @State private var inspectorExpanded = false
-    @State private var actionableExpansionDismissed = false
+    @State private var attentionExpansionDismissed = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
@@ -178,12 +178,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18), value: expandedInspectorVisible)
         .onChange(of: hasActionableCaptureProblem) { _, isActionable in
             if isActionable {
-                actionableExpansionDismissed = false
+                attentionExpansionDismissed = false
             }
         }
-        .onChange(of: actionableCustodyItemCount) { _, actionCount in
-            if actionCount > 0 {
-                actionableExpansionDismissed = false
+        .onChange(of: attentionCustodyItemCount) { _, attentionCount in
+            if attentionCount > 0 {
+                attentionExpansionDismissed = false
             }
         }
         .accessibilityIdentifier("desktop-meeting-shell")
@@ -315,18 +315,18 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
     }
 
-    private var actionableCustodySummaries: [DesktopUploadCustodySummary] {
+    private var attentionCustodySummaries: [DesktopUploadCustodySummary] {
         custodyDetailSummaries.filter { summary in
-            summary.primaryProjection.normalUserAction != .none
+            summary.primaryProjection.requiresUserAttention
         }
     }
 
-    private var actionableCustodyItemCount: Int {
-        DesktopUploadCustodySummary.actionableItemCount(for: uploadQueueItems)
+    private var attentionCustodyItemCount: Int {
+        DesktopUploadCustodySummary.attentionItemCount(for: uploadQueueItems)
     }
 
     private var showsLocalDeleteConfirmationCopy: Bool {
-        actionableCustodySummaries.contains { summary in
+        attentionCustodySummaries.contains { summary in
             summary.primaryProjection.custodyState == .cannotSend ||
                 summary.primaryProjection.custodyState == .terminalUndelivered
         }
@@ -529,12 +529,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
             compactCaptureAction
 
-            if actionableCustodyItemCount > 0 {
+            if attentionCustodyItemCount > 0 {
                 Button {
-                    actionableExpansionDismissed = false
+                    attentionExpansionDismissed = false
                     inspectorExpanded = true
                 } label: {
-                    Text("\(actionableCustodyItemCount)")
+                    Text("\(attentionCustodyItemCount)")
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.white)
                         .frame(width: 30, height: 24)
@@ -549,8 +549,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     height: DesktopMeetingShellChrome.minimumInteractiveTarget
                 )
                 .contentShape(Rectangle())
-                .help("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется действие")
-                .accessibilityLabel("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется действие")
+                .help("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется внимание")
+                .accessibilityLabel("\(DesktopMeetingShellChrome.compactRailLabels[1]): требуется внимание")
             }
 
             Spacer()
@@ -662,7 +662,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                             .stroke(shellStrokeColor, lineWidth: 1)
                     )
 
-                if actionableCustodyItemCount > 0 {
+                if attentionCustodyItemCount > 0 {
                     custodyDetailsDisclosure
                 }
             }
@@ -676,7 +676,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var custodyDetailsDisclosure: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(actionableCustodySummaries, id: \.stableIdentity) { summary in
+                ForEach(attentionCustodySummaries, id: \.stableIdentity) { summary in
                     custodyDetailRow(summary)
                 }
 
@@ -771,20 +771,20 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var expandedInspectorVisible: Bool {
         DesktopMeetingShellChrome.shouldShowExpandedInspector(
             manualExpanded: inspectorExpanded,
-            hasActionableProblem: hasInspectorActionableProblem && !actionableExpansionDismissed
+            hasActionableProblem: hasInspectorAttention && !attentionExpansionDismissed
         )
     }
 
-    private var hasInspectorActionableProblem: Bool {
-        hasActionableCaptureProblem || actionableCustodyItemCount > 0
+    private var hasInspectorAttention: Bool {
+        hasActionableCaptureProblem || attentionCustodyItemCount > 0
     }
 
     private func toggleInspector() {
         if expandedInspectorVisible {
             inspectorExpanded = false
-            actionableExpansionDismissed = hasInspectorActionableProblem
+            attentionExpansionDismissed = hasInspectorAttention
         } else {
-            actionableExpansionDismissed = false
+            attentionExpansionDismissed = false
             inspectorExpanded = true
         }
     }
@@ -800,7 +800,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         if let session {
             return CaptureStatusItem.statusLabel(for: session)
         }
-        return hasInspectorActionableProblem ? "Требуется действие" : "Готово к записи"
+        return hasInspectorAttention ? "Требуется внимание" : "Готово к записи"
     }
 
     private var captureStatusIcon: String {
