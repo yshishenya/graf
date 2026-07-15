@@ -1,0 +1,62 @@
+{
+  "bootstrap_version": "0.7.0",
+  "extensions": {
+    "agent_context": {
+      "manifest_hash": "sha256:9a1dc02d2d0139bb03860392ecacef79183be2c442feda2f9ccaa4e5907b1e47",
+      "tree_sha256": "711e000d0d7ea894e95d64922f041ab16db30296d96ebf9445944c9e8b8fe717",
+      "version": "1.0.0"
+    },
+    "git": {
+      "manifest_hash": "sha256:9731aa8143a72fbebfdb440f155038ab42642517c2b2bdbbf67c8fdbe076ed79",
+      "tree_sha256": "3348879afe1b96ccae76095bdbcb5de228e51a2600dc699f5094fa2b01bc7539",
+      "version": "1.0.0"
+    }
+  },
+  "github_issue_canon": {
+    "archive_sha256": "4d915a96290838cbe092bb2f42ab01e204258d466c661d90f0075c3f2f097afc",
+    "installed_version": "0.3.1",
+    "manifest_hash": "sha256:a785a64a1539fc51a1b0acf19d79fbbcecb822d6fc526970da235831eb365bb2",
+    "ref": "087ce88ef74a79b760c81eadf793394cf83767d6",
+    "source_url": "https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.1/github-issue-canon-0.3.1.zip",
+    "tree_sha256": "73669914b4c352c735f3677d858263e452d6ba274afbb002111ecdefcec9c952",
+    "version": "v0.3.1"
+  },
+  "global_skills": {
+    "speckit-agent-context-update": "ff3e0487c264bf2ce553dee7e88bb35313f1ec37fd5df89dfad9c064663ed237",
+    "speckit-analyze": "73d738e1788d68106fd51cdc909be8f664e4157811b18c4f46ae78962133ffcb",
+    "speckit-checklist": "4ef3696b792b6291ffcc993949cc874a32854d3c20b21c239fa805ee7dd78af4",
+    "speckit-clarify": "a6fd0d1726dd981f5869048e9d7ad702f1519c2e4ecacc1c6bb7c569ed69462a",
+    "speckit-constitution": "e08641e11092fea868ed573ccd62c1341eaf33a6eead70076f6f04210f0d2d0b",
+    "speckit-converge": "181e8873fd75dbfb46e69b563ebbeb22dd36717675bac9be0b101d024d3d994b",
+    "speckit-git-commit": "1bbbc69567495fc3bbdf69c46e6359349282e344808dcf74a662dc6a4cc78fb5",
+    "speckit-git-feature": "397d4bef3f3184e07f2d11a5f9774f1285820615b11322b18d023556b40c5eca",
+    "speckit-git-initialize": "61a94d2f3931b9a834a17404412446026c0da1b21efab245f1ddd2d45aab834a",
+    "speckit-git-remote": "b33d2317ab2a90d48d679bfb2f1ca9bcf2e6f622968feeaefb805d3237ff006a",
+    "speckit-git-validate": "bfaceee43992b42410301995f0c7021362c62d83da6648a84bfa567bf115dcd0",
+    "speckit-github-issue-canon-ensure": "92b7fff042dec3ebc37a13bb48bc3e4f96fff2af39b310b2fdd153c7815297de",
+    "speckit-github-issue-canon-normalize": "35d043af12657651f82708ebb6dd16d668d8abdfdc9814e36da9e77dce236614",
+    "speckit-github-issue-canon-validate": "3a47db7f81fc634625b1f3b559600f16cd91b261fda1a88875f4845ee36283f8",
+    "speckit-implement": "88c3c06dba6744826cb8637eb0fc7e716b39cdb70138f490f3cca074ad962f31",
+    "speckit-plan": "a3375a27f2f634bfcb882504295c8cd60fefa4b7a22005f5ac26afbf1c523ea8",
+    "speckit-specify": "5206b96d3a0bd9bd5247aaf56c8312c8e83174652a7cf9bab5f4950ebdb71022",
+    "speckit-tasks": "87f4b09d76ae86dff9d1beb47aa838a50ca907397ff03e54ec2306103526a807",
+    "speckit-taskstoissues": "18deb18d7796d30123380df9bb33013fa2bc9ae33c3354aff62d98013abb2318"
+  },
+  "ponytail": {
+    "enabled": true,
+    "marketplace_sha256": "da70738ad47023cf8f9fbe7688f90a8ce7bf5c8defa4b1ebe2e1fbc3b20e4202",
+    "ref": "bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324",
+    "version": "v4.8.4"
+  },
+  "schema_version": 2,
+  "spec_kit": {
+    "ref": "7b91c1eda46e1107a53831cd3f14f608b4b7bad0",
+    "source": "git+https://github.com/github/spec-kit.git@7b91c1eda46e1107a53831cd3f14f608b4b7bad0",
+    "version": "v0.12.15"
+  },
+  "workflow": {
+    "id": "speckit",
+    "sha256": "a3b7c17724df02c7f2ad4cfc58435dd428f11eaa13bd07fa5e46f7726142b2b7",
+    "version": "1.0.0"
+  }
+}

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 REQUIRED_SECTIONS = [
@@ -56,11 +57,11 @@ DEFAULT_AREAS = {
 TITLE_FORMAT = "[<feature>][<priority>][<area>] T###: <русский результат>"
 TITLE_RE = re.compile(
     r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] "
-    r"(?P<task>T\d{3}): (?P<outcome>.+)"
+    r"(?P<task>T\d{3}): (?P<outcome>\S(?:.*\S)?)\Z"
 )
 LEGACY_TITLE_RE = re.compile(
     r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] "
-    r"(?P<outcome>.+)"
+    r"(?P<outcome>\S(?:.*\S)?)\Z"
 )
 TASK_RE = re.compile(r"\bT\d{3}\b")
 
@@ -118,11 +119,12 @@ def repo_slug(root: Path) -> str:
         raise SystemExit("git remote.origin.url is not set")
     if remote.startswith("git@github.com:"):
         slug = remote.removeprefix("git@github.com:").removesuffix(".git")
-    elif "github.com/" in remote:
-        slug = remote.split("github.com/", 1)[1].removesuffix(".git")
     else:
-        raise SystemExit(f"remote is not a GitHub URL: {remote}")
-    if "/" not in slug:
+        parsed = urlparse(remote)
+        if parsed.hostname != "github.com":
+            raise SystemExit(f"remote is not a GitHub URL: {remote}")
+        slug = parsed.path.strip("/").removesuffix(".git")
+    if not re.fullmatch(r"[^/\s]+/[^/\s]+", slug):
         raise SystemExit(f"could not parse GitHub owner/repo from remote: {remote}")
     return slug
 
@@ -333,8 +335,18 @@ def validate_issue(issue: dict) -> list[str]:
         task = match.group("task")
         if f"feature:{feature}" not in labels:
             errors.append(f"missing label feature:{feature}")
+        conflicting_features = sorted(
+            name for name in labels if name.startswith("feature:") and name != f"feature:{feature}"
+        )
+        if conflicting_features:
+            errors.append("conflicting feature labels: " + ", ".join(conflicting_features))
         if f"priority:{priority}" not in labels:
             errors.append(f"missing label priority:{priority}")
+        conflicting_priorities = sorted(
+            name for name in labels if name.startswith("priority:") and name != f"priority:{priority}"
+        )
+        if conflicting_priorities:
+            errors.append("conflicting priority labels: " + ", ".join(conflicting_priorities))
         if f"area:{area_root}" not in labels and f"area:{match.group('area')}" not in labels:
             errors.append(f"missing area label for {match.group('area')}")
         if task not in body:

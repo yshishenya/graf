@@ -193,13 +193,22 @@ def main() -> int:
         labels = label_names(issue)
         match = TITLE_RE.match(title)
         add_labels = set()
+        stale_labels: list[str] = []
         if match:
-            add_labels.add(f"feature:{match.group('feature')}")
-            add_labels.add(f"priority:{match.group('priority')}")
+            expected_feature = f"feature:{match.group('feature')}"
+            expected_priority = f"priority:{match.group('priority')}"
+            add_labels.add(expected_feature)
+            add_labels.add(expected_priority)
             area = match.group("area")
             area_root = area.split("/", 1)[0]
             if f"area:{area_root}" not in labels and f"area:{area}" not in labels:
                 add_labels.add(f"area:{area_root}")
+            stale_labels = sorted(
+                name
+                for name in labels
+                if (name.startswith("feature:") and name != expected_feature)
+                or (name.startswith("priority:") and name != expected_priority)
+            )
         if not any(label.startswith("type:") for label in labels):
             add_labels.add(infer_type(issue.get("body") or "", issue.get("title") or ""))
         args = ["gh", "issue", "edit", str(issue["number"]), "--repo", slug]
@@ -212,6 +221,8 @@ def main() -> int:
         new_labels = sorted(add_labels - labels)
         if new_labels:
             args.extend(["--add-label", ",".join(new_labels)])
+        if stale_labels:
+            args.extend(["--remove-label", ",".join(stale_labels)])
         if len(args) > base_arg_count:
             run(args)
             changed.append(issue["number"])
