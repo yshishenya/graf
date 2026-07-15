@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-15
+Date: 2026-07-16
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -85,10 +85,14 @@ metadata-only evidence остаются подробной историей ре
   a newly generated file-backed credential. Staged rollback returned schema to
   `0021`, restored production SHA
   `e77f942bf178862905ee98b27488d87e469c3e26`, and confirmed zero feature truth.
-  A bounded private-group readability hotfix has passed focused tests, fresh
-  canonical CI and independent review from exact `.2` release SHA; it awaits
-  integration approval and is not merged or deployed yet. Production E2E and
-  the requested local app reinstall remain pending.
+  A bounded private-group readability hotfix passed focused tests, fresh
+  canonical CI and independent review from exact `.2` release SHA, then merged
+  through [PR #3474](https://github.com/yshishenya/crisp/pull/3474) at exact
+  merge SHA `f0fbd18bb7cf18410da16bda2f6ca7177b40ce98`. Release candidate
+  `v2026.07.16.1` passed fresh canonical CI and deployment dry-run from current
+  `master`; it awaits explicit release/deploy approval and is not committed,
+  tagged or deployed yet. Production E2E and the requested local app reinstall
+  remain pending.
   The feature gives every new first-party recording and supported manual
   upload one server-prepared,
   fully decoded canonical `meeting-review.m4a`; an already canonical M4A is
@@ -160,7 +164,9 @@ metadata-only evidence остаются подробной историей ре
   and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
   complete it. Release `v2026.07.14.7` remains owned by the separate «новый
   главный экран GRAF» rollout. Published releases `v2026.07.15.1` and
-  `v2026.07.15.2` were not deployed; neither immutable tag was moved.
+  `v2026.07.15.2` were not deployed; neither immutable tag was moved. The next
+  candidate is `v2026.07.16.1`; CI and dry-run pass, while release approval,
+  publication, deploy and production proof remain pending.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and
