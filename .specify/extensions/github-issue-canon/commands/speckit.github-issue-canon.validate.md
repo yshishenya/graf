@@ -16,6 +16,6 @@ python3 .specify/extensions/github-issue-canon/scripts/validate_issue_canon.py
 
 1. If validation fails, report the invalid issues and do not claim
    `$speckit-taskstoissues` is complete.
-1. If project config enables normalization, run
-   `$speckit-github-issue-canon-normalize` only after user approval or when the
-   project explicitly treats normalization as automatic.
+1. Validation is read-only. If normalization is needed, run
+   `$speckit-github-issue-canon-normalize` as a separate, explicit command only
+   after user approval.
