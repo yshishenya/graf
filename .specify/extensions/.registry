@@ -44,17 +44,12 @@
       "installed_at": "2026-06-15T20:03:33.202169+00:00"
     },
     "github-issue-canon": {
-      "version": "0.1.0",
+      "version": "0.3.1",
       "source": "local",
-      "manifest_hash": "sha256:95f247cd88394abd94cc7c041732e7f8b20a6d3d4c266e8e767b0a257c104ffd",
+      "manifest_hash": "sha256:a785a64a1539fc51a1b0acf19d79fbbcecb822d6fc526970da235831eb365bb2",
       "enabled": true,
       "priority": 10,
       "registered_commands": {
-        "agy": [
-          "speckit.github-issue-canon.ensure",
-          "speckit.github-issue-canon.validate",
-          "speckit.github-issue-canon.normalize"
-        ],
         "codex": [
           "speckit.github-issue-canon.ensure",
           "speckit.github-issue-canon.validate",
@@ -62,7 +57,7 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-06-15T20:03:36.061621+00:00"
+      "installed_at": "2026-07-15T11:08:43.165816+00:00"
     }
   }
 }
