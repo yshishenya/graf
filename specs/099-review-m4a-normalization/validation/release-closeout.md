@@ -1,13 +1,14 @@
 # Release Closeout: Feature 099
 
-**Date**: 2026-07-15
+**Date**: 2026-07-16
 
 **Risk / validation lane**: release / deploy
 
 **Current verdict**: `v2026.07.15.2` published but not deployed; both rollout
 attempts ended in verified rollback; runtime-secret readability hotfix is
-validated and awaits integration approval; T111–T113 complete, T114–T116
-pending
+merged through PR #3474; release candidate `v2026.07.16.1` passed fresh CI,
+generated its dry-run plan, received explicit release/deploy approval and is
+under review in PR #3476; T111–T113 complete, T114–T116 pending
 
 ## Scope And Safety Boundary
 
@@ -295,3 +296,78 @@ pending
   GNU/Linux `getent` and `stat -c`. Supporting a macOS or minimal BusyBox deploy
   host would require a separate adaptation; the current production host meets
   the validated contract.
+
+## Runtime-Secret Hotfix Integration And Release Candidate
+
+- Approved and verified exact hotfix commit:
+  `801e4cde4d8903e50c7652b29a4a7db123b0b70b`.
+- Hotfix PR: [#3474](https://github.com/yshishenya/crisp/pull/3474), merged into
+  `master` at exact SHA
+  `f0fbd18bb7cf18410da16bda2f6ca7177b40ce98` on 2026-07-15 at 14:29:30 UTC.
+- Fresh fetch and ancestry checks confirm both the hotfix commit and merge SHA
+  are ancestors of `origin/master`. No duplicate commit, branch or PR was
+  created after the repeated integration approval.
+- Live tag and GitHub Release checks found no `v2026.07.16.*` release. The next
+  free Europe/Moscow CalVer is `v2026.07.16.1`.
+- The clean release worktree started from exact `origin/master` SHA
+  `e63cd9394ba449bd5e1424a3dfe90de9b8d98cb6`; unrelated detached and dirty
+  worktrees were not changed.
+- That master SHA also contains merged PR #3475 after the hotfix. Its path set
+  is limited to `.specify/` bootstrap/managed metadata and agent guidance; it
+  has no `apps/` or production-runtime `infra/` diff. The release changelog
+  names this tooling-only scope instead of silently omitting it.
+- Command: `./scripts/prepare-release.sh 2026.07.16.1`.
+- Result: success. The runtime-secret hotfix entries moved from `[Unreleased]`
+  into `[2026.07.16.1] - 2026-07-16`; no commit, tag or GitHub Release was
+  created by the preparation command.
+- Tag target will be the exact `master` merge SHA of the release-preparation
+  PR. Production deploy was blocked until explicit approval for this validated
+  candidate; that approval is now recorded below. PR merge, publication and
+  the approved execute path remain as separate gates.
+- Focused current-master deployment and Compose regression command:
+  `cd apps/server && uv run --extra dev pytest -q tests/integration/test_compose_hardening.py tests/integration/test_deployment_readiness_gates.py`.
+  Result: `51 passed, 1 warning` in `2.38s`; the warning is the pre-existing
+  Starlette `httpx` deprecation warning.
+- Fresh canonical candidate gate: `infra/scripts/ci-local.sh` returned
+  `ci_local_result=pass`; macOS build, `643/643` tests and contract validation
+  passed; server `1724 passed, 21 skipped` in `444.78s`; Ruff, Python compile,
+  production Compose rendering and the seven-file deployment evidence scan
+  passed.
+- The local PostgreSQL RLS boundary remained truthfully blocked with
+  `reason=postgres_test_database_required`; it does not claim live production
+  enforcement. The production migration, role identity and RLS receipts remain
+  required during T114/T115.
+- Independent read-only review found no Critical/High defect. It confirmed the
+  fail-closed private-group checks and preserved non-root/read-only/capability
+  boundaries. Production execute must still prove real filesystem access,
+  consumer group identity and absence of unexpected ACLs before closeout.
+- Deployment plan command:
+  `infra/scripts/cd-remote.sh --dry-run --branch codex/release-v202607161-099-runtime-secret-readability`.
+  Result: `deploy_result=dry_run`, `local_ci=required`; the plan includes clean
+  worktree/branch/SHA checks, backup and restore rehearsal, the new
+  `runtime_secret_group` gate, migration/role/image/worker gates, guarded
+  rollback, smoke, public health and required post-deploy receipts. No remote
+  or production state was changed by this command.
+- Fresh read-only production baseline before approval: runtime SHA
+  `e77f942bf178862905ee98b27488d87e469c3e26`, clean worktree, five of five
+  Compose services running with zero unhealthy, migration
+  `0021_calendar_auto_context_match`, and public live/ready HTTP `200`.
+  Production reports deploy GID `1001`, the required GNU host tools and a
+  private primary-group shape accepted by the new fail-closed gate. No runtime,
+  schema, secret file or remote Git state was changed by this inspection.
+
+## Explicit Release Approval And Preparation PR
+
+- On 2026-07-16 the user explicitly authorized the exact validated action:
+  `выпускай v2026.07.16.1 и выкатывай на production`.
+- Release-preparation commit:
+  `1c2627765589b72b0e9b52ecbcbd27fa428d7f61`; it contains only
+  `CHANGELOG.md`, `docs/current-product-status.md` and this append-only release
+  evidence. `git diff --cached --check` passed before commit.
+- The commit was pushed to
+  `codex/release-v202607161-099-runtime-secret-readability` and opened as
+  [PR #3476](https://github.com/yshishenya/crisp/pull/3476) against `master`.
+  The initial GitHub read-back reports exact head `1c262776...`, three changed
+  files and a clean merge state.
+- PR #3476 references T114–T116 without closing them. Those tasks remain open
+  until deployment, production user-path proof and cleanup receipts exist.
