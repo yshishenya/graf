@@ -7,8 +7,8 @@
 **Current verdict**: `v2026.07.15.2` published but not deployed; both rollout
 attempts ended in verified rollback; runtime-secret readability hotfix is
 merged through PR #3474; release candidate `v2026.07.16.1` passed fresh CI and
-dry-run and awaits explicit release/deploy approval; T111–T113 complete,
-T114–T116 pending
+dry-run, received explicit release/deploy approval and is under review in PR
+#3476; T111–T113 complete, T114–T116 pending
 
 ## Scope And Safety Boundary
 
@@ -349,3 +349,19 @@ T114–T116 pending
   Production reports deploy GID `1001`, the required GNU host tools and a
   private primary-group shape accepted by the new fail-closed gate. No runtime,
   schema, secret file or remote Git state was changed by this inspection.
+
+## Explicit Release Approval And Preparation PR
+
+- On 2026-07-16 the user explicitly authorized the exact validated action:
+  `выпускай v2026.07.16.1 и выкатывай на production`.
+- Release-preparation commit:
+  `1c2627765589b72b0e9b52ecbcbd27fa428d7f61`; it contains only
+  `CHANGELOG.md`, `docs/current-product-status.md` and this append-only release
+  evidence. `git diff --cached --check` passed before commit.
+- The commit was pushed to
+  `codex/release-v202607161-099-runtime-secret-readability` and opened as
+  [PR #3476](https://github.com/yshishenya/crisp/pull/3476) against `master`.
+  The initial GitHub read-back reports exact head `1c262776...`, three changed
+  files and a clean merge state.
+- PR #3476 references T114–T116 without closing them. Those tasks remain open
+  until deployment, production user-path proof and cleanup receipts exist.
