@@ -4,9 +4,10 @@
 
 **Risk / validation lane**: release / deploy
 
-**Current verdict**: `v2026.07.15.1` published but not deployed; first deploy
-safely rolled back before migration; image-resolution hotfix merged and
-`v2026.07.15.2` prepared; T111–T113 complete, T114–T116 pending
+**Current verdict**: `v2026.07.15.2` published but not deployed; both rollout
+attempts ended in verified rollback; runtime-secret readability hotfix is
+validated and awaits integration approval; T111–T113 complete, T114–T116
+pending
 
 ## Scope And Safety Boundary
 
@@ -199,3 +200,98 @@ safely rolled back before migration; image-resolution hotfix merged and
 - The tag target will be the exact merge SHA of the release-preparation PR.
   Deployment still requires a fresh dry-run followed by the already approved
   execute path and production receipts.
+
+## T113 — Published Hotfix Release `v2026.07.15.2`
+
+- Release-preparation PR: [#3473](https://github.com/yshishenya/crisp/pull/3473),
+  merged into `master` at exact SHA
+  `13fe923421df60da77a0b936a8b04cd63db6f891`.
+- Annotated tag object:
+  `cfb0762433d71e6e2802b26cac4a21d5d9912c16`; its peeled commit is exactly the
+  release-preparation merge SHA above.
+- Stable GitHub Release:
+  [v2026.07.15.2](https://github.com/yshishenya/crisp/releases/tag/v2026.07.15.2),
+  title `v2026.07.15.2 - безопасный первый запуск media-worker`.
+- The release is published but not production-deployed. The immutable
+  `v2026.07.15.1` and `v2026.07.15.2` tags were not moved after either failed
+  rollout.
+
+## T114 — Second Deploy Attempt And Verified Rollback
+
+- Deploy branch `codex/deploy-v202607152-099` and dry-run were anchored to exact
+  release SHA `13fe923421df60da77a0b936a8b04cd63db6f891`.
+- Approved `--execute` reran the complete local gate successfully: macOS
+  `643/643`; server `1716 passed, 21 skipped` in `593.62s`; Ruff, compile,
+  Compose rendering and deployment evidence passed.
+- Runtime database and media-storage secret provisioning passed. Backup
+  `20260715T113447Z` and restore rehearsal passed; images, media capability and
+  profile contract passed.
+- Migration `0022_playback_normalization` completed, but the one-shot runtime
+  database-role bootstrap could not read the first newly generated non-root
+  credential. It failed closed with the safe reason
+  `runtime database role secret is unreadable`; automatic dispatch had not
+  opened.
+- Staged rollback downgraded schema to `0021_calendar_auto_context_match`,
+  removed feature-specific storage/role state, restored production runtime SHA
+  `e77f942bf178862905ee98b27488d87e469c3e26`, and recorded
+  `feature_truth_count=0` plus `dispatch_stopped=true`.
+- Read-only recovery verification found a clean production worktree, API,
+  MinIO and PostgreSQL healthy, processing worker and Temporal running, and
+  public live/ready endpoints returning `200`. The failed bootstrap container
+  remained only as an exited diagnostic container; it did not hold work or
+  mutate feature truth.
+- This is safe rollback evidence, not deployment or feature closeout. No new
+  desktop application was installed because production still runs the previous
+  release.
+
+## Runtime-Secret Readability Root Cause And Hotfix Boundary
+
+- The deploy creates new runtime database and media-storage credentials as
+  owner-only regular files. Production Compose uses file-backed secrets, which
+  are bind-mounted with their host ownership.
+- The long-syntax `uid`, `gid` and `mode` declarations did not change those
+  mounts. This matches the
+  [Docker Compose services reference](https://docs.docker.com/reference/compose-file/services/):
+  remapping is not implemented for a `file` secret source.
+- A tempting environment-backed replacement was rejected after an executable
+  production probe: Compose `5.0.2` materialized it for a writable fixture but
+  rejected both read-only variants. Long-running media/maintenance services
+  therefore keep their required read-only root filesystems.
+- The bounded fix keeps file-backed secrets, changes only the five generated
+  credentials to owner/private-group mode `0640`, and gives that private group
+  only to the six non-root services that consume them. Before changing a file,
+  deploy requires the configured GID to equal the deploy user's private primary
+  group, resolve to exactly one primary account, and contain no foreign member.
+- The exact helper ran on production against a disposable non-sensitive file:
+  owner/group/mode/link facts were `1001:1001:640:1`; result `pass`; residue
+  `0`. A separate read-only, no-network, cap-dropped container probe confirmed
+  `uid=100`, primary `gid=101`, supplemental private group access and residue
+  `0`.
+- Negative executable regressions reject a system GID, a GID different from
+  the deploy user's primary group, a group with a foreign member, a group shared
+  by two primary accounts, and a non-numeric value.
+- Hotfix worktree:
+  `codex/hotfix-099-runtime-secret-readability`, base
+  `13fe923421df60da77a0b936a8b04cd63db6f891`. Feature-104 commit `b0b1a240` is
+  an ancestor of that base; unfinished feature-103 commit `ad5992ea` is not and
+  is not transferred. Detached/dirty worktrees and feature 100 remain
+  untouched.
+
+## Runtime-Secret Hotfix Validation
+
+- Focused deployment/Compose/product-boundary regression set: `58 passed`;
+  the only warning is the pre-existing Starlette `httpx` deprecation warning.
+- Shell and configuration gates: Ruff, `bash -n`, ShellCheck with the two
+  repository-known informational exclusions, `git diff --check`, and Compose
+  rendering for the `operations` profile all passed.
+- Fresh canonical `infra/scripts/ci-local.sh` on the final code diff passed:
+  macOS build and contract validation, `643/643` macOS tests, server
+  `1724 passed, 21 skipped` in `556.48s`, Ruff, Python compile, production
+  Compose rendering, and deployment-evidence scan.
+- Independent read-only review reported no P0-P3 findings. It confirmed the
+  private-group fail-closed checks, owner/hard-link validation before mutation,
+  preserved non-root/read-only/capability boundaries, and guarded rollback.
+- Remaining portability limitation: this production-targeted helper depends on
+  GNU/Linux `getent` and `stat -c`. Supporting a macOS or minimal BusyBox deploy
+  host would require a separate adaptation; the current production host meets
+  the validated contract.

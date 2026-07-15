@@ -197,6 +197,52 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
     assert any(secret["source"] == "twobrain_postgres_password" for secret in postgres["secrets"])
 
 
+def test_generated_runtime_secrets_use_private_deploy_group_mounts() -> None:
+    compose = _compose()
+    generated_secret_files = {
+        "twobrain_postgres_app_password": (
+            "${TWOBRAIN_POSTGRES_APP_PASSWORD_FILE:-./secrets/twobrain_postgres_app_password}"
+        ),
+        "twobrain_postgres_maintenance_password": (
+            "${TWOBRAIN_POSTGRES_MAINTENANCE_PASSWORD_FILE:-"
+            "./secrets/twobrain_postgres_maintenance_password}"
+        ),
+        "twobrain_postgres_media_password": (
+            "${TWOBRAIN_POSTGRES_MEDIA_PASSWORD_FILE:-./secrets/twobrain_postgres_media_password}"
+        ),
+        "twobrain_minio_media_access_key": (
+            "${TWOBRAIN_MINIO_MEDIA_ACCESS_KEY_FILE:-./secrets/twobrain_minio_media_access_key}"
+        ),
+        "twobrain_minio_media_secret_key": (
+            "${TWOBRAIN_MINIO_MEDIA_SECRET_KEY_FILE:-./secrets/twobrain_minio_media_secret_key}"
+        ),
+    }
+    private_group_services = {
+        "rec-api",
+        "rec-processing-worker",
+        "rec-media-worker",
+        "rec-db-runtime-bootstrap",
+        "rec-maintenance",
+        "rec-reprocess-maintenance",
+    }
+
+    for secret_name, file_source in generated_secret_files.items():
+        assert compose["secrets"][secret_name] == {"file": file_source}
+
+    for service_name in private_group_services:
+        assert compose["services"][service_name]["group_add"] == [
+            "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}"
+        ]
+    assert "group_add" not in compose["services"]["rec-minio-init"]
+
+    for service_name, service in compose["services"].items():
+        for secret in service.get("secrets", []):
+            if secret["source"] not in generated_secret_files:
+                continue
+            assert {"uid", "gid", "mode"}.isdisjoint(secret)
+            assert service_name == "rec-minio-init" or service_name in private_group_services
+
+
 def test_production_env_template_does_not_broadcast_service_specific_secret_files() -> None:
     active_keys = _active_env_template_keys()
 

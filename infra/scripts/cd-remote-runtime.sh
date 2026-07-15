@@ -15,6 +15,53 @@ set -a
 . ./.env
 set +a
 
+# File-backed Compose secrets retain host ownership. Keep generated files in
+# the deploy user's private primary group and grant only that numeric group to
+# the non-root services that consume them.
+runtime_secret_gid="${TWOBRAIN_RUNTIME_SECRET_GID:-1001}"
+
+validate_runtime_secret_group() {
+  local current_gid current_user group_record group_members primary_account_count
+  if [[ ! "$runtime_secret_gid" =~ ^[1-9][0-9]{3,9}$ ]] \
+    || (( runtime_secret_gid > 2147483647 )); then
+    return 1
+  fi
+  current_gid="$(id -g)"
+  current_user="$(id -un)"
+  if [[ "$current_gid" != "$runtime_secret_gid" ]]; then
+    return 1
+  fi
+  group_record="$(getent group "$runtime_secret_gid" 2>/dev/null || true)"
+  if [[ -z "$group_record" ]]; then
+    return 1
+  fi
+  group_members="${group_record##*:}"
+  if [[ -n "$group_members" && "$group_members" != "$current_user" ]]; then
+    return 1
+  fi
+  primary_account_count="$(
+    getent passwd | awk -F: -v gid="$runtime_secret_gid" \
+      '$4 == gid {count++} END {print count + 0}'
+  )"
+  [[ "$primary_account_count" == "1" ]]
+}
+
+secure_generated_secret() {
+  local target="$1" initial_facts expected_facts actual_facts
+  if [[ -L "$target" || ! -f "$target" || ! -s "$target" ]]; then
+    return 1
+  fi
+  initial_facts="$(stat -c '%u:%h' -- "$target" 2>/dev/null)" || return 1
+  if [[ "$initial_facts" != "$(id -u):1" ]]; then
+    return 1
+  fi
+  chgrp "$runtime_secret_gid" -- "$target" 2>/dev/null || return 1
+  chmod 640 -- "$target" 2>/dev/null || return 1
+  expected_facts="$(id -u):${runtime_secret_gid}:640:1"
+  actual_facts="$(stat -c '%u:%g:%a:%h' -- "$target" 2>/dev/null)" || return 1
+  [[ "$actual_facts" == "$expected_facts" ]]
+}
+
 ensure_generated_secret() {
   local target="$1"
   local byte_count="$2"
@@ -24,7 +71,11 @@ ensure_generated_secret() {
     exit 1
   fi
   if [[ -s "$target" ]]; then
-    chmod 600 "$target"
+    if ! secure_generated_secret "$target"; then
+      echo "deploy_result=blocked"
+      echo "reason=generated_secret_permissions_invalid"
+      exit 1
+    fi
     return
   fi
   local directory
@@ -43,6 +94,11 @@ ensure_generated_secret() {
   chmod 600 "$temporary"
   mv "$temporary" "$target"
   umask "$prior_umask"
+  if ! secure_generated_secret "$target"; then
+    echo "deploy_result=blocked"
+    echo "reason=generated_secret_permissions_invalid"
+    exit 1
+  fi
 }
 
 cleanup_runtime_files() {
@@ -260,6 +316,14 @@ trap rollback_on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+if ! validate_runtime_secret_group; then
+  echo "deploy_result=blocked"
+  echo "reason=runtime_secret_group_unsafe"
+  exit 1
+fi
+export TWOBRAIN_RUNTIME_SECRET_GID="$runtime_secret_gid"
+echo "runtime_secret_group_result=pass"
+
 ensure_generated_secret \
   "${TWOBRAIN_POSTGRES_APP_PASSWORD_FILE:-./secrets/twobrain_postgres_app_password}" 32
 ensure_generated_secret \
@@ -427,6 +491,7 @@ verify_media_worker_boundary() {
     || "$(docker inspect "$media_worker_container" --format '{{.State.Status}}')" != "running" \
     || "$(docker inspect "$media_worker_container" --format '{{.State.Health.Status}}')" != "healthy" \
     || "$(docker inspect "$media_worker_container" --format '{{.Config.User}}')" != "twobrain" \
+    || "$(docker inspect "$media_worker_container" --format '{{json .HostConfig.GroupAdd}}')" != "[\"$runtime_secret_gid\"]" \
     || "$(docker inspect "$media_worker_container" --format '{{.HostConfig.ReadonlyRootfs}}')" != "true" \
     || "$(docker inspect "$media_worker_container" --format '{{.HostConfig.NanoCpus}}')" != "1000000000" \
     || "$(docker inspect "$media_worker_container" --format '{{.HostConfig.Memory}}')" != "1073741824" \

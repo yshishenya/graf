@@ -77,9 +77,18 @@ metadata-only evidence остаются подробной историей ре
   `9081a942040d19819119feb6cf043c603514e401`. It passes independent review,
   its executable success/no-match/inspect-failure regression and fresh
   canonical CI: macOS `643/643`, server `1716 passed, 21 skipped`, Ruff,
-  compile, Compose rendering and deployment evidence. The next free CalVer
-  `v2026.07.15.2` is prepared from that merge; production deploy, production
-  E2E and the requested local app reinstall remain pending.
+  compile, Compose rendering and deployment evidence. Release
+  `v2026.07.15.2` is published from exact release-preparation merge SHA
+  `13fe923421df60da77a0b936a8b04cd63db6f891`. Its deploy passed backup,
+  restore rehearsal, image/profile gates and migration `0022`, then stopped
+  before dispatch because the non-root database-role bootstrap could not read
+  a newly generated file-backed credential. Staged rollback returned schema to
+  `0021`, restored production SHA
+  `e77f942bf178862905ee98b27488d87e469c3e26`, and confirmed zero feature truth.
+  A bounded private-group readability hotfix has passed focused tests, fresh
+  canonical CI and independent review from exact `.2` release SHA; it awaits
+  integration approval and is not merged or deployed yet. Production E2E and
+  the requested local app reinstall remain pending.
   The feature gives every new first-party recording and supported manual
   upload one server-prepared,
   fully decoded canonical `meeting-review.m4a`; an already canonical M4A is
@@ -145,13 +154,13 @@ metadata-only evidence остаются подробной историей ре
   no native macOS runtime-source diff, so the server behavior itself does not
   require an app rebuild. The user has separately requested a new
   release-version bundle and local reinstall after deployment. T001–T113 are
-  completed with implementation/release evidence; T114–T116 remain for
-  deployment, production proof and cleanup.
+  completed with implementation/release evidence; T114 remains open after two
+  verified rollbacks, and T115–T116 remain for production proof and cleanup.
   Feature 097 and its resumable standalone Codex Security scan remain deferred
   and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
   complete it. Release `v2026.07.14.7` remains owned by the separate «новый
-  главный экран GRAF» rollout. The published `v2026.07.15.1` was not deployed;
-  its tag was not moved. The prepared hotfix release is `v2026.07.15.2`.
+  главный экран GRAF» rollout. Published releases `v2026.07.15.1` and
+  `v2026.07.15.2` were not deployed; neither immutable tag was moved.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and
