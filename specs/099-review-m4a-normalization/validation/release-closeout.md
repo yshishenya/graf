@@ -321,8 +321,9 @@ under review in PR #3476; T111–T113 complete, T114–T116 pending
   into `[2026.07.16.1] - 2026-07-16`; no commit, tag or GitHub Release was
   created by the preparation command.
 - Tag target will be the exact `master` merge SHA of the release-preparation
-  PR. Production deploy remains blocked until explicit approval for this
-  validated candidate.
+  PR. Production deploy was blocked until explicit approval for this validated
+  candidate; that approval is now recorded below. PR merge, publication and
+  the approved execute path remain as separate gates.
 - Focused current-master deployment and Compose regression command:
   `cd apps/server && uv run --extra dev pytest -q tests/integration/test_compose_hardening.py tests/integration/test_deployment_readiness_gates.py`.
   Result: `51 passed, 1 warning` in `2.38s`; the warning is the pre-existing
