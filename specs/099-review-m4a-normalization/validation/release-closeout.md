@@ -4,9 +4,9 @@
 
 **Risk / validation lane**: release / deploy
 
-**Current verdict**: `v2026.07.15.1` published; first deploy safely rolled back
-before migration; image-resolution hotfix in validation; T111–T113 complete,
-T114–T116 pending
+**Current verdict**: `v2026.07.15.1` published but not deployed; first deploy
+safely rolled back before migration; image-resolution hotfix merged and
+`v2026.07.15.2` prepared; T111–T113 complete, T114–T116 pending
 
 ## Scope And Safety Boundary
 
@@ -168,6 +168,34 @@ T114–T116 pending
   seven-file deployment evidence scan passed. The expected local RLS boundary
   remained `postgres_test_database_required`; it did not claim live production
   database truth.
-- T114 remains open. The hotfix requires an approved integration PR, a new
-  free CalVer, a fresh deploy dry-run and a successful production execute
-  before migration, worker or conversion readiness is claimed.
+- Approved hotfix commit:
+  `1073abf81f0632b9f4a4f19dec00674edd8e48f6`. PR
+  [#3472](https://github.com/yshishenya/crisp/pull/3472) merged into `master`
+  at exact SHA `9081a942040d19819119feb6cf043c603514e401`; the commit is an
+  ancestor of the fetched `origin/master`.
+- T114 remains open. A new free CalVer, fresh deploy dry-run and successful
+  production execute are still required before migration, worker or
+  conversion readiness is claimed.
+
+## T114 — Hotfix Release Candidate
+
+- Live remote tag and GitHub Release checks found only stable
+  `v2026.07.15.1`; no `v2026.07.15.2` tag or Release existed. The next free
+  Europe/Moscow product CalVer is therefore `v2026.07.15.2`.
+- The clean release worktree started from exact hotfix merge SHA
+  `9081a942040d19819119feb6cf043c603514e401`; unrelated dirty worktrees were
+  not changed.
+- Command: `./scripts/prepare-release.sh 2026.07.15.2`.
+- Result: success. The verified hotfix entries moved from `[Unreleased]` into
+  `[2026.07.15.2] - 2026-07-15`; no tag or GitHub Release was created by the
+  preparation command.
+- Fresh canonical release-candidate gate:
+  `infra/scripts/ci-local.sh` returned `ci_local_result=pass`; macOS build,
+  `643/643` tests and contract validation passed; server
+  `1716 passed, 21 skipped` in `589.76s`; Ruff, Python compile, production
+  Compose rendering and the seven-file deployment evidence scan passed. The
+  expected local PostgreSQL boundary remained
+  `postgres_test_database_required` and did not claim live production truth.
+- The tag target will be the exact merge SHA of the release-preparation PR.
+  Deployment still requires a fresh dry-run followed by the already approved
+  execute path and production receipts.
