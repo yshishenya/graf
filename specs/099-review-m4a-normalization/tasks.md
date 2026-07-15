@@ -271,8 +271,8 @@
 
 **Purpose**: Complete the goal’s release obligation only after validated PR merge and fresh release/deploy approval.
 
-- [ ] T111 Merge the approved 099 PR and record exact PR/merge SHA plus task/issue linkage in `specs/099-review-m4a-normalization/validation/release-closeout.md`
-- [ ] T112 Choose the next free CalVer and run `./scripts/prepare-release.sh YYYY.MM.DD.N`, recording the generated diff in `specs/099-review-m4a-normalization/validation/release-closeout.md`
+- [X] T111 Merge the approved 099 PR and record exact PR/merge SHA plus task/issue linkage in `specs/099-review-m4a-normalization/validation/release-closeout.md`
+- [X] T112 Choose the next free CalVer and run `./scripts/prepare-release.sh YYYY.MM.DD.N`, recording the generated diff in `specs/099-review-m4a-normalization/validation/release-closeout.md`
 - [ ] T113 Publish the matching tag and Russian GitHub Release notes with changes, validation, migration/compatibility, known limitations, PR/issues and deferred 097 in `specs/099-review-m4a-normalization/validation/release-closeout.md`
 - [ ] T114 Run `infra/scripts/cd-remote.sh --dry-run`, obtain fresh explicit release/deploy approval, then run `infra/scripts/cd-remote.sh --execute` only when every gate passes and record backup/rollback/deployed SHA in `specs/099-review-m4a-normalization/validation/release-closeout.md`
 - [ ] T115 Prove production new first-party/manual automatic conversion, transient recovery, inventory-before-mutation backfill, Chrome/embedded Range playback, transcript independence, migration/worker health and residue-zero cleanup in `specs/099-review-m4a-normalization/validation/release-closeout.md`
