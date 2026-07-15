@@ -1,3 +1,7 @@
+import os
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from tests.fixtures.deployment import smoke_evidence_record
@@ -65,8 +69,6 @@ def test_normalization_deployment_ready_rejects_any_non_pass_gate(gate: str) -> 
 
 
 def test_remote_deploy_script_declares_and_executes_all_normalization_gates() -> None:
-    from pathlib import Path
-
     repo_root = Path(__file__).parents[4]
     wrapper = (repo_root / "infra/scripts/cd-remote.sh").read_text()
     runtime = (repo_root / "infra/scripts/cd-remote-runtime.sh").read_text()
@@ -93,6 +95,176 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
     assert "scheduler_function_access=allowed" in runtime
     assert "media_worker_network_boundary_failed" in runtime
     assert "no-new-privileges:true" in runtime
+    assert "HostConfig.GroupAdd" in runtime
+    dry_run_steps = next(line for line in wrapper.splitlines() if line.startswith("steps="))
+    assert "runtime_secret_group" in dry_run_steps
+
+
+def test_remote_deploy_secures_generated_secrets_for_private_runtime_group(
+    tmp_path: Path,
+) -> None:
+    runtime = (
+        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
+    ).read_text()
+    helper_start = runtime.index("validate_runtime_secret_group()")
+    helper_end = runtime.index("cleanup_runtime_files()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    secret_path = tmp_path / "generated-secret"
+    secret_path.write_text("non-sensitive-fixture\n", encoding="utf-8")
+    secret_path.chmod(0o600)
+
+    fixture_script = f"""
+set -euo pipefail
+runtime_secret_gid=1001
+{helper_source}
+id() {{
+  case "$1" in
+    -g) printf '1001\\n' ;;
+    -u) printf '1001\\n' ;;
+    -un) printf 'yan\\n' ;;
+    *) return 2 ;;
+  esac
+}}
+getent() {{
+  case "$1" in
+    group) printf 'yan:x:1001:\\n' ;;
+    passwd) printf 'yan:x:1001:1001::/home/yan:/bin/bash\\n' ;;
+    *) return 2 ;;
+  esac
+}}
+chgrp() {{ [[ "$1" == "1001" && "$2" == "--" && "$3" == {str(secret_path)!r} ]]; }}
+chmod() {{ [[ "$1" == "640" && "$2" == "--" && "$3" == {str(secret_path)!r} ]]; }}
+stat() {{
+  if [[ "$2" == "%u:%h" ]]; then
+    printf '1001:1\\n'
+  else
+    printf '1001:1001:640:1\\n'
+  fi
+}}
+validate_runtime_secret_group
+secure_generated_secret {str(secret_path)!r}
+printf 'runtime_secret_private_group_result=pass\\n'
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "runtime_secret_private_group_result=pass\n"
+    validate_call = runtime.index("if ! validate_runtime_secret_group; then")
+    ensure_call = runtime.index("ensure_generated_secret \\")
+    assert validate_call < ensure_call < runtime.index("backup_output=")
+    assert 'export TWOBRAIN_RUNTIME_SECRET_GID="$runtime_secret_gid"' in runtime
+
+
+@pytest.mark.parametrize(
+    ("runtime_gid", "current_gid", "group_record", "passwd_records"),
+    [
+        ("999", "999", "fixture:x:999:", "fixture:x:999:999::/:/bin/false\n"),
+        ("1001", "2000", "yan:x:1001:", "yan:x:1001:1001::/:/bin/false\n"),
+        ("1001", "1001", "yan:x:1001:other", "yan:x:1001:1001::/:/bin/false\n"),
+        (
+            "1001",
+            "1001",
+            "yan:x:1001:",
+            "yan:x:1001:1001::/:/bin/false\nother:x:1002:1001::/:/bin/false\n",
+        ),
+        ("not-a-gid", "1001", "yan:x:1001:", "yan:x:1001:1001::/:/bin/false\n"),
+    ],
+)
+def test_remote_deploy_rejects_non_private_runtime_secret_group(
+    runtime_gid: str,
+    current_gid: str,
+    group_record: str,
+    passwd_records: str,
+) -> None:
+    runtime = (
+        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
+    ).read_text()
+    helper_start = runtime.index("validate_runtime_secret_group()")
+    helper_end = runtime.index("secure_generated_secret()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    fixture_script = f"""
+set -euo pipefail
+runtime_secret_gid="$FIXTURE_RUNTIME_GID"
+{helper_source}
+id() {{
+  case "$1" in
+    -g) printf '%s\\n' "$FIXTURE_CURRENT_GID" ;;
+    -un) printf 'yan\\n' ;;
+    *) return 2 ;;
+  esac
+}}
+getent() {{
+  case "$1" in
+    group) printf '%s\\n' "$FIXTURE_GROUP_RECORD" ;;
+    passwd) printf '%s' "$FIXTURE_PASSWD_RECORDS" ;;
+    *) return 2 ;;
+  esac
+}}
+if validate_runtime_secret_group; then
+  printf 'runtime_secret_group_result=unsafe_accept\\n'
+  exit 1
+fi
+printf 'runtime_secret_group_result=blocked\\n'
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "FIXTURE_RUNTIME_GID": runtime_gid,
+            "FIXTURE_CURRENT_GID": current_gid,
+            "FIXTURE_GROUP_RECORD": group_record,
+            "FIXTURE_PASSWD_RECORDS": passwd_records,
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "runtime_secret_group_result=blocked\n"
+
+
+def test_remote_deploy_rejects_unsafe_secret_inode_before_permission_change(
+    tmp_path: Path,
+) -> None:
+    runtime = (
+        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
+    ).read_text()
+    helper_start = runtime.index("secure_generated_secret()")
+    helper_end = runtime.index("ensure_generated_secret()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    secret_path = tmp_path / "linked-secret"
+    secret_path.write_text("non-sensitive-fixture\n", encoding="utf-8")
+    fixture_script = f"""
+set -euo pipefail
+runtime_secret_gid=1001
+{helper_source}
+id() {{ printf '1001\\n'; }}
+stat() {{ printf '1001:2\\n'; }}
+chgrp() {{ printf 'unsafe_mutation=chgrp\\n'; }}
+chmod() {{ printf 'unsafe_mutation=chmod\\n'; }}
+if secure_generated_secret {str(secret_path)!r}; then
+  printf 'unsafe_inode_result=accepted\\n'
+  exit 1
+fi
+printf 'unsafe_inode_result=blocked\\n'
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "unsafe_inode_result=blocked\n"
 
 
 @pytest.mark.parametrize(
