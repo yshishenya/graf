@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-14
+Date: 2026-07-15
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -64,9 +64,12 @@ metadata-only evidence остаются подробной историей ре
   no `apps/macos` diff and requires no additional reinstall. Feature `097` and
   its resumable standalone Codex Security scan stay separately deferred by
   user instruction and are not counted as 098 acceptance evidence.
-- Feature `099-review-m4a-normalization` is implemented and focused-gate
-  validated on branch `codex/099-review-m4a-normalization`, but is not yet
-  committed, PR-reviewed, merged, released or deployed. It gives every new
+- Feature `099-review-m4a-normalization` is implemented, validated and merged
+  through [PR #3470](https://github.com/yshishenya/crisp/pull/3470) at exact
+  merge SHA `da8b22ea069202d9d9961f9a4f46dd4192821da3`. Release candidate
+  `v2026.07.15.1` is prepared on a dedicated clean release branch; its tag,
+  GitHub Release, production deploy and production E2E are still pending. The
+  feature gives every new
   first-party recording and supported manual upload one server-prepared,
   fully decoded canonical `meeting-review.m4a`; an already canonical M4A is
   reused byte-for-byte, a layout-only mismatch is remuxed without audio loss,
@@ -94,9 +97,8 @@ metadata-only evidence остаются подробной историей ре
   final `19/19` disposable PostgreSQL/RLS role-policy run, `139` unchanged
   macOS regressions, the 14-case container matrix, authorized working-copy
   conversion with original hashes preserved, and deletion/cleanup evidence.
-  The uncommitted working copy has been integrated onto current `master` at
-  `98d57f7431d302b0d2060fb020fc2b320f854753`, including the separate `.7`
-  interface release. Canonical repository CI passes on that integrated base:
+  The validated feature branch was integrated onto the `.7` interface base
+  before merge. Canonical repository CI passes on that integrated candidate:
   macOS `643/643`, server `1713 passed, 21 skipped`, Ruff, Python compile,
   Compose rendering and deployment-evidence scan, with
   `ci_local_result=pass` and exit code `0`; a fresh native disposable
@@ -128,14 +130,18 @@ metadata-only evidence остаются подробной историей ре
   delayed publication attempt.
   The initial control-channel-only top-level navigation block was recovered by
   the documented manual URL handoff; it is no longer a T100 limitation.
-  Feature 099 changes server behavior and macOS regression tests only;
-  it has no macOS app-source diff and does not require an app rebuild or
-  reinstall. All 116 task-backed GitHub issues remain open until PR evidence.
+  Feature 099 changes server behavior and macOS regression tests only; it has
+  no native macOS runtime-source diff, so the server behavior itself does not
+  require an app rebuild. The user has separately requested a new
+  release-version bundle and local reinstall after deployment. T001–T110 are
+  closed with implementation evidence; only T111–T116 remain open for release,
+  deployment, production proof and cleanup.
   Feature 097 and its resumable standalone Codex Security scan remain deferred
   and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
-  complete it. Release `v2026.07.14.7` is already owned by the separate
-  «новый главный экран GRAF» rollout and will not be reused for 099; the first
-  free higher CalVer must be re-checked only after the 099 merge.
+  complete it. Release `v2026.07.14.7` remains owned by the separate «новый
+  главный экран GRAF» rollout. A fresh live tag/Release check after the 099
+  merge found no `v2026.07.15.*`, so the prepared candidate is
+  `v2026.07.15.1`.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and
