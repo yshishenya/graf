@@ -72,11 +72,14 @@ metadata-only evidence остаются подробной историей ре
   stopped safely before migration/runtime mutation because the deploy script
   looked for the newly built media-worker image through an existing-container
   inventory. Staged rollback restored the prior production SHA and a clean
-  worktree. A minimal image-resolution hotfix now passes independent review,
+  worktree. The minimal image-resolution hotfix is merged through
+  [PR #3472](https://github.com/yshishenya/crisp/pull/3472) at exact merge SHA
+  `9081a942040d19819119feb6cf043c603514e401`. It passes independent review,
   its executable success/no-match/inspect-failure regression and fresh
   canonical CI: macOS `643/643`, server `1716 passed, 21 skipped`, Ruff,
-  compile, Compose rendering and deployment evidence. Production deploy,
-  production E2E and the requested local app reinstall remain pending.
+  compile, Compose rendering and deployment evidence. The next free CalVer
+  `v2026.07.15.2` is prepared from that merge; production deploy, production
+  E2E and the requested local app reinstall remain pending.
   The feature gives every new first-party recording and supported manual
   upload one server-prepared,
   fully decoded canonical `meeting-review.m4a`; an already canonical M4A is
@@ -148,8 +151,7 @@ metadata-only evidence остаются подробной историей ре
   and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
   complete it. Release `v2026.07.14.7` remains owned by the separate «новый
   главный экран GRAF» rollout. The published `v2026.07.15.1` was not deployed;
-  the hotfix requires a new free CalVer after merge rather than moving the
-  existing tag.
+  its tag was not moved. The prepared hotfix release is `v2026.07.15.2`.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and
