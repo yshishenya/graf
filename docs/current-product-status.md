@@ -89,8 +89,9 @@ metadata-only evidence остаются подробной историей ре
   canonical CI and independent review from exact `.2` release SHA, then merged
   through [PR #3474](https://github.com/yshishenya/crisp/pull/3474) at exact
   merge SHA `f0fbd18bb7cf18410da16bda2f6ca7177b40ce98`. Release candidate
-  `v2026.07.16.1` passed fresh canonical CI and deployment dry-run from current
-  `master`. The user explicitly approved this exact release/deploy candidate;
+  `v2026.07.16.1` passed fresh canonical CI, and its deployment dry-run plan
+  was generated successfully from current `master`. The user explicitly
+  approved this exact release/deploy candidate;
   release-preparation commit
   `1c2627765589b72b0e9b52ecbcbd27fa428d7f61` is under review in
   [PR #3476](https://github.com/yshishenya/crisp/pull/3476). It is not merged,
@@ -168,9 +169,9 @@ metadata-only evidence остаются подробной историей ре
   complete it. Release `v2026.07.14.7` remains owned by the separate «новый
   главный экран GRAF» rollout. Published releases `v2026.07.15.1` and
   `v2026.07.15.2` were not deployed; neither immutable tag was moved. The next
-  candidate is `v2026.07.16.1`; CI and dry-run pass and explicit release/deploy
-  approval is recorded, while PR merge, publication, deploy and production
-  proof remain pending.
+  candidate is `v2026.07.16.1`; CI passes, the dry-run plan was generated and
+  explicit release/deploy approval is recorded, while PR merge, publication,
+  deploy and production proof remain pending.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and

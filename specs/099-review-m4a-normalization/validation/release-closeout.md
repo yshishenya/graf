@@ -6,9 +6,9 @@
 
 **Current verdict**: `v2026.07.15.2` published but not deployed; both rollout
 attempts ended in verified rollback; runtime-secret readability hotfix is
-merged through PR #3474; release candidate `v2026.07.16.1` passed fresh CI and
-dry-run, received explicit release/deploy approval and is under review in PR
-#3476; T111–T113 complete, T114–T116 pending
+merged through PR #3474; release candidate `v2026.07.16.1` passed fresh CI,
+generated its dry-run plan, received explicit release/deploy approval and is
+under review in PR #3476; T111–T113 complete, T114–T116 pending
 
 ## Scope And Safety Boundary
 
@@ -312,6 +312,10 @@ dry-run, received explicit release/deploy approval and is under review in PR
 - The clean release worktree started from exact `origin/master` SHA
   `e63cd9394ba449bd5e1424a3dfe90de9b8d98cb6`; unrelated detached and dirty
   worktrees were not changed.
+- That master SHA also contains merged PR #3475 after the hotfix. Its path set
+  is limited to `.specify/` bootstrap/managed metadata and agent guidance; it
+  has no `apps/` or production-runtime `infra/` diff. The release changelog
+  names this tooling-only scope instead of silently omitting it.
 - Command: `./scripts/prepare-release.sh 2026.07.16.1`.
 - Result: success. The runtime-secret hotfix entries moved from `[Unreleased]`
   into `[2026.07.16.1] - 2026-07-16`; no commit, tag or GitHub Release was
@@ -319,9 +323,10 @@ dry-run, received explicit release/deploy approval and is under review in PR
 - Tag target will be the exact `master` merge SHA of the release-preparation
   PR. Production deploy remains blocked until explicit approval for this
   validated candidate.
-- Focused current-master deployment and Compose regression:
-  `51 passed, 1 warning` in `2.38s`; the warning is the pre-existing Starlette
-  `httpx` deprecation warning.
+- Focused current-master deployment and Compose regression command:
+  `cd apps/server && uv run --extra dev pytest -q tests/integration/test_compose_hardening.py tests/integration/test_deployment_readiness_gates.py`.
+  Result: `51 passed, 1 warning` in `2.38s`; the warning is the pre-existing
+  Starlette `httpx` deprecation warning.
 - Fresh canonical candidate gate: `infra/scripts/ci-local.sh` returned
   `ci_local_result=pass`; macOS build, `643/643` tests and contract validation
   passed; server `1724 passed, 21 skipped` in `444.78s`; Ruff, Python compile,
