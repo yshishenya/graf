@@ -95,6 +95,72 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
     assert "no-new-privileges:true" in runtime
 
 
+@pytest.mark.parametrize(
+    ("compose_images", "inspect_result", "expected_code"),
+    [
+        (
+            "twobrain-rec-rec-api\ntwobrain-rec-rec-media-worker\npostgres:17-alpine",
+            "pass",
+            0,
+        ),
+        ("twobrain-rec-rec-api\npostgres:17-alpine", "pass", 1),
+        ("twobrain-rec-rec-media-worker", "fail", 1),
+    ],
+)
+def test_remote_deploy_resolves_new_media_image_without_existing_container(
+    compose_images: str,
+    inspect_result: str,
+    expected_code: int,
+) -> None:
+    import os
+    import subprocess
+    from pathlib import Path
+
+    runtime = (
+        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
+    ).read_text()
+    gate_start = runtime.index('media_image_ref="$(')
+    gate_end = runtime.index("expected_schema_head=", gate_start)
+    image_gate = runtime[gate_start:gate_end]
+    fixture_script = f"""
+set -euo pipefail
+docker() {{
+  if [[ "$1" == "compose" && "$2" == "config" && "$3" == "--images" ]]; then
+    printf '%s\\n' "$COMPOSE_IMAGES"
+    return 0
+  fi
+  if [[ "$1" == "image" && "$2" == "inspect" ]]; then
+    [[ "$3" == "twobrain-rec-rec-media-worker" ]] || return 8
+    [[ "$INSPECT_RESULT" == "pass" ]] || return 1
+    printf 'sha256:fixture\\n'
+    return 0
+  fi
+  return 9
+}}
+compose=(docker compose)
+{image_gate}
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "COMPOSE_IMAGES": compose_images,
+            "INSPECT_RESULT": inspect_result,
+        },
+    )
+
+    assert '"${compose[@]}" config --images' in runtime
+    assert 'docker image inspect "$media_image_ref"' in runtime
+    assert '"${compose[@]}" images -q rec-media-worker' not in runtime
+    assert result.returncode == expected_code
+    if expected_code == 1:
+        assert "reason=media_worker_image_missing" in result.stdout
+
+
 def test_remote_deploy_rollback_never_deletes_099_truth_to_reach_old_code() -> None:
     from pathlib import Path
 

@@ -4,7 +4,9 @@
 
 **Risk / validation lane**: release / deploy
 
-**Current verdict**: release candidate prepared; T111–T112 complete, T113–T116 pending
+**Current verdict**: `v2026.07.15.1` published; first deploy safely rolled back
+before migration; image-resolution hotfix in validation; T111–T113 complete,
+T114–T116 pending
 
 ## Scope And Safety Boundary
 
@@ -99,7 +101,6 @@
 
 ## Pending Receipts
 
-- T113: annotated tag and Russian GitHub Release on the exact release SHA.
 - T114: dry-run, approved deploy, backup/restore, migration, runtime SHA,
   health and smoke evidence.
 - T115: production first-party/manual normalization, automatic recovery,
@@ -107,3 +108,66 @@
   transcript independence, worker/migration health and residue-zero cleanup.
 - T116: final status update, task/issue closure comments and safe
   branch/worktree/test-artifact cleanup.
+
+## T113 — Published Release
+
+- Release-preparation PR: [#3471](https://github.com/yshishenya/crisp/pull/3471),
+  merged into `master` at exact SHA
+  `619c6ce3600d2d56e3461b69d523c4240ec8767a`.
+- Annotated tag: `v2026.07.15.1`; the peeled tag commit exactly matches the
+  release-preparation merge SHA above.
+- Stable GitHub Release:
+  [v2026.07.15.1](https://github.com/yshishenya/crisp/releases/tag/v2026.07.15.1).
+  Its Russian notes contain changes, validation, migration and compatibility
+  impact, limitations, rollback guidance, PR/issues and the deferred feature
+  097 boundary.
+
+## T114 — First Deploy Attempt And Safe Recovery
+
+- `infra/scripts/cd-remote.sh --dry-run --branch
+  codex/deploy-v202607151-099` passed for exact release SHA
+  `619c6ce3600d2d56e3461b69d523c4240ec8767a`.
+- The explicitly approved `--execute` reran the canonical local gate
+  successfully: macOS `643/643`; server `1713 passed, 21 skipped`; Ruff,
+  compile, Compose rendering and deployment evidence passed.
+- Runtime secret provisioning, media-storage provisioning, database backup
+  `20260715T004551Z` and restore rehearsal passed. The media-worker image was
+  built, but the deploy gate then stopped with
+  `reason=media_worker_image_missing` before migration or runtime mutation.
+- The staged rollback restored the previous production source SHA
+  `e77f942bf178862905ee98b27488d87e469c3e26`; a read-only follow-up confirmed
+  that SHA, a clean production worktree and the successfully built worker
+  image.
+- Root cause: `docker compose images -q rec-media-worker` lists images attached
+  to existing containers, so a first rollout returns no image ID even after a
+  successful build. The hotfix resolves the generated image reference through
+  `docker compose config --images` and validates the built ID with
+  `docker image inspect`, without creating or starting a probe container.
+- This receipt proves safe recovery only. T114 remains open until a new
+  hotfix release passes the full deployment, migration, health and smoke gates.
+
+## Image-Resolution Hotfix Validation
+
+- The hotfix changes only the post-build image lookup: it reads the generated
+  `rec-media-worker` reference from `docker compose config --images`, resolves
+  the built image ID with `docker image inspect`, and retains the existing
+  fail-closed `media_worker_image_missing` gate.
+- The regression executes the actual extracted deployment block under
+  `set -euo pipefail`. It passes when a matching image and image ID exist and
+  blocks with the exact reason when the Compose list has no match or image
+  inspection fails. Focused result: `21 passed`; Ruff, `bash -n`, ShellCheck
+  with the existing sourced-env exception and `git diff --check` passed.
+- The real rendered Compose image list resolves exactly
+  `twobrain-rec-rec-media-worker` in the validation worktree.
+- Two read-only review passes by an independent reviewer found no remaining
+  findings or blockers; the second pass covered the executable three-scenario
+  regression and the no-early-SIGPIPE AWK form.
+- Fresh canonical `infra/scripts/ci-local.sh` result after the final
+  code-affecting edit: `ci_local_result=pass`; macOS `643/643`; server
+  `1716 passed, 21 skipped`; Ruff, Python compile, Compose rendering and the
+  seven-file deployment evidence scan passed. The expected local RLS boundary
+  remained `postgres_test_database_required`; it did not claim live production
+  database truth.
+- T114 remains open. The hotfix requires an approved integration PR, a new
+  free CalVer, a fresh deploy dry-run and a successful production execute
+  before migration, worker or conversion readiness is claimed.

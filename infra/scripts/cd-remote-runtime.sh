@@ -308,7 +308,14 @@ fi
   rec-processing-worker \
   rec-media-worker
 
-media_image="$("${compose[@]}" images -q rec-media-worker | head -n 1)"
+media_image_ref="$(
+  "${compose[@]}" config --images |
+    awk '$0 ~ /(^|[-_])rec-media-worker(:[^[:space:]]+)?$/ {image=$0} END {if (image != "") print image}'
+)"
+media_image=""
+if [[ -n "$media_image_ref" ]]; then
+  media_image="$(docker image inspect "$media_image_ref" --format '{{.Id}}' 2>/dev/null || true)"
+fi
 if [[ -z "$media_image" ]]; then
   echo "deploy_result=blocked"
   echo "reason=media_worker_image_missing"
