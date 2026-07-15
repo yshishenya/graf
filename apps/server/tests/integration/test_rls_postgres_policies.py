@@ -24,7 +24,12 @@ from twobrain_rec_server.db.tenant_context import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-MEDIA_READ_ONLY_TABLES = ("meetings", "media_revisions", "workspaces")
+MEDIA_READ_ONLY_TABLES = (
+    "alembic_version",
+    "meetings",
+    "media_revisions",
+    "workspaces",
+)
 MEDIA_READ_WRITE_TABLES = (
     "playback_backfill_runs",
     "playback_normalization_attempts",

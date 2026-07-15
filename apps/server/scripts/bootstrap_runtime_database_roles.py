@@ -14,6 +14,7 @@ MEDIA_ROLE = "twobrain_rec_media"
 DATABASE_NAME = "twobrain_rec"
 DATABASE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 MEDIA_READ_ONLY_TABLES = (
+    "alembic_version",
     "meetings",
     "media_revisions",
     "workspaces",

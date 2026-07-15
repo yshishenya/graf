@@ -49,6 +49,7 @@ from twobrain_rec_server.normalization.service import (
     inventory_playback_backfill_page,
     run_normalization_job,
 )
+from twobrain_rec_server.normalization.worker import require_schema_head
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MIGRATION = (
@@ -582,6 +583,16 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
         await bootstrap._bootstrap()
         await bootstrap._bootstrap()
 
+        media_runtime_url = owner_url.set(
+            username="twobrain_rec_media",
+            password=media_password,
+        ).render_as_string(hide_password=False)
+        media_engine = create_async_engine(media_runtime_url, pool_pre_ping=True)
+        try:
+            await require_schema_head(media_engine)
+        finally:
+            await media_engine.dispose()
+
         identity = _load_runtime_identity_verify()
         for expected_role, password, expected_scheduler_access, expected_maintenance_access in (
             ("twobrain_rec_app", app_password, False, False),
@@ -704,6 +715,7 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
             ),
             *((table_name, "INSERT") for table_name in bootstrap.MEDIA_INSERT_ONLY_TABLES),
         }
+        assert ("alembic_version", "SELECT") in media_table_grants
         assert media_table_grants == expected_media_table_grants
         assert media_can_update_meeting_timestamp is True
         assert media_can_update_meeting_status is False
