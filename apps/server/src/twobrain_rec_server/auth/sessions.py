@@ -4,7 +4,7 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,6 +73,7 @@ def create_callback_state(
         hash_token(browser_state_nonce) if browser_state_nonce is not None else state_nonce
     )
     created = AuthCallbackState(
+        id=uuid4(),
         provider=provider,
         state_nonce=state_nonce,
         workspace_id=workspace_id,

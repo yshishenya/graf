@@ -8,15 +8,14 @@ from uuid import UUID, uuid4
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-
-from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
-from tests.fakes.auth_providers import fake_provider_map
 from twobrain_rec_server.api.auth import router as auth_api_router
 from twobrain_rec_server.auth.audit import write_auth_audit_event
+from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
+    AuthCallbackState,
     AuthSessionDeviceBinding,
     ExternalIdentity,
     Organization,
@@ -26,7 +25,11 @@ from twobrain_rec_server.db.models import (
     WorkspaceAuthPolicy,
     WorkspaceConsentCopy,
     WorkspaceMembership,
+    WorkspaceProviderLinkState,
 )
+
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_providers import fake_provider_map
 
 
 class FakeProviderHttpClient:
@@ -108,6 +111,7 @@ def test_authenticated_auth_mutation_routes_require_web_csrf_dependency() -> Non
     expected_paths = {
         "/api/v1/auth/policy",
         "/api/v1/auth/link",
+        "/api/v1/auth/providers/{provider}/link/start",
         "/api/v1/auth/devices/register",
         "/api/v1/auth/devices/{device_id}/revoke",
     }
@@ -363,10 +367,7 @@ def test_auth_callback_returns_session_and_me_shapes_primary_link(monkeypatch, c
 
     reused = client.get(
         "/api/v1/auth/callback/yandex",
-        params={
-            "state": state_nonce,
-            "code": "TEST-YA-USER",
-        },
+        params={"state": state_nonce, "code": "TEST-YA-USER"},
     )
     assert reused.status_code == 400
     assert reused.json()["code"] == "callback_state_reused"
@@ -378,6 +379,53 @@ def test_auth_callback_returns_session_and_me_shapes_primary_link(monkeypatch, c
     assert failures[0].metadata_json["error_code"] == "callback_state_reused"
     assert "state_nonce" not in failures[0].metadata_json
     assert len(failures[0].metadata_json["state_nonce_sha256"]) == 64
+
+
+def test_provider_link_start_requires_session_csrf_and_creates_bound_state(monkeypatch, client: TestClient) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    callback = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    assert callback.status_code == 200
+    session_id = UUID(callback.json()["active_session_id"])
+    user_id = UUID(callback.json()["user_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+
+    response = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {callback.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "vk"
+    assert payload["authorization_url"]
+    assert "state_nonce" not in payload
+
+    async def load() -> tuple[WorkspaceProviderLinkState, AuthCallbackState]:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, UUID(payload["link_state_id"]))
+            assert link is not None
+            state = await db.get(AuthCallbackState, link.callback_state_id)
+            assert state is not None
+            return link, state
+
+    import asyncio
+
+    link, state = asyncio.run(load())
+    assert link.initiating_auth_session_id == session_id
+    assert link.initiating_user_id == user_id
+    assert link.candidate_provider == "vk"
+    assert link.candidate_identity_subject is None
+    assert state.result == "pending"
 
 
 def test_owner_session_cookie_can_create_desktop_meeting_without_legacy_device_headers(
