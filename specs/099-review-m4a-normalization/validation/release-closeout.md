@@ -611,3 +611,41 @@ cleanup. The standalone feature 097 security scan remains deferred.
   host-file permission gate; no secret value or path is recorded here.
 - This completes T114. It does not substitute for T115 production user-path
   evidence, and it does not complete deferred feature 097.
+
+## T115 — Post-Deploy Production Evidence (Partial)
+
+- An isolated internal-smoke E2E exited successfully after creating only two
+  short synthetic inputs: the ordinary first-party recording flow and the
+  `manual_upload` flow. It waited for each meeting to report available,
+  playable canonical playback, asserted the expected source classification,
+  and requested byte range `0-63` from each playback endpoint. Both responses
+  were partial `audio/mp4` responses with content-range headers. The test
+  recorded playback and transcript state as separate API facts; it did not
+  record any media or transcript content.
+- The same E2E removed its temporary AuthSession, database records and storage
+  objects. Its cleanup and residue checks passed. No user-owned record or
+  audio was read, modified or retained.
+- A controlled transient-worker proof first confirmed zero active non-smoke
+  normalization jobs. It stopped only the media worker, accepted one short
+  synthetic first-party recording, started the same worker again, and then
+  waited without a repair/reprocess action until canonical playback and a
+  byte-range `audio/mp4` response became available. The test and its cleanup
+  completed successfully. This is production evidence for automatic recovery
+  after a bounded worker interruption, not a change to the user workflow.
+- Read-only production backfill evidence reports all current backfill runs in
+  `complete` state. A guard query found no legacy normalization job attached to
+  an incomplete or non-dispatchable inventory run. This confirms the deployed
+  inventory-before-mutation gate for the current runtime state.
+- Tagged runtime SHA, migration/worker readiness and public health remain
+  passing as recorded in T114.
+- **Remaining blocker:** Chrome browser/embedded-cabinet visual and interaction
+  proof cannot be collected in this Codex session. Chrome is installed and
+  running; the ChatGPT Chrome Extension and native-host manifest are present
+  and enabled, but the extension connection remains unavailable after opening
+  a new Chrome window and retrying once. Per the explicit Chrome workflow, no
+  other browser or automation surface was substituted and the extension was
+  not repaired automatically. Reinstall the ChatGPT Chrome Extension from the
+  plugin UI, then reconnect Chrome to continue the final browser/embedded
+  receipt.
+- T115 and T116 remain open. The deferred feature 097 security scan remains
+  untouched.
