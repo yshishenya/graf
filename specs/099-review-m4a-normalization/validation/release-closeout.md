@@ -542,3 +542,31 @@ complete, T114–T116 pending
 - Integration approval, PR checks and the separate release/deploy gate remain
   required. No commit, push, PR, merge or production mutation has been made by
   this hotfix worktree yet.
+
+## `v2026.07.16.4` Release Candidate
+
+- Approved hotfix commit `480c771434a778a415eaef80bebcad25766d8272` was merged
+  through [PR #3526](https://github.com/yshishenya/crisp/pull/3526) into
+  `master` at exact SHA `4e462893f1c546b6bb17d5e274d6f29e60b0c770`.
+  A fresh fetch confirmed the hotfix commit is an ancestor of that fetched
+  `origin/master`.
+- Local and remote tag checks found no `v2026.07.16.4`; the new clean release
+  worktree branch `codex/release-v202607164-099-rls-temporal` starts from exact
+  merged SHA `4e462893...`. Unrelated dirty worktrees remain untouched.
+- Command: `./scripts/prepare-release.sh 2026.07.16.4`. Result: pass; the
+  verified hotfix entries moved from `[Unreleased]` into the dated CalVer
+  section. No commit, tag, GitHub Release, remote runtime or production state
+  was changed.
+- The exact hotfix code gate immediately before integration passed: macOS
+  `643/643`; server `1741 passed, 25 skipped`; Ruff, Python compile, Compose
+  rendering and deployment-evidence scan passed. The release-prep diff is
+  documentation-only.
+- Command: `infra/scripts/cd-remote.sh --dry-run --branch
+  codex/release-v202607164-099-rls-temporal`. Result: `deploy_result=dry_run`,
+  `local_ci=required`; it enumerates clean-worktree/SHA sync, backup and
+  restore, secret permissions, RLS, Temporal/processing worker readiness,
+  production smoke, dispatch, guarded rollback and post-deploy proof gates.
+  The dry-run changed no remote or production state.
+- A separate fresh release/deploy approval remains mandatory before committing
+  the release-prep branch, merging it, creating immutable `v2026.07.16.4` and
+  running `--execute`.
