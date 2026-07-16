@@ -7,7 +7,7 @@
     <section class="settings-section cabinet-card" aria-labelledby="provider-link-status-title">
       <div>
         <div class="section-title" id="provider-link-status-title">{{ surface.provider_label }}</div>
-        <p class="muted" role="status">{{ surface.status_label }}</p>
+        <p class="muted" role="status" aria-live="polite">{{ surface.status_label }}</p>
         {% if surface.can_confirm %}
         <p class="muted">Подтвердите только если хотите добавить этот способ входа к текущему аккаунту.</p>
         {% endif %}

@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from fastapi.routing import APIRoute
+
 from twobrain_rec_server.cabinet.rendering import (
     render_provider_link_settings_page,
     render_settings_page,
@@ -8,6 +10,7 @@ from twobrain_rec_server.cabinet.view_models import (
     ProviderLinkSettingsSurface,
     ProviderLinkStartOption,
 )
+from twobrain_rec_server.cabinet.web_routes.provider_links import router as provider_link_router
 
 
 def test_settings_provider_link_actions_share_browser_and_embedded_contract() -> None:
@@ -52,3 +55,27 @@ def test_pending_provider_link_confirmation_renders_safe_copy_only() -> None:
     assert "email" not in page.lower()
     assert "phone" not in page.lower()
     assert "subject" not in page.lower()
+    assert 'id="cabinet-main" class="cabinet-main" tabindex="-1"' in page
+    assert 'role="status" aria-live="polite"' in page
+    assert '<button class="button primary" type="submit">Подтвердить подключение</button>' in page
+
+
+def test_provider_link_settings_mutations_require_csrf_on_both_surfaces() -> None:
+    csrf_routes = {
+        "/settings/provider-links/{provider}/start",
+        "/desktop/settings/provider-links/{provider}/start",
+        "/settings/provider-links/{link_state_id}/confirm",
+        "/desktop/settings/provider-links/{link_state_id}/confirm",
+    }
+    dependencies = {
+        route.path: {
+            getattr(dependency.call, "__name__", "")
+            for dependency in route.dependant.dependencies
+            if dependency.call is not None
+        }
+        for route in provider_link_router.routes
+        if isinstance(route, APIRoute) and route.path in csrf_routes
+    }
+
+    assert set(dependencies) == csrf_routes
+    assert all("require_web_csrf" in route_dependencies for route_dependencies in dependencies.values())

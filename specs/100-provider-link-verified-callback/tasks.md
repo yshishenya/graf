@@ -144,7 +144,7 @@
 
 ### Tests for User Story 6
 
-- [ ] T031 [P] [US6] Add Settings browser/embedded parity, CSRF-negative, keyboard/focus and status accessibility coverage in `apps/server/tests/contract/test_provider_link_settings_contract.py` and `apps/server/tests/integration/test_provider_link_settings_flow.py`.
+- [X] T031 [P] [US6] Add Settings browser/embedded parity, CSRF-negative, keyboard/focus and status accessibility coverage in `apps/server/tests/contract/test_provider_link_settings_contract.py` and `apps/server/tests/integration/test_provider_link_settings_flow.py`.
 - [X] T032 [P] [US6] Add all lifecycle audit-redaction contract coverage in `apps/server/tests/contract/test_provider_link_contracts.py`.
 
 ### Implementation for User Story 6

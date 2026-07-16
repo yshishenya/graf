@@ -72,7 +72,7 @@ def test_provider_link_migration_binds_callback_lookup_to_exact_nonce() -> None:
     assert PROVIDER_LINK_MIGRATION.exists()
     migration_text = PROVIDER_LINK_MIGRATION.read_text(encoding="utf-8")
 
-    assert 'revision: str = "0024_provider_link_verified_callback"' in migration_text
+    assert 'revision: str = "0024_provider_link_callback"' in migration_text
     assert 'down_revision: str | None = "0023_production_smoke_setup"' in migration_text
     assert "callback_state_id" in migration_text
     assert "initiating_auth_session_id" in migration_text
