@@ -430,6 +430,55 @@ def test_provider_link_start_requires_session_csrf_and_creates_bound_state(monke
     assert state.result == "pending"
 
 
+def test_provider_link_start_rechecks_disabled_provider_without_creating_intent(
+    monkeypatch, client: TestClient
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    assert login.status_code == 200
+    session_id = UUID(login.json()["active_session_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+
+    async def disable_vk_and_count_intents() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            policy = await db.scalar(
+                select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID)
+            )
+            if policy is None:
+                policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+                db.add(policy)
+            policy.allow_vk = False
+            await db.commit()
+            return len(list(await db.scalars(select(WorkspaceProviderLinkState))))
+
+    import asyncio
+
+    assert asyncio.run(disable_vk_and_count_intents()) == 0
+    response = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "provider_disabled"
+
+    async def count_intents() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            return len(list(await db.scalars(select(WorkspaceProviderLinkState))))
+
+    assert asyncio.run(count_intents()) == 0
+
+
 def test_provider_link_callback_stores_candidate_without_changing_login_session(
     monkeypatch, client: TestClient
 ) -> None:
