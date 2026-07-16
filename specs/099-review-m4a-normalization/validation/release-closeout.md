@@ -430,6 +430,12 @@ under review in PR #3476; T111–T113 complete, T114–T116 pending
 - Result: success. Concrete smoke-RLS hotfix entries moved from `[Unreleased]`
   into `[2026.07.16.3] - 2026-07-16`. The command created no commit, tag or
   GitHub Release.
-- T114–T116 remain open. The release PR, immutable tag/Release, deploy dry-run,
-  production execute, E2E and cleanup receipts are still required before
-  feature closeout.
+- Deployment plan command:
+  `infra/scripts/cd-remote.sh --dry-run --branch codex/release-v202607163-099-production-smoke`.
+  Result: `deploy_result=dry_run`, `local_ci=required`, remote path
+  `/opt/projects/2brain-rec`. The generated order keeps production smoke before
+  `automatic_dispatch_open` and retains branch/SHA sync, backup, restore,
+  secret, migration, role, image, worker, rollback, health and post-deploy
+  evidence gates. Dry-run changed no production state.
+- T114–T116 remain open. The release PR, immutable tag/Release, production
+  execute, E2E and cleanup receipts are still required before feature closeout.
