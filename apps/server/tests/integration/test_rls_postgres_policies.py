@@ -15,6 +15,13 @@ from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+
+import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
+from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
+from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
+from scripts.issue_smoke_auth_session import issue_smoke_auth_session
+from scripts.seed_smoke_identity import seed_identity
+from tests.fixtures.postgres_rls import rls_test_database_url
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     IngestAuditEvent,
@@ -34,13 +41,6 @@ from twobrain_rec_server.db.tenant_context import (
     apply_tenant_context_to_connection,
 )
 from twobrain_rec_server.deployment import build_smoke_identity_seed
-
-import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
-from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
-from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
-from scripts.issue_smoke_auth_session import issue_smoke_auth_session
-from scripts.seed_smoke_identity import seed_identity
-from tests.fixtures.postgres_rls import rls_test_database_url
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MEDIA_READ_ONLY_TABLES = (
