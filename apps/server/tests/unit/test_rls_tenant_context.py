@@ -94,6 +94,12 @@ def test_maintenance_context_rejects_unknown_operation() -> None:
 def test_allowed_maintenance_operations_match_contract() -> None:
     assert "auth_session_lookup" not in RLS_ALLOWED_MAINTENANCE_OPERATIONS
     assert MaintenanceTenantContext(
+        operation_name="production_smoke_setup",
+        actor_id="seed_smoke_identity.py",
+        reason_category="smoke_setup",
+        feature_area="deployment",
+    ).operation_name == "production_smoke_setup"
+    assert MaintenanceTenantContext(
         operation_name="operator_diagnostics",
         actor_id="operator",
         reason_category="diagnostics",

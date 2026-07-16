@@ -41,11 +41,7 @@ if [[ -f .env ]]; then
   set +a
 fi
 
-docker compose -f infra/docker-compose.yml exec -T rec-api \
-  python scripts/create_test_artifact.py \
-  --out "${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/tmp/twobrain-rec-smoke-artifact}" \
-  --duration-seconds "${TWOBRAIN_SMOKE_DURATION_SECONDS:-3}" >/tmp/twobrain-rec-smoke-artifact.json
-
+SMOKE_SEED_JSON="/tmp/twobrain-rec-smoke-seed.json"
 SMOKE_AUTH_JSON="/tmp/twobrain-rec-smoke-auth.json"
 SMOKE_AUTH_CLEANUP_JSON="/tmp/twobrain-rec-smoke-auth-cleanup.json"
 SMOKE_ARTIFACT_CLEANUP_JSON="/tmp/twobrain-rec-smoke-cleanup.json"
@@ -86,7 +82,13 @@ cleanup_smoke_artifacts() {
   if [[ "$mode" == "best_effort" && "$SMOKE_ARTIFACTS_CLEANED" == "1" ]]; then
     return 0
   fi
-  local cleanup_args=(python scripts/cleanup_smoke_artifacts.py --run-id "$RUN_ID" --execute)
+  local cleanup_args=(
+    python scripts/cleanup_smoke_artifacts.py
+    --run-id "$RUN_ID"
+    --execute
+    --residue-owner deployment-operator
+    --residue-follow-up-reason automatic-smoke-cleanup-incomplete
+  )
   if [[ -f /tmp/twobrain-rec-smoke-upload.json ]]; then
     local meeting_id
     local session_id
@@ -134,10 +136,25 @@ PY
 
 trap cleanup_on_exit EXIT
 
+infra/scripts/validate-production-config.sh
+infra/scripts/verify-rec-migration.sh --execute
+
+docker compose -f infra/docker-compose.yml exec -T rec-api \
+  python scripts/create_test_artifact.py \
+  --out "${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/tmp/twobrain-rec-smoke-artifact}" \
+  --duration-seconds "${TWOBRAIN_SMOKE_DURATION_SECONDS:-3}" >/tmp/twobrain-rec-smoke-artifact.json
+
+docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+  python scripts/seed_smoke_identity.py \
+  --run-id "$RUN_ID" \
+  --execute >"$SMOKE_SEED_JSON"
+require_json_status "$SMOKE_SEED_JSON" seed_result pass
+
 docker compose -f infra/docker-compose.yml exec -T rec-api \
   python scripts/issue_smoke_auth_session.py \
   --run-id "$RUN_ID" \
   --execute \
+  --ttl-seconds 600 \
   --token-file "$SMOKE_TOKEN_FILE" >"$SMOKE_AUTH_JSON"
 
 SMOKE_TOKEN_FILE="$(
@@ -147,8 +164,6 @@ SMOKE_AUTH_SESSION_ID="$(
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("auth_session_id") or "")' "$SMOKE_AUTH_JSON"
 )"
 
-infra/scripts/validate-production-config.sh
-infra/scripts/verify-rec-migration.sh --execute
 docker compose -f infra/docker-compose.yml exec -T rec-api \
   python scripts/upload_test_artifact.py \
   --api "${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}" \

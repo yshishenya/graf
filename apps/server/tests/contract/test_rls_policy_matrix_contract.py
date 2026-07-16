@@ -55,6 +55,10 @@ PLAYBACK_NORMALIZATION_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0022_playback_normalization.py"
 )
+PRODUCTION_SMOKE_SETUP_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
+)
 CONTRACT = REPO_ROOT / "specs/031-rls-hardening/contracts/rls-policy-matrix.md"
 
 
@@ -86,8 +90,10 @@ def test_rls_policy_contract_names_every_covered_table() -> None:
 
 
 def test_migration_and_contract_share_maintenance_operations() -> None:
-    migration_text = MIGRATION.read_text(encoding="utf-8") + PLAYBACK_NORMALIZATION_MIGRATION.read_text(
-        encoding="utf-8"
+    migration_text = (
+        MIGRATION.read_text(encoding="utf-8")
+        + PLAYBACK_NORMALIZATION_MIGRATION.read_text(encoding="utf-8")
+        + PRODUCTION_SMOKE_SETUP_MIGRATION.read_text(encoding="utf-8")
     )
 
     for operation_name in sorted(RLS_ALLOWED_MAINTENANCE_OPERATIONS):

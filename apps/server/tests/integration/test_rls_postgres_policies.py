@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import stat
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -13,15 +14,32 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
+import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
+from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
+from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
+from scripts.issue_smoke_auth_session import issue_smoke_auth_session
+from scripts.seed_smoke_identity import seed_identity
 from tests.fixtures.postgres_rls import rls_test_database_url
-from twobrain_rec_server.config import get_settings
+from twobrain_rec_server.config import Settings, get_settings
+from twobrain_rec_server.db.models import (
+    IngestAuditEvent,
+    MediaRevision,
+    Meeting,
+    PlaybackNormalizationAttempt,
+    PlaybackNormalizationJob,
+    TemporaryUploadObject,
+    TrackArtifact,
+    UploadPart,
+    UploadSession,
+)
 from twobrain_rec_server.db.tenant_context import (
     MaintenanceTenantContext,
     TenantDatabaseContext,
     apply_tenant_context_to_connection,
 )
+from twobrain_rec_server.deployment import build_smoke_identity_seed
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MEDIA_READ_ONLY_TABLES = (
@@ -807,6 +825,385 @@ async def test_app_role_cannot_spoof_legacy_maintenance_access(
     assert visible_meeting_count == 0
     assert timestamp_update.rowcount == 0
     assert business_update.rowcount == 0
+
+
+@pytest.mark.asyncio
+async def test_production_smoke_setup_uses_maintenance_then_exact_app_context(
+    rls_engine: AsyncEngine,
+    migrated_postgres_urls: MigratedPostgresUrls,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    run_id = f"smoke-postgres-{uuid4().hex}"
+    seed = build_smoke_identity_seed(run_id)
+    maintenance_settings = Settings(database_url=migrated_postgres_urls.probe_url)
+    app_settings = Settings(database_url=migrated_postgres_urls.app_url)
+    token_file = tmp_path / "smoke-token"
+    auth_session_id: str | None = None
+    cleanup_result: tuple[int, int, list[str]] | None = None
+
+    class EmptyMinio:
+        def list_objects(self, _bucket: str, *, prefix: str, recursive: bool):
+            assert prefix.endswith(f"workspaces/{seed.workspace_id}/")
+            assert recursive is True
+            return []
+
+        def remove_object(self, _bucket: str, _object_name: str) -> None:
+            raise AssertionError("empty storage must not remove objects")
+
+    monkeypatch.setattr(
+        cleanup_smoke_artifacts_module,
+        "Minio",
+        lambda *_args, **_kwargs: EmptyMinio(),
+    )
+
+    try:
+        seed_result = await seed_identity(maintenance_settings, run_id, execute=True)
+        assert seed_result["seed_result"] == "pass"
+
+        issued = await issue_smoke_auth_session(
+            app_settings,
+            run_id=run_id,
+            token_file=token_file,
+            ttl_seconds=600,
+            purpose="production_smoke",
+            execute=True,
+        )
+        auth_session_id = str(issued["auth_session_id"])
+        assert issued["auth_session_result"] == "pass"
+        assert issued["token_written"] is True
+        assert stat.S_IMODE(token_file.stat().st_mode) == 0o600
+        assert "bearer" not in str(issued).lower()
+
+        app_engine = create_async_engine(migrated_postgres_urls.app_url, pool_pre_ping=True)
+        try:
+            async with app_engine.connect() as conn:
+                await apply_tenant_context_to_connection(
+                    conn,
+                    TenantDatabaseContext(
+                        organization_id=seed.organization_id,
+                        workspace_id=seed.workspace_id,
+                        user_id=seed.user_id,
+                        device_id=seed.device_id,
+                        context_kind="request",
+                    ),
+                )
+                session_count = int(
+                    await conn.scalar(
+                        text("select count(*) from auth_sessions where id=:auth_session_id"),
+                        {"auth_session_id": auth_session_id},
+                    )
+                    or 0
+                )
+                binding_count = int(
+                    await conn.scalar(
+                        text(
+                            "select count(*) from auth_session_device_bindings "
+                            "where auth_session_id=:auth_session_id"
+                        ),
+                        {"auth_session_id": auth_session_id},
+                    )
+                    or 0
+                )
+        finally:
+            await app_engine.dispose()
+        assert session_count == 1
+        assert binding_count == 1
+    finally:
+        await cleanup_smoke_auth_session(
+            maintenance_settings,
+            run_id=run_id,
+            auth_session_id=auth_session_id,
+            execute=True,
+        )
+        monkeypatch.setenv("TWOBRAIN_DATABASE_URL", migrated_postgres_urls.probe_url)
+        cleanup_result = await cleanup_smoke_artifacts(run_id)
+        token_file.unlink(missing_ok=True)
+
+    assert cleanup_result is not None
+    removed_rows, removed_objects, residue = cleanup_result
+    assert removed_rows >= 5
+    assert removed_objects == 0
+    assert residue == []
+    assert not token_file.exists()
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="production_smoke_cleanup",
+                actor_id="test_rls_postgres_policies",
+                reason_category="residue_probe",
+                feature_area="deployment",
+            ),
+        )
+        residue_count = int(
+            await conn.scalar(
+                text(
+                    """
+                    select
+                        (select count(*) from organizations where id=:organization_id)
+                      + (select count(*) from workspaces where id=:workspace_id)
+                      + (select count(*) from user_identities where id=:user_id)
+                      + (select count(*) from registered_devices where id=:device_id)
+                      + (select count(*) from auth_sessions where workspace_id=:workspace_id)
+                    """
+                ),
+                {
+                    "organization_id": str(seed.organization_id),
+                    "workspace_id": str(seed.workspace_id),
+                    "user_id": str(seed.user_id),
+                    "device_id": str(seed.device_id),
+                },
+            )
+            or 0
+        )
+    assert residue_count == 0
+
+
+@pytest.mark.asyncio
+async def test_production_smoke_cleanup_discovers_partial_upload_and_normalization_residue(
+    migrated_postgres_urls: MigratedPostgresUrls,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = f"smoke-partial-{uuid4().hex}"
+    seed = build_smoke_identity_seed(run_id)
+    maintenance_settings = Settings(database_url=migrated_postgres_urls.probe_url)
+    await seed_identity(maintenance_settings, run_id, execute=True)
+
+    meeting_id = uuid4()
+    media_revision_id = uuid4()
+    upload_session_id = uuid4()
+    normalization_job_id = uuid4()
+    normalization_attempt_id = uuid4()
+    prefix = (
+        f"organizations/{seed.organization_id}/workspaces/{seed.workspace_id}/"
+        f"meetings/{meeting_id}/"
+    )
+    upload_object_key = f"{prefix}sessions/{upload_session_id}/tracks/microphone/parts/00000000"
+    track_object_key = f"{prefix}artifacts/media-revisions/{media_revision_id}/tracks/microphone"
+    attempt_object_key = (
+        f"{prefix}artifacts/playback-normalization/revisions/{media_revision_id}/"
+        f"attempts/{normalization_attempt_id}/meeting-review.m4a"
+    )
+    orphan_object_key = f"{prefix}orphaned-before-database-write"
+
+    app_engine = create_async_engine(migrated_postgres_urls.app_url, pool_pre_ping=True)
+    session_factory = async_sessionmaker(app_engine, expire_on_commit=False)
+    try:
+        async with session_factory() as db:
+            await apply_tenant_context_to_connection(
+                await db.connection(),
+                TenantDatabaseContext(
+                    organization_id=seed.organization_id,
+                    workspace_id=seed.workspace_id,
+                    user_id=seed.user_id,
+                    device_id=seed.device_id,
+                    context_kind="request",
+                ),
+            )
+            db.add(
+                Meeting(
+                    id=meeting_id,
+                    workspace_id=seed.workspace_id,
+                    created_by_user_id=seed.user_id,
+                    device_id=seed.device_id,
+                    local_recording_id=f"partial-{run_id}",
+                    duration_seconds=3,
+                    status="ingested_pending_processing",
+                )
+            )
+            await db.flush()
+            db.add(
+                MediaRevision(
+                    id=media_revision_id,
+                    workspace_id=seed.workspace_id,
+                    meeting_id=meeting_id,
+                    local_media_revision_id=f"partial-{run_id}",
+                    revision_number=1,
+                    source_kind="initial_recording",
+                    status="accepted",
+                    immutable=True,
+                    accepted_at=datetime.now(UTC),
+                )
+            )
+            await db.flush()
+            db.add(
+                UploadSession(
+                    id=upload_session_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    workspace_id=seed.workspace_id,
+                    device_id=seed.device_id,
+                    created_by_user_id=seed.user_id,
+                    expected_track_roles=["microphone"],
+                    expected_track_sizes={"microphone": 16},
+                    max_package_bytes_snapshot=1024,
+                    max_track_bytes_snapshot=1024,
+                    expires_at=datetime.now(UTC) + timedelta(minutes=10),
+                )
+            )
+            await db.flush()
+            db.add(
+                PlaybackNormalizationJob(
+                    id=normalization_job_id,
+                    organization_id=seed.organization_id,
+                    workspace_id=seed.workspace_id,
+                    requested_by_user_id=seed.user_id,
+                    source_device_id=seed.device_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=media_revision_id,
+                    trigger_kind="finalize",
+                    priority_class="new_ingest",
+                    source_kind="initial_recording",
+                    source_fingerprint_sha256="c" * 64,
+                    planned_action="normalize_source",
+                    state="queued",
+                    workflow_id=f"partial-{run_id}",
+                )
+            )
+            await db.flush()
+            db.add_all(
+                [
+                    UploadPart(
+                        upload_session_id=upload_session_id,
+                        track_role="microphone",
+                        part_number=0,
+                        byte_offset=0,
+                        byte_length=16,
+                        sha256="a" * 64,
+                        storage_object_key=upload_object_key,
+                    ),
+                    TemporaryUploadObject(
+                        upload_session_id=upload_session_id,
+                        media_revision_id=media_revision_id,
+                        workspace_id=seed.workspace_id,
+                        storage_object_key=upload_object_key,
+                        byte_length=16,
+                    ),
+                    TrackArtifact(
+                        meeting_id=meeting_id,
+                        media_revision_id=media_revision_id,
+                        workspace_id=seed.workspace_id,
+                        track_role="microphone",
+                        codec="pcm_s16le",
+                        sample_rate_hz=48_000,
+                        channel_count=1,
+                        duration_seconds=3,
+                        byte_length=16,
+                        sha256="b" * 64,
+                        storage_object_key=track_object_key,
+                        status="stored",
+                    ),
+                    IngestAuditEvent(
+                        workspace_id=seed.workspace_id,
+                        meeting_id=meeting_id,
+                        media_revision_id=media_revision_id,
+                        upload_session_id=upload_session_id,
+                        actor_user_id=seed.user_id,
+                        device_id=seed.device_id,
+                        event_type="part_accepted",
+                        metadata_json={"track_role": "microphone"},
+                    ),
+                    PlaybackNormalizationAttempt(
+                        id=normalization_attempt_id,
+                        workspace_id=seed.workspace_id,
+                        meeting_id=meeting_id,
+                        media_revision_id=media_revision_id,
+                        job_id=normalization_job_id,
+                        attempt_number=1,
+                        cycle_number=1,
+                        state="local_preparing",
+                        storage_object_key=attempt_object_key,
+                        derivation_kind="single_source_transcode",
+                        source_stream_count=1,
+                        source_audio_stream_count=1,
+                    ),
+                ]
+            )
+            await db.commit()
+    finally:
+        await app_engine.dispose()
+
+    class FakeObject:
+        def __init__(self, object_name: str) -> None:
+            self.object_name = object_name
+
+    class FakeMinio:
+        def __init__(self) -> None:
+            self.objects = {
+                upload_object_key,
+                track_object_key,
+                attempt_object_key,
+                orphan_object_key,
+            }
+
+        def list_objects(self, _bucket: str, *, prefix: str, recursive: bool):
+            assert recursive is True
+            return [FakeObject(name) for name in sorted(self.objects) if name.startswith(prefix)]
+
+        def remove_object(self, _bucket: str, object_name: str) -> None:
+            self.objects.remove(object_name)
+
+    fake_minio = FakeMinio()
+    monkeypatch.setattr(
+        cleanup_smoke_artifacts_module,
+        "Minio",
+        lambda *_args, **_kwargs: fake_minio,
+    )
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", migrated_postgres_urls.probe_url)
+    removed_rows, removed_objects, residue = await cleanup_smoke_artifacts(run_id)
+
+    assert removed_rows >= 12
+    assert removed_objects == 4
+    assert residue == []
+    assert fake_minio.objects == set()
+
+    rerun_removed_rows, rerun_removed_objects, rerun_residue = await cleanup_smoke_artifacts(
+        run_id
+    )
+    assert rerun_removed_rows == 0
+    assert rerun_removed_objects == 0
+    assert rerun_residue == []
+
+
+def test_production_smoke_setup_migration_downgrade_removes_operation(
+    migrated_postgres_urls: MigratedPostgresUrls,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def setup_allowed() -> bool:
+        engine = create_async_engine(migrated_postgres_urls.probe_url, pool_pre_ping=True)
+        try:
+            async with engine.connect() as conn:
+                await apply_tenant_context_to_connection(
+                    conn,
+                    MaintenanceTenantContext(
+                        operation_name="production_smoke_setup",
+                        actor_id="test_rls_postgres_policies",
+                        reason_category="migration_probe",
+                        feature_area="deployment",
+                    ),
+                )
+                return bool(await conn.scalar(text("select rec_maintenance_allowed()")))
+        finally:
+            await engine.dispose()
+
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", migrated_postgres_urls.migration_url)
+    get_settings.cache_clear()
+    config = Config(str(REPO_ROOT / "apps/server/alembic.ini"))
+    config.set_main_option(
+        "script_location",
+        str(REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations"),
+    )
+
+    assert asyncio.run(setup_allowed()) is True
+    try:
+        command.downgrade(config, "0022_playback_normalization")
+        assert asyncio.run(setup_allowed()) is False
+    finally:
+        command.upgrade(config, "head")
+        get_settings.cache_clear()
+    assert asyncio.run(setup_allowed()) is True
 
 
 @pytest.mark.asyncio

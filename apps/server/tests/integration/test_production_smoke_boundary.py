@@ -33,6 +33,7 @@ def test_production_smoke_runner_dry_run_is_remote_first_and_non_ready() -> None
 def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     script = (REPO_ROOT / "infra/scripts/run-production-smoke.sh").read_text()
 
+    assert "python scripts/seed_smoke_identity.py" in script
     assert "python scripts/issue_smoke_auth_session.py" in script
     assert "python scripts/cleanup_smoke_auth_session.py" in script
     assert "run --rm --no-deps -T rec-maintenance" in script
@@ -46,6 +47,10 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert "TWOBRAIN_SMOKE_CREDENTIAL_FILE" not in script
     assert "--token " not in script
     assert "cat $SMOKE_TOKEN_FILE" not in script
+    assert "--ttl-seconds 600" in script
+    assert script.index("python scripts/seed_smoke_identity.py") < script.index(
+        "python scripts/issue_smoke_auth_session.py"
+    )
 
 
 def test_remote_cd_deploys_processing_runtime_services() -> None:
@@ -59,6 +64,20 @@ def test_remote_cd_deploys_processing_runtime_services() -> None:
     assert "rec-maintenance" in runtime
     assert "rec-reprocess-maintenance" in runtime
     assert "rec-media-worker" in runtime
+
+
+def test_remote_cd_finishes_production_smoke_before_opening_dispatch() -> None:
+    wrapper = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
+    runtime = (REPO_ROOT / "infra/scripts/cd-remote-runtime.sh").read_text()
+
+    smoke_step = "infra/scripts/run-production-smoke.sh --execute"
+    dispatch_step = "dispatch_opened=1"
+    assert runtime.count(smoke_step) == 1
+    assert runtime.index(smoke_step) < runtime.index(dispatch_step)
+    dry_run_steps = next(line for line in wrapper.splitlines() if line.startswith("steps="))
+    assert dry_run_steps.index("production_smoke") < dry_run_steps.index(
+        "automatic_dispatch_open"
+    )
 
 
 def test_issue_smoke_auth_session_dry_run_never_writes_raw_token(tmp_path: Path) -> None:
