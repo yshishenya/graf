@@ -13,8 +13,8 @@
 **Purpose**: Preserve the reviewed contract and establish the executable test surfaces.
 
 - [ ] T001 Reconcile `specs/100-provider-link-verified-callback/checklists/security.md` against the final clarification, plan, data model, contract and quickstart; resolve or record every checklist item before code changes.
-- [ ] T002 [P] Add provider-link API lifecycle/redaction contract coverage to `apps/server/tests/contract/test_auth_contracts.py` and `apps/server/tests/contract/test_provider_link_contracts.py`.
-- [ ] T003 [P] Add browser/embedded Settings accessibility and safe-copy contract coverage to `apps/server/tests/contract/test_provider_link_settings_contract.py`.
+- [X] T002 [P] Add provider-link API lifecycle/redaction contract coverage to `apps/server/tests/contract/test_auth_contracts.py` and `apps/server/tests/contract/test_provider_link_contracts.py`.
+- [X] T003 [P] Add browser/embedded Settings accessibility and safe-copy contract coverage to `apps/server/tests/contract/test_provider_link_settings_contract.py`.
 
 ---
 
@@ -43,7 +43,7 @@
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Add authenticated start/callback/confirmation, no-preconfirm-identity/session mutation and same-user login-after-link tests in `apps/server/tests/contract/test_provider_link_contracts.py`.
+- [X] T010 [P] [US1] Add authenticated start/callback/confirmation, no-preconfirm-identity/session mutation and same-user login-after-link tests in `apps/server/tests/contract/test_provider_link_contracts.py`.
 - [ ] T011 [P] [US1] Add service-level verified-candidate lifecycle tests in `apps/server/tests/unit/test_provider_links.py`.
 
 ### Implementation for User Story 1
@@ -64,7 +64,7 @@
 
 ### Tests for User Story 2
 
-- [ ] T015 [P] [US2] Extend forged-body, missing/opaque-intent and CSRF-negative cases in `apps/server/tests/contract/test_provider_link_contracts.py`.
+- [X] T015 [P] [US2] Extend forged-body, missing/opaque-intent and CSRF-negative cases in `apps/server/tests/contract/test_provider_link_contracts.py`.
 - [X] T016 [P] [US2] Add rejected-event redaction assertions in `apps/server/tests/contract/test_auth_contracts.py`.
 
 ### Implementation for User Story 2
@@ -85,7 +85,7 @@
 ### Tests for User Story 3
 
 - [X] T019 [P] [US3] Expand normal-login versus link-callback dispatch regression coverage in `apps/server/tests/contract/test_auth_contracts.py`.
-- [ ] T020 [P] [US3] Add disabled-provider and self-enrolment/invitation boundary coverage in `apps/server/tests/integration/test_provider_link_flow.py`.
+- [X] T020 [P] [US3] Add disabled-provider and self-enrolment/invitation boundary coverage in `apps/server/tests/integration/test_provider_link_flow.py`.
 
 ### Implementation for User Story 3
 
