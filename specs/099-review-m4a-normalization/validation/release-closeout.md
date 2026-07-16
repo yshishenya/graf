@@ -4,11 +4,11 @@
 
 **Risk / validation lane**: release / deploy
 
-**Current verdict**: immutable `v2026.07.16.3` is published but its rollout
-stopped at the disposable RLS probe; production is healthy with automatic
-dispatch closed. The bounded `v2026.07.16.4` RLS, secret-readability, Temporal
-and rollback hotfix is under final validation before integration; T111–T113
-complete, T114–T116 pending
+**Current verdict**: immutable `v2026.07.16.4` is published and deployed at
+the tagged SHA with automatic dispatch open. T114 is complete. T115 remains
+open for the outstanding post-deploy recovery, backfill and browser/embedded
+user-path receipts; T116 remains open for final tracker reconciliation and
+cleanup. The standalone feature 097 security scan remains deferred.
 
 ## Scope And Safety Boundary
 
@@ -570,3 +570,44 @@ complete, T114–T116 pending
 - A separate fresh release/deploy approval remains mandatory before committing
   the release-prep branch, merging it, creating immutable `v2026.07.16.4` and
   running `--execute`.
+
+## T114 — `v2026.07.16.4` Published Production Deploy
+
+- The user explicitly authorized the release and production deployment on
+  2026-07-16, including subsequent closeout actions without additional
+  confirmation.
+- Release-preparation commit
+  `954b44b9fa42c19daff32d8a9b9efc5249d833a8` was merged through
+  [PR #3527](https://github.com/yshishenya/crisp/pull/3527) at exact SHA
+  `221a717ebc2c031e0fdc678705d50d8ee6592740`.
+- Annotated tag `v2026.07.16.4` peels to that exact merge SHA. The stable
+  Russian GitHub Release is
+  [v2026.07.16.4](https://github.com/yshishenya/crisp/releases/tag/v2026.07.16.4).
+- `infra/scripts/cd-remote.sh --dry-run --branch
+  codex/deploy-v202607164-099` passed before execution and changed no
+  production state.
+- The approved `--execute` path reran the canonical local gate successfully:
+  macOS `643/643`; server `1741 passed, 25 skipped`; Ruff, Python compile,
+  Compose rendering and the deployment-evidence scan passed. The local RLS
+  boundary remained truthfully blocked without a disposable PostgreSQL URL;
+  the production deploy ran its separate disposable RLS proof.
+- Production result: `deploy_result=pass`, deployed/runtime SHA
+  `221a717ebc2c031e0fdc678705d50d8ee6592740`, readiness
+  `infra_smoke_ready`, and metadata-only backup reference
+  `20260716T050517Z`.
+- The remote gate passed runtime secret/readability checks, backup and restore
+  rehearsal, migration head `0023_production_smoke_setup`, runtime database
+  and media identities, disposable RLS direct-SQL probes, Temporal and both
+  processing/media worker readiness checks, synthetic smoke plus residue-zero
+  cleanup, and automatic dispatch opening. The worker capability matrix and
+  full-decode gate also passed.
+- Read-only post-deploy confirmation found the exact tagged SHA, all required
+  API, PostgreSQL, MinIO, Temporal, processing-worker and media-worker
+  services healthy, and public `/api/v1/health/live` and
+  `/api/v1/health/ready` passing.
+- Docker Compose emitted its known informational warning that file-secret
+  `uid`, `gid` and `mode` declarations are not applied to bind-mounted files.
+  The deployment uses the separately validated private runtime group and
+  host-file permission gate; no secret value or path is recorded here.
+- This completes T114. It does not substitute for T115 production user-path
+  evidence, and it does not complete deferred feature 097.
