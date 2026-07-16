@@ -936,6 +936,50 @@ def test_provider_link_confirmation_requires_the_initiating_session(
     assert confirmation.status_code == 403
     assert confirmation.json()["code"] == "workspace_scope_denied"
 
+    other_user_id = uuid4()
+
+    async def issue_foreign_session() -> tuple[str, UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=other_user_id,
+                    organization_id=ORG_ID,
+                    external_subject="provider-link-foreign-session",
+                )
+            )
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=WORKSPACE_ID,
+                    user_id=other_user_id,
+                    role="member",
+                    status="active",
+                )
+            )
+            await db.flush()
+            issued = await issue_auth_session(
+                db,
+                user_id=other_user_id,
+                workspace_id=WORKSPACE_ID,
+                device_id=None,
+                provider="email",
+            )
+            await db.commit()
+            return issued.token, issued.id
+
+    foreign_token, foreign_session_id = asyncio.run(issue_foreign_session())
+    foreign_confirmation = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {foreign_token}",
+            "X-CSRF-Token": issue_csrf_token(
+                session_id=foreign_session_id,
+                secret=client.app.state.web_csrf_secret,
+            ),
+        },
+    )
+    assert foreign_confirmation.status_code == 403
+    assert foreign_confirmation.json()["code"] == "workspace_scope_denied"
+
     async def load() -> WorkspaceProviderLinkState:
         async with client.app_state["sessionmaker"]() as db:
             link = await db.get(WorkspaceProviderLinkState, link_id)
