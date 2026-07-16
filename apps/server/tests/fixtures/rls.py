@@ -88,6 +88,7 @@ RLS_COVERED_TABLES = (
 
 RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "migration_verification",
+    "production_smoke_setup",
     "production_smoke_cleanup",
     "backup_restore_rehearsal",
     "operator_diagnostics",

@@ -563,6 +563,8 @@ verify_media_worker_boundary false
 verify_media_worker_control
 echo "media_worker_pre_dispatch_result=pass"
 
+infra/scripts/run-production-smoke.sh --execute
+
 dispatch_opened=1
 TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=true \
   "${compose[@]}" up -d --no-build --force-recreate --wait --wait-timeout 900 \
@@ -592,7 +594,6 @@ if grep -Eq '^(TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|M
   exit 1
 fi
 
-infra/scripts/run-production-smoke.sh --execute
 curl -fsS https://rec.2brain.pro/api/v1/health/live >/dev/null
 curl -fsS https://rec.2brain.pro/api/v1/health/ready >/dev/null
 

@@ -107,6 +107,8 @@ Required fields:
 Allowed operations:
 
 - migration verification;
+- bounded creation of one deterministic synthetic production-smoke identity by
+  the dedicated maintenance runtime;
 - production smoke cleanup;
 - backup/restore rehearsal;
 - explicit operator diagnostics.
@@ -117,6 +119,11 @@ Forbidden operations:
 - product RBAC "see all tenant data" permission;
 - dashboard/share/download/delete behavior;
 - ad hoc unbounded data browsing.
+
+`production_smoke_setup` is limited to the synthetic organization, workspace,
+user, membership, and device derived from the current smoke run ID. AuthSession
+issuance and upload continue under the ordinary exact request context; the
+application runtime cannot use maintenance setup or cleanup operations.
 
 ## Database Session Contract
 

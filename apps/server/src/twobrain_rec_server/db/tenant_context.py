@@ -14,6 +14,7 @@ from twobrain_rec_server.auth.context import TenantScope
 ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
     {
         "migration_verification",
+        "production_smoke_setup",
         "production_smoke_cleanup",
         "backup_restore_rehearsal",
         "operator_diagnostics",

@@ -27,6 +27,10 @@ if str(SERVER_ROOT) not in sys.path:
 
 from scripts.seed_smoke_identity import seed_identity  # noqa: E402
 from twobrain_rec_server.config import Settings  # noqa: E402
+from twobrain_rec_server.db.tenant_context import (  # noqa: E402
+    TenantDatabaseContext,
+    apply_tenant_context,
+)
 from twobrain_rec_server.deployment import build_smoke_identity_seed  # noqa: E402
 
 
@@ -223,6 +227,23 @@ def _binding_kwargs(binding_model: Any, *, auth_session_id: Any, run_id: str) ->
     return values
 
 
+def _write_private_token_file(token_file: Path, raw_token: str) -> None:
+    token_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(token_file, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            handle.write(raw_token)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        token_file.unlink(missing_ok=True)
+        raise
+
+
 async def issue_smoke_auth_session(
     settings: Settings,
     *,
@@ -232,7 +253,7 @@ async def issue_smoke_auth_session(
     purpose: str,
     execute: bool,
 ) -> dict[str, Any]:
-    identity_result = await seed_identity(settings, run_id, execute=execute)
+    identity_result = await seed_identity(settings, run_id, execute=False)
     if not execute:
         return {
             **identity_result,
@@ -244,33 +265,43 @@ async def issue_smoke_auth_session(
         }
 
     issue_auth_session, binding_model = _load_auth_session_primitives()
+    seed = build_smoke_identity_seed(run_id)
     engine = create_async_engine(settings.database_url)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_factory() as db:
-        issued = await _invoke_issue_auth_session(
-            issue_auth_session,
-            db,
-            run_id=run_id,
-            ttl_seconds=ttl_seconds,
-            purpose=purpose,
-        )
-        auth_session_id, raw_token, expires_at = _extract_issued_session(issued)
-        db.add(
-            binding_model(
-                **_binding_kwargs(
-                    binding_model,
-                    auth_session_id=auth_session_id,
-                    run_id=run_id,
+    try:
+        async with session_factory() as db:
+            await apply_tenant_context(
+                db,
+                TenantDatabaseContext(
+                    organization_id=seed.organization_id,
+                    workspace_id=seed.workspace_id,
+                    user_id=seed.user_id,
+                    device_id=seed.device_id,
+                    context_kind="request",
+                ),
+            )
+            issued = await _invoke_issue_auth_session(
+                issue_auth_session,
+                db,
+                run_id=run_id,
+                ttl_seconds=ttl_seconds,
+                purpose=purpose,
+            )
+            auth_session_id, raw_token, expires_at = _extract_issued_session(issued)
+            db.add(
+                binding_model(
+                    **_binding_kwargs(
+                        binding_model,
+                        auth_session_id=auth_session_id,
+                        run_id=run_id,
+                    )
                 )
             )
-        )
-        await db.commit()
+            await db.commit()
+    finally:
+        await engine.dispose()
 
-    await engine.dispose()
-
-    token_file.parent.mkdir(parents=True, exist_ok=True)
-    token_file.write_text(raw_token, encoding="utf-8")
-    os.chmod(token_file, 0o600)
+    _write_private_token_file(token_file, raw_token)
 
     return {
         **identity_result,
@@ -293,7 +324,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("/tmp/twobrain-rec-smoke-auth-token"),
     )
-    parser.add_argument("--ttl-seconds", type=int, default=3600)
+    parser.add_argument("--ttl-seconds", type=int, default=600)
     parser.add_argument(
         "--purpose",
         choices=["production_smoke", "owner_review"],
