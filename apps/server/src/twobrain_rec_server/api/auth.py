@@ -798,10 +798,15 @@ async def callback(
                 browser_state_nonce=request.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME),
             )
             await db.commit()
-            return RedirectResponse(
-                f"/settings/provider-links/{link.id}?result=callback_verified",
+            redirect_path = _safe_browser_return_path(callback_state.requested_redirect)
+            if redirect_path is None:
+                redirect_path = f"/settings/provider-links/{link.id}"
+            redirect = RedirectResponse(
+                f"{redirect_path}?result=callback_verified",
                 status_code=303,
             )
+            _clear_browser_auth_state_cookie(redirect)
+            return redirect
         profile: CallbackProfile = await resolve_callback_to_user(
             db,
             provider=provider,

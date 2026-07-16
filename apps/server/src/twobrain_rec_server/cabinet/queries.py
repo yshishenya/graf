@@ -19,6 +19,8 @@ from twobrain_rec_server.api.schemas import (
     PreviousRecurringMeetingView,
 )
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.auth.policy import read_auth_providers
+from twobrain_rec_server.auth.providers import build_provider_registry
 from twobrain_rec_server.cabinet.access import decide_meeting_access, share_panel_state
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
@@ -27,9 +29,12 @@ from twobrain_rec_server.cabinet.egress import (
 )
 from twobrain_rec_server.cabinet.view_models import (
     AUTHORITATIVE_TITLE_SOURCES,
+    ProviderLinkSettingsSurface,
+    ProviderLinkStartOption,
     build_list_item,
     build_review_response,
     previous_recurring_meeting_readiness,
+    provider_link_settings_surface,
     safe_title,
 )
 from twobrain_rec_server.calendar.audit import calendar_context_activity_projections
@@ -58,6 +63,7 @@ from twobrain_rec_server.db.models import (
     TranscriptSegment,
     UploadPart,
     UploadSession,
+    WorkspaceProviderLinkState,
 )
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
@@ -73,6 +79,39 @@ WEB_STATUS_FILTER_GROUPS: dict[MeetingReviewStatus, frozenset[MeetingReviewStatu
 GENERATED_TITLE_MONTH_FRAGMENTS = frozenset(
     {"янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"}
 )
+
+
+async def get_provider_link_start_options(
+    db: AsyncSession,
+    tenant_scope: TenantScope,
+) -> tuple[ProviderLinkStartOption, ...]:
+    snapshot = await read_auth_providers(
+        db,
+        tenant_scope.workspace_id,
+        adapters=build_provider_registry(),
+        persist_defaults=True,
+    )
+    return tuple(
+        ProviderLinkStartOption(provider=entry.provider, label=entry.label)
+        for entry in snapshot.providers
+        if entry.enabled
+    )
+
+
+async def get_provider_link_settings_surface(
+    db: AsyncSession,
+    tenant_scope: TenantScope,
+    *,
+    link_state_id: UUID,
+) -> ProviderLinkSettingsSurface | None:
+    link = await db.scalar(
+        select(WorkspaceProviderLinkState).where(
+            WorkspaceProviderLinkState.id == link_state_id,
+            WorkspaceProviderLinkState.workspace_id == tenant_scope.workspace_id,
+            WorkspaceProviderLinkState.initiating_user_id == tenant_scope.user_id,
+        )
+    )
+    return provider_link_settings_surface(link) if link is not None else None
 
 
 async def get_calendar_settings_surface(

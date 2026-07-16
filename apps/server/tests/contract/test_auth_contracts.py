@@ -464,7 +464,7 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
     )
     assert callback.status_code == 303
     assert callback.headers["location"] == f"/settings/provider-links/{link_id}?result=callback_verified"
-    assert "set-cookie" not in callback.headers
+    assert AUTH_SESSION_COOKIE_NAME not in callback.headers.get("set-cookie", "")
 
     async def load() -> tuple[WorkspaceProviderLinkState, list[AuthSession], ExternalIdentity | None]:
         async with client.app_state["sessionmaker"]() as db:

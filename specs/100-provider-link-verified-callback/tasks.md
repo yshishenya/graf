@@ -149,9 +149,9 @@
 
 ### Implementation for User Story 6
 
-- [ ] T033 [US6] Add provider-link Settings query/view model and page/fragment rendering in `apps/server/src/twobrain_rec_server/cabinet/queries.py`, `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/rendering.py`.
-- [ ] T034 [US6] Add the browser Settings route, shared fragment/template and Settings entry without raw identity data in `apps/server/src/twobrain_rec_server/cabinet/web_routes/provider_links.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/provider_link_settings.html`.
-- [ ] T035 [US6] Add embedded desktop routing that reuses the server-owned Settings surface and current authenticated context in `apps/server/src/twobrain_rec_server/cabinet/web_routes/desktop.py`.
+- [X] T033 [US6] Add provider-link Settings query/view model and page/fragment rendering in `apps/server/src/twobrain_rec_server/cabinet/queries.py`, `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/rendering.py`.
+- [X] T034 [US6] Add the browser Settings route, shared fragment/template and Settings entry without raw identity data in `apps/server/src/twobrain_rec_server/cabinet/web_routes/provider_links.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/provider_link_settings.html`.
+- [X] T035 [US6] Add embedded desktop routing that reuses the server-owned Settings surface and current authenticated context in `apps/server/src/twobrain_rec_server/cabinet/web_routes/desktop.py`.
 
 **Checkpoint**: Browser and embedded cabinet provide the same explicit safe flow without a native macOS implementation.
 

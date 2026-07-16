@@ -6,7 +6,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import cast
+from typing import TYPE_CHECKING, cast
+from uuid import UUID
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
@@ -78,6 +79,48 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
     SummaryStatus,
 )
+
+if TYPE_CHECKING:
+    from twobrain_rec_server.db.models import WorkspaceProviderLinkState
+
+
+PROVIDER_LINK_LABELS = {
+    "yandex": "Яндекс",
+    "vk": "VK",
+    "telegram": "Telegram",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderLinkStartOption:
+    provider: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderLinkSettingsSurface:
+    link_state_id: UUID
+    provider_label: str
+    status: str
+    status_label: str
+    can_confirm: bool
+
+
+def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> ProviderLinkSettingsSurface:
+    status_labels = {
+        "initiated": "Ожидаем входа у провайдера",
+        "callback_verified": "Провайдер подтверждён — подтвердите подключение в GRAF",
+        "confirmed": "Способ входа подключён",
+        "expired": "Срок подключения истёк. Начните заново.",
+        "rejected": "Подключение не завершено. Начните заново.",
+    }
+    return ProviderLinkSettingsSurface(
+        link_state_id=link.id,
+        provider_label=PROVIDER_LINK_LABELS.get(link.candidate_provider or "", "Провайдер"),
+        status=link.status,
+        status_label=status_labels.get(link.status, "Подключение недоступно. Начните заново."),
+        can_confirm=link.status == "callback_verified",
+    )
 
 STATUS_LABELS: dict[str, str] = {
     "local_only": "Сохранено на Mac",

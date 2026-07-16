@@ -104,7 +104,12 @@ def render_meeting_list_page(
     )
 
 
-def render_settings_page(*, embedded: bool = False, csrf_token: str | None = None) -> str:
+def render_settings_page(
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+    provider_link_options: tuple[cabinet_view_models.ProviderLinkStartOption, ...] = (),
+) -> str:
     return _page_shell(
         "Настройки",
         embedded=embedded,
@@ -112,6 +117,31 @@ def render_settings_page(*, embedded: bool = False, csrf_token: str | None = Non
         csrf_token=csrf_token,
         content_template="cabinet/pages/settings_content.html",
         calendar_settings_href=_settings_path(embedded),
+        provider_link_options=provider_link_options,
+        provider_link_start_base_path="/desktop/settings/provider-links"
+        if embedded
+        else "/settings/provider-links",
+    )
+
+
+def render_provider_link_settings_page(
+    surface: cabinet_view_models.ProviderLinkSettingsSurface,
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+    result: str | None = None,
+) -> str:
+    base_path = "/desktop/settings/provider-links" if embedded else "/settings/provider-links"
+    return _page_shell(
+        "Способ входа",
+        embedded=embedded,
+        active_nav="settings",
+        csrf_token=csrf_token,
+        content_template="cabinet/fragments/provider_link_settings.html",
+        surface=surface,
+        settings_href="/desktop/settings" if embedded else "/settings",
+        confirmation_action=f"{base_path}/{surface.link_state_id}/confirm",
+        result=result,
     )
 
 
