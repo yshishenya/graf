@@ -15,13 +15,6 @@ from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-
-import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
-from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
-from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
-from scripts.issue_smoke_auth_session import issue_smoke_auth_session
-from scripts.seed_smoke_identity import seed_identity
-from tests.fixtures.postgres_rls import rls_test_database_url
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     IngestAuditEvent,
@@ -35,12 +28,20 @@ from twobrain_rec_server.db.models import (
     UploadSession,
 )
 from twobrain_rec_server.db.tenant_context import (
+    AuthCallbackLookupContext,
     MaintenanceTenantContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context_to_connection,
 )
 from twobrain_rec_server.deployment import build_smoke_identity_seed
+
+import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
+from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
+from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
+from scripts.issue_smoke_auth_session import issue_smoke_auth_session
+from scripts.seed_smoke_identity import seed_identity
+from tests.fixtures.postgres_rls import rls_test_database_url
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MEDIA_READ_ONLY_TABLES = (
@@ -707,6 +708,123 @@ async def test_auth_callback_completion_requires_auth_bootstrap_context(
         )
 
     assert updated == callback_id
+
+
+@pytest.mark.asyncio
+async def test_provider_link_callback_lookup_requires_exact_state_nonce(
+    rls_engine: AsyncEngine,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    callback_id = uuid4()
+    link_id = uuid4()
+    source_identity_id = uuid4()
+    callback_nonce = f"provider-link-callback-{ids['slug']}"
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="rls_probe_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
+                insert into auth_callback_states
+                    (id, provider, state_nonce, workspace_id, expected_state, expires_at, result)
+                values
+                    (:id, 'vk', :state_nonce, :workspace_id, :state_nonce, :expires_at, 'pending')
+                """
+            ),
+            {
+                "id": callback_id,
+                "state_nonce": callback_nonce,
+                "workspace_id": ids["workspace_a"],
+                "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into external_identities (id, user_id, provider, provider_subject, is_verified)
+                values (:id, :user_id, 'yandex', :provider_subject, true)
+                """
+            ),
+            {
+                "id": source_identity_id,
+                "user_id": ids["user_a"],
+                "provider_subject": f"provider-link-source-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspace_provider_link_states
+                    (id, workspace_id, initiating_user_id, source_provider_identity_id,
+                     initiating_auth_session_id, callback_state_id, candidate_provider,
+                     status, expires_at)
+                values
+                    (:id, :workspace_id, :user_id, :source_identity_id,
+                     :session_id, :callback_id, 'vk', 'initiated', :expires_at)
+                """
+            ),
+            {
+                "id": link_id,
+                "workspace_id": ids["workspace_a"],
+                "user_id": ids["user_a"],
+                "source_identity_id": source_identity_id,
+                "session_id": ids["session_a"],
+                "callback_id": callback_id,
+                "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+            },
+        )
+
+    async with rls_engine.connect() as conn:
+        missing_context = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn, AuthCallbackLookupContext(state_nonce=callback_nonce)
+        )
+        matching_nonce = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn, AuthCallbackLookupContext(state_nonce=f"wrong-{callback_nonce}")
+        )
+        wrong_nonce = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        owner_request = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "b"))
+        foreign_request = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+
+    assert missing_context == 0
+    assert matching_nonce == 1
+    assert wrong_nonce == 0
+    assert owner_request == 1
+    assert foreign_request == 0
 
 
 @pytest.mark.asyncio
