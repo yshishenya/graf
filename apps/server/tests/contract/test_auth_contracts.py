@@ -980,6 +980,51 @@ def test_provider_link_confirmation_requires_the_initiating_session(
     assert foreign_confirmation.status_code == 403
     assert foreign_confirmation.json()["code"] == "workspace_scope_denied"
 
+    other_workspace_id = uuid4()
+
+    async def issue_other_workspace_session() -> tuple[str, UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                Workspace(
+                    id=other_workspace_id,
+                    organization_id=ORG_ID,
+                    slug="provider-link-other-workspace",
+                    name="Provider link other workspace",
+                )
+            )
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=other_workspace_id,
+                    user_id=UUID(login.json()["user_id"]),
+                    role="member",
+                    status="active",
+                )
+            )
+            await db.flush()
+            issued = await issue_auth_session(
+                db,
+                user_id=UUID(login.json()["user_id"]),
+                workspace_id=other_workspace_id,
+                device_id=None,
+                provider="yandex",
+            )
+            await db.commit()
+            return issued.token, issued.id
+
+    other_workspace_token, other_workspace_session_id = asyncio.run(issue_other_workspace_session())
+    other_workspace_confirmation = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {other_workspace_token}",
+            "X-CSRF-Token": issue_csrf_token(
+                session_id=other_workspace_session_id,
+                secret=client.app.state.web_csrf_secret,
+            ),
+        },
+    )
+    assert other_workspace_confirmation.status_code == 403
+    assert other_workspace_confirmation.json()["code"] == "workspace_scope_denied"
+
     async def load() -> WorkspaceProviderLinkState:
         async with client.app_state["sessionmaker"]() as db:
             link = await db.get(WorkspaceProviderLinkState, link_id)
@@ -989,6 +1034,24 @@ def test_provider_link_confirmation_requires_the_initiating_session(
     link = asyncio.run(load())
     assert link.status == "callback_verified"
     assert link.candidate_identity_subject == "vk:session-bound-user"
+
+    confirmed = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    replayed_confirmation = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert confirmed.status_code == 200
+    assert replayed_confirmation.status_code == 400
+    assert replayed_confirmation.json()["code"] == "provider_link_reused"
 
 
 def test_owner_session_cookie_can_create_desktop_meeting_without_legacy_device_headers(

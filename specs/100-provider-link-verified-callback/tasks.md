@@ -124,7 +124,7 @@
 
 ### Tests for User Story 5
 
-- [ ] T027 [P] [US5] Add expiry, callback/confirm replay, wrong-user/workspace/session and multi-tab contract coverage in `apps/server/tests/contract/test_provider_link_contracts.py`.
+- [X] T027 [P] [US5] Add expiry, callback/confirm replay, wrong-user/workspace/session and multi-tab contract coverage in `apps/server/tests/contract/test_provider_link_contracts.py`.
 - [ ] T028 [P] [US5] Add real PostgreSQL zero-row cross-scope mutation and exact-session RLS coverage in `apps/server/tests/integration/test_rls_postgres_policies.py`.
 
 ### Implementation for User Story 5
