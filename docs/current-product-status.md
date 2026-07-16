@@ -88,15 +88,21 @@ metadata-only evidence остаются подробной историей ре
   A bounded private-group readability hotfix passed focused tests, fresh
   canonical CI and independent review from exact `.2` release SHA, then merged
   through [PR #3474](https://github.com/yshishenya/crisp/pull/3474) at exact
-  merge SHA `f0fbd18bb7cf18410da16bda2f6ca7177b40ce98`. Release candidate
-  `v2026.07.16.1` passed fresh canonical CI, and its deployment dry-run plan
-  was generated successfully from current `master`. The user explicitly
-  approved this exact release/deploy candidate;
-  release-preparation commit
-  `1c2627765589b72b0e9b52ecbcbd27fa428d7f61` is under review in
-  [PR #3476](https://github.com/yshishenya/crisp/pull/3476). It is not merged,
-  tagged or deployed yet. Production E2E and the requested local app reinstall
-  remain pending.
+  merge SHA `f0fbd18bb7cf18410da16bda2f6ca7177b40ce98`. Release
+  `v2026.07.16.1` was published, but its deploy stopped before dispatch because
+  the restricted media role could not read the schema version. The narrow
+  permission hotfix merged through
+  [PR #3522](https://github.com/yshishenya/crisp/pull/3522), and release
+  `v2026.07.16.2` was published. Its deploy applied migration `0022` and
+  validated the media worker, then production smoke stopped on the stricter
+  RLS boundary. Compatibility rollback kept the `.2` source and additive
+  schema, disabled normalization/dispatch, removed the media worker and left
+  public live/ready healthy with zero smoke residue. The corrective RLS/smoke
+  hotfix passed real PostgreSQL tests, full CI and independent review, then
+  merged through [PR #3524](https://github.com/yshishenya/crisp/pull/3524) at
+  exact merge SHA `ff34413994d8e15f64149e7470db6539f2d7180c`. Candidate
+  `v2026.07.16.3` is prepared from that merge and still requires release PR,
+  publication, production deploy and E2E evidence.
   The feature gives every new first-party recording and supported manual
   upload one server-prepared,
   fully decoded canonical `meeting-review.m4a`; an already canonical M4A is
@@ -159,18 +165,16 @@ metadata-only evidence остаются подробной историей ре
   The initial control-channel-only top-level navigation block was recovered by
   the documented manual URL handoff; it is no longer a T100 limitation.
   Feature 099 changes server behavior and macOS regression tests only; it has
-  no native macOS runtime-source diff, so the server behavior itself does not
-  require an app rebuild. The user has separately requested a new
-  release-version bundle and local reinstall after deployment. T001–T113 are
-  completed with implementation/release evidence; T114 remains open after two
-  verified rollbacks, and T115–T116 remain for production proof and cleanup.
+  no native macOS runtime-source diff, so this hotfix does not require an app
+  rebuild or reinstall. T001–T113 are completed with implementation/release
+  evidence; T114 remains open until `.3` passes production deploy, and
+  T115–T116 remain for production proof and cleanup.
   Feature 097 and its resumable standalone Codex Security scan remain deferred
   and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
   complete it. Release `v2026.07.14.7` remains owned by the separate «новый
-  главный экран GRAF» rollout. Published releases `v2026.07.15.1` and
-  `v2026.07.15.2` were not deployed; neither immutable tag was moved. The next
-  candidate is `v2026.07.16.1`; CI passes, the dry-run plan was generated and
-  explicit release/deploy approval is recorded, while PR merge, publication,
+  главный экран GRAF» rollout. None of the immutable feature-099 release tags
+  were moved. The next candidate is `v2026.07.16.3`; its hotfix merge and
+  explicit production-deploy approval are recorded, while release publication,
   deploy and production proof remain pending.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into

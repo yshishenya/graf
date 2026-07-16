@@ -371,3 +371,71 @@ under review in PR #3476; T111–T113 complete, T114–T116 pending
   files and a clean merge state.
 - PR #3476 references T114–T116 without closing them. Those tasks remain open
   until deployment, production user-path proof and cleanup receipts exist.
+
+## `v2026.07.16.2` Smoke-RLS Blocker And Safe State
+
+- Release `v2026.07.16.2` was published from exact release-preparation merge
+  SHA `378ee2c142f210f708763a79d2c50c4171b419b8` after the restricted media-role
+  schema-read hotfix merged through PR #3522.
+- The approved deploy applied additive migration `0022_playback_normalization`,
+  validated the media runtime and started the worker, then stopped while
+  production smoke tried to create its synthetic organization through the
+  ordinary API database role. Strict RLS correctly denied that maintenance
+  write.
+- Compatibility rollback kept the `.2` source and additive schema, disabled
+  normalization capability and automatic dispatch, removed the media worker,
+  and preserved public live/ready HTTP `200`. Read-back reported zero feature
+  dispatch and zero smoke residue. This was a safe incomplete rollout, not
+  production acceptance.
+
+## Smoke-RLS Hotfix Validation And Integration
+
+- The bounded fix adds migration `0023_production_smoke_setup`. Only the
+  dedicated maintenance role may create the deterministic smoke identity;
+  AuthSession issuance and upload remain under `twobrain_rec_app` with the
+  exact request tenant context.
+- The smoke session TTL is 600 seconds. Its token is created atomically as a
+  private `0600` file and is not sent through stdout, environment variables or
+  command arguments.
+- Cleanup discovers partial-upload rows from the deterministic identity,
+  removes related normalization/data rows and the entire synthetic workspace
+  MinIO prefix, then verifies database and object residue. Production smoke now
+  completes cleanup while automatic dispatch is closed; dispatch opens only
+  after the smoke command succeeds.
+- Final canonical gate on the exact hotfix diff:
+  `infra/scripts/ci-local.sh` returned `ci_local_result=pass`; macOS `643/643`,
+  server `1727 passed, 24 skipped`, contract validation, Ruff, Python compile,
+  Compose rendering and deployment-evidence scan passed.
+- A disposable PostgreSQL 17 run passed the RLS/migration/normalization suite
+  `25/25` with cluster residue zero. Focused smoke/RLS/cleanup tests passed;
+  `bash -n` and `git diff --check` passed.
+- Independent review found and then verified the closure of one worker/cleanup
+  race. Its final verdict was PASS with no remaining actionable findings.
+- Approved hotfix commit:
+  `8c10c2dda49ed49fcbac567aeb82bda0b2d12f25`. PR
+  [#3524](https://github.com/yshishenya/crisp/pull/3524) merged into `master`
+  at exact SHA `ff34413994d8e15f64149e7470db6539f2d7180c` on 2026-07-16.
+
+## `v2026.07.16.3` Release Candidate
+
+- The user explicitly authorized the full action on 2026-07-16:
+  `сделать commit, push, PR и merge hotfix 099 деплой в прод`.
+- Local/remote tag, GitHub Release and release-branch checks confirmed that
+  `v2026.07.16.3` and
+  `codex/release-v202607163-099-production-smoke` were free.
+- The clean release worktree started from exact fetched `origin/master` SHA
+  `ff34413994d8e15f64149e7470db6539f2d7180c`; unrelated dirty worktrees were
+  not modified.
+- Command: `./scripts/prepare-release.sh 2026.07.16.3`.
+- Result: success. Concrete smoke-RLS hotfix entries moved from `[Unreleased]`
+  into `[2026.07.16.3] - 2026-07-16`. The command created no commit, tag or
+  GitHub Release.
+- Deployment plan command:
+  `infra/scripts/cd-remote.sh --dry-run --branch codex/release-v202607163-099-production-smoke`.
+  Result: `deploy_result=dry_run`, `local_ci=required`, remote path
+  `/opt/projects/2brain-rec`. The generated order keeps production smoke before
+  `automatic_dispatch_open` and retains branch/SHA sync, backup, restore,
+  secret, migration, role, image, worker, rollback, health and post-deploy
+  evidence gates. Dry-run changed no production state.
+- T114–T116 remain open. The release PR, immutable tag/Release, production
+  execute, E2E and cleanup receipts are still required before feature closeout.
