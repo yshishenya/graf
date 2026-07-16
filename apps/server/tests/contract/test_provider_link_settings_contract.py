@@ -79,3 +79,28 @@ def test_provider_link_settings_mutations_require_csrf_on_both_surfaces() -> Non
 
     assert set(dependencies) == csrf_routes
     assert all("require_web_csrf" in route_dependencies for route_dependencies in dependencies.values())
+
+
+def test_terminal_provider_link_settings_states_render_only_safe_generic_copy() -> None:
+    cases = {
+        "expired": "Срок подключения истёк. Начните заново.",
+        "rejected": "Подключение не завершено. Начните заново.",
+        "unknown": "Подключение недоступно. Начните заново.",
+    }
+
+    for status, status_label in cases.items():
+        page = render_provider_link_settings_page(
+            ProviderLinkSettingsSurface(
+                link_state_id=uuid4(),
+                provider_label="VK",
+                status=status,
+                status_label=status_label,
+                can_confirm=False,
+            ),
+            csrf_token="safe-csrf",
+            result="provider_link_conflict",
+        )
+        assert status_label in page
+        assert "provider_link_conflict" not in page
+        assert "candidate" not in page.lower()
+        assert "Подтвердить подключение" not in page

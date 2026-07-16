@@ -110,7 +110,7 @@
 ### Implementation for User Story 4
 
 - [X] T025 [US4] Convert `ExternalIdentity` uniqueness outcomes into idempotent same-user result or generic conflict without transfer/merge in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
-- [ ] T026 [US4] Render only safe provider/status conflict copy in `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/provider_link_settings.html`.
+- [X] T026 [US4] Render only safe provider/status conflict copy in `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/provider_link_settings.html`.
 
 **Checkpoint**: Conflict behavior is race-safe, private and leaves existing identities intact.
 
@@ -130,7 +130,7 @@
 ### Implementation for User Story 5
 
 - [X] T029 [US5] Enforce terminal-state, expiry, exact session/user/workspace and policy checks before confirmation; atomically scrub rejected/expired candidates in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
-- [ ] T030 [US5] Surface only safe cancelled, expired, replayed, disabled and conflict states through the browser/embedded routes in `apps/server/src/twobrain_rec_server/cabinet/web_routes/provider_links.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/desktop.py`.
+- [X] T030 [US5] Surface only safe cancelled, expired, replayed, disabled and conflict states through the browser/embedded routes in `apps/server/src/twobrain_rec_server/cabinet/web_routes/provider_links.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/desktop.py`.
 
 **Checkpoint**: Stale and cross-context state is unusable and no pending claim remains reachable after expiry.
 
