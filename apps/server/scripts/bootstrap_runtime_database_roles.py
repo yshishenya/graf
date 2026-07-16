@@ -108,7 +108,9 @@ async def _verify_runtime_roles(
         select count(*)
         from pg_auth_members as memberships
         join pg_roles as member_roles on member_roles.oid = memberships.member
+        join pg_roles as granted_roles on granted_roles.oid = memberships.roleid
         where member_roles.rolname = any($1::text[])
+           or granted_roles.rolname = any($1::text[])
         """,
         [APP_ROLE, MAINTENANCE_ROLE, MEDIA_ROLE],
     )
@@ -175,8 +177,7 @@ async def _verify_runtime_roles(
     if not app_has_meeting_dml:
         raise RuntimeError("application database role privileges are incomplete")
     maintenance_has_meeting_dml = await connection.fetchval(
-        "select has_table_privilege($1::name, 'public.meetings', "
-        "'SELECT,INSERT,UPDATE,DELETE')",
+        "select has_table_privilege($1::name, 'public.meetings', 'SELECT,INSERT,UPDATE,DELETE')",
         MAINTENANCE_ROLE,
     )
     if not maintenance_has_meeting_dml:

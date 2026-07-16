@@ -14,6 +14,8 @@ WORKFLOW_ID_PATTERN = re.compile(
 PLAYBACK_NORMALIZATION_WORKFLOW_ID_PATTERN = re.compile(
     r"^playback-normalization/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/v1$"
 )
+SAFE_WORKER_HOSTNAME = re.compile(r"[^a-zA-Z0-9._-]+")
+PROCESSING_WORKER_IDENTITY_PREFIX = "graf-processing:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +30,17 @@ class PlaybackNormalizationWorkflowStart:
     workflow_id: str
     run_id: str | None = None
     reused: bool = False
+
+
+def processing_worker_identity(hostname: str | None = None) -> str:
+    if hostname is None:
+        import socket
+
+        hostname = socket.gethostname()
+    normalized = SAFE_WORKER_HOSTNAME.sub("-", hostname.strip()).strip("-.")[:120]
+    if not normalized:
+        raise RuntimeError("processing worker hostname is unavailable")
+    return f"{PROCESSING_WORKER_IDENTITY_PREFIX}{normalized}"
 
 
 def processing_workflow_id(media_revision_id: UUID) -> str:

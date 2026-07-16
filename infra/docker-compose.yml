@@ -125,7 +125,7 @@ services:
       rec-minio-init:
         condition: service_completed_successfully
       rec-temporal:
-        condition: service_started
+        condition: service_healthy
     networks:
       - rec-private
       - postal-network
@@ -174,11 +174,17 @@ services:
         gid: "101"
         mode: 0440
     command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/verify_processing_worker_ready.py"]
+      interval: 10s
+      timeout: 8s
+      retries: 18
+      start_period: 20s
     depends_on:
       rec-db-runtime-bootstrap:
         condition: service_completed_successfully
       rec-temporal:
-        condition: service_started
+        condition: service_healthy
       rec-postgres:
         condition: service_healthy
       rec-minio:
@@ -255,7 +261,7 @@ services:
       rec-db-runtime-bootstrap:
         condition: service_completed_successfully
       rec-temporal:
-        condition: service_started
+        condition: service_healthy
       rec-postgres:
         condition: service_healthy
       rec-minio:
@@ -285,6 +291,7 @@ services:
       POSTGRES_USER: twobrain_rec
       DBNAME: temporal
       VISIBILITY_DBNAME: temporal_visibility
+      BIND_ON_IP: 0.0.0.0
     secrets:
       - source: twobrain_postgres_password
         target: twobrain_postgres_password
@@ -299,6 +306,14 @@ services:
         condition: service_healthy
     expose:
       - "7233"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - temporal operator cluster health --address 127.0.0.1:7233 >/dev/null 2>&1
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
     logging:
       driver: json-file
       options:
@@ -318,6 +333,8 @@ services:
       context: ..
       dockerfile: infra/server/Dockerfile
     restart: "no"
+    group_add:
+      - "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}"
     env_file:
       - ./env/rec.production.env.example
     environment:
@@ -605,6 +622,8 @@ services:
 
   rec-minio-init:
     image: minio/mc:RELEASE.2025-05-21T01-59-54Z
+    group_add:
+      - "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}"
     depends_on:
       rec-minio:
         condition: service_healthy

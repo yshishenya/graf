@@ -16,7 +16,10 @@ from twobrain_rec_server.processing.submit import (
 )
 from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
-from twobrain_rec_server.workflows.temporal_client import connect_temporal_client
+from twobrain_rec_server.workflows.temporal_client import (
+    connect_temporal_client,
+    processing_worker_identity,
+)
 
 
 async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str, str]:
@@ -79,7 +82,10 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 if import_result.status == ProcessingStatus.PROCESSED:
                     return {"meeting_id": payload["meeting_id"], "processing_status": "processed"}
                 if import_result.status == ProcessingStatus.FAILED_TERMINAL:
-                    return {"meeting_id": payload["meeting_id"], "processing_status": "failed_terminal"}
+                    return {
+                        "meeting_id": payload["meeting_id"],
+                        "processing_status": "failed_terminal",
+                    }
                 await asyncio.sleep(settings.processing_poll_interval_seconds)
             await store.set_workflow_status(
                 db,
@@ -165,7 +171,11 @@ async def _persist_activity_client_error(
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
         terminal = status in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_TERMINAL}
-        if workflow.status == status.value and workflow.last_reason_code == reason_code and (not terminal or workflow.ended_at is not None):
+        if (
+            workflow.status == status.value
+            and workflow.last_reason_code == reason_code
+            and (not terminal or workflow.ended_at is not None)
+        ):
             return
         await store.set_workflow_status(
             db,
@@ -182,12 +192,15 @@ async def run_worker() -> None:
 
     settings = get_settings()
     client = await connect_temporal_client(settings)
-    processing_activity = activity.defn(name="run_processing_pipeline_activity")(run_processing_pipeline_activity)
+    processing_activity = activity.defn(name="run_processing_pipeline_activity")(
+        run_processing_pipeline_activity
+    )
     worker = Worker(
         client,
         task_queue=settings.temporal_task_queue,
         workflows=[MediaScribeProcessingWorkflow],
         activities=[processing_activity],
+        identity=processing_worker_identity(),
     )
     await worker.run()
 

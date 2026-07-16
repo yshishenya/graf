@@ -4,11 +4,11 @@
 
 **Risk / validation lane**: release / deploy
 
-**Current verdict**: `v2026.07.15.2` published but not deployed; both rollout
-attempts ended in verified rollback; runtime-secret readability hotfix is
-merged through PR #3474; release candidate `v2026.07.16.1` passed fresh CI,
-generated its dry-run plan, received explicit release/deploy approval and is
-under review in PR #3476; T111–T113 complete, T114–T116 pending
+**Current verdict**: immutable `v2026.07.16.3` is published but its rollout
+stopped at the disposable RLS probe; production is healthy with automatic
+dispatch closed. The bounded `v2026.07.16.4` RLS, secret-readability, Temporal
+and rollback hotfix is under final validation before integration; T111–T113
+complete, T114–T116 pending
 
 ## Scope And Safety Boundary
 
@@ -439,3 +439,106 @@ under review in PR #3476; T111–T113 complete, T114–T116 pending
   evidence gates. Dry-run changed no production state.
 - T114–T116 remain open. The release PR, immutable tag/Release, production
   execute, E2E and cleanup receipts are still required before feature closeout.
+
+## `v2026.07.16.3` Production Blocker And Safe Recovery
+
+- Release-preparation PR
+  [#3525](https://github.com/yshishenya/crisp/pull/3525) merged at exact SHA
+  `c235cdd1bee6b706b9df49239e9da8d390a014c5`. Immutable release
+  [v2026.07.16.3](https://github.com/yshishenya/crisp/releases/tag/v2026.07.16.3)
+  targets that SHA.
+- The approved execute path completed its local gate and remote backup at
+  `/opt/projects/2brain-rec/backups/20260716T030558Z`, then reached additive
+  schema `0023_production_smoke_setup`.
+- The disposable RLS probe stopped with `reason=rls_probe_command_failed` and
+  `error_type=ProgrammingError`: the verifier tried to create the already
+  existing cluster-wide `twobrain_rec_maintenance` role. The guarded
+  compatibility rollback passed before automatic dispatch opened. Runtime
+  remained at exact SHA `c235cdd1...`, normalization dispatch remained closed,
+  and the media worker remained absent.
+- Recovery inspection found two additional readiness faults. The processing
+  worker could not read the mode-`0600` MediaScribe file-backed secret as its
+  non-root UID, and dual-network Temporal had selected only its media-network
+  address, so the processing worker received connection refusals.
+- The bounded recovery changed no secret values: it verified the MediaScribe
+  secret inode/owner/hard-link metadata, assigned the already validated private
+  runtime group with mode `0640`, disconnected the current Temporal container
+  from the media network, restarted Temporal, and recreated the processing
+  worker. Production returned to a safe closed state.
+- Fresh read-only verification on 2026-07-16 reported exact runtime SHA
+  `c235cdd1...`; Temporal and processing worker both `running`, restart count
+  `0`; `temporal operator cluster health --address rec-temporal:7233` returned
+  `SERVING`; the processing task queue had an active workflow poller; and
+  public live/ready returned HTTP `200`. The current `.3` container still
+  refuses `127.0.0.1:7233`, which is direct evidence for the new explicit
+  all-interface bind and loopback health gate. This is recovery evidence, not
+  successful deployment or T114–T116 closeout.
+
+## `v2026.07.16.4` Hotfix Validation Before Integration
+
+- Clean hotfix worktree branch:
+  `codex/hotfix-099-rls-temporal-production`, based on exact
+  `c235cdd1bee6b706b9df49239e9da8d390a014c5`. Unrelated dirty worktrees remain
+  untouched.
+- The RLS verifier now accepts the existing maintenance role only when owner
+  and probe URLs identify the same `twobrain_rec_rls_*` disposable database.
+  Static URL/class/role checks and cluster-role attribute/membership checks run
+  before Alembic. Membership is rejected in both directions. Runtime passwords
+  are read by the verifier from mounted regular files and are not passed
+  through Docker or shell arguments, or inherited from the parent shell.
+- A real disposable PostgreSQL regression first grants the maintenance role to
+  another role and proves rejection before the Alembic table exists. It then
+  removes that unsafe membership, runs the complete direct-SQL RLS verifier,
+  and passes. Exact role OID, password hash, role configuration, attributes and
+  both membership directions are unchanged; the scratch database residue is
+  zero. The synchronized runtime-role bootstrap reverse-membership regression
+  also passes.
+- Every pre-existing runtime, PostgreSQL and MinIO file-backed secret now goes
+  through the same fail-closed owner/regular-file/single-hard-link/private-group
+  gate. The gate enforces mode `0640` and rejects the extended-ACL marker before
+  mutation. Generated database/media credentials continue through the same
+  helper. All non-root consumers, including `rec-migrate`, receive the numeric
+  private group explicitly.
+- Temporal explicitly binds `0.0.0.0` across both isolated Compose networks.
+  Temporal must be healthy before API/workers start; the processing worker is
+  healthy only when its exact bounded identity has both workflow and activity
+  pollers. Deploy compares restart counts with the pre-deploy baseline, checks
+  both Temporal networks, and repeats the full readiness check immediately
+  before final success and during compatibility rollback.
+- Compatibility rollback first proves the current hotfix runtime healthy with
+  dispatch closed. If that runtime cannot recover, a previous-SHA fallback is
+  allowed only when the previous, expected and live schema heads are identical.
+  It builds the previous images before stopping any running service, restores
+  single-network Temporal, proves cluster health plus exact workflow/activity
+  pollers, and recreates the API with dispatch closed. Executable regressions
+  cover both successful fallback and rejection when schemas are incompatible.
+- Focused contract/integration/unit suite: `78 passed, 11 skipped`; only the
+  pre-existing Starlette/httpx deprecation warning remains. Separate real
+  PostgreSQL 14 existing-role and bootstrap regressions each passed. An
+  isolated Temporal dev server executable proof registered the exact identity
+  `graf-processing:hotfix-099-temporal-proof` as both workflow and activity
+  poller and returned `pass`.
+- Ruff, Ruff formatting, Python/shell syntax, ShellCheck with the two
+  repository-known remote-source exclusions, production/development Compose
+  rendering and `git diff --check` passed.
+- Final canonical `infra/scripts/ci-local.sh` returned
+  `ci_local_result=pass`: macOS build, `643/643` tests and contract validation;
+  server `1741 passed, 25 skipped` in `401.97s`; Ruff, Python compile,
+  production Compose rendering and the seven-file deployment-evidence scan all
+  passed. The local RLS boundary truthfully remained blocked with
+  `reason=postgres_test_database_required`; the separate disposable
+  PostgreSQL receipt above supplies the destructive local proof, while the
+  remote deploy must still prove production truth.
+- Final independent review inspected the complete tracked diff and both new
+  files. Verdict: `APPROVED`, with `0` Critical, `0` High and `0` Medium
+  findings; all earlier rollback findings are closed.
+- Material pre-integration limitation: the local Docker daemon is unresponsive,
+  so the exact pinned `temporalio/auto-setup:1.27.2` dual-network container was
+  not booted locally. It was not restarted because that could disrupt unrelated
+  user containers. Compose rendering, the isolated Temporal API proof and the
+  read-only production incident receipts cover the code path; the remote deploy
+  remains fail-closed and must prove the exact pinned container, both networks,
+  loopback health and both pollers before it can report success.
+- Integration approval, PR checks and the separate release/deploy gate remain
+  required. No commit, push, PR, merge or production mutation has been made by
+  this hotfix worktree yet.

@@ -63,9 +63,7 @@ def test_normalization_deployment_ready_requires_every_feature_gate() -> None:
 @pytest.mark.parametrize("gate", NORMALIZATION_GATE_FIELDS)
 def test_normalization_deployment_ready_rejects_any_non_pass_gate(gate: str) -> None:
     with pytest.raises(ValueError, match=gate):
-        PlaybackNormalizationDeploymentEvidence(
-            **_normalization_gate_payload(**{gate: "blocked"})
-        )
+        PlaybackNormalizationDeploymentEvidence(**_normalization_gate_payload(**{gate: "blocked"}))
 
 
 def test_remote_deploy_script_declares_and_executes_all_normalization_gates() -> None:
@@ -77,6 +75,9 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
         "migration_head",
         "runtime_db_role_bootstrap",
         "runtime_database_identity",
+        "runtime_service_secret_permissions",
+        "temporal_readiness",
+        "processing_worker_readiness",
         "image_capability",
         "profile_contract",
         "media_worker",
@@ -86,10 +87,15 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
         "normalization_cleanup",
     ):
         assert token in wrapper + runtime
-    assert 'bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"' in wrapper
+    assert (
+        'bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"'
+        in wrapper
+    )
     assert "rec-media-worker" in runtime
     assert "twobrain_rec_app" in runtime
-    assert "for role_name in twobrain_rec_app twobrain_rec_media twobrain_rec_maintenance" in runtime
+    assert (
+        "for role_name in twobrain_rec_app twobrain_rec_media twobrain_rec_maintenance" in runtime
+    )
     assert "twobrain_rec_media" in runtime
     assert "scheduler_function_access=denied" in runtime
     assert "scheduler_function_access=allowed" in runtime
@@ -100,12 +106,10 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
     assert "runtime_secret_group" in dry_run_steps
 
 
-def test_remote_deploy_secures_generated_secrets_for_private_runtime_group(
+def test_remote_deploy_secures_runtime_secrets_for_private_runtime_group(
     tmp_path: Path,
 ) -> None:
-    runtime = (
-        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
-    ).read_text()
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     helper_start = runtime.index("validate_runtime_secret_group()")
     helper_end = runtime.index("cleanup_runtime_files()", helper_start)
     helper_source = runtime[helper_start:helper_end]
@@ -134,6 +138,7 @@ getent() {{
 }}
 chgrp() {{ [[ "$1" == "1001" && "$2" == "--" && "$3" == {str(secret_path)!r} ]]; }}
 chmod() {{ [[ "$1" == "640" && "$2" == "--" && "$3" == {str(secret_path)!r} ]]; }}
+ls() {{ printf '%s\n' '-rw-r----- 1 1001 1001 22 Jul 16 00:00 fixture'; }}
 stat() {{
   if [[ "$2" == "%u:%h" ]]; then
     printf '1001:1\\n'
@@ -142,7 +147,7 @@ stat() {{
   fi
 }}
 validate_runtime_secret_group
-secure_generated_secret {str(secret_path)!r}
+secure_runtime_secret_file {str(secret_path)!r}
 printf 'runtime_secret_private_group_result=pass\\n'
 """
     result = subprocess.run(
@@ -159,6 +164,25 @@ printf 'runtime_secret_private_group_result=pass\\n'
     ensure_call = runtime.index("ensure_generated_secret \\")
     assert validate_call < ensure_call < runtime.index("backup_output=")
     assert 'export TWOBRAIN_RUNTIME_SECRET_GID="$runtime_secret_gid"' in runtime
+    service_secret_call = runtime.index("for runtime_service_secret in \\")
+    assert validate_call < service_secret_call < ensure_call
+    for secret_variable in (
+        "GRAF_CREDENTIAL_ENCRYPTION_KEY_SECRET_FILE",
+        "TWOBRAIN_WEB_CSRF_SECRET_FILE",
+        "TWOBRAIN_POSTAL_API_SECRET_FILE",
+        "TWOBRAIN_YANDEX_CLIENT_SECRET_FILE",
+        "TWOBRAIN_VK_CLIENT_SECRET_FILE",
+        "TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE",
+        "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE",
+        "TWOBRAIN_MINIO_API_ACCESS_KEY_FILE",
+        "TWOBRAIN_MINIO_API_SECRET_KEY_FILE",
+        "TWOBRAIN_SMOKE_CREDENTIAL_FILE",
+        "TWOBRAIN_POSTGRES_PASSWORD_FILE",
+        "TWOBRAIN_MINIO_ROOT_USER_FILE",
+        "TWOBRAIN_MINIO_ROOT_PASSWORD_FILE",
+    ):
+        assert secret_variable in runtime[service_secret_call:ensure_call]
+    assert "runtime_service_secret_permissions_result=pass" in runtime
 
 
 @pytest.mark.parametrize(
@@ -182,11 +206,9 @@ def test_remote_deploy_rejects_non_private_runtime_secret_group(
     group_record: str,
     passwd_records: str,
 ) -> None:
-    runtime = (
-        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
-    ).read_text()
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     helper_start = runtime.index("validate_runtime_secret_group()")
-    helper_end = runtime.index("secure_generated_secret()", helper_start)
+    helper_end = runtime.index("secure_runtime_secret_file()", helper_start)
     helper_source = runtime[helper_start:helper_end]
     fixture_script = f"""
 set -euo pipefail
@@ -233,10 +255,8 @@ printf 'runtime_secret_group_result=blocked\\n'
 def test_remote_deploy_rejects_unsafe_secret_inode_before_permission_change(
     tmp_path: Path,
 ) -> None:
-    runtime = (
-        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
-    ).read_text()
-    helper_start = runtime.index("secure_generated_secret()")
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("secure_runtime_secret_file()")
     helper_end = runtime.index("ensure_generated_secret()", helper_start)
     helper_source = runtime[helper_start:helper_end]
     secret_path = tmp_path / "linked-secret"
@@ -249,7 +269,7 @@ id() {{ printf '1001\\n'; }}
 stat() {{ printf '1001:2\\n'; }}
 chgrp() {{ printf 'unsafe_mutation=chgrp\\n'; }}
 chmod() {{ printf 'unsafe_mutation=chmod\\n'; }}
-if secure_generated_secret {str(secret_path)!r}; then
+if secure_runtime_secret_file {str(secret_path)!r}; then
   printf 'unsafe_inode_result=accepted\\n'
   exit 1
 fi
@@ -265,6 +285,42 @@ printf 'unsafe_inode_result=blocked\\n'
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "unsafe_inode_result=blocked\n"
+
+
+def test_remote_deploy_rejects_secret_with_extended_acl_before_permission_change(
+    tmp_path: Path,
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("secure_runtime_secret_file()")
+    helper_end = runtime.index("ensure_generated_secret()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    secret_path = tmp_path / "acl-secret"
+    secret_path.write_text("non-sensitive-fixture\n", encoding="utf-8")
+    fixture_script = f"""
+set -euo pipefail
+runtime_secret_gid=1001
+{helper_source}
+id() {{ printf '1001\n'; }}
+stat() {{ printf '1001:1\n'; }}
+ls() {{ printf '%s\n' '-rw-r-----+ 1 1001 1001 22 Jul 16 00:00 fixture'; }}
+chgrp() {{ printf 'unsafe_mutation=chgrp\n'; }}
+chmod() {{ printf 'unsafe_mutation=chmod\n'; }}
+if secure_runtime_secret_file {str(secret_path)!r}; then
+  printf 'extended_acl_result=accepted\n'
+  exit 1
+fi
+printf 'extended_acl_result=blocked\n'
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "extended_acl_result=blocked\n"
 
 
 @pytest.mark.parametrize(
@@ -288,9 +344,7 @@ def test_remote_deploy_resolves_new_media_image_without_existing_container(
     import subprocess
     from pathlib import Path
 
-    runtime = (
-        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
-    ).read_text()
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     gate_start = runtime.index('media_image_ref="$(')
     gate_end = runtime.index("expected_schema_head=", gate_start)
     image_gate = runtime[gate_start:gate_end]
@@ -336,9 +390,7 @@ compose=(docker compose)
 def test_remote_deploy_rollback_never_deletes_099_truth_to_reach_old_code() -> None:
     from pathlib import Path
 
-    runtime = (
-        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
-    ).read_text()
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
 
     assert "delete from playback_normalization" not in runtime.lower()
     assert "delete from track_artifacts" not in runtime.lower()
@@ -348,14 +400,225 @@ def test_remote_deploy_rollback_never_deletes_099_truth_to_reach_old_code() -> N
     assert "rollback_target=compatibility_099" in runtime
     assert "legacy_playback_guard_retained=true" in runtime
     assert "verify_api_dispatch_gate false false" in runtime
+    compatibility_start = runtime.index("restore_compatibility_runtime()")
+    compatibility_end = runtime.index("restore_previous_runtime()", compatibility_start)
+    compatibility_block = runtime[compatibility_start:compatibility_end]
+    assert "rec-temporal rec-processing-worker rec-api" in compatibility_block
+    assert "verify_processing_runtime_health" in compatibility_block
+    assert compatibility_block.index(
+        "verify_processing_runtime_health"
+    ) < compatibility_block.index('echo "rollback_result=pass"')
+    fallback_start = runtime.index("restore_previous_safe_processing_runtime()")
+    fallback_end = runtime.index("restore_previous_runtime()", fallback_start)
+    fallback_block = runtime[fallback_start:fallback_end]
+    assert 'git reset --hard "$previous_sha"' in fallback_block
+    assert (
+        'docker network disconnect twobrain-rec-media-private "$temporal_container"'
+        in fallback_block
+    )
+    assert "--task-queue-type-legacy workflow" in runtime
+    assert "--task-queue-type-legacy activity" in runtime
+    assert "wait_for_previous_processing_pollers" in fallback_block
+    assert "verify_api_dispatch_gate false false" in fallback_block
+    assert "media_worker_present=false" in fallback_block
+    restore_start = runtime.index("restore_previous_runtime()")
+    restore_end = runtime.index("rollback_on_exit()", restore_start)
+    restore_block = runtime[restore_start:restore_end]
+    assert restore_block.index("restore_compatibility_runtime") < restore_block.index(
+        "restore_previous_safe_processing_runtime"
+    )
+
+
+def test_previous_safe_processing_fallback_executes_verified_single_network_restore(
+    tmp_path: Path,
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("wait_for_previous_temporal_health()")
+    helper_end = runtime.index("restore_previous_runtime()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    trace_path = tmp_path / "rollback-trace"
+    fixture_script = f"""
+set -euo pipefail
+compose=(compose_stub)
+previous_sha=previous-safe-sha
+backup_reference=fixture-backup
+previous_schema_head=0023_production_smoke_setup
+expected_schema_head=0023_production_smoke_setup
+{helper_source}
+git() {{
+  printf 'git_%s_%s\n' "$1" "$2" >>"$TRACE_PATH"
+  [[ "$1" == "reset" && "$2" == "--hard" && "$3" == "$previous_sha" ]]
+}}
+compose_stub() {{
+  case "$1:$2:${{3:-}}" in
+    build:rec-api:rec-processing-worker)
+      printf 'compose_build_previous\n' >>"$TRACE_PATH"
+      ;;
+    ps:-aq:rec-media-worker)
+      printf 'media-container\n'
+      ;;
+    ps:-q:rec-temporal)
+      printf 'temporal-container\n'
+      ;;
+    ps:-q:rec-processing-worker)
+      printf 'processing-container\n'
+      ;;
+    stop:*)
+      printf 'compose_stop_runtime\n' >>"$TRACE_PATH"
+      ;;
+    up:*)
+      if [[ "$*" == *"rec-temporal"* ]]; then
+        printf 'compose_up_previous_temporal\n' >>"$TRACE_PATH"
+      elif [[ "$*" == *"rec-processing-worker"* ]]; then
+        printf 'compose_up_previous_processing\n' >>"$TRACE_PATH"
+      elif [[ "$*" == *"rec-api"* ]]; then
+        printf 'compose_up_previous_api\n' >>"$TRACE_PATH"
+      fi
+      ;;
+    *) return 2 ;;
+  esac
+}}
+docker() {{
+  case "$1:$2" in
+    rm:-f)
+      printf 'docker_remove_media\n' >>"$TRACE_PATH"
+      ;;
+    network:disconnect)
+      [[ "$3" == "twobrain-rec-media-private" && "$4" == "temporal-container" ]]
+      printf 'docker_disconnect_media_network\n' >>"$TRACE_PATH"
+      ;;
+    restart:temporal-container)
+      printf 'docker_restart_temporal\n' >>"$TRACE_PATH"
+      ;;
+    inspect:processing-container)
+      printf 'previous-worker\n'
+      ;;
+    exec:temporal-container)
+      if [[ "$*" == *"operator cluster health"* ]]; then
+        printf 'temporal_cluster_health\n' >>"$TRACE_PATH"
+      elif [[ "$*" == *"task-queue-type-legacy workflow"* ]]; then
+        printf 'workflow_poller_receipt\n' >>"$TRACE_PATH"
+        printf '1@previous-worker\n'
+      elif [[ "$*" == *"task-queue-type-legacy activity"* ]]; then
+        printf 'activity_poller_receipt\n' >>"$TRACE_PATH"
+        printf '1@previous-worker\n'
+      else
+        return 2
+      fi
+      ;;
+    *) return 2 ;;
+  esac
+}}
+verify_api_dispatch_gate() {{
+  [[ "$1" == "false" && "$2" == "false" ]]
+  printf 'api_dispatch_closed\n' >>"$TRACE_PATH"
+}}
+curl() {{ printf 'public_health\n' >>"$TRACE_PATH"; }}
+restore_previous_safe_processing_runtime 0023_production_smoke_setup
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TRACE_PATH": str(trace_path)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "rollback_result=pass" in result.stdout
+    assert "rollback_target=previous_safe_processing_runtime" in result.stdout
+    trace = trace_path.read_text()
+    for receipt in (
+        "git_reset_--hard",
+        "compose_build_previous",
+        "docker_disconnect_media_network",
+        "docker_restart_temporal",
+        "temporal_cluster_health",
+        "compose_up_previous_processing",
+        "workflow_poller_receipt",
+        "activity_poller_receipt",
+        "compose_up_previous_api",
+        "api_dispatch_closed",
+    ):
+        assert receipt in trace
+    assert trace.index("git_reset_--hard") < trace.index("compose_build_previous")
+    assert trace.index("docker_disconnect_media_network") < trace.index("temporal_cluster_health")
+    assert trace.index("activity_poller_receipt") < trace.index("api_dispatch_closed")
+
+
+def test_previous_sha_fallback_is_forbidden_for_incompatible_schema(
+    tmp_path: Path,
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("restore_previous_runtime()")
+    helper_end = runtime.index("rollback_on_exit()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    trace_path = tmp_path / "incompatible-schema-trace"
+    fixture_script = f"""
+set -euo pipefail
+compose=(compose_stub)
+dispatch_opened=1
+previous_schema_head=0022_previous
+expected_schema_head=0023_expected
+previous_sha=previous-incompatible-sha
+backup_reference=fixture-backup
+{helper_source}
+compose_stub() {{
+  case "$1" in
+    ps) return 0 ;;
+    stop) return 0 ;;
+    exec) printf '0023_expected\n' ;;
+    *) return 2 ;;
+  esac
+}}
+feature_truth_count() {{ printf '1\n'; }}
+restore_compatibility_runtime() {{
+  printf 'rollback_attempt=compatibility_runtime_failed\n'
+  return 1
+}}
+restore_previous_safe_processing_runtime() {{
+  printf 'unsafe_previous_fallback_called\n' >>"$TRACE_PATH"
+  return 0
+}}
+restore_previous_runtime
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TRACE_PATH": str(trace_path)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "rollback_result=blocked" in result.stdout
+    assert "rollback_target=forward_fix_required" in result.stdout
+    assert not trace_path.exists()
+
+
+def test_remote_deploy_rechecks_temporal_and_processing_worker_before_success() -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+
+    final_check = runtime.rindex("if ! verify_processing_runtime_health; then")
+    completion = runtime.index("deployment_complete=1", final_check)
+    assert final_check < runtime.index("final_temporal_readiness_result=pass", final_check)
+    assert final_check < runtime.index("final_processing_worker_readiness_result=pass", final_check)
+    assert final_check < completion
+    health_helper = runtime[
+        runtime.index("verify_processing_runtime_health()") : runtime.index(
+            "rollback_feature_storage()"
+        )
+    ]
+    assert "{{.RestartCount}}" in health_helper
+    assert "restart_baseline" in health_helper
+    assert "twobrain-rec-private" in health_helper
+    assert "twobrain-rec-media-private" in health_helper
 
 
 def test_remote_deploy_turns_signals_into_nonzero_exit_for_rollback_trap() -> None:
     from pathlib import Path
 
-    runtime = (
-        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
-    ).read_text()
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
 
     assert "trap rollback_on_exit EXIT" in runtime
     assert "trap 'exit 130' INT" in runtime
@@ -365,9 +628,7 @@ def test_remote_deploy_turns_signals_into_nonzero_exit_for_rollback_trap() -> No
 def test_remote_deploy_marks_dispatch_open_before_enabling_worker_reconciliation() -> None:
     from pathlib import Path
 
-    runtime = (
-        Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh"
-    ).read_text()
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     marker_index = runtime.index("dispatch_opened=1")
     enabled_worker_index = runtime.index(
         "TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=true",

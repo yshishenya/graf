@@ -4,6 +4,8 @@ import asyncio
 import importlib.util
 import json
 import os
+import subprocess
+import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -542,6 +544,8 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
         "twobrain_rec_media",
     ]
     created_roles = False
+    membership_fixture_created = False
+    membership_fixture_role = "twobrain_rec_membership_fixture"
     try:
         async with owner_engine.connect() as conn:
             existing = int(
@@ -651,7 +655,9 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
                     text(
                         "select count(*) from pg_auth_members as memberships "
                         "join pg_roles as members on members.oid = memberships.member "
-                        "where members.rolname = any(:role_names)"
+                        "join pg_roles as granted on granted.oid = memberships.roleid "
+                        "where members.rolname = any(:role_names) "
+                        "or granted.rolname = any(:role_names)"
                     ),
                     {"role_names": role_names},
                 )
@@ -719,9 +725,29 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
         assert media_table_grants == expected_media_table_grants
         assert media_can_update_meeting_timestamp is True
         assert media_can_update_meeting_status is False
+
+        async with owner_engine.begin() as conn:
+            await conn.execute(text(f"create role {_quote_identifier(membership_fixture_role)}"))
+            membership_fixture_created = True
+            await conn.execute(
+                text(
+                    "grant twobrain_rec_maintenance "
+                    f"to {_quote_identifier(membership_fixture_role)}"
+                )
+            )
+        with pytest.raises(RuntimeError, match="membership is unsafe"):
+            await bootstrap._bootstrap()
+        async with owner_engine.begin() as conn:
+            await conn.execute(text(f"drop role {_quote_identifier(membership_fixture_role)}"))
+            membership_fixture_created = False
     finally:
         get_settings.cache_clear()
         try:
+            if membership_fixture_created:
+                async with owner_engine.connect() as conn:
+                    await conn.execute(
+                        text(f"drop role if exists {_quote_identifier(membership_fixture_role)}")
+                    )
             if created_roles:
                 async with owner_engine.connect() as conn:
                     for role_name in role_names:
@@ -737,6 +763,199 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
                             await conn.execute(text(f"drop role {quoted_role}"))
         finally:
             await owner_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rls_verifier_reuses_existing_role_without_global_state_mutation(
+    migrated_postgres_url: str,
+    tmp_path: Path,
+) -> None:
+    owner_url = make_url(migrated_postgres_url)
+    if owner_url.username != "twobrain_rec" or not owner_url.password or not owner_url.host:
+        pytest.skip("production-parity PostgreSQL owner URL is required")
+
+    scratch_database = f"twobrain_rec_rls_regression_{uuid4().hex[:12]}"
+    maintenance_role = "twobrain_rec_maintenance"
+    membership_fixture_role = f"twobrain_rls_member_{uuid4().hex[:12]}"
+    maintenance_password = f"graf-099:/?#%{uuid4().hex}"
+    owner_engine = create_async_engine(migrated_postgres_url, isolation_level="AUTOCOMMIT")
+    scratch_created = False
+    maintenance_created = False
+    membership_fixture_created = False
+
+    async def role_snapshot() -> tuple[tuple[object, ...], tuple[tuple[object, ...], ...]]:
+        async with owner_engine.connect() as conn:
+            role_row = tuple(
+                (
+                    await conn.execute(
+                        text(
+                            "select oid, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, "
+                            "rolinherit, rolreplication, rolbypassrls, rolconnlimit, "
+                            "rolpassword, rolvaliduntil, "
+                            "(select rolconfig from pg_roles where oid = pg_authid.oid) "
+                            "from pg_authid where rolname = :role_name"
+                        ),
+                        {"role_name": maintenance_role},
+                    )
+                ).one()
+            )
+            memberships = tuple(
+                tuple(row)
+                for row in (
+                    await conn.execute(
+                        text(
+                            "select roleid, member, grantor, admin_option "
+                            "from pg_auth_members "
+                            "where roleid = (select oid from pg_roles where rolname = :role_name) "
+                            "or member = (select oid from pg_roles where rolname = :role_name) "
+                            "order by roleid, member, grantor"
+                        ),
+                        {"role_name": maintenance_role},
+                    )
+                ).all()
+            )
+        return role_row, memberships
+
+    def run_verifier(
+        owner_secret: Path, maintenance_secret: Path
+    ) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env.pop("RLS_TEST_DATABASE_URL", None)
+        env.pop("RLS_TEST_PROBE_DATABASE_URL", None)
+        env.pop("RLS_DESTRUCTIVE_PROBE_DATABASE_CLASS", None)
+        return subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "apps/server/scripts/verify_rls_hardening.py"),
+                "--runtime-owner-password-file",
+                str(owner_secret),
+                "--runtime-maintenance-password-file",
+                str(maintenance_secret),
+                "--runtime-database-name",
+                scratch_database,
+                "--runtime-database-host",
+                owner_url.host,
+                "--runtime-database-port",
+                str(owner_url.port or 5432),
+                "--destructive-probe-database",
+                "disposable",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    try:
+        async with owner_engine.connect() as conn:
+            existing = int(
+                await conn.scalar(
+                    text(
+                        "select count(*) from pg_roles "
+                        "where rolname in (:maintenance_role, :membership_role)"
+                    ),
+                    {
+                        "maintenance_role": maintenance_role,
+                        "membership_role": membership_fixture_role,
+                    },
+                )
+                or 0
+            )
+            if existing:
+                pytest.skip("existing-role regression requires a disposable role namespace")
+            await conn.execute(text(f"create database {_quote_identifier(scratch_database)}"))
+            scratch_created = True
+            await conn.execute(
+                text(
+                    f"create role {_quote_identifier(maintenance_role)} login "
+                    f"password {_quote_literal(maintenance_password)} "
+                    "nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls"
+                )
+            )
+            maintenance_created = True
+            await conn.execute(
+                text(f"alter role {_quote_identifier(maintenance_role)} set row_security = on")
+            )
+
+        owner_secret = tmp_path / "owner-password"
+        maintenance_secret = tmp_path / "maintenance-password"
+        owner_secret.write_text(owner_url.password, encoding="utf-8")
+        maintenance_secret.write_text(maintenance_password, encoding="utf-8")
+        owner_secret.chmod(0o600)
+        maintenance_secret.chmod(0o600)
+        baseline = await role_snapshot()
+
+        async with owner_engine.connect() as conn:
+            await conn.execute(text(f"create role {_quote_identifier(membership_fixture_role)}"))
+            membership_fixture_created = True
+            await conn.execute(
+                text(
+                    f"grant {_quote_identifier(maintenance_role)} "
+                    f"to {_quote_identifier(membership_fixture_role)}"
+                )
+            )
+        blocked = run_verifier(owner_secret, maintenance_secret)
+        blocked_output = blocked.stdout + blocked.stderr
+        assert blocked.returncode != 0
+        assert "reason=rls_probe_command_failed" in blocked_output
+        assert "error_type=RuntimeError" in blocked_output
+        assert owner_url.password not in blocked_output
+        assert maintenance_password not in blocked_output
+        scratch_url = owner_url.set(database=scratch_database).render_as_string(hide_password=False)
+        scratch_engine = create_async_engine(scratch_url, pool_pre_ping=True)
+        try:
+            async with scratch_engine.connect() as conn:
+                scratch_migrated = await conn.scalar(
+                    text("select to_regclass('public.alembic_version') is not null")
+                )
+        finally:
+            await scratch_engine.dispose()
+        async with owner_engine.connect() as conn:
+            await conn.execute(text(f"drop role {_quote_identifier(membership_fixture_role)}"))
+            membership_fixture_created = False
+        assert scratch_migrated is False
+        assert await role_snapshot() == baseline
+
+        passed = run_verifier(owner_secret, maintenance_secret)
+        passed_output = passed.stdout + passed.stderr
+        assert passed.returncode == 0, passed_output
+        assert "rls_validation_result=pass" in passed_output
+        assert "destructive_probe_database=disposable" in passed_output
+        assert "probe_suite=direct_sql_rls_probes" in passed_output
+        assert owner_url.password not in passed_output
+        assert maintenance_password not in passed_output
+        assert await role_snapshot() == baseline
+
+        async with owner_engine.connect() as conn:
+            await conn.execute(
+                text(f"drop database {_quote_identifier(scratch_database)} with (force)")
+            )
+            scratch_created = False
+            residue = await conn.scalar(
+                text("select count(*) from pg_database where datname = :database_name"),
+                {"database_name": scratch_database},
+            )
+            await conn.execute(text(f"drop role {_quote_identifier(maintenance_role)}"))
+            maintenance_created = False
+        assert residue == 0
+    finally:
+        async with owner_engine.connect() as conn:
+            if scratch_created:
+                await conn.execute(
+                    text(
+                        f"drop database if exists {_quote_identifier(scratch_database)} with (force)"
+                    )
+                )
+            if membership_fixture_created:
+                await conn.execute(
+                    text(f"drop role if exists {_quote_identifier(membership_fixture_role)}")
+                )
+            if maintenance_created:
+                await conn.execute(
+                    text(f"drop role if exists {_quote_identifier(maintenance_role)}")
+                )
+        await owner_engine.dispose()
 
 
 @pytest.mark.asyncio
