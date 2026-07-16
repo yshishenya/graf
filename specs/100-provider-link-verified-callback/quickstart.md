@@ -13,3 +13,14 @@
 ## Closeout validation
 
 Run `infra/scripts/ci-local.sh`. For the behavior release, perform the project release flow, `infra/scripts/cd-remote.sh --dry-run`, production deploy, and a metadata-only browser/embedded Settings smoke. Do not use a real provider credential or include a raw callback payload in evidence.
+
+## 2026-07-17 local evidence
+
+- Focused contract/cleanup/RLS-migration/UI suites pass with fake providers;
+  link lifecycle, CSRF, expiry/replay, exact initiating session, conflict,
+  safe Settings copy and audit redaction are covered.
+- Canonical `infra/scripts/ci-local.sh` passes: 643 macOS tests, 1756 server
+  tests, 27 expected PostgreSQL-only skips, Ruff, compile, Compose rendering
+  and deployment-evidence scan (`ci_local_result=pass`).
+- No local PostgreSQL RLS URL is configured. The live database RLS receipt,
+  PR review record and production dry-run/deploy/smoke remain release gates.
