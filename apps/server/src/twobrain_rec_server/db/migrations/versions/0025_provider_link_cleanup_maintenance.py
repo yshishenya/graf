@@ -1,7 +1,7 @@
 """allow maintenance cleanup of expired provider link intents
 
-Revision ID: 0025_provider_link_cleanup_maintenance
-Revises: 0024_provider_link_verified_callback
+Revision ID: 0025_provider_link_cleanup
+Revises: 0024_provider_link_callback
 Create Date: 2026-07-17
 """
 
@@ -9,8 +9,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0025_provider_link_cleanup_maintenance"
-down_revision: str | None = "0024_provider_link_verified_callback"
+revision: str = "0025_provider_link_cleanup"
+down_revision: str | None = "0024_provider_link_callback"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

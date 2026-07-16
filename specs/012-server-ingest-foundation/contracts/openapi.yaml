@@ -356,6 +356,186 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/auth/providers/{provider}/link/start:
+    post:
+      tags:
+      - auth
+      summary: Start Provider Link Flow
+      operationId: start_provider_link_flow_api_v1_auth_providers__provider__link_start_post
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Provider
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderLinkStartResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/provider-links/{link_state_id}/confirm:
+    post:
+      tags:
+      - auth
+      summary: Confirm Provider Link Flow
+      operationId: confirm_provider_link_flow_api_v1_auth_provider_links__link_state_id__confirm_post
+      parameters:
+      - name: link_state_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Link State Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderLinkConfirmResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/auth/callback/{provider}:
     get:
       tags:
@@ -2942,8 +3122,8 @@ paths:
         required: true
         schema:
           type: string
-          maxLength: 240
           minLength: 1
+          maxLength: 240
           pattern: ^[^\x00-\x1f\x7f]+$
           title: Local Recording Id
       - name: Idempotency-Key
@@ -11048,6 +11228,46 @@ components:
       required:
       - event_name
       title: ProductAnalyticsEventRequest
+    ProviderLinkConfirmResponse:
+      properties:
+        provider:
+          type: string
+          title: Provider
+        status:
+          type: string
+          title: Status
+        idempotent:
+          type: boolean
+          title: Idempotent
+      type: object
+      required:
+      - provider
+      - status
+      - idempotent
+      title: ProviderLinkConfirmResponse
+    ProviderLinkStartResponse:
+      properties:
+        authorization_url:
+          type: string
+          title: Authorization Url
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        provider:
+          type: string
+          title: Provider
+        link_state_id:
+          type: string
+          format: uuid
+          title: Link State Id
+      type: object
+      required:
+      - authorization_url
+      - expires_at
+      - provider
+      - link_state_id
+      title: ProviderLinkStartResponse
     PutMeetingCalendarContextRequest:
       properties:
         event_id:
