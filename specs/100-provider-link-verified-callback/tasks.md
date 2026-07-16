@@ -44,7 +44,7 @@
 ### Tests for User Story 1
 
 - [X] T010 [P] [US1] Add authenticated start/callback/confirmation, no-preconfirm-identity/session mutation and same-user login-after-link tests in `apps/server/tests/contract/test_provider_link_contracts.py`.
-- [ ] T011 [P] [US1] Add service-level verified-candidate lifecycle tests in `apps/server/tests/unit/test_provider_links.py`.
+- [X] T011 [P] [US1] Add service-level verified-candidate lifecycle tests in `apps/server/tests/unit/test_provider_links.py`.
 
 ### Implementation for User Story 1
 
