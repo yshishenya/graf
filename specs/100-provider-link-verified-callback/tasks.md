@@ -109,7 +109,7 @@
 
 ### Implementation for User Story 4
 
-- [ ] T025 [US4] Convert `ExternalIdentity` uniqueness outcomes into idempotent same-user result or generic conflict without transfer/merge in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
+- [X] T025 [US4] Convert `ExternalIdentity` uniqueness outcomes into idempotent same-user result or generic conflict without transfer/merge in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
 - [ ] T026 [US4] Render only safe provider/status conflict copy in `apps/server/src/twobrain_rec_server/cabinet/view_models.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/provider_link_settings.html`.
 
 **Checkpoint**: Conflict behavior is race-safe, private and leaves existing identities intact.

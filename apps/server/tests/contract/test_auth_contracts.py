@@ -694,6 +694,162 @@ def test_provider_link_confirmation_expiry_scrubs_candidate(monkeypatch, client:
     assert identity is None
 
 
+def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
+    monkeypatch, client: TestClient
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    other_user_id = uuid4()
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    session_id = UUID(login.json()["active_session_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    link_start = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    link_id = UUID(link_start.json()["link_state_id"])
+    provider_state = parse_qs(urlparse(link_start.json()["authorization_url"]).query)["state"][0]
+    callback = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": provider_state, "code": "vk:foreign-user"},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+
+    async def seed_foreign_identity() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=other_user_id,
+                    organization_id=ORG_ID,
+                    external_subject="foreign-provider-link-user",
+                )
+            )
+            db.add(
+                ExternalIdentity(
+                    user_id=other_user_id,
+                    provider="vk",
+                    provider_subject="vk:foreign-user",
+                    is_verified=True,
+                )
+            )
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(seed_foreign_identity())
+    confirmation = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert confirmation.status_code == 409
+    assert confirmation.json()["code"] == "provider_link_conflict"
+    assert str(other_user_id) not in confirmation.text
+    assert "foreign-user" not in confirmation.text
+
+    async def load() -> tuple[WorkspaceProviderLinkState, ExternalIdentity]:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            assert link is not None
+            identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.provider == "vk",
+                    ExternalIdentity.provider_subject == "vk:foreign-user",
+                )
+            )
+            assert identity is not None
+            return link, identity
+
+    link, identity = asyncio.run(load())
+    assert link.status == "rejected"
+    assert link.candidate_identity_subject is None
+    assert identity.user_id == other_user_id
+
+
+def test_provider_link_confirmation_requires_the_initiating_session(
+    monkeypatch, client: TestClient
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    session_id = UUID(login.json()["active_session_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    link_start = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    link_id = UUID(link_start.json()["link_state_id"])
+    provider_state = parse_qs(urlparse(link_start.json()["authorization_url"]).query)["state"][0]
+    callback = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": provider_state, "code": "vk:session-bound-user"},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+
+    async def issue_second_session() -> tuple[str, UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            issued = await issue_auth_session(
+                db,
+                user_id=UUID(login.json()["user_id"]),
+                workspace_id=WORKSPACE_ID,
+                device_id=DEVICE_ID,
+                provider="yandex",
+            )
+            await db.commit()
+            return issued.token, issued.id
+
+    import asyncio
+
+    second_token, second_session_id = asyncio.run(issue_second_session())
+    second_csrf = issue_csrf_token(
+        session_id=second_session_id,
+        secret=client.app.state.web_csrf_secret,
+    )
+    confirmation = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {second_token}",
+            "X-CSRF-Token": second_csrf,
+        },
+    )
+    assert confirmation.status_code == 403
+    assert confirmation.json()["code"] == "workspace_scope_denied"
+
+    async def load() -> WorkspaceProviderLinkState:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            assert link is not None
+            return link
+
+    link = asyncio.run(load())
+    assert link.status == "callback_verified"
+    assert link.candidate_identity_subject == "vk:session-bound-user"
+
+
 def test_owner_session_cookie_can_create_desktop_meeting_without_legacy_device_headers(
     client: TestClient,
 ) -> None:
