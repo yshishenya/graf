@@ -246,6 +246,18 @@ async def _consume_email_login_code(
             last_heartbeat_at=now,
         )
     )
+    # The binding is request-scoped; finish it before switching to the
+    # callback-state context required by forced RLS for the completion update.
+    await db.flush()
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
+            workspace_id=workspace.id,
+            organization_id=workspace.organization_id,
+            user_id=user.id,
+            context_kind="auth_bootstrap",
+        ),
+    )
     state.result = "completed"
     state.used_at = now
     await _record_email_login_audit(
