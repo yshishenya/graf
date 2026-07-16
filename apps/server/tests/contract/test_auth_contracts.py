@@ -16,6 +16,7 @@ from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
     AuthCallbackState,
+    AuthSession,
     AuthSessionDeviceBinding,
     ExternalIdentity,
     Organization,
@@ -426,6 +427,105 @@ def test_provider_link_start_requires_session_csrf_and_creates_bound_state(monke
     assert link.candidate_provider == "vk"
     assert link.candidate_identity_subject is None
     assert state.result == "pending"
+
+
+def test_provider_link_callback_stores_candidate_without_changing_login_session(
+    monkeypatch, client: TestClient
+) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    assert login.status_code == 200
+    session_id = UUID(login.json()["active_session_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+
+    link_start = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert link_start.status_code == 200
+    link_id = UUID(link_start.json()["link_state_id"])
+    provider_state = parse_qs(urlparse(link_start.json()["authorization_url"]).query)["state"][0]
+
+    callback = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": provider_state, "code": "vk:linked-user"},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+    assert callback.headers["location"] == f"/settings/provider-links/{link_id}?result=callback_verified"
+    assert "set-cookie" not in callback.headers
+
+    async def load() -> tuple[WorkspaceProviderLinkState, list[AuthSession], ExternalIdentity | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            assert link is not None
+            sessions = list(
+                (
+                    await db.scalars(
+                        select(AuthSession).where(AuthSession.workspace_id == WORKSPACE_ID)
+                    )
+                ).all()
+            )
+            linked_identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.provider == "vk",
+                    ExternalIdentity.provider_subject == "vk:linked-user",
+                )
+            )
+            return link, sessions, linked_identity
+
+    import asyncio
+
+    link, sessions, linked_identity = asyncio.run(load())
+    assert link.status == "callback_verified"
+    assert link.callback_verified_at is not None
+    assert link.candidate_identity_subject == "vk:linked-user"
+    assert link.candidate_provider == "vk"
+    assert linked_identity is None
+    assert [session.id for session in sessions] == [session_id]
+
+    confirmed = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json() == {"provider": "vk", "status": "confirmed", "idempotent": False}
+
+    async def load_confirmed() -> tuple[WorkspaceProviderLinkState, ExternalIdentity, list[AuthSession]]:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            assert link is not None
+            identity = await db.get(ExternalIdentity, link.target_provider_identity_id)
+            assert identity is not None
+            sessions = list(
+                (
+                    await db.scalars(
+                        select(AuthSession).where(AuthSession.workspace_id == WORKSPACE_ID)
+                    )
+                ).all()
+            )
+            return link, identity, sessions
+
+    link, identity, sessions = asyncio.run(load_confirmed())
+    assert link.status == "confirmed"
+    assert link.candidate_identity_subject is None
+    assert identity.user_id == UUID(login.json()["user_id"])
+    assert identity.provider == "vk"
+    assert [session.id for session in sessions] == [session_id]
 
 
 def test_owner_session_cookie_can_create_desktop_meeting_without_legacy_device_headers(
