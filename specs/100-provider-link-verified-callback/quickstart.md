@@ -25,3 +25,6 @@ Run `infra/scripts/ci-local.sh`. For the behavior release, perform the project r
 - Disposable local PostgreSQL RLS module passes 15/15 with zero residual
   `crisp_feature100_race_*` databases. PR review record and production
   dry-run/deploy/smoke remain release gates.
+- A separate disposable PostgreSQL migration receipt passes `0023 → 0025 →
+  0023 → 0025 (head)` with zero residual `crisp_feature100_migration_*`
+  databases.

@@ -26,7 +26,7 @@
 
 - [X] T004 Extend `WorkspaceProviderLinkState` with server-owned callback/session/provider/candidate-display bindings and terminal-claim scrubbing helpers in `apps/server/src/twobrain_rec_server/db/models/federated_auth.py`.
 - [X] T005 Add additive, reversible schema, indexes and exact callback-lookup RLS policy in `apps/server/src/twobrain_rec_server/db/migrations/versions/0024_provider_link_verified_callback.py`.
-- [ ] T006 [P] Add PostgreSQL migration/RLS upgrade-downgrade and foreign-nonce isolation coverage in `apps/server/tests/integration/test_rls_postgres_policies.py` and `apps/server/tests/integration/test_rls_postgres_migrations.py`.
+- [X] T006 [P] Add PostgreSQL migration/RLS upgrade-downgrade and foreign-nonce isolation coverage in `apps/server/tests/integration/test_rls_postgres_policies.py` and `apps/server/tests/integration/test_rls_postgres_migrations.py`.
 - [X] T007 Create link-intent lifecycle, exact-session authorization, expiry scrub and metadata-only audit service in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
 - [X] T008 Add server-side callback-state lookup/dispatch boundary for a bound link state without changing ordinary login state behavior in `apps/server/src/twobrain_rec_server/auth/callbacks.py`.
 - [X] T009 Add an idempotent maintenance-only expired-link scrub command and focused cleanup coverage in `apps/server/scripts/cleanup_expired_provider_links.py` and `apps/server/tests/integration/test_provider_link_cleanup.py`.
