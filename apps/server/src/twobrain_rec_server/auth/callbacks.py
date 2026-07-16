@@ -21,6 +21,7 @@ from twobrain_rec_server.auth.policy import (
 )
 from twobrain_rec_server.auth.provider_links import (
     ProviderLinkError,
+    reject_provider_link,
     store_verified_candidate,
 )
 from twobrain_rec_server.auth.providers import get_provider_adapter
@@ -816,6 +817,7 @@ async def resolve_callback_to_provider_link(
     except CallbackFlowError as exc:
         if callback_state is not None:
             await _mark_state_error(callback_state, exc.code, now=now)
+        await reject_provider_link(db, link=link_state, error_code=exc.code)
         await _record_callback_audit_event(
             db,
             workspace_id=link_state.workspace_id,
@@ -831,6 +833,7 @@ async def resolve_callback_to_provider_link(
     except ProviderVerificationError as exc:
         if callback_state is not None:
             await _mark_state_error(callback_state, "provider_unavailable", now=now)
+        await reject_provider_link(db, link=link_state, error_code="provider_unavailable")
         await _record_callback_audit_event(
             db,
             workspace_id=link_state.workspace_id,
@@ -846,6 +849,7 @@ async def resolve_callback_to_provider_link(
     except ProviderLinkError as exc:
         if callback_state is not None:
             await _mark_state_error(callback_state, exc.code, now=now)
+        await reject_provider_link(db, link=link_state, error_code=exc.code)
         await _record_callback_audit_event(
             db,
             workspace_id=link_state.workspace_id,
@@ -859,8 +863,17 @@ async def resolve_callback_to_provider_link(
         )
         raise CallbackFlowError(exc.code, "provider link callback rejected") from exc
     except ValueError as exc:
+        message = str(exc)
+        error_code = (
+            "callback_state_reused"
+            if "already consumed" in message
+            else "callback_state_expired"
+            if "expired" in message
+            else "callback_state_invalid"
+        )
         if callback_state is not None:
-            await _mark_state_error(callback_state, "callback_state_invalid", now=now)
+            await _mark_state_error(callback_state, error_code, now=now)
+        await reject_provider_link(db, link=link_state, error_code=error_code)
         await _record_callback_audit_event(
             db,
             workspace_id=link_state.workspace_id,
@@ -870,6 +883,6 @@ async def resolve_callback_to_provider_link(
             request_id=request_id,
             outcome="failure",
             actor_user_id=link_state.initiating_user_id,
-            metadata={"error_code": "callback_state_invalid"},
+            metadata={"error_code": error_code},
         )
-        raise CallbackFlowError("callback_state_invalid", "callback state invalid") from exc
+        raise CallbackFlowError(error_code, "callback state invalid") from exc

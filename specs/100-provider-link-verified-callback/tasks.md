@@ -27,7 +27,7 @@
 - [X] T004 Extend `WorkspaceProviderLinkState` with server-owned callback/session/provider/candidate-display bindings and terminal-claim scrubbing helpers in `apps/server/src/twobrain_rec_server/db/models/federated_auth.py`.
 - [X] T005 Add additive, reversible schema, indexes and exact callback-lookup RLS policy in `apps/server/src/twobrain_rec_server/db/migrations/versions/0024_provider_link_verified_callback.py`.
 - [ ] T006 [P] Add PostgreSQL migration/RLS upgrade-downgrade and foreign-nonce isolation coverage in `apps/server/tests/integration/test_rls_postgres_policies.py` and `apps/server/tests/integration/test_rls_postgres_migrations.py`.
-- [ ] T007 Create link-intent lifecycle, exact-session authorization, expiry scrub and metadata-only audit service in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
+- [X] T007 Create link-intent lifecycle, exact-session authorization, expiry scrub and metadata-only audit service in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
 - [X] T008 Add server-side callback-state lookup/dispatch boundary for a bound link state without changing ordinary login state behavior in `apps/server/src/twobrain_rec_server/auth/callbacks.py`.
 - [ ] T009 Add an idempotent maintenance-only expired-link scrub command and focused cleanup coverage in `apps/server/scripts/cleanup_expired_provider_links.py` and `apps/server/tests/integration/test_provider_link_cleanup.py`.
 
@@ -50,7 +50,7 @@
 
 - [X] T012 [US1] Add CSRF-protected session-bound provider-link start and opaque confirmation endpoints, preserving deprecated `/api/v1/auth/link`, in `apps/server/src/twobrain_rec_server/api/auth.py`.
 - [X] T013 [US1] Implement the dedicated verified link callback resolver and local safe confirmation redirect in `apps/server/src/twobrain_rec_server/auth/callbacks.py` and `apps/server/src/twobrain_rec_server/api/auth.py`.
-- [ ] T014 [US1] Implement same-user nested-transaction identity creation/reuse, terminal claim scrub and metadata-only lifecycle audit in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
+- [X] T014 [US1] Implement same-user nested-transaction identity creation/reuse, terminal claim scrub and metadata-only lifecycle audit in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
 
 **Checkpoint**: User Story 1 is independently functional with no client-provided identity proof and no premature session/identity mutation.
 
@@ -129,7 +129,7 @@
 
 ### Implementation for User Story 5
 
-- [ ] T029 [US5] Enforce terminal-state, expiry, exact session/user/workspace and policy checks before confirmation; atomically scrub rejected/expired candidates in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
+- [X] T029 [US5] Enforce terminal-state, expiry, exact session/user/workspace and policy checks before confirmation; atomically scrub rejected/expired candidates in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
 - [ ] T030 [US5] Surface only safe cancelled, expired, replayed, disabled and conflict states through the browser/embedded routes in `apps/server/src/twobrain_rec_server/cabinet/web_routes/provider_links.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/desktop.py`.
 
 **Checkpoint**: Stale and cross-context state is unusable and no pending claim remains reachable after expiry.

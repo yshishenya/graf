@@ -53,6 +53,27 @@ def scrub_candidate(link: WorkspaceProviderLinkState, *, status: str, resolution
     link.resolution = resolution
 
 
+async def reject_provider_link(
+    db: AsyncSession,
+    *,
+    link: WorkspaceProviderLinkState,
+    error_code: str,
+    actor_user_id: UUID | None = None,
+    event_type: str = "provider_link_rejected",
+) -> None:
+    status = "expired" if error_code == "provider_link_expired" else "rejected"
+    scrub_candidate(link, status=status, resolution=error_code)
+    await write_auth_audit_event(
+        db,
+        workspace_id=link.workspace_id,
+        event_type=event_type,
+        actor_user_id=actor_user_id or link.initiating_user_id,
+        provider=link.candidate_provider,
+        outcome="failure",
+        metadata={"error_code": error_code},
+    )
+
+
 async def create_link_intent(
     db: AsyncSession,
     *,
@@ -220,20 +241,16 @@ async def confirm_provider_link(
     if link.status != "callback_verified":
         raise ProviderLinkError("provider_link_reused")
     if link.candidate_provider is None or link.candidate_identity_subject is None:
-        scrub_candidate(link, status="rejected", resolution="candidate_missing")
+        await reject_provider_link(db, link=link, error_code="provider_link_candidate_missing")
         raise ProviderLinkError("provider_link_candidate_missing")
 
     policy = await load_workspace_auth_policy(db, link.workspace_id)
     if not is_provider_enabled_in_policy(policy, link.candidate_provider):
-        scrub_candidate(link, status="rejected", resolution="provider_disabled")
-        await write_auth_audit_event(
+        await reject_provider_link(
             db,
-            workspace_id=link.workspace_id,
-            event_type="provider_link_rejected",
+            link=link,
+            error_code="provider_disabled",
             actor_user_id=principal.user_id,
-            provider=link.candidate_provider,
-            outcome="failure",
-            metadata={"error_code": "provider_disabled"},
         )
         raise ProviderLinkError("provider_disabled")
 
@@ -247,15 +264,12 @@ async def confirm_provider_link(
     )
     idempotent = identity is not None
     if identity is not None and identity.user_id != principal.user_id:
-        scrub_candidate(link, status="rejected", resolution="provider_link_conflict")
-        await write_auth_audit_event(
+        await reject_provider_link(
             db,
-            workspace_id=link.workspace_id,
+            link=link,
+            error_code="provider_link_conflict",
             event_type="provider_link_conflict",
             actor_user_id=principal.user_id,
-            provider=link.candidate_provider,
-            outcome="failure",
-            metadata={"error_code": "provider_link_conflict"},
         )
         raise ProviderLinkError("provider_link_conflict")
     if identity is None:
@@ -283,15 +297,12 @@ async def confirm_provider_link(
                 )
             )
             if identity is None or identity.user_id != principal.user_id:
-                scrub_candidate(link, status="rejected", resolution="provider_link_conflict")
-                await write_auth_audit_event(
+                await reject_provider_link(
                     db,
-                    workspace_id=link.workspace_id,
+                    link=link,
+                    error_code="provider_link_conflict",
                     event_type="provider_link_conflict",
                     actor_user_id=principal.user_id,
-                    provider=link.candidate_provider,
-                    outcome="failure",
-                    metadata={"error_code": "provider_link_conflict"},
                 )
                 raise ProviderLinkError("provider_link_conflict") from exc
             idempotent = True

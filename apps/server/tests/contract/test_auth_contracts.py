@@ -528,6 +528,132 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
     assert [session.id for session in sessions] == [session_id]
 
 
+def test_provider_link_callback_replay_scrubs_pending_candidate(monkeypatch, client: TestClient) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    session_id = UUID(login.json()["active_session_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    link_start = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    link_id = UUID(link_start.json()["link_state_id"])
+    provider_state = parse_qs(urlparse(link_start.json()["authorization_url"]).query)["state"][0]
+    first = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": provider_state, "code": "vk:replayed-user"},
+        follow_redirects=False,
+    )
+    assert first.status_code == 303
+
+    replay = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": provider_state, "code": "vk:replayed-user"},
+        follow_redirects=False,
+    )
+    assert replay.status_code == 400
+    assert replay.json()["code"] == "callback_state_reused"
+
+    async def load() -> tuple[WorkspaceProviderLinkState, ExternalIdentity | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            assert link is not None
+            identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.provider == "vk",
+                    ExternalIdentity.provider_subject == "vk:replayed-user",
+                )
+            )
+            return link, identity
+
+    import asyncio
+
+    link, identity = asyncio.run(load())
+    assert link.status == "rejected"
+    assert link.candidate_identity_subject is None
+    assert link.candidate_email is None
+    assert link.candidate_phone is None
+    assert identity is None
+
+
+def test_provider_link_confirmation_expiry_scrubs_candidate(monkeypatch, client: TestClient) -> None:
+    _patch_fake_providers(monkeypatch, client)
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    login = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    session_id = UUID(login.json()["active_session_id"])
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    link_start = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    link_id = UUID(link_start.json()["link_state_id"])
+    provider_state = parse_qs(urlparse(link_start.json()["authorization_url"]).query)["state"][0]
+    verified = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": provider_state, "code": "vk:expired-user"},
+        follow_redirects=False,
+    )
+    assert verified.status_code == 303
+
+    async def expire_link() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            assert link is not None
+            link.expires_at = datetime(2020, 1, 1, tzinfo=UTC)
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(expire_link())
+    confirmation = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert confirmation.status_code == 400
+    assert confirmation.json()["code"] == "provider_link_expired"
+
+    async def load() -> tuple[WorkspaceProviderLinkState, ExternalIdentity | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.get(WorkspaceProviderLinkState, link_id)
+            assert link is not None
+            identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.provider == "vk",
+                    ExternalIdentity.provider_subject == "vk:expired-user",
+                )
+            )
+            return link, identity
+
+    link, identity = asyncio.run(load())
+    assert link.status == "expired"
+    assert link.candidate_identity_subject is None
+    assert identity is None
+
+
 def test_owner_session_cookie_can_create_desktop_meeting_without_legacy_device_headers(
     client: TestClient,
 ) -> None:
