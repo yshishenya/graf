@@ -20,8 +20,9 @@ metadata-only evidence остаются подробной историей ре
   scrubbed and audit stores only codes plus a one-way intent fingerprint. Fresh
   canonical local CI passes (`643` macOS tests, `1756` server tests, `27`
   PostgreSQL-only skips, Ruff, compile, Compose and deployment-evidence scan).
-  A local PostgreSQL RLS URL is not configured, so the live database RLS receipt,
-  PR/merge, release and production smoke remain required before acceptance.
+  A disposable local PostgreSQL RLS module passes 15/15 with zero database
+  residue. PR/merge, release and production smoke remain required before
+  acceptance.
   The standalone formal Codex Security scan for deferred feature `097` remains
   out of this feature's evidence by user instruction.
 - Feature `095-macos-permission-retention` is implemented for local

@@ -22,5 +22,6 @@ Run `infra/scripts/ci-local.sh`. For the behavior release, perform the project r
 - Canonical `infra/scripts/ci-local.sh` passes: 643 macOS tests, 1756 server
   tests, 27 expected PostgreSQL-only skips, Ruff, compile, Compose rendering
   and deployment-evidence scan (`ci_local_result=pass`).
-- No local PostgreSQL RLS URL is configured. The live database RLS receipt,
-  PR review record and production dry-run/deploy/smoke remain release gates.
+- Disposable local PostgreSQL RLS module passes 15/15 with zero residual
+  `crisp_feature100_race_*` databases. PR review record and production
+  dry-run/deploy/smoke remain release gates.
