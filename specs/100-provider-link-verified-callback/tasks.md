@@ -24,8 +24,8 @@
 
 **⚠️ CRITICAL**: No provider-link callback or confirmation implementation begins before this phase is green.
 
-- [ ] T004 Extend `WorkspaceProviderLinkState` with server-owned callback/session/provider/candidate-display bindings and terminal-claim scrubbing helpers in `apps/server/src/twobrain_rec_server/db/models/federated_auth.py`.
-- [ ] T005 Add additive, reversible schema, indexes and exact callback-lookup RLS policy in `apps/server/src/twobrain_rec_server/db/migrations/versions/0024_provider_link_verified_callback.py`.
+- [X] T004 Extend `WorkspaceProviderLinkState` with server-owned callback/session/provider/candidate-display bindings and terminal-claim scrubbing helpers in `apps/server/src/twobrain_rec_server/db/models/federated_auth.py`.
+- [X] T005 Add additive, reversible schema, indexes and exact callback-lookup RLS policy in `apps/server/src/twobrain_rec_server/db/migrations/versions/0024_provider_link_verified_callback.py`.
 - [ ] T006 [P] Add PostgreSQL migration/RLS upgrade-downgrade and foreign-nonce isolation coverage in `apps/server/tests/integration/test_rls_postgres_policies.py` and `apps/server/tests/integration/test_rls_postgres_migrations.py`.
 - [ ] T007 Create link-intent lifecycle, exact-session authorization, expiry scrub and metadata-only audit service in `apps/server/src/twobrain_rec_server/auth/provider_links.py`.
 - [ ] T008 Add server-side callback-state lookup/dispatch boundary for a bound link state without changing ordinary login state behavior in `apps/server/src/twobrain_rec_server/auth/callbacks.py`.
