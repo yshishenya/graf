@@ -726,6 +726,13 @@ def test_provider_link_confirmation_expiry_scrubs_candidate(monkeypatch, client:
     assert link.candidate_identity_subject is None
     assert identity is None
 
+    expired_event = next(
+        event for event in _load_auth_audit_events(client) if event.event_type == "provider_link_expired"
+    )
+    assert expired_event.metadata_json["error_code"] == "provider_link_expired"
+    assert len(expired_event.metadata_json["link_state_sha256"]) == 64
+    assert str(link_id) not in str(expired_event.metadata_json)
+
 
 def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
     monkeypatch, client: TestClient
@@ -810,6 +817,14 @@ def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
     assert link.status == "rejected"
     assert link.candidate_identity_subject is None
     assert identity.user_id == other_user_id
+
+    conflict_event = next(
+        event for event in _load_auth_audit_events(client) if event.event_type == "provider_link_conflict"
+    )
+    assert conflict_event.metadata_json["error_code"] == "provider_link_conflict"
+    assert len(conflict_event.metadata_json["link_state_sha256"]) == 64
+    assert str(link_id) not in str(conflict_event.metadata_json)
+    assert "foreign-user" not in str(conflict_event.metadata_json)
 
 
 def test_provider_link_confirmation_requires_the_initiating_session(

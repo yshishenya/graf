@@ -65,12 +65,12 @@
 ### Tests for User Story 2
 
 - [ ] T015 [P] [US2] Extend forged-body, missing/opaque-intent and CSRF-negative cases in `apps/server/tests/contract/test_provider_link_contracts.py`.
-- [ ] T016 [P] [US2] Add rejected-event redaction assertions in `apps/server/tests/contract/test_auth_contracts.py`.
+- [X] T016 [P] [US2] Add rejected-event redaction assertions in `apps/server/tests/contract/test_auth_contracts.py`.
 
 ### Implementation for User Story 2
 
 - [X] T017 [US2] Keep the deprecated direct link schema/route as a `409 provider_link_requires_verified_callback` compatibility guard and ensure confirmation ignores all non-identifier request input in `apps/server/src/twobrain_rec_server/api/auth.py`.
-- [ ] T018 [US2] Centralize safe provider-link audit metadata and fingerprints without raw claims, state, authorization codes or tokens in `apps/server/src/twobrain_rec_server/auth/provider_links.py` and `apps/server/src/twobrain_rec_server/auth/audit.py`.
+- [X] T018 [US2] Centralize safe provider-link audit metadata and fingerprints without raw claims, state, authorization codes or tokens in `apps/server/src/twobrain_rec_server/auth/provider_links.py` and `apps/server/src/twobrain_rec_server/auth/audit.py`.
 
 **Checkpoint**: Every direct/raw subject path is a safe non-mutating rejection.
 
@@ -145,7 +145,7 @@
 ### Tests for User Story 6
 
 - [ ] T031 [P] [US6] Add Settings browser/embedded parity, CSRF-negative, keyboard/focus and status accessibility coverage in `apps/server/tests/contract/test_provider_link_settings_contract.py` and `apps/server/tests/integration/test_provider_link_settings_flow.py`.
-- [ ] T032 [P] [US6] Add all lifecycle audit-redaction contract coverage in `apps/server/tests/contract/test_provider_link_contracts.py`.
+- [X] T032 [P] [US6] Add all lifecycle audit-redaction contract coverage in `apps/server/tests/contract/test_provider_link_contracts.py`.
 
 ### Implementation for User Story 6
 
