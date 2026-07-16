@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from hashlib import sha256
 from uuid import UUID
 
 from sqlalchemy import and_, select
@@ -44,6 +45,23 @@ def _as_aware_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+def provider_link_audit_metadata(
+    *,
+    link_state_id: UUID,
+    error_code: str | None = None,
+    idempotent: bool | None = None,
+) -> dict[str, object]:
+    """Return the bounded audit projection for a provider-link lifecycle event."""
+    metadata: dict[str, object] = {
+        "link_state_sha256": sha256(str(link_state_id).encode("utf-8")).hexdigest(),
+    }
+    if error_code is not None:
+        metadata["error_code"] = error_code
+    if idempotent is not None:
+        metadata["idempotent"] = idempotent
+    return metadata
+
+
 def scrub_candidate(link: WorkspaceProviderLinkState, *, status: str, resolution: str) -> None:
     link.candidate_identity_subject = None
     link.candidate_email = None
@@ -70,7 +88,7 @@ async def reject_provider_link(
         actor_user_id=actor_user_id or link.initiating_user_id,
         provider=link.candidate_provider,
         outcome="failure",
-        metadata={"error_code": error_code},
+        metadata=provider_link_audit_metadata(link_state_id=link.id, error_code=error_code),
     )
 
 
@@ -131,7 +149,7 @@ async def create_link_intent(
         event_type="provider_link_started",
         actor_user_id=principal.user_id,
         provider=provider,
-        metadata={"link_state_id": str(link.id)},
+        metadata=provider_link_audit_metadata(link_state_id=link.id),
     )
     return link
 
@@ -182,7 +200,7 @@ async def store_verified_candidate(
         event_type="provider_link_callback_verified",
         actor_user_id=link.initiating_user_id,
         provider=provider,
-        metadata={"link_state_id": str(link.id)},
+        metadata=provider_link_audit_metadata(link_state_id=link.id),
     )
 
 
@@ -235,7 +253,10 @@ async def confirm_provider_link(
             actor_user_id=principal.user_id,
             provider=link.candidate_provider,
             outcome="failure",
-            metadata={"error_code": "provider_link_expired"},
+            metadata=provider_link_audit_metadata(
+                link_state_id=link.id,
+                error_code="provider_link_expired",
+            ),
         )
         raise ProviderLinkError("provider_link_expired")
     if link.status != "callback_verified":
@@ -316,6 +337,6 @@ async def confirm_provider_link(
         event_type="provider_link_confirmed",
         actor_user_id=principal.user_id,
         provider=identity.provider,
-        metadata={"idempotent": idempotent},
+        metadata=provider_link_audit_metadata(link_state_id=link.id, idempotent=idempotent),
     )
     return ConfirmedProviderLink(provider=identity.provider, idempotent=idempotent)

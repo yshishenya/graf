@@ -11,6 +11,8 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import insert, text
 from sqlalchemy.ext.asyncio import create_async_engine
+
+from twobrain_rec_server.auth.provider_links import provider_link_audit_metadata
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import AuthAuditEvent
 from twobrain_rec_server.db.tenant_context import (
@@ -48,7 +50,7 @@ async def cleanup_expired_provider_links(settings: Settings, *, execute: bool) -
                             resolution = 'expired'
                         where expires_at <= current_timestamp
                           and status in ('initiated', 'callback_verified')
-                        returning workspace_id, initiating_user_id, candidate_provider
+                        returning id, workspace_id, initiating_user_id, candidate_provider
                         """
                     )
                 )
@@ -62,7 +64,10 @@ async def cleanup_expired_provider_links(settings: Settings, *, execute: bool) -
                         event_type="provider_link_expired",
                         provider=row["candidate_provider"],
                         outcome="failure",
-                        metadata_json={"error_code": "provider_link_expired"},
+                        metadata_json=provider_link_audit_metadata(
+                            link_state_id=UUID(str(row["id"])),
+                            error_code="provider_link_expired",
+                        ),
                     )
                 )
     finally:

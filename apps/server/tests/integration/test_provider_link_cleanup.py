@@ -2,14 +2,14 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import select
+
+from scripts.cleanup_expired_provider_links import cleanup_expired_provider_links
+from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
     ExternalIdentity,
     WorkspaceProviderLinkState,
 )
-
-from scripts.cleanup_expired_provider_links import cleanup_expired_provider_links
-from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 
 
 def test_expired_provider_link_cleanup_is_idempotent_and_redacts_candidate(client) -> None:
@@ -71,4 +71,6 @@ def test_expired_provider_link_cleanup_is_idempotent_and_redacts_candidate(clien
     assert link.candidate_phone is None
     assert link.candidate_display_name is None
     assert len(events) == 1
-    assert events[0].metadata_json == {"error_code": "provider_link_expired"}
+    assert events[0].metadata_json["error_code"] == "provider_link_expired"
+    assert len(events[0].metadata_json["link_state_sha256"]) == 64
+    assert str(link_id) not in str(events[0].metadata_json)

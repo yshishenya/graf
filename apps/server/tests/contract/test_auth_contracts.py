@@ -8,6 +8,9 @@ from uuid import UUID, uuid4
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_providers import fake_provider_map
 from twobrain_rec_server.api.auth import router as auth_api_router
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.csrf import issue_csrf_token
@@ -28,9 +31,6 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
     WorkspaceProviderLinkState,
 )
-
-from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
-from tests.fakes.auth_providers import fake_provider_map
 
 
 class FakeProviderHttpClient:
@@ -578,6 +578,27 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
             return len(identities)
 
     assert asyncio.run(count_identities()) == 1
+
+    lifecycle_events = [
+        event
+        for event in _load_auth_audit_events(client)
+        if event.event_type
+        in {
+            "provider_link_started",
+            "provider_link_callback_verified",
+            "provider_link_confirmed",
+        }
+    ]
+    assert {event.event_type for event in lifecycle_events} == {
+        "provider_link_started",
+        "provider_link_callback_verified",
+        "provider_link_confirmed",
+    }
+    for event in lifecycle_events:
+        assert len(event.metadata_json["link_state_sha256"]) == 64
+        assert "link_state_id" not in event.metadata_json
+        assert "candidate_identity_subject" not in event.metadata_json
+        assert "candidate_email" not in event.metadata_json
 
 
 def test_provider_link_callback_replay_scrubs_pending_candidate(monkeypatch, client: TestClient) -> None:
