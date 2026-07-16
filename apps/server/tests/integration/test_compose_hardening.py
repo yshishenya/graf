@@ -221,9 +221,11 @@ def test_generated_runtime_secrets_use_private_deploy_group_mounts() -> None:
         "rec-api",
         "rec-processing-worker",
         "rec-media-worker",
+        "rec-migrate",
         "rec-db-runtime-bootstrap",
         "rec-maintenance",
         "rec-reprocess-maintenance",
+        "rec-minio-init",
     }
 
     for secret_name, file_source in generated_secret_files.items():
@@ -233,7 +235,6 @@ def test_generated_runtime_secrets_use_private_deploy_group_mounts() -> None:
         assert compose["services"][service_name]["group_add"] == [
             "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}"
         ]
-    assert "group_add" not in compose["services"]["rec-minio-init"]
 
     for service_name, service in compose["services"].items():
         for secret in service.get("secrets", []):
@@ -376,6 +377,7 @@ def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() ->
     assert temporal_env["POSTGRES_USER"] == "twobrain_rec"
     assert temporal_env["DBNAME"] == "temporal"
     assert temporal_env["VISIBILITY_DBNAME"] == "temporal_visibility"
+    assert temporal_env["BIND_ON_IP"] == "0.0.0.0"
     assert "POSTGRES_PWD" not in temporal_env
     assert temporal["user"] == "root"
     assert 'POSTGRES_PWD="$$(cat /run/secrets/twobrain_postgres_password)"' in entrypoint
@@ -385,6 +387,7 @@ def test_production_temporal_uses_postgres_backend_with_secret_file_wrapper() ->
         "target": "twobrain_postgres_password",
     } in temporal["secrets"]
     assert temporal["depends_on"]["rec-postgres"]["condition"] == "service_healthy"
+    assert "127.0.0.1:7233" in " ".join(temporal["healthcheck"]["test"])
 
 
 def test_production_api_autostarts_processing_and_worker_can_read_processing_secrets() -> None:
@@ -397,7 +400,7 @@ def test_production_api_autostarts_processing_and_worker_can_read_processing_sec
     assert api_env["TWOBRAIN_PROCESSING_ENABLED"] == "true"
     assert api_env["TWOBRAIN_TEMPORAL_ADDRESS"] == "rec-temporal:7233"
     assert "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE" not in api_env
-    assert api["depends_on"]["rec-temporal"]["condition"] == "service_started"
+    assert api["depends_on"]["rec-temporal"]["condition"] == "service_healthy"
     assert "twobrain_mediascribe_api_key" not in api_secret_sources
     assert worker["user"] == "twobrain"
     assert (
@@ -405,6 +408,33 @@ def test_production_api_autostarts_processing_and_worker_can_read_processing_sec
         == "/run/secrets/twobrain_mediascribe_api_key"
     )
     assert any(secret["source"] == "twobrain_mediascribe_api_key" for secret in worker["secrets"])
+    assert worker["depends_on"]["rec-temporal"]["condition"] == "service_healthy"
+    assert worker["healthcheck"]["test"] == [
+        "CMD",
+        "python",
+        "/app/scripts/verify_processing_worker_ready.py",
+    ]
+
+
+def test_private_group_runtime_secrets_are_only_mounted_by_group_enabled_services() -> None:
+    compose = _compose()
+    private_group_secrets = {
+        "graf_credential_encryption_key",
+        "twobrain_web_csrf_secret",
+        "twobrain_postal_api_key",
+        "twobrain_yandex_client_secret",
+        "twobrain_vk_client_secret",
+        "twobrain_support_incident_github_token",
+        "twobrain_mediascribe_api_key",
+        "twobrain_minio_api_access_key",
+        "twobrain_minio_api_secret_key",
+        "twobrain_smoke_credential",
+    }
+
+    for service in compose["services"].values():
+        secret_sources = {secret["source"] for secret in service.get("secrets", [])}
+        if secret_sources & private_group_secrets:
+            assert service["group_add"] == ["${TWOBRAIN_RUNTIME_SECRET_GID:-1001}"]
 
 
 def test_media_worker_is_isolated_non_root_and_has_no_mediascribe_secret() -> None:
@@ -449,6 +479,7 @@ def test_media_worker_is_isolated_non_root_and_has_no_mediascribe_secret() -> No
     assert "twobrain_minio_api_access_key" not in secret_sources
     assert "twobrain_minio_api_secret_key" not in secret_sources
     assert worker["volumes"] == ["rec-media-work:/var/lib/twobrain-rec/playback-normalization"]
+    assert worker["depends_on"]["rec-temporal"]["condition"] == "service_healthy"
     assert worker["networks"] == ["rec-media-private"]
     assert compose["networks"]["rec-media-private"]["internal"] is True
     for dependency in ("rec-postgres", "rec-minio", "rec-temporal"):
@@ -475,6 +506,18 @@ def test_dev_media_worker_keeps_the_same_non_root_resource_boundary() -> None:
         "/app/scripts/verify_playback_normalization_worker_ready.py"
     )
     assert worker["networks"] == ["rec-media-private"]
+    assert worker["depends_on"]["rec-temporal"]["condition"] == "service_healthy"
+
+
+def test_dev_temporal_and_processing_worker_use_readiness_gates() -> None:
+    compose = _dev_compose()
+    temporal = compose["services"]["rec-temporal"]
+    worker = compose["services"]["rec-processing-worker"]
+
+    assert temporal["environment"]["BIND_ON_IP"] == "0.0.0.0"
+    assert "127.0.0.1:7233" in " ".join(temporal["healthcheck"]["test"])
+    assert worker["depends_on"]["rec-temporal"]["condition"] == "service_healthy"
+    assert worker["healthcheck"]["test"][-1] == "/app/scripts/verify_processing_worker_ready.py"
 
 
 def test_media_worker_minio_policy_is_prefix_scoped_without_bucket_listing() -> None:

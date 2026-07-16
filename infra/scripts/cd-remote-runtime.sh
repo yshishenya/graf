@@ -10,6 +10,10 @@ deployment_complete=0
 dispatch_opened=0
 previous_schema_head=""
 expected_schema_head=""
+temporal_container_baseline=""
+temporal_restart_baseline=""
+processing_worker_container_baseline=""
+processing_worker_restart_baseline=""
 
 set -a
 . ./.env
@@ -46,8 +50,8 @@ validate_runtime_secret_group() {
   [[ "$primary_account_count" == "1" ]]
 }
 
-secure_generated_secret() {
-  local target="$1" initial_facts expected_facts actual_facts
+secure_runtime_secret_file() {
+  local target="$1" initial_facts initial_access expected_facts actual_facts actual_access
   if [[ -L "$target" || ! -f "$target" || ! -s "$target" ]]; then
     return 1
   fi
@@ -55,11 +59,21 @@ secure_generated_secret() {
   if [[ "$initial_facts" != "$(id -u):1" ]]; then
     return 1
   fi
+  # GNU ls exposes the extended-ACL marker that stat/find mode strings omit.
+  # shellcheck disable=SC2012
+  initial_access="$(LC_ALL=C ls -ldn -- "$target" 2>/dev/null | awk '{print $1}')" \
+    || return 1
+  if [[ "${#initial_access}" != "10" ]]; then
+    return 1
+  fi
   chgrp "$runtime_secret_gid" -- "$target" 2>/dev/null || return 1
   chmod 640 -- "$target" 2>/dev/null || return 1
   expected_facts="$(id -u):${runtime_secret_gid}:640:1"
   actual_facts="$(stat -c '%u:%g:%a:%h' -- "$target" 2>/dev/null)" || return 1
-  [[ "$actual_facts" == "$expected_facts" ]]
+  # shellcheck disable=SC2012
+  actual_access="$(LC_ALL=C ls -ldn -- "$target" 2>/dev/null | awk '{print $1}')" \
+    || return 1
+  [[ "$actual_facts" == "$expected_facts" && "$actual_access" == "-rw-r-----" ]]
 }
 
 ensure_generated_secret() {
@@ -71,7 +85,7 @@ ensure_generated_secret() {
     exit 1
   fi
   if [[ -s "$target" ]]; then
-    if ! secure_generated_secret "$target"; then
+    if ! secure_runtime_secret_file "$target"; then
       echo "deploy_result=blocked"
       echo "reason=generated_secret_permissions_invalid"
       exit 1
@@ -94,7 +108,7 @@ ensure_generated_secret() {
   chmod 600 "$temporary"
   mv "$temporary" "$target"
   umask "$prior_umask"
-  if ! secure_generated_secret "$target"; then
+  if ! secure_runtime_secret_file "$target"; then
     echo "deploy_result=blocked"
     echo "reason=generated_secret_permissions_invalid"
     exit 1
@@ -123,6 +137,46 @@ verify_api_dispatch_gate() {
     && grep -Fxq \
       "TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=$expected_dispatch" \
       /tmp/twobrain-rec-api-env.txt
+}
+
+verify_processing_runtime_health() {
+  local temporal_container processing_worker_container temporal_networks
+  local temporal_restart_count processing_worker_restart_count
+  temporal_container="$("${compose[@]}" ps -q rec-temporal)"
+  processing_worker_container="$("${compose[@]}" ps -q rec-processing-worker)"
+  temporal_restart_count="$(docker inspect "$temporal_container" --format '{{.RestartCount}}' 2>/dev/null)" \
+    || return 1
+  processing_worker_restart_count="$(docker inspect "$processing_worker_container" --format '{{.RestartCount}}' 2>/dev/null)" \
+    || return 1
+  [[ -n "$temporal_container" && -n "$processing_worker_container" ]] \
+    && [[ "$(docker inspect "$temporal_container" --format '{{.State.Health.Status}}')" == "healthy" ]] \
+    && [[ "$(docker inspect "$processing_worker_container" --format '{{.State.Health.Status}}')" == "healthy" ]] \
+    || return 1
+  if [[ "$temporal_container" == "$temporal_container_baseline" ]]; then
+    [[ "$temporal_restart_count" == "$temporal_restart_baseline" ]] || return 1
+  else
+    [[ "$temporal_restart_count" == "0" ]] || return 1
+  fi
+  if [[ "$processing_worker_container" == "$processing_worker_container_baseline" ]]; then
+    [[ "$processing_worker_restart_count" == "$processing_worker_restart_baseline" ]] || return 1
+  else
+    [[ "$processing_worker_restart_count" == "0" ]] || return 1
+  fi
+  temporal_networks="$(docker inspect "$temporal_container" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}')"
+  [[ "$(sed '/^$/d' <<<"$temporal_networks" | wc -l | tr -d ' ')" == "2" ]] \
+    && grep -Fxq 'twobrain-rec-private' <<<"$temporal_networks" \
+    && grep -Fxq 'twobrain-rec-media-private' <<<"$temporal_networks"
+}
+
+capture_processing_runtime_baseline() {
+  temporal_container_baseline="$("${compose[@]}" ps -q rec-temporal)"
+  processing_worker_container_baseline="$("${compose[@]}" ps -q rec-processing-worker)"
+  if [[ -n "$temporal_container_baseline" ]]; then
+    temporal_restart_baseline="$(docker inspect "$temporal_container_baseline" --format '{{.RestartCount}}')"
+  fi
+  if [[ -n "$processing_worker_container_baseline" ]]; then
+    processing_worker_restart_baseline="$(docker inspect "$processing_worker_container_baseline" --format '{{.RestartCount}}')"
+  fi
 }
 
 rollback_feature_storage() {
@@ -236,7 +290,9 @@ restore_compatibility_runtime() {
   TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
     TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
     "${compose[@]}" up -d --no-deps --no-build --force-recreate \
-    --wait --wait-timeout 240 rec-api >/dev/null 2>&1 || rollback_failed=1
+    --wait --wait-timeout 240 \
+    rec-temporal rec-processing-worker rec-api >/dev/null 2>&1 || rollback_failed=1
+  verify_processing_runtime_health || rollback_failed=1
   verify_api_dispatch_gate false false || rollback_failed=1
   if [[ "$rollback_failed" == "0" ]]; then
     echo "rollback_result=pass"
@@ -244,6 +300,123 @@ restore_compatibility_runtime() {
     echo "rollback_runtime_sha=$expected_sha"
     echo "dispatch_stopped=true"
     echo "legacy_playback_guard_retained=true"
+  else
+    echo "rollback_attempt=compatibility_runtime_failed"
+  fi
+  return "$rollback_failed"
+}
+
+wait_for_previous_temporal_health() {
+  local temporal_container="$1" attempt
+  for ((attempt = 0; attempt < 60; attempt++)); do
+    if docker exec "$temporal_container" temporal operator cluster health \
+      --address rec-temporal:7233 >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+wait_for_previous_processing_pollers() {
+  local temporal_container="$1" worker_hostname="$2" attempt workflow_pollers activity_pollers
+  for ((attempt = 0; attempt < 60; attempt++)); do
+    workflow_pollers="$(docker exec "$temporal_container" temporal task-queue describe \
+      --address rec-temporal:7233 \
+      --task-queue twobrain-rec-processing \
+      --legacy-mode \
+      --task-queue-type-legacy workflow 2>/dev/null)"
+    activity_pollers="$(docker exec "$temporal_container" temporal task-queue describe \
+      --address rec-temporal:7233 \
+      --task-queue twobrain-rec-processing \
+      --legacy-mode \
+      --task-queue-type-legacy activity 2>/dev/null)"
+    if { grep -Fq "@$worker_hostname" <<<"$workflow_pollers" \
+        || grep -Fq "graf-processing:$worker_hostname" <<<"$workflow_pollers"; } \
+      && { grep -Fq "@$worker_hostname" <<<"$activity_pollers" \
+        || grep -Fq "graf-processing:$worker_hostname" <<<"$activity_pollers"; }; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+restore_previous_safe_processing_runtime() {
+  local current_schema="$1"
+  local rollback_failed=0 temporal_container processing_container worker_hostname media_container
+  if [[ "$previous_schema_head" != "$expected_schema_head" \
+    || "$current_schema" != "$previous_schema_head" ]]; then
+    echo "rollback_result=blocked"
+    echo "rollback_target=forward_fix_required"
+    echo "rollback_backup_reference=${backup_reference:-unavailable}"
+    return 1
+  fi
+  echo "rollback_fallback=previous_safe_processing_runtime"
+  git reset --hard "$previous_sha" >/dev/null 2>&1 || rollback_failed=1
+  if [[ "$rollback_failed" == "0" ]]; then
+    "${compose[@]}" build rec-api rec-processing-worker >/dev/null 2>&1 \
+      || rollback_failed=1
+  fi
+
+  if [[ "$rollback_failed" == "0" ]]; then
+    media_container="$("${compose[@]}" ps -aq rec-media-worker 2>/dev/null || true)"
+    "${compose[@]}" stop rec-media-worker rec-api rec-processing-worker rec-temporal \
+      >/dev/null 2>&1 || true
+    [[ -z "$media_container" ]] \
+      || docker rm -f "$media_container" >/dev/null 2>&1 \
+      || true
+    "${compose[@]}" up -d --no-deps --no-build --force-recreate rec-temporal \
+      >/dev/null 2>&1 || rollback_failed=1
+  fi
+  if [[ "$rollback_failed" == "0" ]]; then
+    temporal_container="$("${compose[@]}" ps -q rec-temporal 2>/dev/null || true)"
+    if [[ -z "$temporal_container" ]]; then
+      rollback_failed=1
+    else
+      docker network disconnect twobrain-rec-media-private "$temporal_container" \
+        >/dev/null 2>&1 || rollback_failed=1
+      docker restart "$temporal_container" >/dev/null 2>&1 || rollback_failed=1
+      wait_for_previous_temporal_health "$temporal_container" || rollback_failed=1
+    fi
+  fi
+
+  if [[ "$rollback_failed" == "0" ]]; then
+    "${compose[@]}" up -d --no-deps --no-build --force-recreate rec-processing-worker \
+      >/dev/null 2>&1 || rollback_failed=1
+  fi
+  if [[ "$rollback_failed" == "0" ]]; then
+    processing_container="$("${compose[@]}" ps -q rec-processing-worker 2>/dev/null || true)"
+    worker_hostname="$(docker inspect "$processing_container" --format '{{.Config.Hostname}}' \
+      2>/dev/null || true)"
+    if [[ -z "$processing_container" || -z "$worker_hostname" ]]; then
+      rollback_failed=1
+    else
+      wait_for_previous_processing_pollers "$temporal_container" "$worker_hostname" \
+        || rollback_failed=1
+    fi
+  fi
+
+  if [[ "$rollback_failed" == "0" ]]; then
+    TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
+      TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
+      "${compose[@]}" up -d --no-deps --no-build --force-recreate \
+      --wait --wait-timeout 240 rec-api >/dev/null 2>&1 || rollback_failed=1
+  fi
+  if [[ "$rollback_failed" == "0" ]]; then
+    verify_api_dispatch_gate false false || rollback_failed=1
+    curl -fsS https://rec.2brain.pro/api/v1/health/live >/dev/null 2>&1 \
+      || rollback_failed=1
+    curl -fsS https://rec.2brain.pro/api/v1/health/ready >/dev/null 2>&1 \
+      || rollback_failed=1
+  fi
+
+  if [[ "$rollback_failed" == "0" ]]; then
+    echo "rollback_result=pass"
+    echo "rollback_target=previous_safe_processing_runtime"
+    echo "rollback_runtime_sha=$previous_sha"
+    echo "dispatch_stopped=true"
+    echo "media_worker_present=false"
   else
     echo "rollback_result=blocked"
     echo "rollback_target=forward_fix_required"
@@ -286,7 +459,16 @@ restore_previous_runtime() {
     fi
     return
   fi
-  restore_compatibility_runtime || true
+  if ! restore_compatibility_runtime; then
+    if [[ "$previous_schema_head" == "$expected_schema_head" \
+      && "$current_schema" == "$previous_schema_head" ]]; then
+      restore_previous_safe_processing_runtime "$current_schema" || true
+    else
+      echo "rollback_result=blocked"
+      echo "rollback_target=forward_fix_required"
+      echo "rollback_backup_reference=${backup_reference:-unavailable}"
+    fi
+  fi
 }
 
 rollback_on_exit() {
@@ -323,6 +505,28 @@ if ! validate_runtime_secret_group; then
 fi
 export TWOBRAIN_RUNTIME_SECRET_GID="$runtime_secret_gid"
 echo "runtime_secret_group_result=pass"
+
+for runtime_service_secret in \
+  "${GRAF_CREDENTIAL_ENCRYPTION_KEY_SECRET_FILE:-./secrets/graf_credential_encryption_key}" \
+  "${TWOBRAIN_WEB_CSRF_SECRET_FILE:-./secrets/twobrain_web_csrf_secret}" \
+  "${TWOBRAIN_POSTAL_API_SECRET_FILE:-./secrets/twobrain_postal_api_key}" \
+  "${TWOBRAIN_YANDEX_CLIENT_SECRET_FILE:-./secrets/twobrain_yandex_client_secret}" \
+  "${TWOBRAIN_VK_CLIENT_SECRET_FILE:-./secrets/twobrain_vk_client_secret}" \
+  "${TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE:-./secrets/twobrain_support_incident_github_token}" \
+  "${TWOBRAIN_MEDIASCRIBE_API_KEY_FILE:-./secrets/twobrain_mediascribe_api_key}" \
+  "${TWOBRAIN_MINIO_API_ACCESS_KEY_FILE:-./secrets/twobrain_minio_api_access_key}" \
+  "${TWOBRAIN_MINIO_API_SECRET_KEY_FILE:-./secrets/twobrain_minio_api_secret_key}" \
+  "${TWOBRAIN_SMOKE_CREDENTIAL_FILE:-./secrets/twobrain_smoke_credential}" \
+  "${TWOBRAIN_POSTGRES_PASSWORD_FILE:-./secrets/twobrain_postgres_password}" \
+  "${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}" \
+  "${TWOBRAIN_MINIO_ROOT_PASSWORD_FILE:-./secrets/twobrain_minio_root_password}"; do
+  if ! secure_runtime_secret_file "$runtime_service_secret"; then
+    echo "deploy_result=blocked"
+    echo "reason=runtime_service_secret_permissions_invalid"
+    exit 1
+  fi
+done
+echo "runtime_service_secret_permissions_result=pass"
 
 ensure_generated_secret \
   "${TWOBRAIN_POSTGRES_APP_PASSWORD_FILE:-./secrets/twobrain_postgres_app_password}" 32
@@ -419,6 +623,7 @@ fi
 echo "image_capability_result=pass"
 echo "profile_contract_result=pass"
 
+capture_processing_runtime_baseline
 runtime_mutated=1
 "${compose[@]}" stop rec-media-worker >/dev/null 2>&1 || true
 TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
@@ -430,6 +635,14 @@ TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
   rec-minio-init \
   rec-temporal \
   rec-processing-worker
+
+if ! verify_processing_runtime_health; then
+  echo "deploy_result=blocked"
+  echo "reason=processing_runtime_readiness_failed"
+  exit 1
+fi
+echo "temporal_readiness_result=pass"
+echo "processing_worker_readiness_result=pass"
 
 if ! verify_api_dispatch_gate false false; then
   echo "deploy_result=blocked"
@@ -596,6 +809,14 @@ fi
 
 curl -fsS https://rec.2brain.pro/api/v1/health/live >/dev/null
 curl -fsS https://rec.2brain.pro/api/v1/health/ready >/dev/null
+
+if ! verify_processing_runtime_health; then
+  echo "deploy_result=blocked"
+  echo "reason=final_processing_runtime_readiness_failed"
+  exit 1
+fi
+echo "final_temporal_readiness_result=pass"
+echo "final_processing_worker_readiness_result=pass"
 
 echo "automatic_retry_result=required_post_deploy"
 echo "backfill_inventory_result=required_post_deploy"
