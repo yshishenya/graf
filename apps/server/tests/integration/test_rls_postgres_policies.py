@@ -682,11 +682,11 @@ async def test_auth_callback_completion_requires_auth_bootstrap_context(
 
     async with rls_engine.connect() as conn:
         await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
-        with pytest.raises(Exception, match="row-level security|violates"):
-            await conn.execute(
-                text("update auth_callback_states set result='completed' where id=:id"),
-                {"id": callback_id},
-            )
+        blocked_update = await conn.execute(
+            text("update auth_callback_states set result='completed' where id=:id"),
+            {"id": callback_id},
+        )
+        assert blocked_update.rowcount == 0
         await conn.rollback()
 
     async with rls_engine.begin() as conn:
