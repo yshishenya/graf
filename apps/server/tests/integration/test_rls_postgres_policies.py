@@ -805,6 +805,11 @@ async def test_provider_link_callback_lookup_requires_exact_state_nonce(
             text("select count(*) from workspace_provider_link_states where id=:id"),
             {"id": link_id},
         )
+        wrong_nonce_update = await conn.execute(
+            text("update workspace_provider_link_states set status='callback_verified' where id=:id"),
+            {"id": link_id},
+        )
+        await conn.rollback()
 
     async with rls_engine.connect() as conn:
         await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
@@ -819,12 +824,19 @@ async def test_provider_link_callback_lookup_requires_exact_state_nonce(
             text("select count(*) from workspace_provider_link_states where id=:id"),
             {"id": link_id},
         )
+        foreign_update = await conn.execute(
+            text("update workspace_provider_link_states set status='callback_verified' where id=:id"),
+            {"id": link_id},
+        )
+        await conn.rollback()
 
     assert missing_context == 0
     assert matching_nonce == 1
     assert wrong_nonce == 0
+    assert wrong_nonce_update.rowcount == 0
     assert owner_request == 1
     assert foreign_request == 0
+    assert foreign_update.rowcount == 0
 
 
 @pytest.mark.asyncio
