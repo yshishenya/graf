@@ -527,6 +527,46 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
     assert identity.provider == "vk"
     assert [session.id for session in sessions] == [session_id]
 
+    repeat_start = client.post(
+        "/api/v1/auth/providers/vk/link/start",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    repeat_link_id = UUID(repeat_start.json()["link_state_id"])
+    repeat_state = parse_qs(urlparse(repeat_start.json()["authorization_url"]).query)["state"][0]
+    repeat_callback = client.get(
+        "/api/v1/auth/callback/vk",
+        params={"state": repeat_state, "code": "vk:linked-user"},
+        follow_redirects=False,
+    )
+    assert repeat_callback.status_code == 303
+    idempotent = client.post(
+        f"/api/v1/auth/provider-links/{repeat_link_id}/confirm",
+        headers={
+            "Authorization": f"Bearer {login.json()['session_token']}",
+            "X-CSRF-Token": csrf,
+        },
+    )
+    assert idempotent.status_code == 200
+    assert idempotent.json() == {"provider": "vk", "status": "confirmed", "idempotent": True}
+
+    async def count_identities() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            identities = list(
+                await db.scalars(
+                    select(ExternalIdentity).where(
+                        ExternalIdentity.user_id == UUID(login.json()["user_id"]),
+                        ExternalIdentity.provider == "vk",
+                    )
+                )
+            )
+            return len(identities)
+
+    assert asyncio.run(count_identities()) == 1
+
 
 def test_provider_link_callback_replay_scrubs_pending_candidate(monkeypatch, client: TestClient) -> None:
     _patch_fake_providers(monkeypatch, client)
