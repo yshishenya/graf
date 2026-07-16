@@ -113,6 +113,7 @@ def test_authenticated_auth_mutation_routes_require_web_csrf_dependency() -> Non
         "/api/v1/auth/policy",
         "/api/v1/auth/link",
         "/api/v1/auth/providers/{provider}/link/start",
+        "/api/v1/auth/provider-links/{link_state_id}/confirm",
         "/api/v1/auth/devices/register",
         "/api/v1/auth/devices/{device_id}/revoke",
     }
@@ -495,11 +496,22 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
     assert linked_identity is None
     assert [session.id for session in sessions] == [session_id]
 
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, login.json()["session_token"])
+    missing_csrf = client.post(
+        f"/api/v1/auth/provider-links/{link_id}/confirm",
+    )
+    assert missing_csrf.status_code == 403
+
     confirmed = client.post(
         f"/api/v1/auth/provider-links/{link_id}/confirm",
         headers={
             "Authorization": f"Bearer {login.json()['session_token']}",
             "X-CSRF-Token": csrf,
+        },
+        json={
+            "candidate_provider": "yandex",
+            "candidate_provider_subject": "forged-provider-subject",
+            "candidate_email": "forged@example.test",
         },
     )
     assert confirmed.status_code == 200

@@ -69,7 +69,7 @@
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] Keep the deprecated direct link schema/route as a `409 provider_link_requires_verified_callback` compatibility guard and ensure confirmation ignores all non-identifier request input in `apps/server/src/twobrain_rec_server/api/auth.py`.
+- [X] T017 [US2] Keep the deprecated direct link schema/route as a `409 provider_link_requires_verified_callback` compatibility guard and ensure confirmation ignores all non-identifier request input in `apps/server/src/twobrain_rec_server/api/auth.py`.
 - [ ] T018 [US2] Centralize safe provider-link audit metadata and fingerprints without raw claims, state, authorization codes or tokens in `apps/server/src/twobrain_rec_server/auth/provider_links.py` and `apps/server/src/twobrain_rec_server/auth/audit.py`.
 
 **Checkpoint**: Every direct/raw subject path is a safe non-mutating rejection.
