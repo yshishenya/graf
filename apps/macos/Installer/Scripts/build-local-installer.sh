@@ -26,6 +26,8 @@ OUTPUT_PKG="${1:-"$BUILD_DIR/graf-local.pkg"}"
 APP_SIGN_IDENTITY="${GRAF_APP_SIGN_IDENTITY:-${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}}"
 UPDATE_FEED_URL="${GRAF_UPDATE_FEED_URL:-}"
 SPARKLE_PUBLIC_ED_KEY="${GRAF_SPARKLE_PUBLIC_ED_KEY:-}"
+UPDATE_SIGNING_MANIFEST="$INSTALLER_DIR/UpdateSigningKey.json"
+RELEASE_SIGNING_COMMON="$SCRIPT_DIR/release-signing-common.sh"
 ALLOW_ADHOC_APP_SIGNING="${GRAF_ALLOW_ADHOC_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}}"
 ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING="${GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-0}}"
 DEVELOPER_TOOLS_STATUS=$(DevToolsSecurity -status 2>&1 || true)
@@ -78,11 +80,13 @@ EOF
 esac
 echo "Building GRAF version $VERSION" >&2
 
-if { [ -n "$UPDATE_FEED_URL" ] && [ -z "$SPARKLE_PUBLIC_ED_KEY" ]; } ||
-   { [ -z "$UPDATE_FEED_URL" ] && [ -n "$SPARKLE_PUBLIC_ED_KEY" ]; }; then
-  echo "Incomplete trusted update configuration: set both GRAF_UPDATE_FEED_URL and GRAF_SPARKLE_PUBLIC_ED_KEY, or neither." >&2
+[ -r "$RELEASE_SIGNING_COMMON" ] || {
+  echo "Release-signing trust helper is missing." >&2
   exit 1
-fi
+}
+# shellcheck source=release-signing-common.sh
+. "$RELEASE_SIGNING_COMMON"
+
 if [ -n "$UPDATE_FEED_URL" ]; then
   case "$UPDATE_FEED_URL" in
     https://*) ;;
@@ -110,11 +114,17 @@ if [ -n "$UPDATE_FEED_URL" ]; then
       exit 1
       ;;
   esac
-  SPARKLE_PUBLIC_KEY_BYTES=$(printf '%s' "$SPARKLE_PUBLIC_ED_KEY" | /usr/bin/base64 -D 2>/dev/null | wc -c | tr -d ' ')
-  if [ "$SPARKLE_PUBLIC_KEY_BYTES" != "32" ]; then
-    echo "GRAF_SPARKLE_PUBLIC_ED_KEY must be a base64-encoded 32-byte Ed25519 public key." >&2
+  if ! release_signing_require_active_manifest "$UPDATE_SIGNING_MANIFEST"; then
     exit 1
   fi
+  if [ -n "$SPARKLE_PUBLIC_ED_KEY" ] && [ "$SPARKLE_PUBLIC_ED_KEY" != "$RELEASE_SIGNING_PUBLIC_KEY" ]; then
+    echo "GRAF_SPARKLE_PUBLIC_ED_KEY must equal the active public signing manifest; it cannot override trust." >&2
+    exit 1
+  fi
+  SPARKLE_PUBLIC_ED_KEY=$RELEASE_SIGNING_PUBLIC_KEY
+elif [ -n "$SPARKLE_PUBLIC_ED_KEY" ]; then
+  echo "Incomplete trusted update configuration: set GRAF_UPDATE_FEED_URL with the active public signing manifest, or neither." >&2
+  exit 1
 fi
 
 rm -rf "$BUILD_DIR"

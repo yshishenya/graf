@@ -17,7 +17,8 @@ git diff --check
 sh -n apps/macos/Installer/Scripts/prepare-app-update.sh
 sh -n apps/macos/Installer/Scripts/provision-release-signing-custody.sh
 sh -n apps/macos/Installer/Scripts/verify-release-signing-custody.sh
-swift test --package-path apps/macos/Shared --filter InstallerLifecycleEvidenceTests
+sh apps/macos/Installer/Scripts/test-release-signing-custody.sh
+swift test --package-path apps/macos --filter InstallerLifecycleEvidenceTests
 ```
 
 Expected result: scripts are syntactically valid, focused tests pass, and no
@@ -36,22 +37,29 @@ account and a different test key: each must fail before ZIP/appcast creation.
 ## 3. Protected cloud-channel proof
 
 For code acceptance, use a separate non-production protected environment with a
-disposable test signer. Run `verify-release-signing-custody.yml` manually from
-the approved default branch with the test public `keyId`. Download its safe
-attestation and pass it to the local verifier. Do not use this test secret to
-activate the future production generation.
+disposable test signer. Run the custody verification workflow manually from the
+protected master branch with the test public key identifier and an exact current
+tag. Download its safe attestation and verify only its safe fields and the
+workflow result; do not pass a test-environment attestation to the production
+local verifier. Do not use this test secret to activate the future production
+generation.
 
-Expected result: both channels report `ready` only if their derived public
-identifiers equal the app and manifest.  A missing secret, wrong secret, stale
-tag, or malformed attestation is `unavailable` and cannot be treated as release
-success.
+Expected result: the protected test workflow reports matching, missing and
+mismatched test-secret states without production activation. The production
+local verifier may report both channels `ready` only after the active production
+manifest, candidate app, named Keychain recovery signer and current production
+attestation agree. A missing secret, wrong secret, stale tag, malformed or
+expired attestation is `unavailable` and cannot be treated as release success.
 
 ## 4. Cloud signing proof without publication
 
-Create a draft release for a disposable tag with a candidate ZIP and Russian
-notes.  Dispatch `sign-graf-app-update.yml` with the candidate version, exact
-tag and known predecessor version.  The workflow must validate provenance,
-identity and key equality, then upload signed artifacts only to the draft.
+Create a draft release for a disposable tag with a candidate-app ZIP,
+predecessor-app ZIP, Russian notes and a fresh metadata-only Keychain
+attestation for that exact tag/commit. Dispatch the draft-signing workflow from
+protected master with the candidate version, exact tag, known predecessor and
+Keychain-attestation asset name. The workflow must validate provenance,
+identity, manifest, both channel attestations and key equality, then upload
+signed artifacts only to the draft.
 
 Expected result: draft artifacts include a ZIP, appcast, checksum and safe
 attestation; no production download host or live `graf-appcast.xml` changes.

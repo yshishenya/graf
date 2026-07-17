@@ -24,21 +24,29 @@ regular release bundle embeds it.
 
 ## Signing Channel Attestation
 
-**Location**: transient local output or GitHub Actions artifact; never copied to
-the public appcast/download host.
+**Location**: metadata-only local Keychain evidence or GitHub Actions artifact;
+the Keychain evidence is attached only to the exact draft release that needs
+it, never copied to the public appcast/download host.
 
 | Field | Type | Rules |
 | --- | --- | --- |
 | `schemaVersion` | integer | Must match supported safe-attestation schema. |
-| `channel` | enum | `github-environment` or `macos-keychain`. |
 | `keyId` | string | Must match manifest and candidate app. |
-| `state` | enum | `ready`, `degraded`, or `unavailable`; only `ready` proves routine redundancy. |
+| `trustGeneration` | integer | Must equal the active manifest generation. |
+| `channel` | enum | `github-environment` or `macos-keychain`; each release requires one fresh ready attestation from each channel. |
+| `state` | enum | Must be `ready`; a missing or degraded channel cannot authorize normal staging. |
+| `checkedAt` | UTC timestamp | Must be valid, not future-dated, and no older than 24 hours. |
 | `releaseRef` | string | A tag/ref when a workflow checked one; no credentials. |
-| `runId` | string/integer | GitHub run identifier for audit lookup; optional for local check. |
-| `createdAt` | ISO-8601 string | Check time; stale attestations cannot authorize a release. |
+| `commit` | SHA-1 string | Exact approved tag commit, never a local path. |
+| `workflow` | enum | `verify-release-signing-custody`, `sign-graf-app-update`, or `verify-release-signing-custody-local`. |
+| `runId` | integer | GitHub run identifier for a cloud attestation. |
+| `evidenceId` | UUID | Local Keychain evidence identifier; never a secret or machine path. |
 
-Validation rules: a malformed, missing, stale, or mismatched attestation is
-`unavailable`; it never becomes success based on the secret name alone.
+Validation rules: a malformed, missing, stale (wrong tag/commit/time), or
+mismatched attestation is `unavailable`; it never becomes success based on
+the secret name alone. Normal signing requires both the metadata-only local
+Keychain attestation and the current cloud attestation to match the active
+manifest and candidate app.
 
 ## Release Request
 
