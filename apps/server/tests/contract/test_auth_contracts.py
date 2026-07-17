@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -1276,7 +1277,9 @@ def test_telegram_callback_rejects_forged_signature(tmp_path, client: TestClient
     assert valid.json()["provider_subject"] == "424242"
 
 
-def test_provider_callback_requires_workspace_enrollment_policy(monkeypatch, client: TestClient) -> None:
+def test_provider_callback_creates_personal_space_when_corporate_enrollment_is_disabled(
+    monkeypatch, client: TestClient
+) -> None:
     _patch_fake_providers(monkeypatch, client, allow_self_enrollment=False)
 
     start = client.post(
@@ -1291,12 +1294,185 @@ def test_provider_callback_requires_workspace_enrollment_policy(monkeypatch, cli
         params={"state": state_nonce, "code": "NEW-UNINVITED-USER"},
     )
 
-    assert response.status_code == 403
-    assert response.json()["code"] == "workspace_enrollment_required"
-    events = _load_auth_audit_events(client)
-    failures = [event for event in events if event.event_type == "provider_callback_failed"]
-    assert len(failures) == 1
-    assert failures[0].metadata_json["error_code"] == "workspace_enrollment_required"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workspace_id"] != str(WORKSPACE_ID)
+
+    async def load() -> tuple[Workspace, list[WorkspaceMembership], list[WorkspaceJoinOffer]]:
+        async with client.app_state["sessionmaker"]() as db:
+            user_id = UUID(payload["user_id"])
+            personal = await db.scalar(
+                select(Workspace).where(
+                    Workspace.id == UUID(payload["workspace_id"]),
+                    Workspace.kind == "personal",
+                    Workspace.owner_user_id == user_id,
+                )
+            )
+            assert personal is not None
+            corporate_memberships = list(
+                await db.scalars(
+                    select(WorkspaceMembership).where(
+                        WorkspaceMembership.workspace_id == WORKSPACE_ID,
+                        WorkspaceMembership.user_id == user_id,
+                    )
+                )
+            )
+            offers = list(
+                await db.scalars(
+                    select(WorkspaceJoinOffer).where(
+                        WorkspaceJoinOffer.user_id == user_id,
+                    )
+                )
+            )
+            return personal, corporate_memberships, offers
+
+    import asyncio
+
+    personal, corporate_memberships, offers = asyncio.run(load())
+    assert personal.kind == "personal"
+    assert corporate_memberships == []
+    assert offers == []
+
+
+def test_email_signup_reuses_new_and_legacy_identities_without_bootstrap_enrollment(
+    client: TestClient,
+) -> None:
+    new_email = "new-personal@example.test"
+    legacy_email = "legacy-personal@example.test"
+    legacy_user_id = uuid4()
+
+    async def seed_legacy_user() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=legacy_user_id,
+                    organization_id=ORG_ID,
+                    external_subject=f"email:{legacy_email}",
+                    display_name="Legacy person",
+                )
+            )
+            await db.flush()
+            db.add_all(
+                (
+                    ExternalIdentity(
+                        user_id=legacy_user_id,
+                        provider="email",
+                        provider_subject=legacy_email,
+                        email=legacy_email,
+                        is_verified=True,
+                    ),
+                    WorkspaceMembership(
+                        workspace_id=WORKSPACE_ID,
+                        user_id=legacy_user_id,
+                        role="member",
+                        status="active",
+                    ),
+                )
+            )
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(seed_legacy_user())
+
+    def complete_signup(email: str) -> str:
+        started = client.post("/sign-up/email/start", data={"email": email, "next": "/meetings"})
+        assert started.status_code == 200
+        assert 'name="workspace_id"' not in started.text
+        state_match = re.search(r'name="state" value="([^"]+)"', started.text)
+        code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", started.text)
+        assert state_match is not None
+        assert code_match is not None
+        completed = client.post(
+            "/sign-up/email/verify",
+            data={
+                "email": email,
+                "code": code_match.group(1),
+                "state": state_match.group(1),
+                "next": "/meetings",
+            },
+            follow_redirects=False,
+        )
+        assert completed.status_code == 303
+        token = completed.cookies.get(AUTH_SESSION_COOKIE_NAME)
+        assert token is not None
+        return token
+
+    first_new_token = complete_signup(new_email)
+    second_new_token = complete_signup(new_email)
+    first_legacy_token = complete_signup(legacy_email)
+    second_legacy_token = complete_signup(legacy_email)
+
+    async def load_result() -> tuple[int, int, int, int, set[UUID]]:
+        async with client.app_state["sessionmaker"]() as db:
+            new_identity = await db.scalar(
+                select(ExternalIdentity).where(ExternalIdentity.email == new_email)
+            )
+            assert new_identity is not None
+            legacy_identity = await db.scalar(
+                select(ExternalIdentity).where(ExternalIdentity.email == legacy_email)
+            )
+            assert legacy_identity is not None
+            assert legacy_identity.user_id == legacy_user_id
+            new_personal_spaces = list(
+                await db.scalars(
+                    select(Workspace).where(
+                        Workspace.owner_user_id == new_identity.user_id,
+                        Workspace.kind == "personal",
+                    )
+                )
+            )
+            legacy_personal_spaces = list(
+                await db.scalars(
+                    select(Workspace).where(
+                        Workspace.owner_user_id == legacy_user_id,
+                        Workspace.kind == "personal",
+                    )
+                )
+            )
+            bootstrap_memberships = list(
+                await db.scalars(
+                    select(WorkspaceMembership).where(
+                        WorkspaceMembership.workspace_id == WORKSPACE_ID,
+                        WorkspaceMembership.user_id.in_((new_identity.user_id, legacy_user_id)),
+                    )
+                )
+            )
+            sessions = list(
+                await db.scalars(
+                    select(AuthSession).where(
+                        AuthSession.session_token_hash.in_(
+                            tuple(
+                                hashlib.sha256(token.encode()).hexdigest()
+                                for token in (
+                                    first_new_token,
+                                    second_new_token,
+                                    first_legacy_token,
+                                    second_legacy_token,
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+            assert len(new_personal_spaces) == 1
+            assert len(legacy_personal_spaces) == 1
+            return (
+                len(new_personal_spaces),
+                len(legacy_personal_spaces),
+                len(bootstrap_memberships),
+                len(sessions),
+                {session.workspace_id for session in sessions},
+            )
+
+    new_spaces, legacy_spaces, bootstrap_memberships, session_count, session_workspaces = asyncio.run(
+        load_result()
+    )
+    assert new_spaces == 1
+    assert legacy_spaces == 1
+    assert bootstrap_memberships == 1
+    assert session_count == 4
+    assert WORKSPACE_ID not in session_workspaces
 
 
 def test_provider_callback_creates_offer_and_personal_space_without_auto_join(monkeypatch, client: TestClient) -> None:

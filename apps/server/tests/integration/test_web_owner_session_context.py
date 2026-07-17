@@ -523,15 +523,17 @@ def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
     assert 'action="/login/email/start"' in start.text
 
 
-def test_browser_email_login_start_rejects_unknown_workspace_without_code(client) -> None:
+def test_browser_email_login_ignores_public_workspace_id_and_uses_internal_bootstrap(client) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+
     response = client.post(
         "/login/email/start",
         data={"email": BROWSER_OWNER_EMAIL, "workspace_id": str(uuid4()), "next": "/meetings"},
     )
 
-    assert response.status_code == 400
-    assert "Не удалось отправить код для этого кабинета" in response.text
-    assert "Код для локальной проверки" not in response.text
+    assert response.status_code == 200
+    assert "Код для локальной проверки" in response.text
+    assert "workspace_id" not in response.text
 
 
 def test_browser_email_login_start_rejects_unknown_email_without_code(client) -> None:
@@ -793,7 +795,7 @@ def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:
     assert client.portal.call(read_rejected_signup) == ("failed", "email_code_invalid", None)
 
 
-def test_browser_email_signup_requires_workspace_enrollment_policy(client) -> None:
+def test_browser_email_signup_creates_a_personal_space_when_corporate_enrollment_is_disabled(client) -> None:
     signup_email = "closed-signup@example.test"
 
     start = client.post(
@@ -801,19 +803,12 @@ def test_browser_email_signup_requires_workspace_enrollment_policy(client) -> No
         data={"email": signup_email, "next": "/meetings"},
     )
 
-    assert start.status_code == 403
-    assert "Регистрация в этом кабинете закрыта" in start.text
-    assert 'action="/sign-up/email/verify"' not in start.text
-
-    async def no_created_identity() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == signup_email))
-            assert identity is None
-
-    client.portal.call(no_created_identity)
+    assert start.status_code == 200
+    assert 'action="/sign-up/email/verify"' in start.text
+    assert "Регистрация в этом кабинете закрыта" not in start.text
 
 
-def test_browser_email_signup_verify_rechecks_workspace_enrollment_policy(client) -> None:
+def test_browser_email_signup_is_not_retargeted_when_corporate_policy_changes(client) -> None:
     client.portal.call(_set_workspace_self_enrollment_policy, client, True)
     signup_email = "stale-policy-signup@example.test"
     start = client.post(
@@ -837,9 +832,9 @@ def test_browser_email_signup_verify_rechecks_workspace_enrollment_policy(client
         follow_redirects=False,
     )
 
-    assert callback.status_code == 400
-    assert "Регистрация в этом кабинете закрыта" in callback.text
-    assert callback.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/meetings"
+    assert callback.cookies.get(AUTH_SESSION_COOKIE_NAME)
 
 
 def test_browser_email_login_production_delivery_hides_code(monkeypatch, client) -> None:

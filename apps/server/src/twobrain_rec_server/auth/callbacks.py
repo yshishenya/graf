@@ -11,8 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.invitations import (
     create_matching_join_offers_after_login,
-    find_matching_pending_invitations,
-    matching_invitation_contacts,
 )
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.policy import (
@@ -318,14 +316,7 @@ async def _get_or_create_user_from_provider_claims(
     email: str | None,
     phone: str | None,
     display_name: str | None,
-    allow_provider_self_enrollment: bool,
 ) -> UserIdentity:
-    invitation_contacts = matching_invitation_contacts(
-        provider_subject=provider_subject,
-        provider_username=provider_username,
-        email=email,
-        phone=phone,
-    )
     user = await _user_by_external_identity(
         db,
         organization_id=organization_id,
@@ -344,13 +335,7 @@ async def _get_or_create_user_from_provider_claims(
                 context_kind="auth_bootstrap",
             ),
         )
-        membership = await db.scalar(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.user_id == user.id,
-            )
-        )
-        offers = await create_matching_join_offers_after_login(
+        await create_matching_join_offers_after_login(
             db,
             organization_id=organization_id,
             bootstrap_workspace_id=workspace_id,
@@ -361,12 +346,6 @@ async def _get_or_create_user_from_provider_claims(
             email=email,
             phone=phone,
         )
-        if membership is None and not allow_provider_self_enrollment and not offers:
-            raise CallbackFlowError(
-                "workspace_enrollment_required",
-                "workspace policy requires invite or pre-existing membership",
-                workspace_id=workspace_id,
-            )
         return user
 
     existing_identity = await db.scalar(
@@ -389,39 +368,6 @@ async def _get_or_create_user_from_provider_claims(
         "phone": phone,
         "display_name": display_name,
     }
-    if not allow_provider_self_enrollment:
-        invitations = await find_matching_pending_invitations(
-            db,
-            organization_id=organization_id,
-            provider=provider,
-            contacts=invitation_contacts,
-        )
-        if not invitations:
-            raise CallbackFlowError(
-                "workspace_enrollment_required",
-                "workspace policy requires invite or pre-existing membership",
-                workspace_id=workspace_id,
-            )
-        user = await _create_scoped_user(
-            db,
-            organization_id=organization_id,
-            workspace_id=workspace_id,
-            provider=provider,
-            provider_subject=provider_subject,
-            profile=profile,
-        )
-        await create_matching_join_offers_after_login(
-            db,
-            organization_id=organization_id,
-            bootstrap_workspace_id=workspace_id,
-            user_id=user.id,
-            provider=provider,
-            provider_subject=provider_subject,
-            provider_username=provider_username,
-            email=email,
-            phone=phone,
-        )
-        return user
     user = await _create_scoped_user(
         db,
         organization_id=organization_id,
@@ -560,7 +506,7 @@ async def resolve_callback_to_user(
         raise CallbackFlowError("callback_parse_error", "unable to parse callback payload") from exc
 
     try:
-        policy = await _assert_provider_allowed(db, state.workspace_id, identity.provider)
+        await _assert_provider_allowed(db, state.workspace_id, identity.provider)
         workspace = await assert_workspace_active(db, state.workspace_id)
     except CallbackFlowError as exc:
         await _mark_state_error(state, exc.code, now=now)
@@ -613,7 +559,6 @@ async def resolve_callback_to_user(
             email=identity.email,
             phone=identity.phone,
             display_name=identity.display_name,
-            allow_provider_self_enrollment=policy.allow_provider_self_enrollment,
         )
     except CallbackFlowError as exc:
         await _mark_state_error(state, exc.code, now=now)
@@ -641,7 +586,7 @@ async def resolve_callback_to_user(
             WorkspaceMembership.status == "active",
         )
     )
-    if policy.allow_provider_self_enrollment or membership is None:
+    if membership is None:
         workspace = personal_workspace
     browser_device = None
     if _is_browser_requested_redirect(state.requested_redirect):
