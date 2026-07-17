@@ -9,9 +9,9 @@ This model defines only the new first-party recording form. It does not migrate 
 | Entity | Identity | Required fields / invariant |
 | --- | --- | --- |
 | `RecordingTimeline` | `timelineVersion`, recording epoch, output frame index | One monotonic 48 kHz mono frame sequence; each source batch has PTS, duration, actual input rate, discontinuity and route generation. Gap becomes silence; overlap is trimmed; unsafe loss fails integrity. |
-| `CanonicalMixProfile` | immutable profile ID/version in v5 manifest | Bounded transparent gain/peak protection only; no AEC, VAD trimming, amplitude gate, mute or text transformation. |
+| `CanonicalMixProfile` | `canonical-mix.v1` in v5 manifest | Exact sample equation `0.5 × microphone + 0.5 × system` after finite mono normalization; no adaptive gain, ducking, AEC, VAD trimming, amplitude gate, mute or text transformation. |
 | `TranscriptionArtifact` | `meeting-transcription.wav`, local role `mixed_meeting_audio`, transport role `media` | PCM s16le, mono, 16 kHz, nonempty, closed, SHA-256/byte count/duration/frame count matching manifest. Sole ASR source. |
-| `PlaybackArtifact` | `meeting-review.m4a`, local role `review_playback`, transport role `playback` | AAC-LC M4A, mono, 48 kHz, nonempty, closed, SHA-256/byte count/duration matching manifest and same timeline subject to declared AAC priming. Never an ASR source. |
+| `PlaybackArtifact` | `meeting-review.m4a`, local role `review_playback`, transport role `playback` | AAC-LC M4A, mono, 48 kHz, 96 kbit/s writer target, nonempty, closed, SHA-256/byte count/duration matching manifest and same timeline subject to declared AAC priming. Never an ASR source. |
 | `RecordingPackageV5` | `directoryId`, `sessionId`, immutable manifest SHA-256 | Exactly manifest + media + playback final artifacts. No `mic.wav`, `incoming.wav`, `.partial` or hidden raw source file. |
 
 ## Manifest Shape And Compatibility

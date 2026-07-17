@@ -36,6 +36,7 @@ The two inputs are app-owned capture batches. They are not persisted as final fi
 
 - The PCM fan-out call sequence is single-writer and ordered by canonical frame index.
 - WAV output receives the same canonical frames after stateful 48 → 16 kHz conversion; M4A receives them at 48 kHz.
+- The common-frame mix is exactly `0.5 × microphone + 0.5 × system` under `canonical-mix.v1`; no adaptive gain or ducking is permitted.
 - A writer failure is propagated to finalization; `try?`, nil buffer/channel, skipped flush or missing close cannot be reported as a ready artifact.
 - Review audio's AAC encoder padding is a container property, not a timeline drift allowance.
 - Playback route selection/volume are never modified by the writer or mix.

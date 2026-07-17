@@ -25,6 +25,12 @@ desktop package → GRAF object storage → server staging of media WAV only
 - One accepted revision owns one external job. If a POST outcome is unknown, record a safe blocked state and do not retry with a second job.
 - Poll/import stays revision-bound and idempotent; result timestamps and speaker boundaries come from the one ASR result rather than a two-result merge.
 
+## Bounded Operational Outcomes
+
+- Every MediaScribe HTTP request uses the existing explicit 30-second request timeout. A connection failure conclusively before request delivery may use the established retry lifecycle; any timeout or malformed/ambiguous response after delivery might have occurred is an unknown submission outcome and blocks automatic resubmission.
+- Staging is limited to the existing accepted-audio size policy and available temporary capacity. Missing object, size/digest mismatch or invalid WAV yields a source-input block; unavailable temporary storage yields the existing bounded retryable storage state.
+- Polling, result parsing and playback normalization preserve their existing finite workflow/deadline policy. Malformed provider data, unavailable provider and deletion/lifecycle conflicts remain typed, content-safe statuses; none may create an unbounded loop or publish a false result.
+
 ## Playback and Deletion
 
 The existing playback-normalization pipeline validates/reuses the v5 `playback` candidate. It must select the `media` artifact—not historic mic/system tracks—when it needs the revision's authoritative source fingerprint.

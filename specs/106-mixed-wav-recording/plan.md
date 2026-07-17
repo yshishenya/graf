@@ -78,7 +78,7 @@ Create a small native `CanonicalRecordingWriter` boundary that receives the alre
 1. a statefully converted 16 kHz PCM s16le WAV via `AVAudioConverter`, with explicit end-of-stream flush and RIFF/header validation;
 2. a 48 kHz mono AAC-LC M4A through `AVAudioFile`, with complete close and actual-container validation.
 
-The mix profile is one fixed, versioned, bounded product profile. It may use transparent per-source gain and peak protection to prevent clipping, but it must not mute a participant, infer speech as a gate, delete silence, perform AEC, create another retained audio representation or branch the ASR and playback source. The profile and all timing metadata are part of v5 package truth. Both files are atomically renamed only after validation. Any partial artifact is deleted and cannot enter the queue.
+The mix profile is `canonical-mix.v1`: each finite normalized mono sample contributes exactly `0.5` from microphone plus `0.5` from system audio. The fixed average cannot clip valid `[-1, 1]` inputs, preserves both sources and avoids any adaptive gain, ducking, mute, speech inference or silence removal. M4A uses AAC-LC mono 48 kHz with a 96 kbit/s writer target. The profile and all timing metadata are part of v5 package truth. Both files are atomically renamed only after validation. Any partial artifact is deleted and cannot enter the queue.
 
 ### 3. Immutable package v5 and truthful upload progress
 

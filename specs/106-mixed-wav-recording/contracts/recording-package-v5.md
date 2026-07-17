@@ -38,6 +38,7 @@ The file is generated directly from canonical 48 kHz PCM through a stateful nati
 
 - one AAC-LC audio stream;
 - mono, exactly 48,000 Hz;
+- 96 kbit/s writer target;
 - no video, data, subtitle or attachment stream;
 - valid final container, byte count, SHA-256 and declared duration;
 - same canonical PCM timeline as WAV, allowing only separately recorded AAC encoder priming/remainder.
@@ -54,7 +55,7 @@ For the 60-minute controlled acceptance, WAV, decoded M4A and transcript timelin
 
 ## Mixing Contract
 
-One fixed, versioned profile mixes normalized local/system PCM before fan-out. It may use bounded gain and peak protection only to preserve intelligibility and avoid clipping. It must preserve natural silence and double-talk; it must not apply AEC, voice processing, echo cleanup, VAD trimming, amplitude presence gates, participant mute or a second retained audio representation.
+`canonical-mix.v1` mixes normalized local/system PCM before fan-out with the exact equation `0.5 × microphone + 0.5 × system` for every common-timeline frame. Valid normalized inputs are bounded to `[-1, 1]`, so this fixed average cannot clip; non-finite input is an integrity failure rather than a signal transformation. It applies no adaptive gain, normalization, ducking, participant mute or speech inference. It preserves natural silence and double-talk; it must not apply AEC, voice processing, echo cleanup, VAD trimming, amplitude presence gates or a second retained audio representation.
 
 All user-visible speech quality is tested at the final WAV/result boundary. No hidden text de-duplication may turn an invalid audio result into an accepted recording.
 
