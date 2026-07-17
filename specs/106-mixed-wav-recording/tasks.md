@@ -165,7 +165,7 @@
 - [ ] T063 Build the macOS candidate with the existing local installer workflow, perform the non-private 60-minute installed-app route/volume/timeline package check, and record metadata-only verdicts in `specs/106-mixed-wav-recording/evidence/hardware-acceptance.md`.
 - [ ] T064 Exercise an approved synthetic end-to-end package through desktop upload, server finalize, single MediaScribe-compatible result import, cabinet state, deletion and rollback rehearsal; record hashes/counts/statuses only in `specs/106-mixed-wav-recording/evidence/e2e-acceptance.md`.
 - [X] T065 Run a final source/fixture/diagnostic secret-and-legacy audit across `apps/macos`, `apps/server`, `docs/` and `specs/106-mixed-wav-recording`, then mark only evidence-backed tasks `[X]` in this file.
-- [ ] T066 Reconcile every completed task with its GitHub issue, add Russian validation/closure comments where fully satisfied, and leave unmet release/deploy work explicitly open in `specs/106-mixed-wav-recording/tasks.md`.
+- [X] T066 Reconcile every completed task with its GitHub issue, add Russian validation/closure comments where fully satisfied, and leave unmet release/deploy work explicitly open in `specs/106-mixed-wav-recording/tasks.md`.
 
 ---
 

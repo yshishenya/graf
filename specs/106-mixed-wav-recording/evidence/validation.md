@@ -28,6 +28,11 @@ installed-app UX. All results below are local and content-free.
   pre-existing TestClient warning. Its RLS production probe remained correctly
   blocked because this local lane has no disposable PostgreSQL test database;
   it is not represented as deployed proof.
+- GitHub reconciliation: every `[X]` task has its matching Feature 106 issue
+  closed with a Russian metadata-only validation comment. The only open Feature
+  106 execution issues are `T049`, `T063` and `T064`; `T066` is marked
+  complete and its closure is recorded with this checkpoint. The
+  `validate_issue_canon.py` check passed for all `211` Spec Kit issues.
 
 The installed-app hardware, exact-baseline rollback and release/deploy gates are
 intentionally still open and are documented in `hardware-acceptance.md`.

@@ -20,6 +20,8 @@ production mutation occurred.
 - The v3/v4 reader tests remain separate from v5 creation and v5 upload
   descriptors.
 
-This proves the composed local pipeline. It is not a substitute for the
-installed-app route/volume/60-minute, real upload and exact-baseline rollback
-acceptance gate.
+This proves the composed local pipeline. It does not mark T064 complete: no
+single installed desktop process has yet sent a package through a controlled
+server endpoint, and no exact-baseline rollback rehearsal has run. It is not a
+substitute for the installed-app route/volume/60-minute, real upload and
+exact-baseline rollback acceptance gate.
