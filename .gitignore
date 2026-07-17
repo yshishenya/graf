@@ -54,6 +54,10 @@ Packages/
 *.xcuserstate
 xcuserdata/
 
+# Disposable release-signing fixtures. These may exercise temporary public
+# manifests and runner-like files, but are never source, evidence, or keys.
+apps/macos/.release-signing-fixtures/
+
 # C / C++ local outputs
 bin/
 obj/

@@ -9,7 +9,11 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Защищённая custody-процедура подписи Sparkle: публичный manifest доверия,
+  named Keychain recovery signer, protected GitHub-environment signer и
+  metadata-only attestation.
+- Явный одноразовый manual bootstrap для неизбежной миграции со старого
+  недоступного ключа, без обхода обычной проверки Sparkle.
 
 ### Изменено
 - _Пока нет записей._
@@ -18,13 +22,20 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Обычный выпуск больше не принимает произвольный файл с приватным ключом.
+  CI допускает временный ключ только в runner temporary directory с правами
+  0600, удаляет его по trap и не публикует секрет, appcast или ключевой
+  материал в logs/artifacts.
+- Обычная appcast-подпись требует равенства manifest, candidate app, signer и
+  attestation; изменённый ключ или feed по-прежнему отклоняется.
 
 ### Документы
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Добавлены ручные protected workflows для безопасной проверки signer и
+  подписания только в draft GitHub Release. Публичный download host по-прежнему
+  обновляется отдельно, versioned assets раньше graf-appcast.xml.
 
 ## [2026.07.17.13] - 2026-07-17
 

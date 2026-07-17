@@ -1,0 +1,8 @@
+flowchart LR
+    Operator["Release operator"] --> Checklist["Documented local backup checklist"]
+    Checklist --> Keychain["One local Keychain account"]
+    Checklist --> File["Optional external key file"]
+    Keychain --> Stage["prepare-app-update.sh"]
+    File --> Stage
+    App["GRAF.app public key"] --> Stage
+    Stage --> Host["Public host"]

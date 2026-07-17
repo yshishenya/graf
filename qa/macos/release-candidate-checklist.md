@@ -85,6 +85,32 @@ release surface.
   and third-party attribution text from the pinned upstream release.
 - [ ] `SUFeedURL` is the approved public credential-free HTTPS appcast URL and
   `SUPublicEDKey` is the approved base64 32-byte Ed25519 public key.
+- [ ] UpdateSigningKey.json is active, contains only public metadata, and its
+  keyId, trust generation and public key match the final app SUPublicEDKey.
+- [ ] The normal GitHub signer and named Keychain recovery signer have each
+  produced matching safe key-id evidence. The disposable
+  graf-release-signing-test proof was separate and did not activate the
+  production generation.
+- [ ] A two-channel metadata-only readiness drill ran before this release, no
+  more than 90 calendar days after the prior drill and immediately after any
+  control-plane change; its retained evidence contains only timestamp,
+  generation, key ID and channel states.
+- [ ] The protected signing environments require independent reviewer approval,
+  permit the protected master branch only, and have no public-host write path.
+  Every external workflow action is pinned to a full immutable SHA.
+- [ ] The release attestation binds the active generation, exact CalVer tag,
+  commit, `github-environment` channel, `ready` state and a UTC timestamp no
+  older than 24 hours before staging. A missing, stale or mismatched
+  attestation blocks the attempt and leaves the prior staged/public appcast
+  unchanged.
+- [ ] The exact draft release also contains a fresh metadata-only
+  `macos-keychain` attestation for the same generation/tag/commit. The signing
+  workflow rejects its absence, mismatch, non-ready state or age over 24 hours
+  before generating a signed appcast.
+- [ ] A one-channel Keychain recovery release, if unavoidable, has a recorded
+  owner approval identifier and explicit degraded-fallback flag; it still
+  passes manifest/app/signer/Keychain-attestation/tag checks. A malformed cloud
+  attestation is never silently treated as a fallback.
 - [ ] Signed-feed and verify-before-extraction settings are enabled; scheduled
   checks are `86400`; automatic download/install and system profiling are off.
 - [ ] All nested Sparkle code is signed inside-out before `GRAF.app`; the app
@@ -99,6 +125,10 @@ release surface.
 - [ ] `prepare-app-update.sh` creates a versioned archive and signed appcast in
   staging only; archive length, EdDSA signatures, `arm64`, and macOS `14.5+`
   match the final app.
+- [ ] The one manual trust-bootstrap package is explicitly labelled, preserves
+  GRAF identity and permission continuity, changes only the permitted signing
+  generation, and produces no appcast. It is followed by two strictly higher
+  ordinary in-app updates with the same new public key.
 - [ ] Production update artifacts were staged from a clean commit published at the exact release tag
   and matching `origin/master`, with
   `GRAF_REQUIRE_RELEASE_PROVENANCE=1` enabled.
@@ -107,6 +137,9 @@ release surface.
   public SHA-256 matches the reviewed local release artifact.
 - [ ] The private EdDSA key, Developer ID material, notarization credentials,
   and generated signed artifacts remain outside git and issue evidence.
+- [ ] The custody fixture/secret-pattern guard passes without suppressing a
+  real value. A safe false positive is corrected in the pattern or fixture,
+  never excepted by adding a production secret.
 - [ ] An older installed build finds the staged release through both the daily
   scheduler and `GRAF > Check for Updates…`; current/offline/incompatible
   outcomes remain truthful.

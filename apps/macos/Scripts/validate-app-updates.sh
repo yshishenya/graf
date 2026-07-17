@@ -7,6 +7,7 @@ UPDATE_ARCHIVE=${3:-${GRAF_UPDATE_ARCHIVE:-}}
 UPDATE_APPCAST=${4:-${GRAF_UPDATE_APPCAST:-}}
 REQUIRE_PUBLIC_TRUST=${GRAF_REQUIRE_PUBLIC_UPDATE_TRUST:-0}
 REQUIRE_OWNER_ONLY_TRUST=${GRAF_REQUIRE_OWNER_ONLY_UPDATE_TRUST:-0}
+MANUAL_TRUST_BOOTSTRAP=${GRAF_MANUAL_TRUST_BOOTSTRAP:-0}
 
 fail() {
   echo "app-update validation failed: $*" >&2
@@ -17,6 +18,20 @@ if [ -z "$APP_BUNDLE" ]; then
   echo "usage: $0 /path/to/GRAF.app [/path/to/previous/GRAF.app] [/path/to/GRAF-version.zip] [/path/to/appcast.xml]" >&2
   exit 64
 fi
+
+case "$MANUAL_TRUST_BOOTSTRAP" in
+  0) ;;
+  1)
+    [ -n "$PREVIOUS_APP_BUNDLE" ] || fail "manual trust bootstrap requires the previous GRAF.app"
+    [ -z "$UPDATE_ARCHIVE" ] || fail "manual trust bootstrap must not validate or stage an appcast archive"
+    [ -z "$UPDATE_APPCAST" ] || fail "manual trust bootstrap must not validate or stage an appcast"
+    [ "$REQUIRE_PUBLIC_TRUST" = "0" ] || fail "manual trust bootstrap cannot claim public in-app update trust"
+    [ "$REQUIRE_OWNER_ONLY_TRUST" = "0" ] || fail "manual trust bootstrap cannot claim owner-only in-app update trust"
+    ;;
+  *)
+    fail "GRAF_MANUAL_TRUST_BOOTSTRAP must be 0 or 1"
+    ;;
+esac
 
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 EXECUTABLE="$APP_BUNDLE/Contents/MacOS/GRAF"
@@ -196,7 +211,13 @@ if [ -n "$PREVIOUS_APP_BUNDLE" ]; then
   [ "$MICROPHONE_COPY" = "$PREVIOUS_MICROPHONE_COPY" ] || fail "microphone usage description changed"
   [ "$SYSTEM_AUDIO_COPY" = "$PREVIOUS_SYSTEM_AUDIO_COPY" ] || fail "screen/system-audio usage description changed"
 
-  if [ -z "$PREVIOUS_FEED_URL" ] && [ -z "$PREVIOUS_PUBLIC_KEY" ]; then
+  if [ "$MANUAL_TRUST_BOOTSTRAP" = "1" ]; then
+    [ -n "$PREVIOUS_FEED_URL" ] && [ -n "$PREVIOUS_PUBLIC_KEY" ] || fail "manual trust bootstrap requires a configured previous app"
+    [ "$UPDATE_CONFIGURATION" = "configured" ] || fail "manual trust bootstrap requires a configured candidate app"
+    [ "$FEED_URL" = "$PREVIOUS_FEED_URL" ] || fail "manual trust bootstrap cannot change the update feed URL"
+    [ "$PUBLIC_KEY" != "$PREVIOUS_PUBLIC_KEY" ] || fail "manual trust bootstrap requires a new public signing generation"
+    UPDATE_CONTINUITY=manual-trust-bootstrap
+  elif [ -z "$PREVIOUS_FEED_URL" ] && [ -z "$PREVIOUS_PUBLIC_KEY" ]; then
     UPDATE_CONTINUITY=manual-bootstrap
   elif [ -n "$PREVIOUS_FEED_URL" ] && [ -n "$PREVIOUS_PUBLIC_KEY" ]; then
     [ "$UPDATE_CONFIGURATION" = "configured" ] || fail "a configured previous app cannot update to an updater-disabled app"
