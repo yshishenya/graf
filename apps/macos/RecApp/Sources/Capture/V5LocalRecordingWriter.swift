@@ -546,6 +546,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
              RecordingAudioTimelineError.gapExceedsBound,
              RecordingAudioTimelineError.lateBatch:
             .timelineMisaligned
+        case RecordingAudioTimelineError.missingRequiredSource:
+            .noFrames
         case RecordingAudioTimelineError.sourceOverflow:
             .writeFailed
         case CanonicalRecordingWriterError.noFrames:

@@ -61,6 +61,37 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         XCTAssertFalse(manifest.isComplete)
     }
 
+    func testV5WriterFailsClosedWhenEitherRequiredSourceHasNoFrames() throws {
+        for microphoneOnly in [true, false] {
+            let root = makeRoot("v5-required-source-\(microphoneOnly)")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+            let incoming = BufferedLocalRecordingSampleSource(channelCount: 1)
+            let writer = makeWriter(root: root, microphone: microphone, incoming: incoming)
+
+            let directory = try writer.start(
+                sessionId: "v5-required-source-\(microphoneOnly)",
+                startedAt: Date(timeIntervalSince1970: 20),
+                scopeApproval: scopeApproval(id: "scope-v5-required-source-\(microphoneOnly)"),
+                permissions: grantedPermissions()
+            )
+            if microphoneOnly {
+                microphone.append(batch(samples: Array(repeating: 0.4, count: 4_800), seconds: 200, clock: .hostTime))
+            } else {
+                incoming.append(batch(samples: Array(repeating: 0.2, count: 4_800), seconds: 200, clock: .hostTime))
+            }
+
+            let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 21))
+
+            XCTAssertEqual(manifest.failureReason, .noFrames)
+            XCTAssertFalse(manifest.isComplete)
+            XCTAssertEqual(
+                Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
+                Set(["manifest.json"])
+            )
+        }
+    }
+
     func testV5ReviewM4AIsValidPlaybackOnlyAndNeverChangesASRDescriptor() throws {
         let root = makeRoot("v5-system-audio-review")
         defer { try? FileManager.default.removeItem(at: root) }

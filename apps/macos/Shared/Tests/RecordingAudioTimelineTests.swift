@@ -125,6 +125,19 @@ final class RecordingAudioTimelineTests: XCTestCase {
         }
     }
 
+    func testFinishRejectsARecordingMissingEitherRequiredInput() throws {
+        let timeline = RecordingAudioTimeline(configuration: .init(reorderWindowFrames: 0))
+        try timeline.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.1, count: 480), at: 0)
+        )
+
+        XCTAssertThrowsError(try timeline.finish()) { error in
+            XCTAssertEqual(error as? RecordingAudioTimelineError, .missingRequiredSource)
+        }
+        XCTAssertEqual(timeline.metrics.outputFrameCount, 0)
+    }
+
     func testRejectsGapBeyondConfiguredBound() throws {
         let timeline = RecordingAudioTimeline(
             configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 0.1)

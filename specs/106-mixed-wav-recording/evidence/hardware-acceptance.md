@@ -10,6 +10,17 @@
 - Parallel `v2026.07.17.7` work must not be used as the baseline or merged
   into this feature.
 
+## Non-install candidate proof
+
+- A local-only `2026.07.17.9` candidate was built from merge
+  `a5f1a1a030bdf025c348caf6ee0a273b2de608eb` with the stable owner signing
+  identity. Its update validator passed against the separately installed
+  `2026.07.17.7` app with designated-requirement identity continuity and one
+  configured signed-feed contract.
+- The local package is intentionally not Developer ID signed or notarized. No
+  installation, launch, recording, hardware measurement or release action was
+  performed, and the parallel installed app was left untouched.
+
 ## Required future metadata-only verdicts
 
 - 60-minute v5 timeline, route and incoming-level check;

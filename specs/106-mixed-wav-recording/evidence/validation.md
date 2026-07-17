@@ -5,8 +5,12 @@ installed-app UX. All results below are local and content-free.
 
 ## 2026-07-17
 
-- Focused macOS v5 group after integrating `v2026.07.17.6`: `213` tests
-  passed, `0` failures.
+- Post-review regression: a v5 package now fails closed when either required
+  capture origin produces no frames. The timeline does not publish a
+  microphone-only or system-audio-only package; `RecordingAudioTimelineTests`
+  and `SystemAudioRecordingPackageTests` cover both forms of the failure.
+- Focused macOS v5 group after that regression: `215` tests passed, `0`
+  failures.
 - Focused server v5 and release-integration group: `117` tests passed,
   `11` expected skips, `0` failures; one pre-existing Starlette TestClient
   deprecation warning.
@@ -17,10 +21,13 @@ installed-app UX. All results below are local and content-free.
 - `docker compose -f infra/docker-compose.yml config`: passed.
 - `git diff --check`: passed.
 - `infra/scripts/ci-local.sh`: passed after the stale deleted-view test path
-  and ingest-validation ordering regression were corrected and the
-  `v2026.07.17.6` integration was merged; the macOS full suite reported `561`
-  tests, `0` failures, and the server full suite reported `1781` passed, `28`
-  skipped, with the same pre-existing TestClient warning.
+  and ingest-validation ordering regression were corrected, the
+  `v2026.07.17.6` integration was merged, and the required-input regression
+  was added; the macOS full suite reported `563` tests, `0` failures, and the
+  server full suite reported `1781` passed, `28` skipped, with the same
+  pre-existing TestClient warning. Its RLS production probe remained correctly
+  blocked because this local lane has no disposable PostgreSQL test database;
+  it is not represented as deployed proof.
 
 The installed-app hardware, exact-baseline rollback and release/deploy gates are
 intentionally still open and are documented in `hardware-acceptance.md`.

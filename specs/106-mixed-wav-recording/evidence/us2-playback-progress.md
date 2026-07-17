@@ -5,7 +5,7 @@ credential, provider request or installed app was used.
 
 ## 2026-07-17
 
-- The current focused macOS command passed: `213` tests, `0` failures.
+- The current focused macOS command passed: `215` tests, `0` failures.
   It includes v5 package completeness, valid review-M4A handling, timeline
   metadata, monotonic intermediate byte progress, resume/retry behavior,
   accessible active capture and one-action Stop.

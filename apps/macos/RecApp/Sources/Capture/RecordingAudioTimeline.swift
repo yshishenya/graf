@@ -125,6 +125,7 @@ public enum RecordingAudioTimelineError: Error, Equatable {
     case sourceOverflow
     case gapExceedsBound
     case lateBatch
+    case missingRequiredSource
     case converterFailed
     case alreadyFinished
 }
@@ -184,7 +185,14 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         defer { finished = true }
 
         if epoch == nil, !pendingBootstrapBatches.isEmpty {
+            guard hasBothSourcesInBootstrap else {
+                throw RecordingAudioTimelineError.missingRequiredSource
+            }
             try establishEpochAndProcessBootstrapBatches()
+        }
+
+        guard RecordingAudioInput.allCases.allSatisfy({ states[$0]?.lastInputEndFrame != nil }) else {
+            throw RecordingAudioTimelineError.missingRequiredSource
         }
 
         for source in RecordingAudioInput.allCases {

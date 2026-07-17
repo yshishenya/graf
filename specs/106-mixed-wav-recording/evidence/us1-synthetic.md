@@ -6,7 +6,7 @@ recording, audio bytes or transcript content was used.
 
 ## 2026-07-17
 
-- The current focused macOS command from `quickstart.md` passed: `213`
+- The current focused macOS command from `quickstart.md` passed: `215`
   tests, `0` failures. It covers the timestamped canonical writer, exact v5
   package members, WAV/M4A format and timeline relation, fail-closed
   partial/timing outcomes, upload descriptors/progress, visible Stop, and

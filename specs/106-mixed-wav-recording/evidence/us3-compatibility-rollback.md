@@ -5,7 +5,7 @@ No release, install, rollback action, audio, transcript or credential was used.
 
 ## 2026-07-17
 
-- The current focused macOS command passed: `213` tests, `0` failures,
+- The current focused macOS command passed: `215` tests, `0` failures,
   including v3/v4 read-only compatibility and v5 rejection of historical write
   behavior.
 - The focused server and release-integration group passed: `117` tests,
