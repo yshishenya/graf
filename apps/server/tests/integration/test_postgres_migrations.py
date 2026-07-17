@@ -1,5 +1,6 @@
 import importlib.util
 import re
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
@@ -27,6 +28,9 @@ USER_ID = UUID("30000000-0000-0000-0000-000000000001")
 DEVICE_ID = UUID("40000000-0000-0000-0000-000000000001")
 USER_SCOPED_RECORDING_MIGRATION = (
     ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0020_user_scoped_recording_ids.py"
+)
+WORKSPACE_ONBOARDING_MIGRATION = (
+    ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0027_workspace_account_onboarding.py"
 )
 
 
@@ -146,6 +150,40 @@ def test_alembic_revision_ids_fit_default_version_table_length() -> None:
 
         assert match is not None, migration_path.name
         assert len(match.group(1)) <= 32, migration_path.name
+
+
+def test_workspace_onboarding_migration_keeps_personal_space_and_offer_boundaries() -> None:
+    migration = WORKSPACE_ONBOARDING_MIGRATION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "0027_workspace_onboarding"' in migration
+    assert 'down_revision: str | None = "0026_active_cleanup"' in migration
+    assert '"workspace_join_offers"' in migration
+    assert '"owner_user_id"' in migration
+    assert '"kind"' in migration
+    assert "workspace_join_offers_tenant_isolation" in migration
+
+
+def test_workspace_onboarding_migration_downgrades_cleanly(tmp_path, monkeypatch) -> None:
+    database_path = tmp_path / "workspace-onboarding.db"
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+    get_settings.cache_clear()
+    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
+    alembic_config.set_main_option("script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations"))
+
+    command.upgrade(alembic_config, "head")
+    command.downgrade(alembic_config, "0026_active_cleanup")
+
+    with sqlite3.connect(database_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("select name from sqlite_master where type = 'table'")
+        }
+        workspace_columns = {row[1] for row in connection.execute("pragma table_info(workspaces)")}
+
+    get_settings.cache_clear()
+    assert "workspace_join_offers" not in tables
+    assert "kind" not in workspace_columns
+    assert "owner_user_id" not in workspace_columns
 
 
 def test_user_scoped_recording_migration_drops_both_postgres_legacy_constraint_names() -> None:
