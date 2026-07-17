@@ -233,6 +233,7 @@ GRAF_PREVIOUS_APP_BUNDLE="/absolute/path/to/previous/GRAF.app" \
 GRAF_UPDATE_RELEASE_NOTES="/absolute/path/to/release-notes-ru.md" \
 GRAF_UPDATE_DOWNLOAD_BASE_URL="https://rec.2brain.pro/static/public/downloads" \
 GRAF_SPARKLE_KEYCHAIN_ACCOUNT="approved-graf-account" \
+GRAF_REQUIRE_RELEASE_PROVENANCE=1 \
   sh apps/macos/Installer/Scripts/prepare-app-update.sh
 ```
 
@@ -243,6 +244,21 @@ URLs, Russian notes, archive metadata, signatures, architecture, and minimum
 macOS version. It writes inspectable artifacts only under
 `apps/macos/.build/updates/` by default. It does not upload, publish, tag,
 release, deploy, or alter the public feed.
+
+Production staging must set `GRAF_REQUIRE_RELEASE_PROVENANCE=1`. The helper then
+fails closed unless the worktree is clean, `HEAD` equals the published
+`origin/master` commit, and the exact `vYYYY.MM.DD.N` tag exists locally and on
+`origin` at that commit. An untagged candidate may omit this flag for local
+validation, but it must never be copied to the production update feed.
+
+After the gate passes, attach the versioned ZIP, bootstrap package, checksums,
+and Russian notes as GitHub Release assets. Verify those assets before changing
+the live catalog. On the download host copy the versioned archive and package
+first, verify their public SHA-256 values against the local release artifacts,
+and replace `graf-appcast.xml` last. Finally fetch the public appcast and archive
+again and verify their version, URL, length, EdDSA signature, and SHA-256. This
+ordering prevents an installed client from seeing a release whose archive is
+missing or differs from the reviewed artifact.
 
 Before publication, validate the final Developer ID/notarized app, archive, and
 appcast together, run an old-to-new update and a rejected/corrupt-update rollback

@@ -80,9 +80,9 @@ public actor SystemAudioCaptureService {
         runtime: SystemAudioCaptureRuntime? = nil,
         runtimeFactory: (@Sendable () -> SystemAudioCaptureRuntime)? = nil,
         sampleSource: BufferedLocalRecordingSampleSource? = nil,
-        runtimeStartTimeoutSeconds: TimeInterval = 30,
+        runtimeStartTimeoutSeconds: TimeInterval = 60,
         runtimeStartCleanupTimeoutSeconds: TimeInterval = 2,
-        runtimeStopTimeoutSeconds: TimeInterval = 2,
+        runtimeStopTimeoutSeconds: TimeInterval = 60,
         waitForTimedOutRuntimeStartCleanup: Bool? = nil,
         runtimeStartFailureLogger: (@Sendable (String) -> Void)? = nil
     ) {
