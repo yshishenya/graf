@@ -111,6 +111,12 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     assert "sqlalchemy==" in constraints
 
 
+def test_runtime_image_disables_uvicorn_access_logs() -> None:
+    dockerfile = DOCKERFILE_PATH.read_text()
+
+    assert '"--no-access-log"' in dockerfile
+
+
 def test_runtime_image_copy_sources_exist_in_repository() -> None:
     missing_sources: list[str] = []
 

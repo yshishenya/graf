@@ -51,6 +51,7 @@ from twobrain_rec_server.db.tenant_context import (
 
 @dataclass(frozen=True)
 class CallbackProfile:
+    organization_id: UUID
     user_id: UUID
     workspace_id: UUID
     auth_session_id: UUID
@@ -740,6 +741,7 @@ async def resolve_callback_to_user(
     )
 
     return CallbackProfile(
+        organization_id=workspace.organization_id,
         user_id=user.id,
         workspace_id=workspace.id,
         auth_session_id=issued.id,
