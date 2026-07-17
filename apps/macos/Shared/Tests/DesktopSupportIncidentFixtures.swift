@@ -6,8 +6,8 @@ import XCTest
 
 struct DesktopSupportIncidentFixture {
     static let schemaVersion = "desktop-support-incident.v1"
-    static let successMessage = "Запрос отправлен в поддержку. Номер: CUST-123"
-    static let failureMessage = "Не удалось связаться с поддержкой. Попробуйте ещё раз."
+    static let successMessage = "Запрос принят и передан в поддержку. Номер: CUST-123"
+    static let failureMessage = "Запрос не принят. Проверьте подключение или скопируйте безопасную сводку."
     static let supportTitle = "Связаться с поддержкой"
 
     static func incidentNumber(_ issueNumber: Int = 123) -> String {

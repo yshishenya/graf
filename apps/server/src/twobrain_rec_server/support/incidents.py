@@ -42,14 +42,15 @@ from twobrain_rec_server.support.redaction import (
 )
 
 SUPPORT_INCIDENT_RATE_LIMIT_SCOPE = "support_incident_intake"
+SUPPORT_INCIDENT_SYNC_RATE_LIMIT_SCOPE = "support_incident_sync"
 
 
 @dataclass(frozen=True, slots=True)
 class SupportIncidentSubmissionResult:
     incident_id: str
     incident_status: str
-    github_issue_number: int
-    github_issue_url: str
+    github_issue_number: int | None
+    github_issue_url: str | None
     dedupe_status: str
     affected_count: int
 
@@ -61,6 +62,23 @@ class SupportIncidentSubmissionError(RuntimeError):
         self.code = code
         self.title = title
         self.detail = detail
+
+
+def support_incident_configuration_status(settings: Settings) -> str:
+    """Return a bounded startup readiness state without exposing credential material."""
+
+    if (
+        settings.support_incident_github_owner != "yshishenya"
+        or settings.support_incident_github_repo != "crisp"
+    ):
+        return "configuration_invalid"
+    token_file = settings.support_incident_github_token_file
+    if token_file is None:
+        return "not_configured"
+    try:
+        return "configured" if token_file.read_text(encoding="utf-8").strip() else "configuration_invalid"
+    except OSError:
+        return "configuration_invalid"
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,7 +291,8 @@ async def submit_support_incident(
     tenant_scope: TenantScope,
     db: AsyncSession | None,
     payload: Mapping[str, Any],
-    github_client: Any,
+    github_client: Any | None,
+    github_failure_code: str | None = None,
     idempotency_key: str | None = None,
     received_at: datetime | None = None,
 ) -> SupportIncidentSubmissionResult:
@@ -313,14 +332,16 @@ async def submit_support_incident(
                 code="support_incident.idempotency_conflict",
                 title="Idempotency key conflict",
             )
-        if (
-            idempotent_incident.github_issue_number is not None
-            and idempotent_incident.incident_number is not None
-        ):
-            return _result_from_incident(idempotent_incident, dedupe_status="updated")
+        _ensure_incident_number(idempotent_incident)
+        await db.flush()
+        return _result_from_incident(idempotent_incident, dedupe_status="updated")
 
     await _touch_rate_limit(
-        settings=settings, tenant_scope=tenant_scope, db=db, now=now
+        settings=settings,
+        tenant_scope=tenant_scope,
+        db=db,
+        now=now,
+        rate_limit_scope=SUPPORT_INCIDENT_RATE_LIMIT_SCOPE,
     )
     incident, dedupe_status = await _upsert_incident(
         tenant_scope=tenant_scope,
@@ -330,6 +351,90 @@ async def submit_support_incident(
         idempotency_fingerprint=idempotency_fingerprint,
         idempotency_report_fingerprint=idempotency_report_fingerprint,
     )
+    _ensure_incident_number(incident)
+    await db.flush()
+    return await _synchronize_incident(
+        settings=settings,
+        db=db,
+        incident=incident,
+        github_client=github_client,
+        github_failure_code=github_failure_code,
+        dedupe_status=dedupe_status,
+        now=now,
+    )
+
+
+async def sync_support_incident(
+    *,
+    settings: Settings,
+    tenant_scope: TenantScope,
+    db: AsyncSession | None,
+    incident_id: str,
+    github_client: Any | None,
+    github_failure_code: str | None = None,
+    received_at: datetime | None = None,
+) -> SupportIncidentSubmissionResult:
+    if db is None:
+        raise SupportIncidentSubmissionError(
+            status=503,
+            code="support_incident.configuration_invalid",
+            title="Support incident store unavailable",
+        )
+    incident = await db.scalar(
+        select(SupportIncident).where(
+            SupportIncident.workspace_id == tenant_scope.workspace_id,
+            SupportIncident.reporter_user_id == tenant_scope.user_id,
+            SupportIncident.incident_number == incident_id,
+        )
+    )
+    if incident is None:
+        raise SupportIncidentSubmissionError(
+            status=404,
+            code="support_incident.not_found",
+            title="Support incident not found",
+        )
+    _ensure_incident_number(incident)
+    if incident.github_issue_number is not None:
+        return _result_from_incident(incident, dedupe_status="updated")
+
+    now = received_at or datetime.now(UTC)
+    await _touch_rate_limit(
+        settings=settings,
+        tenant_scope=tenant_scope,
+        db=db,
+        now=now,
+        rate_limit_scope=SUPPORT_INCIDENT_SYNC_RATE_LIMIT_SCOPE,
+    )
+    return await _synchronize_incident(
+        settings=settings,
+        db=db,
+        incident=incident,
+        github_client=github_client,
+        github_failure_code=github_failure_code,
+        dedupe_status="updated",
+        now=now,
+    )
+
+
+async def _synchronize_incident(
+    *,
+    settings: Settings,
+    db: AsyncSession,
+    incident: SupportIncident,
+    github_client: Any | None,
+    github_failure_code: str | None,
+    dedupe_status: str,
+    now: datetime,
+) -> SupportIncidentSubmissionResult:
+    _ensure_incident_number(incident)
+    if github_client is None:
+        _mark_sync_pending(
+            incident,
+            github_failure_code or "support_incident.configuration_invalid",
+        )
+        await db.flush()
+        return _result_from_incident(incident, dedupe_status=dedupe_status)
+
     owner = settings.support_incident_github_owner
     repo = settings.support_incident_github_repo
     try:
@@ -339,19 +444,12 @@ async def submit_support_incident(
             owner=owner,
             repo=repo,
             incident=incident,
-            report=report,
             dedupe_status=dedupe_status,
         )
     except GitHubIssueClientError as exc:
-        incident.status = _failure_status(exc.reason_code)
-        incident.github_failure_code = exc.reason_code
+        _mark_sync_pending(incident, exc.reason_code)
         await db.flush()
-        raise SupportIncidentSubmissionError(
-            status=503,
-            code=exc.reason_code,
-            title="Support incident unavailable",
-            detail="Private support issue could not be created or updated.",
-        ) from exc
+        return _result_from_incident(incident, dedupe_status=dedupe_status)
 
     issue_number = int(issue["number"])
     incident.github_issue_number = issue_number
@@ -359,10 +457,19 @@ async def submit_support_incident(
     incident.github_issue_state = str(issue.get("state") or "open")
     incident.github_last_synced_at = now
     incident.github_failure_code = None
-    incident.incident_number = f"CUST-{issue_number}"
-    incident.status = "open"
+    incident.status = "synced"
     await db.flush()
     return _result_from_incident(incident, dedupe_status=dedupe_status)
+
+
+def _ensure_incident_number(incident: SupportIncident) -> None:
+    if incident.incident_number is None:
+        incident.incident_number = f"CUST-{incident.id.hex[:12].upper()}"
+
+
+def _mark_sync_pending(incident: SupportIncident, failure_code: str) -> None:
+    incident.status = "pending_github"
+    incident.github_failure_code = failure_code
 
 
 def _redaction_error(exc: SupportIncidentRedactionError) -> SupportIncidentSubmissionError:
@@ -385,8 +492,8 @@ async def _touch_rate_limit(
     tenant_scope: TenantScope,
     db: AsyncSession,
     now: datetime,
+    rate_limit_scope: str,
 ) -> None:
-    rate_limit_scope = SUPPORT_INCIDENT_RATE_LIMIT_SCOPE
     bucket = await db.scalar(
         select(SupportIncidentRateLimitBucket).where(
             SupportIncidentRateLimitBucket.workspace_id == tenant_scope.workspace_id,
@@ -572,13 +679,14 @@ def _reported_safe_identities(report: Mapping[str, Any]) -> list[str]:
 def _result_from_incident(
     incident: SupportIncident, *, dedupe_status: str
 ) -> SupportIncidentSubmissionResult:
-    if incident.incident_number is None or incident.github_issue_number is None:
-        raise RuntimeError("Support incident is missing a synced GitHub issue")
+    if incident.incident_number is None:
+        raise RuntimeError("Support incident is missing a correlation number")
+    synced = incident.github_issue_number is not None
     return SupportIncidentSubmissionResult(
         incident_id=incident.incident_number,
-        incident_status="created" if dedupe_status == "created" else "updated",
+        incident_status="synced" if synced else "pending_sync",
         github_issue_number=incident.github_issue_number,
-        github_issue_url=str(incident.github_issue_url or ""),
+        github_issue_url=str(incident.github_issue_url) if incident.github_issue_url else None,
         dedupe_status=dedupe_status,
         affected_count=incident.affected_count,
     )
@@ -596,14 +704,17 @@ async def _create_or_update_issue(
     owner: str,
     repo: str,
     incident: SupportIncident,
-    report: Mapping[str, Any],
     dedupe_status: str,
 ) -> Mapping[str, Any]:
+    if incident.incident_number is None:
+        raise RuntimeError("Support incident is missing a correlation number")
+    report = incident.latest_safe_report_json
     draft = build_github_issue_draft(
         report,
         affected_count=incident.affected_count,
         safe_affected_identities=incident.safe_affected_identities,
-        github_issue_number=incident.github_issue_number,
+        incident_number=incident.incident_number,
+        sync_status="synced",
     )
     if dedupe_status == "updated" and incident.github_issue_number is not None:
         existing = await github_client.get_issue(
@@ -614,7 +725,8 @@ async def _create_or_update_issue(
             report,
             affected_count=incident.affected_count,
             safe_affected_identities=incident.safe_affected_identities,
-            github_issue_number=incident.github_issue_number,
+            incident_number=incident.incident_number,
+            sync_status="synced",
         )
         return await github_client.update_issue(
             owner=owner,
@@ -623,9 +735,3 @@ async def _create_or_update_issue(
             draft=replace(draft, body=body),
         )
     return await github_client.create_issue(owner=owner, repo=repo, draft=draft)
-
-
-def _failure_status(reason_code: str) -> str:
-    if reason_code == "support_incident.configuration_invalid":
-        return "configuration_invalid"
-    return "github_unavailable"

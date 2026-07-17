@@ -3484,6 +3484,121 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '404':
+          description: Support incident not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Unsupported support incident schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: Support incident rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Support incident unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/support-incidents/{incident_id}/sync:
+    post:
+      tags:
+      - support-incidents
+      summary: Retry Support Incident Sync
+      operationId: retry_support_incident_sync_api_v1_desktop_support_incidents__incident_id__sync_post
+      parameters:
+      - name: incident_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^CUST-[A-Z0-9-]{1,27}$
+          title: Incident Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportIncidentResponse'
+        '400':
+          description: Unsafe support incident payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Support incident not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '409':
           description: Idempotency conflict
           content:
@@ -11729,20 +11844,24 @@ components:
       properties:
         incident_id:
           type: string
-          pattern: ^CUST-[1-9][0-9]*$
+          pattern: ^CUST-[A-Z0-9-]{1,27}$
           title: Incident Id
         incident_status:
           type: string
           enum:
-          - created
-          - updated
+          - synced
+          - pending_sync
           title: Incident Status
         github_issue_number:
-          type: integer
-          exclusiveMinimum: 0.0
+          anyOf:
+          - type: integer
+            exclusiveMinimum: 0.0
+          - type: 'null'
           title: Github Issue Number
         github_issue_url:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Github Issue Url
         dedupe_status:
           type: string
@@ -11765,8 +11884,6 @@ components:
       required:
       - incident_id
       - incident_status
-      - github_issue_number
-      - github_issue_url
       - dedupe_status
       - affected_count
       - user_message

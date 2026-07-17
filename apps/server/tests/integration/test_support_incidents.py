@@ -1,14 +1,27 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import httpx
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fakes.fake_github import FakeGitHubIssueClient
 from tests.unit.test_support_incident_redaction import safe_report_payload
-from twobrain_rec_server.db.models import SupportIncident, SupportIncidentRateLimitBucket
+from twobrain_rec_server.auth.csrf import issue_csrf_token
+from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+from twobrain_rec_server.auth.sessions import hash_token
+from twobrain_rec_server.db.models import (
+    AuthSession,
+    AuthSessionDeviceBinding,
+    SupportIncident,
+    SupportIncidentRateLimitBucket,
+)
 from twobrain_rec_server.support.github_issues import GitHubIssueClient
 from twobrain_rec_server.support.incidents import SUPPORT_INCIDENT_RATE_LIMIT_SCOPE
+
+SUPPORT_SESSION_TOKEN = "support-incident-cookie-session-token"
 
 
 def test_support_incident_success_persists_redacted_private_issue_link(client) -> None:
@@ -27,9 +40,10 @@ def test_support_incident_success_persists_redacted_private_issue_link(client) -
             return await session.scalar(select(SupportIncident))
 
     incident = asyncio.run(load_incident())
-    assert incident.incident_number == "CUST-123"
+    assert incident.incident_number is not None
+    assert incident.incident_number.startswith("CUST-")
     assert incident.github_issue_number == 123
-    assert incident.status == "open"
+    assert incident.status == "synced"
     assert incident.affected_count == 1
     assert incident.latest_safe_report_json["redaction_state"] == "metadata_only"
     assert "raw_path" not in str(incident.latest_safe_report_json)
@@ -49,7 +63,8 @@ def test_support_incident_duplicate_updates_existing_issue_and_aggregate(client)
 
     assert first.status_code == 201
     assert second.status_code == 200
-    assert second.json()["incident_id"] == "CUST-123"
+    assert second.json()["incident_id"] == first.json()["incident_id"]
+    assert second.json()["incident_status"] == "synced"
     assert second.json()["dedupe_status"] == "updated"
     assert second.json()["affected_count"] == 2
     assert len(fake_github.created_issues) == 1
@@ -222,8 +237,10 @@ def test_support_incident_dependency_failure_persists_fallback_state(client) -> 
         "/api/v1/desktop/support-incidents", headers=auth_headers(), json=safe_report_payload()
     )
 
-    assert response.status_code == 503
-    assert response.json()["code"] == "support_incident.github_unavailable"
+    assert response.status_code == 202
+    assert response.json()["incident_status"] == "pending_sync"
+    assert response.json()["github_issue_number"] is None
+    assert response.json()["incident_id"].startswith("CUST-")
     sessionmaker = client.app_state["sessionmaker"]
 
     async def load_incident() -> SupportIncident:
@@ -231,8 +248,8 @@ def test_support_incident_dependency_failure_persists_fallback_state(client) -> 
             return await session.scalar(select(SupportIncident))
 
     incident = asyncio.run(load_incident())
-    assert incident.incident_number is None
-    assert incident.status == "github_unavailable"
+    assert incident.incident_number == response.json()["incident_id"]
+    assert incident.status == "pending_github"
     assert incident.github_failure_code == "support_incident.github_unavailable"
     assert not fake_github.created_issues
 
@@ -250,8 +267,8 @@ def test_support_incident_github_timeout_is_safe_fallback(client) -> None:
         "/api/v1/desktop/support-incidents", headers=auth_headers(), json=safe_report_payload()
     )
 
-    assert response.status_code == 503
-    assert response.json()["code"] == "support_incident.github_unavailable"
+    assert response.status_code == 202
+    assert response.json()["incident_status"] == "pending_sync"
 
 
 def test_support_incident_configuration_failures_are_safe_fallbacks(client) -> None:
@@ -263,8 +280,8 @@ def test_support_incident_configuration_failures_are_safe_fallbacks(client) -> N
         response = client.post(
             "/api/v1/desktop/support-incidents", headers=auth_headers(), json=safe_report_payload()
         )
-        assert response.status_code == 503
-        assert response.json()["code"] == "support_incident.configuration_invalid"
+        assert response.status_code == 202
+        assert response.json()["incident_status"] == "pending_sync"
         assert not fake_github.created_issues
 
 
@@ -277,8 +294,8 @@ def test_support_incident_wrong_repo_config_does_not_mutate_github(client) -> No
         "/api/v1/desktop/support-incidents", headers=auth_headers(), json=safe_report_payload()
     )
 
-    assert response.status_code == 503
-    assert response.json()["code"] == "support_incident.configuration_invalid"
+    assert response.status_code == 202
+    assert response.json()["incident_status"] == "pending_sync"
     assert not fake_github.created_issues
     assert not fake_github.updated_issues
 
@@ -308,6 +325,101 @@ def test_support_incident_rate_limit_bucket_is_durable_and_blocks_github(client)
     assert bucket.blocked_until is not None
     assert len(fake_github.created_issues) == 1
     assert not fake_github.updated_issues
+
+
+def test_cookie_authenticated_support_incident_requires_csrf_and_accepts_bound_token(client) -> None:
+    fake_github = FakeGitHubIssueClient()
+    client.app.state.support_incident_github_client = fake_github
+    session = client.portal.call(_seed_support_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, SUPPORT_SESSION_TOKEN)
+
+    missing_csrf = client.post(
+        "/api/v1/desktop/support-incidents",
+        json=safe_report_payload(),
+    )
+    assert missing_csrf.status_code == 403
+    assert missing_csrf.json()["code"] == "csrf_token_missing"
+
+    csrf_token = issue_csrf_token(
+        session_id=session.id,
+        secret=str(client.app.state.web_csrf_secret),
+    )
+    accepted = client.post(
+        "/api/v1/desktop/support-incidents",
+        headers={"X-CSRF-Token": csrf_token},
+        json=safe_report_payload(),
+    )
+    assert accepted.status_code == 201
+    assert accepted.json()["incident_status"] == "synced"
+    assert accepted.json()["incident_id"].startswith("CUST-")
+    assert len(fake_github.created_issues) == 1
+
+
+def test_production_support_incident_rejects_legacy_headers_without_session(client) -> None:
+    client.app.state.settings.env = "production"
+    client.app.state.support_incident_github_client = FakeGitHubIssueClient()
+
+    response = client.post(
+        "/api/v1/desktop/support-incidents",
+        headers=auth_headers(),
+        json=safe_report_payload(),
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "legacy_header_auth_disabled"
+
+
+def test_pending_support_incident_sync_retries_by_correlation_number_only(client) -> None:
+    fake_github = FakeGitHubIssueClient(failure_reason_code="support_incident.github_unavailable")
+    client.app.state.support_incident_github_client = fake_github
+
+    pending = client.post(
+        "/api/v1/desktop/support-incidents",
+        headers=auth_headers() | {"Idempotency-Key": "support-incident:pending-sync"},
+        json=safe_report_payload(),
+    )
+    assert pending.status_code == 202
+    incident_id = pending.json()["incident_id"]
+    assert pending.json()["incident_status"] == "pending_sync"
+
+    fake_github.failure_reason_code = None
+    synced = client.post(
+        f"/api/v1/desktop/support-incidents/{incident_id}/sync",
+        headers=auth_headers(),
+    )
+
+    assert synced.status_code == 200
+    assert synced.json()["incident_id"] == incident_id
+    assert synced.json()["incident_status"] == "synced"
+    assert synced.json()["github_issue_number"] == 123
+    assert len(fake_github.created_issues) == 1
+
+
+async def _seed_support_session(client) -> AuthSession:
+    async with client.app_state["sessionmaker"]() as db:
+        session = AuthSession(
+            id=uuid4(),
+            user_id=USER_ID,
+            workspace_id=WORKSPACE_ID,
+            device_id=DEVICE_ID,
+            provider="support_incident_test",
+            session_token_hash=hash_token(SUPPORT_SESSION_TOKEN),
+            status="active",
+            issued_at=datetime.now(UTC) - timedelta(minutes=1),
+            expires_at=datetime.now(UTC) + timedelta(minutes=15),
+            claims_fingerprint="support-incident-csrf",
+        )
+        db.add(session)
+        await db.flush()
+        db.add(
+            AuthSessionDeviceBinding(
+                auth_session_id=session.id,
+                registered_device_id=DEVICE_ID,
+                device_state="trusted",
+            )
+        )
+        await db.commit()
+        return session
 
 
 def test_support_incident_rate_limit_is_not_bypassed_by_new_dedupe_key(client) -> None:

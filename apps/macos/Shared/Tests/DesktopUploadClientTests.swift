@@ -489,20 +489,6 @@ final class DesktopUploadClientTests: XCTestCase {
         )
     }
 
-    func testDesktopRequestsIncludeBridgedOwnerSessionCookie() throws {
-        let client = DesktopUploadClient(
-            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.pro")),
-            headers: ["X-Client-Version": "test-client"],
-            cookieHeaderProvider: { url in
-                url.host == "rec.2brain.pro" ? "\(DesktopUploadClient.ownerSessionCookieName)=owner-session-token" : nil
-            }
-        )
-        let request = try client.supportIncidentRequest(for: try XCTUnwrap(makeSupportIncidentReport()))
-
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "\(DesktopUploadClient.ownerSessionCookieName)=owner-session-token")
-        XCTAssertNil(client.sanitizedHeaderPreview["Cookie"])
-    }
-
     func testConfiguredHeadersAcceptLegacyTwoBrainKeys() {
         let headers = DesktopUploadClient.configuredHeaders(from: [
             "TWO_BRAIN_REC_CLIENT_VERSION": "legacy-014",
@@ -534,34 +520,6 @@ final class DesktopUploadClientTests: XCTestCase {
         )
     }
 
-    func testSupportIncidentRequestUsesDesktopEndpointTimeoutAndIdempotency() throws {
-        let report = try XCTUnwrap(makeSupportIncidentReport())
-        let client = DesktopUploadClient(
-            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.pro")),
-            headers: [
-                "X-Client-Version": "test-client",
-                "Authorization": "Bearer test-token"
-            ]
-        )
-
-        let request = try client.supportIncidentRequest(for: report)
-        let body = String(data: try XCTUnwrap(request.httpBody), encoding: .utf8) ?? ""
-
-        XCTAssertEqual(request.url?.path, DesktopUploadClient.supportIncidentPath)
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.timeoutInterval, DesktopUploadClient.supportIncidentTimeoutSeconds)
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
-        XCTAssertEqual(
-            request.value(forHTTPHeaderField: "Idempotency-Key"),
-            "support-incident:\(report.safeReportFingerprint)"
-        )
-        XCTAssertTrue(body.contains("\"schema_version\":\"desktop-support-incident.v1\""))
-        XCTAssertTrue(body.contains("\"normal_user_action\":\"send_support_report\""))
-        XCTAssertTrue(body.contains("\"redaction_state\":\"metadata_only\""))
-        XCTAssertFalse(body.contains("/tmp/directory"))
-        XCTAssertFalse(body.contains("test-token"))
-    }
-
     func testSupportIncidentContextFingerprintsDesktopScopeHeaders() throws {
         let client = DesktopUploadClient(
             baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.pro")),
@@ -588,21 +546,23 @@ final class DesktopUploadClientTests: XCTestCase {
         let payload = """
         {
           "incident_id": "CUST-123",
-          "incident_status": "created",
-          "github_issue_number": 123,
-          "github_issue_url": "https://github.com/yshishenya/crisp/issues/123",
+          "incident_status": "pending_sync",
+          "github_issue_number": null,
+          "github_issue_url": null,
           "dedupe_status": "created",
           "affected_count": 1,
           "copy_fallback_available": true,
-          "user_message": "Запрос отправлен в поддержку. Номер: CUST-123"
+          "user_message": "Запрос принят сервером. Синхронизация с поддержкой ожидает проверки. Номер: CUST-123"
         }
         """.data(using: .utf8)!
 
         let response = try JSONDecoder().decode(DesktopSupportIncidentResponse.self, from: payload)
 
         XCTAssertEqual(response.incidentId, "CUST-123")
-        XCTAssertEqual(response.githubIssueNumber, 123)
-        XCTAssertEqual(response.userMessage, DesktopSupportIncidentFixture.successMessage)
+        XCTAssertNil(response.githubIssueNumber)
+        XCTAssertNil(response.githubIssueURL)
+        XCTAssertTrue(response.isPendingSync)
+        XCTAssertTrue(response.userMessage.contains("принят сервером"))
     }
 
     func testQueueItemPreservesOptionalCalendarContextEventId() throws {

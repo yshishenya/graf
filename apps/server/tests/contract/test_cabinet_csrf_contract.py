@@ -5,6 +5,7 @@ from fastapi.routing import APIRoute
 
 from twobrain_rec_server.api.cabinet import router as cabinet_api_router
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.api.support_incidents import router as support_incidents_router
 from twobrain_rec_server.auth.csrf import issue_csrf_token, require_csrf_token, verify_csrf_token
 
 
@@ -34,6 +35,20 @@ def test_csrf_missing_or_stale_token_fails_closed() -> None:
 def test_unsafe_cabinet_api_routes_require_web_csrf_dependency() -> None:
     missing = []
     for route in cabinet_api_router.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        if not (route.methods & {"POST", "PUT", "PATCH", "DELETE"}):
+            continue
+        dependency_names = {getattr(dependency.call, "__name__", "") for dependency in route.dependant.dependencies}
+        if "require_web_csrf" not in dependency_names:
+            missing.append(f"{','.join(sorted(route.methods))} {route.path}")
+
+    assert missing == []
+
+
+def test_support_incident_mutations_require_web_csrf_dependency() -> None:
+    missing = []
+    for route in support_incidents_router.routes:
         if not isinstance(route, APIRoute):
             continue
         if not (route.methods & {"POST", "PUT", "PATCH", "DELETE"}):

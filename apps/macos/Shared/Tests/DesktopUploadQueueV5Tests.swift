@@ -1833,7 +1833,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 200) }
         )
 
-        let response = try await service.submitSupportIncident(itemId: item.id)
+        let response = try await service.submitSupportIncident(itemId: item.id, using: client)
         let saved = try XCTUnwrap(service.loadItems().first)
 
         XCTAssertEqual(response.incidentId, "CUST-123")
@@ -1871,7 +1871,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 200) }
         )
 
-        let response = try await service.submitSupportIncident(itemIds: items.map(\.id))
+        let response = try await service.submitSupportIncident(itemIds: items.map(\.id), using: client)
         let saved = try service.loadItems()
 
         XCTAssertEqual(response.affectedCount, 6)
@@ -1879,6 +1879,62 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(client.reports.first?.affectedCount, 6)
         XCTAssertEqual(client.reports.first?.safeAffectedIdentities.count, 5)
         XCTAssertEqual(saved.compactMap(\.supportIncidentSubmission?.incidentNumber), Array(repeating: "CUST-123", count: 6))
+    }
+
+    func testPendingSupportIncidentPersistsAndRetriesWithoutAnotherReportPayload() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let item = makeSupportIncidentItem(id: "support-pending")
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let client = SupportIncidentOnlyClient(
+            result: DesktopSupportIncidentResponse(
+                incidentId: "CUST-PENDING-1",
+                incidentStatus: "pending_sync",
+                githubIssueNumber: nil,
+                githubIssueURL: nil,
+                dedupeStatus: "created",
+                affectedCount: 1,
+                copyFallbackAvailable: true,
+                userMessage: "accepted pending"
+            ),
+            syncResult: DesktopSupportIncidentResponse(
+                incidentId: "CUST-PENDING-1",
+                incidentStatus: "synced",
+                githubIssueNumber: 123,
+                githubIssueURL: "https://github.com/yshishenya/crisp/issues/123",
+                dedupeStatus: "updated",
+                affectedCount: 1,
+                copyFallbackAvailable: true,
+                userMessage: "synced"
+            )
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        let pending = try await service.submitSupportIncident(itemId: item.id, using: client)
+        let persistedPending = try XCTUnwrap(service.loadItems().first?.supportIncidentSubmission)
+
+        XCTAssertTrue(pending.isPendingSync)
+        XCTAssertEqual(persistedPending.state, .pendingSync)
+        XCTAssertEqual(persistedPending.incidentNumber, "CUST-PENDING-1")
+        XCTAssertEqual(client.reports.count, 1)
+
+        let synced = try await service.syncSupportIncident(itemId: item.id, using: client)
+        let persistedSynced = try XCTUnwrap(service.loadItems().first?.supportIncidentSubmission)
+
+        XCTAssertEqual(synced.incidentStatus, "synced")
+        XCTAssertEqual(persistedSynced.state, .sent)
+        XCTAssertEqual(persistedSynced.githubIssueNumber, 123)
+        XCTAssertEqual(client.reports.count, 1)
+        XCTAssertEqual(client.syncIncidentIDs, ["CUST-PENDING-1"])
     }
 
     func testSupportIncidentSubmissionFailurePersistsCopyFallbackState() async throws {
@@ -1901,7 +1957,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         )
 
         do {
-            _ = try await service.submitSupportIncident(itemId: item.id)
+            _ = try await service.submitSupportIncident(itemId: item.id, using: client)
             XCTFail("Expected support incident submission to fail")
         } catch DesktopUploadClientError.httpStatus(let status, let code) {
             XCTAssertEqual(status, 503)
@@ -2762,13 +2818,20 @@ final class DesktopUploadQueueTests: XCTestCase {
         }
     }
 
-    private final class SupportIncidentOnlyClient: @unchecked Sendable, DesktopUploadClientProtocol {
+    private final class SupportIncidentOnlyClient: @unchecked Sendable, DesktopUploadClientProtocol, DesktopSupportIncidentSubmitting {
         private let result: DesktopSupportIncidentResponse?
+        private let syncResult: DesktopSupportIncidentResponse?
         private let error: Error?
         private(set) var reports: [DesktopSupportIncidentReport] = []
+        private(set) var syncIncidentIDs: [String] = []
 
-        init(result: DesktopSupportIncidentResponse? = nil, error: Error? = nil) {
+        init(
+            result: DesktopSupportIncidentResponse? = nil,
+            syncResult: DesktopSupportIncidentResponse? = nil,
+            error: Error? = nil
+        ) {
             self.result = result
+            self.syncResult = syncResult
             self.error = error
         }
 
@@ -2795,6 +2858,23 @@ final class DesktopUploadQueueTests: XCTestCase {
                 githubIssueNumber: 123,
                 githubIssueURL: "https://github.com/yshishenya/crisp/issues/123",
                 dedupeStatus: "created",
+                affectedCount: 1,
+                copyFallbackAvailable: true,
+                userMessage: DesktopSupportIncidentFixture.successMessage
+            )
+        }
+
+        func syncSupportIncident(incidentID: String) async throws -> DesktopSupportIncidentResponse {
+            syncIncidentIDs.append(incidentID)
+            if let error {
+                throw error
+            }
+            return syncResult ?? result ?? DesktopSupportIncidentResponse(
+                incidentId: incidentID,
+                incidentStatus: "synced",
+                githubIssueNumber: 123,
+                githubIssueURL: "https://github.com/yshishenya/crisp/issues/123",
+                dedupeStatus: "updated",
                 affectedCount: 1,
                 copyFallbackAvailable: true,
                 userMessage: DesktopSupportIncidentFixture.successMessage
