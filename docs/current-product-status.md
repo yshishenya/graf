@@ -205,9 +205,12 @@ metadata-only evidence остаются подробной историей ре
   the documented manual URL handoff; it is no longer a T100 limitation.
   Feature 099 changes server behavior and macOS regression tests only; it has
   no native macOS runtime-source diff, so this hotfix does not require an app
-  rebuild or reinstall. T001–T113 are completed with implementation/release
-  evidence; T114 remains open until `.3` passes production deploy, and
-  T115–T116 remain for production proof and cleanup.
+  rebuild or reinstall. The narrow follow-up cleanup fix is released as
+  `v2026.07.17.5`: its active-lease selector and migration
+  `0026_active_cleanup` are deployed. The previously interrupted production
+  conversion reached canonical playback-ready state automatically; no retry,
+  upload, or other user action was needed. Broader T115 browser/embedded
+  production proof and T116 full feature issue cleanup remain separately open.
   Feature 097 and its resumable standalone Codex Security scan remain deferred
   and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
   complete it. Release `v2026.07.14.7` remains owned by the separate «новый
@@ -218,10 +221,10 @@ metadata-only evidence остаются подробной историей ре
   Current production evidence supersedes that historical candidate note:
   `v2026.07.17.3` deployed the startup-recovery fix and immediately dispatched
   the retained affected job, but its next cleanup pass exposed a separate
-  active-attempt cleanup race before canonical publication. A narrow follow-up
-  migration and selector fix is under validation; no user retry or new upload
-  is required, and the production closeout remains open until the same job is
-  canonical playback-ready.
+  active-attempt cleanup race before canonical publication. The narrow
+  follow-up was released and deployed as `v2026.07.17.5`; the same job now has
+  canonical playback-ready state without user action. Feature 097 remains
+  deferred and is not part of this proof.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and

@@ -80,7 +80,7 @@ reduced-motion evidence in `browser-e2e.md`.
 | FR-040 | every supported valid retained source converges automatically | green across synthetic and authorized inputs: `media-matrix.md`, `local-e2e.md` |
 | FR-041 | legacy artifact validate/reuse/regenerate/unavailable plan | green: `us4-backfill.md` |
 | FR-042 | accepted-source commit schedules normalization independently of processing | green: `us1-first-party.md`, `us7-ingest-boundary.md` |
-| FR-043 | initial worker reconciliation admits only future-dated `worker_interrupted` retry-wait jobs through the existing retry/lease/dispatch path | focused green: `hotfix-worker-recovery.md`; production proof pending T120 |
+| FR-043 | initial worker reconciliation admits only future-dated `worker_interrupted` retry-wait jobs through the existing retry/lease/dispatch path | green: `hotfix-worker-recovery.md`; production convergence recorded in `release-closeout.md` |
 
 ## Success-criterion implementation ledger
 
@@ -108,7 +108,7 @@ reduced-motion evidence in `browser-e2e.md`.
 | SC-020 | supported valid synthetic and authorized retained sources need no repair action | green: `media-matrix.md`, `local-e2e.md` |
 | SC-021 | legacy inventory chooses reuse/regenerate/unavailable without fabrication | green: `us4-backfill.md` |
 | SC-022 | normalization dispatch is committed independently from transcript processing | green: `us1-first-party.md`, `us7-ingest-boundary.md` |
-| SC-023 | startup dispatches the eligible worker-interrupted job and preserves a different future-dated retry | focused green: `hotfix-worker-recovery.md`; production proof pending T120 |
+| SC-023 | startup dispatches the eligible worker-interrupted job and preserves a different future-dated retry | green: `hotfix-worker-recovery.md`; production convergence recorded in `release-closeout.md` |
 
 The ledger has no undisclosed implementation gap. T100 recovered through the
 documented manual top-level-navigation handoff and completed the real
@@ -258,10 +258,10 @@ Authoritative read-back выполнен через GitHub REST API по label `
 | T117 | готово | [#3616](https://github.com/yshishenya/crisp/issues/3616) — open | `validation/hotfix-worker-recovery.md` (focused startup regression) |
 | T118 | готово | [#3617](https://github.com/yshishenya/crisp/issues/3617) — open | existing retry/lease/dispatch path in `normalization/` |
 | T119 | готово | [#3618](https://github.com/yshishenya/crisp/issues/3618) — open | `validation/hotfix-worker-recovery.md` |
-| T120 | ожидается | [#3619](https://github.com/yshishenya/crisp/issues/3619) — open | `validation/release-closeout.md` (canonical CI, release/deploy and production proof) |
+| T120 | готово | [#3619](https://github.com/yshishenya/crisp/issues/3619) — open | `validation/release-closeout.md` (canonical CI, release/deploy and production proof) |
 | T121 | готово | [#3623](https://github.com/yshishenya/crisp/issues/3623) — open | `test_playback_normalization_restart.py`; `test_playback_normalization_postgres.py` |
 | T122 | готово | [#3624](https://github.com/yshishenya/crisp/issues/3624) — open | `pickup.py`; migration `0026_skip_active_normalization_cleanup.py` |
-| T123 | ожидается | [#3631](https://github.com/yshishenya/crisp/issues/3631) — open | `validation/release-closeout.md` |
+| T123 | готово | [#3631](https://github.com/yshishenya/crisp/issues/3631) — open | `validation/release-closeout.md` |
 | T124 | готово | [#3624](https://github.com/yshishenya/crisp/issues/3624) — open | migration revision ID and worker schema-head tests |
 
 
@@ -304,7 +304,7 @@ paths and private meeting data.
 | T110 | complete | `pr-closeout.md`; explicit user integration approval, exact pre-stage path-set digest, staged/unmerged preflight and three independent approvals |
 | T111–T116 | pending | task-specific receipts listed in `tasks.md` |
 | T117–T119 | complete | `hotfix-worker-recovery.md`; focused regression `7 passed`, related recovery suite `12 passed`, Ruff pass |
-| T120 | pending | canonical CI, lean-diff review, release/deploy and production recovery receipt |
+| T120 | complete | canonical CI, lean-diff review, release/deploy and production recovery receipt |
 | T121–T122 | complete | active worker lease is excluded from SQLite/PostgreSQL cleanup selectors; focused SQLite suite `8 passed` |
-| T123 | pending | canonical CI, release/deploy and production convergence receipt |
+| T123 | complete | canonical CI, release/deploy and production convergence receipt |
 | T124 | complete | `0026_active_cleanup`; canonical CI `1761 passed, 28 skipped`; macOS `664 passed` |
