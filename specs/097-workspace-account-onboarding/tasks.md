@@ -33,9 +33,9 @@ duplicate account/workspace, lands in a personal space and cannot read a
 corporate workspace.
 
 - [ ] T010 [P] [US1] Add contract tests for new and classified-legacy email registration, retry/idempotency and no implicit bootstrap membership in `apps/server/tests/contract/test_auth_contracts.py`.
-- [ ] T011 [P] [US1] Add browser flow tests for sign-up without workspace ID and personal-space landing in `apps/server/tests/integration/test_web_owner_session_context.py`.
+- [X] T011 [P] [US1] Add browser flow tests for sign-up without workspace ID and personal-space landing in `apps/server/tests/integration/test_web_owner_session_context.py`.
 - [ ] T012 [P] [US1] Add provider callback parity tests for new and existing identities in `apps/server/tests/contract/test_auth_contracts.py`.
-- [ ] T013 [US1] Refactor email registration resolution to use the internal bootstrap only as an auth anchor and issue the personal-space session in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`.
+- [X] T013 [US1] Refactor email registration resolution to use the internal bootstrap only as an auth anchor and issue the personal-space session in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`.
 - [ ] T014 [US1] Refactor provider callback account creation/login to use the shared personal-space helper and remove implicit bootstrap membership in `apps/server/src/twobrain_rec_server/auth/callbacks.py`.
 - [ ] T015 [US1] Remove raw workspace-ID requirements and copy from public sign-up/login routes and templates in `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth.py`, `apps/server/src/twobrain_rec_server/cabinet/auth_rendering.py`, and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/`.
 - [ ] T016 [US1] Preserve the internal bootstrap configuration validation while documenting that it is not a public enrollment destination in `apps/server/src/twobrain_rec_server/config.py` and `apps/server/tests/unit/test_config_validation.py`.

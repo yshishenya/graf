@@ -15,6 +15,7 @@ from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.policy import read_auth_providers
 from twobrain_rec_server.auth.providers import build_provider_registry
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
+from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
@@ -220,6 +221,11 @@ async def _consume_email_login_code(
             email=email,
             now=now,
         )
+        workspace = await ensure_personal_workspace(
+            db,
+            organization_id=workspace.organization_id,
+            user_id=user.id,
+        )
     if workspace is None or user is None:
         state.result = "failed"
         state.used_at = now
@@ -393,24 +399,6 @@ async def _ensure_email_registration_user(
                 context_kind="auth_bootstrap",
             ),
         )
-        membership = await db.scalar(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == workspace.id,
-                WorkspaceMembership.user_id == identity.user_id,
-            )
-        )
-        if membership is None:
-            db.add(
-                WorkspaceMembership(
-                    workspace_id=workspace.id,
-                    user_id=user.id,
-                    role="member",
-                    status="active",
-                )
-            )
-            await db.flush()
-        else:
-            membership.status = "active"
         identity.is_verified = True
         identity.last_seen_at = now
         return user
@@ -433,14 +421,6 @@ async def _ensure_email_registration_user(
             user_id=user.id,
             context_kind="auth_bootstrap",
         ),
-    )
-    db.add(
-        WorkspaceMembership(
-            workspace_id=workspace.id,
-            user_id=user.id,
-            role="member",
-            status="active",
-        )
     )
     db.add(
         ExternalIdentity(

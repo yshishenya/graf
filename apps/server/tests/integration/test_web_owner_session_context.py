@@ -23,6 +23,7 @@ from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
     ExternalIdentity,
     UserIdentity,
+    Workspace,
     WorkspaceAuthPolicy,
     WorkspaceMembership,
 )
@@ -727,8 +728,25 @@ def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> No
             assert identity is not None
             user = await db.get(UserIdentity, identity.user_id)
             assert user is not None
-            membership = await db.get(WorkspaceMembership, (WORKSPACE_ID, user.id))
+            personal_workspace = await db.scalar(
+                select(Workspace).where(
+                    Workspace.organization_id == user.organization_id,
+                    Workspace.owner_user_id == user.id,
+                    Workspace.kind == "personal",
+                )
+            )
+            assert personal_workspace is not None
+            membership = await db.get(WorkspaceMembership, (personal_workspace.id, user.id))
             assert membership is not None
+            bootstrap_membership = await db.get(WorkspaceMembership, (WORKSPACE_ID, user.id))
+            session = await db.scalar(
+                select(AuthSession).where(
+                    AuthSession.session_token_hash == hash_token(session_cookie),
+                )
+            )
+            assert session is not None
+            assert session.workspace_id == personal_workspace.id
+            assert bootstrap_membership is None
             return identity
 
     client.portal.call(read_created_identity)
