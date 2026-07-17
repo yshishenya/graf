@@ -73,6 +73,9 @@
 - Feature 097 выпущена и развернута через `v2026.07.18.1`; canonical deploy gate
   завершился `ci_local_result=pass`, production smoke и cleanup завершились
   без остаточных smoke-артефактов.
+- Отдельный metadata-only production smoke 097 подтвердил explicit invitation,
+  переключение personal/corporate space, блокировку revoked corporate session
+  и personal fallback; cleanup завершился с residue `0`.
 
 ## [2026.07.17.13] - 2026-07-17
 

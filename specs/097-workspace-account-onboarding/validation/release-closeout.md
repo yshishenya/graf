@@ -29,17 +29,23 @@ identifiers.
 - Disposable PostgreSQL/RLS verification: pass. A live destructive production
   RLS probe was not run and is not claimed.
 
-## User-path boundary
+## User-path receipt
 
-The full personal-space, explicit-offer, corporate-admin, domain-privacy and
-revocation/fallback behavior is covered by the merged contract, integration,
-RLS and macOS regression receipts in `validation/local.md`. The deploy's
-production smoke was the existing generic upload/auth-cleanup profile; it did
-not separately create a real B2C signup, accept an invitation, or revoke a
-corporate membership through the production browser. Therefore this file does
-not overclaim a feature-specific production user-path receipt. T041 remains
-open until that bounded metadata-only production smoke is run or explicitly
-waived by the product owner.
+After deploy, a bounded metadata-only production smoke used a disposable
+internal identity and a temporary corporate invitation. It verified, through
+the deployed HTTP routes and session boundary:
+
+- personal-space offer listing;
+- explicit identity-matched invitation acceptance;
+- listing of personal and corporate spaces;
+- server-verified switch into the corporate space;
+- corporate membership revocation;
+- blocked access for the revoked corporate session; and
+- a fresh personal session that listed only the personal space.
+
+The smoke ended with cleanup `residue=0`. It did not use a real mailbox or
+claim external email-delivery proof; it validates the deployed onboarding,
+invitation, switch and revocation semantics without exposing private data.
 
 ## Legacy cleanup boundary
 
@@ -58,8 +64,7 @@ waived by the product owner.
 
 ## Verdict
 
-Release, merge, deploy, migration and infrastructure closeout are complete.
-The only remaining 097 item is the separately identified feature-specific
-production B2C/invitation/revocation smoke receipt; the standalone Codex
-Security scan was skipped by explicit user instruction and is not represented
-as a security result.
+Release, merge, deploy, migration, infrastructure and bounded production
+user-path closeout are complete. The standalone Codex Security scan was
+skipped by explicit user instruction and is not represented as a security
+result.

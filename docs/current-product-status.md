@@ -82,9 +82,11 @@ metadata-only evidence остаются подробной историей ре
   metadata-only production smoke and cleanup passed. Canonical local CI passed
   with 572 macOS tests and the accelerated PostgreSQL/RLS gate recorded in
   `specs/097-workspace-account-onboarding/validation/release-closeout.md`.
-  The deploy smoke was the generic upload/auth profile, so a separate
-  production B2C signup plus invitation/revocation browser receipt remains an
-  explicitly open validation item. Older macOS app builds need the 097 client
+  A bounded post-deploy metadata-only user-path smoke also listed and accepted
+  an identity-matched offer, switched spaces, revoked the corporate
+  membership, blocked the revoked session and confirmed personal fallback with
+  residue `0`; it used an internal disposable identity rather than live email
+  delivery. Older macOS app builds need the 097 client
   changes for embedded revoked-session recovery. The standalone Codex Security
   scan was skipped by explicit user instruction and is not a security result.
   Active server runtime has no SQLite or `aiosqlite` support; historical ADRs,
