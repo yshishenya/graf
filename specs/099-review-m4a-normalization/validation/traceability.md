@@ -15,6 +15,7 @@ current. Green infrastructure health alone is never playback or user-path proof.
 | FR-011–FR-013, FR-021, FR-031, FR-037, FR-039–FR-040 | T073–T080 / `us5-failure-truth.md` |
 | FR-018–FR-020, FR-030, FR-036–FR-037 | T081–T092 / `us6-lifecycle.md` |
 | SC-001–SC-022 and cross-story gates | T093–T110 / cross-cutting validation receipts |
+| FR-043, SC-023 | T117–T120 / `hotfix-worker-recovery.md`, `release-closeout.md` |
 | Release and production truth | T111–T116 / `release-closeout.md` |
 
 ## Final requirement-quality reconciliation
@@ -25,7 +26,8 @@ current. Green infrastructure health alone is never playback or user-path proof.
 | `checklists/media.md` | `20/20` | `media-capability.md`, `media-matrix.md`, `local-e2e.md`, `performance.md` |
 | `checklists/automation.md` | `22/22` | `us3-automatic-recovery.md`, `us4-backfill.md`, `browser-e2e.md` |
 | `checklists/lifecycle.md` | `22/22` | `migration-evidence.md`, `us6-lifecycle.md`, `cleanup.md`, `performance.md` |
-| **Total** | **`80/80`** | requirement quality reconciled; runtime limitations remain explicit |
+| `checklists/worker-restart-recovery.md` | `8/8` | T117–T120 recovery evidence |
+| **Total** | **`88/88`** | requirement quality reconciled; runtime limitations remain explicit |
 
 Checked items validate the requirement writing. Runtime acceptance comes only
 from the code/test receipts below. T100 now has independent real Chrome and
@@ -78,6 +80,7 @@ reduced-motion evidence in `browser-e2e.md`.
 | FR-040 | every supported valid retained source converges automatically | green across synthetic and authorized inputs: `media-matrix.md`, `local-e2e.md` |
 | FR-041 | legacy artifact validate/reuse/regenerate/unavailable plan | green: `us4-backfill.md` |
 | FR-042 | accepted-source commit schedules normalization independently of processing | green: `us1-first-party.md`, `us7-ingest-boundary.md` |
+| FR-043 | initial worker reconciliation admits only future-dated `worker_interrupted` retry-wait jobs through the existing retry/lease/dispatch path | focused green: `hotfix-worker-recovery.md`; production proof pending T120 |
 
 ## Success-criterion implementation ledger
 
@@ -105,6 +108,7 @@ reduced-motion evidence in `browser-e2e.md`.
 | SC-020 | supported valid synthetic and authorized retained sources need no repair action | green: `media-matrix.md`, `local-e2e.md` |
 | SC-021 | legacy inventory chooses reuse/regenerate/unavailable without fabrication | green: `us4-backfill.md` |
 | SC-022 | normalization dispatch is committed independently from transcript processing | green: `us1-first-party.md`, `us7-ingest-boundary.md` |
+| SC-023 | startup dispatches the eligible worker-interrupted job and preserves a different future-dated retry | focused green: `hotfix-worker-recovery.md`; production proof pending T120 |
 
 The ledger has no undisclosed implementation gap. T100 recovered through the
 documented manual top-level-navigation handoff and completed the real
@@ -115,7 +119,7 @@ deferred and was not used as evidence.
 
 - Repository: `yshishenya/crisp`, matching `remote.origin.url`.
 - Label: `feature:099`.
-- Count: 116 open issues for 116 tasks.
+- Count: 120 open issues for 120 tasks.
 - Identity: exact `T###` token. Issue numbers are not assumed contiguous by task
   because creation was parallelized.
 - Validation: repository canon validator checked all current Spec Kit issues and
@@ -251,6 +255,10 @@ Authoritative read-back выполнен через GitHub REST API по label `
 | T114 | ожидается | [#3461](https://github.com/yshishenya/crisp/issues/3461) — open | `validation/release-closeout.md` (ожидается) |
 | T115 | ожидается | [#3462](https://github.com/yshishenya/crisp/issues/3462) — open | `validation/release-closeout.md` (ожидается) |
 | T116 | ожидается | [#3463](https://github.com/yshishenya/crisp/issues/3463) — open | `validation/release-closeout.md` (ожидается) |
+| T117 | готово | [#3616](https://github.com/yshishenya/crisp/issues/3616) — open | `validation/hotfix-worker-recovery.md` (focused startup regression) |
+| T118 | готово | [#3617](https://github.com/yshishenya/crisp/issues/3617) — open | existing retry/lease/dispatch path in `normalization/` |
+| T119 | готово | [#3618](https://github.com/yshishenya/crisp/issues/3618) — open | `validation/hotfix-worker-recovery.md` |
+| T120 | ожидается | [#3619](https://github.com/yshishenya/crisp/issues/3619) — open | `validation/release-closeout.md` (canonical CI, release/deploy and production proof) |
 
 
 ## Evidence hygiene
@@ -283,7 +291,7 @@ paths and private meeting data.
 | T100 | complete | `browser-e2e.md`; `master-sync.md` (real Chrome and embedded preparing/available/unavailable, Play/Pause/seek, two-tab, reconnect, current-`.7` focus/responsive/reduced-motion, automatic temporary-failure recovery, terminal delete/no-resurrection and Range proof) |
 | T101 | complete | `cleanup.md` (queued/running/publishing/retry plus response-loss and no-TTL late-object reconciliation; real Chrome delete while polling stayed terminal after delayed publication; residue `0`; originals preserved) |
 | T102 | complete | `performance.md` (near-four-hour dual source; about 5 GiB package; `185.236s`; 1 CPU/1 GiB/6 GiB; OOM `0`; residue `0`) |
-| T103 | complete | `80/80` requirement-quality items plus explicit FR-001–FR-042 and SC-001–SC-022 code/evidence ledger; T100 runtime evidence reconciled |
+| T103 | complete | `80/80` original requirement-quality items plus the independent `8/8` startup-recovery hotfix checklist; runtime evidence remains separately scoped |
 | T104–T105 | complete | `[Unreleased]` changelog plus implemented/not-released/backfill/app-impact/deferred-097/current-`.7` ownership truth |
 | T106 | complete | `ponytail-review.md`; no new runtime dependency, shared-path reuse, bounded durable-tombstone debt recorded |
 | T107 | complete | `implementation-evidence.md`; ordinary high-risk acceptance `110 passed`, PostgreSQL/RLS `19 passed`, feature 097 untouched |
@@ -291,3 +299,5 @@ paths and private meeting data.
 | T109 | complete | `traceability.md`; GitHub REST `116/116`, missing `0`, duplicates `0`, canon validator `OK` |
 | T110 | complete | `pr-closeout.md`; explicit user integration approval, exact pre-stage path-set digest, staged/unmerged preflight and three independent approvals |
 | T111–T116 | pending | task-specific receipts listed in `tasks.md` |
+| T117–T119 | complete | `hotfix-worker-recovery.md`; focused regression `7 passed`, related recovery suite `12 passed`, Ruff pass |
+| T120 | pending | canonical CI, lean-diff review, release/deploy and production recovery receipt |

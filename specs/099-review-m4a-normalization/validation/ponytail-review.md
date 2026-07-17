@@ -52,3 +52,17 @@ because it can strand a late media object after deletion.
 
 The repository-wide CI result is recorded separately by T108 after the last
 code-affecting change.
+
+## 2026-07-17 startup-recovery hotfix review
+
+Lean already. Ship.
+
+- The hotfix reuses the existing durable retry transition, audit, lease and
+  Temporal dispatch path; it adds no dependency, schema, endpoint, worker or
+  configuration surface.
+- The sole startup-only selector is necessary to distinguish the durable
+  `worker_interrupted` reason from ordinary retry reasons. Folding it into the
+  periodic reconciler would weaken backoff and be a product regression.
+- One integration regression covers both the allowed immediate recovery and the
+  required non-preemption case. Full local CI passed; production proof remains
+  the intentionally separate T120 gate.

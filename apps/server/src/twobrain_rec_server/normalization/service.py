@@ -1673,6 +1673,7 @@ async def activate_due_normalization_retry(
     *,
     job_id: UUID,
     now: datetime | None = None,
+    recover_worker_interruption: bool = False,
 ) -> bool:
     require_database_context(
         db,
@@ -1688,7 +1689,10 @@ async def activate_due_normalization_retry(
     )
     if job is None or job.state != JobState.RETRY_WAIT.value or job.next_attempt_at is None:
         return False
-    if _aware_utc(job.next_attempt_at) > current_time:
+    if _aware_utc(job.next_attempt_at) > current_time and not (
+        recover_worker_interruption
+        and job.reason_code == NormalizationReason.WORKER_INTERRUPTED.value
+    ):
         return False
     if job.cycle_attempt_count >= 4:
         job.cycle_attempt_count = 0

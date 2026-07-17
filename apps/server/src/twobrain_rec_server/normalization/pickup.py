@@ -37,6 +37,7 @@ from twobrain_rec_server.normalization.service import (
 from twobrain_rec_server.normalization.statuses import (
     BackfillState,
     JobState,
+    NormalizationReason,
     TriggerKind,
 )
 from twobrain_rec_server.workflows.temporal_client import (
@@ -275,6 +276,7 @@ async def enumerate_normalization_pickup_candidates(
     *,
     now: datetime,
     batch_size: int,
+    recover_worker_interrupted: bool = False,
 ) -> list[NormalizationPickupCandidate]:
     require_database_context(
         db,
@@ -304,6 +306,12 @@ async def enumerate_normalization_pickup_candidates(
         PlaybackNormalizationJob.state == JobState.RETRY_WAIT.value,
         PlaybackNormalizationJob.next_attempt_at.is_not(None),
         PlaybackNormalizationJob.next_attempt_at <= now,
+    )
+    worker_interrupted_retry = and_(
+        PlaybackNormalizationJob.state == JobState.RETRY_WAIT.value,
+        PlaybackNormalizationJob.reason_code == NormalizationReason.WORKER_INTERRUPTED.value,
+        PlaybackNormalizationJob.next_attempt_at.is_not(None),
+        PlaybackNormalizationJob.next_attempt_at > now,
     )
     backfill_dispatchable = or_(
         PlaybackNormalizationJob.trigger_kind != TriggerKind.LEGACY_BACKFILL.value,
@@ -337,6 +345,7 @@ async def enumerate_normalization_pickup_candidates(
                     queued_due,
                     expired_running,
                     due_retry,
+                    worker_interrupted_retry if recover_worker_interrupted else False,
                 ),
             )
             .order_by(
@@ -676,6 +685,7 @@ async def reconcile_normalization_jobs(
     temporal_client: object | None = None,
     now: datetime | None = None,
     actor_id: str = "rec-media-worker",
+    recover_worker_interrupted: bool = False,
 ) -> NormalizationReconcileResult:
     if not (
         settings.playback_normalization_enabled
@@ -770,6 +780,7 @@ async def reconcile_normalization_jobs(
             maintenance_db,
             now=current_time,
             batch_size=batch_size,
+            recover_worker_interrupted=recover_worker_interrupted,
         )
 
     for candidate in candidates:
@@ -794,9 +805,21 @@ async def reconcile_normalization_jobs(
                 job_id=job.id,
             )
             if job.state == JobState.RETRY_WAIT.value:
-                if job.next_attempt_at is None or _aware_utc(job.next_attempt_at) > current_time:
+                is_worker_restart_recovery = (
+                    recover_worker_interrupted
+                    and job.reason_code == NormalizationReason.WORKER_INTERRUPTED.value
+                )
+                if job.next_attempt_at is None or (
+                    _aware_utc(job.next_attempt_at) > current_time
+                    and not is_worker_restart_recovery
+                ):
                     continue
-                await activate_due_normalization_retry(db, job_id=job.id, now=current_time)
+                await activate_due_normalization_retry(
+                    db,
+                    job_id=job.id,
+                    now=current_time,
+                    recover_worker_interruption=is_worker_restart_recovery,
+                )
             result = await dispatch_normalization_after_accepted_commit(
                 db=db,
                 settings=settings,
