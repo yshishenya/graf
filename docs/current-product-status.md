@@ -29,27 +29,33 @@ metadata-only evidence остаются подробной историей ре
   provider-only start surface without starting a provider flow.
   The standalone formal Codex Security scan for deferred feature `097` remains
   out of this feature's evidence by user instruction.
-- Feature `105-macos-app-updates` is implemented as a local release candidate,
-  not yet a published update channel. The app embeds exact Sparkle `2.9.4`,
-  owns one updater controller, checks the configured stable channel every 24
-  hours, exposes `GRAF > Check for Updates…`, and derives one accessible
-  `Доступно обновление` marker for the native local-only and embedded-cabinet
-  left sidebars. Automatic download/install and system profiling are disabled.
-  Scheduled presentation and relaunch are deferred while capture is active or
-  paused, recording is starting/stopping/finalizing, or termination cleanup is
-  pending. Builds without a complete public HTTPS feed and base64 32-byte
-  Ed25519 public key fail closed with truthful unavailable UI. Packaging embeds
-  and signs Sparkle's nested code while preserving `GRAF.app`,
-  `pro.2brain.graf`, permission usage copy, and the app-only/no-privileged-audio
-  boundary. Local updater-disabled and configured ad-hoc bundles pass focused
-  structural validation; ad-hoc identity evidence is explicitly not public
-  permission-retention proof. Public activation remains blocked on an approved
-  real feed/key, stable Developer ID lineage, notarization/stapling/Gatekeeper,
-  a signed archive/appcast, old-to-new and rejected-update smoke, and two
-  sequential same-identity updates retaining microphone and Screen/System Audio
-  grants without TCC mutation. Existing installations without the updater need
-  one final manual `.pkg` bootstrap install. No update artifact has been
-  published and no production surface has been changed by this feature lane.
+- Feature `105-macos-app-updates` is merged and live on the owner-only production
+  channel as
+  [`v2026.07.17.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.17.9)
+  at exact merge `d6debe22b799e37f08fcbf77bec9b5123338acf7` through
+  [#3702](https://github.com/yshishenya/crisp/pull/3702) and
+  [#3703](https://github.com/yshishenya/crisp/pull/3703). The app embeds exact
+  Sparkle `2.9.4`, checks the signed stable feed every 24 hours, exposes
+  `GRAF > Check for Updates…`, and shows one VoiceOver-accessible
+  `Доступно обновление` marker in both connected-cabinet and local-only sidebars.
+  Automatic install and system profiling remain disabled. Update presentation
+  and relaunch stay deferred while capture is active or paused, recording is
+  starting/stopping/finalizing, or termination cleanup is pending. Production
+  staging now fails closed unless the worktree is clean, `HEAD` equals
+  `origin/master`, and the exact published CalVer tag points to that commit;
+  versioned archives, packages, GitHub Release assets, and public checksums are
+  verified before the appcast is replaced last. The installed `.9` keeps the
+  stable `GRAF.app` / `pro.2brain.graf` designated requirement and retained
+  microphone plus Screen/System Audio grants through sequential same-identity
+  updates without TCC mutation. Its 120-second ScreenCaptureKit windows passed
+  an installed-app start lasting 76 seconds and a successful Stop/finalization
+  without false `capture_failed`. Focused rejection checks cover corrupt,
+  unsigned, wrong-key, downgrade, incompatible, and wrong-identity updates;
+  full CI passes 666 macOS tests and 1761 server tests with 28 expected skips.
+  Existing installations without Sparkle still need one trusted `.pkg`
+  bootstrap. This owner-only self-signed channel is not public Developer ID
+  distribution; notarization, stapling, public Gatekeeper proof, and signing-
+  identity migration remain deferred until Apple Developer access is available.
 - Feature `095-macos-permission-retention` is implemented for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted

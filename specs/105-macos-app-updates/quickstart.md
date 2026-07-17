@@ -101,8 +101,14 @@ GRAF_PREVIOUS_APP_BUNDLE=/absolute/path/to/previous/GRAF.app \
 GRAF_UPDATE_RELEASE_NOTES=/absolute/path/to/release-notes.md \
 GRAF_UPDATE_DOWNLOAD_BASE_URL="https://<trusted-staging-host>/downloads" \
 GRAF_SPARKLE_PRIVATE_KEY_FILE=/absolute/path/outside/repository/to/private-key \
+GRAF_REQUIRE_RELEASE_PROVENANCE=1 \
   sh apps/macos/Installer/Scripts/prepare-app-update.sh
 ```
+
+For production staging, first push the clean release commit and its exact
+`vYYYY.MM.DD.N` tag. The provenance gate requires that tagged commit to match
+the published `origin/master` branch. A local candidate may omit the gate,
+but it must not be copied to the production feed.
 
 Expected output under `apps/macos/.build/updates/`:
 
@@ -112,6 +118,11 @@ Expected output under `apps/macos/.build/updates/`:
 - metadata-only validation summary.
 
 Serve these artifacts from a trusted HTTPS staging origin. Do not use plain HTTP or a private URL requiring credentials in the app.
+
+For an approved production release, attach the ZIP, package, checksums, and
+Russian notes to the GitHub Release. Publish the versioned archive and package
+before replacing `graf-appcast.xml`; replace the appcast last, then fetch the
+public files and compare every SHA-256 with the reviewed local artifacts.
 
 ## 7. Exercise client behavior
 
@@ -124,6 +135,11 @@ From the older installed build:
 5. Stop recording and wait for finalization; verify the cached update proceeds or is offered within 60 seconds without another feed request.
 6. Install and relaunch; verify `CFBundleVersion` changed and the sidebar badge disappeared.
 7. Publish a corrupted/wrong-key fixture to staging; verify it is rejected and the old app remains launchable.
+
+On systems where ScreenCaptureKit is slow, explicitly prove that a start taking
+more than 60 seconds and a stop approaching the former 60-second boundary both
+finish within the 120-second deadlines. Neither transition may produce a false
+`capture_failed`, and the updater must keep relaunch deferred throughout.
 
 ## 8. Verify permission retention
 

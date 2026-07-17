@@ -142,6 +142,25 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertFalse(source.localizedCaseInsensitiveContains("private key:"))
     }
 
+    func testProductionUpdatePreparationRequiresCleanRemoteTaggedProvenance() throws {
+        let source = try Self.readRepositoryFile("apps/macos/Installer/Scripts/prepare-app-update.sh")
+        let readme = try Self.readRepositoryFile("apps/macos/Installer/README.md")
+        let checklist = try Self.readRepositoryFile("qa/macos/release-candidate-checklist.md")
+
+        XCTAssertTrue(source.contains("GRAF_REQUIRE_RELEASE_PROVENANCE"))
+        XCTAssertTrue(source.contains("status --porcelain --untracked-files=all"))
+        XCTAssertTrue(source.contains("refs/heads/$RELEASE_BRANCH"))
+        XCTAssertTrue(source.contains("refs/tags/$RELEASE_TAG^{}"))
+        XCTAssertTrue(source.contains("release provenance requires a clean worktree"))
+        XCTAssertTrue(source.contains("release provenance requires HEAD to match origin/$RELEASE_BRANCH"))
+        XCTAssertTrue(source.contains("release provenance requires published tag $RELEASE_TAG at HEAD"))
+        XCTAssertTrue(readme.contains("GRAF_REQUIRE_RELEASE_PROVENANCE=1"))
+        XCTAssertTrue(readme.contains("GitHub Release assets"))
+        XCTAssertTrue(readme.contains("replace `graf-appcast.xml` last"))
+        XCTAssertTrue(checklist.contains("clean commit published at the exact release tag"))
+        XCTAssertTrue(checklist.contains("public SHA-256"))
+    }
+
     func testInstallerReadmeDocumentsLocalOnlySigningBoundary() throws {
         let readme = try Self.readRepositoryFile("apps/macos/Installer/README.md")
 

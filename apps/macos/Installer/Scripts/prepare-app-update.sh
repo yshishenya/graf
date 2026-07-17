@@ -13,6 +13,8 @@ RELEASE_NOTES=${GRAF_UPDATE_RELEASE_NOTES:-}
 DOWNLOAD_BASE_URL=${GRAF_UPDATE_DOWNLOAD_BASE_URL:-}
 PRIVATE_KEY_FILE=${GRAF_SPARKLE_PRIVATE_KEY_FILE:-}
 KEYCHAIN_ACCOUNT=${GRAF_SPARKLE_KEYCHAIN_ACCOUNT:-}
+REQUIRE_RELEASE_PROVENANCE=${GRAF_REQUIRE_RELEASE_PROVENANCE:-0}
+RELEASE_BRANCH=master
 OUTPUT_DIR=$REPO_ROOT/apps/macos/.build/updates
 VALIDATOR="$MACOS_DIR/Scripts/validate-app-updates.sh"
 DERIVE_PUBLIC_KEY="$SCRIPT_DIR/derive-sparkle-public-key.swift"
@@ -50,6 +52,37 @@ assert_calver() {
 
 [ -n "$VERSION" ] || fail "GRAF_VERSION=YYYY.MM.DD.N is required"
 assert_calver "$VERSION" "GRAF_VERSION"
+
+case "$REQUIRE_RELEASE_PROVENANCE" in
+  0|1) ;;
+  *) fail "GRAF_REQUIRE_RELEASE_PROVENANCE must be 0 or 1" ;;
+esac
+if [ "$REQUIRE_RELEASE_PROVENANCE" = "1" ]; then
+  [ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all)" ] ||
+    fail "release provenance requires a clean worktree"
+
+  HEAD_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
+  REMOTE_BRANCH_SHA=$(git -C "$REPO_ROOT" ls-remote --heads origin "refs/heads/$RELEASE_BRANCH" |
+    awk 'NR == 1 { print $1 }')
+  [ -n "$REMOTE_BRANCH_SHA" ] ||
+    fail "release provenance could not resolve origin/$RELEASE_BRANCH"
+  [ "$HEAD_SHA" = "$REMOTE_BRANCH_SHA" ] ||
+    fail "release provenance requires HEAD to match origin/$RELEASE_BRANCH"
+
+  RELEASE_TAG="v$VERSION"
+  LOCAL_TAG_SHA=$(git -C "$REPO_ROOT" rev-parse "refs/tags/$RELEASE_TAG^{}" 2>/dev/null || true)
+  [ "$LOCAL_TAG_SHA" = "$HEAD_SHA" ] ||
+    fail "release provenance requires exact tag $RELEASE_TAG at HEAD"
+  REMOTE_TAG_REFS=$(git -C "$REPO_ROOT" ls-remote origin \
+    "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")
+  REMOTE_TAG_SHA=$(printf '%s\n' "$REMOTE_TAG_REFS" | awk '
+    $2 ~ /\^\{\}$/ { peeled = $1 }
+    NR == 1 { direct = $1 }
+    END { if (peeled != "") print peeled; else print direct }
+  ')
+  [ "$REMOTE_TAG_SHA" = "$HEAD_SHA" ] ||
+    fail "release provenance requires published tag $RELEASE_TAG at HEAD"
+fi
 
 [ -d "$APP_BUNDLE" ] || fail "GRAF_UPDATE_APP_BUNDLE is missing"
 [ "$(basename -- "$APP_BUNDLE")" = "GRAF.app" ] || fail "update bundle must be named GRAF.app"

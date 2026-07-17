@@ -15,7 +15,8 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
 
         XCTAssertTrue(source.contains("configuration.width = 16"))
         XCTAssertTrue(source.contains("configuration.height = 16"))
-        XCTAssertTrue(source.contains("runtimeStartTimeoutSeconds: TimeInterval = 30"))
+        XCTAssertTrue(source.contains("runtimeStartTimeoutSeconds: TimeInterval = 120"))
+        XCTAssertTrue(source.contains("runtimeStopTimeoutSeconds: TimeInterval = 120"))
         XCTAssertTrue(source.contains("stream.addStreamOutput(self, type: .audio"))
         XCTAssertTrue(source.contains("stream.addStreamOutput(self, type: .screen"))
         XCTAssertTrue(source.contains("stream.removeStreamOutput(self, type: .screen"))

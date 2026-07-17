@@ -94,8 +94,10 @@
 **Purpose**: Close product documentation, traceability, privacy, accessibility, and repository-wide evidence.
 
 - [X] T014 [P] Record updater behavior, bootstrap limitation, permission-identity contract, release-only activation gates, and no-privileged-audio-component scope in `CHANGELOG.md` and `docs/current-product-status.md`.
-- [ ] T015 Execute `specs/105-macos-app-updates/quickstart.md` focused Swift/server/shell checks, inspect request/log fixtures for forbidden content, perform keyboard/VoiceOver review, and record only sanitized evidence in the relevant GitHub task issues; do not reset TCC or publish artifacts.
+- [X] T015 Execute `specs/105-macos-app-updates/quickstart.md` focused Swift/server/shell checks, inspect request/log fixtures for forbidden content, perform keyboard/VoiceOver review, and record only sanitized evidence in the relevant GitHub task issues; do not reset TCC or publish artifacts.
 - [X] T016 Run `swift test --package-path apps/macos`, `apps/macos/Scripts/validate-app-updates.sh` for the built app, and `infra/scripts/ci-local.sh`; mark tasks complete only when all applicable gates pass and record any externally blocked Developer ID/notarization/two-update proof truthfully for release closeout.
+- [X] T017 [US1] Raise the default ScreenCaptureKit runtime start/stop deadlines to 120 seconds in `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`, update the source contract in `apps/macos/Shared/Tests/SystemAudioCaptureServiceTests.swift`, and prove from real installed-app evidence that a post-update start can exceed the former 60-second window and a stop completing near that boundary does not become a false `capture_failed` result before exercising the capture-deferred update smoke.
+- [X] T018 [US4] Add an opt-in production-provenance gate to `apps/macos/Installer/Scripts/prepare-app-update.sh`, cover it in `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`, and document the clean remote-tagged commit, GitHub Release assets, archive/package-first, appcast-last, and public-checksum publication order in `apps/macos/Installer/README.md` and `qa/macos/release-candidate-checklist.md`.
 
 ---
 
