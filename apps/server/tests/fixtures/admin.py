@@ -46,9 +46,10 @@ class AdminWorkspaceSeed:
 
 async def seed_admin_workspace(db: AsyncSession, *, second_owner: bool = True) -> AdminWorkspaceSeed:
     seed = AdminWorkspaceSeed()
+    db.add(Organization(id=seed.organization_id, slug="admin-org", name="Admin Org"))
+    await db.flush()
     db.add_all(
         [
-            Organization(id=seed.organization_id, slug="admin-org", name="Admin Org"),
             Workspace(
                 id=seed.workspace_id,
                 organization_id=seed.organization_id,
@@ -97,6 +98,11 @@ async def seed_admin_workspace(db: AsyncSession, *, second_owner: bool = True) -
                 external_subject=str(seed.foreign_user_id),
                 display_name="Foreign User",
             ),
+        ]
+    )
+    await db.flush()
+    db.add_all(
+        [
             WorkspaceMembership(
                 workspace_id=seed.workspace_id,
                 user_id=seed.owner_id,
@@ -164,6 +170,11 @@ async def seed_default_workspace_admin_roles(db: AsyncSession) -> None:
                 external_subject=str(DEFAULT_MEMBER_USER_ID),
                 display_name="Workspace Member",
             ),
+        ]
+    )
+    await db.flush()
+    db.add_all(
+        [
             WorkspaceMembership(
                 workspace_id=WORKSPACE_ID,
                 user_id=DEFAULT_ADMIN_USER_ID,

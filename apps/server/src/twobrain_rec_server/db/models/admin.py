@@ -17,7 +17,6 @@ class WorkspaceInvitation(Base):
             "target_contact",
             unique=True,
             postgresql_where=text("status = 'pending'"),
-            sqlite_where=text("status = 'pending'"),
         ),
         Index("ix_workspace_invitations_workspace_status", "workspace_id", "status"),
     )
@@ -106,4 +105,3 @@ class AdminAuditEvent(Base):
     source_event_id: Mapped[str | None] = mapped_column(String(160))
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-

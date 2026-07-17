@@ -824,6 +824,7 @@ def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
                     external_subject="foreign-provider-link-user",
                 )
             )
+            await db.flush()
             db.add(
                 ExternalIdentity(
                     user_id=other_user_id,
@@ -947,6 +948,7 @@ def test_provider_link_confirmation_requires_the_initiating_session(
                     external_subject="provider-link-foreign-session",
                 )
             )
+            await db.flush()
             db.add(
                 WorkspaceMembership(
                     workspace_id=WORKSPACE_ID,
@@ -1356,6 +1358,7 @@ def test_auth_callback_fails_for_identity_bound_to_other_organization(monkeypatc
         async def seed() -> None:
             async with client.app_state["sessionmaker"]() as db:
                 db.add(Organization(id=other_org_id, slug="other-org", name="Other Org"))
+                await db.flush()
                 db.add(
                     Workspace(
                         id=other_workspace_id,
@@ -1364,6 +1367,7 @@ def test_auth_callback_fails_for_identity_bound_to_other_organization(monkeypatc
                         name="Other Workspace",
                     )
                 )
+                await db.flush()
                 db.add(
                     UserIdentity(
                         id=other_user_id,
@@ -1372,6 +1376,7 @@ def test_auth_callback_fails_for_identity_bound_to_other_organization(monkeypatc
                         display_name="Other User",
                     )
                 )
+                await db.flush()
                 db.add(
                     ExternalIdentity(
                         user_id=other_user_id,
@@ -1417,6 +1422,7 @@ def test_auth_callback_fails_for_inactive_identity_owner(monkeypatch, client: Te
                         status="inactive",
                     )
                 )
+                await db.flush()
                 db.add(
                     ExternalIdentity(
                         user_id=inactive_user_id,
@@ -1515,6 +1521,7 @@ def test_auth_link_rejects_direct_subject_without_leaking_conflict(monkeypatch, 
     async def seed_conflicting_link_identity() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=other_user_id, organization_id=ORG_ID, external_subject=str(other_user_id)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=other_user_id, role="member", status="active"))
             db.add(
                 ExternalIdentity(
@@ -1643,6 +1650,7 @@ def test_workspace_owner_can_revoke_another_user_device(client: TestClient) -> N
     async def seed_other_device() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=other_user_id, organization_id=ORG_ID, external_subject=str(other_user_id)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=other_user_id, role="member", status="active"))
             db.add(
                 RegisteredDevice(
@@ -1676,6 +1684,7 @@ def test_workspace_member_cannot_revoke_another_user_device(client: TestClient) 
     async def seed_member_and_owner_device() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=member_user_id, organization_id=ORG_ID, external_subject=str(member_user_id)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=member_user_id, role="member", status="active"))
             db.add(
                 RegisteredDevice(

@@ -221,6 +221,13 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @field_validator("database_url")
+    @classmethod
+    def database_url_requires_postgresql_asyncpg(cls, value: str) -> str:
+        if not value.startswith("postgresql+asyncpg://"):
+            raise ValueError("database_url must use PostgreSQL with the asyncpg driver")
+        return value
+
     @field_validator("public_analytics_validation_mode")
     @classmethod
     def validate_public_analytics_validation_mode(cls, value: str) -> str:

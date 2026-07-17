@@ -87,11 +87,17 @@ def _load_migration_module(path: Path, module_name: str):
 
 async def _seed_identity(sessionmaker) -> None:
     async with sessionmaker() as db:
+        db.add(Organization(id=ORG_ID, slug="local-org", name="Local Org"))
+        await db.flush()
         db.add_all(
             [
-                Organization(id=ORG_ID, slug="local-org", name="Local Org"),
                 Workspace(id=WORKSPACE_ID, organization_id=ORG_ID, slug="local-workspace", name="Local Workspace"),
                 UserIdentity(id=USER_ID, organization_id=ORG_ID, external_subject=str(USER_ID), display_name="Local User"),
+            ]
+        )
+        await db.flush()
+        db.add_all(
+            [
                 WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=USER_ID, role="owner", status="active"),
                 RegisteredDevice(
                     id=DEVICE_ID,
@@ -209,8 +215,11 @@ def test_user_scoped_recording_migration_skips_existing_postgres_target_constrai
     assert fake_op.created_constraints == []
 
 
-def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, monkeypatch) -> None:
-    database_url = f"sqlite+aiosqlite:///{tmp_path / 'migrated.db'}"
+def test_clean_database_migrates_and_accepts_seeded_identity_request(
+    postgres_test_database_url: str,
+    monkeypatch,
+) -> None:
+    database_url = postgres_test_database_url
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", database_url)
     get_settings.cache_clear()
     alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
@@ -221,9 +230,12 @@ def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, m
     settings = Settings(database_url=database_url, minio_access_key="test", minio_secret_key="test", minio_bucket="test-bucket")
     import asyncio
 
+    seed_engine = create_async_engine(database_url)
+    seed_sessionmaker = async_sessionmaker(seed_engine, expire_on_commit=False)
+    asyncio.run(_seed_identity(seed_sessionmaker))
+    asyncio.run(seed_engine.dispose())
     engine = create_async_engine(database_url)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
-    asyncio.run(_seed_identity(sessionmaker))
     app = create_app(settings)
     app.state.db_sessionmaker = sessionmaker
     app.state.storage = FakeMinioStorage()
