@@ -24,6 +24,8 @@ OTHER_WORKSPACE_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000004")
 INACTIVE_USER_ID = UUID("30000000-0000-0000-0000-000000000003")
 INACTIVE_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000003")
 QUARANTINED_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000005")
+REVOKED_MEMBERSHIP_USER_ID = UUID("30000000-0000-0000-0000-000000000004")
+REVOKED_MEMBERSHIP_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000006")
 
 
 def test_cross_workspace_upload_session_read_is_denied_without_existence_leak(client) -> None:
@@ -135,6 +137,7 @@ def test_inactive_membership_is_denied(client) -> None:
     async def seed_inactive_membership() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=INACTIVE_USER_ID, organization_id=ORG_ID, external_subject=str(INACTIVE_USER_ID)))
+            await db.flush()
             db.add(
                 WorkspaceMembership(
                     workspace_id=WORKSPACE_ID,
@@ -164,10 +167,55 @@ def test_inactive_membership_is_denied(client) -> None:
     assert response.status_code == 403
 
 
+def test_revoked_membership_is_denied_for_new_workspace_requests(client) -> None:
+    async def seed_revoked_membership() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=REVOKED_MEMBERSHIP_USER_ID,
+                    organization_id=ORG_ID,
+                    external_subject=str(REVOKED_MEMBERSHIP_USER_ID),
+                )
+            )
+            await db.flush()
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=WORKSPACE_ID,
+                    user_id=REVOKED_MEMBERSHIP_USER_ID,
+                    role="member",
+                    status="revoked",
+                )
+            )
+            db.add(
+                RegisteredDevice(
+                    id=REVOKED_MEMBERSHIP_DEVICE_ID,
+                    workspace_id=WORKSPACE_ID,
+                    user_id=REVOKED_MEMBERSHIP_USER_ID,
+                    device_public_id="revoked-membership-device",
+                    status="active",
+                )
+            )
+            await db.commit()
+
+    client.portal.call(seed_revoked_membership)
+    response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers()
+        | {
+            "X-User-Id": str(REVOKED_MEMBERSHIP_USER_ID),
+            "X-Device-Id": str(REVOKED_MEMBERSHIP_DEVICE_ID),
+        },
+        json={"local_recording_id": "revoked-membership", "duration_seconds": 60},
+    )
+
+    assert response.status_code == 403
+
+
 def test_device_bound_to_another_user_is_denied(client) -> None:
     async def seed_cross_bound_device() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=OTHER_USER_ID, organization_id=ORG_ID, external_subject=str(OTHER_USER_ID)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=OTHER_USER_ID, role="member", status="active"))
             db.add(
                 RegisteredDevice(
@@ -195,6 +243,7 @@ def test_device_bound_to_another_workspace_is_denied(client) -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(Organization(id=OTHER_ORG_ID, slug="other-org", name="Other Org"))
             db.add(Workspace(id=OTHER_WORKSPACE, organization_id=OTHER_ORG_ID, slug="other", name="Other Workspace"))
+            await db.flush()
             db.add(
                 RegisteredDevice(
                     id=OTHER_WORKSPACE_DEVICE_ID,
@@ -220,6 +269,7 @@ def test_same_workspace_meeting_hijack_is_denied(client) -> None:
     async def seed_other_owner() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=OTHER_USER_ID, organization_id=ORG_ID, external_subject=str(OTHER_USER_ID)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=OTHER_USER_ID, role="member", status="active"))
             db.add(
                 RegisteredDevice(

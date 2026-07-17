@@ -64,10 +64,10 @@ last-owner protection; personal spaces never expose team management.
 **Independent test**: admin operations work for corporate spaces; equivalent
 personal-space requests are denied and cannot remove the last corporate owner.
 
-- [ ] T023 [P] [US3] Add corporate-versus-personal admin authorization, invitation resend and terminal invitation tests in `apps/server/tests/integration/test_workspace_admin_panel.py` and `apps/server/tests/unit/test_email_login_delivery.py`.
-- [ ] T024 [US3] Gate admin invitation and member-management entry points by workspace kind, then add safe resend delivery through `apps/server/src/twobrain_rec_server/admin/permissions.py`, `apps/server/src/twobrain_rec_server/admin/invitations.py`, `apps/server/src/twobrain_rec_server/api/admin.py`, `apps/server/src/twobrain_rec_server/admin/web.py`, and `apps/server/src/twobrain_rec_server/auth/email_delivery.py`.
-- [ ] T025 [US3] Hide corporate team-management controls for personal spaces in `apps/server/src/twobrain_rec_server/cabinet/rendering.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html`.
-- [ ] T026 [US3] Recheck last-owner protection, revoked-member access and audit coverage in `apps/server/tests/unit/test_admin_permissions.py` and `apps/server/tests/integration/test_tenant_authorization.py`.
+- [X] T023 [P] [US3] Add corporate-versus-personal admin authorization, invitation resend and terminal invitation tests in `apps/server/tests/integration/test_workspace_admin_panel.py` and `apps/server/tests/unit/test_email_login_delivery.py`.
+- [X] T024 [US3] Gate admin invitation and member-management entry points by workspace kind, then add safe resend delivery through `apps/server/src/twobrain_rec_server/admin/permissions.py`, `apps/server/src/twobrain_rec_server/admin/invitations.py`, `apps/server/src/twobrain_rec_server/admin/web.py`, and `apps/server/src/twobrain_rec_server/auth/email_delivery.py`.
+- [X] T025 [US3] Hide corporate team-management controls for personal spaces in `apps/server/src/twobrain_rec_server/cabinet/rendering.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html`.
+- [X] T026 [US3] Recheck last-owner protection, revoked-member access and audit coverage in `apps/server/tests/unit/test_admin_permissions.py` and `apps/server/tests/integration/test_tenant_authorization.py`.
 
 ## Phase 6: User Story 4 — privacy-safe corporate discovery (P2)
 

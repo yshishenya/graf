@@ -153,6 +153,40 @@ async def revoke_workspace_invitation(
     return invitation
 
 
+async def resend_workspace_invitation(
+    db: AsyncSession,
+    *,
+    context: AdminWorkspaceContext,
+    invitation_id: UUID,
+) -> WorkspaceInvitation:
+    """Renew a valid invitation and record a generic sign-in reminder."""
+    invitation = await _load_invitation(db, context.workspace_id, invitation_id)
+    now = datetime.now(UTC)
+    status = invitation_runtime_status(invitation, now=now)
+    if status == "expired":
+        invitation.status = "expired"
+        raise ProblemDetail(status=409, code="invitation_expired", title="Invitation expired")
+    if status != "pending":
+        raise ProblemDetail(
+            status=409,
+            code="invitation_resend_unavailable",
+            title="Invitation resend unavailable",
+        )
+    invitation.expires_at = max(invitation.expires_at, now + timedelta(days=7))
+    await write_admin_audit_event(
+        db,
+        workspace_id=context.workspace_id,
+        actor_user_id=context.actor_user_id,
+        actor_role=context.actor_role,
+        action="invite_resent",
+        target_kind="invitation",
+        target_id=str(invitation.id),
+        outcome="completed",
+        metadata={"source": "admin"},
+    )
+    return invitation
+
+
 async def complete_workspace_invitation(
     db: AsyncSession,
     *,

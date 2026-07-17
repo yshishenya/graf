@@ -87,6 +87,7 @@ def test_workspace_offer_settings_render_explicit_choice_and_safe_recovery() -> 
     assert 'role="status" aria-live="polite"' in page
     assert "target_contact" not in page
     assert "workspace_id" not in page
+    assert "/admin" not in page
 
 
 def test_workspace_offer_mutation_route_requires_csrf() -> None:
