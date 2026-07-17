@@ -280,6 +280,17 @@
 
 ---
 
+## Phase 12: Worker-Interrupted Startup Recovery Hotfix
+
+**Purpose**: Repair the observed production gap without changing normal retry policy or requiring a user/admin action.
+
+- [X] T117 [P] [US3] Add an integration regression proving worker-start reconciliation immediately dispatches a future-dated `worker_interrupted` retry-wait job and leaves a different future-dated retry reason deferred in `apps/server/tests/integration/test_playback_normalization_restart.py`
+- [X] T118 [US3] Admit only `worker_interrupted` retry-wait jobs during the initial worker reconciliation and reuse the existing transition, audit, lease and dispatch path in `apps/server/src/twobrain_rec_server/normalization/pickup.py`, `apps/server/src/twobrain_rec_server/normalization/service.py`, and `apps/server/src/twobrain_rec_server/normalization/worker.py`
+- [X] T119 [US3] Run the focused restart-recovery regression and relevant static checks, record the exact no-user-action and normal-backoff evidence in `specs/099-review-m4a-normalization/validation/hotfix-worker-recovery.md`, then update `specs/099-review-m4a-normalization/validation/traceability.md`
+- [ ] T120 [US3] Run canonical local CI, ponytail diff review and release/deploy closeout; prove the existing production job automatically converges after the worker restart without exposing private media/transcript content in `specs/099-review-m4a-normalization/validation/release-closeout.md`
+
+---
+
 ## Dependencies And Execution Order
 
 ### Phase Dependencies

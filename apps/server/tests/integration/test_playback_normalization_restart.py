@@ -30,6 +30,7 @@ from twobrain_rec_server.normalization.service import (
     recover_expired_normalization_job,
     run_normalization_job,
 )
+from twobrain_rec_server.normalization.statuses import NormalizationReason
 from twobrain_rec_server.normalization.worker import renew_normalization_activity_lease
 
 
@@ -437,6 +438,86 @@ def test_reconciler_cleans_expired_worker_attempt_and_schedules_automatic_retry(
     assert attempt.cleaned_at is not None
     assert object_key not in client.app_state["storage"].objects
     assert temporal.starts == {}
+
+
+def test_startup_reconciler_immediately_dispatches_only_worker_interrupted_retry(client) -> None:
+    interrupted_meeting, interrupted_result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-startup-worker-interrupted",
+        include_playback=True,
+    )
+    deferred_meeting, deferred_result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-startup-other-retry",
+        include_playback=True,
+    )
+    assert interrupted_result["status_code"] == 200
+    assert deferred_result["status_code"] == 200
+    interrupted_meeting_id = UUID(str(interrupted_meeting["meeting_id"]))
+    deferred_meeting_id = UUID(str(deferred_meeting["meeting_id"]))
+    client.app.state.settings.playback_normalization_enabled = True
+    temporal = FakeTemporalClient()
+    now = datetime(2026, 7, 17, 12, 0, tzinfo=UTC)
+
+    async def seed_and_start_worker_reconciliation():
+        async with client.app_state["sessionmaker"]() as db:
+            interrupted_job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == interrupted_meeting_id
+                )
+            )
+            deferred_job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == deferred_meeting_id
+                )
+            )
+            assert interrupted_job is not None
+            assert deferred_job is not None
+            for job, reason_code in (
+                (interrupted_job, NormalizationReason.WORKER_INTERRUPTED.value),
+                (deferred_job, NormalizationReason.STORAGE_UNAVAILABLE.value),
+            ):
+                job.state = "retry_wait"
+                job.reason_code = reason_code
+                job.next_attempt_at = now + timedelta(hours=24)
+                job.attempt_count = 16
+                job.cycle_attempt_count = 4
+                job.retry_cycle_count = 4
+                job.lease_owner_sha256 = None
+                job.lease_expires_at = None
+            interrupted_job_id = interrupted_job.id
+            deferred_job_id = deferred_job.id
+            await db.commit()
+        receipt = await reconcile_normalization_jobs(
+            sessionmaker=client.app_state["sessionmaker"],
+            settings=client.app.state.settings,
+            storage=client.app_state["storage"],
+            temporal_client=temporal,
+            now=now,
+            actor_id="startup-worker-test",
+            recover_worker_interrupted=True,
+        )
+        async with client.app_state["sessionmaker"]() as db:
+            return (
+                receipt,
+                await db.get(PlaybackNormalizationJob, interrupted_job_id),
+                await db.get(PlaybackNormalizationJob, deferred_job_id),
+            )
+
+    receipt, interrupted_job, deferred_job = asyncio.run(seed_and_start_worker_reconciliation())
+    assert receipt.dispatched == 1
+    assert interrupted_job is not None
+    assert interrupted_job.state == "queued"
+    assert interrupted_job.reason_code is None
+    assert interrupted_job.next_attempt_at is None
+    assert interrupted_job.cycle_attempt_count == 0
+    assert interrupted_job.workflow_run_id is not None
+    assert len(temporal.starts) == 1
+    assert deferred_job is not None
+    assert deferred_job.state == "retry_wait"
+    assert deferred_job.reason_code == NormalizationReason.STORAGE_UNAVAILABLE.value
+    assert deferred_job.next_attempt_at.replace(tzinfo=UTC) == now + timedelta(hours=24)
+    assert len(temporal.starts) == 1
 
 
 def test_reconciler_demotes_missing_ready_object_and_automatically_dispatches_regeneration(

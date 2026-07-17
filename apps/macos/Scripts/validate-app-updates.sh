@@ -6,6 +6,7 @@ PREVIOUS_APP_BUNDLE=${2:-${GRAF_PREVIOUS_APP_BUNDLE:-}}
 UPDATE_ARCHIVE=${3:-${GRAF_UPDATE_ARCHIVE:-}}
 UPDATE_APPCAST=${4:-${GRAF_UPDATE_APPCAST:-}}
 REQUIRE_PUBLIC_TRUST=${GRAF_REQUIRE_PUBLIC_UPDATE_TRUST:-0}
+REQUIRE_OWNER_ONLY_TRUST=${GRAF_REQUIRE_OWNER_ONLY_UPDATE_TRUST:-0}
 
 fail() {
   echo "app-update validation failed: $*" >&2
@@ -145,15 +146,23 @@ fi
 SIGNATURE_INFO=$(codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1)
 TEAM_IDENTIFIER=$(printf '%s\n' "$SIGNATURE_INFO" | sed -n 's/^TeamIdentifier=//p' | head -n 1)
 [ "$TEAM_IDENTIFIER" != "not set" ] || TEAM_IDENTIFIER=
-SIGNING_KIND=local
+AUTHORITY=$(printf '%s\n' "$SIGNATURE_INFO" | sed -n 's/^Authority=//p' | head -n 1)
+SIGNING_KIND=unknown
 IDENTITY_CHECK=not-requested
 UPDATE_CONTINUITY=not-evaluated
-if printf '%s\n' "$SIGNATURE_INFO" | grep -q '^Authority=Developer ID Application'; then
+if printf '%s\n' "$SIGNATURE_INFO" | grep -q '^Signature=adhoc'; then
+  SIGNING_KIND=adhoc
+elif printf '%s\n' "$SIGNATURE_INFO" | grep -q '^Authority=Developer ID Application'; then
   SIGNING_KIND=developer-id
+elif [ -n "$AUTHORITY" ]; then
+  SIGNING_KIND=local
+else
+  fail "application signing kind is unavailable"
 fi
 
-if [ "$REQUIRE_PUBLIC_TRUST" = "1" ] && [ -z "$PREVIOUS_APP_BUNDLE" ]; then
-  fail "public update validation requires the previous GRAF.app"
+if { [ "$REQUIRE_PUBLIC_TRUST" = "1" ] || [ "$REQUIRE_OWNER_ONLY_TRUST" = "1" ]; } &&
+   [ -z "$PREVIOUS_APP_BUNDLE" ]; then
+  fail "release update validation requires the previous GRAF.app"
 fi
 
 if [ -n "$PREVIOUS_APP_BUNDLE" ]; then
@@ -187,16 +196,27 @@ if [ -n "$PREVIOUS_APP_BUNDLE" ]; then
   PREVIOUS_SIGNATURE_INFO=$(codesign -dv --verbose=4 "$PREVIOUS_APP_BUNDLE" 2>&1)
   PREVIOUS_TEAM_IDENTIFIER=$(printf '%s\n' "$PREVIOUS_SIGNATURE_INFO" | sed -n 's/^TeamIdentifier=//p' | head -n 1)
   [ "$PREVIOUS_TEAM_IDENTIFIER" != "not set" ] || PREVIOUS_TEAM_IDENTIFIER=
-  PREVIOUS_SIGNING_KIND=local
-  if printf '%s\n' "$PREVIOUS_SIGNATURE_INFO" | grep -q '^Authority=Developer ID Application'; then
+  PREVIOUS_AUTHORITY=$(printf '%s\n' "$PREVIOUS_SIGNATURE_INFO" | sed -n 's/^Authority=//p' | head -n 1)
+  PREVIOUS_SIGNING_KIND=unknown
+  if printf '%s\n' "$PREVIOUS_SIGNATURE_INFO" | grep -q '^Signature=adhoc'; then
+    PREVIOUS_SIGNING_KIND=adhoc
+  elif printf '%s\n' "$PREVIOUS_SIGNATURE_INFO" | grep -q '^Authority=Developer ID Application'; then
     PREVIOUS_SIGNING_KIND=developer-id
+  elif [ -n "$PREVIOUS_AUTHORITY" ]; then
+    PREVIOUS_SIGNING_KIND=local
   fi
   [ "$PREVIOUS_SIGNING_KIND" = "$SIGNING_KIND" ] || fail "signing kind changed"
 
-  if [ "$SIGNING_KIND" = "developer-id" ]; then
-    [ -n "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "previous signing team is unavailable"
-    [ -n "$TEAM_IDENTIFIER" ] || fail "new signing team is unavailable"
-    [ "$PREVIOUS_TEAM_IDENTIFIER" = "$TEAM_IDENTIFIER" ] || fail "signing team changed"
+  if [ "$SIGNING_KIND" = "developer-id" ] || [ "$SIGNING_KIND" = "local" ]; then
+    if [ "$SIGNING_KIND" = "developer-id" ]; then
+      [ -n "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "previous signing team is unavailable"
+      [ -n "$TEAM_IDENTIFIER" ] || fail "new signing team is unavailable"
+      [ "$PREVIOUS_TEAM_IDENTIFIER" = "$TEAM_IDENTIFIER" ] || fail "signing team changed"
+    else
+      [ -z "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "unexpected previous local signing team"
+      [ -z "$TEAM_IDENTIFIER" ] || fail "unexpected new local signing team"
+      [ "$PREVIOUS_AUTHORITY" = "$AUTHORITY" ] || fail "local signing authority changed"
+    fi
     PREVIOUS_REQUIREMENT=$(codesign -dr - "$PREVIOUS_APP_BUNDLE" 2>&1 | sed -n 's/^designated => //p' | head -n 1)
     [ -n "$PREVIOUS_REQUIREMENT" ] || fail "previous designated requirement is unavailable"
     codesign -R="$PREVIOUS_REQUIREMENT" --verify "$APP_BUNDLE" 2>/dev/null || fail "new app does not satisfy the previous designated requirement"
@@ -205,9 +225,9 @@ if [ -n "$PREVIOUS_APP_BUNDLE" ]; then
     # Ad-hoc signatures bind their designated requirement to a content hash,
     # which changes on every build. Local validation can prove only the stable
     # bundle shape; public readiness always requires the Developer ID path.
-    [ -z "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "unexpected previous local signing team"
-    [ -z "$TEAM_IDENTIFIER" ] || fail "unexpected new local signing team"
-    IDENTITY_CHECK=structural-local
+    [ -z "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "unexpected previous ad-hoc signing team"
+    [ -z "$TEAM_IDENTIFIER" ] || fail "unexpected new ad-hoc signing team"
+    IDENTITY_CHECK=structural-adhoc
   fi
 fi
 
@@ -281,9 +301,18 @@ fi
 if [ "$REQUIRE_PUBLIC_TRUST" = "1" ]; then
   [ "$SIGNING_KIND" = "developer-id" ] || fail "public update requires Developer ID Application signing"
   [ -n "$TEAM_IDENTIFIER" ] || fail "public update requires a signing team identifier"
-  printf '%s\n' "$SIGNATURE_INFO" | grep -Eq '^flags=.*runtime' || fail "public update requires hardened runtime"
+  printf '%s\n' "$SIGNATURE_INFO" | grep -Eq 'flags=.*\(runtime\)' || fail "public update requires hardened runtime"
   xcrun stapler validate "$APP_BUNDLE" >/dev/null 2>&1 || fail "notarization staple is invalid"
   spctl --assess --type execute --verbose=4 "$APP_BUNDLE" >/dev/null 2>&1 || fail "Gatekeeper rejected GRAF.app"
+fi
+
+if [ "$REQUIRE_OWNER_ONLY_TRUST" = "1" ]; then
+  [ "$REQUIRE_PUBLIC_TRUST" != "1" ] || fail "choose either public or owner-only update trust"
+  [ "$SIGNING_KIND" = "local" ] || fail "owner-only update requires local certificate signing"
+  [ "$AUTHORITY" = "GRAF Local Code Signing" ] || fail "owner-only update requires GRAF Local Code Signing"
+  [ "$IDENTITY_CHECK" = "designated-requirement" ] || fail "owner-only update requires designated-requirement continuity"
+  [ "$UPDATE_CONFIGURATION" = "configured" ] || fail "owner-only update requires a complete signed feed configuration"
+  printf '%s\n' "$SIGNATURE_INFO" | grep -Eq 'flags=.*\(runtime\)' || fail "owner-only update requires hardened runtime"
 fi
 
 echo "app-update validation passed: version=$VERSION updater=$UPDATE_CONFIGURATION signing=$SIGNING_KIND identity=$IDENTITY_CHECK continuity=$UPDATE_CONTINUITY previous=$([ -n "$PREVIOUS_APP_BUNDLE" ] && printf yes || printf no) archive=$([ -n "$UPDATE_ARCHIVE" ] && printf yes || printf no) appcast=$([ -n "$UPDATE_APPCAST" ] && printf yes || printf no)"

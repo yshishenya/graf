@@ -125,12 +125,13 @@ path is `Scripts/build-local-installer.sh`.
 
 ## Signing Policy
 
-- Developer ID signing and notarization are required before production release.
+- Developer ID signing and notarization are required before public distribution.
 - Local certificates, private keys, app-specific passwords, API keys, notarization credentials, and generated signed artifacts must stay outside git.
 - Build scripts may reference environment variables or local keychain identities by name, but must not embed secret values.
 - Local self-signed app signing is allowed only when
   `GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1` is set. It is accepted for
-  single-machine permission-retention validation, not for public distribution.
+  single-machine permission-retention validation and an explicitly approved
+  owner-only channel for controlled Macs, not for public distribution.
 - Public distribution still requires Apple Developer Program access, a
   Developer ID Application certificate for the app, a Developer ID Installer
   certificate when package signing is needed, successful notarization, and
@@ -252,6 +253,35 @@ higher-CalVer forward-rollback build containing the reverted code; never offer
 a lower version or an unsigned downgrade through the feed. Manual installation
 of a prior trusted package is a separately approved recovery path, not the
 normal rollback mechanism.
+
+### Owner-Only Self-Signed Channel
+
+When the owner explicitly accepts the absence of Apple Developer ID and every
+target Mac is controlled by that owner, the same signed appcast/archive flow may
+use `GRAF Local Code Signing`. This is not public release readiness: every new
+Mac needs a manual trusted bootstrap, Gatekeeper may warn, and the exact
+certificate/private-key pair must remain available.
+
+Run the additional gate against the final staged artifacts:
+
+```sh
+GRAF_REQUIRE_OWNER_ONLY_UPDATE_TRUST=1 \
+  sh apps/macos/Scripts/validate-app-updates.sh \
+  /absolute/path/to/new/GRAF.app \
+  /absolute/path/to/previous/GRAF.app \
+  /absolute/path/to/GRAF-YYYY.MM.DD.N.zip \
+  /absolute/path/to/graf-appcast.xml
+```
+
+The production container reads update files from the ignored host directory
+`infra/runtime/public-downloads` through a read-only mount. Copy the versioned
+archive and bootstrap package first, then replace `graf-appcast.xml` last so a
+catalog never points at a missing archive. Generated signed artifacts and the
+private EdDSA key stay outside git.
+
+Moving to Developer ID later is a separate signing-identity migration, not an
+ordinary Sparkle update. It requires a new manual bootstrap and may make macOS
+ask for permissions again because the designated requirement changes.
 
 ### Permission-Retention Proof
 

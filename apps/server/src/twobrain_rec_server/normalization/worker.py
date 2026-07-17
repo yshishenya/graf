@@ -434,6 +434,7 @@ async def run_worker() -> None:
                 settings=settings,
                 storage=storage,
                 temporal_client=client,
+                recover_worker_interrupted=True,
             )
             publish_worker_readiness_marker(settings.playback_normalization_work_directory)
             await run_normalization_reconciliation_loop(
