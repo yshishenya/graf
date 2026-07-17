@@ -87,12 +87,12 @@ space; revoked access falls back safely without retargeting work.
 **Independent test**: a user with two spaces selects one, new work uses it, and
 revocation denies its session while preserving personal access.
 
-- [ ] T029 [P] [US5] Add active-space list, switch and revoked-session contract tests in `apps/server/tests/contract/test_auth_contracts.py`.
-- [ ] T030 [P] [US5] Add integration tests covering workspace-scoped cabinet access, queued upload non-retargeting and personal fallback in `apps/server/tests/integration/test_tenant_authorization.py` and `apps/server/tests/integration/test_web_owner_session_context.py`.
-- [ ] T031 [US5] Implement server-verified accessible-space listing and scoped session replacement in `apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py`, `apps/server/src/twobrain_rec_server/auth/sessions.py`, and `apps/server/src/twobrain_rec_server/cabinet/web_routes/spaces.py`.
-- [ ] T032 [US5] Render the active-space selector and unavailable/revoked recovery state with keyboard and screen-reader status in `apps/server/src/twobrain_rec_server/cabinet/rendering.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html`.
-- [ ] T033 [US5] Enforce session/membership revalidation and explicit blocked recovery for desktop-scoped requests in `apps/server/src/twobrain_rec_server/auth/dependencies.py` and `apps/server/tests/integration/test_tenant_authorization.py`.
-- [ ] T034 [US5] Handle a revoked embedded-cabinet session as an explicit reauthentication/reselection state in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetState.swift`, `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`, and `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`.
+- [X] T029 [P] [US5] Add active-space list, switch and revoked-session contract tests in `apps/server/tests/contract/test_auth_contracts.py`.
+- [X] T030 [P] [US5] Add integration tests covering workspace-scoped cabinet access, queued upload non-retargeting and personal fallback in `apps/server/tests/integration/test_tenant_authorization.py` and `apps/server/tests/integration/test_web_owner_session_context.py`.
+- [X] T031 [US5] Implement server-verified accessible-space listing and scoped session replacement in `apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py`, `apps/server/src/twobrain_rec_server/auth/sessions.py`, and `apps/server/src/twobrain_rec_server/cabinet/web_routes/spaces.py`.
+- [X] T032 [US5] Render the active-space selector and unavailable/revoked recovery state with keyboard and screen-reader status in `apps/server/src/twobrain_rec_server/cabinet/rendering.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html`.
+- [X] T033 [US5] Enforce session/membership revalidation and explicit blocked recovery for desktop-scoped requests in `apps/server/src/twobrain_rec_server/auth/dependencies.py` and `apps/server/tests/integration/test_tenant_authorization.py`.
+- [X] T034 [US5] Handle a revoked embedded-cabinet session as an explicit reauthentication/reselection state in `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetState.swift`, `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`, and `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`.
 
 ## Phase 8: Legacy report, documentation and validation
 

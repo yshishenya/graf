@@ -7,7 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.audit import write_onboarding_audit_event
+from twobrain_rec_server.auth.sessions import IssuedAuthSession, issue_auth_session
 from twobrain_rec_server.db.models import (
+    AuthSession,
+    AuthSessionDeviceBinding,
+    RegisteredDevice,
     Workspace,
     WorkspaceInvitation,
     WorkspaceJoinOffer,
@@ -42,6 +46,21 @@ class WorkspaceJoinOfferView:
             "admin": "Администратор",
             "member": "Участник",
         }.get(self.invited_role, "Участник")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceAccessView:
+    id: UUID
+    name: str
+    kind: str
+    role: str
+    active: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ActivatedWorkspaceSession:
+    workspace: WorkspaceAccessView
+    issued_session: IssuedAuthSession
 
 
 def can_transition_join_offer(current: str, target: str) -> bool:
@@ -126,18 +145,191 @@ async def create_or_reuse_join_offer(
     return offer
 
 
-async def list_active_workspaces(db: AsyncSession, *, user_id: UUID) -> list[Workspace]:
-    return list(
-        await db.scalars(
-            select(Workspace)
+async def list_active_workspaces(
+    db: AsyncSession,
+    *,
+    organization_id: UUID,
+    current_workspace_id: UUID,
+    user_id: UUID,
+) -> tuple[WorkspaceAccessView, ...]:
+    """List only server-verified active spaces for the current user.
+
+    `auth_bootstrap` is a bounded server context: it can read this user's
+    memberships in the current organization, but it cannot create or change a
+    cross-workspace membership.  The matching RLS policy is introduced with
+    the active-space migration.
+    """
+
+    await apply_tenant_context(
+        db,
+        WorkspaceAuthContext(
+            workspace_id=current_workspace_id,
+            organization_id=organization_id,
+            user_id=user_id,
+            context_kind="auth_bootstrap",
+        ),
+    )
+    rows = (
+        await db.execute(
+            select(Workspace, WorkspaceMembership)
             .join(WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id)
             .where(
+                Workspace.organization_id == organization_id,
                 WorkspaceMembership.user_id == user_id,
                 WorkspaceMembership.status == "active",
             )
             .order_by(Workspace.kind.desc(), Workspace.name, Workspace.id)
         )
+    ).all()
+    return tuple(
+        WorkspaceAccessView(
+            id=workspace.id,
+            name=workspace.name,
+            kind=workspace.kind,
+            role=membership.role,
+            active=workspace.id == current_workspace_id,
+        )
+        for workspace, membership in rows
     )
+
+
+async def activate_workspace_session(
+    db: AsyncSession,
+    *,
+    organization_id: UUID,
+    current_workspace_id: UUID,
+    user_id: UUID,
+    current_session_id: UUID,
+    target_workspace_id: UUID,
+) -> ActivatedWorkspaceSession:
+    """Replace a browser session only after verifying its target membership.
+
+    The prior session is invalidated before the tenant context changes.  A
+    failed transaction rolls that change back, so a request cannot be left
+    without both its old and replacement session.  Existing recordings and
+    upload sessions retain their original workspace IDs.
+    """
+
+    current_session = await db.get(AuthSession, current_session_id)
+    if (
+        current_session is None
+        or current_session.user_id != user_id
+        or current_session.workspace_id != current_workspace_id
+        or current_session.status != "active"
+    ):
+        raise ProblemDetail(status=401, code="auth_session_invalid", title="Auth session is invalid")
+
+    spaces = await list_active_workspaces(
+        db,
+        organization_id=organization_id,
+        current_workspace_id=current_workspace_id,
+        user_id=user_id,
+    )
+    target = next((space for space in spaces if space.id == target_workspace_id), None)
+    if target is None:
+        raise ProblemDetail(
+            status=404,
+            code="workspace_activation_unavailable",
+            title="Workspace activation unavailable",
+        )
+    if target.id == current_workspace_id:
+        issued = IssuedAuthSession(
+            id=current_session.id,
+            token="",
+            token_hash=current_session.session_token_hash,
+            expires_at=current_session.expires_at,
+        )
+        return ActivatedWorkspaceSession(workspace=target, issued_session=issued)
+
+    await apply_tenant_context(
+        db,
+        TenantDatabaseContext(
+            organization_id=organization_id,
+            workspace_id=current_workspace_id,
+            user_id=user_id,
+            auth_session_id=current_session_id,
+        ),
+    )
+    current_session.status = "replaced"
+    await db.flush()
+    await apply_tenant_context(
+        db,
+        TenantDatabaseContext(
+            organization_id=organization_id,
+            workspace_id=target.id,
+            user_id=user_id,
+        ),
+    )
+    device = await _ensure_browser_workspace_device(
+        db,
+        workspace_id=target.id,
+        user_id=user_id,
+    )
+    issued = await issue_auth_session(
+        db,
+        user_id=user_id,
+        workspace_id=target.id,
+        device_id=device.id,
+        provider=current_session.provider,
+        claims_fingerprint=current_session.claims_fingerprint,
+    )
+    db.add(
+        AuthSessionDeviceBinding(
+            auth_session_id=issued.id,
+            registered_device_id=device.id,
+            device_state="trusted",
+            last_heartbeat_at=datetime.now(UTC),
+        )
+    )
+    await write_onboarding_audit_event(
+        db,
+        workspace_id=target.id,
+        user_id=user_id,
+        event_type="workspace_session_activated",
+        metadata={"workspace_kind": target.kind},
+    )
+    return ActivatedWorkspaceSession(workspace=target, issued_session=issued)
+
+
+async def _ensure_browser_workspace_device(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+) -> RegisteredDevice:
+    device_public_id = f"browser-login:{user_id}"
+    device = await db.scalar(
+        select(RegisteredDevice).where(
+            RegisteredDevice.workspace_id == workspace_id,
+            RegisteredDevice.user_id == user_id,
+            RegisteredDevice.device_public_id == device_public_id,
+        )
+    )
+    if device is None:
+        device = RegisteredDevice(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            device_public_id=device_public_id,
+            platform="web",
+            client_version="browser-login",
+            status="active",
+            registration_state="approved",
+            trusted_by=user_id,
+            last_seen_at=datetime.now(UTC),
+        )
+        db.add(device)
+        await db.flush()
+        return device
+    if device.status != "active" or device.registration_state != "approved":
+        raise ProblemDetail(
+            status=403,
+            code="workspace_activation_device_unavailable",
+            title="Workspace activation device unavailable",
+        )
+    device.platform = "web"
+    device.client_version = "browser-login"
+    device.last_seen_at = datetime.now(UTC)
+    return device
 
 
 async def list_workspace_join_offers(

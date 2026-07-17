@@ -18,6 +18,7 @@ from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.policy import requires_explicit_corporate_enrollment
 from twobrain_rec_server.auth.sessions import issue_auth_session
+from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
     AuthCallbackState,
@@ -2040,6 +2041,111 @@ def test_workspace_member_cannot_revoke_another_user_device(client: TestClient) 
 
     assert response.status_code == 403
     assert response.json()["code"] == "link_denied"
+
+
+def test_active_space_list_and_switch_replace_the_scoped_session(client: TestClient) -> None:
+    async def seed() -> tuple[str, UUID, UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            personal = await ensure_personal_workspace(
+                db,
+                organization_id=ORG_ID,
+                user_id=USER_ID,
+            )
+            current = await issue_auth_session(
+                db,
+                user_id=USER_ID,
+                workspace_id=WORKSPACE_ID,
+                device_id=DEVICE_ID,
+                provider="space-switch-test",
+            )
+            db.add(
+                AuthSessionDeviceBinding(
+                    auth_session_id=current.id,
+                    registered_device_id=DEVICE_ID,
+                    device_state="trusted",
+                    last_heartbeat_at=datetime.now(UTC),
+                )
+            )
+            await db.commit()
+            return current.token, current.id, personal.id
+
+    import asyncio
+
+    token, session_id, personal_workspace_id = asyncio.run(seed())
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, token)
+
+    listed = client.get("/settings/spaces")
+    assert listed.status_code == 200
+    spaces = {space["id"]: space for space in listed.json()["spaces"]}
+    assert spaces[str(WORKSPACE_ID)]["active"] is True
+    assert spaces[str(personal_workspace_id)] == {
+        "id": str(personal_workspace_id),
+        "name": "Личное пространство",
+        "kind": "personal",
+        "role": "owner",
+        "active": False,
+    }
+
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    activated = client.post(
+        f"/settings/spaces/{personal_workspace_id}/activate",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert activated.status_code == 200
+    assert activated.json()["active_space"] == {
+        "id": str(personal_workspace_id),
+        "name": "Личное пространство",
+        "kind": "personal",
+        "role": "owner",
+        "active": True,
+    }
+    assert AUTH_SESSION_COOKIE_NAME in activated.headers["set-cookie"]
+    assert "HttpOnly" in activated.headers["set-cookie"]
+    assert "Secure" in activated.headers["set-cookie"]
+    replacement_match = re.search(
+        rf"{re.escape(AUTH_SESSION_COOKIE_NAME)}=([^;]+)", activated.headers["set-cookie"]
+    )
+    assert replacement_match is not None
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, replacement_match.group(1))
+
+    current_settings = client.get("/settings")
+    assert current_settings.status_code == 200
+    assert "Активное пространство" in current_settings.text
+    assert "Сейчас выбрано" in current_settings.text
+    assert 'name="workspace_id"' not in current_settings.text
+
+    client.cookies.clear()
+    replaced = client.get("/settings/spaces", headers={"X-Auth-Session": token})
+    assert replaced.status_code == 401
+    assert replaced.json()["code"] == "auth_session_invalid"
+
+    async def load_sessions() -> tuple[str, list[AuthSession], list[AuthSessionDeviceBinding]]:
+        async with client.app_state["sessionmaker"]() as db:
+            original = await db.get(AuthSession, session_id)
+            assert original is not None
+            replacements = list(
+                await db.scalars(
+                    select(AuthSession).where(
+                        AuthSession.user_id == USER_ID,
+                        AuthSession.workspace_id == personal_workspace_id,
+                        AuthSession.status == "active",
+                    )
+                )
+            )
+            bindings = list(
+                await db.scalars(
+                    select(AuthSessionDeviceBinding).where(
+                        AuthSessionDeviceBinding.auth_session_id.in_(tuple(session.id for session in replacements))
+                    )
+                )
+            )
+            return original.status, replacements, bindings
+
+    original_status, replacements, bindings = asyncio.run(load_sessions())
+    assert original_status == "replaced"
+    assert len(replacements) == 1
+    assert len(bindings) == 1
+    assert bindings[0].device_state == "trusted"
 
 
 def test_workspace_join_offers_require_explicit_csrf_protected_decisions(client: TestClient) -> None:

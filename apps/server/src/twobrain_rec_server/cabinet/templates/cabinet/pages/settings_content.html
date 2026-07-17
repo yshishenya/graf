@@ -28,6 +28,30 @@
       </div>
     </section>
     {% endif %}
+    {% if workspace_spaces %}
+    <section class="settings-section cabinet-card" id="active-workspace" aria-labelledby="active-workspace-title">
+      <div>
+        <div class="section-title" id="active-workspace-title">Активное пространство</div>
+        <p class="muted">Новые записи и загрузки остаются в выбранном пространстве. Уже начатые действия не переносятся автоматически.</p>
+        {% if workspace_switch_result %}<p role="status" aria-live="polite">{{ workspace_switch_result }}</p>{% endif %}
+      </div>
+      <ul class="settings-actions" aria-label="Доступные пространства">
+        {% for space in workspace_spaces %}
+        <li>
+          <strong>{{ space.name }}</strong><span class="muted">{{ "Личное пространство" if space.kind == "personal" else "Команда" }} · {{ space.role }}</span>
+          {% if space.active %}
+          <span role="status" aria-label="Активное пространство">Сейчас выбрано</span>
+          {% elif workspace_switch_available %}
+          <form action="{{ workspace_switch_action_base_path }}/{{ space.id }}/activate?return_to_settings=true" method="post">
+            {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+            <button class="button quiet" type="submit">Переключиться</button>
+          </form>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
     {% if workspace_offer_result or workspace_join_offers %}
     <section class="settings-section cabinet-card" id="workspace-join-offers" aria-labelledby="workspace-join-offers-title">
       <div>

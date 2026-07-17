@@ -13,7 +13,7 @@ public struct DesktopCabinetNavigationResponsePolicy: Equatable {
         guard let httpResponse = response as? HTTPURLResponse else {
             return .cancel(.malformedResponse)
         }
-        guard let state = DesktopCabinetState.state(forHTTPStatus: httpResponse.statusCode) else {
+        guard let state = DesktopCabinetState.state(forHTTPResponse: httpResponse) else {
             return .allow
         }
         return .cancel(state)

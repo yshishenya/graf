@@ -112,7 +112,7 @@ def test_join_offer_is_not_actionable_after_expiry() -> None:
 
 
 def test_join_offer_helper_is_idempotent_and_active_spaces_exclude_revoked(client) -> None:
-    async def exercise() -> tuple[WorkspaceJoinOffer, WorkspaceJoinOffer, list[Workspace]]:
+    async def exercise() -> tuple[WorkspaceJoinOffer, WorkspaceJoinOffer, tuple[object, ...]]:
         async with client.app_state["sessionmaker"]() as db:
             personal = await ensure_personal_workspace(
                 db, organization_id=ORG_ID, user_id=USER_ID
@@ -144,7 +144,12 @@ def test_join_offer_helper_is_idempotent_and_active_spaces_exclude_revoked(clien
                 invited_role=invitation.invited_role,
                 expires_at=invitation.expires_at,
             )
-            active_spaces = await list_active_workspaces(db, user_id=USER_ID)
+            active_spaces = await list_active_workspaces(
+                db,
+                organization_id=ORG_ID,
+                current_workspace_id=WORKSPACE_ID,
+                user_id=USER_ID,
+            )
             await db.commit()
             return first, second, active_spaces
 

@@ -965,6 +965,13 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
                 systemImage: "person.crop.circle.badge.exclamationmark",
                 tone: .warning
             )
+        case .workspaceReselectionRequired:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                tileTitle: "Нужно выбрать пространство",
+                tileDetail: "Войдите снова, чтобы продолжить",
+                systemImage: "person.crop.circle.badge.xmark",
+                tone: .warning
+            )
         case .accessDenied:
             return DesktopMeetingShellCabinetStatusPresentation(
                 tileTitle: "Нет доступа",
