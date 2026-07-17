@@ -18,6 +18,7 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "production_smoke_cleanup",
         "backup_restore_rehearsal",
         "operator_diagnostics",
+        "provider_link_cleanup",
         "playback_normalization_inventory",
         "playback_normalization_dispatch",
     }

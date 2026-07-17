@@ -10,6 +10,7 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
+    get_provider_link_start_options,
     list_cabinet_meetings,
 )
 from twobrain_rec_server.cabinet.rendering import (
@@ -128,11 +129,17 @@ async def meeting_detail_page(
 @router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
 async def settings_page(
     request: Request,
-    _tenant_scope: TenantScope = WebTenantDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     return cabinet_html_response(
         render_settings_page(
             csrf_token=_csrf_token_for_principal(request, principal),
+            provider_link_options=await get_provider_link_start_options(db, tenant_scope),
         )
     )

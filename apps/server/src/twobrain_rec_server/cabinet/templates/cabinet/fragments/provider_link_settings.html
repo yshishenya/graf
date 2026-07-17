@@ -1,0 +1,26 @@
+{% import "cabinet/components/sections.html" as sections %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    <div class="cabinet-topbar">
+      <div class="cabinet-titleline"><strong>Способ входа</strong><span>{{ surface.provider_label }}</span></div>
+    </div>
+    <section class="settings-section cabinet-card" aria-labelledby="provider-link-status-title">
+      <div>
+        <div class="section-title" id="provider-link-status-title">{{ surface.provider_label }}</div>
+        <p class="muted" role="status" aria-live="polite">{{ surface.status_label }}</p>
+        {% if surface.can_confirm %}
+        <p class="muted">Подтвердите только если хотите добавить этот способ входа к текущему аккаунту.</p>
+        {% endif %}
+      </div>
+      <div class="settings-actions">
+        {% if surface.can_confirm %}
+        <form action="{{ confirmation_action }}" method="post">
+          {{ sections.csrf_field(csrf_token) }}
+          <button class="button primary" type="submit">Подтвердить подключение</button>
+        </form>
+        {% endif %}
+        <a class="button quiet" href="{{ settings_href }}">К настройкам</a>
+      </div>
+    </section>
+  </div>
+</main>

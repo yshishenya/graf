@@ -19,6 +19,10 @@ PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
 )
+PROVIDER_LINK_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0024_provider_link_verified_callback.py"
+)
 
 
 def test_rls_migration_revision_file_exists() -> None:
@@ -62,3 +66,14 @@ def test_production_smoke_setup_migration_preserves_trusted_role_boundary() -> N
     assert 'down_revision: str | None = "0022_playback_normalization"' in migration_text
     assert "production_smoke_setup" in migration_text
     assert "session_user = 'twobrain_rec_maintenance'" in migration_text
+
+
+def test_provider_link_migration_binds_callback_lookup_to_exact_nonce() -> None:
+    assert PROVIDER_LINK_MIGRATION.exists()
+    migration_text = PROVIDER_LINK_MIGRATION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "0024_provider_link_callback"' in migration_text
+    assert 'down_revision: str | None = "0023_production_smoke_setup"' in migration_text
+    assert "callback_state_id" in migration_text
+    assert "initiating_auth_session_id" in migration_text
+    assert "rec_auth_callback_state_nonce()" in migration_text

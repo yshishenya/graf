@@ -15,6 +15,7 @@ from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.callbacks import (
     CallbackFlowError,
     CallbackProfile,
+    resolve_callback_to_provider_link,
     resolve_callback_to_user,
 )
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
@@ -28,11 +29,19 @@ from twobrain_rec_server.auth.policy import (
     read_auth_providers,
     update_workspace_auth_policy,
 )
+from twobrain_rec_server.auth.provider_links import (
+    ConfirmedProviderLink,
+    ProviderLinkError,
+    confirm_provider_link,
+    create_link_intent,
+    link_for_callback,
+)
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.providers.base import ProviderCredentials
 from twobrain_rec_server.auth.sessions import create_callback_state
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
+    AuthCallbackState,
     AuthSession,
     AuthSessionDeviceBinding,
     ExternalIdentity,
@@ -93,6 +102,19 @@ class AuthStartResponse(BaseModel):
     state_nonce: str
     expires_at: datetime
     provider: str
+
+
+class ProviderLinkStartResponse(BaseModel):
+    authorization_url: str
+    expires_at: datetime
+    provider: str
+    link_state_id: UUID
+
+
+class ProviderLinkConfirmResponse(BaseModel):
+    provider: str
+    status: str
+    idempotent: bool
 
 
 class AuthCallbackResponse(BaseModel):
@@ -604,6 +626,128 @@ async def start_provider_flow(
     )
 
 
+@router.post(
+    "/providers/{provider}/link/start",
+    response_model=ProviderLinkStartResponse,
+    dependencies=[WebCSRFDependency],
+)
+async def start_provider_link_flow(
+    provider: str,
+    request: Request,
+    workspace_id: UUID,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = AuthDbDependency,
+):
+    if db is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_dependency_unavailable",
+            title="Authentication DB dependency unavailable",
+        )
+    await _apply_auth_request_context(db, workspace_id=workspace_id, principal=principal)
+    normalized_provider = provider.lower()
+    adapters = build_provider_registry()
+    try:
+        adapter = get_provider_adapter(normalized_provider)
+    except ValueError as exc:
+        raise ProblemDetail(status=403, code="provider_missing", title="Provider is not configured") from exc
+    snapshot = await read_auth_providers(db, workspace_id, adapters=adapters, persist_defaults=True)
+    provider_policy = next((entry for entry in snapshot.providers if entry.provider == normalized_provider), None)
+    if provider_policy is None or not provider_policy.enabled:
+        raise ProblemDetail(status=403, code="provider_disabled", title="Provider disabled")
+    created_state = create_callback_state(
+        db,
+        provider=normalized_provider,
+        workspace_id=workspace_id,
+        requested_redirect=None,
+        ttl_seconds=request.app.state.settings.auth_callback_state_ttl_seconds,
+    )
+    await db.flush()
+    callback_state = await db.get(AuthCallbackState, created_state.id)
+    if callback_state is None:
+        raise ProblemDetail(status=503, code="provider_link_unavailable", title="Provider link unavailable")
+    try:
+        link = await create_link_intent(
+            db,
+            principal=principal,
+            workspace_id=workspace_id,
+            provider=normalized_provider,
+            callback_state=callback_state,
+        )
+    except ProviderLinkError as exc:
+        status_code = 401 if exc.code == "provider_link_session_required" else 403
+        raise ProblemDetail(status=status_code, code=exc.code, title="Provider link denied") from exc
+    callback_url = build_provider_callback_url(request, normalized_provider)
+    settings = request.app.state.settings
+    credentials = _provider_credentials(settings, normalized_provider, callback_url)
+    authorization_url = adapter.build_authorization_url(
+        client_id=credentials.client_id,
+        client_secret=credentials.client_secret,
+        redirect_uri=callback_url,
+        state=created_state.state_nonce,
+        return_url=None,
+        workspace_id=str(workspace_id),
+    )
+    await db.commit()
+    return ProviderLinkStartResponse(
+        authorization_url=authorization_url,
+        expires_at=created_state.expires_at,
+        provider=normalized_provider,
+        link_state_id=link.id,
+    )
+
+
+@router.post(
+    "/provider-links/{link_state_id}/confirm",
+    response_model=ProviderLinkConfirmResponse,
+    dependencies=[WebCSRFDependency],
+)
+async def confirm_provider_link_flow(
+    link_state_id: UUID,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = AuthDbDependency,
+):
+    if db is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_dependency_unavailable",
+            title="Authentication DB dependency unavailable",
+        )
+    if not principal.auth_via_session or principal.session_workspace_id is None:
+        raise ProblemDetail(
+            status=401,
+            code="provider_link_session_required",
+            title="Provider link session required",
+        )
+    await _apply_auth_request_context(
+        db,
+        workspace_id=principal.session_workspace_id,
+        principal=principal,
+    )
+    try:
+        confirmed: ConfirmedProviderLink = await confirm_provider_link(
+            db,
+            principal=principal,
+            link_state_id=link_state_id,
+        )
+    except ProviderLinkError as exc:
+        await db.commit()
+        status_code = 400
+        if exc.code == "provider_link_not_found":
+            status_code = 404
+        elif exc.code == "provider_link_conflict":
+            status_code = 409
+        elif exc.code in {"provider_link_session_required", "workspace_scope_denied"}:
+            status_code = 403
+        raise ProblemDetail(status=status_code, code=exc.code, title="Provider link denied") from exc
+    await db.commit()
+    return ProviderLinkConfirmResponse(
+        provider=confirmed.provider,
+        status="confirmed",
+        idempotent=confirmed.idempotent,
+    )
+
+
 @router.get("/callback/{provider}", name="auth_callback", response_model=AuthCallbackResponse)
 async def callback(
     request: Request,
@@ -630,7 +774,40 @@ async def callback(
     query = dict(request.query_params)
     settings = request.app.state.settings
     callback_url = build_provider_callback_url(request, provider)
+    callback_state = await db.scalar(
+        select(AuthCallbackState).where(
+            AuthCallbackState.provider == provider,
+            AuthCallbackState.state_nonce == state,
+        )
+    )
+    link = (
+        await link_for_callback(db, callback_state.id)
+        if callback_state is not None
+        else None
+    )
     try:
+        if link is not None:
+            await resolve_callback_to_provider_link(
+                db,
+                provider=provider,
+                query=query,
+                state_nonce=state,
+                link_state=link,
+                provider_credentials=_provider_credentials(settings, provider, callback_url),
+                actor_ip=_request_client_ip(request),
+                request_id=_request_id(request),
+                browser_state_nonce=request.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME),
+            )
+            await db.commit()
+            redirect_path = _safe_browser_return_path(callback_state.requested_redirect)
+            if redirect_path is None:
+                redirect_path = f"/settings/provider-links/{link.id}"
+            redirect = RedirectResponse(
+                f"{redirect_path}?result=callback_verified",
+                status_code=303,
+            )
+            _clear_browser_auth_state_cookie(redirect)
+            return redirect
         profile: CallbackProfile = await resolve_callback_to_user(
             db,
             provider=provider,

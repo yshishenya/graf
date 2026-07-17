@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
@@ -22,8 +22,13 @@ from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
 from scripts.issue_smoke_auth_session import issue_smoke_auth_session
 from scripts.seed_smoke_identity import seed_identity
 from tests.fixtures.postgres_rls import rls_test_database_url
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal
+from twobrain_rec_server.auth.provider_links import confirm_provider_link
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
+    AuthAuditEvent,
+    AuthCallbackState,
+    ExternalIdentity,
     IngestAuditEvent,
     MediaRevision,
     Meeting,
@@ -33,8 +38,10 @@ from twobrain_rec_server.db.models import (
     TrackArtifact,
     UploadPart,
     UploadSession,
+    WorkspaceProviderLinkState,
 )
 from twobrain_rec_server.db.tenant_context import (
+    AuthCallbackLookupContext,
     MaintenanceTenantContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
@@ -707,6 +714,252 @@ async def test_auth_callback_completion_requires_auth_bootstrap_context(
         )
 
     assert updated == callback_id
+
+
+@pytest.mark.asyncio
+async def test_provider_link_callback_lookup_requires_exact_state_nonce(
+    rls_engine: AsyncEngine,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    callback_id = uuid4()
+    link_id = uuid4()
+    source_identity_id = uuid4()
+    callback_nonce = f"provider-link-callback-{ids['slug']}"
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="rls_probe_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
+                insert into auth_callback_states
+                    (id, provider, state_nonce, workspace_id, expected_state, expires_at, result)
+                values
+                    (:id, 'vk', :state_nonce, :workspace_id, :state_nonce, :expires_at, 'pending')
+                """
+            ),
+            {
+                "id": callback_id,
+                "state_nonce": callback_nonce,
+                "workspace_id": ids["workspace_a"],
+                "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into external_identities (id, user_id, provider, provider_subject, is_verified)
+                values (:id, :user_id, 'yandex', :provider_subject, true)
+                """
+            ),
+            {
+                "id": source_identity_id,
+                "user_id": ids["user_a"],
+                "provider_subject": f"provider-link-source-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspace_provider_link_states
+                    (id, workspace_id, initiating_user_id, source_provider_identity_id,
+                     initiating_auth_session_id, callback_state_id, candidate_provider,
+                     status, expires_at)
+                values
+                    (:id, :workspace_id, :user_id, :source_identity_id,
+                     :session_id, :callback_id, 'vk', 'initiated', :expires_at)
+                """
+            ),
+            {
+                "id": link_id,
+                "workspace_id": ids["workspace_a"],
+                "user_id": ids["user_a"],
+                "source_identity_id": source_identity_id,
+                "session_id": ids["session_a"],
+                "callback_id": callback_id,
+                "expires_at": datetime.now(UTC) + timedelta(minutes=5),
+            },
+        )
+
+    async with rls_engine.connect() as conn:
+        missing_context = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn, AuthCallbackLookupContext(state_nonce=callback_nonce)
+        )
+        matching_nonce = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn, AuthCallbackLookupContext(state_nonce=f"wrong-{callback_nonce}")
+        )
+        wrong_nonce = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+        wrong_nonce_update = await conn.execute(
+            text("update workspace_provider_link_states set status='callback_verified' where id=:id"),
+            {"id": link_id},
+        )
+        await conn.rollback()
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        owner_request = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "b"))
+        foreign_request = await conn.scalar(
+            text("select count(*) from workspace_provider_link_states where id=:id"),
+            {"id": link_id},
+        )
+        foreign_update = await conn.execute(
+            text("update workspace_provider_link_states set status='callback_verified' where id=:id"),
+            {"id": link_id},
+        )
+        await conn.rollback()
+
+    assert missing_context == 0
+    assert matching_nonce == 1
+    assert wrong_nonce == 0
+    assert wrong_nonce_update.rowcount == 0
+    assert owner_request == 1
+    assert foreign_request == 0
+    assert foreign_update.rowcount == 0
+
+
+@pytest.mark.asyncio
+async def test_provider_link_concurrent_confirmation_keeps_one_identity_and_safe_audit(
+    migrated_postgres_urls: MigratedPostgresUrls,
+) -> None:
+    engine = create_async_engine(migrated_postgres_urls.migration_url, pool_pre_ping=True)
+    sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        ids = await _seed_probe_rows(engine)
+        source_identity_id = uuid4()
+        candidate_subject = f"provider-link-race-{ids['slug']}"
+        link_ids = (uuid4(), uuid4())
+        expires_at = datetime.now(UTC) + timedelta(minutes=5)
+        async with sessionmaker() as db:
+            db.add(
+                ExternalIdentity(
+                    id=source_identity_id,
+                    user_id=ids["user_a"],
+                    provider="yandex",
+                    provider_subject=f"provider-link-source-{ids['slug']}",
+                    is_verified=True,
+                )
+            )
+            for link_id in link_ids:
+                callback_state_id = uuid4()
+                db.add(
+                    AuthCallbackState(
+                        id=callback_state_id,
+                        provider="vk",
+                        state_nonce=f"provider-link-race-state-{callback_state_id}",
+                        workspace_id=ids["workspace_a"],
+                        expected_state=f"provider-link-race-state-{callback_state_id}",
+                        expires_at=expires_at,
+                        result="completed",
+                    )
+                )
+                db.add(
+                    WorkspaceProviderLinkState(
+                        id=link_id,
+                        workspace_id=ids["workspace_a"],
+                        initiating_user_id=ids["user_a"],
+                        source_provider_identity_id=source_identity_id,
+                        initiating_auth_session_id=ids["session_a"],
+                        callback_state_id=callback_state_id,
+                        candidate_provider="vk",
+                        candidate_identity_subject=candidate_subject,
+                        candidate_email="candidate@example.test",
+                        candidate_display_name="Candidate Name",
+                        status="callback_verified",
+                        callback_verified_at=datetime.now(UTC),
+                        expires_at=expires_at,
+                    )
+                )
+            await db.commit()
+
+        principal = AuthenticatedPrincipal(
+            user_id=ids["user_a"],
+            organization_id=ids["org_a"],
+            workspace_ids=frozenset({ids["workspace_a"]}),
+            subject=str(ids["user_a"]),
+            session_id=ids["session_a"],
+            auth_via_session=True,
+            session_workspace_id=ids["workspace_a"],
+            session_device_id=ids["device_a"],
+        )
+        start = asyncio.Event()
+        ready = 0
+        ready_lock = asyncio.Lock()
+
+        async def confirm(link_id: UUID) -> bool:
+            nonlocal ready
+            async with sessionmaker() as db:
+                async with ready_lock:
+                    ready += 1
+                    if ready == len(link_ids):
+                        start.set()
+                await start.wait()
+                result = await confirm_provider_link(
+                    db,
+                    principal=principal,
+                    link_state_id=link_id,
+                )
+                await db.commit()
+                return result.idempotent
+
+        results = await asyncio.gather(*(confirm(link_id) for link_id in link_ids))
+        assert sorted(results) == [False, True]
+
+        async with sessionmaker() as db:
+            identities = list(
+                await db.scalars(
+                    select(ExternalIdentity).where(
+                        ExternalIdentity.provider == "vk",
+                        ExternalIdentity.provider_subject == candidate_subject,
+                    )
+                )
+            )
+            links = [await db.get(WorkspaceProviderLinkState, link_id) for link_id in link_ids]
+            audit_events = list(
+                await db.scalars(
+                    select(AuthAuditEvent).where(
+                        AuthAuditEvent.event_type == "provider_link_confirmed"
+                    )
+                )
+            )
+
+        assert len(identities) == 1
+        assert identities[0].user_id == ids["user_a"]
+        assert all(link is not None and link.status == "confirmed" for link in links)
+        assert all(link is not None and link.candidate_identity_subject is None for link in links)
+        assert sorted(event.metadata_json["idempotent"] for event in audit_events) == [False, True]
+        for event in audit_events:
+            assert "candidate@example.test" not in str(event.metadata_json)
+            assert candidate_subject not in str(event.metadata_json)
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

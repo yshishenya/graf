@@ -12,5 +12,21 @@
         <a class="button quiet" href="{{ calendar_settings_href }}">Подключить календари</a>
       </div>
     </section>
+    {% if provider_link_options %}
+    <section class="settings-section cabinet-card" id="provider-link-connections" aria-labelledby="provider-link-connections-title">
+      <div>
+        <div class="section-title" id="provider-link-connections-title">Способы входа</div>
+        <p class="muted">Добавьте ещё один способ входа. Сначала GRAF проверит его у выбранного провайдера, затем попросит вас подтвердить подключение.</p>
+      </div>
+      <div class="settings-actions" aria-label="Добавить способ входа">
+        {% for provider in provider_link_options %}
+        <form action="{{ provider_link_start_base_path }}/{{ provider.provider }}/start" method="post">
+          {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+          <button class="button quiet" type="submit">Подключить {{ provider.label }}</button>
+        </form>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
   </div>
 </main>

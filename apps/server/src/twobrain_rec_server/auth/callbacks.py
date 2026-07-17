@@ -19,6 +19,11 @@ from twobrain_rec_server.auth.policy import (
     is_provider_enabled_in_policy,
     load_workspace_auth_policy,
 )
+from twobrain_rec_server.auth.provider_links import (
+    ProviderLinkError,
+    reject_provider_link,
+    store_verified_candidate,
+)
 from twobrain_rec_server.auth.providers import get_provider_adapter
 from twobrain_rec_server.auth.providers.base import (
     ProviderCredentials,
@@ -744,3 +749,140 @@ async def resolve_callback_to_user(
         token_expires_at=issued.expires_at,
         requested_redirect=state.requested_redirect,
     )
+
+
+async def resolve_callback_to_provider_link(
+    db: AsyncSession,
+    *,
+    provider: str,
+    query: dict[str, str],
+    state_nonce: str,
+    link_state,
+    provider_credentials: ProviderCredentials,
+    actor_ip: str | None = None,
+    request_id: str | None = None,
+    provider_http_client: ProviderHttpClient | None = None,
+    browser_state_nonce: str | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Verify a bound provider-link callback without changing login state."""
+    now = now or datetime.now(UTC)
+    callback_state: AuthCallbackState | None = None
+    try:
+        callback_state = await consume_callback_state(
+            db,
+            provider=provider,
+            state_nonce=state_nonce,
+            browser_state_nonce=browser_state_nonce,
+            now=now,
+        )
+        if callback_state.id != link_state.callback_state_id:
+            raise ProviderLinkError("provider_link_callback_mismatch")
+        _resolve_oauth_denial(query)
+        identity = get_provider_adapter(provider).verify_callback(
+            query,
+            expected_state=state_nonce,
+            credentials=provider_credentials,
+            http_client=provider_http_client or get_provider_http_client(),
+            now=now,
+        )
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=link_state.workspace_id,
+                user_id=link_state.initiating_user_id,
+                context_kind="auth_bootstrap",
+            ),
+        )
+        await _assert_provider_allowed(db, link_state.workspace_id, identity.provider)
+        membership = await db.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == link_state.workspace_id,
+                WorkspaceMembership.user_id == link_state.initiating_user_id,
+                WorkspaceMembership.status == "active",
+            )
+        )
+        if membership is None:
+            raise ProviderLinkError("workspace_scope_denied")
+        await store_verified_candidate(
+            db,
+            link=link_state,
+            provider=identity.provider,
+            provider_subject=identity.normalized_subject(),
+            email=identity.email,
+            phone=identity.phone,
+            display_name=identity.display_name,
+            now=now,
+        )
+    except CallbackFlowError as exc:
+        if callback_state is not None:
+            await _mark_state_error(callback_state, exc.code, now=now)
+        await reject_provider_link(db, link=link_state, error_code=exc.code)
+        await _record_callback_audit_event(
+            db,
+            workspace_id=link_state.workspace_id,
+            event_type="provider_link_callback_rejected",
+            provider=provider,
+            actor_ip=actor_ip,
+            request_id=request_id,
+            outcome="failure",
+            actor_user_id=link_state.initiating_user_id,
+            metadata={"error_code": exc.code},
+        )
+        raise
+    except ProviderVerificationError as exc:
+        if callback_state is not None:
+            await _mark_state_error(callback_state, "provider_unavailable", now=now)
+        await reject_provider_link(db, link=link_state, error_code="provider_unavailable")
+        await _record_callback_audit_event(
+            db,
+            workspace_id=link_state.workspace_id,
+            event_type="provider_link_callback_rejected",
+            provider=provider,
+            actor_ip=actor_ip,
+            request_id=request_id,
+            outcome="failure",
+            actor_user_id=link_state.initiating_user_id,
+            metadata={"error_code": "provider_unavailable"},
+        )
+        raise CallbackFlowError("provider_unavailable", "provider callback verification unavailable") from exc
+    except ProviderLinkError as exc:
+        if callback_state is not None:
+            await _mark_state_error(callback_state, exc.code, now=now)
+        await reject_provider_link(db, link=link_state, error_code=exc.code)
+        await _record_callback_audit_event(
+            db,
+            workspace_id=link_state.workspace_id,
+            event_type="provider_link_callback_rejected",
+            provider=provider,
+            actor_ip=actor_ip,
+            request_id=request_id,
+            outcome="failure",
+            actor_user_id=link_state.initiating_user_id,
+            metadata={"error_code": exc.code},
+        )
+        raise CallbackFlowError(exc.code, "provider link callback rejected") from exc
+    except ValueError as exc:
+        message = str(exc)
+        error_code = (
+            "callback_state_reused"
+            if "already consumed" in message
+            else "callback_state_expired"
+            if "expired" in message
+            else "callback_state_invalid"
+        )
+        if callback_state is not None:
+            await _mark_state_error(callback_state, error_code, now=now)
+        await reject_provider_link(db, link=link_state, error_code=error_code)
+        await _record_callback_audit_event(
+            db,
+            workspace_id=link_state.workspace_id,
+            event_type="provider_link_callback_rejected",
+            provider=provider,
+            actor_ip=actor_ip,
+            request_id=request_id,
+            outcome="failure",
+            actor_user_id=link_state.initiating_user_id,
+            metadata={"error_code": error_code},
+        )
+        raise CallbackFlowError(error_code, "callback state invalid") from exc

@@ -8,6 +8,7 @@ from twobrain_rec_server.cabinet.web_routes import (
     calendar,
     deletion,
     desktop,
+    provider_links,
     static,
 )
 from twobrain_rec_server.product_analytics.events import build_activation_event
@@ -19,6 +20,7 @@ router.include_router(static.router)
 router.include_router(auth.router)
 router.include_router(browser.router)
 router.include_router(calendar.router)
+router.include_router(provider_links.router)
 router.include_router(deletion.router)
 router.include_router(desktop.router)
 

@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-16
+Date: 2026-07-17
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -11,6 +11,20 @@ metadata-only evidence остаются подробной историей ре
 - macOS is the selected MVP platform.
 - The current macOS product identity is `GRAF.app` with bundle id
   `pro.2brain.graf`.
+- Feature `100-provider-link-verified-callback` is an implementation candidate,
+  not yet merged or released. It adds a server-verified, explicit flow for a
+  signed-in user to add another provider: callback stores only a temporary
+  candidate and never issues or switches a GRAF session; only the exact
+  initiating user/workspace/session may confirm. Browser and embedded Settings
+  reuse one safe provider-only surface. Expired/replayed/rejected candidates are
+  scrubbed and audit stores only codes plus a one-way intent fingerprint. Fresh
+  canonical local CI passes (`643` macOS tests, `1756` server tests, `27`
+  PostgreSQL-only skips, Ruff, compile, Compose and deployment-evidence scan).
+  A disposable local PostgreSQL RLS module passes 15/15 with zero database
+  residue. PR/merge, release and production smoke remain required before
+  acceptance.
+  The standalone formal Codex Security scan for deferred feature `097` remains
+  out of this feature's evidence by user instruction.
 - Feature `095-macos-permission-retention` is implemented for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted
