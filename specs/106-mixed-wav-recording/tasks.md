@@ -41,7 +41,7 @@
 - [ ] T012 Add `media` role support and source-kind request data to `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift`, preserving old queued v3/v4 upload descriptors.
 - [ ] T013 Add `INITIAL_MIXED_RECORDING` and its authoritative `media` role to `apps/server/src/twobrain_rec_server/domain/statuses.py` and `apps/server/src/twobrain_rec_server/ingest/media_revisions.py` without a database migration.
 - [ ] T014 Make source kind, exact role set and v5 descriptor validation one atomic contract in `apps/server/src/twobrain_rec_server/ingest/manifest.py`, `apps/server/src/twobrain_rec_server/ingest/sessions.py` and `apps/server/src/twobrain_rec_server/ingest/finalize.py`.
-- [ ] T015 Map the new first-party source kind explicitly through `apps/server/src/twobrain_rec_server/api/schemas.py`, `apps/server/src/twobrain_rec_server/api/ingest.py` and `apps/server/src/twobrain_rec_server/ingest/meetings.py`, while retaining the old-client default.
+- [ ] T015 Map the new first-party source kind explicitly through `apps/server/src/twobrain_rec_server/api/schemas.py`, `apps/server/src/twobrain_rec_server/api/ingest.py`, `apps/server/src/twobrain_rec_server/ingest/meetings.py` and `specs/012-server-ingest-foundation/contracts/openapi.yaml`, while retaining the old-client default.
 - [ ] T016 Update the v5 contract assertions in `apps/macos/Shared/Tools/ContractValidation/main.swift` and `apps/macos/Scripts/validate-recording-artifact-format.sh`; remove assumptions that new packages contain `mic.wav` or `incoming.wav`.
 
 **Checkpoint**: v5 package identity is unambiguous, current/historic packages remain distinguishable, and no role-only validation can accept an unprocessable revision.
@@ -158,7 +158,7 @@
 
 **Purpose**: Prove the complete pipeline, preserve release boundaries and reconcile all task evidence.
 
-- [ ] T059 [P] Update v5 OpenAPI/generated contract and server contract coverage in `specs/012-server-ingest-foundation/contracts/openapi.yaml` and `apps/server/tests/contract/test_ingest_openapi_contract.py`.
+- [ ] T059 [P] Verify checked-in v5 OpenAPI/generated-contract parity and server contract coverage in `specs/012-server-ingest-foundation/contracts/openapi.yaml` and `apps/server/tests/contract/test_ingest_openapi_contract.py`.
 - [ ] T060 [P] Update selected risk/validation lane, test commands and no-content evidence controls in `specs/106-mixed-wav-recording/quickstart.md` and `specs/106-mixed-wav-recording/evidence/README.md`.
 - [ ] T061 Run `bash -n apps/macos/Scripts/validate-recording-artifact-format.sh`, `docker compose -f infra/docker-compose.yml config`, focused Swift tests, focused pytest/Ruff and `git diff --check`; record non-secret results in `specs/106-mixed-wav-recording/evidence/validation.md`.
 - [ ] T062 Run `infra/scripts/ci-local.sh` from the clean v5 branch and resolve every feature-caused failure before marking validation complete in `specs/106-mixed-wav-recording/evidence/validation.md`.
