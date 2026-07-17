@@ -22,6 +22,23 @@ and never transcode on demand. The cabinet shows playback preparation/readiness
 independently from transcript/summary state and exposes no retry, reprocess, or
 backfill control.
 
+## 2026-07-17 Production Recovery Hotfix
+
+Production evidence showed that an accepted first-party record could remain in
+`retry_wait` for the long-cycle delay after a `worker_interrupted` recovery,
+despite the media worker being healthy again. The hotfix is deliberately narrow:
+the worker's one startup reconciliation admits only future-dated retry-wait jobs
+whose durable reason is `worker_interrupted`, transitions them through the
+existing lock, audit, lease and dispatch path, and leaves all ordinary retry
+reasons on their scheduled backoff. It introduces no user/admin repair control,
+schema change, source re-upload, duplicate job, native-app change, or altered
+periodic reconciliation behavior.
+
+Focused acceptance proves both sides: an interrupted job is dispatched on
+startup with its original lineage, and a future-dated retry for any other reason
+is not selected. The normal local CI and production closeout then prove the
+existing record converges without user action.
+
 ## Technical Context
 
 **Language/Version**: Python >=3.13; SQLAlchemy 2/Alembic; FastAPI/Pydantic 2;
