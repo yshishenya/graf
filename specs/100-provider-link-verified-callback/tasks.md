@@ -165,7 +165,7 @@
 - [X] T037 [P] Update behavior/security/validation notes in `CHANGELOG.md` and `docs/current-product-status.md`.
 - [X] T038 Run the focused quickstart test matrix and `infra/scripts/ci-local.sh`; record high-risk lane evidence in `specs/100-provider-link-verified-callback/quickstart.md` or PR evidence without secrets.
 - [X] T039 Run the required independent code/security and UX/QA review; resolve any Critical/High finding and record reviewed file/line evidence in the PR.
-- [ ] T040 Prepare the CalVer release, run `infra/scripts/cd-remote.sh --dry-run`, deploy only under the existing approval, and collect metadata-only browser/embedded production smoke plus rollback evidence.
+- [X] T040 Prepare the CalVer release, run `infra/scripts/cd-remote.sh --dry-run`, deploy only under the existing approval, and collect metadata-only browser/embedded production smoke plus rollback evidence.
 
 ## Dependencies & Execution Order
 

@@ -32,3 +32,18 @@ Run `infra/scripts/ci-local.sh`. For the behavior release, perform the project r
 - A separate disposable PostgreSQL migration receipt passes `0023 → 0025 →
   0023 → 0025 (head)` with zero residual `crisp_feature100_migration_*`
   databases.
+
+## 2026-07-17 release and production evidence
+
+- Feature PR [#3612](https://github.com/yshishenya/crisp/pull/3612) merged;
+  release [`v2026.07.17.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.17.1)
+  is published and production runs
+  `744b3ad25cf52cdb119b37a1900f14928428ee4b`.
+- `infra/scripts/cd-remote.sh --dry-run` and the approved `--execute` pass.
+  The execute receipt records a protected backup point, `infra_smoke_ready`,
+  public health, metadata-only upload/auth cleanup and zero cleanup residue.
+  No rollback was performed because the health and smoke gates stayed green.
+- An authenticated production browser check opened `/settings` and
+  `/desktop/settings`: both render the same provider-only start controls for
+  Yandex ID, VK ID and Telegram Login. The check did not submit a provider
+  form, use provider credentials or retain browser data.
