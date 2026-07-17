@@ -59,11 +59,20 @@
 ### Документы
 - Описан единый безопасный локальный запуск и восстановление при недоступном
   Docker Engine или занятом локальном порте.
+- Зафиксирован post-deploy closeout Feature 097: merge, релиз, runtime SHA,
+  migration head, backup/restore rehearsal, CI receipts и границы
+  feature-specific production smoke.
+- Обновлён текущий статус продукта: активный серверный runtime больше не
+  содержит SQLite/aiosqlite; исторические миграции, TCC-проверка macOS и
+  ограниченные auth/bootstrap compatibility anchors оставлены намеренно.
 
 ### Операции
 - Добавлены ручные protected workflows для безопасной проверки signer и
   подписания только в draft GitHub Release. Публичный download host по-прежнему
   обновляется отдельно, versioned assets раньше graf-appcast.xml.
+- Feature 097 выпущена и развернута через `v2026.07.18.1`; canonical deploy gate
+  завершился `ci_local_result=pass`, production smoke и cleanup завершились
+  без остаточных smoke-артефактов.
 
 ## [2026.07.17.13] - 2026-07-17
 

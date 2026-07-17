@@ -50,9 +50,16 @@ stop repeating full tests; it is not represented as a result.
 ## Canonical CI boundary
 
 The Feature 110 branch has a recorded `infra/scripts/ci-local.sh` pass for its
-1,827-node baseline. In this continuation, the expanded 097 server gate above
-was run directly with the stable worker setting; the complete canonical
-`ci-local.sh` command was not repeated after the user stopped additional full
-test cycles. Therefore this file does not claim a new `ci_local_result=pass`
-for the 1,866-node collection.
+1,827-node baseline. The release candidate was then checked by the canonical
+`infra/scripts/ci-local.sh` gate as part of the approved production deploy;
+the gate completed with `ci_local_result=pass` at release-preparation SHA
+`2e94cd76a716c46238a67a65ec9f83bd7381f8b6`. The receipt included 572 passing
+macOS tests, the expanded PostgreSQL collection (1,830 passed and 1 skipped in
+the parallel phase, then 34 passed and 1 skipped in the strict RLS phase),
+Ruff, Python compilation, Compose rendering and the deployment-evidence scan.
 
+Four workers remain the canonical default for the expanded collection on the
+current 8 GB Docker allocation. The six-worker repetition was intentionally
+stopped after the user asked to stop repeating full test cycles; it is not
+represented as a result. The earlier eight-worker saturation receipt remains
+documented above as a local resource limit, not a product failure.

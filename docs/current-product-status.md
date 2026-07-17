@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-17
+Date: 2026-07-18
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -27,8 +27,8 @@ metadata-only evidence остаются подробной историей ре
   protected backup point, public health/readiness and metadata-only smoke pass,
   and the actual browser and embedded Settings pages show the same safe
   provider-only start surface without starting a provider flow.
-  The standalone formal Codex Security scan for deferred feature `097` remains
-  out of this feature's evidence by user instruction.
+  The standalone formal Codex Security scan for Feature `097` was explicitly
+  skipped by user instruction and is not represented as a security result.
 - Feature `105-macos-app-updates` is merged and live on the owner-only production
   channel as
   [`v2026.07.17.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.17.9)
@@ -68,6 +68,28 @@ metadata-only evidence остаются подробной историей ре
   refreshes the public download package with the local self-signed build so
   the owner machine can update from the hosted package while the Developer ID
   path remains out of scope.
+- Feature `097-workspace-account-onboarding` is merged through
+  [#3842](https://github.com/yshishenya/crisp/pull/3842) at merge SHA
+  `d79f24a9b91a739e90826a5e51659614628b62d1`, released as
+  [`v2026.07.18.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.18.1)
+  and deployed at exact runtime SHA
+  `2e94cd76a716c46238a67a65ec9f83bd7381f8b6`. New self-serve accounts land
+  in an idempotent personal space; corporate membership requires an explicit,
+  identity-matched offer; domain-only discovery stays disabled; active-space
+  switching and revoked-access fallback are server-verified; and the legacy
+  bootstrap report remains metadata-only with no data move. Migration head is
+  `0028_active_space_read`; backup/restore rehearsal, runtime readiness,
+  metadata-only production smoke and cleanup passed. Canonical local CI passed
+  with 572 macOS tests and the accelerated PostgreSQL/RLS gate recorded in
+  `specs/097-workspace-account-onboarding/validation/release-closeout.md`.
+  The deploy smoke was the generic upload/auth profile, so a separate
+  production B2C signup plus invitation/revocation browser receipt remains an
+  explicitly open validation item. Older macOS app builds need the 097 client
+  changes for embedded revoked-session recovery. The standalone Codex Security
+  scan was skipped by explicit user instruction and is not a security result.
+  Active server runtime has no SQLite or `aiosqlite` support; historical ADRs,
+  the macOS TCC `sqlite3` permission probe, and bounded bootstrap/legacy aliases
+  remain intentionally retained compatibility or audit anchors.
 - Feature `098-calendar-auto-context-match` is implemented, released and live
   in production. Feature PR
   [#3270](https://github.com/yshishenya/crisp/pull/3270) merged as
@@ -106,9 +128,9 @@ metadata-only evidence остаются подробной историей ре
   clear/ambiguous and browser/embedded receipts remain synthetic same-code QA,
   not a claim that private production calendars were inspected. Older app
   builds must be updated to gain feature 098; the server-only `.3` hotfix has
-  no `apps/macos` diff and requires no additional reinstall. Feature `097` and
-  its resumable standalone Codex Security scan stay separately deferred by
-  user instruction and are not counted as 098 acceptance evidence.
+  no `apps/macos` diff and requires no additional reinstall. Feature `097` is
+  separately released; its standalone Codex Security scan was skipped by user
+  instruction and is not counted as 098 acceptance evidence.
 - Feature `099-review-m4a-normalization` is implemented, validated and merged
   through [PR #3470](https://github.com/yshishenya/crisp/pull/3470) at exact
   merge SHA `da8b22ea069202d9d9961f9a4f46dd4192821da3`. Release
@@ -217,9 +239,10 @@ metadata-only evidence остаются подробной историей ре
   conversion reached canonical playback-ready state automatically; no retry,
   upload, or other user action was needed. Broader T115 browser/embedded
   production proof and T116 full feature issue cleanup remain separately open.
-  Feature 097 and its resumable standalone Codex Security scan remain deferred
-  and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
-  complete it. Release `v2026.07.14.7` remains owned by the separate «новый
+  Feature 097 is separately released; its standalone Codex Security scan was
+  skipped by explicit user instruction. Ordinary 099
+  authorization/RLS/subprocess/privacy gates do not complete or replace 097.
+  Release `v2026.07.14.7` remains owned by the separate «новый
   главный экран GRAF» rollout. None of the immutable feature-099 release tags
   were moved. The next candidate is `v2026.07.16.3`; its hotfix merge and
   explicit production-deploy approval are recorded, while release publication,
