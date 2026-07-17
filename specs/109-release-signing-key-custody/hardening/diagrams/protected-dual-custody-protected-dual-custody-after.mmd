@@ -1,0 +1,14 @@
+flowchart LR
+    Manifest["Versioned public key manifest"] --> App["Candidate GRAF.app public key"]
+    Manifest --> LocalCheck["Local safe verifier"]
+    Manifest --> CloudCheck["Protected workflow"]
+    Keychain["macOS Keychain recovery signer"] --> LocalCheck
+    Secret["GitHub protected environment secret"] --> CloudCheck
+    App --> LocalCheck
+    App --> CloudCheck
+    LocalCheck --> Attestation["Safe key-id attestation"]
+    CloudCheck --> Attestation
+    Attestation --> Stage["Validated signed draft artifacts"]
+    Stage --> Owner["Owner verifies ZIP/package/checksum"]
+    Owner --> Host["Archive/package first; appcast last"]
+    Host --> Client["Post-bootstrap GRAF"]
