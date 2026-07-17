@@ -443,16 +443,17 @@ def test_provider_link_start_rechecks_disabled_provider_without_creating_intent(
         params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
     )
     assert login.status_code == 200
+    login_workspace_id = UUID(login.json()["workspace_id"])
     session_id = UUID(login.json()["active_session_id"])
     csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
 
     async def disable_vk_and_count_intents() -> int:
         async with client.app_state["sessionmaker"]() as db:
             policy = await db.scalar(
-                select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == WORKSPACE_ID)
+                select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == login_workspace_id)
             )
             if policy is None:
-                policy = WorkspaceAuthPolicy(workspace_id=WORKSPACE_ID)
+                policy = WorkspaceAuthPolicy(workspace_id=login_workspace_id)
                 db.add(policy)
             policy.allow_vk = False
             await db.commit()
@@ -463,7 +464,7 @@ def test_provider_link_start_rechecks_disabled_provider_without_creating_intent(
     assert asyncio.run(disable_vk_and_count_intents()) == 0
     response = client.post(
         "/api/v1/auth/providers/vk/link/start",
-        params={"workspace_id": str(WORKSPACE_ID)},
+        params={"workspace_id": login.json()["workspace_id"]},
         headers={
             "Authorization": f"Bearer {login.json()['session_token']}",
             "X-CSRF-Token": csrf,
@@ -492,12 +493,13 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
         params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
     )
     assert login.status_code == 200
+    login_workspace_id = UUID(login.json()["workspace_id"])
     session_id = UUID(login.json()["active_session_id"])
     csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
 
     link_start = client.post(
         "/api/v1/auth/providers/vk/link/start",
-        params={"workspace_id": str(WORKSPACE_ID)},
+        params={"workspace_id": login.json()["workspace_id"]},
         headers={
             "Authorization": f"Bearer {login.json()['session_token']}",
             "X-CSRF-Token": csrf,
@@ -523,7 +525,7 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
             sessions = list(
                 (
                     await db.scalars(
-                        select(AuthSession).where(AuthSession.workspace_id == WORKSPACE_ID)
+                        select(AuthSession).where(AuthSession.workspace_id == login_workspace_id)
                     )
                 ).all()
             )
@@ -575,7 +577,7 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
             sessions = list(
                 (
                     await db.scalars(
-                        select(AuthSession).where(AuthSession.workspace_id == WORKSPACE_ID)
+                        select(AuthSession).where(AuthSession.workspace_id == login_workspace_id)
                     )
                 ).all()
             )
@@ -590,7 +592,7 @@ def test_provider_link_callback_stores_candidate_without_changing_login_session(
 
     repeat_start = client.post(
         "/api/v1/auth/providers/vk/link/start",
-        params={"workspace_id": str(WORKSPACE_ID)},
+        params={"workspace_id": login.json()["workspace_id"]},
         headers={
             "Authorization": f"Bearer {login.json()['session_token']}",
             "X-CSRF-Token": csrf,
@@ -660,11 +662,12 @@ def test_provider_link_callback_replay_scrubs_pending_candidate(monkeypatch, cli
         "/api/v1/auth/callback/yandex",
         params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
     )
+    assert login.status_code == 200
     session_id = UUID(login.json()["active_session_id"])
     csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
     link_start = client.post(
         "/api/v1/auth/providers/vk/link/start",
-        params={"workspace_id": str(WORKSPACE_ID)},
+        params={"workspace_id": login.json()["workspace_id"]},
         headers={
             "Authorization": f"Bearer {login.json()['session_token']}",
             "X-CSRF-Token": csrf,
@@ -723,7 +726,7 @@ def test_provider_link_confirmation_expiry_scrubs_candidate(monkeypatch, client:
     csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
     link_start = client.post(
         "/api/v1/auth/providers/vk/link/start",
-        params={"workspace_id": str(WORKSPACE_ID)},
+        params={"workspace_id": login.json()["workspace_id"]},
         headers={
             "Authorization": f"Bearer {login.json()['session_token']}",
             "X-CSRF-Token": csrf,
@@ -796,11 +799,13 @@ def test_provider_link_confirmation_rejects_foreign_identity_without_transfer(
         "/api/v1/auth/callback/yandex",
         params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
     )
+    assert login.status_code == 200
+    login_workspace_id = UUID(login.json()["workspace_id"])
     session_id = UUID(login.json()["active_session_id"])
     csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
     link_start = client.post(
         "/api/v1/auth/providers/vk/link/start",
-        params={"workspace_id": str(WORKSPACE_ID)},
+        params={"workspace_id": str(login_workspace_id)},
         headers={
             "Authorization": f"Bearer {login.json()['session_token']}",
             "X-CSRF-Token": csrf,
@@ -889,11 +894,13 @@ def test_provider_link_confirmation_requires_the_initiating_session(
         "/api/v1/auth/callback/yandex",
         params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
     )
+    assert login.status_code == 200
+    login_workspace_id = UUID(login.json()["workspace_id"])
     session_id = UUID(login.json()["active_session_id"])
     csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
     link_start = client.post(
         "/api/v1/auth/providers/vk/link/start",
-        params={"workspace_id": str(WORKSPACE_ID)},
+        params={"workspace_id": str(login_workspace_id)},
         headers={
             "Authorization": f"Bearer {login.json()['session_token']}",
             "X-CSRF-Token": csrf,
@@ -913,7 +920,7 @@ def test_provider_link_confirmation_requires_the_initiating_session(
             issued = await issue_auth_session(
                 db,
                 user_id=UUID(login.json()["user_id"]),
-                workspace_id=WORKSPACE_ID,
+                workspace_id=login_workspace_id,
                 device_id=DEVICE_ID,
                 provider="yandex",
             )
@@ -1468,12 +1475,15 @@ def test_auth_link_rejects_raw_candidate_subject(monkeypatch, client: TestClient
 
     response = client.post(
         "/api/v1/auth/link",
-        headers={"Authorization": f"Bearer {callback_payload['session_token']}", "X-Workspace-Id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {callback_payload['session_token']}",
+            "X-Workspace-Id": callback_payload["workspace_id"],
+        },
         json={
             "candidate_provider": "vk",
             "candidate_provider_subject": "VK-CANDIDATE",
             "candidate_phone": "+79990001111",
-            "expected_workspace_id": str(WORKSPACE_ID),
+            "expected_workspace_id": callback_payload["workspace_id"],
         },
     )
     assert response.status_code == 409
@@ -1539,11 +1549,14 @@ def test_auth_link_rejects_direct_subject_without_leaking_conflict(monkeypatch, 
 
     response = client.post(
         "/api/v1/auth/link",
-        headers={"Authorization": f"Bearer {callback_payload['session_token']}", "X-Workspace-Id": str(WORKSPACE_ID)},
+        headers={
+            "Authorization": f"Bearer {callback_payload['session_token']}",
+            "X-Workspace-Id": callback_payload["workspace_id"],
+        },
         json={
             "candidate_provider": "vk",
             "candidate_provider_subject": "vk-conflict-subject",
-            "expected_workspace_id": str(WORKSPACE_ID),
+            "expected_workspace_id": callback_payload["workspace_id"],
         },
     )
 
@@ -1568,6 +1581,7 @@ def test_auth_device_register_revoke_blocks_session_bound_ingest(monkeypatch, cl
         "/api/v1/auth/callback/yandex",
         params={"state": state_nonce, "code": "TEST-YA-DEVICE"},
     ).json()
+    workspace_id = UUID(callback_payload["workspace_id"])
     unbound_device_id = uuid4()
 
     async def seed_unbound_device() -> None:
@@ -1575,7 +1589,7 @@ def test_auth_device_register_revoke_blocks_session_bound_ingest(monkeypatch, cl
             db.add(
                 RegisteredDevice(
                     id=unbound_device_id,
-                    workspace_id=WORKSPACE_ID,
+                    workspace_id=workspace_id,
                     user_id=UUID(callback_payload["user_id"]),
                     device_public_id="unbound-session-device",
                     status="active",
@@ -1587,7 +1601,7 @@ def test_auth_device_register_revoke_blocks_session_bound_ingest(monkeypatch, cl
     client.portal.call(seed_unbound_device)
     session_headers = {
         "Authorization": f"Bearer {callback_payload['session_token']}",
-        "X-Workspace-Id": str(WORKSPACE_ID),
+        "X-Workspace-Id": str(workspace_id),
     }
 
     untrusted = client.post(
