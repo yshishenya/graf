@@ -39,6 +39,7 @@ from twobrain_rec_server.auth.provider_links import (
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.providers.base import ProviderCredentials
 from twobrain_rec_server.auth.sessions import create_callback_state
+from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
@@ -838,6 +839,16 @@ async def callback(
             code="callback_state_invalid",
             title="Callback state is invalid",
         ) from exc
+    redirect_path = _safe_browser_return_path(profile.requested_redirect)
+    if redirect_path is not None:
+        redirect_path = await resolve_browser_auth_return_path(
+            db,
+            requested_redirect=redirect_path,
+            organization_id=profile.organization_id,
+            workspace_id=profile.workspace_id,
+            user_id=profile.user_id,
+            auth_session_id=profile.auth_session_id,
+        )
     await db.commit()
     payload = AuthCallbackResponse(
         user_id=profile.user_id,
@@ -849,7 +860,6 @@ async def callback(
         provider_subject=profile.provider_subject,
         external_identity_id=profile.external_identity_id,
     )
-    redirect_path = _safe_browser_return_path(profile.requested_redirect)
     if redirect_path is not None:
         redirect = RedirectResponse(redirect_path, status_code=303)
         _set_auth_cookie(redirect, token=profile.token, expires_at=profile.token_expires_at)

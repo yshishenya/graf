@@ -18,6 +18,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_detail_page,
     render_meeting_list_fragment,
     render_meeting_list_page,
+    render_meeting_unavailable_page,
     render_settings_page,
 )
 from twobrain_rec_server.cabinet.templates import (
@@ -39,6 +40,19 @@ from twobrain_rec_server.cabinet.web_routes.support import (
 )
 
 router = APIRouter(tags=["cabinet-web"])
+
+
+def _meeting_unavailable_response(
+    request: Request,
+    *,
+    csrf_token: str | None,
+) -> HTMLResponse:
+    if _is_hx_request(request):
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return cabinet_html_response(
+        render_meeting_unavailable_page(csrf_token=csrf_token),
+        status_code=404,
+    )
 
 
 @router.get("/meetings", response_class=HTMLResponse, include_in_schema=False)
@@ -88,7 +102,7 @@ async def meeting_list_page(
 @router.get("/meetings/{meeting_id}", response_class=HTMLResponse, include_in_schema=False)
 async def meeting_detail_page(
     request: Request,
-    meeting_id: UUID,
+    meeting_id: str,
     calendar_context_action: str | None = Query(default=None, pattern="^change$"),
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -99,16 +113,26 @@ async def meeting_detail_page(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
+    try:
+        parsed_meeting_id = UUID(meeting_id)
+    except ValueError:
+        return _meeting_unavailable_response(
+            request,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
     response = await get_cabinet_meeting_review(
         db,
         workspace_id=tenant_scope.workspace_id,
-        meeting_id=meeting_id,
+        meeting_id=parsed_meeting_id,
         viewer_user_id=principal.user_id,
         storage=storage,
         include_calendar_correction_candidates=calendar_context_action == "change",
     )
     if response is None:
-        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+        return _meeting_unavailable_response(
+            request,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
     if _is_hx_request(request):
         return cabinet_html_response(
             render_meeting_detail_fragment(
