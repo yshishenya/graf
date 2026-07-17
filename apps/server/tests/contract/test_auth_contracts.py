@@ -352,14 +352,14 @@ def test_auth_callback_returns_session_and_me_shapes_primary_link(monkeypatch, c
     me = client.get(
         "/api/v1/auth/me",
         headers={
-            "X-Workspace-Id": str(WORKSPACE_ID),
+            "X-Workspace-Id": callback_payload["workspace_id"],
             "Authorization": f"Bearer {callback_payload['session_token']}",
         },
     )
     assert me.status_code == 200
     me_payload = me.json()
     assert me_payload["active_session_id"] == callback_payload["active_session_id"]
-    assert me_payload["policy"]["workspace_id"] == str(WORKSPACE_ID)
+    assert me_payload["policy"]["workspace_id"] == callback_payload["workspace_id"]
     providers = me_payload["linked_providers"]
     assert len(providers) == 1
     assert providers[0]["provider"] == "yandex"
@@ -400,7 +400,7 @@ def test_provider_link_start_requires_session_csrf_and_creates_bound_state(monke
 
     response = client.post(
         "/api/v1/auth/providers/vk/link/start",
-        params={"workspace_id": str(WORKSPACE_ID)},
+        params={"workspace_id": callback.json()["workspace_id"]},
         headers={
             "Authorization": f"Bearer {callback.json()['session_token']}",
             "X-CSRF-Token": csrf,

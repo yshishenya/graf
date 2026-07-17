@@ -32,6 +32,7 @@ from twobrain_rec_server.auth.providers.base import (
     get_provider_http_client,
 )
 from twobrain_rec_server.auth.sessions import consume_callback_state, issue_auth_session
+from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSessionDeviceBinding,
@@ -187,7 +188,7 @@ async def _create_scoped_user(
     provider: str,
     provider_subject: str,
     profile: dict[str, str | None],
-    role: str = "member",
+    role: str | None = None,
 ) -> UserIdentity:
     try:
         async with db.begin_nested():
@@ -207,14 +208,15 @@ async def _create_scoped_user(
                     context_kind="auth_bootstrap",
                 ),
             )
-            db.add(
-                WorkspaceMembership(
-                    workspace_id=workspace_id,
-                    user_id=user.id,
-                    role=role,
-                    status="active",
+            if role is not None:
+                db.add(
+                    WorkspaceMembership(
+                        workspace_id=workspace_id,
+                        user_id=user.id,
+                        role=role,
+                        status="active",
+                    )
                 )
-            )
             db.add(
                 ExternalIdentity(
                     user_id=user.id,
@@ -366,15 +368,6 @@ async def _get_or_create_user_from_provider_claims(
                         "workspace policy requires invite or pre-existing membership",
                         workspace_id=workspace_id,
                     )
-            else:
-                db.add(
-                    WorkspaceMembership(
-                        workspace_id=workspace_id,
-                        user_id=user.id,
-                        role="member",
-                        status="active",
-                    )
-                )
         else:
             await complete_matching_invitation_after_login(
                 db,
@@ -635,6 +628,13 @@ async def resolve_callback_to_user(
             metadata={"error_code": exc.code, "state_nonce": state_nonce},
         )
         raise
+
+    if policy.allow_provider_self_enrollment:
+        workspace = await ensure_personal_workspace(
+            db,
+            organization_id=workspace.organization_id,
+            user_id=user.id,
+        )
 
     membership = await db.scalar(
         select(WorkspaceMembership).where(
