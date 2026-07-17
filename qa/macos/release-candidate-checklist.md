@@ -35,6 +35,8 @@ release surface.
 
 ## In-App Update Gates
 
+- [ ] Exactly one release lane is declared: owner-only self-signed for
+  controlled Macs, or public Developer ID/notarized distribution.
 - [ ] `Sparkle` is locked to `2.9.4`, embedded at
   `Contents/Frameworks/Sparkle.framework`, and reports current version `2.9.4`.
 - [ ] `Contents/Resources/Sparkle-LICENSE.txt` contains the complete license
@@ -48,8 +50,10 @@ release surface.
 - [ ] The new app has a strictly increasing CalVer, stays `GRAF.app` /
   `pro.2brain.graf`, has the same TeamIdentifier, and satisfies the previous
   public app's designated requirement.
-- [ ] Developer ID Application signing, notarization, stapling, and
-  `spctl --assess --type execute` pass for the final app.
+- [ ] The selected trust gate passes: owner-only requires the exact local
+  certificate and designated-requirement continuity; public distribution
+  requires Developer ID Application signing, notarization, stapling, and
+  `spctl --assess --type execute`.
 - [ ] `prepare-app-update.sh` creates a versioned archive and signed appcast in
   staging only; archive length, EdDSA signatures, `arm64`, and macOS `14.5+`
   match the final app.

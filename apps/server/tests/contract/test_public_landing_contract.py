@@ -7,6 +7,7 @@ from twobrain_rec_server.public.templates import PUBLIC_STATIC_URL, public_stati
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_STATIC_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "static" / "public"
 PUBLIC_TEMPLATE_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "templates" / "public"
+REPOSITORY_ROOT = ROOT.parents[1]
 
 
 def test_public_landing_static_assets_are_local_to_server_package() -> None:
@@ -25,6 +26,18 @@ def test_public_landing_static_assets_are_mounted_by_app() -> None:
     app = create_app(Settings())
 
     assert any(route.path == PUBLIC_STATIC_URL for route in app.routes)
+
+
+def test_public_downloads_use_a_read_only_runtime_mount_outside_git() -> None:
+    compose = (REPOSITORY_ROOT / "infra" / "docker-compose.yml").read_text()
+    gitignore = (REPOSITORY_ROOT / ".gitignore").read_text()
+
+    assert (
+        "./runtime/public-downloads:"
+        "/usr/local/lib/python3.13/site-packages/"
+        "twobrain_rec_server/public/static/public/downloads:ro"
+    ) in compose
+    assert "infra/runtime/" in gitignore
 
 
 def test_public_landing_css_avoids_runtime_cdns_or_client_toolchain() -> None:

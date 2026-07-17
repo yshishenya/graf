@@ -18,6 +18,20 @@ The private GitHub repository is not a client dependency.
 - Public HTTPS feed URL
 - Russian release notes containing changes, validation, compatibility/migration, known limitations, and issue/PR links
 
+## Explicit Owner-Only Lane
+
+An owner may explicitly approve a controlled-device channel without Apple
+Developer membership. That lane may use the same public credential-free HTTPS
+locations, but it is not public distribution readiness and must not be described
+as notarized or suitable for unmanaged Macs.
+
+It requires the exact existing `GRAF Local Code Signing` certificate/private
+key, a compatible designated requirement, the same bundle identity/path and
+permission copy, a signed EdDSA appcast/archive, one manual trusted bootstrap on
+each controlled Mac, and `GRAF_REQUIRE_OWNER_ONLY_UPDATE_TRUST=1` validation.
+Changing to Developer ID later is a separately approved manual-bootstrap
+migration and may cause new macOS permission prompts.
+
 ## Required Artifact Fields
 
 - `sparkle:version`: exact machine-readable CalVer
@@ -35,7 +49,9 @@ The private GitHub repository is not a client dependency.
 1. Build `GRAF.app` and embed the pinned updater framework.
 2. Sign nested updater code, framework, then the app with hardened runtime and secure timestamp.
 3. Verify bundle ID, app name, version, architecture, nested signatures, team identifier, and designated requirement.
-4. Notarize and staple the public app artifact; run Gatekeeper assessment.
+4. For public distribution, notarize and staple the app and run Gatekeeper
+   assessment. For an explicitly approved owner-only lane, instead pass the
+   local-certificate designated-requirement gate and record the limitation.
 5. Create the versioned archive without modifying the signed bundle.
 6. Generate and sign appcast/release notes with official Sparkle tools.
 7. Validate the appcast, archive length, URLs, signatures, compatibility, and strictly increasing version.

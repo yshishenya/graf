@@ -98,6 +98,8 @@ services:
         mode: 0440
     ports:
       - "127.0.0.1:18081:8080"
+    volumes:
+      - ./runtime/public-downloads:/usr/local/lib/python3.13/site-packages/twobrain_rec_server/public/static/public/downloads:ro
     healthcheck:
       test:
         - CMD-SHELL

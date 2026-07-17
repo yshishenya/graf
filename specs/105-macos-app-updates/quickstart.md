@@ -145,7 +145,26 @@ sh apps/macos/Scripts/validate-app-updates.sh \
 infra/scripts/ci-local.sh
 ```
 
-## 10. Public release gate
+## 10. Explicit owner-only release gate
+
+For controlled owner Macs only, after explicit approval, validate the final
+self-signed app and signed update artifacts together:
+
+```sh
+GRAF_REQUIRE_OWNER_ONLY_UPDATE_TRUST=1 \
+  sh apps/macos/Scripts/validate-app-updates.sh \
+  /absolute/path/to/new/GRAF.app \
+  /absolute/path/to/previous/GRAF.app \
+  /absolute/path/to/GRAF-YYYY.MM.DD.N.zip \
+  /absolute/path/to/graf-appcast.xml
+```
+
+This lane requires the same `GRAF Local Code Signing` certificate and private
+key, one manual trusted bootstrap on each controlled Mac, explicit release
+approval, and truthful release notes that Developer ID/notarization are absent.
+It is not public distribution readiness.
+
+## 11. Public release gate
 
 Do not publish from the local-only path. Public activation additionally requires:
 
