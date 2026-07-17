@@ -125,14 +125,17 @@ def test_sync_state_does_not_reveal_different_owner_local_recording_id(client) -
 
     async def add_user_and_device() -> None:
         async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=UUID(other_user_id),
+                    organization_id=ORG_ID,
+                    external_subject=other_user_id,
+                    display_name="Other User",
+                )
+            )
+            await db.flush()
             db.add_all(
                 [
-                    UserIdentity(
-                        id=UUID(other_user_id),
-                        organization_id=ORG_ID,
-                        external_subject=other_user_id,
-                        display_name="Other User",
-                    ),
                     WorkspaceMembership(
                         workspace_id=WORKSPACE_ID,
                         user_id=UUID(other_user_id),

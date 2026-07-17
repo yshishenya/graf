@@ -277,10 +277,10 @@ def test_user_scoped_recording_migration_skips_existing_postgres_target_constrai
 
 
 def test_clean_database_migrates_and_accepts_seeded_identity_request(
-    postgres_test_database_url: str,
+    postgres_clean_database_url: str,
     monkeypatch,
 ) -> None:
-    database_url = postgres_test_database_url
+    database_url = postgres_clean_database_url
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", database_url)
     get_settings.cache_clear()
     alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))

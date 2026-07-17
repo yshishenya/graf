@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from tests.fakes.fake_minio import FailOnceDeleteStorage
 from tests.fakes.fake_temporal import FakeTemporalClient
+from tests.fixtures.processing import apply_job_worker_scope
 from tests.integration.test_playback_normalization_finalize import (
     _accept_first_party_recording,
 )
@@ -67,6 +68,7 @@ def test_duplicate_loser_cleanup_retries_while_winner_remains_ready(
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             await run_normalization_job(
                 db=db,
                 storage=client.app_state["storage"],
@@ -121,7 +123,7 @@ def test_duplicate_loser_cleanup_retries_while_winner_remains_ready(
 
         client.app.state.settings.playback_normalization_enabled = True
         receipt = await reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=flaky_storage,
             temporal_client=FakeTemporalClient(),
@@ -177,7 +179,7 @@ def test_activity_heartbeat_renews_only_the_active_tenant_job(client) -> None:
             job_id = job.id
             await db.commit()
         renewed = await renew_normalization_activity_lease(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             tenant_scope=tenant_scope,
             job_id=job_id,
             lease_owner_sha256=owner_sha256,
@@ -191,7 +193,7 @@ def test_activity_heartbeat_renews_only_the_active_tenant_job(client) -> None:
             job.lease_owner_sha256 = sha256(b"replacement-owner").hexdigest()
             await db.commit()
         stale_owner_refused = await renew_normalization_activity_lease(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             tenant_scope=tenant_scope,
             job_id=job_id,
             lease_owner_sha256=owner_sha256,
@@ -206,7 +208,7 @@ def test_activity_heartbeat_renews_only_the_active_tenant_job(client) -> None:
             job.lease_expires_at = None
             await db.commit()
         refused = await renew_normalization_activity_lease(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             tenant_scope=tenant_scope,
             job_id=job_id,
             lease_owner_sha256=owner_sha256,
@@ -249,6 +251,7 @@ def test_late_worker_cannot_publish_after_expired_lease_recovery(
                     )
                 )
                 assert job is not None
+                await apply_job_worker_scope(db, job)
                 with pytest.raises(NormalizationExecutionDeferred):
                     await run_normalization_job(
                         db=db,
@@ -267,6 +270,7 @@ def test_late_worker_cannot_publish_after_expired_lease_recovery(
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             job.lease_expires_at = recovery_time - timedelta(seconds=1)
             await db.commit()
             recovery = await recover_expired_normalization_job(
@@ -325,7 +329,7 @@ def test_reconciler_recovers_lost_post_commit_dispatch_once(client) -> None:
 
     async def reconcile_twice():
         first = await reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=temporal,
@@ -333,7 +337,7 @@ def test_reconciler_recovers_lost_post_commit_dispatch_once(client) -> None:
             actor_id="restart-test",
         )
         second = await reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=temporal,
@@ -407,7 +411,7 @@ def test_reconciler_cleans_expired_worker_attempt_and_schedules_automatic_retry(
             )
             await db.commit()
         receipt = await reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=temporal,
@@ -487,7 +491,7 @@ def test_reconciler_keeps_attempt_owned_by_an_active_worker(client) -> None:
             )
             await db.commit()
         await reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=FakeTemporalClient(),
@@ -552,7 +556,7 @@ def test_startup_reconciler_immediately_dispatches_only_worker_interrupted_retry
             deferred_job_id = deferred_job.id
             await db.commit()
         receipt = await reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=temporal,
@@ -606,6 +610,7 @@ def test_reconciler_demotes_missing_ready_object_and_automatically_dispatches_re
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             execution = await run_normalization_job(
                 db=db,
                 storage=client.app_state["storage"],
@@ -622,7 +627,7 @@ def test_reconciler_demotes_missing_ready_object_and_automatically_dispatches_re
             job_id = job.id
             canonical_id = canonical.id
         receipt = await reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=temporal,

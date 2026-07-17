@@ -22,7 +22,8 @@ from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
 from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
 from scripts.issue_smoke_auth_session import issue_smoke_auth_session
 from scripts.seed_smoke_identity import seed_identity
-from tests.fixtures.postgres_rls import rls_test_database_url
+from tests.fixtures.postgres_rls import optional_rls_test_database_url, rls_test_database_url
+from tests.fixtures.postgres_test_database import ensure_disposable_media_role
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.provider_links import confirm_provider_link
 from twobrain_rec_server.auth.workspace_onboarding import activate_workspace_session
@@ -70,6 +71,7 @@ MEDIA_READ_WRITE_TABLES = (
 )
 MEDIA_INSERT_ONLY_TABLES = ("ingest_audit_events",)
 MEDIA_LOCK_COLUMNS = (("meetings", "updated_at"), ("media_revisions", "updated_at"))
+pytestmark = pytest.mark.strict_rls
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +136,7 @@ async def _create_media_role(migration_url: str) -> tuple[str, bool]:
                 )
             )
             if exists:
-                pytest.skip(
+                pytest.fail(
                     "RLS_TEST_MEDIA_DATABASE_URL is required when twobrain_rec_media exists"
                 )
             quoted_role = _quote_identifier(role_name)
@@ -210,7 +212,7 @@ async def _drop_probe_role(migration_url: str, role_name: str) -> None:
 
 
 @pytest.fixture(scope="module")
-def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
+def migrated_postgres_urls(postgres_advisory_lock: None) -> Iterator[MigratedPostgresUrls]:
     url = rls_test_database_url()
     previous_url = os.environ.get("TWOBRAIN_DATABASE_URL")
     os.environ["TWOBRAIN_DATABASE_URL"] = url
@@ -222,7 +224,7 @@ def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
     )
     command.upgrade(alembic_config, "head")
     probe_role: str | None = None
-    probe_url = os.getenv("RLS_TEST_PROBE_DATABASE_URL")
+    probe_url = optional_rls_test_database_url("RLS_TEST_PROBE_DATABASE_URL")
     if not probe_url:
         probe_role, password = asyncio.run(
             _create_probe_role(url, role_name="twobrain_rec_maintenance")
@@ -233,7 +235,7 @@ def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
             .render_as_string(hide_password=False)
         )
     app_role: str | None = None
-    app_url = os.getenv("RLS_TEST_APP_DATABASE_URL")
+    app_url = optional_rls_test_database_url("RLS_TEST_APP_DATABASE_URL")
     if not app_url:
         app_role, app_password = asyncio.run(
             _create_probe_role(url, role_name=f"twobrain_rec_app_{uuid4().hex[:12]}")
@@ -244,8 +246,15 @@ def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
             .render_as_string(hide_password=False)
         )
     media_role_created = False
-    media_url = os.getenv("RLS_TEST_MEDIA_DATABASE_URL")
-    if not media_url:
+    media_url = optional_rls_test_database_url("RLS_TEST_MEDIA_DATABASE_URL")
+    if media_url:
+        media_url = asyncio.run(
+            ensure_disposable_media_role(
+                url,
+                media_database_url=media_url,
+            )
+        )
+    else:
         media_url, media_role_created = asyncio.run(_create_media_role(url))
     try:
         yield MigratedPostgresUrls(

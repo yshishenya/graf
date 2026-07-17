@@ -21,6 +21,7 @@ def seed_second_workspace_for_same_user(client) -> None:
                     name="Other RLS Workspace",
                 )
             )
+            await db.flush()
             db.add(
                 WorkspaceMembership(
                     workspace_id=OTHER_WORKSPACE_ID,

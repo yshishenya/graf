@@ -85,10 +85,10 @@ def test_public_pages_render_without_analytics_by_default(client) -> None:
 
 
 def test_public_pages_render_safe_local_analytics_assets_in_render_only_mode(
-    postgres_test_database_url: str,
+    postgres_worker_database_url: str,
 ) -> None:
     settings = Settings(
-        database_url=postgres_test_database_url,
+        database_url=postgres_worker_database_url,
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",
@@ -115,10 +115,10 @@ def test_public_pages_render_safe_local_analytics_assets_in_render_only_mode(
 
 
 def test_public_pages_render_safe_campaign_context_without_private_values(
-    postgres_test_database_url: str,
+    postgres_worker_database_url: str,
 ) -> None:
     settings = Settings(
-        database_url=postgres_test_database_url,
+        database_url=postgres_worker_database_url,
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",
@@ -149,10 +149,10 @@ def test_public_pages_render_safe_campaign_context_without_private_values(
 
 
 def test_public_analytics_is_absent_from_non_public_and_legal_surfaces(
-    postgres_test_database_url: str,
+    postgres_worker_database_url: str,
 ) -> None:
     settings = Settings(
-        database_url=postgres_test_database_url,
+        database_url=postgres_worker_database_url,
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",
@@ -184,10 +184,10 @@ def test_public_analytics_is_absent_from_non_public_and_legal_surfaces(
 
 
 def test_public_pages_render_stable_conversion_labels_in_render_only_mode(
-    postgres_test_database_url: str,
+    postgres_worker_database_url: str,
 ) -> None:
     settings = Settings(
-        database_url=postgres_test_database_url,
+        database_url=postgres_worker_database_url,
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",

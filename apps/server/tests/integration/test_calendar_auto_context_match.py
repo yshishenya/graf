@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from math import ceil
 from time import perf_counter_ns
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 import pytest
@@ -847,13 +848,15 @@ def test_us1_resolve_reads_snapshots_without_provider_network_io(
 
     original_create_connection = socket.create_connection
     original_connect = socket.socket.connect
+    postgres_port = urlparse(client.app.state.settings.database_url).port
+    assert postgres_port is not None
 
     def is_local_postgres(address: object) -> bool:
         return (
             isinstance(address, tuple)
             and len(address) >= 2
             and address[0] in {"127.0.0.1", "::1", "localhost"}
-            and address[1] == 54329
+            and address[1] == postgres_port
         )
 
     def reject_create_connection(address, *args, **kwargs):

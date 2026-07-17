@@ -8,7 +8,7 @@ def test_main_module_does_not_construct_app_at_import_time() -> None:
     assert "app" not in main_module.__dict__
 
 
-def test_app_lifespan_disposes_engine_and_closes_storage(monkeypatch, postgres_test_database_url: str) -> None:
+def test_app_lifespan_disposes_engine_and_closes_storage(monkeypatch, postgres_worker_database_url: str) -> None:
     class FakeEngine:
         disposed = False
 
@@ -29,7 +29,7 @@ def test_app_lifespan_disposes_engine_and_closes_storage(monkeypatch, postgres_t
 
     app = main_module.create_app(
         Settings(
-            database_url=postgres_test_database_url,
+            database_url=postgres_worker_database_url,
             minio_endpoint="localhost:9000",
             minio_access_key="test",
             minio_secret_key="test",

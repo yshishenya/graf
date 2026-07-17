@@ -6,18 +6,31 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from tests.fakes.auth_contexts import WORKSPACE_ID
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.integration.test_playback_normalization_backfill import _seed_legacy_revision
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import PlaybackNormalizationJob
+from twobrain_rec_server.db.tenant_context import (
+    MaintenanceTenantContext,
+    apply_tenant_context,
+    apply_tenant_scope,
+)
 from twobrain_rec_server.normalization.pickup import enumerate_normalization_pickup_candidates
 from twobrain_rec_server.normalization.service import inventory_playback_backfill_page
 
 
 def test_pickup_is_bounded_and_prioritizes_new_then_due_retry_then_legacy(client) -> None:
     now = datetime(2026, 7, 14, 11, 0, tzinfo=UTC)
+    worker_scope = TenantScope(
+        organization_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        user_id=USER_ID,
+        device_id=DEVICE_ID,
+    )
 
     async def exercise():
         async with client.app_state["sessionmaker"]() as db:
+            await apply_tenant_scope(db, worker_scope, context_kind="worker")
             for ordinal in range(30):
                 await _seed_legacy_revision(
                     db,
@@ -52,12 +65,25 @@ def test_pickup_is_bounded_and_prioritizes_new_then_due_retry_then_legacy(client
             future_job.reason_code = "storage_unavailable"
             future_job.next_attempt_at = now + timedelta(hours=1)
             await db.commit()
+            new_id = new_job.id
+            due_id = due_job.id
+            future_id = future_job.id
+        async with client.app_state["media_sessionmaker"]() as db:
+            await apply_tenant_context(
+                db,
+                MaintenanceTenantContext(
+                    operation_name="playback_normalization_dispatch",
+                    actor_id="priority-test",
+                    reason_category="test_selection",
+                    feature_area="playback_normalization",
+                ),
+            )
             selected = await enumerate_normalization_pickup_candidates(
                 db,
                 now=now,
                 batch_size=25,
             )
-            return new_job.id, due_job.id, future_job.id, selected
+            return new_id, due_id, future_id, selected
 
     new_id, due_id, future_id, selected = asyncio.run(exercise())
     assert len(selected) == 25
@@ -67,9 +93,16 @@ def test_pickup_is_bounded_and_prioritizes_new_then_due_retry_then_legacy(client
 
 def test_inventory_and_dispatch_budget_guards_reject_unbounded_calls(client) -> None:
     now = datetime(2026, 7, 14, 11, 30, tzinfo=UTC)
+    worker_scope = TenantScope(
+        organization_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        user_id=USER_ID,
+        device_id=DEVICE_ID,
+    )
 
     async def exercise():
         async with client.app_state["sessionmaker"]() as db:
+            await apply_tenant_scope(db, worker_scope, context_kind="worker")
             with pytest.raises(ValueError, match="page_size"):
                 await inventory_playback_backfill_page(
                     db,
@@ -77,6 +110,16 @@ def test_inventory_and_dispatch_budget_guards_reject_unbounded_calls(client) -> 
                     page_size=101,
                     now=now,
                 )
+        async with client.app_state["media_sessionmaker"]() as db:
+            await apply_tenant_context(
+                db,
+                MaintenanceTenantContext(
+                    operation_name="playback_normalization_dispatch",
+                    actor_id="priority-test",
+                    reason_category="test_selection",
+                    feature_area="playback_normalization",
+                ),
+            )
             with pytest.raises(ValueError, match="batch_size"):
                 await enumerate_normalization_pickup_candidates(
                     db,

@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fixtures.processing import apply_job_worker_scope
 from tests.integration.test_playback_normalization_workflow import (
     FakeManualNormalizationPipeline,
 )
@@ -262,6 +263,7 @@ def test_legacy_completion_persists_one_backfilled_audit_event(client, tmp_path:
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             await run_normalization_job(
                 db=db,
                 storage=client.app_state["storage"],

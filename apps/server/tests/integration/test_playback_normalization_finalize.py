@@ -10,17 +10,21 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.artifacts import track_descriptor
 from tests.fixtures.processing import (
+    apply_job_worker_scope,
     create_finalized_mixed_recording,
     deterministic_canonical_wav_bytes,
 )
 from tests.integration.test_playback_normalization_media_matrix import _pipeline, _run_ffmpeg
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import (
     MediaRevision,
     PlaybackNormalizationJob,
     TrackArtifact,
 )
+from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.normalization.service import (
     NormalizationExecutionFailure,
     run_normalization_job,
@@ -236,6 +240,7 @@ def test_v5_canonical_review_candidate_is_reused_without_touching_asr_wav(
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             result = await run_normalization_job(
                 db=db,
                 storage=client.app_state["storage"],
@@ -287,6 +292,7 @@ def test_v5_invalid_review_candidate_falls_back_to_authoritative_wav(
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             result = await run_normalization_job(
                 db=db,
                 storage=client.app_state["storage"],
@@ -384,6 +390,15 @@ def test_unfinalized_and_unmanaged_sources_cannot_create_normalization_jobs(
             assert revision is not None
             assert revision.status == "pending_upload"
             assert jobs == []
+            await apply_tenant_scope(
+                db,
+                TenantScope(
+                    organization_id=ORG_ID,
+                    workspace_id=WORKSPACE_ID,
+                    user_id=USER_ID,
+                    device_id=DEVICE_ID,
+                ),
+            )
             with pytest.raises(ValueError, match="accepted media revision"):
                 await upsert_playback_normalization_job(
                     db,
@@ -431,6 +446,7 @@ def test_authoritative_source_digest_mismatch_stops_before_conversion(
             assert job is not None and microphone is not None
             microphone.sha256 = "f" * 64
             await db.commit()
+            await apply_job_worker_scope(db, job)
             with pytest.raises(NormalizationExecutionFailure) as caught:
                 await run_normalization_job(
                     db=db,

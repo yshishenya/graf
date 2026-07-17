@@ -106,10 +106,19 @@ def _fingerprint_identity(subject: str, provider: str, workspace_id: UUID) -> st
 
 def _is_external_identity_unique_conflict(exc: IntegrityError) -> bool:
     message = str(exc.orig).lower()
+    constraint_name = str(getattr(exc.orig, "constraint_name", "")).lower()
+    known_constraint_names = frozenset(
+        {
+            "external_identities_provider_provider_subject_key",
+            "uq_external_identities_provider",
+        }
+    )
     return (
         "external_identities.provider" in message
         and "external_identities.provider_subject" in message
-    ) or "external_identities_provider_provider_subject_key" in message
+    ) or constraint_name in known_constraint_names or any(
+        known_constraint in message for known_constraint in known_constraint_names
+    )
 
 
 async def _mark_state_error(state, code: str, now: datetime | None = None) -> None:

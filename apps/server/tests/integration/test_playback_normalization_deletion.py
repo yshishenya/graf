@@ -206,6 +206,16 @@ def test_deletion_waits_for_inflight_upload_and_removes_the_serialized_output(
                     )
                 )
                 assert job is not None
+                await apply_tenant_scope(
+                    db,
+                    TenantScope(
+                        organization_id=job.organization_id,
+                        workspace_id=job.workspace_id,
+                        user_id=job.requested_by_user_id,
+                        device_id=job.source_device_id,
+                    ),
+                    context_kind="worker",
+                )
                 with suppress(
                     NormalizationExecutionDeferred,
                     NormalizationExecutionFailure,

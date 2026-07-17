@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fixtures.processing import apply_job_worker_scope
 from twobrain_rec_server.db.models import (
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
@@ -370,6 +371,7 @@ async def _execute_job(
         )
         assert job is not None
         assert job.state == "queued"
+        await apply_job_worker_scope(db, job)
         execution = await run_normalization_job(
             db=db,
             storage=client.app_state["storage"],
