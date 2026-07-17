@@ -331,3 +331,11 @@ cabinet, and deploy scripts. Keeping FFmpeg out of API/migration/MediaScribe
 processes is required for CPU/disk isolation, non-root execution, and predictable
 backfill; a shared worker would be simpler in file count but unsafe in runtime
 behavior.
+
+## 2026-07-17 Active Attempt Cleanup Hotfix
+
+The existing maintenance cleanup selector is retained, but now excludes only a
+temporary attempt whose parent job is actively `running` or `publishing` with
+an unexpired worker lease. This is a single selector predicate plus a matching
+PostgreSQL helper-function migration; it preserves cleanup after lease expiry
+and adds no service, dependency, endpoint, queue or user action.

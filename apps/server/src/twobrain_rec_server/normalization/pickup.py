@@ -478,6 +478,13 @@ async def enumerate_normalization_cleanup_candidates(
                         PlaybackNormalizationAttempt.state != "purged",
                         PlaybackNormalizationAttempt.cleaned_at.is_(None),
                     ),
+                    or_(
+                        PlaybackNormalizationJob.state.not_in(
+                            (JobState.RUNNING.value, JobState.PUBLISHING.value)
+                        ),
+                        PlaybackNormalizationJob.lease_expires_at.is_(None),
+                        PlaybackNormalizationJob.lease_expires_at <= datetime.now(UTC),
+                    ),
                 )
                 .order_by(
                     PlaybackNormalizationAttempt.updated_at.asc().nulls_first(),

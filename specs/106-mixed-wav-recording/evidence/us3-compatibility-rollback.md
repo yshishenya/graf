@@ -5,12 +5,13 @@ No release, install, rollback action, audio, transcript or credential was used.
 
 ## 2026-07-17
 
-- The current focused macOS command passed: `212` tests, `0` failures,
+- The current focused macOS command passed: `213` tests, `0` failures,
   including v3/v4 read-only compatibility and v5 rejection of historical write
   behavior.
-- The focused server group passed: `79` tests, `0` failures. It includes
-  additive v5 source-kind migration coverage and v5 deletion truth for the
-  exact `manifest`, `media` and `playback` role set.
+- The focused server and release-integration group passed: `117` tests,
+  `11` expected skips, `0` failures. It includes additive v5 source-kind
+  migration coverage and v5 deletion truth for the exact `manifest`, `media`
+  and `playback` role set.
 - Release-checklist assertions passed: `11` installer lifecycle tests,
   including the rule that rollback is a release action for a subsequent
   recording, not a runtime toggle or hidden dual fallback.

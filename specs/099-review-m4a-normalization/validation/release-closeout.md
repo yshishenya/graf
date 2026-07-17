@@ -649,3 +649,31 @@ cleanup. The standalone feature 097 security scan remains deferred.
   receipt.
 - T115 and T116 remain open. The deferred feature 097 security scan remains
   untouched.
+
+## T120 / T123 — `v2026.07.17.5` Cleanup-Hotfix Production Closeout
+
+- The active-attempt cleanup fix was merged through
+  [PR #3692](https://github.com/yshishenya/crisp/pull/3692), and the bounded
+  Alembic revision correction through
+  [PR #3694](https://github.com/yshishenya/crisp/pull/3694). Release-prep
+  [PR #3695](https://github.com/yshishenya/crisp/pull/3695) merged at exact
+  SHA `d101dd6d0c070f74b6949f7c2ca071b567105160`.
+- Annotated tag and Russian GitHub Release
+  [v2026.07.17.5](https://github.com/yshishenya/crisp/releases/tag/v2026.07.17.5)
+  point to that exact merge SHA.
+- The exact runtime code passed canonical local CI before the
+  release-only changelog merge: `ci_local_result=pass`, server `1761 passed,
+  28 skipped, 1 warning`, macOS `664 passed`. The migration revision-length
+  guard and exact worker schema-head tests are included in that receipt.
+- `infra/scripts/cd-remote.sh --dry-run` passed. The approved execute path
+  deployed the exact tagged SHA, applied migration `0026_active_cleanup`, and
+  completed its remote rollout. Read-only confirmation found API, PostgreSQL,
+  processing-worker and media-worker healthy.
+- Metadata-only production proof for the affected conversion reached
+  `ready` with reason `none`, a canonical artifact present and no next retry
+  scheduled. The job needed no manual retry, re-upload, or administrative
+  repair. No meeting identifier, object key, audio, transcript, or other
+  private content is recorded here.
+- This completes T120 and T123. It does not complete the broader T115 browser
+  and embedded production-path receipt or T116 feature-wide issue cleanup.
+  Deferred feature 097 remains untouched.

@@ -64,3 +64,54 @@ RLS helper truthfully reported that a destructive PostgreSQL probe was not
 provided; this is an expected local-environment limitation, not a claim about
 live enforcement. The gate itself completed successfully and did not modify
 production. Release/deploy and the real automatic-recovery proof remain T120.
+
+## Follow-up: active-attempt cleanup race
+
+Production observation showed that the cleanup pass could select an attempt
+still owned by a worker. T121–T122 add the narrow lease predicate to both
+selector implementations and a migration for PostgreSQL. The focused SQLite
+restart suite passes `8` tests; the PostgreSQL regression is environment-gated
+locally and will be exercised by canonical CI/deploy. T123 owns release and
+production convergence proof. Evidence uses only states, lease facts and test
+counts.
+
+## Active-cleanup validation
+
+```text
+uv run --extra dev pytest tests/integration/test_playback_normalization_restart.py -q
+8 passed, 1 warning
+
+uv run --extra dev pytest tests/integration/test_playback_normalization_postgres.py -k cleanup -q
+1 skipped, 12 deselected, 1 warning
+
+infra/scripts/ci-local.sh
+ci_local_result=pass
+```
+
+The PostgreSQL case is intentionally skipped locally because no disposable
+PostgreSQL URL is configured. The same migration is included in the canonical
+CI and production deployment gates. Ruff and `git diff --check` pass. The
+warning is the pre-existing third-party TestClient deprecation warning.
+
+## Correction before release
+
+The first canonical run rejected the migration's 38-character internal revision
+ID and correctly exposed two outdated schema-head test expectations. T124
+shortens the ID to `0026_active_cleanup` and updates those exact tests. The
+earlier `ci_local_result=pass` claim above applies to the prior startup-recovery
+hotfix only; cleanup-hotfix release/deploy remains blocked until the corrected
+canonical gate passes.
+
+## Corrected canonical gate
+
+```text
+infra/scripts/ci-local.sh
+ci_local_result=pass
+server: 1761 passed, 28 skipped, 1 warning
+macOS: 664 passed
+```
+
+The 32-character revision `0026_active_cleanup` passes the migration-ID guard
+and exact worker schema-head tests. The warning remains the third-party
+TestClient deprecation notice. T123 remains the production deployment and
+canonical-ready proof gate.

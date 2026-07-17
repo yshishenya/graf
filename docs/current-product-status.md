@@ -205,9 +205,12 @@ metadata-only evidence остаются подробной историей ре
   the documented manual URL handoff; it is no longer a T100 limitation.
   Feature 099 changes server behavior and macOS regression tests only; it has
   no native macOS runtime-source diff, so this hotfix does not require an app
-  rebuild or reinstall. T001–T113 are completed with implementation/release
-  evidence; T114 remains open until `.3` passes production deploy, and
-  T115–T116 remain for production proof and cleanup.
+  rebuild or reinstall. The narrow follow-up cleanup fix is released as
+  `v2026.07.17.5`: its active-lease selector and migration
+  `0026_active_cleanup` are deployed. The previously interrupted production
+  conversion reached canonical playback-ready state automatically; no retry,
+  upload, or other user action was needed. Broader T115 browser/embedded
+  production proof and T116 full feature issue cleanup remain separately open.
   Feature 097 and its resumable standalone Codex Security scan remain deferred
   and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
   complete it. Release `v2026.07.14.7` remains owned by the separate «новый
@@ -215,6 +218,9 @@ metadata-only evidence остаются подробной историей ре
   were moved. The next candidate is `v2026.07.16.3`; its hotfix merge and
   explicit production-deploy approval are recorded, while release publication,
   deploy and production proof remain pending.
+- The separate Feature 099 production evidence includes the `v2026.07.17.3`
+  startup-recovery release and the `v2026.07.17.5` active-attempt cleanup
+  fix; it does not alter Feature 106 acceptance or its rollback boundary.
 - Feature `106-mixed-wav-recording` is in active high-risk implementation and
   is not released or deployed. Its local candidate changes **new** recordings
   to one shared source timeline with exactly `meeting-transcription.wav` (PCM
@@ -223,6 +229,11 @@ metadata-only evidence остаются подробной историей ре
   through `initial_mixed_recording` / `single_wav_v1`; the M4A never enters a
   MediaScribe request. This is implementation status, not installed-app or
   production acceptance evidence.
+- The macOS capture architecture remains app-owned: ScreenCaptureKit system
+  audio and the app-owned microphone source are explicitly injected into the
+  candidate `V5LocalRecordingWriter`, which writes the v5 package described
+  above. Historical v3/v4 packages remain readable only and do not alter new
+  capture defaults.
 - The former separate audio-routing component, shared-memory bridge,
   lifecycle scripts, route orchestration, and user-facing setup/repair states
   have been removed from the source and app-only package surface.

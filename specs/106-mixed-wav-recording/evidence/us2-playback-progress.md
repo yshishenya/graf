@@ -5,14 +5,15 @@ credential, provider request or installed app was used.
 
 ## 2026-07-17
 
-- The current focused macOS command passed: `212` tests, `0` failures.
+- The current focused macOS command passed: `213` tests, `0` failures.
   It includes v5 package completeness, valid review-M4A handling, timeline
   metadata, monotonic intermediate byte progress, resume/retry behavior,
   accessible active capture and one-action Stop.
-- The focused server group passed: `79` tests, `0` failures, with one
-  pre-existing Starlette TestClient deprecation warning. It covers reuse of the
-  accepted playback candidate, independent playback/transcript state and
-  deletion of both v5 audio artifacts.
+- The focused server and release-integration group passed: `117` tests, `11`
+  expected skips, `0` failures, with one pre-existing Starlette TestClient
+  deprecation warning. It covers reuse of the accepted playback candidate,
+  independent playback/transcript state and deletion of both v5 audio
+  artifacts.
 - `ContractValidation`, the v5 metadata validator self-tests, shell syntax,
   Ruff, Compose rendering and `git diff --check` passed.
 

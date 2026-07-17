@@ -72,6 +72,17 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertFalse(source.contains("codesign --force --deep"))
     }
 
+    func testTeamlessSigningDisablesLibraryValidationForEmbeddedSparkle() throws {
+        let installer = try Self.readRepositoryFile("apps/macos/Installer/Scripts/build-local-installer.sh")
+        let validator = try Self.readRepositoryFile("apps/macos/Scripts/validate-app-updates.sh")
+
+        XCTAssertTrue(installer.contains("com.apple.security.cs.disable-library-validation"))
+        XCTAssertTrue(installer.contains(#"--entitlements "$APP_ENTITLEMENTS""#))
+        XCTAssertTrue(installer.contains("TeamIdentifier"))
+        XCTAssertTrue(validator.contains("teamless signing requires disabled library validation"))
+        XCTAssertTrue(validator.contains("team-identified signing must keep library validation enabled"))
+    }
+
     func testUpdateValidatorChecksIdentityTrustAndPublicReleaseGatesWithoutMutatingTCC() throws {
         let source = try Self.readRepositoryFile("apps/macos/Scripts/validate-app-updates.sh")
 
@@ -166,11 +177,12 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
     func testV5RollbackChecklistRequiresVerifiedBaselineWithoutLiveToggle() throws {
         let checklist = try Self.readRepositoryFile("qa/macos/release-candidate-checklist.md")
 
-        XCTAssertTrue(checklist.contains("v2026.07.16.6"))
-        XCTAssertTrue(checklist.contains("v2026.07.16.7"))
+        XCTAssertTrue(checklist.contains("v2026.07.17.6"))
+        XCTAssertTrue(checklist.contains("4be444e82ec449a3bb5312920fb0cd6008072c56"))
+        XCTAssertTrue(checklist.contains("v2026.07.17.7"))
         XCTAssertTrue(checklist.contains("not a runtime switch"))
         XCTAssertTrue(checklist.contains("only through the separately approved local"))
-        XCTAssertFalse(checklist.contains("v2026.07.17.3"))
+        XCTAssertFalse(checklist.contains("v2026.07.16.6"))
     }
 
     func testUninstallIsAppOnlyAndDoesNotMutateCoreAudio() throws {
