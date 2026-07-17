@@ -19,12 +19,16 @@ Run `infra/scripts/ci-local.sh`. For the behavior release, perform the project r
 - Focused contract/cleanup/RLS-migration/UI suites pass with fake providers;
   link lifecycle, CSRF, expiry/replay, exact initiating session, conflict,
   safe Settings copy and audit redaction are covered.
-- Canonical `infra/scripts/ci-local.sh` passes: 643 macOS tests, 1756 server
-  tests, 27 expected PostgreSQL-only skips, Ruff, compile, Compose rendering
+- Canonical `infra/scripts/ci-local.sh` passes: 643 macOS tests, 1757 server
+  tests, 28 expected PostgreSQL-only skips, Ruff, compile, Compose rendering
   and deployment-evidence scan (`ci_local_result=pass`).
-- Disposable local PostgreSQL RLS module passes 15/15 with zero residual
-  `crisp_feature100_race_*` databases. PR review record and production
-  dry-run/deploy/smoke remain release gates.
+- Disposable local PostgreSQL RLS module passes 16/16, including two concurrent
+  confirmations of one provider subject; it leaves zero residual
+  `crisp_feature100_race_*` or `crisp_feature100_rls_*` databases. PR review
+  record and production dry-run/deploy/smoke remain release gates.
+- Independent product/UX, architecture/code and security/privacy reviews found
+  no Critical or High issue. The formal repository scan 097 remains deferred
+  by user direction; it is not represented as completed evidence for this PR.
 - A separate disposable PostgreSQL migration receipt passes `0023 → 0025 →
   0023 → 0025 (head)` with zero residual `crisp_feature100_migration_*`
   databases.

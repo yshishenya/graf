@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.providers import SUPPORTED_PROVIDER_IDS, build_provider_registry
@@ -145,9 +146,17 @@ async def load_workspace_auth_policy(
                 residency_region_tag="ru",
                 consent_text_version="v1",
             )
-        policy = WorkspaceAuthPolicy(workspace_id=workspace_id)
-        db.add(policy)
-        await db.flush()
+        try:
+            async with db.begin_nested():
+                policy = WorkspaceAuthPolicy(workspace_id=workspace_id)
+                db.add(policy)
+                await db.flush()
+        except IntegrityError:
+            policy = await db.scalar(
+                select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == workspace_id)
+            )
+            if policy is None:
+                raise
     return policy
 
 

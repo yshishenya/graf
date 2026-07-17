@@ -12,7 +12,7 @@
 
 **Purpose**: Preserve the reviewed contract and establish the executable test surfaces.
 
-- [ ] T001 Reconcile `specs/100-provider-link-verified-callback/checklists/security.md` against the final clarification, plan, data model, contract and quickstart; resolve or record every checklist item before code changes.
+- [X] T001 Reconcile `specs/100-provider-link-verified-callback/checklists/security.md` against the final clarification, plan, data model, contract and quickstart; resolve or record every checklist item before code changes.
 - [X] T002 [P] Add provider-link API lifecycle/redaction contract coverage to `apps/server/tests/contract/test_auth_contracts.py` and `apps/server/tests/contract/test_provider_link_contracts.py`.
 - [X] T003 [P] Add browser/embedded Settings accessibility and safe-copy contract coverage to `apps/server/tests/contract/test_provider_link_settings_contract.py`.
 
@@ -104,8 +104,8 @@
 
 ### Tests for User Story 4
 
-- [ ] T023 [P] [US4] Add same-user idempotence, competing confirm and foreign-owner conflict contract coverage in `apps/server/tests/contract/test_provider_link_contracts.py`.
-- [ ] T024 [P] [US4] Add uniqueness-race and audit-safe-conflict integration coverage in `apps/server/tests/integration/test_provider_link_flow.py`.
+- [X] T023 [P] [US4] Add same-user idempotence, competing confirm and foreign-owner conflict contract coverage in `apps/server/tests/contract/test_auth_contracts.py`.
+- [X] T024 [P] [US4] Add PostgreSQL uniqueness-race and audit-safe-conflict integration coverage in `apps/server/tests/integration/test_rls_postgres_policies.py`.
 
 ### Implementation for User Story 4
 
@@ -161,10 +161,10 @@
 
 **Purpose**: Complete cross-cutting evidence, tracker and production gates.
 
-- [ ] T036 Re-run and check off `specs/100-provider-link-verified-callback/checklists/security.md` with final requirement links and no open gaps.
+- [X] T036 Re-run and check off `specs/100-provider-link-verified-callback/checklists/security.md` with final requirement links and no open gaps.
 - [X] T037 [P] Update behavior/security/validation notes in `CHANGELOG.md` and `docs/current-product-status.md`.
 - [X] T038 Run the focused quickstart test matrix and `infra/scripts/ci-local.sh`; record high-risk lane evidence in `specs/100-provider-link-verified-callback/quickstart.md` or PR evidence without secrets.
-- [ ] T039 Run the required independent code/security and UX/QA review; resolve any Critical/High finding and record reviewed file/line evidence in the PR.
+- [X] T039 Run the required independent code/security and UX/QA review; resolve any Critical/High finding and record reviewed file/line evidence in the PR.
 - [ ] T040 Prepare the CalVer release, run `infra/scripts/cd-remote.sh --dry-run`, deploy only under the existing approval, and collect metadata-only browser/embedded production smoke plus rollback evidence.
 
 ## Dependencies & Execution Order
