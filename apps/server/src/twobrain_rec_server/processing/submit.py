@@ -27,6 +27,7 @@ from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_AUDIO_TOO_LARGE,
+    BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
     BLOCKED_MISSING_ARTIFACTS,
     DIAGNOSTIC_INPUT_AUDIO_PROBLEM,
     DIAGNOSTIC_MEDIASCRIBE_SERVICE_PROBLEM,
@@ -78,6 +79,22 @@ async def submit_to_mediascribe(
     )
     if existing_job is not None and existing_job.external_job_id:
         return SubmitProcessingResult(job=existing_job, submitted=False)
+    if (
+        existing_job is not None
+        and existing_job.status == MediaScribeJobStatus.BLOCKED.value
+        and existing_job.last_error_code == BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN
+    ):
+        await store.set_workflow_status(
+            db,
+            workflow,
+            ProcessingStatus.BLOCKED,
+            reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+            terminal=True,
+        )
+        raise MediaScribeClientError(
+            BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+            retryable=False,
+        )
 
     source = await store.load_processing_source(
         db,
@@ -122,7 +139,9 @@ async def submit_to_mediascribe(
                 media_artifact = source.source_artifact
                 if media_artifact is None:
                     raise ArtifactStagingError("source_artifact_missing")
-                media_path = temp_path / "source-media.bin"
+                media_path = temp_path / (
+                    "meeting-transcription.wav" if source.is_v5_mixed_recording else "source-media.bin"
+                )
                 await _stage_artifact(
                     storage,
                     media_artifact.storage_object_key,
@@ -130,10 +149,13 @@ async def submit_to_mediascribe(
                     expected_bytes=media_artifact.byte_length,
                     expected_sha256=media_artifact.sha256,
                 )
+                if source.is_v5_mixed_recording:
+                    _verify_v5_canonical_wav(media_path)
                 with media_path.open("rb") as media_file:
                     response = await mediascribe_client.submit_single_track(
                         media_file=media_file,
-                        media_content_type=media_artifact.codec,
+                        media_content_type="audio/wav" if source.is_v5_mixed_recording else media_artifact.codec,
+                        media_filename="meeting-transcription.wav" if source.is_v5_mixed_recording else None,
                         diarize=settings.mediascribe_diarize,
                         summarize=settings.mediascribe_summarize,
                     )
@@ -191,6 +213,25 @@ async def submit_to_mediascribe(
         )
         raise RuntimeError(PROCESSING_TEMP_STORAGE_UNAVAILABLE) from exc
     except MediaScribeClientError as exc:
+        if source.is_v5_mixed_recording and exc.retryable:
+            await store.update_mediascribe_job_status(
+                db,
+                job=job,
+                status=MediaScribeJobStatus.BLOCKED,
+                reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+                error_message=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+            )
+            await store.set_workflow_status(
+                db,
+                workflow,
+                ProcessingStatus.BLOCKED,
+                reason_code=BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+                terminal=True,
+            )
+            raise MediaScribeClientError(
+                BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+                retryable=False,
+            ) from exc
         status = ProcessingStatus.FAILED_RETRYABLE if exc.retryable else ProcessingStatus.FAILED_TERMINAL
         await store.update_mediascribe_job_status(
             db,
@@ -264,6 +305,64 @@ def _sha256_file(path: Path) -> str:
         while chunk := stream.read(DOWNLOAD_CHUNK_BYTES):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _verify_v5_canonical_wav(path: Path) -> None:
+    """Verify the exact v5 PCM WAV boundary before any provider request.
+
+    Descriptor validation at ingest is necessary but insufficient: this parses
+    the staged bytes so a mislabeled object can never be sent as canonical
+    audio. The parser is bounded to the RIFF headers and never loads audio into
+    memory.
+    """
+
+    try:
+        file_size = path.stat().st_size
+        with path.open("rb") as stream:
+            header = stream.read(12)
+            if len(header) != 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+                raise ArtifactStagingError("invalid_v5_wav_header")
+            riff_size = int.from_bytes(header[4:8], "little")
+            if riff_size + 8 != file_size:
+                raise ArtifactStagingError("invalid_v5_wav_size")
+            fmt: bytes | None = None
+            data_size: int | None = None
+            while stream.tell() + 8 <= file_size:
+                chunk_header = stream.read(8)
+                chunk_id = chunk_header[:4]
+                chunk_size = int.from_bytes(chunk_header[4:], "little")
+                if chunk_size > file_size - stream.tell():
+                    raise ArtifactStagingError("invalid_v5_wav_chunk")
+                if chunk_id == b"fmt ":
+                    fmt = stream.read(chunk_size)
+                elif chunk_id == b"data":
+                    data_size = chunk_size
+                    stream.seek(chunk_size, 1)
+                else:
+                    stream.seek(chunk_size, 1)
+                if chunk_size % 2:
+                    if stream.tell() >= file_size:
+                        raise ArtifactStagingError("invalid_v5_wav_padding")
+                    stream.seek(1, 1)
+    except OSError as exc:
+        raise ArtifactStagingError("invalid_v5_wav") from exc
+
+    if fmt is None or len(fmt) < 16 or data_size is None or data_size <= 0:
+        raise ArtifactStagingError("invalid_v5_wav_format")
+    audio_format = int.from_bytes(fmt[0:2], "little")
+    channel_count = int.from_bytes(fmt[2:4], "little")
+    sample_rate = int.from_bytes(fmt[4:8], "little")
+    block_align = int.from_bytes(fmt[12:14], "little")
+    bits_per_sample = int.from_bytes(fmt[14:16], "little")
+    if (
+        audio_format != 1
+        or channel_count != 1
+        or sample_rate != 16_000
+        or block_align != 2
+        or bits_per_sample != 16
+        or data_size % block_align != 0
+    ):
+        raise ArtifactStagingError("invalid_v5_wav_format")
 
 
 async def poll_and_import_mediascribe_result(

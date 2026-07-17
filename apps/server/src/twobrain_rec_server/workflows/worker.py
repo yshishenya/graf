@@ -112,7 +112,10 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
 
 
 def _processing_status_for_client_error(exc: MediaScribeClientError) -> ProcessingStatus:
-    if exc.reason_code == reasons.BLOCKED_CONFIG:
+    if exc.reason_code in {
+        reasons.BLOCKED_CONFIG,
+        reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+    }:
         return ProcessingStatus.BLOCKED
     return ProcessingStatus.FAILED_RETRYABLE if exc.retryable else ProcessingStatus.FAILED_TERMINAL
 

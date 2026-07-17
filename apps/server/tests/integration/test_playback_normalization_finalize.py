@@ -11,6 +11,11 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import track_descriptor
+from tests.fixtures.processing import (
+    create_finalized_mixed_recording,
+    deterministic_canonical_wav_bytes,
+)
+from tests.integration.test_playback_normalization_media_matrix import _pipeline, _run_ffmpeg
 from twobrain_rec_server.db.models import (
     MediaRevision,
     PlaybackNormalizationJob,
@@ -38,6 +43,47 @@ class NeverCalledNormalizationPipeline:
 
     async def derive_single_source(self, _source_path: Path, _output_path: Path):
         raise AssertionError("source custody must fail before conversion")
+
+
+def _generate_canonical_playback_candidate(path: Path) -> None:
+    """Generate an ephemeral canonical review M4A; no audio fixture is stored."""
+
+    _run_ffmpeg(
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1",
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-sn",
+            "-dn",
+            "-map_metadata",
+            "-1",
+            "-map_chapters",
+            "-1",
+            "-ar",
+            "48000",
+            "-ac",
+            "1",
+            "-c:a",
+            "aac",
+            "-profile:a",
+            "aac_low",
+            "-b:a",
+            "64k",
+            "-fflags",
+            "+bitexact",
+            "-flags:a",
+            "+bitexact",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "ipod",
+            str(path),
+        ]
+    )
 
 
 def _accept_first_party_recording(
@@ -163,6 +209,111 @@ def test_finalize_without_candidate_queues_authoritative_source_normalization(
     job = asyncio.run(load_job())
     assert job is not None
     assert job.planned_action == "normalize_source"
+
+
+def test_v5_canonical_review_candidate_is_reused_without_touching_asr_wav(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    review_candidate = tmp_path / "review-candidate.m4a"
+    _generate_canonical_playback_candidate(review_candidate)
+    finalized = create_finalized_mixed_recording(
+        client,
+        "normalization-v5-candidate-reuse",
+        media_bytes=deterministic_canonical_wav_bytes(frame_count=16_000),
+        playback_bytes=review_candidate.read_bytes(),
+    )
+    meeting_id = UUID(str(finalized["meeting"]["meeting_id"]))
+    expected_media_digest = next(
+        track["sha256"] for track in finalized["tracks"] if track["track_role"] == "media"
+    )
+
+    async def execute():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id
+                )
+            )
+            assert job is not None
+            result = await run_normalization_job(
+                db=db,
+                storage=client.app_state["storage"],
+                job_id=job.id,
+                work_directory=tmp_path,
+                pipeline=_pipeline(),
+            )
+            refreshed_job = await db.get(PlaybackNormalizationJob, job.id)
+            artifacts = list(
+                await db.scalars(
+                    select(TrackArtifact).where(TrackArtifact.meeting_id == meeting_id)
+                )
+            )
+            canonical = await db.get(TrackArtifact, result.canonical_track_artifact_id)
+            return result, refreshed_job, artifacts, canonical
+
+    result, job, artifacts, canonical = asyncio.run(execute())
+
+    assert result.reused is False
+    assert result.derivation_kind == "uploaded_candidate"
+    assert job is not None and job.state == "ready"
+    assert canonical is not None
+    assert canonical.status == "stored"
+    assert canonical.derivation_kind == "uploaded_candidate"
+    assert canonical.source_fingerprint_sha256 == job.source_fingerprint_sha256
+    assert next(artifact for artifact in artifacts if artifact.track_role == "media").sha256 == expected_media_digest
+    assert {artifact.track_role for artifact in artifacts}.isdisjoint({"microphone", "system"})
+
+
+def test_v5_invalid_review_candidate_falls_back_to_authoritative_wav(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    finalized = create_finalized_mixed_recording(
+        client,
+        "normalization-v5-candidate-fallback",
+        media_bytes=deterministic_canonical_wav_bytes(frame_count=16_000),
+    )
+    meeting_id = UUID(str(finalized["meeting"]["meeting_id"]))
+    expected_media_digest = next(
+        track["sha256"] for track in finalized["tracks"] if track["track_role"] == "media"
+    )
+
+    async def execute():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id
+                )
+            )
+            assert job is not None
+            result = await run_normalization_job(
+                db=db,
+                storage=client.app_state["storage"],
+                job_id=job.id,
+                work_directory=tmp_path,
+                pipeline=_pipeline(),
+            )
+            refreshed_job = await db.get(PlaybackNormalizationJob, job.id)
+            artifacts = list(
+                await db.scalars(
+                    select(TrackArtifact).where(TrackArtifact.meeting_id == meeting_id)
+                )
+            )
+            canonical = await db.get(TrackArtifact, result.canonical_track_artifact_id)
+            return result, refreshed_job, artifacts, canonical
+
+    result, job, artifacts, canonical = asyncio.run(execute())
+
+    assert result.reused is False
+    assert result.derivation_kind == "single_source_transcode"
+    assert job is not None and job.state == "ready"
+    assert canonical is not None
+    assert canonical.status == "stored"
+    assert canonical.derivation_kind == "single_source_transcode"
+    assert canonical.source_fingerprint_sha256 == job.source_fingerprint_sha256
+    assert next(artifact for artifact in artifacts if artifact.track_role == "media").sha256 == expected_media_digest
+    assert {artifact.track_role for artifact in artifacts}.isdisjoint({"microphone", "system"})
 
 
 def test_candidate_digest_does_not_change_authoritative_source_fingerprint() -> None:

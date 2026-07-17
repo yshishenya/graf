@@ -13,8 +13,6 @@ struct MeetingMuteTruthRuntimeProof {
             store: store,
             microphoneSampleSourceFactory: { micSource },
             incomingSampleSourceFactory: { incomingSource },
-            microphoneInputChannelCount: 1,
-            incomingInputChannelCount: 1,
             recordMicrophone: true
         )
 

@@ -8,20 +8,22 @@ installer component.
 
 ```text
 SystemAudioCaptureService (ScreenCaptureKit)
-  -> BufferedLocalRecordingSampleSource
-  -> LocalRecordingWriter incoming source
+  -> PTS-bearing RecordingAudioBatch
 
 MicrophoneCaptureService (app-owned microphone capture)
-  -> LocalRecordingWriter microphone source
+  -> PTS-bearing RecordingAudioBatch
 
-LocalRecordingWriter
-  -> mic.wav
-  -> incoming.wav
+LocalRecordingWriter (v5 implementation) + RecordingAudioTimeline
+  -> CanonicalRecordingWriter
+  -> meeting-transcription.wav (PCM s16le, mono, 16 kHz, ASR only)
+  -> meeting-review.m4a (AAC-LC, mono, 48 kHz, playback only)
   -> manifest.json
 ```
 
-Both sources are created by the app and explicitly injected into
-`LocalRecordingWriter`. There is no implicit incoming-audio fallback.
+Both sources are created by the app and explicitly injected as timestamped
+batches. The timeline, rather than FIFO position or wall-clock padding, orders
+them, fills explicable gaps with silence and fails closed on an untrustworthy
+clock or overflow. New recording has no AEC, dual WAV output or text merge.
 
 Recording readiness requires:
 
@@ -32,8 +34,8 @@ Recording readiness requires:
 - a persistent visible capture indicator;
 - an eligible microphone input and available system-audio source.
 
-Manual `Record`/`Stop`, persistent visible capture state, one-action stop,
-dual original tracks, truthful degraded/failure state, and metadata-only
+Manual Record/Stop, persistent visible capture state, one-action stop, one
+shared canonical timeline, truthful degraded/failure state, and metadata-only
 diagnostics are release-critical.
 
 Generic Core Audio APIs remain where the current product needs physical
@@ -62,12 +64,9 @@ remove privileged audio components and do not restart Core Audio services.
 - New recordings use the current GRAF application-support directory.
 - Existing recordings under the former application-support directory remain
   readable.
-- Historical manifest fields that are unknown to the current decoder are
-  ignored.
-- The retired `hal_probe_observed` failure value maps to the current
-  fail-closed `legacy_not_ready` state and cannot become uploadable.
-- The persisted `legacy_recorder_fallback` source-mode raw value remains
-  decodable for existing artifacts; current recordings do not emit it.
+- Historical v3/v4 manifests are decoded and queued only by the isolated
+  compatibility reader. They do not shape new-writer defaults or v5 package
+  validation.
 
 ## Validation
 

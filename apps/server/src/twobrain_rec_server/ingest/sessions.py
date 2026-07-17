@@ -33,25 +33,6 @@ async def create_upload_session(
     expected_track_sizes: dict[TrackRole, int] | None = None,
     idempotency_key: str | None = None,
 ) -> UploadSessionRecord:
-    expected_track_roles = expected_track_roles or [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
-    try:
-        validate_required_track_roles(set(expected_track_roles))
-    except ManifestValidationError as exc:
-        raise ProblemDetail(
-            status=400,
-            code="invalid_expected_track_roles",
-            title=str(exc),
-        ) from exc
-    for size in (expected_track_sizes or {}).values():
-        if size < 0:
-            raise ProblemDetail(status=400, code="invalid_expected_track_size", title="Expected track size must be non-negative")
-    unexpected_size_roles = set(expected_track_sizes or {}) - set(expected_track_roles)
-    if unexpected_size_roles:
-        raise ProblemDetail(
-            status=400,
-            code="unexpected_expected_track_size_role",
-            title="Expected track size provided for a role that is not expected",
-        )
     meeting = await load_meeting_record(db, meeting_id=meeting_id)
     if meeting is None:
         meeting = store_module.store.meetings.get(meeting_id)
@@ -59,6 +40,36 @@ async def create_upload_session(
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     if meeting.created_by_user_id != tenant_scope.user_id:
         raise ProblemDetail(status=403, code="meeting_scope_denied", title="Meeting scope denied")
+    if not expected_track_roles:
+        if meeting.media_revision_source_kind == "initial_mixed_recording":
+            expected_track_roles = [TrackRole.MANIFEST, TrackRole.MEDIA, TrackRole.PLAYBACK]
+        else:
+            expected_track_roles = [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
+    for size in (expected_track_sizes or {}).values():
+        if size < 0:
+            raise ProblemDetail(
+                status=400,
+                code="invalid_expected_track_size",
+                title="Expected track size must be non-negative",
+            )
+    unexpected_size_roles = set(expected_track_sizes or {}) - set(expected_track_roles)
+    if unexpected_size_roles:
+        raise ProblemDetail(
+            status=400,
+            code="unexpected_expected_track_size_role",
+            title="Expected track size provided for a role that is not expected",
+        )
+    try:
+        validate_required_track_roles(
+            set(expected_track_roles),
+            source_kind=meeting.media_revision_source_kind,
+        )
+    except ManifestValidationError as exc:
+        raise ProblemDetail(
+            status=400,
+            code="invalid_expected_track_roles",
+            title=str(exc),
+        ) from exc
     await ensure_meeting_accepts_uploads(
         db=db,
         meeting_id=meeting.id,

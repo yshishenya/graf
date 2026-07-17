@@ -34,6 +34,32 @@ MEETING_TITLE_SOURCES = frozenset(
     }
 )
 
+FIRST_PARTY_RECORDING_SOURCE_MODES = {
+    MediaRevisionSourceKind.INITIAL_RECORDING.value: "dual",
+    MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value: "single_wav_v1",
+}
+
+
+def validate_first_party_recording_source_mode(
+    *,
+    source_kind: MediaRevisionSourceKind | str,
+    media_scribe_source_mode: str | None,
+) -> None:
+    source_kind_value = str(getattr(source_kind, "value", source_kind))
+    expected_mode = FIRST_PARTY_RECORDING_SOURCE_MODES.get(source_kind_value)
+    if expected_mode is None:
+        raise ProblemDetail(
+            status=400,
+            code="unsupported_recording_source_kind",
+            title="Unsupported first-party recording source kind",
+        )
+    if media_scribe_source_mode != expected_mode:
+        raise ProblemDetail(
+            status=400,
+            code="invalid_recording_source_mode",
+            title="Recording source mode does not match the recording source kind",
+        )
+
 
 async def create_or_get_meeting(
     *,
@@ -49,10 +75,19 @@ async def create_or_get_meeting(
     ended_at: datetime | None = None,
     recording_display_timezone_offset_minutes: int | None = None,
     media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING,
+    media_scribe_source_mode: str | None = None,
     calendar_match_attempt_id: UUID | None = None,
     consume_calendar_context: bool = False,
 ) -> MeetingRecord:
     validate_recording_duration(settings, duration_seconds)
+    if (
+        media_revision_source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING
+        or media_scribe_source_mode is not None
+    ):
+        validate_first_party_recording_source_mode(
+            source_kind=media_revision_source_kind,
+            media_scribe_source_mode=media_scribe_source_mode,
+        )
     normalized_title_source = normalize_meeting_title_source(
         title=title,
         title_source=title_source,
@@ -67,6 +102,11 @@ async def create_or_get_meeting(
         ended_at=ended_at,
         recording_display_timezone_offset_minutes=recording_display_timezone_offset_minutes,
         media_revision_source_kind=media_revision_source_kind,
+        media_scribe_source_mode=(
+            media_scribe_source_mode
+            if media_revision_source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING
+            else None
+        ),
         calendar_match_attempt_id=calendar_match_attempt_id,
     )
     persisted = await load_meeting_record(
@@ -172,7 +212,8 @@ def meeting_create_request_fingerprint(
     ended_at: datetime | None,
     recording_display_timezone_offset_minutes: int | None,
     media_revision_source_kind: MediaRevisionSourceKind,
-    calendar_match_attempt_id: UUID | None,
+    media_scribe_source_mode: str | None = None,
+    calendar_match_attempt_id: UUID | None = None,
 ) -> str:
     payload = {
         "calendar_match_attempt_id": (
@@ -192,6 +233,8 @@ def meeting_create_request_fingerprint(
         "title_source": title_source,
         "version": 1,
     }
+    if media_scribe_source_mode is not None:
+        payload["media_scribe_source_mode"] = media_scribe_source_mode
     canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     return sha256(canonical.encode("utf-8")).hexdigest()
 

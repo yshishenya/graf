@@ -1,13 +1,14 @@
 # Recording Artifact Format Smoke Matrix
 
-Feature baseline: `010-recording-artifact-format`; current architecture:
-`102-remove-legacy-audio-driver`.
+Feature baseline: `106-mixed-wav-recording`; current architecture: one
+timestamped canonical timeline with one WAV ASR source and one M4A playback
+copy.
 
 ## Scope
 
 Confirm that a current manual recording produces a MediaScribe-ready,
-metadata-safe dual-track local package. This smoke does not upload content or
-accept transcription, dashboard, retention, deletion, or assisted auto-start.
+metadata-safe v5 package. This smoke does not upload content or accept
+transcription, dashboard, retention, deletion, or assisted auto-start.
 
 ## Required Setup
 
@@ -21,16 +22,27 @@ accept transcription, dashboard, retention, deletion, or assisted auto-start.
 
 | Artifact | Required evidence |
 |---|---|
-| `manifest.json` | Valid metadata-only JSON; `schemaVersion=local-recording-manifest.v3`; maps `local_mic` to `mic_file` and `remote_speaker` to `incoming_file`; reports truthful status/readiness |
-| `mic.wav` | Exists and is non-empty; PCM signed 16-bit little-endian, mono, 16 kHz |
-| `incoming.wav` | Exists and is non-empty; PCM signed 16-bit little-endian, mono, 16 kHz |
+| `manifest.json` | Valid metadata-only JSON; `schemaVersion=local-recording-manifest.v5`; `mediaScribeSourceMode=single_wav_v1`; reports truthful integrity/status/readiness |
+| `meeting-transcription.wav` | Exists and is non-empty; PCM signed 16-bit little-endian, mono, 16 kHz; only ASR source |
+| `meeting-review.m4a` | Exists and is non-empty; AAC-LC M4A, mono, 48 kHz; playback only |
 
 Also verify:
 
-- both original tracks are timeline-aligned or the manifest is degraded;
+- exactly these three final members exist; no `mic.wav`, `incoming.wav`, raw
+  source or `.partial` file is discoverable;
+- the WAV and M4A share the canonical timeline or the manifest is degraded;
 - current manifests contain no retired routing lifecycle fields;
 - no upload, MediaScribe request, Langfuse trace, or external publication starts;
 - the saved path contains no committed private content or secrets.
+
+## Timing and Playback Safety
+
+- Use a non-private signal with markers near the start, middle and end of the
+  controlled run; record only timing/count verdicts.
+- Verify route is unchanged and incoming playback level differs by no more than
+  1 dB while capture is active.
+- Do not archive audio, marker text, transcript content, device names or local
+  paths as evidence.
 
 ## Target Matrix
 

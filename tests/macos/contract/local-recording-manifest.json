@@ -1,5 +1,5 @@
 {
-  "schema": "local-recording-manifest.v3",
+  "schema": "local-recording-manifest.v5",
   "requiredFields": [
     "sessionId",
     "createdAt",
@@ -11,6 +11,7 @@
     "manifestFileName",
     "transcriptionReadiness",
     "mediaScribeSourceMode",
+    "canonicalMixProfile",
     "tracks",
     "externalEgressStarted",
     "transcriptionStarted",
@@ -24,8 +25,8 @@
     "captureHealth"
   ],
   "requiredTrackRoles": [
-    "local_mic",
-    "remote_speaker"
+    "mixed_meeting_audio",
+    "review_playback"
   ],
   "allowedStatuses": [
     "saved",
@@ -36,8 +37,7 @@
   "allowedReadinessStates": [
     "ready",
     "degraded",
-    "failed",
-    "legacy_not_ready"
+    "failed"
   ],
   "requiredTrackFields": [
     "mediaScribeField",
@@ -49,6 +49,7 @@
     "bitsPerSample",
     "timelineStartMs",
     "timelineAligned",
+    "sha256",
     "failureReason"
   ],
   "forbiddenFields": [

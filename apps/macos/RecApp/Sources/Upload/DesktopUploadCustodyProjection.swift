@@ -536,10 +536,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
 
     private static func isQualityWarning(_ reason: String?) -> Bool {
         switch reason {
-        case LocalRecordingFailureReason.leakageDetected.rawValue,
-             LocalRecordingFailureReason.leakageUnproven.rawValue,
-             LocalRecordingFailureReason.leakageNotMeasured.rawValue,
-             LocalRecordingFailureReason.insufficientReference.rawValue,
+        case LocalRecordingFailureReason.historicalPackage.rawValue,
              LocalRecordingFailureReason.silentInput.rawValue:
             return true
         default:

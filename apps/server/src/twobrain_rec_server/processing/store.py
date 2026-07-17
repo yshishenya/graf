@@ -43,7 +43,15 @@ from twobrain_rec_server.processing.audit import safe_audit_metadata
 
 @dataclass(frozen=True, slots=True)
 class ProcessingSourceArtifacts:
+    """Immutable source selection for one revision.
+
+    The mic/incoming fields are a compatibility drain for pre-v5 accepted
+    revisions only. New first-party capture uses source_artifact as one
+    canonical WAV and never selects a playback artifact for processing.
+    """
+
     request_mode: str
+    source_kind: str
     mic_artifact: TrackArtifact | None = None
     incoming_artifact: TrackArtifact | None = None
     source_artifact: TrackArtifact | None = None
@@ -55,6 +63,10 @@ class ProcessingSourceArtifacts:
         return (self.mic_artifact.byte_length if self.mic_artifact is not None else 0) + (
             self.incoming_artifact.byte_length if self.incoming_artifact is not None else 0
         )
+
+    @property
+    def is_v5_mixed_recording(self) -> bool:
+        return self.source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value
 
 
 async def load_meeting_for_workspace(
@@ -167,11 +179,21 @@ async def load_processing_source(
     if revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value:
         return ProcessingSourceArtifacts(
             request_mode="single_track",
+            source_kind=revision.source_kind,
+            source_artifact=artifacts_by_role[TrackRole.MEDIA.value],
+        )
+    if revision.source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value:
+        return ProcessingSourceArtifacts(
+            request_mode="single_track",
+            source_kind=revision.source_kind,
             source_artifact=artifacts_by_role[TrackRole.MEDIA.value],
         )
     if revision.source_kind == MediaRevisionSourceKind.INITIAL_RECORDING.value:
+        # Historical compatibility only. New recordings are initial_mixed_recording
+        # and take the canonical media branch above.
         return ProcessingSourceArtifacts(
             request_mode="dual_track",
+            source_kind=revision.source_kind,
             mic_artifact=artifacts_by_role[TrackRole.MICROPHONE.value],
             incoming_artifact=artifacts_by_role[TrackRole.SYSTEM.value],
         )

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
 from tests.fakes.fake_temporal import FakeTemporalClient
-from tests.fixtures.processing import create_finalized_meeting
+from tests.fixtures.processing import create_finalized_meeting, create_finalized_mixed_recording
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaScribeJob,
@@ -92,6 +92,106 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
     assert status == "processed"
     assert transcript_count == 1
     assert diarization_count == 1
+
+
+def test_v5_mixed_recording_submits_one_canonical_wav_and_imports_one_result(client) -> None:
+    finalized = create_finalized_mixed_recording(client, "processing-v5-single-wav")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    media_digest = next(track["sha256"] for track in finalized["tracks"] if track["track_role"] == "media")
+    media_size = next(track["byte_length"] for track in finalized["tracks"] if track["track_role"] == "media")
+    fake_client = FakeMediaScribeClient(
+        external_job_id="job_v5_single_wav",
+        status_sequence=[MediaScribeJobStatus.READY],
+        result=MediaScribeResult(
+            external_job_id="job_v5_single_wav",
+            transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
+                transcript=[
+                    MediaScribeSegment(
+                        sequence=0,
+                        start_seconds=0,
+                        end_seconds=1,
+                    text="synthetic_segment_0",
+                        source_role="mixed",
+                    )
+                ],
+                diarization=[
+                    MediaScribeDiarizationSegment(
+                        sequence=0,
+                        start_seconds=0,
+                        end_seconds=1,
+                        text="synthetic_segment_0",
+                        source_role="mixed",
+                        speaker_label="SPEAKER_00",
+                    )
+                ],
+            ),
+        )
+
+    async def run_pipeline() -> tuple[str, str, bool, bool, int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            submitted = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=client.app_state["storage"],
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            imported = await poll_and_import_mediascribe_result(
+                db=db,
+                workflow=workflow,
+                job=submitted.job,
+                mediascribe_client=fake_client,
+            )
+            job = await db.scalar(select(MediaScribeJob).where(MediaScribeJob.id == submitted.job.id))
+            jobs = (
+                await db.scalars(select(MediaScribeJob).where(MediaScribeJob.meeting_id == meeting_id))
+            ).all()
+            transcript_rows = (
+                await db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))
+            ).all()
+            assert job is not None
+            return (
+                imported.status.value,
+                job.request_mode,
+                job.source_track_artifact_id is not None,
+                job.mic_track_artifact_id is None and job.incoming_track_artifact_id is None,
+                len(transcript_rows),
+                len(jobs),
+            )
+
+    assert asyncio.run(run_pipeline()) == ("processed", "single_track", True, True, 1, 1)
+    assert len(fake_client.submissions) == 1
+    submission = fake_client.submissions[0]
+    assert submission == {
+        "request_mode": "single_track",
+        "media_size": media_size,
+        "media_sha256": media_digest,
+        "media_content_type": "audio/wav",
+        "media_filename": "meeting-transcription.wav",
+        "diarize": True,
+        "summarize": False,
+    }
+    assert not {"mic_size", "incoming_size", "playback_size", "playback_filename"}.intersection(submission)
+
+    review = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+    assert review.status_code == 200
+    review_payload = review.json()
+    assert review_payload["meeting"]["status"] == "ready"
+    assert review_payload["provenance"]["media_revision_id"] == str(media_revision_id)
+    assert review_payload["provenance"]["source_roles"] == ["canonical_mixed"]
+    assert review_payload["transcript"]["available"] is True
+    assert len(review_payload["transcript"]["segments"]) == 1
+    assert review_payload["speakers"]["available"] is True
 
 
 def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(client) -> None:

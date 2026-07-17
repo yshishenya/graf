@@ -167,8 +167,8 @@ metadata-only evidence остаются подробной историей ре
   are required at deploy. The worker has one-activity concurrency, 1 CPU,
   1 GiB memory, 128 PIDs, a 6 GiB logical work budget, a 128 MiB output cap,
   bounded FFmpeg/FFprobe output and automatic free-capacity preflight. A
-  near-four-hour dual-source synthetic package of about 5 GiB completed the
-  full local production-equivalent normalization pipeline in `185.236` seconds
+  historical near-four-hour dual-source synthetic package of about 5 GiB
+  completed the former local production-equivalent normalization pipeline in `185.236` seconds
   with canonical/full-decode success, zero OOM events and zero
   container/volume/image residue. Focused
   evidence currently includes `497` focused server tests, a post-fix
@@ -224,24 +224,30 @@ metadata-only evidence остаются подробной историей ре
   were moved. The next candidate is `v2026.07.16.3`; its hotfix merge and
   explicit production-deploy approval are recorded, while release publication,
   deploy and production proof remain pending.
-  Current production evidence supersedes that historical candidate note:
-  `v2026.07.17.3` deployed the startup-recovery fix and immediately dispatched
-  the retained affected job, but its next cleanup pass exposed a separate
-  active-attempt cleanup race before canonical publication. The narrow
-  follow-up was released and deployed as `v2026.07.17.5`; the same job now has
-  canonical playback-ready state without user action. Feature 097 remains
-  deferred and is not part of this proof.
-- The macOS recording path is app-owned: ScreenCaptureKit system audio and the
-  app-owned microphone source are explicitly injected into
-  `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and
-  `manifest.json`.
+- The separate Feature 099 production evidence includes the `v2026.07.17.3`
+  startup-recovery release and the `v2026.07.17.5` active-attempt cleanup
+  fix; it does not alter Feature 106 acceptance or its rollback boundary.
+- Feature `106-mixed-wav-recording` is in active high-risk implementation and
+  is not released or deployed. Its local candidate changes **new** recordings
+  to one shared source timeline with exactly `meeting-transcription.wav` (PCM
+  s16le mono 16 kHz, the only ASR source), `meeting-review.m4a` (AAC mono 48
+  kHz, playback only), and `manifest.json`. The backend receives the WAV once
+  through `initial_mixed_recording` / `single_wav_v1`; the M4A never enters a
+  MediaScribe request. This is implementation status, not installed-app or
+  production acceptance evidence.
+- The macOS capture architecture remains app-owned: ScreenCaptureKit system
+  audio and the app-owned microphone source are explicitly injected into the
+  candidate `V5LocalRecordingWriter`, which writes the v5 package described
+  above. Historical v3/v4 packages remain readable only and do not alter new
+  capture defaults.
 - The former separate audio-routing component, shared-memory bridge,
   lifecycle scripts, route orchestration, and user-facing setup/repair states
   have been removed from the source and app-only package surface.
 - Current packaging contains one desktop application component and performs no
   privileged audio installation or Core Audio service mutation.
-- Historical recording roots and unknown manifest fields remain readable for
-  data compatibility; current recordings do not emit retired routing state.
+- Historical v3/v4 recording roots and unknown manifest fields remain readable
+  through an isolated compatibility path. They do not change v5 writer
+  defaults, visible controls, or the canonical single-WAV ASR path.
 - Generic Core Audio microphone discovery and metadata-only `AudioHAL`
   meeting-detection signals remain current OS integrations and are not the
   removed component.
@@ -267,15 +273,15 @@ metadata-only evidence остаются подробной историей ре
   all-pages expansion, Yandex offline conversion upload, production deploy, and
   paid campaign optimization remain blocked pending separate legal/product/
   security/QA/provider approval.
-- Manual user-facing `Record`/`Stop` exists in the local macOS app with visible
-  recording state and one-action stop from feature `007`.
-- Local recording persistence from feature `008` is accepted for local artifact
-  creation after manual `Record`/`Stop`: local mic track, remote speaker track,
-  metadata-only manifest, saved/degraded/failed truth, and metadata-only
-  diagnostics.
-- One-minute manual recording smoke is accepted for Yandex Telemost, Chrome,
-  Opera, and Zoom for features `007` and `008`: visible manual recording,
-  one-action stop, and saved local recording artifacts.
+- Manual user-facing `Record`/`Stop` remains current in the local macOS app
+  with visible recording state and one-action stop from feature `007`.
+- Historical archive — feature `008` accepted the former v3 local
+  microphone/system package after manual `Record`/`Stop`. Its separate tracks
+  remain readable only for already accepted records; feature `106` supersedes it
+  for every new capture with one canonical WAV and one playback M4A.
+- Historical one-minute recording smokes for Yandex Telemost, Chrome, Opera and
+  Zoom prove only the former `007`/`008` control surface. They are not v5
+  route, volume, timeline or transcription acceptance evidence.
 - Feature `022-meeting-mute-truth` is implemented as the product-owned mute
   truth layer for local macOS recording. The desktop app exposes `Pause` and
   `Resume` beside always-available `Stop`; product Pause suppresses local
@@ -286,14 +292,14 @@ metadata-only evidence остаются подробной историей ре
   script coverage, diagnostics redaction, and upload-queue regressions are
   included. This slice does not implement third-party Zoom/Telemost mute
   adapters or claim that meeting-app mute itself is respected.
-- MediaScribe dual-track API contract is recorded in
-  `docs/integrations/mediascribe-dual-track-api.md` for future backend
-  transcription work. The real API key is intentionally not committed.
-- Feature `010-recording-artifact-format` is accepted for local artifact
-  format. Automated gates and a fresh manual `Record`/`Stop` smoke on
-  2026-06-04 MSK confirmed a local package with `manifest.json`, `mic.wav`,
-  `incoming.wav`, dual-track MediaScribe role mapping, readiness metadata,
-  diagnostics redaction, and `007`/`008` regression validation.
+- The active MediaScribe contract is the v5 single-WAV section in
+  `docs/integrations/mediascribe-dual-track-api.md`; its dual endpoint is a
+  historical compatibility drain only. The real API key is intentionally not
+  committed.
+- Historical archive — feature `010-recording-artifact-format` proved the
+  former v3 package format. Its separate-file assertions and role mapping are
+  not the active local-artifact contract and cannot be copied into new capture
+  code, UI or validation.
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
@@ -346,11 +352,11 @@ metadata-only evidence остаются подробной историей ре
 - Feature `013-federated-auth-foundation` is implemented on the backend and
   provides provider-based auth, workspace membership, session, account linking,
   and registered-device identity scaffolding for later desktop upload.
-- Feature `015-mediascribe-processing-pipeline` is implemented as the first
-  server-side processing slice after accepted ingest. It adds durable
+- Historical feature `015-mediascribe-processing-pipeline` was the first
+  server-side processing slice after accepted ingest. It added durable
   processing workflow/job/result/segment/audit/dependency tables, idempotent
-  `processing/<meeting_id>` workflow identity, internal pickup, server-side
-  dual-track MediaScribe submission from owner-controlled artifacts,
+  `processing/<meeting_id>` workflow identity, internal pickup and the former
+  server-side dual MediaScribe submission from owner-controlled artifacts,
   poll/import services, content-safe processing status, failure/retry
   classification, restart-safe job reuse, and metadata-only dependency truth.
   On 2026-06-11, `master` at `4cda38c` was deployed to
@@ -360,7 +366,9 @@ metadata-only evidence остаются подробной историей ре
   processing, live MediaScribe submit/poll, result import, content-safe status,
   and cleanup: workflow `processed`, MediaScribe job `ready`, result
   `imported`, transcript and diarization available, dependency state
-  `mediascribe:imported`, and no cleanup residue.
+  `mediascribe:imported`, and no cleanup residue. That branch remains
+  compatibility-only for immutable v3/v4 records; new feature-`106` recordings
+  use the v5 one-WAV submission contract.
   Desktop clients still do not call MediaScribe, hold MediaScribe credentials,
   receive signed dependency URLs, or receive transcript/audio/download surfaces
   in this slice.
@@ -436,10 +444,11 @@ metadata-only evidence остаются подробной историей ре
   only: the branch is not merged, not PR-reviewed, not deployed, and has no
   production upload-to-transcript e2e evidence yet.
 - Feature `045-transcription-results-pipeline` is implemented, merged,
-  released as `v2026.06.24.1`, and deployed to production. Structurally valid
-  local packages remain upload/transcription eligible even when local leakage,
-  echo, silence, timing, or transcription-readiness checks are degraded,
-  failed, inconclusive, or unavailable. Consent, permission, missing/unreadable
+  released as `v2026.06.24.1`, and deployed to production. For historical
+  v3/v4 packages, structurally valid records remain upload/transcription
+  eligible even when their legacy quality metadata is degraded, failed,
+  inconclusive, or unavailable. Feature `106` does not create or interpret
+  that metadata. Consent, permission, missing/unreadable
   files, package role/size/checksum/fingerprint integrity, lifecycle, and
   privacy boundaries remain hard gates. Accepted server finalization starts or
   reuses one processing workflow when processing is enabled, unavailable
@@ -450,7 +459,7 @@ metadata-only evidence остаются подробной историей ре
   failure reasons. Production evidence on 2026-06-24 proved a real installed
   app recording could upload, finalize, process through MediaScribe, and reach
   a review state with transcript, diarization, playback, workflow presence, and
-  both source roles visible. Speakerphone quality remains a product limitation:
+  both historical source roles visible. Speakerphone quality remains a product limitation:
   the pipeline accepts degraded-but-structurally-valid recordings, but this is
   not proof of clean echo/noise suppression.
 - Feature `046-meeting-playback-timestamp-seek` is implemented, merged through
@@ -679,14 +688,11 @@ metadata-only evidence остаются подробной историей ре
   Record/Stop/upload truth/local readiness outside the scaled WebKit surface.
   This slice does not change capture, upload, backend meeting data, retention,
   deletion, auth, or production rollout state.
-- Feature `038-apple-voice-processing-spike` is implemented as a bounded
-  metadata-only Apple candidate evidence slice. Its current primary outcome is
-  `defer_to_webrtc_aec3`: Apple processing is not accepted for built-in
-  speakerphone recording, original `mic.wav`/`incoming.wav`/`manifest.json`
-  package truth remains authoritative, existing `020` leakage finalization
-  remains the clean/leakage/unproven authority, and user-facing/release-facing
-  copy must not claim clean speakerphone behavior from Apple evidence. The next
-  technical slice is `039-webrtc-aec3-speakerphone-spike`.
+- Historical archive — feature `038-apple-voice-processing-spike` recorded
+  why Apple voice processing was not accepted. It does not nominate a current
+  runtime candidate: feature `106` removes Apple processing, WebRTC AEC,
+  echo cleanup and leakage finalization from the active new-recording path.
+  The old v3 package discussion is retained only as historical evidence.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded
@@ -719,32 +725,16 @@ metadata-only evidence остаются подробной историей ре
   production RLS enforcement is verified enabled and forced through read-only
   PostgreSQL catalog metadata, while destructive same/cross-tenant probes
   remain limited to disposable or explicit test databases.
-- Feature `025-system-audio-capture-pivot` is accepted as the macOS MVP
-  recording path. It records local microphone plus incoming/system audio without
-  requiring meeting-app audio-device reconfiguration, preserves dual-track local artifacts, and
-  closes the final evidence gates for permission matrix, controlled artifact,
-  CPU/resource behavior, 30-minute development validation, 75-minute release
-  validation, forbidden-content scan, and final scope review.
-- Feature `020-speaker-to-mic-leakage` is accepted as the post-stop
-  finalization truth gate for local dual-track packages. After `Stop`, saved
-  `mic.wav` and `incoming.wav` evidence is measured against
-  `leakage-threshold.v1`; `manifest.json` uses
-  `local-recording-manifest.v3`; contaminated, ambiguous, malformed,
-  misaligned, not-measured, or unproven packages still record local
-  transcription-readiness failure/degradation truth. Feature `045` changes how
-  that truth is used for product upload/transcription eligibility: for
-  structurally valid packages it is diagnostic metadata, not an upload blocker.
-  The implementation is integrated on top of the accepted `025` system-audio
-  capture path and does not replace scope approvals, permissions,
-  capture-health evidence, dual-track role mapping, or system-audio recording
-  truth.
-- `020` diagnostics remain metadata-only: leakage status, transcription gate,
-  route metadata, threshold metadata, and measurement summaries may be included,
-  but raw audio, transcript text, credentials, tokens, signed URLs, passwords,
-  meeting content, and live filesystem paths remain forbidden.
-- `020` is finalization-only. It does not introduce external egress, a
-  MediaScribe call, live echo cancellation, recording-time route remediation,
-  an alternate audio-routing fallback, or a customer-visible auto-start policy.
+- Historical archive — feature `025-system-audio-capture-pivot` established
+  the two-source native capture boundary without meeting-app device
+  reconfiguration. Its former dual-package acceptance evidence remains useful
+  only for reading records already created before v5; it is not a new-writing
+  contract.
+- Historical archive — feature `020-speaker-to-mic-leakage` was a post-stop
+  finalization gate for v3 dual packages. The `leakage-threshold.v1` and
+  related diagnostic states no longer participate in a v5 recording, upload or
+  transcript decision. Historical diagnostics remain protected metadata only
+  until their retention lifecycle ends.
 - The unsafe separate audio-routing experiment from `019` / issue #234 is
   superseded by `025` and removed from active source, packaging, runtime,
   tests, and QA. Its failure report remains historical negative evidence only.
@@ -755,25 +745,27 @@ metadata-only evidence остаются подробной историей ре
 
 ## Not Accepted Yet
 
-- A controlled 2026-07-13 app-owned recording produced both non-empty original
-  tracks with granted permissions and tight duration alignment, but the review
-  M4A subjectively masked microphone speech while system audio dominated and
-  finalization reported `leakage_detected`. Driver retirement does not change
-  the pre-existing review mixer or leakage policy, so review-mix balance,
-  clean built-in-speaker capture, and end-to-end transcription quality require
-  a separate high-risk recording-quality feature and fresh real-hardware proof.
+- Feature `106-mixed-wav-recording` is not yet accepted for an installed app
+  or release. The open gate is one controlled 60-minute v5 run with route
+  unchanged, incoming volume delta no greater than 1 dB, no unexplained
+  timeline divergence over 100 ms, truthful byte progress, one ASR job,
+  playback, transcript, deletion and future-capture rollback evidence. The
+  exact `v2026.07.17.6` baseline SHA and separately approved local test
+  procedure are required before that result can be claimed.
+- The 2026-07-13 dual-recording result, including its review-mix imbalance and
+  leakage status, is historical evidence only. It does not describe the v5
+  writer and cannot justify adding a live cleanup, dual fallback or second ASR
+  job.
 - Yandex Browser is intentionally skipped/not accepted in the current
   browser/meeting smoke cycle.
 - Third-party meeting-app mute adapters are not accepted yet. Local privacy
   truth is product-owned through 2brain `Pause`/`Resume`/`Stop`; Zoom/browser
   mute state remains unverified unless a future adapter provides fresh
   target-specific evidence.
-- Built-in speakerphone clean dual-track acceptance remains constrained by
-  `020`/`038` evidence: packages can be captured and, after `045`, structurally
-  valid imperfect packages can still proceed to server transcription, but the
-  product must not label polluted microphone audio as clean local speech.
-  Feature `038` did not accept Apple processing for built-in speakerphone
-  recording; `044` remains the real echo/noise suppression runtime candidate.
+- No AEC, Apple voice processing, WebRTC cleanup, derived-cleaned fallback or
+  dual-track speakerphone mode is an active v5 candidate. Any future proposal
+  would require a new approved product decision and cannot reuse retired code
+  or silently alter a recorded conversation.
 - Any future advanced routing requires a new approved spec, implementation,
   packaging model, and safety evidence; the removed implementation must not be
   revived as a hidden fallback.
@@ -919,11 +911,9 @@ Keep separate unless the next spec explicitly changes scope:
   playback-related work is post-MVP scope such as compressed share audio,
   public links, waveform polish, native Swift controls, or editing.
 - Assisted auto-start and generalized meeting detection.
-- Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
-  AEC, and mixed-audio fallback remain decision records or future spike gates
-  after `020`. They are not runtime behavior in the finalization-only slice.
-  Detailed prepared backlog context is recorded in
-  `docs/audio-capture-backlog.md`.
+- The former live speakerphone cleanup/AEC research is archived in
+  `docs/audio-capture-backlog.md`. It is neither an active feature backlog nor
+  a fallback for v5; new capture must keep the truthful one-timeline contract.
 - Post-MVP editing and media revision work is tracked in
   `docs/post-mvp-editing-media-backlog.md`: local media trim/edit revisions,
   online transcript/speaker edit sync, video capture package foundation, and
@@ -946,34 +936,19 @@ the current accepted implementation or `012` ingest slice.
 - `021-production-deployment-plan`: use the remote-first runbook to reach
   `infra_smoke_ready` for the Rec stack, while keeping user rollout and pilot
   claims blocked until later product slices are accepted.
-- `020-hardware-route-matrix`: complete physical-device route matrix rows that
-  require unavailable hardware before claiming broad hardware speakerphone
-  acceptance. Current automated acceptance covers persisted-package
-  finalization behavior, not every physical device route.
-- `037-microphone-sample-graph-foundation`: introduce an app-owned microphone
-  sample graph before any live cleanup claim, while preserving the current
-  `mic.wav`/`incoming.wav`/`manifest.json` package truth.
-- `038-apple-voice-processing-spike`: evaluate Apple `AVAudioEngine` voice
-  processing, `VoiceProcessingIO`, and Mic Mode/Voice Isolation as bounded
-  spike candidates for reducing built-in speaker-to-mic leakage.
-- `039-webrtc-aec3-speakerphone-spike`: evaluate WebRTC AEC3 with system audio
-  as the render/far-end reference and microphone frames as capture input only
-  after the app-owned microphone graph is available.
-- `040-speakerphone-recording-fallback-decision`: decide headset-first,
-  derived-cleaned, mixed-audio, pilot-only, or unsupported-route semantics if
-  clean built-in speakerphone dual-track capture cannot be proven.
+- Feature `106` hardware acceptance: complete the controlled v5 route,
+  incoming-level, timeline and one-job checks before any installed-app or
+  release claim. This is a test gate, not a request to revive a second
+  recording mode.
+- Features `020`, `037`, `038`, `039`, `040` and `044` are archived
+  pre-v5 dual/AEC research or historical package work. They are not an active
+  implementation backlog and cannot be selected as a hidden fallback.
 - `041-recording-permission-readiness-onboarding`: make microphone and
   Screen/System Audio readiness visible before the user starts recording.
 - `031-rls-hardening` / `032-rls-live-enforcement`: future tenant-owned tables
   and product surfaces must follow ADR `003-tenant-isolation-rls`; destructive
   RLS probes stay on disposable/test databases, and production truth must be
   proven with read-only catalog metadata.
-- `044-speakerphone-echo-noise-suppression`: clean-recording runtime slice for
-  real echo cancellation/noise suppression. It must preserve package truth,
-  metadata-only evidence, reversible fallback, and built-in speakerphone route
-  limits before any clean speakerphone claim is allowed. It is separate from
-  `045`, which lets imperfect-but-structurally-valid packages reach
-  transcription/results without claiming the mic was cleaned.
 - Post-MVP editing/media backlog still needs separate numbering after `048`:
   local media trim revisions, online transcript edit sync, video capture
   package foundation, and explicit media replace/reprocess flows are not part
@@ -992,6 +967,6 @@ the current accepted implementation or `012` ingest slice.
   30/60 minute integrity, and signed/notarized installer evidence.
 - `mediascribe-large-audio-proxy-ceiling`: do not raise MediaScribe just
   because Rec accepts larger upload packages or future video files. MediaScribe
-  receives only audio. Raise its separate OpenResty/nginx body limit only if
-  real combined `mic_file` + `incoming_file` audio approaches the observed
-  public proxy ceiling and starts failing with `413`.
+  receives only the canonical WAV. Raise its separate OpenResty/nginx body
+  limit only if a real v5 WAV approaches the observed public proxy ceiling and
+  starts failing with `413`.

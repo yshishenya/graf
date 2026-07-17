@@ -326,7 +326,7 @@ def _meeting_list_poll_attrs(
         return ""
     hx_get = escape(poll_url)
     return (
-        f' data-upload-progress-poll hx-get="{hx_get}" hx-trigger="every 3s" '
+        f' data-upload-progress-poll hx-get="{hx_get}" hx-trigger="every 1s" '
         'hx-target="#meeting-list-region" hx-select="#meeting-list-region" hx-swap="outerHTML"'
     )
 

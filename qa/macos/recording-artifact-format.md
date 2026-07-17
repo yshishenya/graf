@@ -1,26 +1,29 @@
 # Recording Artifact Format Gate
 
-This gate controls the dual-track local package consumed by the later upload
-pipeline.
+This gate controls the v5 local package consumed by the upload pipeline.
 
 ## Required Evidence
 
-- [ ] Manual `Record`/`Stop` creates `mic.wav` and `incoming.wav`.
-- [ ] Both WAV files are signed 16-bit little-endian PCM, mono, 16 kHz.
-- [ ] `manifest.json` maps the microphone track to `local_mic`.
-- [ ] `manifest.json` maps the system-audio track to `remote_speaker`.
+- [ ] Manual Record/Stop creates exactly manifest.json,
+  meeting-transcription.wav and meeting-review.m4a.
+- [ ] The WAV is signed 16-bit little-endian PCM, mono, 16 kHz and is the
+  only ASR input.
+- [ ] The M4A is AAC-LC, mono, 48 kHz, shares the canonical timeline within
+  the recorded AAC presentation allowance, and is playback only.
+- [ ] manifest.json maps the WAV to mixed_meeting_audio/media and the M4A to
+  review_playback/playback.
 - [ ] Manifest readiness and degraded/failed reasons reflect actual artifacts.
 - [ ] Track timing discontinuities are preserved or truthfully degraded.
 - [ ] Diagnostics remain metadata-only and redacted.
 - [ ] The desktop app stores no MediaScribe credential and performs no
   MediaScribe request during local recording.
 - [ ] A newly encoded current manifest contains no retired routing lifecycle
-  fields.
+  fields, dual source files, AEC or echo-cleanup state.
 
 ## Automated Validation
 
 ```sh
-swift test --package-path apps/macos --filter 'SystemAudioRecordingPackageTests|LocalRecordingManifestTests|LocalRecordingWriterSystemAudioTests'
+swift test --package-path apps/macos --filter 'SystemAudioRecordingPackageTests|CanonicalRecordingManifestTests|LocalRecordingWriterSystemAudioTests'
 swift run --package-path apps/macos ContractValidation
 sh apps/macos/Scripts/validate-recording-artifact-format.sh
 ```

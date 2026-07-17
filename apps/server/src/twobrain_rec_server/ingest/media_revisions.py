@@ -33,6 +33,8 @@ def initial_media_revision_status() -> MediaRevisionStatus:
 
 
 def initial_media_revision_source_kind() -> MediaRevisionSourceKind:
+    # This is the legacy API default for older clients. New first-party v5
+    # uploads explicitly declare INITIAL_MIXED_RECORDING in their request.
     return MediaRevisionSourceKind.INITIAL_RECORDING
 
 
@@ -56,8 +58,12 @@ def authoritative_track_roles(
 ) -> tuple[str, ...]:
     source_kind_value = str(getattr(source_kind, "value", source_kind))
     if source_kind_value == MediaRevisionSourceKind.INITIAL_RECORDING.value:
+        # Historical-only dual source identity; do not use for new captures.
         return ("microphone", "system")
-    if source_kind_value == MediaRevisionSourceKind.MANUAL_UPLOAD.value:
+    if source_kind_value in {
+        MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value,
+        MediaRevisionSourceKind.MANUAL_UPLOAD.value,
+    }:
         return ("media",)
     raise ValueError("unsupported media revision source kind")
 

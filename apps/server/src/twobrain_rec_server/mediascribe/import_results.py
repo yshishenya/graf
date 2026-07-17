@@ -12,6 +12,11 @@ ROLE_ALIASES = {
     "system": "incoming",
     "incoming": "incoming",
     "remote": "incoming",
+    # A v5 result is one chronological ASR timeline, not a merged pair. Keep
+    # its provenance explicit instead of falsely relabeling it as microphone or
+    # incoming system audio.
+    "mixed": "mixed",
+    "media": "mixed",
 }
 
 

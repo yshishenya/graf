@@ -27,7 +27,7 @@ public enum RecordingMicrophoneSampleSourceError: Error {
     case runtimeStartFailed
 }
 
-public final class AppOwnedMicrophoneSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
     public let inputDeviceId: String?
 
     private let bufferedSource: BufferedLocalRecordingSampleSource
@@ -83,6 +83,21 @@ public final class AppOwnedMicrophoneSampleSource: LocalRecordingSampleSource, @
 
     public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
         bufferedSource.readSamples(into: destination, capacity: capacity)
+    }
+
+    public func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        bufferedSource.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
+    }
+
+    public var hasTimestampedOverflow: Bool {
+        bufferedSource.hasTimestampedOverflow
+    }
+
+    /// Exposed for the native capture boundary and deterministic tests. It keeps
+    /// the original PTS, source format and route generation intact for the v5
+    /// timeline instead of reconstructing them while draining a FIFO.
+    public func appendCapturedBatch(_ batch: RecordingAudioBatch) {
+        bufferedSource.append(batch)
     }
 
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(AudioToolbox)
@@ -157,9 +172,8 @@ public final class AppOwnedMicrophoneSampleSource: LocalRecordingSampleSource, @
     }
 
     private func append(_ sampleBuffer: CMSampleBuffer) {
-        let samples = SystemAudioSampleExtractor.extractMonoFloatSamples(from: sampleBuffer)
-        guard !samples.isEmpty else { return }
-        bufferedSource.append(samples)
+        guard let batch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer) else { return }
+        appendCapturedBatch(batch)
     }
 
     private static func captureDevice(id: String?) -> AVCaptureDevice? {

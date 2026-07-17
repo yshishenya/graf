@@ -113,12 +113,12 @@ final class MeetingMuteTruthTests: XCTestCase {
         )
 
         let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
-            .manifest(
+            .v5Manifest(
                 sessionId: "session",
                 directoryId: "dir",
                 startedAt: startedAt,
                 stoppedAt: stoppedAt,
-                tracks: [completeMuteTruthTrack(role: .localMic), completeMuteTruthTrack(role: .remoteSpeaker)],
+                tracks: completeMuteTruthTracks(),
                 scopeApproval: acceptedMuteTruthScopeApproval(),
                 permissions: grantedMuteTruthPermissions(),
                 privacySegments: [segment],
@@ -143,22 +143,46 @@ private struct MuteTruthPayload: Codable, Equatable {
     let decision: MuteTruthDecision
 }
 
-private func completeMuteTruthTrack(role: AudioTrackRole) -> LocalRecordingTrack {
-    LocalRecordingTrack(
-        trackId: role.rawValue,
-        role: role,
-        status: .saved,
-        fileName: role == .localMic ? "mic.wav" : "incoming.wav",
-        format: "wav-pcm-s16le",
-        sampleRate: 16_000,
-        channelCount: 1,
-        bitsPerSample: 16,
-        durationMs: 1000,
-        byteCount: 32_044,
-        frameCount: 16_000,
-        timelineStartMs: 0,
-        timelineAligned: true
-    )
+private func completeMuteTruthTracks() -> [LocalRecordingTrack] {
+    [
+        LocalRecordingTrack(
+            trackId: "media",
+            role: .mixedMeetingAudio,
+            sourceKind: .canonicalMix,
+            mediaScribeField: .mediaFile,
+            status: .saved,
+            fileName: "meeting-transcription.wav",
+            format: "wav-pcm-s16le",
+            sampleRate: 16_000,
+            channelCount: 1,
+            bitsPerSample: 16,
+            durationMs: 1_000,
+            byteCount: 32_044,
+            sha256: String(repeating: "a", count: 64),
+            frameCount: 16_000,
+            timelineStartMs: 0,
+            timelineAligned: true
+        ),
+        LocalRecordingTrack(
+            trackId: "playback",
+            role: .reviewPlayback,
+            sourceKind: .canonicalMix,
+            mediaScribeField: .playbackFile,
+            status: .saved,
+            fileName: "meeting-review.m4a",
+            format: "m4a-aac-lc",
+            sampleRate: 48_000,
+            channelCount: 1,
+            bitsPerSample: 0,
+            durationMs: 1_000,
+            byteCount: 12_000,
+            sha256: String(repeating: "b", count: 64),
+            frameCount: 48_000,
+            aacPresentationFrameDelta: 0,
+            timelineStartMs: 0,
+            timelineAligned: true
+        )
+    ]
 }
 
 private func acceptedMuteTruthScopeApproval() -> CaptureScopeApproval {

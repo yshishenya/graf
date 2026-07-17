@@ -48,8 +48,8 @@ public struct LocalRecordingStore: Sendable {
             directoryId: directoryId,
             directoryURL: directoryURL,
             manifestURL: directoryURL.appendingPathComponent("manifest.json"),
-            localMicURL: directoryURL.appendingPathComponent("mic.wav"),
-            remoteSpeakerURL: directoryURL.appendingPathComponent("incoming.wav")
+            transcriptionAudioURL: directoryURL.appendingPathComponent("meeting-transcription.wav"),
+            reviewAudioURL: directoryURL.appendingPathComponent("meeting-review.m4a")
         )
     }
 
@@ -77,6 +77,6 @@ public struct LocalRecordingDirectory: Equatable, Sendable {
     public let directoryId: String
     public let directoryURL: URL
     public let manifestURL: URL
-    public let localMicURL: URL
-    public let remoteSpeakerURL: URL
+    public let transcriptionAudioURL: URL
+    public let reviewAudioURL: URL
 }

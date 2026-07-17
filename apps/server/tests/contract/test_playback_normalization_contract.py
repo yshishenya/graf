@@ -61,6 +61,7 @@ def test_playback_read_contract_is_durable_and_has_no_repair_mutation(client) ->
         "items"
     ]["enum"]
     assert "uploaded_media" in source_roles
+    assert "canonical_mixed" in source_roles
 
 
 def test_playback_reason_contract_contains_only_safe_stable_categories(client) -> None:

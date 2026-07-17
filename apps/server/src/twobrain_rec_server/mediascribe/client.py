@@ -84,10 +84,11 @@ class MediaScribeClient:
         diarize: bool,
         summarize: bool,
         media_content_type: str | None = None,
+        media_filename: str | None = None,
     ) -> MediaScribeSubmitResponse:
         payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
         media_type = _safe_media_content_type(media_content_type, _read_media_probe(media_file))
-        files = {"file": (_safe_media_filename(media_type), media_file, media_type)}
+        files = {"file": (_safe_media_filename(media_type, preferred_filename=media_filename), media_file, media_type)}
         data = await self._request_json(
             "POST",
             "/v1/audio/transcriptions",
@@ -229,7 +230,12 @@ def _infer_media_content_type(media_bytes: bytes) -> str:
     return "application/octet-stream"
 
 
-def _safe_media_filename(content_type: str) -> str:
+def _safe_media_filename(content_type: str, *, preferred_filename: str | None = None) -> str:
+    # A v5 caller may use this fixed, non-user-derived name. Any other
+    # preferred name is ignored so client-controlled local paths never become
+    # provider-facing multipart metadata.
+    if content_type == "audio/wav" and preferred_filename == "meeting-transcription.wav":
+        return preferred_filename
     extension = _MEDIA_TYPE_EXTENSION_BY_CONTENT_TYPE.get(content_type, "bin")
     return f"manual-media.{extension}"
 

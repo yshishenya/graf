@@ -14,6 +14,18 @@ infra/secrets/
 *.pem
 *.crt
 
+# Local recording artifacts. Real audio and transcript-bearing captures are
+# never source fixtures or implementation evidence.
+*.wav
+*.m4a
+*.aac
+*.caf
+*.aiff
+*.flac
+*.mp3
+*.pcm
+test-rec/
+
 # Common build/cache outputs
 node_modules/
 dist/

@@ -58,6 +58,89 @@ def test_30_minute_dual_track_happy_path(client: TestClient) -> None:
     assert finalize.json()["meeting"]["status"] == "ingested_pending_processing"
 
 
+def test_v5_mixed_recording_accepts_exact_single_wav_and_playback_package(client: TestClient) -> None:
+    meeting_response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "meeting-v5-mixed",
+            "duration_seconds": 60,
+            "source_kind": "initial_mixed_recording",
+            "media_scribe_source_mode": "single_wav_v1",
+        },
+    )
+    assert meeting_response.status_code == 200
+    meeting = meeting_response.json()
+    assert meeting["media_revision"]["source_kind"] == "initial_mixed_recording"
+
+    session_response = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_tracks": ["manifest", "media", "playback"]},
+    )
+    assert session_response.status_code == 200
+    session_id = session_response.json()["session_id"]
+
+    tracks = []
+    descriptor_values = {
+        "manifest": ("json", 1, 1),
+        "media": ("wav-pcm-s16le", 16_000, 1),
+        "playback": ("m4a-aac-lc", 48_000, 1),
+    }
+    for index, role in enumerate(["manifest", "media", "playback"]):
+        data = deterministic_wav_bytes(256 + index)
+        digest = sha256(data).hexdigest()
+        upload = client.put(
+            f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/0",
+            headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
+            content=data,
+        )
+        assert upload.status_code == 200
+        codec, sample_rate_hz, channel_count = descriptor_values[role]
+        tracks.append(
+            {
+                "track_role": role,
+                "codec": codec,
+                "sample_rate_hz": sample_rate_hz,
+                "channel_count": channel_count,
+                "duration_seconds": 1 if role == "manifest" else 60,
+                "byte_length": len(data),
+                "sha256": digest,
+            }
+        )
+
+    finalize = client.post(
+        f"/api/v1/upload-sessions/{session_id}/finalize",
+        headers=auth_headers(),
+        json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks},
+    )
+    assert finalize.status_code == 200
+    assert finalize.json()["meeting"]["status"] == "ingested_pending_processing"
+
+
+def test_v5_mixed_recording_rejects_legacy_upload_roles(client: TestClient) -> None:
+    meeting_response = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={
+            "local_recording_id": "meeting-v5-reject-legacy-roles",
+            "duration_seconds": 60,
+            "source_kind": "initial_mixed_recording",
+            "media_scribe_source_mode": "single_wav_v1",
+        },
+    )
+    assert meeting_response.status_code == 200
+
+    session_response = client.post(
+        f"/api/v1/meetings/{meeting_response.json()['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_tracks": ["manifest", "microphone", "system"]},
+    )
+
+    assert session_response.status_code == 400
+    assert session_response.json()["code"] == "invalid_expected_track_roles"
+
+
 def test_create_meeting_persists_recording_title_and_instants(client: TestClient) -> None:
     response = client.post(
         "/api/v1/meetings",

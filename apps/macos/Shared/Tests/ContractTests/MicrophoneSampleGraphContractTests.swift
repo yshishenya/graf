@@ -66,17 +66,17 @@ final class MicrophoneSampleGraphContractTests: XCTestCase {
         XCTAssertFalse(json.contains("signedUrl"))
     }
 
-    func testFutureReadinessRawValuesDoNotClaimAECOrVoiceProcessingOrWebRTC() {
+    func testFutureReadinessVocabularyStaysWithinLocalCaptureModel() {
         let readinessVocabulary = [
             FutureProcessingReadiness.readyForFutureProcessing.rawValue,
             FutureProcessingReadiness.unproven.rawValue,
-            FutureProcessingReadiness.legacyNotReady.rawValue,
+            FutureProcessingReadiness.historicalPackage.rawValue,
             FutureProcessingReadiness.blocked.rawValue,
             MicrophoneStreamKind.appOwnedSampleSource.rawValue,
-            MicrophoneStreamKind.legacyRecorderFallback.rawValue
+            MicrophoneStreamKind.historicalSource.rawValue
         ].joined(separator: " ")
 
-        for forbidden in ["aec", "echo", "voice_processing", "webrtc", "cleaned", "speakerphone_clean"] {
+        for forbidden in ["external_processor", "cleaned", "speakerphone_clean"] {
             XCTAssertFalse(readinessVocabulary.contains(forbidden), "\(forbidden) must stay out of 037 claims")
         }
     }
@@ -92,7 +92,9 @@ final class MicrophoneSampleGraphContractTests: XCTestCase {
         let manifest = try decoder.decode(LocalRecordingManifest.self, from: data)
         let json = String(decoding: data, as: UTF8.self)
 
-        XCTAssertEqual(manifest.schemaVersion, LocalRecordingManifest.schemaVersion)
+        // The fixture documents a historical dual package. It remains decode-
+        // compatible but cannot describe the active v5 writer contract.
+        XCTAssertEqual(manifest.schemaVersion, LocalRecordingManifest.legacySchemaVersion)
         XCTAssertEqual(manifest.microphoneSelection?.selectionResult, .accepted)
         XCTAssertEqual(manifest.microphoneStream?.streamKind, .appOwnedSampleSource)
         XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .readyForFutureProcessing)

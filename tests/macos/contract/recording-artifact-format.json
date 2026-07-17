@@ -1,36 +1,49 @@
 {
-  "schemaVersion": "recording-artifact-format.v1",
+  "schemaVersion": "recording-artifact-format.v2",
   "package": {
+    "manifestSchemaVersion": "local-recording-manifest.v5",
     "manifestFileName": "manifest.json",
-    "requiredFiles": ["mic.wav", "incoming.wav"],
-    "mediaScribeSourceMode": "dual",
+    "requiredFiles": ["meeting-transcription.wav", "meeting-review.m4a"],
+    "exactFinalMembers": [
+      "manifest.json",
+      "meeting-transcription.wav",
+      "meeting-review.m4a"
+    ],
+    "mediaScribeSourceMode": "single_wav_v1",
+    "serverSourceKind": "initial_mixed_recording",
+    "transportRoles": ["manifest", "media", "playback"],
     "externalEgressStarted": false,
     "transcriptionStarted": false
   },
   "tracks": [
     {
-      "role": "local_mic",
-      "sourceKind": "microphone",
-      "mediaScribeField": "mic_file",
-      "fileName": "mic.wav",
+      "role": "mixed_meeting_audio",
+      "transportRole": "media",
+      "sourceKind": "canonical_mix",
+      "mediaScribeField": "media_file",
+      "fileName": "meeting-transcription.wav",
       "format": "wav-pcm-s16le",
       "sampleRate": 16000,
       "channelCount": 1,
       "bitsPerSample": 16,
       "timelineStartMs": 0,
-      "timelineAligned": true
+      "timelineAligned": true,
+      "asrInput": true
     },
     {
-      "role": "remote_speaker",
-      "sourceKind": "systemAudio",
-      "mediaScribeField": "incoming_file",
-      "fileName": "incoming.wav",
-      "format": "wav-pcm-s16le",
-      "sampleRate": 16000,
+      "role": "review_playback",
+      "transportRole": "playback",
+      "sourceKind": "canonical_mix",
+      "mediaScribeField": "playback_file",
+      "fileName": "meeting-review.m4a",
+      "format": "m4a-aac-lc",
+      "sampleRate": 48000,
       "channelCount": 1,
-      "bitsPerSample": 16,
+      "bitsPerSample": 0,
+      "aacPresentationFrameDelta": 0,
       "timelineStartMs": 0,
-      "timelineAligned": true
+      "timelineAligned": true,
+      "asrInput": false
     }
   ],
   "forbiddenFields": [

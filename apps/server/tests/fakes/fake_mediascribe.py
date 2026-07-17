@@ -52,18 +52,20 @@ class FakeMediaScribeClient:
         diarize: bool,
         summarize: bool,
         media_content_type: str | None = None,
+        media_filename: str | None = None,
     ) -> MediaScribeSubmitResponse:
         media_size, media_hash = _stream_digest(media_file)
-        self.submissions.append(
-            {
-                "request_mode": "single_track",
-                "media_size": media_size,
-                "media_sha256": media_hash,
-                "media_content_type": media_content_type,
-                "diarize": diarize,
-                "summarize": summarize,
-            }
-        )
+        submission = {
+            "request_mode": "single_track",
+            "media_size": media_size,
+            "media_sha256": media_hash,
+            "media_content_type": media_content_type,
+            "diarize": diarize,
+            "summarize": summarize,
+        }
+        if media_filename is not None:
+            submission["media_filename"] = media_filename
+        self.submissions.append(submission)
         return MediaScribeSubmitResponse(
             external_job_id=self.external_job_id,
             status=self.status_sequence[0],

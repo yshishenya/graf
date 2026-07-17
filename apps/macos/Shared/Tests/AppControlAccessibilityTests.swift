@@ -137,7 +137,7 @@ final class AppControlAccessibilityTests: XCTestCase {
             encoding: .utf8
         )
         let captureSource = try String(
-            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlView.swift"),
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift"),
             encoding: .utf8
         )
 

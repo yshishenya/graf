@@ -268,12 +268,6 @@ EOF
     fail_self_test "artifact metadata validator self-test failed"
   apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-latest-artifact-selection >/dev/null ||
     fail_self_test "latest artifact selection validator self-test failed"
-  apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-duration-evidence >/dev/null ||
-    fail_self_test "duration evidence validator self-test failed"
-  apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-permission-evidence >/dev/null ||
-    fail_self_test "permission evidence validator self-test failed"
-  apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-review-evidence >/dev/null ||
-    fail_self_test "final review validator self-test failed"
 
   APP_LOG="$original_app_log"
   printf '%s\n' "manual_gate_self_test=passed"
@@ -434,7 +428,7 @@ run_preflight() {
 
   printf '\n%s\n' "manual_gate_preflight=passed"
   printf '%s\n' "preflight_scope=non_recording_only"
-  printf '%s\n' "remaining_manual_gates=permission_matrix,controlled_artifact,activeRecording_cpu,stop_cpu,30_minute,75_minute,final_review"
+  printf '%s\n' "remaining_manual_gates=permissions,v5_package,route_volume_timeline,activeRecording_cpu,stop_cpu,installed_app_60_minute"
 }
 
 MODE="${1:-}"
@@ -466,7 +460,7 @@ fi
 printf '%s\n' "== system-audio controlled manual gate =="
 printf '%s\n' "repo=$ROOT_DIR"
 manual_gate_started_epoch="$(date +%s)"
-export SYSTEM_AUDIO_CAPTURE_PIVOT_MIN_ARTIFACT_MTIME="$manual_gate_started_epoch"
+export GRAF_RECORDING_MIN_ARTIFACT_MTIME="$manual_gate_started_epoch"
 printf '%s\n' "artifact_min_mtime_epoch=$manual_gate_started_epoch"
 start_caffeinate
 
@@ -531,9 +525,8 @@ fi
 
 printf '\n%s\n' "-- next evidence updates --"
 printf '%s\n' "Update only metadata in:"
-printf '%s\n' "- specs/025-system-audio-capture-pivot/evidence/permission-matrix.md"
-printf '%s\n' "- specs/025-system-audio-capture-pivot/evidence/artifact-matrix.md"
-printf '%s\n' "- specs/025-system-audio-capture-pivot/evidence/cpu-gates.md"
+printf '%s\n' "- specs/106-mixed-wav-recording/evidence/hardware-acceptance.md"
+printf '%s\n' "- specs/106-mixed-wav-recording/evidence/README.md"
 printf '%s\n' "Do not paste raw audio, transcripts, meeting content, credentials, tokens, signed URLs, or personal details."
 
 printf '\n%s\n' "manual_gate=completed_available_steps"

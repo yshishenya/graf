@@ -7786,6 +7786,16 @@ components:
             pattern: ^[^\x00-\x1f\x7f]+$
           - type: 'null'
           title: Local Media Revision Id
+        source_kind:
+          $ref: '#/components/schemas/MediaRevisionSourceKind'
+          default: initial_recording
+        media_scribe_source_mode:
+          type: string
+          enum:
+          - dual
+          - single_wav_v1
+          title: Media Scribe Source Mode
+          default: dual
         title:
           anyOf:
           - type: string
@@ -8957,6 +8967,7 @@ components:
       type: string
       enum:
       - initial_recording
+      - initial_mixed_recording
       - manual_upload
       - local_trim
       - video_capture
@@ -10063,6 +10074,7 @@ components:
             - local_microphone
             - incoming_system
             - uploaded_media
+            - canonical_mixed
             - unknown
           type: array
           title: Source Roles
@@ -10902,6 +10914,7 @@ components:
             - local_microphone
             - incoming_system
             - uploaded_media
+            - canonical_mixed
             - unknown
           type: array
           title: Included Sources
@@ -11554,6 +11567,7 @@ components:
             - local_microphone
             - incoming_system
             - uploaded_media
+            - canonical_mixed
             - unknown
           type: array
           title: Source Roles
@@ -11808,6 +11822,7 @@ components:
           - local_microphone
           - incoming_system
           - uploaded_media
+          - canonical_mixed
           - unknown
           title: Source Role
         text:

@@ -204,7 +204,7 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
         syncConflictState: DesktopSyncConflictState = .none
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.schemaVersion,
+            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
             manifestPresent: true,
             microphonePresent: true,
             systemAudioPresent: true,
