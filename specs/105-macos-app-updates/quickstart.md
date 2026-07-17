@@ -137,8 +137,8 @@ From the older installed build:
 7. Publish a corrupted/wrong-key fixture to staging; verify it is rejected and the old app remains launchable.
 
 On systems where ScreenCaptureKit is slow, explicitly prove that a start taking
-more than 30 seconds and a stop taking more than 2 seconds both finish within
-the 60-second deadlines. Neither transition may produce a false
+more than 60 seconds and a stop approaching the former 60-second boundary both
+finish within the 120-second deadlines. Neither transition may produce a false
 `capture_failed`, and the updater must keep relaunch deferred throughout.
 
 ## 8. Verify permission retention
