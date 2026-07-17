@@ -11,18 +11,22 @@ metadata-only evidence остаются подробной историей ре
 - macOS is the selected MVP platform.
 - The current macOS product identity is `GRAF.app` with bundle id
   `pro.2brain.graf`.
-- Feature `100-provider-link-verified-callback` is an implementation candidate,
-  not yet merged or released. It adds a server-verified, explicit flow for a
+- Feature `100-provider-link-verified-callback` is merged, released as
+  [`v2026.07.17.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.17.1)
+  and deployed to production at `744b3ad25cf52cdb119b37a1900f14928428ee4b`.
+  It adds a server-verified, explicit flow for a
   signed-in user to add another provider: callback stores only a temporary
   candidate and never issues or switches a GRAF session; only the exact
   initiating user/workspace/session may confirm. Browser and embedded Settings
   reuse one safe provider-only surface. Expired/replayed/rejected candidates are
-  scrubbed and audit stores only codes plus a one-way intent fingerprint. Fresh
-  canonical local CI passes (`643` macOS tests, `1756` server tests, `27`
-  PostgreSQL-only skips, Ruff, compile, Compose and deployment-evidence scan).
-  A disposable local PostgreSQL RLS module passes 15/15 with zero database
-  residue. PR/merge, release and production smoke remain required before
-  acceptance.
+  scrubbed and audit stores only codes plus a one-way intent fingerprint.
+  Canonical local CI passes (`643` macOS tests, `1757` server tests, `28`
+  expected PostgreSQL-only skips, Ruff, compile, Compose and deployment-evidence
+  scan). A disposable local PostgreSQL RLS module passes 16/16 with zero
+  database residue. Production dry-run and deploy pass; the deploy created a
+  protected backup point, public health/readiness and metadata-only smoke pass,
+  and the actual browser and embedded Settings pages show the same safe
+  provider-only start surface without starting a provider flow.
   The standalone formal Codex Security scan for deferred feature `097` remains
   out of this feature's evidence by user instruction.
 - Feature `105-macos-app-updates` is implemented as a local release candidate,
