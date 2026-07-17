@@ -212,3 +212,9 @@
 ### Release Boundary
 
 No task here authorizes production deployment, public rollout, tag, GitHub Release or a destructive user-data action. Those remain separately approved release/deploy actions after the local feature evidence is complete.
+
+---
+
+## Phase 8: Convergence
+
+- [ ] T067 [US1] Normalize each native capture PTS against a callback-observed host-time reference and reject unstable or unobservable source-clock mapping in `apps/macos/RecApp/Sources/Capture/RecordingAudioTimeline.swift` and `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift`; add deterministic mapping/drift tests in `apps/macos/Shared/Tests/RecordingAudioTimelineTests.swift` (FR-002, plan: one timestamped capture timeline, partial).

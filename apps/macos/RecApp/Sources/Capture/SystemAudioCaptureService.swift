@@ -585,9 +585,12 @@ enum SystemAudioSampleExtractor {
             return nil
         }
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        guard CMTIME_IS_VALID(presentationTime) else { return nil }
+        let observedHostTime = CMClockGetTime(CMClockGetHostTimeClock())
+        guard CMTIME_IS_VALID(presentationTime), CMTIME_IS_VALID(observedHostTime) else { return nil }
         let timestampSeconds = CMTimeGetSeconds(presentationTime)
+        let observedHostTimeSeconds = CMTimeGetSeconds(observedHostTime)
         guard timestampSeconds.isFinite,
+              observedHostTimeSeconds.isFinite,
               streamDescription.mSampleRate.isFinite,
               streamDescription.mSampleRate > 0,
               streamDescription.mChannelsPerFrame > 0
@@ -603,7 +606,8 @@ enum SystemAudioSampleExtractor {
             ),
             presentationTime: RecordingAudioPresentationTimestamp(
                 seconds: timestampSeconds,
-                clockDomain: .hostTime
+                clockDomain: .sourcePresentationTime,
+                observedHostTimeSeconds: observedHostTimeSeconds
             ),
             discontinuity: samples.isEmpty ? .dropped : .none,
             routeGeneration: 0

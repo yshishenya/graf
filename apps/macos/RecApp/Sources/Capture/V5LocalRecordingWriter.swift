@@ -542,6 +542,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private static func failureReason(for error: Error) -> LocalRecordingFailureReason {
         switch error {
         case RecordingAudioTimelineError.uncomparablePresentationTimes,
+             RecordingAudioTimelineError.sourceClockObservationMissing,
+             RecordingAudioTimelineError.sourceClockMappingUnstable,
              RecordingAudioTimelineError.routeGenerationChanged,
              RecordingAudioTimelineError.gapExceedsBound,
              RecordingAudioTimelineError.lateBatch:

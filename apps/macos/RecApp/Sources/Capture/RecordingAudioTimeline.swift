@@ -16,15 +16,24 @@ public enum RecordingAudioInput: String, CaseIterable, Hashable, Sendable {
 public enum RecordingAudioClockDomain: String, Equatable, Sendable {
     case hostTime
     case wallClock
+    /// A producer-owned media PTS. It cannot enter the shared timeline until a
+    /// callback-time host-clock observation proves that it tracks host time.
+    case sourcePresentationTime
 }
 
 public struct RecordingAudioPresentationTimestamp: Equatable, Sendable {
     public let seconds: Double
     public let clockDomain: RecordingAudioClockDomain
+    public let observedHostTimeSeconds: Double?
 
-    public init(seconds: Double, clockDomain: RecordingAudioClockDomain) {
+    public init(
+        seconds: Double,
+        clockDomain: RecordingAudioClockDomain,
+        observedHostTimeSeconds: Double? = nil
+    ) {
         self.seconds = seconds
         self.clockDomain = clockDomain
+        self.observedHostTimeSeconds = observedHostTimeSeconds
     }
 }
 
@@ -102,17 +111,23 @@ public struct RecordingAudioTimelineConfiguration: Equatable, Sendable {
     public let maximumKnownGapSeconds: Double
     public let maximumBufferedFramesPerSource: Int64
     public let outputChunkFrameCount: Int
+    public let maximumSourceClockObservationLatencySeconds: Double
+    public let maximumSourceClockObservationJitterSeconds: Double
 
     public init(
         reorderWindowFrames: Int = 9_600,
         maximumKnownGapSeconds: Double = 15,
         maximumBufferedFramesPerSource: Int = 48_000 * 20,
-        outputChunkFrameCount: Int = 4_096
+        outputChunkFrameCount: Int = 4_096,
+        maximumSourceClockObservationLatencySeconds: Double = 2,
+        maximumSourceClockObservationJitterSeconds: Double = 0.1
     ) {
         self.reorderWindowFrames = Int64(max(0, reorderWindowFrames))
         self.maximumKnownGapSeconds = maximumKnownGapSeconds
         self.maximumBufferedFramesPerSource = Int64(max(1, maximumBufferedFramesPerSource))
         self.outputChunkFrameCount = max(1, outputChunkFrameCount)
+        self.maximumSourceClockObservationLatencySeconds = maximumSourceClockObservationLatencySeconds
+        self.maximumSourceClockObservationJitterSeconds = maximumSourceClockObservationJitterSeconds
     }
 }
 
@@ -121,6 +136,8 @@ public enum RecordingAudioTimelineError: Error, Equatable {
     case invalidFormat
     case invalidSamples
     case uncomparablePresentationTimes
+    case sourceClockObservationMissing
+    case sourceClockMappingUnstable
     case routeGenerationChanged
     case sourceOverflow
     case gapExceedsBound
@@ -145,6 +162,7 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
     private var observedRouteGenerations: [RecordingAudioInput: Int] = [:]
     private var bootstrapSourceEndSeconds: [RecordingAudioInput: Double] = [:]
     private var bootstrapBufferedCanonicalFrames: [RecordingAudioInput: Int64] = [:]
+    private var sourceClockObservations: [RecordingAudioInput: SourceClockObservation] = [:]
     private var epoch: RecordingAudioPresentationTimestamp?
     private var emittedThroughFrame: Int64 = 0
     private var finished = false
@@ -162,20 +180,21 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         guard !finished else { throw RecordingAudioTimelineError.alreadyFinished }
         try validate(batch)
         try validateDiscontinuity(batch)
-        try validateClockDomain(batch.presentationTime)
-        try validateRouteGeneration(source, batch: batch)
+        let normalizedBatch = try normalizePresentationTime(source: source, batch: batch)
+        try validateClockDomain(normalizedBatch.presentationTime)
+        try validateRouteGeneration(source, batch: normalizedBatch)
 
         guard epoch != nil else {
-            try validateBootstrapContinuity(source, batch: batch)
-            try reserveBootstrapCapacity(source, batch: batch)
-            pendingBootstrapBatches.append((source, batch))
+            try validateBootstrapContinuity(source, batch: normalizedBatch)
+            try reserveBootstrapCapacity(source, batch: normalizedBatch)
+            pendingBootstrapBatches.append((source, normalizedBatch))
             if hasBothSourcesInBootstrap {
                 try establishEpochAndProcessBootstrapBatches()
             }
             return
         }
 
-        try process(source: source, batch: batch)
+        try process(source: source, batch: normalizedBatch)
         try emitAvailableFrames(final: false)
     }
 
@@ -255,6 +274,10 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         guard batch.presentationTime.seconds.isFinite else {
             throw RecordingAudioTimelineError.invalidTimestamp
         }
+        if let observedHostTimeSeconds = batch.presentationTime.observedHostTimeSeconds,
+           !observedHostTimeSeconds.isFinite {
+            throw RecordingAudioTimelineError.invalidTimestamp
+        }
         guard batch.format.sampleRate.isFinite,
               batch.format.sampleRate > 0,
               batch.format.channelCount > 0
@@ -267,10 +290,57 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             throw RecordingAudioTimelineError.invalidSamples
         }
         guard configuration.maximumKnownGapSeconds.isFinite,
-              configuration.maximumKnownGapSeconds >= 0
+              configuration.maximumKnownGapSeconds >= 0,
+              configuration.maximumSourceClockObservationLatencySeconds.isFinite,
+              configuration.maximumSourceClockObservationLatencySeconds >= 0,
+              configuration.maximumSourceClockObservationJitterSeconds.isFinite,
+              configuration.maximumSourceClockObservationJitterSeconds >= 0
         else {
             throw RecordingAudioTimelineError.invalidFormat
         }
+    }
+
+    /// CoreMedia's CMTime carries media time but not the producer's CMClock.
+    /// A native callback therefore marks it as sourcePresentationTime and this
+    /// method admits it only after the PTS is observed close to, and stable
+    /// against, the one process host clock. The raw PTS is then safe to compare
+    /// with the other admitted native source without deriving time from drain
+    /// order or wall clock.
+    private func normalizePresentationTime(
+        source: RecordingAudioInput,
+        batch: RecordingAudioBatch
+    ) throws -> RecordingAudioBatch {
+        guard batch.presentationTime.clockDomain == .sourcePresentationTime else {
+            return batch
+        }
+        guard let observedHostTimeSeconds = batch.presentationTime.observedHostTimeSeconds else {
+            throw RecordingAudioTimelineError.sourceClockObservationMissing
+        }
+        let observedLatency = observedHostTimeSeconds - batch.presentationTime.seconds
+        guard observedLatency.isFinite,
+              abs(observedLatency) <= configuration.maximumSourceClockObservationLatencySeconds
+        else {
+            throw RecordingAudioTimelineError.sourceClockMappingUnstable
+        }
+        if let previous = sourceClockObservations[source],
+           abs(previous.observedLatencySeconds - observedLatency) >
+            configuration.maximumSourceClockObservationJitterSeconds {
+            throw RecordingAudioTimelineError.sourceClockMappingUnstable
+        }
+        sourceClockObservations[source] = SourceClockObservation(
+            observedLatencySeconds: observedLatency
+        )
+        return RecordingAudioBatch(
+            samples: batch.samples,
+            format: batch.format,
+            presentationTime: RecordingAudioPresentationTimestamp(
+                seconds: batch.presentationTime.seconds,
+                clockDomain: .hostTime,
+                observedHostTimeSeconds: observedHostTimeSeconds
+            ),
+            discontinuity: batch.discontinuity,
+            routeGeneration: batch.routeGeneration
+        )
     }
 
     private func validateDiscontinuity(_ batch: RecordingAudioBatch) throws {
@@ -445,6 +515,10 @@ private struct TimelineSegment {
     var endFrameIndex: Int64 {
         startFrameIndex + Int64(samples.count)
     }
+}
+
+private struct SourceClockObservation {
+    let observedLatencySeconds: Double
 }
 
 private final class SourceState {
