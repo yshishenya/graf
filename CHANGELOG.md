@@ -9,6 +9,12 @@
 ## [Unreleased]
 
 ### Добавлено
+- Личное пространство для самостоятельной регистрации и явные предложения
+  вступить в корпоративную команду; принятие приглашения больше не происходит
+  автоматически ([#3706](https://github.com/yshishenya/crisp/issues/3706),
+  [#3708](https://github.com/yshishenya/crisp/issues/3708)).
+- Metadata-only отчёт классификации legacy bootstrap-пользователей без
+  переноса записей, membership или содержимого ([#3712](https://github.com/yshishenya/crisp/issues/3712)).
 - Защищённая custody-процедура подписи Sparkle: публичный manifest доверия,
   named Keychain recovery signer, protected GitHub-environment signer и
   metadata-only attestation.
@@ -23,6 +29,9 @@
   контейнер только после готовности и успешного создания своей RLS-базы.
 
 ### Изменено
+- Canonical local CI ограничивает ускоренный PostgreSQL runner четырьмя
+  изолированными воркерами на стандартной 8 GB Docker-конфигурации; больший
+  bounded override остаётся доступен для машин с достаточным ресурсом.
 - Активные server-тесты, миграционные проверки и локальный UI-harness теперь
   используют только PostgreSQL с asyncpg; canonical local CI запускает тот же
   изолированный путь.

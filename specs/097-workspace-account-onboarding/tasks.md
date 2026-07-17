@@ -98,9 +98,9 @@ revocation denies its session while preserving personal access.
 
 - [X] T035 Add and run the read-only metadata-only legacy bootstrap-user classification command before release enablement in `apps/server/src/twobrain_rec_server/cli/workspace_migration_report.py` and `apps/server/tests/unit/test_workspace_migration_report.py`.
 - [X] T036 Document no-move migration operation, backup, rollback and evidence rules in `specs/097-workspace-account-onboarding/quickstart.md` and `docs/agent-guidance/release-and-validation.md` only if a reusable runbook gap remains.
-- [ ] T037 Run all quickstart focused tests and record safe receipts in `specs/097-workspace-account-onboarding/validation/local.md`.
+- [X] T037 Run all quickstart focused tests and record safe receipts in `specs/097-workspace-account-onboarding/validation/local.md`.
 - [ ] T038 Run `infra/scripts/ci-local.sh` and record the result in `specs/097-workspace-account-onboarding/validation/local.md`.
-- [ ] T039 Review the final diff for requirement coverage, privacy, accessibility and unnecessary complexity; update `specs/097-workspace-account-onboarding/tasks.md` only for verified fixes.
+- [X] T039 Review the final diff for requirement coverage, privacy, accessibility and unnecessary complexity; update `specs/097-workspace-account-onboarding/tasks.md` only for verified fixes.
 - [ ] T040 Reconcile every completed task with its GitHub issue, update `CHANGELOG.md`, and prepare the PR evidence in `specs/097-workspace-account-onboarding/validation/traceability.md`.
 - [ ] T041 After approved release gate, run deploy dry-run, production deploy, metadata-only B2C/invitation/revocation smoke, rollback readiness and tracker closeout in `specs/097-workspace-account-onboarding/validation/release-closeout.md`.
 

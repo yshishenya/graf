@@ -165,10 +165,10 @@ def test_workspace_onboarding_migration_keeps_personal_space_and_offer_boundarie
 
 
 def test_workspace_onboarding_migration_downgrades_cleanly(
-    postgres_test_database_url: str,
+    postgres_clean_database_url: str,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_test_database_url)
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
     get_settings.cache_clear()
     alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
     alembic_config.set_main_option("script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations"))
@@ -177,7 +177,7 @@ def test_workspace_onboarding_migration_downgrades_cleanly(
     command.downgrade(alembic_config, "0026_active_cleanup")
 
     async def inspect_schema() -> tuple[set[str], set[str]]:
-        engine = create_async_engine(postgres_test_database_url)
+        engine = create_async_engine(postgres_clean_database_url)
         try:
             async with engine.connect() as connection:
                 tables = set(
