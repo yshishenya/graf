@@ -9,11 +9,12 @@ Owner: Product/Engineering
 `2brain Rec` is a self-hosted desktop capture layer for organizations that need botless meeting capture, transcription, and AI meeting notes while keeping meeting data inside customer-controlled infrastructure.
 
 The core MVP product is a macOS desktop app that captures local microphone
-audio and incoming/system audio as separate tracks without requiring meeting
-apps to select virtual 2brain Rec audio devices. `2brain Rec` saves local
-dual-track artifacts, uploads them to the customer-controlled server in a later
-slice, sends transcription work to the existing MediaScribe API through the
-server boundary, and exposes recordings/transcripts/notes in a web dashboard.
+audio and incoming/system audio without requiring meeting apps to select
+virtual 2brain Rec audio devices. New recordings preserve both sources on one
+shared timeline and finalize one canonical WAV for transcription plus one M4A
+for playback. `2brain Rec` uploads that package to the customer-controlled
+server, sends only the canonical WAV to MediaScribe through the server boundary,
+and exposes recordings/transcripts/notes in a web dashboard.
 
 The product is functionally in the same category as Krisp's meeting assistant, but must not copy Krisp's brand, assets, UI expression, copy, icons, proprietary behavior, binaries, or model behavior. The implementation must use public OS APIs, original code, licensed SDKs, and approved open-source or commercial models.
 
@@ -31,11 +32,14 @@ Current accepted local baseline:
 - Manual `Record`/`Stop` exists with visible local recording state and
   one-action stop.
 - Local recording persistence is accepted for manual recordings.
-- Feature `010-recording-artifact-format` is accepted for local
-  MediaScribe-ready dual-track artifacts: `manifest.json`, `mic.wav`, and
-  `incoming.wav` with metadata-only diagnostics and readiness truth.
-- The current MediaScribe integration contract for future backend work is the
-  dual-track contract in `docs/integrations/mediascribe-dual-track-api.md`.
+- Feature `106-mixed-wav-recording` supersedes the active recording-package
+  slice for new captures. Its local candidate finalizes `manifest.json`,
+  `meeting-transcription.wav` (PCM s16le mono 16 kHz, only ASR input), and
+  `meeting-review.m4a` (AAC mono 48 kHz, playback only). It is not a release or
+  production-acceptance claim until its high-risk evidence is complete.
+- The current MediaScribe integration contract is the v5 single-WAV section in
+  `docs/integrations/mediascribe-dual-track-api.md`; the dual endpoint there is
+  retained solely for immutable v3/v4 compatibility records.
 - Feature `012-server-ingest-foundation` is implemented in-repository as the
   first backend foundation: FastAPI ingest API, local/prod Docker Compose
   scaffolds with Rec-owned Postgres/MinIO, Alembic schema models,
@@ -102,11 +106,12 @@ path.
   to the `012` server ingest API using the `013` user/device identity and shows
   pending/uploading/retrying/uploaded status.
 - `015-mediascribe-processing-pipeline`: server-side workers submit finalized
-  ingested dual-track artifacts to MediaScribe, poll processing, and import
-  transcript/diarization/summary results. This slice owns starting durable
-  processing workflows after ingest finalization, using internal identifiers
-  such as `meeting_id`, `upload_session_id`, and `artifact_id`; desktop clients
-  never start workflows directly.
+  v5 canonical WAV artifacts to MediaScribe, poll processing, and import
+  transcript/diarization/summary results. Historic accepted revisions retain a
+  bounded dual compatibility branch. This slice owns starting durable processing
+  workflows after ingest finalization, using internal identifiers such as
+  `meeting_id`, `upload_session_id`, and `artifact_id`; desktop clients never
+  start workflows directly.
 - `016-meeting-dashboard-review`: server web dashboard shows uploaded meetings,
   processing state, transcript, notes, playback, and review surfaces.
 - `017-access-sharing-downloads`: role-based meeting access, team visibility,
@@ -510,7 +515,8 @@ Acceptance criteria:
 
 ## 10. App-Owned Audio Capture Layer
 
-The supported macOS capture flow uses two app-owned sources:
+The supported macOS capture flow uses two app-owned sources and one canonical
+recording timeline:
 
 - `SystemAudioCaptureService` captures incoming/system audio through
   ScreenCaptureKit and exposes a buffered recording sample source.
@@ -525,22 +531,25 @@ Logical capture graph:
 flowchart LR
   System["ScreenCaptureKit system audio"] --> Incoming["Buffered incoming source"]
   Mic["Eligible physical microphone"] --> MicSource["App-owned microphone source"]
-  Incoming --> Writer["LocalRecordingWriter"]
-  MicSource --> Writer
-  Writer --> MicFile["mic.wav"]
-  Writer --> IncomingFile["incoming.wav"]
+  Incoming --> Timeline["PTS-aware recording timeline"]
+  MicSource --> Timeline
+  Timeline --> Writer["CanonicalRecordingWriter"]
+  Writer --> ASR["meeting-transcription.wav"]
+  Writer --> Playback["meeting-review.m4a"]
   Writer --> Manifest["manifest.json"]
   Manifest --> Queue["Server-mediated upload queue"]
 ```
 
 Track requirements:
 
-- `mic.wav`: original app-owned microphone track.
-- `incoming.wav`: original app-owned system-audio track.
+- `meeting-transcription.wav`: one PCM s16le mono 16 kHz canonical mix and the
+  only ASR input for a new recording.
+- `meeting-review.m4a`: one AAC mono 48 kHz rendering of the same canonical
+  timeline for playback only.
 - `manifest.json`: source roles, timing, artifact readiness, degraded/failure
   truth, and metadata-only evidence.
-- Optional processed or playback artifacts are derived; they never replace the
-  two originals as recording truth.
+- The two files are required v5 final members. No new writer creates per-source
+  WAV artifacts, runs AEC, performs echo cleanup, or merges two transcripts.
 
 Frame/chunk metadata:
 
@@ -559,12 +568,11 @@ Safety and acceptance:
   environment.
 - Upload, transcription, and server connectivity never block local capture or
   one-action stop.
-- Local mic and incoming/system audio remain separate.
-- Missing, empty, misaligned, or unavailable required tracks are degraded or
-  failed truthfully.
-- Track timestamps remain aligned within 100 ms over a 60-minute recording.
-- Post-stop leakage checks must not claim clean separation when evidence is
-  ambiguous or contaminated.
+- Source PTS, discontinuities, and route changes remain explicit in the
+  canonical timeline; no unexplained gap or drift is accepted.
+- Missing, empty, corrupt, or unavailable canonical WAV/M4A members are
+  degraded or failed truthfully.
+- The review M4A never becomes a fallback ASR source.
 
 ## 11. macOS Capture And Application Packaging Requirements
 
@@ -1193,14 +1201,15 @@ MediaScribe is the existing STT backend for MVP.
 
 Current `2brain Rec` integration contract:
 
-- The canonical contract for future `2brain Rec` backend implementation is
+- The canonical contract is the v5 active section of
   `docs/integrations/mediascribe-dual-track-api.md`.
-- `2brain Rec` must submit separate local microphone and incoming speaker files
-  to the dual-track endpoint:
-  `POST /v1/audio/transcriptions/dual-track`.
-- Older single-file observations below are historical discovery notes only and
-  must not supersede the dual-track contract for `2brain Rec` ingest and
-  transcription work.
+- For `initial_mixed_recording`, `2brain Rec` submits exactly one
+  `meeting-transcription.wav` as `audio/wav` to
+  `POST /v1/audio/transcriptions`.
+- `meeting-review.m4a` stays a playback artifact and is never sent to
+  MediaScribe.
+- The dual endpoint is retained only for immutable `initial_recording` v3/v4
+  compatibility packages; no new desktop writer or upload session may select it.
 
 Base URL:
 
@@ -1279,16 +1288,22 @@ Observed result object:
 
 Integration requirements:
 
-- `2brain_rec` server uploads finalized server-side meeting audio from MinIO to MediaScribe as a dual-track job using `POST /v1/audio/transcriptions/dual-track`.
-- Desktop local buffers must upload to `2brain_rec` first and must never call MediaScribe directly.
-- The required multipart fields are `mic_file` for local microphone audio and
-  `incoming_file` for remote/incoming speaker audio.
+- `2brain_rec` server uploads a finalized v5 media object from MinIO to
+  MediaScribe as one `file` multipart part using
+  `POST /v1/audio/transcriptions`.
+- Desktop local buffers must upload to `2brain_rec` first and must never call
+  MediaScribe directly.
+- The v5 multipart filename is the fixed non-user-derived
+  `meeting-transcription.wav` with content type `audio/wav`; no playback file
+  or per-source dual field is present.
 - `diarize=true` and `summarize=true` by default.
 - `2brain_rec` stores the MediaScribe job ID on the meeting.
 - `2brain_rec` polls job status until `status=ready` or terminal failure.
 - Transcript, diarization, summary, and download URLs are normalized into the `2brain_rec` meeting model.
 - MediaScribe auth credentials must be stored server-side, never in the desktop app.
-- Existing MediaScribe credential material on `2brain.dev` must be imported through a one-time secret migration into Docker secrets or an approved secrets manager without committing, printing, or logging it.
+- Existing MediaScribe credential material must be imported through a one-time
+  secret migration into Docker secrets or an approved secrets manager without
+  committing, printing, or logging it.
 - The imported credential should be rotated after migration where operationally possible.
 - Health checks and errors must not echo credentials, request headers, signed URLs, raw transcript content, or uploaded file names containing sensitive meeting data.
 - If MediaScribe supports direct object storage ingest later, prefer server-to-server object reference over reuploading large files.
@@ -2265,7 +2280,7 @@ Required decisions:
 2. App-only installer/signing/notarization approach.
 3. Default mode: audio plus transcript retained.
 4. Retention UX for full-meeting deletion and keep/delete controls.
-5. MediaScribe authenticated dual-track job API contract using `X-API-Key`.
+5. MediaScribe authenticated single-WAV job API contract using `X-API-Key`; historic dual-track jobs remain readable only until their documented drain condition is met.
 6. MediaScribe processing capacity, timeout, and retry policy.
 7. Langfuse tracing keys/project setup for project `2brain_rec`.
 8. Consent default for internal team and later customer use.

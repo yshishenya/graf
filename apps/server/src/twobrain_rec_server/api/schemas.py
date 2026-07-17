@@ -791,6 +791,8 @@ class CreateMeetingRequest(BaseModel):
     local_media_revision_id: (
         Annotated[SafeClientText, Field(min_length=1, max_length=300)] | None
     ) = None
+    source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING
+    media_scribe_source_mode: Literal["dual", "single_wav_v1"] = "dual"
     title: Annotated[SafeClientText, Field(max_length=500)] | None = None
     title_source: DesktopMeetingTitleSource | None = None
     calendar_match_attempt_id: UUID | None = None
@@ -1112,7 +1114,13 @@ MeetingReviewStatus = Literal[
 ]
 MeetingSource = Literal["desktop_recording", "video_recording", "manual_upload", "unknown"]
 PrimaryAction = Literal["open", "wait", "retry_future", "open_status", "unavailable"]
-SourceRoleView = Literal["local_microphone", "incoming_system", "uploaded_media", "unknown"]
+SourceRoleView = Literal[
+    "local_microphone",
+    "incoming_system",
+    "uploaded_media",
+    "canonical_mixed",
+    "unknown",
+]
 PlaybackUnavailableReason = Literal[
     "none",
     "no_audio",

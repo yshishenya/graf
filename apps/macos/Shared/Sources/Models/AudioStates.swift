@@ -79,6 +79,7 @@ public enum AudioTrackRole: String, Codable, Sendable {
     case remoteSpeaker = "remote_speaker"
     case derivedLocalMic = "derived_local_mic"
     case mixedMeetingAudio = "mixed_meeting_audio"
+    case reviewPlayback = "review_playback"
 }
 
 public enum AudioTrackState: String, Codable, Sendable {
@@ -155,12 +156,6 @@ public enum LocalRecordingFailureReason: String, Codable, Sendable {
     case emptyRequiredTrack = "empty_required_track"
     case formatNotReady = "format_not_ready"
     case timelineMisaligned = "timeline_misaligned"
-    case leakageDetected = "leakage_detected"
-    case leakageUnproven = "leakage_unproven"
-    case leakageNotMeasured = "leakage_not_measured"
-    case insufficientReference = "insufficient_reference"
-    case derivedResidualLeakage = "derived_residual_leakage"
-    case derivedDeletionNotRegistered = "derived_deletion_not_registered"
     case permissionDenied = "permission_denied"
     case scopeUnavailable = "scope_unavailable"
     case protectedAudioBlocked = "protected_audio_blocked"
@@ -170,29 +165,15 @@ public enum LocalRecordingFailureReason: String, Codable, Sendable {
     case cpuGateFailed = "cpu_gate_failed"
     case stoppedBeforeFrames = "stopped_before_frames"
     case deviceUnavailable = "device_unavailable"
-    case legacyNotReady = "legacy_not_ready"
     case appClosed = "app_closed"
+    case historicalPackage = "historical_package"
     case unknown
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
 
-        // Previously saved manifests can contain this retired failure value.
-        // Keep them readable and fail closed without allowing new writes to
-        // recreate the removed capture architecture.
-        if rawValue == "hal_probe_observed" {
-            self = .legacyNotReady
-            return
-        }
-
-        guard let value = Self(rawValue: rawValue) else {
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "Unsupported local recording failure reason"
-            )
-        }
-        self = value
+        self = Self(rawValue: rawValue) ?? .historicalPackage
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -214,7 +195,17 @@ public enum TranscriptionReadinessState: String, Codable, Sendable {
     case ready
     case degraded
     case failed
-    case legacyNotReady = "legacy_not_ready"
+    case historicalPackage = "historical_package"
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: try container.decode(String.self)) ?? .historicalPackage
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public enum MediaScribeTrackField: String, Codable, Sendable {
@@ -222,51 +213,8 @@ public enum MediaScribeTrackField: String, Codable, Sendable {
     case incomingFile = "incoming_file"
     case derivedMicFile = "derived_mic_file"
     case mixedAudioFile = "mixed_audio_file"
-}
-
-public enum LeakageStatus: String, Codable, Sendable {
-    case clean
-    case leakageDetected = "leakage_detected"
-    case unproven
-    case notMeasured = "not_measured"
-    case notApplicable = "not_applicable"
-}
-
-public enum LeakageAlignmentStatus: String, Codable, Sendable {
-    case aligned
-    case misaligned
-    case driftDetected = "drift_detected"
-    case insufficientReference = "insufficient_reference"
-    case unknown
-}
-
-public enum LeakageTranscriptionGate: String, Codable, Sendable {
-    case eligibleOriginalDual = "eligible_original_dual"
-    case eligibleDerivedDual = "eligible_derived_dual"
-    case blockedLeakageDetected = "blocked_leakage_detected"
-    case blockedUnproven = "blocked_unproven"
-    case blockedNotMeasured = "blocked_not_measured"
-    case blockedTimelineMisaligned = "blocked_timeline_misaligned"
-    case notApplicable = "not_applicable"
-}
-
-public enum LeakageEvidenceRole: String, Codable, Sendable {
-    case original
-    case derived
-}
-
-public enum LeakageRouteVolumeBucket: String, Codable, Sendable {
-    case muted
-    case low
-    case medium
-    case high
-    case unknown
-}
-
-public enum LeakageRouteMuteState: String, Codable, Sendable {
-    case muted
-    case unmuted
-    case unknown
+    case mediaFile = "media_file"
+    case playbackFile = "playback_file"
 }
 
 public enum LocalBufferArtifactType: String, Codable, Sendable {

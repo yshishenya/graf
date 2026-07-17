@@ -18,12 +18,53 @@ release surface.
   sample source.
 - [ ] `MicrophoneCaptureService` still produces the app-owned microphone
   sample source.
-- [ ] Both sources are explicitly injected into `LocalRecordingWriter`.
-- [ ] `Record`/`Stop` creates two non-empty original WAV tracks and a
-  finalized manifest.
+- [ ] Both sources enter V5LocalRecordingWriter as PTS-bearing batches and
+  are ordered by one shared timeline.
+- [ ] Record/Stop creates exactly manifest.json, meeting-transcription.wav and
+  meeting-review.m4a; no new package has separate microphone/system WAV files.
 - [ ] Microphone and system-audio permissions are both enforced.
 - [ ] The persistent local capture indicator and one-action `Stop` pass.
 - [ ] Existing recording-directory and manifest compatibility tests pass.
+
+## v5 Control-Period Receipt
+
+- [ ] The known-good pre-v5 baseline is the release-owner verified
+  `v2026.07.17.6` tag at `4be444e82ec449a3bb5312920fb0cd6008072c56`. Do not
+  substitute the parallel `v2026.07.17.7` work or an unverified nearby tag.
+  Record the resolved SHA before the canary; the current feature branch does
+  not claim that the canary or rollback has run.
+- [ ] Candidate commit/release, date, package schema, route verdict, incoming
+  level delta, timeline verdict, artifact hashes/counts/durations, processing
+  status and operator decision are recorded as metadata only.
+- [ ] The receipt contains no audio, decoded media, spoken marker text,
+  transcript content, device name, credential, signed URL or private local
+  path.
+- [ ] Rollback is an operator release action that reinstalls the recorded
+  baseline for a subsequent recording; it is not a runtime switch, a silent
+  dual fallback or a rewrite of an accepted v5 revision.
+
+### Baseline, Canary and Rollback Rehearsal
+
+1. Before building the candidate, record only the verified
+   `v2026.07.17.6` SHA `4be444e82ec449a3bb5312920fb0cd6008072c56`, candidate
+   SHA, schema version, installer artifact digest and operator date in the
+   feature evidence receipt. Do not store a device name, local path, audio,
+   transcript or secret.
+2. Build and install the candidate only through the separately approved local
+   test procedure. Make one controlled non-private recording and collect only
+   package member names, codec/rate/channel checks, durations, hashes,
+   marker-lag result, route verdict, incoming-level delta, upload-progress
+   verdict, single-job count and final status.
+3. A failed route, volume, timeline, package, upload or transcript verdict is
+   a stop signal: do not silently retry the same accepted revision, create a
+   dual fallback or repurpose the review M4A for ASR.
+4. Rehearse rollback by reinstalling the verified `v2026.07.17.6` baseline for
+   one subsequent controlled recording. The server keeps its additive v5
+   reader while any v5 record remains; accepted v5 records are not rewritten,
+   re-uploaded or sent to a second provider job.
+5. Record the rollback result as pass/fail and metadata only. If the exact
+   baseline ref, signed candidate or installation approval is unavailable,
+   leave this gate open rather than inventing a result.
 
 ## Packaging Gates
 

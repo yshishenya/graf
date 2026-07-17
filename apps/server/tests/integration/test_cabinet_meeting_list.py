@@ -194,7 +194,7 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
     assert "Запись без названия" in page.text
     assert "Отправляем 40%" in page.text
     assert 'aria-label="Прогресс отправки записи"' in page.text
-    assert 'hx-trigger="every 3s"' in page.text
+    assert 'hx-trigger="every 1s"' in page.text
 
 
 def test_cabinet_list_shows_manual_upload_as_normal_meeting_row(client) -> None:
@@ -233,7 +233,7 @@ def test_desktop_empty_meeting_list_polls_for_new_local_uploads(client) -> None:
     assert response.status_code == 200
     assert "Ничего не найдено" in response.text
     assert "Измените запрос или сбросьте фильтры." in response.text
-    assert 'hx-trigger="every 3s"' in response.text
+    assert 'hx-trigger="every 1s"' in response.text
     assert 'hx-get="/desktop/meetings?q=missing-local-upload"' in response.text
 
 

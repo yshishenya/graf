@@ -893,7 +893,7 @@ def test_list_shell_renders_server_upload_progress_in_recording_row() -> None:
     assert 'aria-valuenow="60"' in page
     assert 'style="width: 60%"' in page
     assert "data-upload-progress-active" in page
-    assert 'hx-trigger="every 3s"' in page
+    assert 'hx-trigger="every 1s"' in page
     assert 'hx-get="/meetings?q=uploading"' in page
     assert "◁" not in page
 
@@ -909,7 +909,7 @@ def test_list_shell_polls_processing_recordings_until_review_ready() -> None:
     )
 
     assert "Проектный синк" in page
-    assert 'hx-trigger="every 3s"' in page
+    assert 'hx-trigger="every 1s"' in page
     assert 'hx-get="/meetings"' in page
 
 
@@ -925,7 +925,7 @@ def test_desktop_empty_list_polls_for_new_local_uploads() -> None:
     )
 
     assert "Пока нет записей" in page
-    assert 'hx-trigger="every 3s"' in page
+    assert 'hx-trigger="every 1s"' in page
     assert 'hx-get="/desktop/meetings"' in page
 
 

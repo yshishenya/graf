@@ -281,13 +281,6 @@ public final class CaptureSessionController {
         return current
     }
 
-    public func updateWebRTCAEC3Status(_ status: AppRecordingStatus?) throws -> CaptureSession {
-        var current = try requireSession()
-        current.webRTCAEC3Status = status
-        session = current
-        return current
-    }
-
     public func makeTrackEvidence(
         role: AudioTrackRole,
         sampleRate: Double = 48000,

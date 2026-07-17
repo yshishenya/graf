@@ -246,7 +246,10 @@ async def finalize_upload(
     await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
     meeting = store_module.store.meetings[session.meeting_id]
     try:
-        validate_required_tracks(tracks)
+        validate_required_tracks(
+            tracks,
+            source_kind=meeting.media_revision_source_kind,
+        )
     except ManifestValidationError as exc:
         await _raise_degraded_finalize_problem(
             db=db,

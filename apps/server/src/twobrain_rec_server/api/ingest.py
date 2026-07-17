@@ -192,6 +192,8 @@ async def create_meeting(
             started_at=payload.started_at,
             ended_at=payload.ended_at,
             recording_display_timezone_offset_minutes=payload.recording_display_timezone_offset_minutes,
+            media_revision_source_kind=payload.source_kind,
+            media_scribe_source_mode=payload.media_scribe_source_mode,
             calendar_match_attempt_id=payload.calendar_match_attempt_id,
             consume_calendar_context=True,
         )

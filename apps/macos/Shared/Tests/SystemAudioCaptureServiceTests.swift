@@ -79,6 +79,32 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         _ = try await service.stop()
     }
 
+    func testIncomingBatchPreservesPTSFormatAndRouteGenerationForTimeline() async throws {
+        let service = SystemAudioCaptureService(runtime: FakeSystemAudioRuntime())
+        _ = try await service.start(
+            sessionId: "timestamped-system-audio",
+            permissionState: .granted,
+            scopeApproval: approvedScope()
+        )
+        let original = RecordingAudioBatch(
+            samples: Array(repeating: 0.25, count: 480),
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: RecordingAudioPresentationTimestamp(seconds: 321.25, clockDomain: .hostTime),
+            discontinuity: .none,
+            routeGeneration: 7
+        )
+
+        await service.appendIncomingBatch(original, observedAt: Date(timeIntervalSince1970: 11))
+        let restored = try XCTUnwrap(service.incomingSampleSource.readTimestampedBatch(maximumFrameCount: 480))
+
+        XCTAssertEqual(restored.presentationTime, original.presentationTime)
+        XCTAssertEqual(restored.format, original.format)
+        XCTAssertEqual(restored.discontinuity, .none)
+        XCTAssertEqual(restored.routeGeneration, 7)
+        XCTAssertEqual(restored.samples, original.samples)
+        _ = try await service.stop()
+    }
+
     func testStopUsesBufferedRuntimeStatsWhenSamplesBypassActorAppend() async throws {
         let sampleSource = BufferedLocalRecordingSampleSource()
         let service = SystemAudioCaptureService(

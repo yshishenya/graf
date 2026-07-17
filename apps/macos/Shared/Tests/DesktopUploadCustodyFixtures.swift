@@ -7,7 +7,7 @@ func custodyFixtureProfile(
     durationSeconds: Int = 60
 ) -> ArtifactCompletenessProfile {
     ArtifactCompletenessProfile(
-        schemaVersion: LocalRecordingManifest.schemaVersion,
+        schemaVersion: LocalRecordingManifest.legacySchemaVersion,
         manifestPresent: true,
         microphonePresent: true,
         systemAudioPresent: true,

@@ -16,8 +16,8 @@ final class LocalRecordingStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.directoryURL.path))
         XCTAssertFalse(directory.directoryId.contains("/"))
         XCTAssertEqual(directory.manifestURL.lastPathComponent, "manifest.json")
-        XCTAssertEqual(directory.localMicURL.lastPathComponent, "mic.wav")
-        XCTAssertEqual(directory.remoteSpeakerURL.lastPathComponent, "incoming.wav")
+        XCTAssertEqual(directory.transcriptionAudioURL.lastPathComponent, "meeting-transcription.wav")
+        XCTAssertEqual(directory.reviewAudioURL.lastPathComponent, "meeting-review.m4a")
     }
 
     func testDefaultRootKeepsExistingLegacyRecordingLibraryReadable() throws {

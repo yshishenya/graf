@@ -7,6 +7,15 @@
 .env
 .env.*
 !.env.example
+*.wav
+*.m4a
+*.aac
+*.caf
+*.aiff
+*.flac
+*.mp3
+*.pcm
+test-rec/
 __pycache__/
 *.pyc
 .venv/

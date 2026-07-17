@@ -37,11 +37,10 @@ routing component. System audio is app-owned and captured with
 | Ineligible microphone class | Start fails closed before recording | `RecordingMicrophoneSelectionTests` |
 | Microphone changes before start | Current eligible input is resolved again | `tests/macos/physical-devices/device-change-recovery.md` |
 | Permission changes | Current permissions are re-evaluated | `tests/macos/physical-devices/permission-recovery.md` |
-| System audio plus microphone | Both sources are explicitly injected into the writer | `LocalRecordingWriterSystemAudioTests` |
+| System audio plus microphone | Both PTS-bearing sources enter one canonical timeline | `LocalRecordingWriterSystemAudioTests` |
 
 ## Release Rule
 
 No device class is release-ready from source review alone. Run a current-build
-record/stop smoke and verify non-empty `mic.wav`, non-empty `incoming.wav`,
-and a finalized `manifest.json` for every supported class claimed by the
-release.
+record/stop smoke and verify exactly the finalized v5 WAV, review M4A and
+`manifest.json` for every supported class claimed by the release.

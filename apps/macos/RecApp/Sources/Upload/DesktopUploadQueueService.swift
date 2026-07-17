@@ -48,13 +48,11 @@ private extension LocalRecordingManifest {
     private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
         switch reason {
         case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
-             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
-             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
-             .silentInput, .noFrames, .stoppedBeforeFrames:
+             .silentInput, .noFrames, .stoppedBeforeFrames, .historicalPackage:
             return true
         case .directoryUnavailable, .writeFailed, .finalizationFailed,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
-             .cpuGateFailed, .deviceUnavailable, .legacyNotReady,
+             .cpuGateFailed, .deviceUnavailable,
              .appClosed, .unknown:
             return false
         }
@@ -84,13 +82,11 @@ private extension LocalRecordingTrack {
     private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
         switch reason {
         case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
-             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
-             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
-             .silentInput, .noFrames, .stoppedBeforeFrames:
+             .silentInput, .noFrames, .stoppedBeforeFrames, .historicalPackage:
             return true
         case .directoryUnavailable, .writeFailed, .finalizationFailed,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
-             .cpuGateFailed, .deviceUnavailable, .legacyNotReady,
+             .cpuGateFailed, .deviceUnavailable,
              .appClosed, .unknown:
             return false
         }
@@ -99,6 +95,7 @@ private extension LocalRecordingTrack {
 
 public final class DesktopUploadQueueService: @unchecked Sendable {
     public typealias Clock = @Sendable () -> Date
+    public typealias ProgressObserver = @Sendable ([DesktopUploadQueueItem]) async -> Void
     private static let processingFollowUpWindowSeconds: TimeInterval = 15 * 60
     private static let uploadedReconciliationStaleSeconds: TimeInterval = 60
     private static let finalProcessingStatuses: Set<String> = [
@@ -394,7 +391,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     @discardableResult
-    public func processDueItems() async throws -> [DesktopUploadQueueItem] {
+    public func processDueItems(
+        onProgress: @escaping ProgressObserver = { _ in }
+    ) async throws -> [DesktopUploadQueueItem] {
         guard let client else {
             return try loadItems()
         }
@@ -411,7 +410,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
 
         for item in dueItems {
-            try await upload(item: item, client: client)
+            try await upload(item: item, client: client, onProgress: onProgress)
         }
         await reconcileUploadedItemsIfNeeded(
             client: client,
@@ -708,10 +707,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     private static func localArtifactFiles(for item: DesktopUploadQueueItem) -> [String] {
-        var files = [item.manifestPath, item.microphonePath, item.systemAudioPath]
-        if item.artifactProfile.trackCompleteness.contains(where: { $0.transportRole == .playback }) {
-            files.append(item.reviewAudioPath)
-        }
+        let roles = Set(item.artifactProfile.trackCompleteness.map(\.transportRole))
+        var files = [item.manifestPath]
+        if roles.contains(.microphone) { files.append(item.microphonePath) }
+        if roles.contains(.system) { files.append(item.systemAudioPath) }
+        if roles.contains(.media) { files.append(item.transcriptionAudioPath) }
+        if roles.contains(.playback) { files.append(item.reviewAudioPath) }
         return files.filter { !$0.isEmpty && $0 != "metadata-only" }
     }
 
@@ -742,7 +743,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func upload(
         item: DesktopUploadQueueItem,
-        client: DesktopUploadClientProtocol
+        client: DesktopUploadClientProtocol,
+        onProgress: @escaping ProgressObserver
     ) async throws {
         let started = try updateItem(itemId: item.id) { current, now in
             var next = current.withTransition(
@@ -765,16 +767,30 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             )
             return next
         }
+        try await publishProgress(onProgress)
 
         do {
             let reconciled = try await reconcileBeforeUpload(started, client: client)
+            try await publishProgress(onProgress)
             guard reconciled.syncConflictState == .none else {
                 return
             }
             guard reconciled.state != .uploaded else {
                 return
             }
-            let result = try await client.upload(reconciled)
+            let result = try await client.upload(reconciled) { [self] reportedProgress in
+                _ = try updateItem(itemId: reconciled.id) { current, now in
+                    guard current.state == .uploading else {
+                        return current
+                    }
+                    return current.withTransition(
+                        to: .uploading,
+                        now: now,
+                        serverTruth: current.serverTruth.mergingConfirmedProgress(reportedProgress)
+                    )
+                }
+                try await publishProgress(onProgress)
+            }
             _ = try updateItem(itemId: started.id) { current, now in
                 var next = current.withTransition(
                     to: result.state,
@@ -805,6 +821,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 )
                 return next
             }
+            try await publishProgress(onProgress)
         } catch {
             let category = (error as? DesktopUploadClientError)?.failureCategory ?? .network
             let reason = String(describing: error)
@@ -847,7 +864,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 )
                 return next
             }
+            try await publishProgress(onProgress)
         }
+    }
+
+    private func publishProgress(_ observer: ProgressObserver) async throws {
+        await observer(try loadItems())
     }
 
     private func reconcileBeforeUpload(
@@ -1020,6 +1042,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let manifestURL = directoryURL.appendingPathComponent(manifest.manifestFileName)
         let microphoneURL = directoryURL.appendingPathComponent("mic.wav")
         let systemAudioURL = directoryURL.appendingPathComponent("incoming.wav")
+        let transcriptionURL = directoryURL.appendingPathComponent("meeting-transcription.wav")
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
             throw DesktopUploadQueueServiceError.manifestMissing(manifestURL)
         }
@@ -1029,7 +1052,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             manifestURL: manifestURL,
             microphoneURL: microphoneURL,
             systemAudioURL: systemAudioURL,
-            reviewAudioURL: directoryURL.appendingPathComponent("meeting-review.m4a")
+            reviewAudioURL: directoryURL.appendingPathComponent("meeting-review.m4a"),
+            transcriptionURL: transcriptionURL
         )
         let state: UploadItemState = profile.isUploadable ? .queued : .blocked
         let failureCategory: UploadFailureCategory = profile.isUploadable ? .none : .schemaIncompatibility
@@ -1265,6 +1289,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 return (clientError.failureCategory.rawValue, code)
             case .invalidBaseURL:
                 return (clientError.failureCategory.rawValue, "support_incident.invalid_base_url")
+            case .invalidArtifactPackage:
+                return (clientError.failureCategory.rawValue, "support_incident.invalid_artifact_package")
             case .invalidResponse:
                 return (clientError.failureCategory.rawValue, "support_incident.invalid_response")
             case .localFileMissing:
@@ -1286,15 +1312,19 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         if manifest.permissions?.allowsAcceptedRecording != true {
             return LocalRecordingFailureReason.permissionDenied.rawValue
         }
-        if !profile.manifestPresent || !profile.microphonePresent || !profile.systemAudioPresent {
+        let requiredRoles: Set<DesktopUploadTransportRole> = profile.isV5Package
+            ? [.manifest, .media, .playback]
+            : [.manifest, .microphone, .system]
+        let presentRoles = Set(
+            profile.trackCompleteness
+                .filter(\.present)
+                .map(\.transportRole)
+        )
+        if !requiredRoles.isSubset(of: presentRoles) {
             return "local_artifacts_not_uploadable"
         }
         if manifest.failureReason != .none {
             return manifest.failureReason.rawValue
-        }
-        if let leakageReason = manifest.leakageFinalization?.failureReason,
-           leakageReason != .none {
-            return leakageReason.rawValue
         }
         return "local_recording_package_not_uploadable"
     }
@@ -1317,13 +1347,73 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifestURL: URL,
         microphoneURL: URL,
         systemAudioURL: URL,
-        reviewAudioURL: URL? = nil
+        reviewAudioURL: URL? = nil,
+        transcriptionURL: URL? = nil
     ) -> ArtifactCompletenessProfile {
         let manifestSize = fileSize(manifestURL)
         let microphoneSize = fileSize(microphoneURL)
         let systemAudioSize = fileSize(systemAudioURL)
         let reviewAudio = reviewAudioURL.flatMap(reviewAudioArtifact)
         let durationSeconds = max(1, Int(ceil(Double(max(0, manifest.stoppedAt.timeIntervalSince(manifest.startedAt))))))
+        if manifest.isV5Package {
+            let mediaURL = transcriptionURL ?? manifestURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("meeting-transcription.wav")
+            let mediaAudio = transcriptionAudioArtifact(mediaURL)
+            let manifestTrack = UploadTrackCompleteness(
+                transportRole: .manifest,
+                fileName: "manifest.json",
+                present: manifestSize > 0,
+                byteCount: manifestSize,
+                sha256: sha256Hex(url: manifestURL),
+                durationSeconds: 1
+            )
+            let mediaTrack = UploadTrackCompleteness(
+                transportRole: .media,
+                fileName: "meeting-transcription.wav",
+                present: mediaAudio != nil,
+                byteCount: mediaAudio?.byteCount ?? fileSize(mediaURL),
+                sha256: mediaAudio?.sha256,
+                durationSeconds: mediaAudio?.durationSeconds ?? durationSeconds
+            )
+            let playbackTrack = UploadTrackCompleteness(
+                transportRole: .playback,
+                fileName: "meeting-review.m4a",
+                present: reviewAudio != nil,
+                byteCount: reviewAudio?.byteCount ?? (reviewAudioURL.map(fileSize) ?? 0),
+                sha256: reviewAudio?.sha256,
+                durationSeconds: reviewAudio?.durationSeconds ?? durationSeconds
+            )
+            let tracks = [manifestTrack, mediaTrack, playbackTrack]
+            let manifestTracksByRole = Dictionary(
+                uniqueKeysWithValues: manifest.tracks.map { ($0.role, $0) }
+            )
+            let integrityMatches =
+                manifestTracksByRole[.mixedMeetingAudio]?.byteCount == mediaTrack.byteCount &&
+                manifestTracksByRole[.mixedMeetingAudio]?.sha256 == mediaTrack.sha256 &&
+                manifestTracksByRole[.reviewPlayback]?.byteCount == playbackTrack.byteCount &&
+                manifestTracksByRole[.reviewPlayback]?.sha256 == playbackTrack.sha256
+            let uploadable = manifest.isServerUploadEligible &&
+                manifest.isComplete &&
+                integrityMatches &&
+                tracks.allSatisfy(\.uploadable)
+            return ArtifactCompletenessProfile(
+                schemaVersion: manifest.schemaVersion,
+                manifestPresent: manifestTrack.present,
+                microphonePresent: false,
+                systemAudioPresent: false,
+                manifestSha256: manifestTrack.sha256,
+                microphoneSha256: nil,
+                systemAudioSha256: nil,
+                manifestSizeBytes: manifestSize,
+                microphoneSizeBytes: 0,
+                systemAudioSizeBytes: 0,
+                durationSeconds: durationSeconds,
+                trackCompleteness: tracks,
+                isUploadable: uploadable,
+                qualityWarningReason: nil
+            )
+        }
         let manifestTrack = UploadTrackCompleteness(
             transportRole: .manifest,
             fileName: "manifest.json",
@@ -1387,10 +1477,6 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         if let reason = uploadableQualityWarningReason(manifest.failureReason) {
             return reason
         }
-        if let leakageReason = manifest.leakageFinalization?.failureReason,
-           let reason = uploadableQualityWarningReason(leakageReason) {
-            return reason
-        }
         for track in manifest.tracks {
             if let reason = uploadableQualityWarningReason(track.failureReason) {
                 return reason
@@ -1402,13 +1488,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private static func uploadableQualityWarningReason(_ reason: LocalRecordingFailureReason) -> String? {
         switch reason {
         case .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
-             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
-             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
-             .silentInput, .noFrames, .stoppedBeforeFrames:
+             .silentInput, .noFrames, .stoppedBeforeFrames, .historicalPackage:
             return reason.rawValue
         case .none, .directoryUnavailable, .writeFailed, .finalizationFailed,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
-             .cpuGateFailed, .deviceUnavailable, .legacyNotReady,
+             .cpuGateFailed, .deviceUnavailable,
              .appClosed, .unknown:
             return nil
         }
@@ -1490,7 +1574,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func malformedQueueDocumentItem(now: Date) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.schemaVersion,
+            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
             manifestPresent: false,
             microphonePresent: false,
             systemAudioPresent: false,
@@ -1546,6 +1630,28 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
               (file.fileFormat.settings[AVFormatIDKey] as? NSNumber)?.intValue == Int(kAudioFormatMPEG4AAC),
               Int(file.fileFormat.sampleRate.rounded()) == 48_000,
               Int(file.fileFormat.channelCount) == 1,
+              file.length > 0
+        else {
+            return nil
+        }
+        return (
+            byteCount,
+            sha256Hex(url: url),
+            max(1, Int(ceil(Double(file.length) / file.fileFormat.sampleRate)))
+        )
+    }
+
+    private static func transcriptionAudioArtifact(
+        _ url: URL
+    ) -> (byteCount: Int64, sha256: String?, durationSeconds: Int)? {
+        let byteCount = fileSize(url)
+        guard byteCount > 44,
+              url.pathExtension.lowercased() == "wav",
+              let file = try? AVAudioFile(forReading: url),
+              (file.fileFormat.settings[AVFormatIDKey] as? NSNumber)?.intValue == Int(kAudioFormatLinearPCM),
+              Int(file.fileFormat.sampleRate.rounded()) == 16_000,
+              Int(file.fileFormat.channelCount) == 1,
+              (file.fileFormat.settings[AVLinearPCMBitDepthKey] as? NSNumber)?.intValue == 16,
               file.length > 0
         else {
             return nil
@@ -1624,14 +1730,8 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
         switch reason {
         case "local_recording_package_not_uploadable", "local_artifacts_not_uploadable":
             return "нужна ручная проверка локальной записи"
-        case LocalRecordingFailureReason.leakageDetected.rawValue:
-            return "звук динамиков попал в микрофон; отправим как есть"
-        case LocalRecordingFailureReason.leakageUnproven.rawValue:
-            return "чистота микрофона не доказана; отправим как есть"
-        case LocalRecordingFailureReason.leakageNotMeasured.rawValue:
-            return "не удалось проверить утечку динамиков; отправим как есть"
-        case LocalRecordingFailureReason.insufficientReference.rawValue:
-            return "не хватает системной аудио-дорожки для проверки; отправим как есть"
+        case LocalRecordingFailureReason.historicalPackage.rawValue:
+            return "сохранённая ранее запись будет отправлена в режиме совместимости"
         case LocalRecordingFailureReason.silentInput.rawValue:
             return "микрофон был слишком тихим или пустым; отправим как есть"
         case LocalRecordingFailureReason.permissionDenied.rawValue:

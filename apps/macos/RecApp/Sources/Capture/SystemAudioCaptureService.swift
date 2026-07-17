@@ -70,7 +70,7 @@ public actor SystemAudioCaptureService {
     private let runtimeStartCleanupTimeoutSeconds: TimeInterval
     private let runtimeStopTimeoutSeconds: TimeInterval
     private let runtimeStartFailureLogger: (@Sendable (String) -> Void)?
-    public nonisolated let incomingSampleSource: LocalRecordingSampleSource
+    public nonisolated let incomingSampleSource: TimestampedLocalRecordingSampleSource
     private let bufferedSampleSource: BufferedLocalRecordingSampleSource
     private var activeSession: SystemAudioCaptureSession?
     private var activeRuntime: SystemAudioCaptureRuntime?
@@ -229,11 +229,30 @@ public actor SystemAudioCaptureService {
     }
 
     public func appendIncomingSamples(_ samples: [Float], at date: Date = Date()) {
-        guard !samples.isEmpty else { return }
-        bufferedSampleSource.append(samples, at: date)
+        appendIncomingBatch(
+            RecordingAudioBatch(
+                samples: samples,
+                format: RecordingAudioFormat(
+                    sampleRate: Self.captureSampleRate,
+                    channelCount: Self.captureChannelCount
+                ),
+                presentationTime: RecordingAudioPresentationTimestamp(
+                    seconds: date.timeIntervalSinceReferenceDate,
+                    clockDomain: .wallClock
+                ),
+                discontinuity: .none,
+                routeGeneration: 0
+            ),
+            observedAt: date
+        )
+    }
+
+    public func appendIncomingBatch(_ batch: RecordingAudioBatch, observedAt: Date = Date()) {
+        guard !batch.samples.isEmpty || batch.discontinuity != .none else { return }
+        bufferedSampleSource.append(batch, observedAt: observedAt)
         if var session = activeSession {
-            session.frameCount += Self.frameCount(forSampleCount: samples.count)
-            session.lastFrameAt = date
+            session.frameCount += Int64(batch.samples.count / max(1, batch.format.channelCount))
+            session.lastFrameAt = observedAt
             activeSession = session
         }
     }
@@ -321,8 +340,8 @@ public actor SystemAudioCaptureService {
         sampleSource: BufferedLocalRecordingSampleSource
     ) -> SystemAudioCaptureRuntime {
         #if canImport(ScreenCaptureKit) && canImport(CoreMedia) && canImport(AudioToolbox)
-        return ScreenCaptureKitSystemAudioRuntime { samples in
-            sampleSource.append(samples)
+        return ScreenCaptureKitSystemAudioRuntime { batch in
+            sampleSource.append(batch)
         }
         #else
         return NoopSystemAudioCaptureRuntime()
@@ -466,12 +485,12 @@ private final class RuntimeStopCompletion: @unchecked Sendable {
 
 #if canImport(ScreenCaptureKit) && canImport(CoreMedia) && canImport(AudioToolbox)
 public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCaptureRuntime, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    private let sampleHandler: @Sendable ([Float]) -> Void
+    private let sampleHandler: @Sendable (RecordingAudioBatch) -> Void
     private let outputQueue = DispatchQueue(label: "pro.2brain.graf.screencapturekit.audio", qos: .userInitiated)
     private let streamLock = NSLock()
     private var stream: SCStream?
 
-    public init(sampleHandler: @escaping @Sendable ([Float]) -> Void) {
+    public init(sampleHandler: @escaping @Sendable (RecordingAudioBatch) -> Void) {
         self.sampleHandler = sampleHandler
         super.init()
     }
@@ -524,9 +543,8 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     ) {
         guard outputType == .audio else { return }
         guard isCurrentStream(stream) else { return }
-        let samples = SystemAudioSampleExtractor.extractMonoFloatSamples(from: sampleBuffer)
-        guard !samples.isEmpty else { return }
-        sampleHandler(samples)
+        guard let batch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer) else { return }
+        sampleHandler(batch)
     }
 
     private func currentStream() -> SCStream? {
@@ -559,6 +577,39 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 
 #if canImport(CoreMedia) && canImport(AudioToolbox)
 enum SystemAudioSampleExtractor {
+    static func extractRecordingAudioBatch(from sampleBuffer: CMSampleBuffer) -> RecordingAudioBatch? {
+        guard CMSampleBufferDataIsReady(sampleBuffer),
+              let format = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee
+        else {
+            return nil
+        }
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        guard CMTIME_IS_VALID(presentationTime) else { return nil }
+        let timestampSeconds = CMTimeGetSeconds(presentationTime)
+        guard timestampSeconds.isFinite,
+              streamDescription.mSampleRate.isFinite,
+              streamDescription.mSampleRate > 0,
+              streamDescription.mChannelsPerFrame > 0
+        else {
+            return nil
+        }
+        let samples = extractFloatSamples(from: sampleBuffer)
+        return RecordingAudioBatch(
+            samples: samples,
+            format: RecordingAudioFormat(
+                sampleRate: streamDescription.mSampleRate,
+                channelCount: Int(streamDescription.mChannelsPerFrame)
+            ),
+            presentationTime: RecordingAudioPresentationTimestamp(
+                seconds: timestampSeconds,
+                clockDomain: .hostTime
+            ),
+            discontinuity: samples.isEmpty ? .dropped : .none,
+            routeGeneration: 0
+        )
+    }
+
     static func extractMonoFloatSamples(from sampleBuffer: CMSampleBuffer) -> [Float] {
         guard CMSampleBufferDataIsReady(sampleBuffer),
               let format = CMSampleBufferGetFormatDescription(sampleBuffer),

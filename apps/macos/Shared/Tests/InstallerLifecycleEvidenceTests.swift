@@ -163,6 +163,16 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(checklist.contains("no privileged audio component"))
     }
 
+    func testV5RollbackChecklistRequiresVerifiedBaselineWithoutLiveToggle() throws {
+        let checklist = try Self.readRepositoryFile("qa/macos/release-candidate-checklist.md")
+
+        XCTAssertTrue(checklist.contains("v2026.07.16.6"))
+        XCTAssertTrue(checklist.contains("v2026.07.16.7"))
+        XCTAssertTrue(checklist.contains("not a runtime switch"))
+        XCTAssertTrue(checklist.contains("only through the separately approved local"))
+        XCTAssertFalse(checklist.contains("v2026.07.17.3"))
+    }
+
     func testUninstallIsAppOnlyAndDoesNotMutateCoreAudio() throws {
         let source = try Self.readRepositoryFile("apps/macos/Installer/Scripts/uninstall.sh")
 

@@ -52,6 +52,37 @@ async def test_mediascribe_client_submits_only_dual_track_fields_and_server_key(
 
 
 @pytest.mark.asyncio
+async def test_v5_canonical_wav_uses_one_audio_wav_part_and_never_includes_playback() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/audio/transcriptions"
+        body = await request.aread()
+        assert b'name="file"' in body
+        assert b'filename="meeting-transcription.wav"' in body
+        assert b"Content-Type: audio/wav" in body
+        assert b'name="mic_file"' not in body
+        assert b'name="incoming_file"' not in body
+        assert b"dual-track" not in request.url.path.encode()
+        assert b"playback" not in body.lower()
+        assert b"m4a" not in body.lower()
+        return httpx.Response(200, json={"id": "job_v5_wav", "status": "uploaded"})
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    response = await client.submit_single_track(
+        media_file=BytesIO(b"RIFF\x00\x00\x00\x00WAVE"),
+        media_content_type="audio/wav",
+        media_filename="meeting-transcription.wav",
+        diarize=True,
+        summarize=False,
+    )
+
+    assert response.external_job_id == "job_v5_wav"
+
+
+@pytest.mark.asyncio
 async def test_mediascribe_client_maps_auth_failure_without_response_secret() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"detail": "bad key"})

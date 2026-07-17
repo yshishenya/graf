@@ -7,8 +7,10 @@ app-owned system-audio sample source explicitly.
 ## Required Evidence
 
 - [ ] Recording starts only after current prerequisites pass.
-- [ ] `Stop` finalizes `mic.wav`, `incoming.wav`, and `manifest.json`.
-- [ ] Missing or empty required tracks are degraded or failed, never complete.
+- [ ] Stop finalizes meeting-transcription.wav, meeting-review.m4a and
+  manifest.json.
+- [ ] A missing, empty, partial or timeline-invalid required artifact is
+  degraded or failed, never complete.
 - [ ] The app exposes the local recording location after finalization.
 - [ ] Current recordings use the GRAF application-support root.
 - [ ] Existing recordings under the former application-support directory
@@ -16,6 +18,8 @@ app-owned system-audio sample source explicitly.
 - [ ] Unknown historical manifest keys remain safely ignorable.
 - [ ] No upload, transcription, dashboard publication, or external egress is
   triggered by local finalization.
+- [ ] Historical v3/v4 packages remain readable only through the isolated
+  queue compatibility path; a new writer never creates their files.
 
 ## Automated Validation
 

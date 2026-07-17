@@ -149,6 +149,8 @@ struct DesktopSupportIncidentActionStrip: View {
                 return (clientError.failureCategory.rawValue, code)
             case .invalidBaseURL:
                 return (clientError.failureCategory.rawValue, "support_incident.invalid_base_url")
+            case .invalidArtifactPackage:
+                return (clientError.failureCategory.rawValue, "support_incident.invalid_artifact_package")
             case .invalidResponse:
                 return (clientError.failureCategory.rawValue, "support_incident.invalid_response")
             case .localFileMissing, .serverStillMissingRanges:

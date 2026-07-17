@@ -11,7 +11,7 @@
 Run these after changes to the indicated boundary. Test filters may be narrowed to the changed test class while developing; run the listed group before its story is marked complete.
 
 ```sh
-swift test --package-path apps/macos --filter 'LocalRecordingWriterTests|LocalRecordingWriterSystemAudioTests|SystemAudioRecordingPackageTests|LocalRecordingManifestTests|DesktopUploadClientTests|DesktopUploadQueueTests'
+swift test --package-path apps/macos --disable-swift-testing --filter 'CanonicalRecordingManifestTests|RecordingAudioTimelineTests|LocalRecordingWriterTests|LocalRecordingWriterSystemAudioTests|SystemAudioRecordingPackageTests|DesktopUploadClientTests|DesktopUploadQueueTests|CaptureControlTests|AppControlAccessibilityTests|NoAECProductSurfaceTests|DiagnosticRedactionTests|RecordingEvidenceTests|InstallerLifecycleEvidenceTests'
 
 swift run --package-path apps/macos ContractValidation
 
@@ -32,10 +32,15 @@ Expected v5 assertions:
 ```sh
 cd apps/server
 PYTHONPATH=src uv run --extra dev pytest -q \
+  tests/contract/test_ingest_openapi_contract.py \
+  tests/contract/test_mediascribe_client_contract.py \
+  tests/contract/test_playback_normalization_contract.py \
+  tests/contract/test_processing_no_secret_content_egress.py \
   tests/unit/test_manifest_validation.py \
   tests/unit/test_media_revision_state_machine.py \
   tests/integration/test_ingest_happy_path.py \
   tests/integration/test_media_revision_identity.py \
+  tests/integration/test_media_revision_migrations.py \
   tests/integration/test_finalize_integrity.py \
   tests/integration/test_mediascribe_processing_happy_path.py \
   tests/integration/test_processing_result_idempotency.py \

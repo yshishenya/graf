@@ -26,12 +26,18 @@ def test_processing_redaction_treats_mediascribe_payloads_as_sensitive() -> None
         {
             "mic_file": "raw bytes",
             "incoming_file": "raw bytes",
+            "media_file": "raw bytes",
+            "playback_file": "raw bytes",
             "mediascribe_result": {"text": "meeting transcript"},
             "safe_count": 2,
         }
     )
     assert redacted["mic_file"] == "[REDACTED]"
     assert redacted["incoming_file"] == "[REDACTED]"
+    assert redacted["media_file"] == "[REDACTED]"
+    assert redacted["playback_file"] == "[REDACTED]"
     assert redacted["mediascribe_result"] == "[REDACTED]"
     assert redacted["safe_count"] == 2
     assert contains_forbidden_evidence_content("x-api-key: value")
+    assert contains_forbidden_evidence_content("media_file: raw bytes")
+    assert contains_forbidden_evidence_content("playback_file: raw bytes")

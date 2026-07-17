@@ -25,9 +25,12 @@ target is called release-ready.
 
 - Manual `Record` starts only after microphone and system-audio permissions,
   storage, visible-indicator, policy, and source-eligibility gates pass.
-- `mic.wav` contains the app-owned microphone track.
-- `incoming.wav` contains the app-owned system-audio track.
-- One-action `Stop` finalizes both original tracks and `manifest.json`.
+- One shared canonical timeline contains the app-owned microphone and
+  system-audio contribution without creating separate source files.
+- One-action `Stop` finalizes the canonical WAV, review M4A and
+  `manifest.json`.
+- Only the canonical WAV reaches one transcription job; the review M4A never
+  reaches ASR.
 - A meeting-app mute does not get inferred from route selection; mute truth
   follows the dedicated meeting-mute policy.
 - No browser-specific audio-device setup is required by GRAF.

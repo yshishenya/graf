@@ -1,293 +1,125 @@
-# MediaScribe Dual-Track API Contract
+# MediaScribe: v5 canonical WAV and historical dual compatibility
 
-Date: 2026-06-03
+Updated: 2026-07-17
 
-This document records the server-side MediaScribe contract for future
-`2brain Rec` backend transcription work. It intentionally does not contain the
-full API key. Store the real key only in server-side secrets as
-`MEDIASCRIBE_API_KEY`.
+This file keeps its historical name so existing links remain valid. Its active
+contract is the v5 single-WAV path below; dual-track behavior is an isolated
+compatibility drain for recordings made before v5, not a contract for new
+recordings.
 
 ## Boundary
 
-- Desktop clients MUST NOT call MediaScribe directly.
-- Desktop clients MUST NOT store MediaScribe credentials.
-- `2brain Rec` backend workers call MediaScribe after owner-controlled ingest
-  accepts finalized recording artifacts.
-- MediaScribe requests, job ids, retention/deletion state, and result imports
-  must be represented in backend lifecycle and deletion truth.
+- The macOS app never calls MediaScribe and never stores its credentials.
+- GRAF's backend worker calls MediaScribe only after GRAF accepts a finalized,
+  owner-controlled upload session.
+- The server reads the API key from its protected runtime secret. Credentials,
+  signed URLs, audio bytes, transcript text, and provider payloads are never
+  written to application diagnostics or feature evidence.
+- One accepted media revision owns at most one persisted MediaScribe job. An
+  ambiguous provider response blocks a v5 retry rather than risking a second
+  external job.
 
-## Service
+## Active v5 contract
 
-- Production/public base URL: `https://mediascribe.2brain.pro`
-- Local development base URL: `http://127.0.0.1:8000`
-- External products need only HTTPS API access and an API key. They do not need
-  direct access to Postgres, Redis, MinIO, or inference services.
+Every new macOS recording has exactly these final package members:
 
-## Authentication
+| Purpose | File | Format | Provider behavior |
+|---|---|---|---|
+| ASR source | `meeting-transcription.wav` | PCM s16le, mono, 16 kHz | The only audio sent to MediaScribe. |
+| Local/server playback | `meeting-review.m4a` | AAC, mono, 48 kHz | Stored for playback only; never sent to MediaScribe. |
+| Package metadata | `manifest.json` | JSON | Sent to GRAF's upload API, never to MediaScribe. |
 
-Preferred product-to-product auth:
+The manifest declares:
 
-```http
-X-API-Key: <MEDIASCRIBE_API_KEY>
-```
+- `schema_version=local-recording-manifest.v5`
+- `source_kind=initial_mixed_recording`
+- `media_scribe_source_mode=single_wav_v1`
+- upload roles `manifest`, `media`, and `playback`
 
-Known integration key metadata:
+The `media` object is immutable after ingest and is the sole processing source.
+The playback M4A must be valid for the package to be uploadable, but a playback
+failure does not cause it to become an ASR substitute or alter the WAV source.
+`meeting-review.m4a` is never sent to MediaScribe.
 
-- Owner email: `external-transcription-client@mediascribe.local`
-- Owner role: `user`
-- Key prefix: `msk_P62tLN6iFMoY`
+## Active provider request
 
-The full key was provided out of band and verified against `/auth/me` and
-`/jobs` on 2026-06-03. Do not commit, log, print, or embed the full key in
-application code, specs, diagnostics, screenshots, fixtures, or QA evidence.
-
-Bearer login exists for user-style auth, but `2brain Rec` backend integration
-should use `X-API-Key`:
-
-```http
-POST /auth/login
-Content-Type: application/json
-```
-
-```json
-{
-  "email": "<email>",
-  "password": "<password>"
-}
-```
-
-## Dual-Track Transcription
-
-Endpoint:
+The backend makes one request for a v5 revision:
 
 ```http
-POST /v1/audio/transcriptions/dual-track
+POST /v1/audio/transcriptions
 Content-Type: multipart/form-data
-X-API-Key: <MEDIASCRIBE_API_KEY>
+X-API-Key: <server-side secret>
 ```
 
 Multipart fields:
 
-| Field | Required | Type | Notes |
-|---|---:|---|---|
-| `mic_file` | yes | file | Local microphone track. |
-| `incoming_file` | yes | file | Remote/incoming meeting audio; may contain multiple remote speakers. |
-| `diarize` | no | bool | Default `false`; use `true` for diarization. |
-| `summarize` | no | bool | Default `true`; use `false` when `2brain Rec` owns summaries. |
-| `num_speakers` | no | int | Number or upper bound for remote speakers only; allowed only when `diarize=true`. |
-| `speaker_count_mode` | no | enum | `exact` or `max`; allowed only when `diarize=true`. |
+| Field | Value for v5 |
+|---|---|
+| `file` | `meeting-transcription.wav` with `audio/wav` |
+| `diarize` | server-configured boolean |
+| `summarize` | server-configured boolean |
 
-Recommended request for high-quality dual-track diarization:
+The provider request contains no `mic_file`, `incoming_file`, playback field,
+M4A filename, user path, or client-supplied filename. A successful response
+must have a provider job id. GRAF persists the id before future polling and
+imports one ordered result for that job.
 
-```sh
-curl -X POST "$MEDIASCRIBE_BASE_URL/v1/audio/transcriptions/dual-track" \
-  -H "X-API-Key: $MEDIASCRIBE_API_KEY" \
-  -F "mic_file=@/path/mic.wav;type=audio/wav" \
-  -F "incoming_file=@/path/incoming.wav;type=audio/wav" \
-  -F "diarize=true" \
-  -F "summarize=false" \
-  -F "speaker_count_mode=max" \
-  -F "num_speakers=5"
-```
+The canonical WAV is intentionally continuous from a single shared recording
+timeline. Silence and proven discontinuities remain timestamped rather than
+being removed or filled to a wall-clock stop time. This preserves transcript
+timing without trying to reconstruct separate speakers from two recordings.
 
-Important:
-
-- `num_speakers` applies only to `incoming_file`; do not include the local
-  microphone speaker `MIC` in that count.
-- Do not send one mixed file to the dual-track endpoint. It expects exactly two
-  files: `mic_file` and `incoming_file`.
-- Repeated `POST` creates a new job. There is no `idempotency_key` today, so
-  backend workers must persist `job_id` immediately after a successful response
-  and must guard retries against duplicate submission.
-
-## Audio File Contract
-
-Preferred upload format to avoid unnecessary conversion:
-
-- Container/extension: `.wav`
-- Codec: PCM signed 16-bit little-endian (`pcm_s16le`)
-- Channels: mono / 1 channel
-- Sample rate: `16000 Hz`
-
-Track alignment rules:
-
-- Both tracks must be continuous from the start of the call.
-- Do not remove silence with VAD before submission, because that breaks
-  transcript and diarization timestamps.
-- If the local microphone is silent, keep silence in `mic_file`.
-- `mic_file` and `incoming_file` should share the same `t=0`.
-- If one track starts later, pad it with silence so timeline alignment remains
-  truthful.
-
-Supported extensions also include `.aac`, `.avi`, `.flac`, `.m4a`, `.mkv`,
-`.mov`, `.mp3`, `.mp4`, `.ogg`, `.wav`, and `.webm`, but WAV/PCM mono 16 kHz is
-the current recommended contract for quality and minimal server conversion.
-
-## Create Response
-
-`POST /v1/audio/transcriptions/dual-track` returns `202 Accepted`:
-
-```json
-{
-  "id": "job_abc123",
-  "object": "transcription.job",
-  "status": "uploaded",
-  "source_mode": "dual",
-  "source_media": [
-    { "role": "mic", "filename": "mic.wav", "content_type": "audio/wav" },
-    { "role": "incoming", "filename": "incoming.wav", "content_type": "audio/wav" }
-  ],
-  "created_at": "2026-06-03T20:00:00+00:00",
-  "retrieve_url": "/jobs/job_abc123",
-  "result_url": "/jobs/job_abc123/result"
-}
-```
-
-`retrieve_url` and `result_url` are relative paths. Add the configured base URL.
-
-## Polling
-
-After job creation, persist `id` and poll:
+## Polling and result import
 
 ```http
 GET /jobs/{job_id}
-X-API-Key: <MEDIASCRIBE_API_KEY>
-```
-
-Known statuses:
-
-- `uploaded`
-- `transcribing`
-- `diarizing`
-- `summarizing`
-- `ready`
-- `failed`
-
-Example:
-
-```json
-{
-  "id": "job_abc123",
-  "source_filename": "mic.wav + incoming.wav",
-  "content_type": "audio/wav",
-  "source_mode": "dual",
-  "source_media": [
-    { "role": "mic", "filename": "mic.wav", "content_type": "audio/wav" },
-    { "role": "incoming", "filename": "incoming.wav", "content_type": "audio/wav" }
-  ],
-  "diarization_enabled": true,
-  "summary_enabled": false,
-  "num_speakers": 5,
-  "status": "ready",
-  "queue_position": null,
-  "error_message": null,
-  "result_available": true,
-  "created_at": "...",
-  "updated_at": "..."
-}
-```
-
-## Result
-
-When `status=ready`:
-
-```http
 GET /jobs/{job_id}/result
-X-API-Key: <MEDIASCRIBE_API_KEY>
+X-API-Key: <server-side secret>
 ```
 
-Example:
+GRAF accepts provider statuses such as `uploaded`, `transcribing`, `ready`, and
+`failed`, maps them to its own durable processing state, and keeps transcript,
+diarization, and playback availability distinct. Provider result text is
+content-bearing data: it is imported into protected product storage, never
+copied into logs, diagnostics, source fixtures, or metadata-only evidence.
 
-```json
-{
-  "job": { "...": "..." },
-  "transcript": [
-    {
-      "start": 0.2,
-      "end": 1.4,
-      "text": "Здравствуйте.",
-      "source_role": "mic"
-    },
-    {
-      "start": 0.8,
-      "end": 2.1,
-      "text": "Добрый день.",
-      "source_role": "incoming"
-    }
-  ],
-  "diarization": [
-    {
-      "start": 0.2,
-      "end": 1.4,
-      "speaker": "MIC",
-      "text": "Здравствуйте.",
-      "source_role": "mic"
-    },
-    {
-      "start": 0.8,
-      "end": 2.1,
-      "speaker": "REMOTE_00",
-      "text": "Добрый день.",
-      "source_role": "incoming"
-    }
-  ],
-  "summary": null,
-  "downloads": {
-    "transcript": "/jobs/job_abc123/downloads/transcript",
-    "diarization": "/jobs/job_abc123/downloads/diarization",
-    "archive": "/jobs/job_abc123/downloads/archive"
-  }
-}
-```
+## Historical dual compatibility drain
 
-Timing values are seconds. `MIC` is assigned to the microphone track.
-`REMOTE_00`, `REMOTE_01`, and later speakers are assigned by diarization on the
-incoming track.
+Previously accepted `local-recording-manifest.v3` and `.v4` packages can still
+be read and processed when their immutable source kind is
+`initial_recording`. Only that historical source kind may use the provider's
+dual endpoint and its two stored WAV objects. This compatibility behavior:
 
-## Downloads
+- cannot be selected by a new v5 writer, upload session, or UI control;
+- cannot be used for `initial_mixed_recording`;
+- cannot send `meeting-review.m4a` to ASR; and
+- is covered by explicit reader/upload tests separate from v5 tests.
 
-Archive:
+The dual endpoint and worker branch may be retired only after all of the
+following metadata-only checks are satisfied: the declared retention window has
+passed, there are no queued/retrying historical processing jobs, the bounded
+inventory has no retained v3/v4 package needing processing, a deletion and
+rollback rehearsal is recorded, and a separate migration/removal change is
+approved. Until then, it remains a narrow compatibility path rather than an
+active product feature.
 
-```sh
-curl -L \
-  -H "X-API-Key: $MEDIASCRIBE_API_KEY" \
-  "$MEDIASCRIBE_BASE_URL/jobs/$JOB_ID/downloads/archive" \
-  -o mediascribe-result.zip
-```
+## Failure rules
 
-Available download paths:
+- A v5 media object must parse as the exact PCM WAV contract before any provider
+  request. A mislabeled or corrupt object blocks processing.
+- A v5 playback M4A never bypasses that validation and never becomes a fallback
+  ASR input.
+- Missing or mismatched stored objects block the workflow with a safe reason;
+  they are not silently replaced with another track.
+- Retriable transport errors on a v5 submission with an unknown outcome become
+  a terminal safe block, because submitting again could create a duplicate job.
 
-- `GET /jobs/{job_id}/downloads/transcript`
-- `GET /jobs/{job_id}/downloads/diarization`
-- `GET /jobs/{job_id}/downloads/summary`
-- `GET /jobs/{job_id}/downloads/archive`
+## Operational privacy rules
 
-## Errors And Limits
-
-Error shape:
-
-```json
-{ "detail": "..." }
-```
-
-Common statuses:
-
-| Status | Meaning |
-|---:|---|
-| `400` | `mic_file` and `incoming_file` are required. |
-| `400` | Only audio and video files are supported. |
-| `400` | `num_speakers` is only allowed when diarization is enabled. |
-| `400` | `speaker_count_mode` is only allowed when diarization is enabled. |
-| `400` | `speaker_count_mode` must be `exact` or `max`. |
-| `401` | Missing bearer token or `X-API-Key` / invalid API key. |
-| `409` | Job result is not ready yet. |
-| `409` | Job failed and has no result. |
-| `413` | Uploaded file is too large. |
-
-Current public MediaScribe proxy status: large-audio ceiling observed, not a
-blocker for large Rec upload packages by itself. As of 2026-06-25,
-`mediascribe.2brain.pro` responds with `413 Request Entity Too Large` to
-header-only probes with `600 MiB` and `1100 MiB` content lengths. MediaScribe
-receives only `mic_file` and `incoming_file`, not the whole Rec upload package
-or video file. Raise the MediaScribe OpenResty/nginx request body limit only
-when real combined dual-track audio sent to MediaScribe approaches this ceiling.
+- Keep `MEDIASCRIBE_API_KEY` only in the backend secret mechanism; do not
+  document any real key, prefix, owner address, or local secret path.
+- Do not include raw audio, transcript text, diarization text, job payloads,
+  signed URLs, or user-local paths in tickets, test fixtures, logs, screenshots,
+  or evidence.
+- Store only metadata-safe ids, counts, hashes, state codes, and timestamps in
+  operational evidence.

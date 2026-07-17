@@ -80,6 +80,67 @@ def test_playback_read_model_is_independent_from_transcript_processing_state() -
         assert playback.playback_path is not None
 
 
+def test_v5_mixed_review_keeps_one_canonical_source_and_transcript_when_playback_is_unavailable() -> None:
+    meeting = _meeting()
+    revision = MediaRevision(
+        id=uuid4(),
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        local_media_revision_id="v5-mixed-cabinet-truth",
+        revision_number=1,
+        source_kind=MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value,
+        status="accepted",
+    )
+    available_playback = view_models.playback_state(
+        meeting,
+        "ready",
+        PlaybackPreparationState(
+            state="available",
+            reason_code="canonical_ready",
+            label="Аудио готово",
+            can_play=True,
+        ),
+        media_revision=revision,
+    )
+    unavailable_playback = view_models.playback_state(
+        meeting,
+        "ready",
+        PlaybackPreparationState(
+            state="unavailable",
+            reason_code="corrupt_source",
+            label="Файл повреждён и не может быть воспроизведён",
+        ),
+        media_revision=revision,
+    )
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=uuid4(),
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("1.000"),
+            text="synthetic transcript segment",
+            source_role="mixed",
+        )
+    ]
+    transcript_state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[],
+        status="ready",
+        playback_available=unavailable_playback.available,
+        playback_duration_seconds=unavailable_playback.duration_seconds,
+    )
+
+    assert available_playback.included_sources == ["canonical_mixed"]
+    assert unavailable_playback.available is False
+    assert transcript_state.available is True
+    assert transcript_state.segments[0].source_role == "canonical_mixed"
+    assert transcript_state.segments[0].seekable is False
+
+
 def test_playback_preparing_state_never_creates_a_dead_player_path() -> None:
     playback = view_models.playback_state(
         _meeting(),

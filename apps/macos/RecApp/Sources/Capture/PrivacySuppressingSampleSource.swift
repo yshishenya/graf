@@ -1,8 +1,9 @@
 import Foundation
 import TwoBrainRecShared
 
-public final class PrivacySuppressingSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+public final class PrivacySuppressingSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
     private let base: LocalRecordingSampleSource
+    private let timestampedBase: TimestampedLocalRecordingSampleSource?
     private let lock = NSLock()
     private var state: ProductPrivacyControlState
     private var totalSuppressedSampleCount: Int64
@@ -13,6 +14,7 @@ public final class PrivacySuppressingSampleSource: LocalRecordingSampleSource, @
         state: ProductPrivacyControlState = .capturing
     ) {
         self.base = base
+        self.timestampedBase = base as? TimestampedLocalRecordingSampleSource
         self.state = state
         self.totalSuppressedSampleCount = 0
         self.lastReadSuppressed = false
@@ -58,5 +60,33 @@ public final class PrivacySuppressingSampleSource: LocalRecordingSampleSource, @
             destination[index] = 0
         }
         return read
+    }
+
+    public func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        guard let batch = timestampedBase?.readTimestampedBatch(maximumFrameCount: maximumFrameCount) else {
+            return nil
+        }
+        guard !batch.samples.isEmpty else { return batch }
+
+        lock.lock()
+        let shouldSuppress = state.suppressesLocalMicrophone
+        if shouldSuppress {
+            totalSuppressedSampleCount += Int64(batch.samples.count)
+        }
+        lastReadSuppressed = shouldSuppress
+        lock.unlock()
+
+        guard shouldSuppress else { return batch }
+        return RecordingAudioBatch(
+            samples: Array(repeating: 0, count: batch.samples.count),
+            format: batch.format,
+            presentationTime: batch.presentationTime,
+            discontinuity: batch.discontinuity,
+            routeGeneration: batch.routeGeneration
+        )
+    }
+
+    public var hasTimestampedOverflow: Bool {
+        timestampedBase?.hasTimestampedOverflow ?? true
     }
 }

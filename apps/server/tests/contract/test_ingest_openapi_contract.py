@@ -1,4 +1,5 @@
 from hashlib import sha256
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -36,6 +37,36 @@ def test_normalization_remains_internal_to_existing_accepted_ingest_routes(
     assert set(paths["/api/v1/media-uploads"]) == {"post"}
     assert set(paths["/api/v1/upload-sessions/{session_id}/finalize"]) == {"post"}
     assert set(paths["/api/v1/internal/processing/pickup"]) == {"post"}
+
+
+def test_openapi_declares_v5_mixed_recording_source_without_provider_details(
+    client: TestClient,
+) -> None:
+    schema = client.app.openapi()
+    source_kind = schema["components"]["schemas"]["MediaRevisionSourceKind"]
+
+    assert "initial_mixed_recording" in source_kind["enum"]
+    assert "single_wav_v1" in str(schema)
+    assert "mediascribe_api_key" not in str(schema).lower()
+    assert "external_job_id" not in str(schema)
+
+
+def test_v5_integration_document_separates_active_wav_from_historical_dual_drain() -> None:
+    document = (
+        Path(__file__).resolve().parents[4]
+        / "docs"
+        / "integrations"
+        / "mediascribe-dual-track-api.md"
+    ).read_text(encoding="utf-8")
+
+    assert "## Active v5 contract" in document
+    assert "`meeting-transcription.wav`" in document
+    assert "`meeting-review.m4a`" in document
+    assert "`meeting-review.m4a` is never sent to MediaScribe" in document
+    assert "POST /v1/audio/transcriptions" in document
+    assert "## Historical dual compatibility drain" in document
+    assert "`initial_mixed_recording`" in document
+    assert "cannot be selected by a new v5 writer" in document
 
 
 def test_happy_path_contract_exposes_server_mediated_ingest(client: TestClient) -> None:

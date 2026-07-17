@@ -1244,6 +1244,8 @@ def source_role_label(source_role: str | None) -> SourceRoleView:
         return "local_microphone"
     if normalized in {"incoming", "system", "incoming_system"}:
         return "incoming_system"
+    if normalized in {"mixed", "media", "canonical_mixed"}:
+        return "canonical_mixed"
     return "unknown"
 
 
@@ -2454,6 +2456,11 @@ def playback_state(
             if durable.can_play
             and media_revision is not None
             and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+            else ["canonical_mixed"]
+            if durable.can_play
+            and media_revision is not None
+            and media_revision.source_kind
+            == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value
             else ["local_microphone", "incoming_system"]
             if durable.can_play
             else []

@@ -155,8 +155,6 @@ private struct ContentView: View {
     @State private var systemAudioPermissionGate = SystemAudioPermissionGate()
     @State private var captureScopeApprovalService = CaptureScopeApprovalService()
     @State private var meetingMuteTruthService = MeetingMuteTruthService()
-    @State private var appleVoiceProcessingEvaluationService = AppleVoiceProcessingEvaluationService()
-    @State private var appleProcessingLifecycleCoordinator = AppleVoiceProcessingCandidateLifecycleCoordinator()
     @State private var captureSession: CaptureSession?
     @State private var recordingBlocker: String?
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
@@ -1206,7 +1204,6 @@ private struct ContentView: View {
                 recordedAt: Date()
             )
             let limitationCopyShownAt = Date()
-            let appleProcessingOutcome = appleProcessingOutcomeForRecording(sessionId: starting.id)
             let recordingStartedAt = Date()
             _ = try await systemAudioCaptureService.start(
                 sessionId: starting.id,
@@ -1222,7 +1219,6 @@ private struct ContentView: View {
             localRecordingWriter = LocalRecordingWriter(
                 microphoneSampleSourceFactory: { microphoneSource },
                 incomingSampleSourceFactory: { incomingSource },
-                microphoneInputChannelCount: microphoneSource.channelCount,
                 recordMicrophone: true
             )
             let directory = try await localRecordingWriter.startAsync(
@@ -1233,8 +1229,7 @@ private struct ContentView: View {
                 microphoneSelection: resolvedMicrophoneSelection,
                 targetMuteCapability: targetMuteCapability,
                 meetingMuteTruthEvidence: [targetMuteEvidence],
-                limitationCopyShownAt: limitationCopyShownAt,
-                appleProcessingOutcome: appleProcessingOutcome
+                limitationCopyShownAt: limitationCopyShownAt
             )
             localRecordingActive = true
             let active = try captureController.markCapturing()
@@ -1271,7 +1266,6 @@ private struct ContentView: View {
         } catch {
             localRecordingActive = false
             liveRecordingLevels = .inactive
-            releaseAppleProcessingCandidate(reason: .failedStart)
             activeMicrophoneSampleSource?.stop()
             activeMicrophoneSampleSource = nil
             let releasedSystemAudioSession = try? await systemAudioCaptureService.stop()
@@ -1529,7 +1523,6 @@ private struct ContentView: View {
         do {
             _ = try captureController.requestStop(reason: reason)
             let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
-            releaseAppleProcessingCandidate(reason: .stop)
             let systemAudioSession = try await systemAudioCaptureService.stop()
             activeMicrophoneSampleSource?.stop()
             activeMicrophoneSampleSource = nil
@@ -1573,7 +1566,6 @@ private struct ContentView: View {
             )
         } catch {
             let failureCategory = recordingStopFailureCategory(for: error)
-            releaseAppleProcessingCandidate(reason: .stop)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
                 captureSession = failed
             }
@@ -1605,57 +1597,9 @@ private struct ContentView: View {
         return .unknown
     }
 
-    private var appleProcessingSpikeEnabled: Bool {
-        ProcessInfo.processInfo.arguments.contains("--enable-apple-voice-processing-spike")
-    }
-
-    @MainActor
-    private func appleProcessingOutcomeForRecording(sessionId: String) -> AppleProcessingOutcome? {
-        guard appleProcessingSpikeEnabled else { return nil }
-        let candidateId = "\(sessionId)-apple-voice-processing"
-        let candidate = appleVoiceProcessingEvaluationService.probeCandidate(
-            candidateId: candidateId,
-            candidateKind: .appOwnedGraphVoiceProcessing,
-            routeClass: .builtInSpeakerphone,
-            featureGateEnabled: true,
-            apiAvailable: false,
-            processingEnabled: false
-        )
-        let lifecycle = appleProcessingLifecycleCoordinator.start(candidate: candidate)
-        let row = appleVoiceProcessingEvaluationService.failClosedRow(
-            candidateId: candidateId,
-            candidateKind: candidate.candidateKind,
-            routeClass: candidate.routeClass,
-            scenario: .stopQuit,
-            reason: .processingUnavailable
-        )
-        let outcome = appleVoiceProcessingEvaluationService.outcome(
-            candidateId: candidateId,
-            rows: [row],
-            fallbackFailureReason: row.failureReason
-        )
-        AppLog.writeRaw(
-            event: "apple_voice_processing_candidate_started",
-            detail: "candidateId=\(candidateId) resourceActive=\(lifecycle.resourceActive) primaryOutcome=\(outcome.primaryOutcome.rawValue) failureReason=\(outcome.failureReason ?? "none")"
-        )
-        return outcome
-    }
-
-    @MainActor
-    private func releaseAppleProcessingCandidate(reason: AppleProcessingLifecycleReleaseReason) {
-        guard appleProcessingSpikeEnabled else { return }
-        guard appleProcessingLifecycleCoordinator.snapshot().resourceActive else { return }
-        let lifecycle = appleProcessingLifecycleCoordinator.release(reason: reason)
-        AppLog.writeRaw(
-            event: "apple_voice_processing_candidate_released",
-            detail: "reason=\(reason.rawValue) resourceActive=\(lifecycle.resourceActive) candidateId=\(lifecycle.releasedCandidateId ?? lifecycle.activeCandidateId ?? "none")"
-        )
-    }
-
     @MainActor
     private func releaseCaptureResourcesForAppExit() async {
         stopMeetingDetection()
-        releaseAppleProcessingCandidate(reason: .appQuit)
         let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
         await finalizeLocalRecordingForAppExit(
             failureReason: releasedSystemAudioSession?.failureReason ?? .none
@@ -1706,7 +1650,11 @@ private struct ContentView: View {
             do {
                 _ = try service.scanAndEnqueueCompletedRecordings()
                 _ = try service.applyRetentionExpiry()
-                var items = try await service.processDueItems()
+                var items = try await service.processDueItems { progressItems in
+                    await MainActor.run {
+                        uploadQueueItems = progressItems
+                    }
+                }
                 var shouldRetryLocalPurgeAcknowledgement = false
                 do {
                     _ = try await service.acknowledgePendingLocalPurgeTasks()

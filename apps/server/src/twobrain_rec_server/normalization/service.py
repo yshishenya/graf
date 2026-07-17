@@ -211,6 +211,12 @@ class NormalizationPipeline(Protocol):
 DEFAULT_NORMALIZATION_ACTIVITY_LEASE = timedelta(seconds=90)
 DEFAULT_NORMALIZATION_WORK_BUDGET_BYTES = 6_442_450_944
 DEFAULT_NORMALIZATION_WORK_RESERVE_BYTES = 268_435_456
+_SINGLE_SOURCE_KINDS = frozenset(
+    {
+        MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value,
+        MediaRevisionSourceKind.MANUAL_UPLOAD.value,
+    }
+)
 
 
 def _require_normalization_work_capacity(
@@ -2109,7 +2115,7 @@ async def _prepare_attempt(
         raise RuntimeError("source_missing")
     expected_source_digests = revision.track_sha256_by_role or {}
     source_error: str | None = None
-    if revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value:
+    if revision.source_kind in _SINGLE_SOURCE_KINDS:
         if media is None:
             source_error = "source_missing"
         elif expected_source_digests.get(TrackRole.MEDIA.value) != media.sha256:
@@ -2304,7 +2310,7 @@ async def _execute_normalization_job(
                 output_path.unlink(missing_ok=True)
                 candidate_path.unlink(missing_ok=True)
                 if prepared.media is not None:
-                    output = await _derive_from_manual_source(
+                    output = await _derive_from_single_source(
                         storage=storage,
                         prepared=prepared,
                         work_path=work_path,
@@ -2326,7 +2332,7 @@ async def _execute_normalization_job(
                         work_reserve_bytes=work_reserve_bytes,
                     )
         elif prepared.media is not None:
-            output = await _derive_from_manual_source(
+            output = await _derive_from_single_source(
                 storage=storage,
                 prepared=prepared,
                 work_path=work_path,
@@ -2532,7 +2538,7 @@ async def _derive_from_first_party_sources(
     )
 
 
-async def _derive_from_manual_source(
+async def _derive_from_single_source(
     *,
     storage: object,
     prepared: _AttemptInputs,

@@ -148,9 +148,10 @@ specs/106-mixed-wav-recording/
 apps/macos/
 ├── RecApp/App/TwoBrainRecApp.swift
 ├── RecApp/Sources/Capture/
-│   ├── LocalRecordingWriter.swift
+│   ├── V5LocalRecordingWriter.swift
 │   ├── RecordingAudioTimeline.swift
 │   ├── CanonicalRecordingWriter.swift
+│   ├── RecordingSampleSources.swift
 │   ├── SystemAudioCaptureService.swift
 │   ├── MicrophoneCaptureService.swift
 │   ├── LocalRecordingManifestService.swift
@@ -159,16 +160,18 @@ apps/macos/
 │   ├── DesktopUploadQueueService.swift
 │   └── DesktopUploadClient.swift
 ├── Shared/Sources/Models/
-│   ├── AudioModels.swift
-│   └── AudioStates.swift
+│   ├── AudioModelCore.swift
+│   ├── AudioStates.swift
+│   └── SystemAudioCaptureCoreModels.swift
 ├── Shared/Tests/
 │   ├── LocalRecordingWriterTests.swift
 │   ├── LocalRecordingWriterSystemAudioTests.swift
 │   ├── SystemAudioRecordingPackageTests.swift
-│   ├── LocalRecordingManifestTests.swift
-│   ├── DesktopUploadQueueTests.swift
+│   ├── CanonicalRecordingManifestTests.swift
+│   ├── DesktopUploadQueueV5Tests.swift
+│   ├── CaptureControlV5Tests.swift
 │   └── DesktopUploadClientTests.swift
-├── Shared/Tools/ContractValidation/main.swift
+├── Shared/Tools/ContractValidation/ContractValidationV5.swift
 └── Scripts/validate-recording-artifact-format.sh
 
 apps/server/

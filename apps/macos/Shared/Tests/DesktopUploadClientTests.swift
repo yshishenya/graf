@@ -9,7 +9,106 @@ final class DesktopUploadClientTests: XCTestCase {
     func testLocalRolesMapToBackendTrackRoles() {
         XCTAssertEqual(DesktopUploadClient.backendRole(for: .localMic), .microphone)
         XCTAssertEqual(DesktopUploadClient.backendRole(for: .remoteSpeaker), .system)
-        XCTAssertNil(DesktopUploadClient.backendRole(for: .mixedMeetingAudio))
+        XCTAssertEqual(DesktopUploadClient.backendRole(for: .mixedMeetingAudio), .media)
+        XCTAssertEqual(DesktopUploadClient.backendRole(for: .reviewPlayback), .playback)
+    }
+
+    func testV5UploadDescriptorsContainOnlyCanonicalWAVManifestAndPlayback() {
+        let descriptors = DesktopUploadClient.uploadFileDescriptors(for: makeV5QueueItem())
+
+        XCTAssertEqual(descriptors.map(\.transportRole), [.manifest, .media, .playback])
+        XCTAssertEqual(descriptors.first { $0.transportRole == .media }?.url.lastPathComponent, "meeting-transcription.wav")
+        XCTAssertEqual(descriptors.first { $0.transportRole == .media }?.codec, "wav-pcm-s16le")
+        XCTAssertEqual(descriptors.first { $0.transportRole == .media }?.sampleRateHz, 16_000)
+        XCTAssertEqual(descriptors.first { $0.transportRole == .playback }?.url.lastPathComponent, "meeting-review.m4a")
+        XCTAssertFalse(descriptors.contains { $0.transportRole == .microphone || $0.transportRole == .system })
+    }
+
+    func testV5CreateMeetingPayloadDeclaresSingleWAVSource() {
+        let payload = DesktopUploadClient.createMeetingPayload(for: makeV5QueueItem())
+
+        XCTAssertEqual(payload.source_kind, "initial_mixed_recording")
+        XCTAssertEqual(payload.media_scribe_source_mode, "single_wav_v1")
+    }
+
+    func testV5ProgressUsesAllRequiredPackageBytesRatherThanFixedHalf() {
+        let item = makeV5QueueItem().withTransition(
+            to: .uploading,
+            now: Date(timeIntervalSince1970: 2),
+            serverTruth: ServerTruthFingerprint(
+                acceptedBytesByTrack: ["media": 400],
+                expectedTrackRoles: ["manifest", "media", "playback"]
+            )
+        )
+
+        XCTAssertEqual(item.progressFraction, 400.0 / 1_928.0, accuracy: 0.0001)
+        XCTAssertNotEqual(item.progressFraction, 0.5)
+    }
+
+    func testConfirmedProgressNeverRegressesWithinTheSameUploadSession() {
+        let initial = ServerTruthFingerprint(
+            meetingId: "meeting-1",
+            uploadSessionId: "session-1",
+            acceptedBytesByTrack: ["manifest": 128, "media": 600],
+            expectedTrackRoles: ["manifest", "media", "playback"]
+        )
+        let staleServerRead = ServerTruthFingerprint(
+            meetingId: "meeting-1",
+            uploadSessionId: "session-1",
+            acceptedBytesByTrack: ["manifest": 128, "media": 400, "playback": 300],
+            expectedTrackRoles: ["manifest", "media", "playback"]
+        )
+
+        let merged = initial.mergingConfirmedProgress(staleServerRead)
+        let item = makeV5QueueItem().withTransition(
+            to: .uploading,
+            now: Date(timeIntervalSince1970: 2),
+            serverTruth: merged
+        )
+
+        XCTAssertEqual(merged.acceptedBytesByTrack["media"], 600)
+        XCTAssertEqual(merged.acceptedBytesByTrack["playback"], 300)
+        XCTAssertEqual(item.progressFraction, 1_028.0 / 1_928.0, accuracy: 0.0001)
+        XCTAssertNotEqual(item.progressFraction, 0.5)
+    }
+
+    func testNewUploadSessionCanTruthfullyRestartConfirmedProgress() {
+        let completedOldSession = ServerTruthFingerprint(
+            uploadSessionId: "old-session",
+            acceptedBytesByTrack: ["manifest": 128, "media": 800, "playback": 1_000],
+            expectedTrackRoles: ["manifest", "media", "playback"]
+        )
+        let newSession = ServerTruthFingerprint(
+            uploadSessionId: "new-session",
+            acceptedBytesByTrack: ["manifest": 128],
+            expectedTrackRoles: ["manifest", "media", "playback"]
+        )
+
+        let merged = completedOldSession.mergingConfirmedProgress(newSession)
+
+        XCTAssertEqual(merged.uploadSessionId, "new-session")
+        XCTAssertEqual(merged.acceptedBytesByTrack, ["manifest": 128])
+    }
+
+    func testDefaultPartSizeProducesRealIntermediateServerConfirmations() {
+        XCTAssertEqual(DesktopUploadClient.defaultPartSizeBytes, 4 * 1024 * 1024)
+    }
+
+    func testMalformedV5PackageNeverFallsBackToDualDescriptors() {
+        var item = makeV5QueueItem()
+        item.artifactProfile.trackCompleteness[1].fileName = "incoming.wav"
+
+        XCTAssertFalse(item.isV5Package)
+        XCTAssertTrue(DesktopUploadClient.uploadFileDescriptors(for: item).isEmpty)
+        XCTAssertTrue(DesktopUploadClient.uploadSessionFileDescriptors(for: item).isEmpty)
+        XCTAssertEqual(
+            DesktopUploadClient.createMeetingPayload(for: item).source_kind,
+            "initial_mixed_recording"
+        )
+        XCTAssertEqual(
+            DesktopUploadClientError.invalidArtifactPackage.failureCategory,
+            .schemaIncompatibility
+        )
     }
 
     func testIdempotencyKeyIsDeterministicAndScoped() {
@@ -143,7 +242,7 @@ final class DesktopUploadClientTests: XCTestCase {
             "system": 512
         ])
         let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.schemaVersion,
+            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
             manifestPresent: true,
             microphonePresent: true,
             systemAudioPresent: true,
@@ -457,8 +556,8 @@ final class DesktopUploadClientTests: XCTestCase {
         )
     }
 
-    func testDefaultPartSizeMatchesServerSingleTrackLimit() {
-        XCTAssertEqual(DesktopUploadClient.defaultPartSizeBytes, 1024 * 1024 * 1024)
+    func testDefaultPartSizeUsesConfirmedProgressGranularity() {
+        XCTAssertEqual(DesktopUploadClient.defaultPartSizeBytes, 4 * 1024 * 1024)
     }
 
     func testOnlyRecordingNotFoundMeansServerUnknownLocalCustody() {
@@ -566,7 +665,7 @@ final class DesktopUploadClientTests: XCTestCase {
             ))
         }
         let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.schemaVersion,
+            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
             manifestPresent: true,
             microphonePresent: true,
             systemAudioPresent: true,
@@ -594,6 +693,72 @@ final class DesktopUploadClientTests: XCTestCase {
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: Date(timeIntervalSince1970: 1),
             recordingMetadata: recordingMetadata,
+            artifactProfile: profile,
+            retentionDecision: RetentionDecision(
+                decision: .retain,
+                decidedAt: Date(timeIntervalSince1970: 1),
+                reason: "test",
+                localArtifactsRetained: true,
+                policyReference: "test"
+            )
+        )
+    }
+
+    private func makeV5QueueItem() -> DesktopUploadQueueItem {
+        let directoryPath = "/tmp/v5-directory"
+        let profile = ArtifactCompletenessProfile(
+            schemaVersion: "local-recording-manifest.v5",
+            manifestPresent: true,
+            microphonePresent: false,
+            systemAudioPresent: false,
+            manifestSha256: String(repeating: "a", count: 64),
+            microphoneSha256: nil,
+            systemAudioSha256: nil,
+            manifestSizeBytes: 128,
+            microphoneSizeBytes: 0,
+            systemAudioSizeBytes: 0,
+            durationSeconds: 60,
+            trackCompleteness: [
+                UploadTrackCompleteness(
+                    transportRole: .manifest,
+                    fileName: "manifest.json",
+                    present: true,
+                    byteCount: 128,
+                    sha256: String(repeating: "a", count: 64),
+                    durationSeconds: 1
+                ),
+                UploadTrackCompleteness(
+                    transportRole: .media,
+                    fileName: "meeting-transcription.wav",
+                    present: true,
+                    byteCount: 800,
+                    sha256: String(repeating: "b", count: 64),
+                    durationSeconds: 60
+                ),
+                UploadTrackCompleteness(
+                    transportRole: .playback,
+                    fileName: "meeting-review.m4a",
+                    present: true,
+                    byteCount: 1_000,
+                    sha256: String(repeating: "c", count: 64),
+                    durationSeconds: 60
+                )
+            ],
+            isUploadable: true
+        )
+        return DesktopUploadQueueItem(
+            id: "v5-queue-id",
+            sessionId: "v5-session",
+            directoryId: "v5-directory",
+            directoryPath: directoryPath,
+            manifestPath: URL(fileURLWithPath: directoryPath).appendingPathComponent("manifest.json").path,
+            microphonePath: "metadata-only",
+            systemAudioPath: "metadata-only",
+            state: .queued,
+            retryMode: .automatic,
+            retentionDeadline: Date(timeIntervalSince1970: 1_000),
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 1),
             artifactProfile: profile,
             retentionDecision: RetentionDecision(
                 decision: .retain,

@@ -2,11 +2,12 @@ import asyncio
 from contextlib import suppress
 from uuid import UUID
 
+import pytest
 from sqlalchemy import select
 from temporalio import activity
 
 from tests.fakes.auth_contexts import tenant_scope
-from tests.fixtures.processing import create_finalized_meeting
+from tests.fixtures.processing import create_finalized_meeting, create_finalized_mixed_recording
 from twobrain_rec_server.db.models import (
     MediaScribeJob,
     ProcessingAuditEvent,
@@ -60,11 +61,70 @@ class FailedPollMediaScribeClient:
         )
 
 
+class AmbiguousV5SubmitClient:
+    def __init__(self, reason_code: str) -> None:
+        self.reason_code = reason_code
+        self.submission_count = 0
+
+    async def submit_single_track(self, **_kwargs):
+        self.submission_count += 1
+        raise MediaScribeClientError(self.reason_code, retryable=True)
+
+
 def test_processing_failure_matrix_marks_auth_terminal_and_timeout_retryable(client) -> None:
     terminal = _run_submit_failure(client, "failure-auth", "mediascribe_auth_failed", retryable=False)
     retryable = _run_submit_failure(client, "failure-timeout", "mediascribe_timeout", retryable=True)
     assert terminal == ("failed_terminal", "mediascribe_auth_failed")
     assert retryable == ("failed_retryable", "mediascribe_timeout")
+
+
+def test_v5_ambiguous_submit_blocks_without_automatic_second_job(client) -> None:
+    finalized = create_finalized_mixed_recording(client, "failure-v5-ambiguous-submit")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    mediascribe_client = AmbiguousV5SubmitClient("mediascribe_timeout")
+
+    async def run() -> tuple[int, str, str | None, str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            for _ in range(2):
+                with pytest.raises(MediaScribeClientError) as exc:
+                    await submit_to_mediascribe(
+                        db=db,
+                        settings=client.app.state.settings,
+                        storage=client.app_state["storage"],
+                        mediascribe_client=mediascribe_client,
+                        workflow=workflow,
+                    )
+                assert exc.value.reason_code == "blocked_mediascribe_submission_outcome_unknown"
+                assert not exc.value.retryable
+            persisted_workflow = await db.scalar(select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id))
+            persisted_job = await db.scalar(select(MediaScribeJob).where(MediaScribeJob.meeting_id == meeting_id))
+            assert persisted_workflow is not None
+            assert persisted_job is not None
+            return (
+                mediascribe_client.submission_count,
+                persisted_workflow.status,
+                persisted_workflow.last_reason_code,
+                persisted_job.status,
+                persisted_job.last_error_code,
+            )
+
+    assert asyncio.run(run()) == (
+        1,
+        "blocked",
+        "blocked_mediascribe_submission_outcome_unknown",
+        "blocked",
+        "blocked_mediascribe_submission_outcome_unknown",
+    )
 
 
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:

@@ -34,6 +34,7 @@ class MediaRevisionStatus(StrEnum):
 
 class MediaRevisionSourceKind(StrEnum):
     INITIAL_RECORDING = "initial_recording"
+    INITIAL_MIXED_RECORDING = "initial_mixed_recording"
     MANUAL_UPLOAD = "manual_upload"
     LOCAL_TRIM = "local_trim"
     VIDEO_CAPTURE = "video_capture"

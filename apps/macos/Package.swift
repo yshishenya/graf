@@ -25,17 +25,9 @@ let package = Package(
             targets: ["ContractValidation"]
         ),
         .executable(
-            name: "LeakageValidation",
-            targets: ["LeakageValidation"]
-        ),
-        .executable(
             name: "MeetingMuteTruthRuntimeProof",
             targets: ["MeetingMuteTruthRuntimeProof"]
         ),
-        .executable(
-            name: "WebRTCAEC3Validation",
-            targets: ["WebRTCAEC3Validation"]
-        )
     ],
     dependencies: [
         .package(
@@ -72,19 +64,9 @@ let package = Package(
             path: "Shared/Tools/ContractValidation"
         ),
         .executableTarget(
-            name: "LeakageValidation",
-            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
-            path: "Shared/Tools/LeakageValidation"
-        ),
-        .executableTarget(
             name: "MeetingMuteTruthRuntimeProof",
             dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
             path: "Shared/Tools/MeetingMuteTruthRuntimeProof"
-        ),
-        .executableTarget(
-            name: "WebRTCAEC3Validation",
-            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
-            path: "Shared/Tools/WebRTCAEC3Validation"
         ),
         .testTarget(
             name: "TwoBrainRecSharedTests",

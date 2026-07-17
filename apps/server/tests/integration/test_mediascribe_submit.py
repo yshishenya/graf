@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
 from tests.fakes.fake_temporal import FakeTemporalClient
-from tests.fixtures.processing import create_finalized_meeting
+from tests.fixtures.processing import create_finalized_meeting, create_finalized_mixed_recording
 from twobrain_rec_server.db.models import MediaRevision, TrackArtifact
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.processing import store
@@ -317,6 +317,41 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
     assert has_source is True
     assert no_pair is True
     assert fake_client.submissions[0]["request_mode"] == "single_track"
+
+
+def test_v5_mislabeled_media_is_blocked_before_any_provider_submission(client) -> None:
+    finalized = create_finalized_mixed_recording(
+        client,
+        "mediascribe-v5-invalid-wav",
+        media_bytes=b"not-a-wave-container",
+    )
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="job_must_not_submit")
+
+    async def run() -> tuple[str, str | None, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            with pytest.raises(RuntimeError) as exc:
+                await submit_to_mediascribe(
+                    db=db,
+                    settings=client.app.state.settings,
+                    storage=StagingOnlyStorage(client.app_state["storage"]),
+                    mediascribe_client=fake_client,
+                    workflow=workflow,
+                )
+            assert str(exc.value) == BLOCKED_MISSING_ARTIFACTS
+            return workflow.status, workflow.last_reason_code, len(fake_client.submissions)
+
+    assert asyncio.run(run()) == ("blocked", BLOCKED_MISSING_ARTIFACTS, 0)
 
 
 def test_processing_source_requires_accepted_revision_and_matching_authoritative_digests(

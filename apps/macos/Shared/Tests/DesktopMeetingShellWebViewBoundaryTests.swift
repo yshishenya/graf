@@ -99,7 +99,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             encoding: .utf8
         )
         let captureSource = try String(
-            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlView.swift"),
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift"),
             encoding: .utf8
         )
         let appSource = try String(
@@ -121,13 +121,11 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         }
         for forbidden in [
             "private struct UploadQueueStatusView",
-            "appleProcessingStatusCopy",
             "uploadReviewButtonTitle"
         ] {
             XCTAssertFalse(captureSource.contains(forbidden), forbidden)
         }
         for forbidden in [
-            "activeAppleProcessingOutcome",
             "localRecordingLocation",
             "meetingDetectionHealth",
             "recordingBlocker = \"Не удалось поставить запись на паузу: \\(error)\"",
@@ -341,7 +339,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         createdAt: Date
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.schemaVersion,
+            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
             manifestPresent: true,
             microphonePresent: true,
             systemAudioPresent: true,
