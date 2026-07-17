@@ -11,3 +11,14 @@ Feather under the MIT License. See:
 
 - https://github.com/lucide-icons/lucide
 - https://github.com/lucide-icons/lucide/blob/main/LICENSE
+
+## Sparkle
+
+The macOS app embeds Sparkle `2.9.4` for authenticated application updates.
+Sparkle is distributed under the MIT License and includes separately attributed
+open-source components. Every packaged `GRAF.app` includes the complete pinned
+upstream license and attribution text at
+`Contents/Resources/Sparkle-LICENSE.txt`.
+
+- https://github.com/sparkle-project/Sparkle
+- https://github.com/sparkle-project/Sparkle/blob/2.9.4/LICENSE

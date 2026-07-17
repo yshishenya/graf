@@ -37,6 +37,12 @@ let package = Package(
             targets: ["WebRTCAEC3Validation"]
         )
     ],
+    dependencies: [
+        .package(
+            url: "https://github.com/sparkle-project/Sparkle",
+            exact: "2.9.4"
+        )
+    ],
     targets: [
         .target(
             name: "TwoBrainRecShared",
@@ -44,7 +50,10 @@ let package = Package(
         ),
         .target(
             name: "TwoBrainRecAppCore",
-            dependencies: ["TwoBrainRecShared"],
+            dependencies: [
+                "TwoBrainRecShared",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             path: "RecApp",
             exclude: ["App"],
             sources: ["Sources"],

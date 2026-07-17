@@ -18,6 +18,9 @@
   <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Развернуть меню" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
   {{ workspace_header("ГРАФ", none, mark_src=static_url ~ "/graf-icon.png", wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
   {{ sidebar_navigation(navigation.items, active=navigation.active) }}
+  {%- if embedded %}
+  <button class="sidebar-app-update" type="button" data-graf-app-update hidden aria-label="Доступно обновление GRAF. Открыть проверку обновлений." title="Доступно обновление GRAF. Открыть проверку обновлений.">{{ icons.icon("download") }}<span class="sidebar-app-update__label">Доступно обновление</span></button>
+  {%- endif %}
   <div class="sidebar-foot">
     <form class="sidebar-logout" method="post" action="{{ '/desktop/meetings' if embedded else '/logout' }}">
       {{ csrf_field(csrf_token) }}

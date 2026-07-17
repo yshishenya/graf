@@ -30,6 +30,12 @@ private enum TwoBrainRecAppMain {
             action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
             keyEquivalent: ""
         )
+        let updateItem = appMenu.addItem(
+            withTitle: "Check for Updates…",
+            action: #selector(AppLifecycleDelegate.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        updateItem.target = zoomTarget
         appMenu.addItem(NSMenuItem.separator())
         let settingsItem = appMenu.addItem(
             withTitle: "Settings...",
@@ -136,6 +142,7 @@ private struct ContentView: View {
     private static let meetingDetectionPromptWindowSize = NSSize(width: 360, height: 286)
     private static let meetingDetectionPromptVisibleMargin: CGFloat = 22
 
+    @ObservedObject private var appUpdateController: AppUpdateController
     @State private var captureController = CaptureSessionController()
     @State private var localRecordingWriter = LocalRecordingWriter()
     @State private var systemAudioCaptureService = SystemAudioCaptureService(
@@ -197,6 +204,14 @@ private struct ContentView: View {
 
     let workspaceZoom: WorkspaceZoomPreference
 
+    init(
+        appUpdateController: AppUpdateController,
+        workspaceZoom: WorkspaceZoomPreference
+    ) {
+        _appUpdateController = ObservedObject(wrappedValue: appUpdateController)
+        self.workspaceZoom = workspaceZoom
+    }
+
     var body: some View {
         DesktopMeetingShellView(
             session: captureSession,
@@ -211,6 +226,7 @@ private struct ContentView: View {
             hasActionableCaptureProblem: CaptureControlView.hasActionableProblem(
                 blockedReason: recordingBlocker
             ) || desktopCalendarPrompt?.kind == .record,
+            showsAppUpdateBadge: appUpdateController.presentation.showsSidebarBadge,
             onStartRecording: {
                 Task { await startManualRecording() }
             },
@@ -225,6 +241,9 @@ private struct ContentView: View {
             },
             onOpenSettings: {
                 (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
+            },
+            onCheckForUpdates: {
+                (NSApp.delegate as? AppLifecycleDelegate)?.checkForUpdates(nil)
             },
             onSupportIncidentReport: { itemIds in
                 try await submitSupportIncidentReport(itemIds: itemIds)
@@ -283,6 +302,10 @@ private struct ContentView: View {
                 workspaceZoom: workspaceZoom,
                 navigationEventLogger: { event, detail in
                     AppLog.writeRaw(event: event, detail: detail)
+                },
+                showsAppUpdateBadge: appUpdateController.presentation.showsSidebarBadge,
+                onCheckForUpdates: {
+                    (NSApp.delegate as? AppLifecycleDelegate)?.checkForUpdates(nil)
                 }
             )
         }
@@ -319,6 +342,10 @@ private struct ContentView: View {
             refreshUploadQueueAndProcess(reason: "app_appeared")
             startUploadQueueNetworkMonitorIfNeeded()
             startMeetingDetectionIfNeeded()
+            appUpdateController.updateProtectedWork(protectedUpdateWork)
+        }
+        .onChange(of: protectedUpdateWork) { _, work in
+            appUpdateController.updateProtectedWork(work)
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecMeetingDetectionSettingsDidChange)) { _ in
             reloadMeetingDetectionSettings()
@@ -377,6 +404,15 @@ private struct ContentView: View {
             stopMeetingDetection()
             Task { await releaseCaptureResourcesForAppExit() }
         }
+    }
+
+    private var protectedUpdateWork: ProtectedUpdateWork {
+        ProtectedUpdateWork(
+            captureActive: captureSession.map { CaptureStatusItem.showsStopButton(for: $0) } == true || localRecordingActive,
+            captureTransitioning: recordingStartInProgress || recordingStopInProgress,
+            recordingFinalizing: recordingStopInProgress,
+            terminationCleanupPending: terminationCleanupInProgress
+        )
     }
 
     @MainActor
@@ -2117,13 +2153,17 @@ private struct MeetingDetectionPromptView: View {
 }
 
 @MainActor
-private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
+private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private let workspaceZoomStore = WorkspaceZoomStore()
+    private let appUpdateController: AppUpdateController
     private var terminationReplyPending = false
 
     override init() {
+        appUpdateController = AppUpdateController { event, detail in
+            AppLog.writeRaw(event: event, detail: detail)
+        }
         super.init()
         NotificationCenter.default.addObserver(
             self,
@@ -2168,6 +2208,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         )
         NSApp.activate(ignoringOtherApps: true)
         presentMainWindow(reason: "launch")
+        appUpdateController.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.logWindowVisibility()
         }
@@ -2191,6 +2232,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             return .terminateLater
         }
         terminationReplyPending = true
+        appUpdateController.updateProtectedWork(
+            ProtectedUpdateWork(terminationCleanupPending: true)
+        )
         AppLog.writeRaw(
             event: "app_termination_cleanup_requested",
             detail: "reply=terminateLater"
@@ -2215,6 +2259,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
     private func replyToTerminateIfPending(reason: String) {
         guard terminationReplyPending else { return }
         terminationReplyPending = false
+        appUpdateController.updateProtectedWork(.idle)
         AppLog.writeRaw(
             event: "app_termination_cleanup_completed",
             detail: "reason=\(reason)"
@@ -2263,7 +2308,10 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         window.identifier = NSUserInterfaceItemIdentifier("graf-main-window")
         configureMainWindowCollectionBehavior(window)
         window.contentViewController = NSHostingController(
-            rootView: AppContentRoot(workspaceZoomStore: workspaceZoomStore)
+            rootView: AppContentRoot(
+                workspaceZoomStore: workspaceZoomStore,
+                appUpdateController: appUpdateController
+            )
         )
         window.center()
         mainWindow = window
@@ -2316,6 +2364,29 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         presentSettingsWindow(reason: "menu")
     }
 
+    @objc func checkForUpdates(_ sender: Any?) {
+        guard appUpdateController.checkForUpdates(sender) else {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "Проверка обновлений недоступна"
+            alert.informativeText = appUpdateController.presentation.message
+                ?? "Эта сборка GRAF не содержит полной доверенной конфигурации обновлений."
+            alert.addButton(withTitle: "ОК")
+            if let mainWindow {
+                alert.beginSheetModal(for: mainWindow)
+            } else {
+                alert.runModal()
+            }
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(checkForUpdates(_:)) else { return true }
+        return appUpdateController.isManualCheckActionEnabled
+    }
+
     private func presentSettingsWindow(reason: String) {
         if let settingsWindow {
             if settingsWindow.isMiniaturized {
@@ -2361,13 +2432,21 @@ private extension Notification.Name {
 
 private struct AppContentRoot: View {
     @ObservedObject private var workspaceZoomStore: WorkspaceZoomStore
+    @ObservedObject private var appUpdateController: AppUpdateController
 
-    init(workspaceZoomStore: WorkspaceZoomStore) {
+    init(
+        workspaceZoomStore: WorkspaceZoomStore,
+        appUpdateController: AppUpdateController
+    ) {
         self.workspaceZoomStore = workspaceZoomStore
+        self.appUpdateController = appUpdateController
     }
 
     var body: some View {
-        ContentView(workspaceZoom: workspaceZoomStore.preference)
+        ContentView(
+            appUpdateController: appUpdateController,
+            workspaceZoom: workspaceZoomStore.preference
+        )
         .frame(minWidth: 1040, minHeight: 680)
     }
 }

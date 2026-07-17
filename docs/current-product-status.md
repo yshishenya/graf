@@ -25,6 +25,27 @@ metadata-only evidence остаются подробной историей ре
   acceptance.
   The standalone formal Codex Security scan for deferred feature `097` remains
   out of this feature's evidence by user instruction.
+- Feature `105-macos-app-updates` is implemented as a local release candidate,
+  not yet a published update channel. The app embeds exact Sparkle `2.9.4`,
+  owns one updater controller, checks the configured stable channel every 24
+  hours, exposes `GRAF > Check for Updates…`, and derives one accessible
+  `Доступно обновление` marker for the native local-only and embedded-cabinet
+  left sidebars. Automatic download/install and system profiling are disabled.
+  Scheduled presentation and relaunch are deferred while capture is active or
+  paused, recording is starting/stopping/finalizing, or termination cleanup is
+  pending. Builds without a complete public HTTPS feed and base64 32-byte
+  Ed25519 public key fail closed with truthful unavailable UI. Packaging embeds
+  and signs Sparkle's nested code while preserving `GRAF.app`,
+  `pro.2brain.graf`, permission usage copy, and the app-only/no-privileged-audio
+  boundary. Local updater-disabled and configured ad-hoc bundles pass focused
+  structural validation; ad-hoc identity evidence is explicitly not public
+  permission-retention proof. Public activation remains blocked on an approved
+  real feed/key, stable Developer ID lineage, notarization/stapling/Gatekeeper,
+  a signed archive/appcast, old-to-new and rejected-update smoke, and two
+  sequential same-identity updates retaining microphone and Screen/System Audio
+  grants without TCC mutation. Existing installations without the updater need
+  one final manual `.pkg` bootstrap install. No update artifact has been
+  published and no production surface has been changed by this feature lane.
 - Feature `095-macos-permission-retention` is implemented for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted

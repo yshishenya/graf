@@ -32,6 +32,9 @@ public enum DesktopMeetingShellChrome {
     public static let compactRailStopLabel = "Остановить запись"
     public static let compactRailActionHitSize: CGFloat = 40
     public static let settingsRailLabel = "Настройки"
+    public static let appUpdateLabel = "Доступно обновление"
+    public static let appUpdateAccessibilityLabel = "Доступно обновление GRAF. Открыть проверку обновлений."
+    public static let appUpdateHitSize: CGFloat = 40
     public static let webEmbeddedBackgroundNSColor = NSColor(
         srgbRed: 0.098,
         green: 0.102,
@@ -102,11 +105,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let startRecordingAvailable: Bool
     private let recordingTransitionInProgress: Bool
     private let hasActionableCaptureProblem: Bool
+    private let showsAppUpdateBadge: Bool
     private let onStartRecording: () -> Void
     private let onStopRecording: () -> Void
     private let onPauseRecording: () -> Void
     private let onResumeRecording: () -> Void
     private let onOpenSettings: () -> Void
+    private let onCheckForUpdates: () -> Void
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
@@ -123,11 +128,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         startRecordingAvailable: Bool = false,
         recordingTransitionInProgress: Bool = false,
         hasActionableCaptureProblem: Bool = false,
+        showsAppUpdateBadge: Bool = false,
         onStartRecording: @escaping () -> Void = {},
         onStopRecording: @escaping () -> Void = {},
         onPauseRecording: @escaping () -> Void = {},
         onResumeRecording: @escaping () -> Void = {},
         onOpenSettings: @escaping () -> Void = {},
+        onCheckForUpdates: @escaping () -> Void = {},
         onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
             throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
         },
@@ -141,11 +148,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.startRecordingAvailable = startRecordingAvailable
         self.recordingTransitionInProgress = recordingTransitionInProgress
         self.hasActionableCaptureProblem = hasActionableCaptureProblem
+        self.showsAppUpdateBadge = showsAppUpdateBadge
         self.onStartRecording = onStartRecording
         self.onStopRecording = onStopRecording
         self.onPauseRecording = onPauseRecording
         self.onResumeRecording = onResumeRecording
         self.onOpenSettings = onOpenSettings
+        self.onCheckForUpdates = onCheckForUpdates
         self.onSupportIncidentReport = onSupportIncidentReport
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
@@ -218,6 +227,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private var localMeetingsWorkspace: some View {
         VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingLarge) {
+            if showsAppUpdateBadge {
+                localAppUpdateBadge
+            }
             localCabinetStatus
 
             VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
@@ -248,6 +260,39 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 }
             }
         }
+    }
+
+    private var localAppUpdateBadge: some View {
+        Button(action: onCheckForUpdates) {
+            HStack(spacing: DesktopMeetingShellChrome.spacingSmall) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                Text(DesktopMeetingShellChrome.appUpdateLabel)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Spacer()
+            }
+            .padding(.horizontal, DesktopMeetingShellChrome.spacingMedium)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: DesktopMeetingShellChrome.appUpdateHitSize,
+                alignment: .leading
+            )
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(DesktopMeetingShellChrome.shellAccentColor.opacity(0.62), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
+        .contentShape(Rectangle())
+        .help(DesktopMeetingShellChrome.appUpdateAccessibilityLabel)
+        .accessibilityLabel(DesktopMeetingShellChrome.appUpdateAccessibilityLabel)
+        .accessibilityIdentifier("desktop-meeting-shell-app-update")
     }
 
     private var localCabinetStatus: some View {

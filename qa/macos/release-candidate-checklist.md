@@ -33,6 +33,49 @@ release surface.
 - [ ] Package expansion/inspection passes without installing it.
 - [ ] Signing/notarization evidence matches the intended release lane.
 
+## In-App Update Gates
+
+- [ ] `Sparkle` is locked to `2.9.4`, embedded at
+  `Contents/Frameworks/Sparkle.framework`, and reports current version `2.9.4`.
+- [ ] `Contents/Resources/Sparkle-LICENSE.txt` contains the complete license
+  and third-party attribution text from the pinned upstream release.
+- [ ] `SUFeedURL` is the approved public credential-free HTTPS appcast URL and
+  `SUPublicEDKey` is the approved base64 32-byte Ed25519 public key.
+- [ ] Signed-feed and verify-before-extraction settings are enabled; scheduled
+  checks are `86400`; automatic download/install and system profiling are off.
+- [ ] All nested Sparkle code is signed inside-out before `GRAF.app`; the app
+  has hardened runtime and a secure timestamp.
+- [ ] The new app has a strictly increasing CalVer, stays `GRAF.app` /
+  `pro.2brain.graf`, has the same TeamIdentifier, and satisfies the previous
+  public app's designated requirement.
+- [ ] Developer ID Application signing, notarization, stapling, and
+  `spctl --assess --type execute` pass for the final app.
+- [ ] `prepare-app-update.sh` creates a versioned archive and signed appcast in
+  staging only; archive length, EdDSA signatures, `arm64`, and macOS `14.5+`
+  match the final app.
+- [ ] The private EdDSA key, Developer ID material, notarization credentials,
+  and generated signed artifacts remain outside git and issue evidence.
+- [ ] An older installed build finds the staged release through both the daily
+  scheduler and `GRAF > Check for Updates…`; current/offline/incompatible
+  outcomes remain truthful.
+- [ ] Dismissing a valid offer keeps one accessible left-sidebar marker in both
+  connected-cabinet and local-only layouts; skip, withdrawal, or successful
+  install removes it.
+- [ ] Active/paused capture, start/stop, finalization, and termination cleanup
+  prevent relaunch; after protected work ends the cached offer proceeds without
+  a second catalog request.
+- [ ] Corrupt, unsigned, wrong-key, downgrade, wrong-identity, and incompatible
+  fixtures are rejected while the previous app remains launchable.
+- [ ] Two sequential same-identity in-app updates retain microphone and
+  Screen/System Audio grants without `tccutil reset` or TCC mutation.
+- [ ] First updater-enabled release notes state that older builds need one final
+  manual `.pkg` bootstrap install.
+- [ ] The archive/package contains no privileged audio component and no Core
+  Audio service mutation.
+- [ ] Public appcast/archive publication has explicit release approval and a
+  documented stop-rollout feed restore plus higher-CalVer forward rollback for
+  Macs that already updated.
+
 ## Manual Gates
 
 - [ ] Current-build short recording smoke passes on the required browser target.
