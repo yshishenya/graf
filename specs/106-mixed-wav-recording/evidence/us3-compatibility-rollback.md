@@ -16,8 +16,9 @@ No release, install, rollback action, audio, transcript or credential was used.
   including the rule that rollback is a release action for a subsequent
   recording, not a runtime toggle or hidden dual fallback.
 - Read-only GitHub tag lookup verified the pre-v5 baseline
-  `v2026.07.17.6` at `4be444e82ec449a3bb5312920fb0cd6008072c56`. The similarly
-  numbered parallel `v2026.07.17.7` work is not an interchangeable baseline.
+  `v2026.07.17.6` at `4be444e82ec449a3bb5312920fb0cd6008072c56`. The
+  user-confirmed, still-in-progress parallel `v2026.07.16.7` work is not an
+  interchangeable baseline.
 
 **Open release gate**: verify the exact baseline SHA, use the separately
 approved local install procedure, make one controlled v5 recording, and

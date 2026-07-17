@@ -30,7 +30,8 @@ release surface.
 
 - [ ] The known-good pre-v5 baseline is the release-owner verified
   `v2026.07.17.6` tag at `4be444e82ec449a3bb5312920fb0cd6008072c56`. Do not
-  substitute the parallel `v2026.07.17.7` work or an unverified nearby tag.
+  substitute the user-confirmed, still-in-progress parallel `v2026.07.16.7`
+  work or an unverified nearby tag.
   Record the resolved SHA before the canary; the current feature branch does
   not claim that the canary or rollback has run.
 - [ ] Candidate commit/release, date, package schema, route verdict, incoming

@@ -42,6 +42,7 @@ rollback: pass|fail|open
 limitations:
 ```
 
-`v2026.07.17.7` is parallel work and is not an interchangeable rollback
-baseline. A rollback changes only the next controlled capture; it never
+The user-confirmed, still-in-progress parallel `v2026.07.16.7` work is not an
+interchangeable rollback baseline. A rollback changes only the next controlled
+capture; it never
 rewrites an accepted v5 revision or introduces a hidden dual-provider retry.

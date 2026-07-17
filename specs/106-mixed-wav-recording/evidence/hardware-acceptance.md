@@ -7,8 +7,8 @@
 - The exact `v2026.07.17.6` baseline tag and commit SHA are verified as
   `4be444e82ec449a3bb5312920fb0cd6008072c56`.
 - The local install and controlled hardware procedure require separate approval.
-- Parallel `v2026.07.17.7` work must not be used as the baseline or merged
-  into this feature.
+- The user-confirmed, still-in-progress parallel `v2026.07.16.7` work must
+  not be used as the baseline or merged into this feature.
 
 ## Non-install candidate proof
 
