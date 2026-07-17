@@ -29,6 +29,15 @@ installed-app UX. All results below are local and content-free.
   Its RLS production probe remained correctly blocked because this local lane
   has no disposable PostgreSQL test database; it is not represented as
   deployed proof.
+- Convergence check for T067: native `CMSampleBuffer` PTS are now retained as
+  source-domain timestamps and only admitted after a bounded, stable callback
+  observation against the CoreMedia host clock. Missing or unstable mappings
+  fail closed before frames are written. The merge with `v2026.07.17.9`
+  preserved that guard; the focused macOS group reported `235` tests, `0`
+  failures, the v5 server group reported `97` tests, `0` failures, and the
+  refreshed full local gate reported `567` macOS tests, `0` failures and
+  `1781` server tests passed with `28` expected skips. The pre-existing
+  TestClient deprecation warning remains non-feature evidence.
 - GitHub reconciliation: every `[X]` task has its matching Feature 106 issue
   closed with a Russian metadata-only validation comment. The only open Feature
   106 execution issues are `T049`, `T063` and `T064`; `T066` is marked
