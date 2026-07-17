@@ -12,6 +12,8 @@ public struct DesktopCabinetWorkspaceView: View {
     private let presentation: DesktopCabinetWorkspacePresentation
     private let workspaceZoom: WorkspaceZoomPreference
     private let navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger?
+    private let showsAppUpdateBadge: Bool
+    private let onCheckForUpdates: EmbeddedCabinetWebView.CheckForUpdatesAction
     private let externalCabinetState: Binding<DesktopCabinetState>?
     @State private var internalCabinetState: DesktopCabinetState
     @Binding private var currentRoute: URL?
@@ -24,6 +26,8 @@ public struct DesktopCabinetWorkspaceView: View {
         presentation: DesktopCabinetWorkspacePresentation = .card,
         workspaceZoom: WorkspaceZoomPreference = .default,
         navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger? = nil,
+        showsAppUpdateBadge: Bool = false,
+        onCheckForUpdates: @escaping EmbeddedCabinetWebView.CheckForUpdatesAction = {},
         initialState: DesktopCabinetState? = nil
     ) {
         let resolvedInitialState = initialState ?? (configuration == nil ? .notConfigured : .loading)
@@ -32,6 +36,8 @@ public struct DesktopCabinetWorkspaceView: View {
         self.presentation = presentation
         self.workspaceZoom = workspaceZoom
         self.navigationEventLogger = navigationEventLogger
+        self.showsAppUpdateBadge = showsAppUpdateBadge
+        self.onCheckForUpdates = onCheckForUpdates
         self.externalCabinetState = cabinetState
         _internalCabinetState = State(initialValue: cabinetState?.wrappedValue ?? resolvedInitialState)
         _currentRoute = currentRoute
@@ -92,7 +98,9 @@ public struct DesktopCabinetWorkspaceView: View {
                 cabinetState: activeCabinetStateBinding,
                 workspaceZoom: workspaceZoom,
                 currentRoute: $currentRoute,
-                navigationEventLogger: navigationEventLogger
+                navigationEventLogger: navigationEventLogger,
+                showsAppUpdateBadge: showsAppUpdateBadge,
+                onCheckForUpdates: onCheckForUpdates
             )
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.embeddedSurface)
 

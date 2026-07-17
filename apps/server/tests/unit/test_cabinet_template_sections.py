@@ -99,6 +99,7 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
     assert 'name="csrf_token" value="shell-csrf-token"' in html
     assert 'name="next" value="/login?next=/meetings"' in html
     assert 'data-icon="log-out"' in html
+    assert "data-graf-app-update" not in html
     assert "Выйти" in html
     assert "Пригласить" not in html
     assert "Пробный период" not in html
@@ -130,6 +131,12 @@ def test_cabinet_shell_macro_uses_embedded_allowed_logout_target() -> None:
     assert 'action="/desktop/meetings"' in html
     assert 'name="csrf_token" value="embedded-csrf-token"' in html
     assert 'name="next" value="/login?next=/desktop/meetings"' in html
+    assert 'data-graf-app-update' in html
+    assert 'class="sidebar-app-update"' in html
+    assert 'aria-label="Доступно обновление GRAF. Открыть проверку обновлений."' in html
+    assert 'title="Доступно обновление GRAF. Открыть проверку обновлений."' in html
+    assert 'hidden' in html
+    assert "Доступно обновление" in html
 
 
 def test_section_css_covers_interaction_and_overflow_states() -> None:
@@ -145,6 +152,8 @@ def test_section_css_covers_interaction_and_overflow_states() -> None:
         ".cabinet-playback-controls[data-state=\"unavailable\"]",
         ".cabinet-confirmation-dialog[data-state=\"destructive\"]",
         ".sidebar-logout__button:hover",
+        ".sidebar-app-update:hover",
+        ".sidebar-app-update:focus-visible",
     ]:
         assert marker in css
 

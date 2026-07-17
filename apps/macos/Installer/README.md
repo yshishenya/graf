@@ -141,9 +141,139 @@ path is `Scripts/build-local-installer.sh`.
   unless `DEVELOPER_ID_INSTALLER_IDENTITY` is set in the environment. Unsigned
   packages are acceptable only for local validation.
 
+## In-App Updates
+
+GRAF uses the pinned Sparkle 2 framework for authenticated app-bundle updates.
+The existing `.pkg` remains the bootstrap and repair installer. Users on a
+build that predates the updater need one final manual `.pkg` installation;
+after that, same-identity releases can update `GRAF.app` in place.
+
+The client behavior is deliberately conservative:
+
+- Sparkle checks the stable feed every 86,400 seconds and catches up after the
+  app next launches;
+- `GRAF > Check for Updates…` starts the same updater manually;
+- a trustworthy available release adds `Доступно обновление` to the left
+  sidebar in both connected-cabinet and local-only layouts;
+- automatic download and automatic installation are disabled;
+- scheduled dialogs and relaunch are deferred during active or paused capture,
+  recording start/stop, finalization, and termination cleanup;
+- no meeting content or system profile is sent with update checks.
+
+Updater-disabled local builds are valid. They embed Sparkle but omit both
+`SUFeedURL` and `SUPublicEDKey`; the menu then reports that trusted updates are
+unavailable and never opens an unsigned fallback. A configured build requires
+both values:
+
+```sh
+GRAF_VERSION=YYYY.MM.DD.N \
+GRAF_APP_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" \
+GRAF_UPDATE_FEED_URL="https://rec.2brain.pro/static/public/downloads/graf-appcast.xml" \
+GRAF_SPARKLE_PUBLIC_ED_KEY="<base64-public-key>" \
+  sh apps/macos/Installer/Scripts/build-local-installer.sh
+```
+
+The public key must be a base64-encoded 32-byte Ed25519 public key. The
+corresponding private key stays outside the repository and public host, either
+in the signing operator's Keychain or in an approved external secret file. Do
+not place key material, credentials, signed URLs, or notarization secrets in
+shell history, logs, screenshots, specs, or issue evidence.
+
+After the manual bootstrap release, every in-app candidate must keep the same
+feed URL and public key as the previous app. Key rotation is a separate approved
+multi-release migration; replacing the key or feed in one ordinary update would
+strand installed clients and is rejected by the validator.
+
+`build-local-installer.sh` embeds `Sparkle.framework`, adds its runtime search
+path, signs Downloader/Installer XPC services, Updater.app, Autoupdate, the
+framework, and finally `GRAF.app`. Developer ID builds use hardened runtime and
+secure timestamps. The script never relies on `codesign --force --deep` for
+signing nested code. The complete pinned Sparkle license and third-party
+attributions ship as `Contents/Resources/Sparkle-LICENSE.txt`.
+
+### Validate Identity And Trust
+
+Keep the previous public `GRAF.app` as an immutable comparison input. Validate
+the new bundle before creating or publishing update artifacts:
+
+```sh
+GRAF_PREVIOUS_APP_BUNDLE="/absolute/path/to/previous/GRAF.app" \
+  sh apps/macos/Scripts/validate-app-updates.sh \
+  apps/macos/RecApp/.build/GRAF.app
+```
+
+Ad-hoc builds can prove only bundle structure and increasing version because
+their designated requirement is content-hash based. Public validation is
+strict and requires the previous app, the same Developer ID team and compatible
+designated requirement, hardened runtime, a valid notarization staple, and
+Gatekeeper acceptance:
+
+```sh
+GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
+GRAF_PREVIOUS_APP_BUNDLE="/absolute/path/to/previous/GRAF.app" \
+  sh apps/macos/Scripts/validate-app-updates.sh \
+  apps/macos/RecApp/.build/GRAF.app
+```
+
+The public app must remain `/Applications/GRAF.app` with bundle identifier
+`pro.2brain.graf`, the same Developer ID signing lineage, and permission usage
+descriptions compatible with the previous release. Changing a certificate,
+team, designated requirement, bundle identity, or install path can make macOS
+treat the update as another application and ask for permissions again.
+
+### Stage A Signed Appcast
+
+Write Russian release notes to a file outside generated artifacts, then stage
+the archive and signed appcast with the official pinned Sparkle tool:
+
+```sh
+GRAF_VERSION=YYYY.MM.DD.N \
+GRAF_PREVIOUS_APP_BUNDLE="/absolute/path/to/previous/GRAF.app" \
+GRAF_UPDATE_RELEASE_NOTES="/absolute/path/to/release-notes-ru.md" \
+GRAF_UPDATE_DOWNLOAD_BASE_URL="https://rec.2brain.pro/static/public/downloads" \
+GRAF_SPARKLE_KEYCHAIN_ACCOUNT="approved-graf-account" \
+  sh apps/macos/Installer/Scripts/prepare-app-update.sh
+```
+
+`GRAF_SPARKLE_PRIVATE_KEY_FILE` may be used instead of the Keychain account,
+but the file must resolve outside the repository. The helper validates a
+strictly increasing CalVer, same-identity inputs, public credential-free HTTPS
+URLs, Russian notes, archive metadata, signatures, architecture, and minimum
+macOS version. It writes inspectable artifacts only under
+`apps/macos/.build/updates/` by default. It does not upload, publish, tag,
+release, deploy, or alter the public feed.
+
+Before publication, validate the final Developer ID/notarized app, archive, and
+appcast together, run an old-to-new update and a rejected/corrupt-update rollback
+smoke, and obtain explicit release approval. Keep the previous versioned archive
+available during rollout. To halt a rollout, restore the last known-good signed
+feed. Macs that already installed the bad release receive a new, strictly
+higher-CalVer forward-rollback build containing the reverted code; never offer
+a lower version or an unsigned downgrade through the feed. Manual installation
+of a prior trusted package is a separately approved recovery path, not the
+normal rollback mechanism.
+
+### Permission-Retention Proof
+
+On the owner/release test Mac, install and complete two sequential in-app
+updates signed by the same identity. Before and after each update run:
+
+```sh
+sh apps/macos/Scripts/validate-macos-permission-retention.sh permissions
+sh apps/macos/Scripts/validate-macos-permission-retention.sh installed-identity
+```
+
+Verify that microphone and Screen/System Audio remain granted, the app
+relaunches, capture still starts/stops, and the sidebar marker clears. Never use
+`tccutil reset`, edit the TCC database, or re-grant permissions as part of this
+proof. Any prompt or identity drift blocks publication.
+
 ## Safety Rules
 
 - Updates must not interrupt active capture or an active call.
 - The normal uninstaller removes only the GRAF app and its legacy app-name alias.
+- In-app archives contain only `GRAF.app`; update, rollback, repair, and
+  uninstall do not add or mutate privileged audio components or Core Audio
+  services.
 - Existing local proof components, if any, are handled only through the separate
   bounded operator procedure in `docs/agent-guidance/legacy-audio-driver-cleanup.md`.

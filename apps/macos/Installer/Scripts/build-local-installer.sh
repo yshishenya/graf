@@ -2,12 +2,12 @@
 set -eu
 export COPYFILE_DISABLE=1
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-INSTALLER_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-MACOS_DIR=$(CDPATH= cd -- "$INSTALLER_DIR/.." && pwd)
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+INSTALLER_DIR=$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)
+MACOS_DIR=$(CDPATH='' cd -- "$INSTALLER_DIR/.." && pwd)
 REPO_ROOT=$(git -C "$MACOS_DIR" rev-parse --show-toplevel 2>/dev/null || true)
 if [ -z "$REPO_ROOT" ]; then
-  REPO_ROOT=$(CDPATH= cd -- "$MACOS_DIR/../.." && pwd)
+  REPO_ROOT=$(CDPATH='' cd -- "$MACOS_DIR/../.." && pwd)
 fi
 BUILD_DIR="${GRAF_INSTALLER_BUILD_DIR:-${TWO_BRAIN_REC_INSTALLER_BUILD_DIR:-"$MACOS_DIR/.build/installer"}}"
 STAGE_DIR="$BUILD_DIR/stage"
@@ -16,12 +16,16 @@ SCRIPTS_DIR="$BUILD_DIR/scripts"
 APP_BUNDLE="$MACOS_DIR/RecApp/.build/GRAF.app"
 APP_ICON="$MACOS_DIR/RecApp/Resources/AppIcon.icns"
 APP_CORE_RESOURCE_BUNDLE_NAME="TwoBrainRecMacOS_TwoBrainRecAppCore.bundle"
+SPARKLE_LICENSE_SOURCE="$MACOS_DIR/.build/checkouts/Sparkle/LICENSE"
+SPARKLE_LICENSE_SHA256="389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe"
 WORDMARK_DARK="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark.png"
 WORDMARK_DARK_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkDark@2x.png"
 WORDMARK_LIGHT="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight.png"
 WORDMARK_LIGHT_2X="$MACOS_DIR/RecApp/Resources/GrafWordmarkLight@2x.png"
 OUTPUT_PKG="${1:-"$BUILD_DIR/graf-local.pkg"}"
 APP_SIGN_IDENTITY="${GRAF_APP_SIGN_IDENTITY:-${TWO_BRAIN_REC_APP_SIGN_IDENTITY:-${DEVELOPER_ID_APPLICATION_IDENTITY:-}}}"
+UPDATE_FEED_URL="${GRAF_UPDATE_FEED_URL:-}"
+SPARKLE_PUBLIC_ED_KEY="${GRAF_SPARKLE_PUBLIC_ED_KEY:-}"
 ALLOW_ADHOC_APP_SIGNING="${GRAF_ALLOW_ADHOC_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}}"
 ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING="${GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-0}}"
 DEVELOPER_TOOLS_STATUS=$(DevToolsSecurity -status 2>&1 || true)
@@ -74,6 +78,45 @@ EOF
 esac
 echo "Building GRAF version $VERSION" >&2
 
+if { [ -n "$UPDATE_FEED_URL" ] && [ -z "$SPARKLE_PUBLIC_ED_KEY" ]; } ||
+   { [ -z "$UPDATE_FEED_URL" ] && [ -n "$SPARKLE_PUBLIC_ED_KEY" ]; }; then
+  echo "Incomplete trusted update configuration: set both GRAF_UPDATE_FEED_URL and GRAF_SPARKLE_PUBLIC_ED_KEY, or neither." >&2
+  exit 1
+fi
+if [ -n "$UPDATE_FEED_URL" ]; then
+  case "$UPDATE_FEED_URL" in
+    https://*) ;;
+    *)
+      echo "GRAF_UPDATE_FEED_URL must use HTTPS." >&2
+      exit 1
+      ;;
+  esac
+  case "$UPDATE_FEED_URL" in
+    *"@"*|*"?"*|*"#"*)
+      echo "GRAF_UPDATE_FEED_URL must be public and credential-free, without query or fragment data." >&2
+      exit 1
+      ;;
+  esac
+  UPDATE_FEED_LOCATION=${UPDATE_FEED_URL#https://}
+  UPDATE_FEED_AUTHORITY=${UPDATE_FEED_LOCATION%%/*}
+  if [ -z "$UPDATE_FEED_AUTHORITY" ]; then
+    echo "GRAF_UPDATE_FEED_URL must contain a host." >&2
+    exit 1
+  fi
+  case "$UPDATE_FEED_LOCATION" in
+    */graf-appcast.xml) ;;
+    *)
+      echo "GRAF_UPDATE_FEED_URL must end with /graf-appcast.xml." >&2
+      exit 1
+      ;;
+  esac
+  SPARKLE_PUBLIC_KEY_BYTES=$(printf '%s' "$SPARKLE_PUBLIC_ED_KEY" | /usr/bin/base64 -D 2>/dev/null | wc -c | tr -d ' ')
+  if [ "$SPARKLE_PUBLIC_KEY_BYTES" != "32" ]; then
+    echo "GRAF_SPARKLE_PUBLIC_ED_KEY must be a base64-encoded 32-byte Ed25519 public key." >&2
+    exit 1
+  fi
+fi
+
 rm -rf "$BUILD_DIR"
 mkdir -p "$STAGE_DIR/app/Applications"
 mkdir -p "$COMPONENT_DIR"
@@ -83,6 +126,7 @@ swift build --package-path "$MACOS_DIR" -c release --product TwoBrainRecApp
 BIN_DIR=$(swift build --package-path "$MACOS_DIR" -c release --show-bin-path)
 APP_EXECUTABLE="$BIN_DIR/TwoBrainRecApp"
 APP_CORE_RESOURCE_BUNDLE="$BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME"
+SPARKLE_FRAMEWORK_SOURCE="$MACOS_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 
 if [ ! -x "$APP_EXECUTABLE" ]; then
   echo "Missing app executable at $APP_EXECUTABLE" >&2
@@ -96,6 +140,18 @@ if [ ! -d "$APP_CORE_RESOURCE_BUNDLE" ]; then
   echo "Missing app resource bundle at $APP_CORE_RESOURCE_BUNDLE" >&2
   exit 1
 fi
+if [ -z "$SPARKLE_FRAMEWORK_SOURCE" ] || [ ! -d "$SPARKLE_FRAMEWORK_SOURCE" ]; then
+  echo "Missing pinned Sparkle framework under $MACOS_DIR/.build/artifacts" >&2
+  exit 1
+fi
+if [ ! -f "$SPARKLE_LICENSE_SOURCE" ]; then
+  echo "Missing pinned Sparkle license at $SPARKLE_LICENSE_SOURCE" >&2
+  exit 1
+fi
+if [ "$(shasum -a 256 "$SPARKLE_LICENSE_SOURCE" | awk '{print $1}')" != "$SPARKLE_LICENSE_SHA256" ]; then
+  echo "Pinned Sparkle license checksum differs from release 2.9.4." >&2
+  exit 1
+fi
 for resource in "$WORDMARK_DARK" "$WORDMARK_DARK_2X" "$WORDMARK_LIGHT" "$WORDMARK_LIGHT_2X"; do
   if [ ! -f "$resource" ]; then
     echo "Missing app wordmark resource at $resource" >&2
@@ -106,8 +162,11 @@ done
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
 cp "$APP_EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/GRAF"
+ditto "$SPARKLE_FRAMEWORK_SOURCE" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 cp -R "$APP_CORE_RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
+cp "$SPARKLE_LICENSE_SOURCE" "$APP_BUNDLE/Contents/Resources/Sparkle-LICENSE.txt"
 cp "$APP_ICON" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp "$WORDMARK_DARK" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark.png"
 cp "$WORDMARK_DARK_2X" "$APP_BUNDLE/Contents/Resources/GrafWordmarkDark@2x.png"
@@ -156,6 +215,23 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+if [ -n "$UPDATE_FEED_URL" ]; then
+  /usr/bin/plutil -insert SUFeedURL -string "$UPDATE_FEED_URL" "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUPublicEDKey -string "$SPARKLE_PUBLIC_ED_KEY" "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUEnableAutomaticChecks -bool YES "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUScheduledCheckInterval -integer 86400 "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUAutomaticallyUpdate -bool NO "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUAllowsAutomaticUpdates -bool NO "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUEnableSystemProfiling -bool NO "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUVerifyUpdateBeforeExtraction -bool YES "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SURequireSignedFeed -bool YES "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUSignedFeedFailureExpirationInterval -integer 0 "$APP_BUNDLE/Contents/Info.plist"
+fi
+
+if ! otool -l "$APP_BUNDLE/Contents/MacOS/GRAF" | grep -Fq '@executable_path/../Frameworks'; then
+  install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP_BUNDLE/Contents/MacOS/GRAF"
+fi
+
 if [ -z "$APP_SIGN_IDENTITY" ] &&
    [ "$ALLOW_ADHOC_APP_SIGNING" != "1" ] &&
    [ "$DEVELOPER_TOOLS_ENABLED" != "1" ]; then
@@ -192,16 +268,58 @@ EOF
   exit 1
 fi
 
-if [ -n "$APP_SIGN_IDENTITY" ]; then
-  codesign --force --deep --timestamp=none --sign "$APP_SIGN_IDENTITY" "$APP_BUNDLE" >/dev/null
-else
-  if [ "$DEVELOPER_TOOLS_ENABLED" = "1" ]; then
-    echo "Using ad-hoc app signing for local development because Developer Tools Security is enabled." >&2
-  fi
-  codesign --force --sign - "$APP_BUNDLE" >/dev/null
-fi
-
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+
+sign_nested_code() {
+  target=$1
+  if [ -n "$APP_SIGN_IDENTITY" ]; then
+    case "$APP_SIGN_IDENTITY" in
+      "Developer ID Application:"*)
+        codesign --force --options runtime --timestamp \
+          --preserve-metadata=identifier,entitlements,flags \
+          --sign "$APP_SIGN_IDENTITY" "$target" >/dev/null
+        ;;
+      *)
+        codesign --force --options runtime --timestamp=none \
+          --preserve-metadata=identifier,entitlements,flags \
+          --sign "$APP_SIGN_IDENTITY" "$target" >/dev/null
+        ;;
+    esac
+  else
+    codesign --force --options runtime --timestamp=none \
+      --preserve-metadata=identifier,entitlements,flags \
+      --sign - "$target" >/dev/null
+  fi
+}
+
+sign_app_bundle() {
+  target=$1
+  if [ -n "$APP_SIGN_IDENTITY" ]; then
+    case "$APP_SIGN_IDENTITY" in
+      "Developer ID Application:"*)
+        codesign --force --options runtime --timestamp --sign "$APP_SIGN_IDENTITY" "$target" >/dev/null
+        ;;
+      *)
+        codesign --force --options runtime --timestamp=none --sign "$APP_SIGN_IDENTITY" "$target" >/dev/null
+        ;;
+    esac
+  else
+    codesign --force --options runtime --timestamp=none --sign - "$target" >/dev/null
+  fi
+}
+
+SPARKLE_FRAMEWORK="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+SPARKLE_FRAMEWORK_VERSION="$SPARKLE_FRAMEWORK/Versions/B"
+sign_nested_code "$SPARKLE_FRAMEWORK_VERSION/XPCServices/Downloader.xpc"
+sign_nested_code "$SPARKLE_FRAMEWORK_VERSION/XPCServices/Installer.xpc"
+sign_nested_code "$SPARKLE_FRAMEWORK_VERSION/Updater.app"
+sign_nested_code "$SPARKLE_FRAMEWORK_VERSION/Autoupdate"
+sign_nested_code "$SPARKLE_FRAMEWORK"
+
+if [ -z "$APP_SIGN_IDENTITY" ] && [ "$DEVELOPER_TOOLS_ENABLED" = "1" ]; then
+  echo "Using ad-hoc app signing for local development because Developer Tools Security is enabled." >&2
+fi
+sign_app_bundle "$APP_BUNDLE"
 
 APP_SIGNATURE=$(codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1)
 if printf '%s\n' "$APP_SIGNATURE" | grep -q '^Signature=adhoc' &&

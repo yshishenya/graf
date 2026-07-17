@@ -173,6 +173,35 @@ input, select { padding: 0 10px; width: 100%; min-width: 0; }
 .nav a.active, .nav a:hover { background: var(--surface-3); }
 .nav-count { margin-left: auto; min-width: 20px; min-height: 20px; border-radius: 999px; background: #71347e; display: grid; place-items: center; font-size: 12px; }
 .sidebar-foot { margin-top: auto; display: grid; gap: 8px; }
+.sidebar-app-update {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--focus-ring) 38%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--focus-ring) 10%, transparent);
+  color: var(--focus-ring);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sidebar-app-update:hover {
+  background: color-mix(in srgb, var(--focus-ring) 18%, transparent);
+  color: var(--text);
+}
+.sidebar-app-update:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.sidebar-app-update[hidden] { display: none !important; }
+.sidebar-app-update:not([hidden]) { margin-top: auto; }
+.sidebar-app-update:not([hidden]) + .sidebar-foot { margin-top: 0; }
+.sidebar-app-update .ui-icon { flex: 0 0 auto; }
 .sidebar-logout {
   margin: 0;
   min-width: 0;
@@ -3174,6 +3203,33 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   }
   .desktop-embedded.is-rail-pinned .sidebar-foot {
     visibility: visible;
+  }
+  .desktop-embedded .sidebar-app-update {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .desktop-embedded .sidebar-app-update__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .desktop-embedded.is-rail-pinned .sidebar-app-update {
+    width: calc(var(--app-sidebar-width) - 12px);
+    padding: 0 9px;
+    justify-content: flex-start;
+  }
+  .desktop-embedded.is-rail-pinned .sidebar-app-update__label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
   }
   .desktop-embedded .cabinet-workspace-header {
     min-height: 40px;

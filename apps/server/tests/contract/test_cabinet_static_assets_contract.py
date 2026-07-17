@@ -142,6 +142,20 @@ def test_collapsed_sidebar_only_expands_through_the_explicit_toggle() -> None:
     assert ".desktop-embedded.is-rail-pinned .sidebar-foot {\n    visibility: visible;\n  }" in css
 
 
+def test_embedded_update_slot_is_accessible_and_native_owned() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    for marker in [
+        ".sidebar-app-update",
+        "min-height: 40px;",
+        "color: var(--focus-ring);",
+        ".sidebar-app-update:hover",
+        ".sidebar-app-update:focus-visible",
+        ".sidebar-app-update[hidden]",
+    ]:
+        assert marker in css
+
+
 def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     css = (STATIC_DIR / "cabinet.css").read_text()

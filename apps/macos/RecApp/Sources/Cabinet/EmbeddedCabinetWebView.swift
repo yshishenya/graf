@@ -4,13 +4,46 @@ import SwiftUI
 import AppKit
 import WebKit
 
+public enum EmbeddedCabinetUpdateBridge {
+    public static let messageHandlerName = "grafAppUpdate"
+    public static let checkForUpdatesAction = "checkForUpdates"
+
+    public static let documentScript = """
+    (() => {
+      const button = document.querySelector('[data-graf-app-update]');
+      if (!button || button.dataset.grafUpdateBridgeBound === 'true') return;
+      button.dataset.grafUpdateBridgeBound = 'true';
+      button.addEventListener('click', () => {
+        window.webkit.messageHandlers.grafAppUpdate.postMessage('checkForUpdates');
+      });
+    })();
+    """
+
+    public static func visibilityScript(showsBadge: Bool) -> String {
+        """
+        (() => {
+          const button = document.querySelector('[data-graf-app-update]');
+          if (!button) return;
+          button.hidden = \(showsBadge ? "false" : "true");
+        })();
+        """
+    }
+
+    public static func isAllowedMessageBody(_ body: Any) -> Bool {
+        (body as? String) == checkForUpdatesAction
+    }
+}
+
 public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
+    public typealias CheckForUpdatesAction = @MainActor @Sendable () -> Void
 
     private let request: URLRequest
     private let routePolicy: DesktopCabinetRoutePolicy
     private let workspaceZoom: WorkspaceZoomPreference
     private let navigationEventLogger: NavigationEventLogger?
+    private let showsAppUpdateBadge: Bool
+    private let onCheckForUpdates: CheckForUpdatesAction
     @Binding private var cabinetState: DesktopCabinetState
     @Binding private var currentRoute: URL?
 
@@ -20,12 +53,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         cabinetState: Binding<DesktopCabinetState>,
         workspaceZoom: WorkspaceZoomPreference = .default,
         currentRoute: Binding<URL?> = .constant(nil),
-        navigationEventLogger: NavigationEventLogger? = nil
+        navigationEventLogger: NavigationEventLogger? = nil,
+        showsAppUpdateBadge: Bool = false,
+        onCheckForUpdates: @escaping CheckForUpdatesAction = {}
     ) {
         self.request = request
         self.routePolicy = routePolicy
         self.workspaceZoom = workspaceZoom
         self.navigationEventLogger = navigationEventLogger
+        self.showsAppUpdateBadge = showsAppUpdateBadge
+        self.onCheckForUpdates = onCheckForUpdates
         _cabinetState = cabinetState
         _currentRoute = currentRoute
     }
@@ -62,6 +99,17 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public func makeNSView(context: Context) -> NSView {
         let configuration = WKWebViewConfiguration()
         configuration.allowsAirPlayForMediaPlayback = false
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: EmbeddedCabinetUpdateBridge.documentScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+        )
+        configuration.userContentController.add(
+            context.coordinator,
+            name: EmbeddedCabinetUpdateBridge.messageHandlerName
+        )
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.wantsLayer = true
         webView.layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
@@ -69,15 +117,24 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: webView)
+        context.coordinator.update(
+            showsAppUpdateBadge: showsAppUpdateBadge,
+            onCheckForUpdates: onCheckForUpdates
+        )
         let container = WebViewContainer(webView: webView)
         container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
         webView.load(request)
         return container
     }
 
-    public func updateNSView(_ container: NSView, context _: Context) {
+    public func updateNSView(_ container: NSView, context: Context) {
         guard let container = container as? WebViewContainer else { return }
+        context.coordinator.update(
+            showsAppUpdateBadge: showsAppUpdateBadge,
+            onCheckForUpdates: onCheckForUpdates
+        )
         EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: container.webView)
+        context.coordinator.applyUpdateVisibility(to: container.webView)
         guard Self.shouldLoad(request: request, lastLoadedRequestIdentity: container.lastLoadedRequestIdentity) else {
             return
         }
@@ -91,15 +148,26 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             desktopHeaders: request.allHTTPHeaderFields ?? [:],
             cabinetState: $cabinetState,
             currentRoute: $currentRoute,
-            navigationEventLogger: navigationEventLogger
+            navigationEventLogger: navigationEventLogger,
+            showsAppUpdateBadge: showsAppUpdateBadge,
+            onCheckForUpdates: onCheckForUpdates
         )
     }
 
-    public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    public static func dismantleNSView(_ nsView: NSView, coordinator _: Coordinator) {
+        guard let container = nsView as? WebViewContainer else { return }
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetUpdateBridge.messageHandlerName
+        )
+    }
+
+    public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         private let routePolicy: DesktopCabinetRoutePolicy
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         private let navigationEventLogger: NavigationEventLogger?
         private var authContinuationActive = false
+        private var showsAppUpdateBadge: Bool
+        private var onCheckForUpdates: CheckForUpdatesAction
         @Binding private var cabinetState: DesktopCabinetState
         @Binding private var currentRoute: URL?
 
@@ -108,7 +176,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             desktopHeaders: [String: String],
             cabinetState: Binding<DesktopCabinetState>,
             currentRoute: Binding<URL?>,
-            navigationEventLogger: NavigationEventLogger?
+            navigationEventLogger: NavigationEventLogger?,
+            showsAppUpdateBadge: Bool,
+            onCheckForUpdates: @escaping CheckForUpdatesAction
         ) {
             self.routePolicy = routePolicy
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
@@ -116,8 +186,44 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 desktopHeaders: desktopHeaders
             )
             self.navigationEventLogger = navigationEventLogger
+            self.showsAppUpdateBadge = showsAppUpdateBadge
+            self.onCheckForUpdates = onCheckForUpdates
             _cabinetState = cabinetState
             _currentRoute = currentRoute
+        }
+
+        @MainActor
+        public func update(
+            showsAppUpdateBadge: Bool,
+            onCheckForUpdates: @escaping CheckForUpdatesAction
+        ) {
+            self.showsAppUpdateBadge = showsAppUpdateBadge
+            self.onCheckForUpdates = onCheckForUpdates
+        }
+
+        @MainActor
+        public func applyUpdateVisibility(to webView: WKWebView) {
+            webView.evaluateJavaScript(
+                EmbeddedCabinetUpdateBridge.visibilityScript(showsBadge: showsAppUpdateBadge),
+                completionHandler: nil
+            )
+        }
+
+        @MainActor
+        public func userContentController(
+            _: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            guard
+                message.name == EmbeddedCabinetUpdateBridge.messageHandlerName,
+                EmbeddedCabinetUpdateBridge.isAllowedMessageBody(message.body),
+                message.frameInfo.isMainFrame,
+                let sourceURL = message.frameInfo.request.url,
+                routePolicy.decision(for: sourceURL).decision == .allow
+            else {
+                return
+            }
+            onCheckForUpdates()
         }
 
         @MainActor
@@ -219,6 +325,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
             currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
             cabinetState = finishedState
+            applyUpdateVisibility(to: webView)
             logNavigationEvent(
                 "cabinet_navigation_finished",
                 detail: "state=\(finishedState.rawValue) \(urlLogDetail(url))"
@@ -378,6 +485,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 #else
 public struct EmbeddedCabinetWebView: View {
     public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
+    public typealias CheckForUpdatesAction = @MainActor @Sendable () -> Void
 
     private let message: String
 
@@ -387,7 +495,9 @@ public struct EmbeddedCabinetWebView: View {
         cabinetState _: Binding<DesktopCabinetState>,
         workspaceZoom _: WorkspaceZoomPreference = .default,
         currentRoute _: Binding<URL?> = .constant(nil),
-        navigationEventLogger _: NavigationEventLogger? = nil
+        navigationEventLogger _: NavigationEventLogger? = nil,
+        showsAppUpdateBadge _: Bool = false,
+        onCheckForUpdates _: @escaping CheckForUpdatesAction = {}
     ) {
         message = DesktopCabinetState.notConfigured.userMessage
     }
