@@ -215,6 +215,13 @@ metadata-only evidence остаются подробной историей ре
   were moved. The next candidate is `v2026.07.16.3`; its hotfix merge and
   explicit production-deploy approval are recorded, while release publication,
   deploy and production proof remain pending.
+  Current production evidence supersedes that historical candidate note:
+  `v2026.07.17.3` deployed the startup-recovery fix and immediately dispatched
+  the retained affected job, but its next cleanup pass exposed a separate
+  active-attempt cleanup race before canonical publication. A narrow follow-up
+  migration and selector fix is under validation; no user retry or new upload
+  is required, and the production closeout remains open until the same job is
+  canonical playback-ready.
 - The macOS recording path is app-owned: ScreenCaptureKit system audio and the
   app-owned microphone source are explicitly injected into
   `LocalRecordingWriter`, which finalizes `mic.wav`, `incoming.wav`, and

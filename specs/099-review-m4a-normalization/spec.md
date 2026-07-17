@@ -387,6 +387,7 @@ Source media становится пригодным для downstream processin
 - **FR-041**: Automatic legacy backfill MUST validate any existing playback artifact against the canonical gate, reuse it when valid, regenerate it from retained accepted source when invalid, and produce a final unavailable state plus safe operational alert when neither a valid playback artifact nor usable accepted source exists.
 - **FR-042**: Normalization MUST be scheduled automatically after accepted source media becomes available and MUST NOT depend on transcript or summary completion, while playback and transcript statuses remain independently truthful.
 - **FR-043**: On worker startup, a retained-source normalization job in automatic retry with the machine-readable reason `worker_interrupted` MUST be re-queued and dispatched immediately with the same job/record lineage; this startup recovery MUST NOT shorten scheduled backoff for any other reason.
+- **FR-044**: Automatic temporary-output cleanup MUST NOT select or delete an attempt while its normalization job is `running` or `publishing` with an unexpired worker lease; cleanup MUST remain available after that lease expires or the job leaves its active state.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -430,6 +431,7 @@ Source media становится пригодным для downstream processin
 - **SC-021**: 100% of legacy records evaluated by automatic backfill either reuse a validated playback artifact, regenerate one from retained accepted source, or receive an explicit unavailable reason without fabricated media.
 - **SC-022**: 0 supported accepted sources wait for transcript/summary completion before playback normalization is scheduled.
 - **SC-023**: 100% of eligible `worker_interrupted` retry-wait jobs selected during worker startup are automatically dispatched without a user/admin action, while retry-wait jobs with another reason remain deferred until their scheduled time.
+- **SC-024**: 0 active, unexpired normalization attempts are selected by automatic cleanup; expired or non-active attempts remain eligible for residue cleanup.
 
 ## Assumptions
 
