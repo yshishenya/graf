@@ -1,6 +1,6 @@
+import asyncio
 import importlib.util
 import re
-import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
@@ -8,6 +8,7 @@ from uuid import UUID
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.fakes.fake_minio import FakeMinioStorage
@@ -163,9 +164,11 @@ def test_workspace_onboarding_migration_keeps_personal_space_and_offer_boundarie
     assert "workspace_join_offers_tenant_isolation" in migration
 
 
-def test_workspace_onboarding_migration_downgrades_cleanly(tmp_path, monkeypatch) -> None:
-    database_path = tmp_path / "workspace-onboarding.db"
-    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+def test_workspace_onboarding_migration_downgrades_cleanly(
+    postgres_test_database_url: str,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_test_database_url)
     get_settings.cache_clear()
     alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
     alembic_config.set_main_option("script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations"))
@@ -173,12 +176,32 @@ def test_workspace_onboarding_migration_downgrades_cleanly(tmp_path, monkeypatch
     command.upgrade(alembic_config, "head")
     command.downgrade(alembic_config, "0026_active_cleanup")
 
-    with sqlite3.connect(database_path) as connection:
-        tables = {
-            row[0]
-            for row in connection.execute("select name from sqlite_master where type = 'table'")
-        }
-        workspace_columns = {row[1] for row in connection.execute("pragma table_info(workspaces)")}
+    async def inspect_schema() -> tuple[set[str], set[str]]:
+        engine = create_async_engine(postgres_test_database_url)
+        try:
+            async with engine.connect() as connection:
+                tables = set(
+                    (
+                        await connection.scalars(
+                            text("select tablename from pg_tables where schemaname = 'public'")
+                        )
+                    ).all()
+                )
+                workspace_columns = set(
+                    (
+                        await connection.scalars(
+                            text(
+                                "select column_name from information_schema.columns "
+                                "where table_schema = 'public' and table_name = 'workspaces'"
+                            )
+                        )
+                    ).all()
+                )
+                return tables, workspace_columns
+        finally:
+            await engine.dispose()
+
+    tables, workspace_columns = asyncio.run(inspect_schema())
 
     get_settings.cache_clear()
     assert "workspace_join_offers" not in tables
