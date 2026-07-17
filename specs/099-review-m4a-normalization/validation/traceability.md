@@ -262,6 +262,7 @@ Authoritative read-back выполнен через GitHub REST API по label `
 | T121 | готово | [#3623](https://github.com/yshishenya/crisp/issues/3623) — open | `test_playback_normalization_restart.py`; `test_playback_normalization_postgres.py` |
 | T122 | готово | [#3624](https://github.com/yshishenya/crisp/issues/3624) — open | `pickup.py`; migration `0026_skip_active_normalization_cleanup.py` |
 | T123 | ожидается | [#3631](https://github.com/yshishenya/crisp/issues/3631) — open | `validation/release-closeout.md` |
+| T124 | готово | [#3624](https://github.com/yshishenya/crisp/issues/3624) — open | migration revision ID and worker schema-head tests |
 
 
 ## Evidence hygiene
@@ -306,3 +307,4 @@ paths and private meeting data.
 | T120 | pending | canonical CI, lean-diff review, release/deploy and production recovery receipt |
 | T121–T122 | complete | active worker lease is excluded from SQLite/PostgreSQL cleanup selectors; focused SQLite suite `8 passed` |
 | T123 | pending | canonical CI, release/deploy and production convergence receipt |
+| T124 | complete | `0026_active_cleanup`; canonical CI `1761 passed, 28 skipped`; macOS `664 passed` |
