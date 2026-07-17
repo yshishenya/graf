@@ -29,7 +29,6 @@ class Workspace(Base):
             "owner_user_id",
             unique=True,
             postgresql_where=text("kind = 'personal'"),
-            sqlite_where=text("kind = 'personal'"),
         ),
     )
 

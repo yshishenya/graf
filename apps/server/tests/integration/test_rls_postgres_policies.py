@@ -75,7 +75,7 @@ class MigratedPostgresUrls:
     app_url: str
     media_url: str
     probe_role: str | None = None
-    app_role_created: bool = False
+    app_role: str | None = None
     media_role_created: bool = False
 
 
@@ -228,13 +228,12 @@ def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
             .set(username=probe_role, password=password)
             .render_as_string(hide_password=False)
         )
-    app_role_created = False
+    app_role: str | None = None
     app_url = os.getenv("RLS_TEST_APP_DATABASE_URL")
     if not app_url:
         app_role, app_password = asyncio.run(
-            _create_probe_role(url, role_name="twobrain_rec_app")
+            _create_probe_role(url, role_name=f"twobrain_rec_app_{uuid4().hex[:12]}")
         )
-        app_role_created = True
         app_url = (
             make_url(url)
             .set(username=app_role, password=app_password)
@@ -251,14 +250,14 @@ def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
             app_url=app_url,
             media_url=media_url,
             probe_role=probe_role,
-            app_role_created=app_role_created,
+            app_role=app_role,
             media_role_created=media_role_created,
         )
     finally:
         if probe_role is not None:
             asyncio.run(_drop_probe_role(url, probe_role))
-        if app_role_created:
-            asyncio.run(_drop_probe_role(url, "twobrain_rec_app"))
+        if app_role is not None:
+            asyncio.run(_drop_probe_role(url, app_role))
         if media_role_created:
             asyncio.run(_drop_probe_role(url, "twobrain_rec_media"))
         if previous_url is None:
@@ -560,6 +559,68 @@ async def test_same_tenant_and_cross_tenant_reads_follow_workspace_context(
 
     assert visible_count == 1
     assert foreign_count == 0
+
+
+@pytest.mark.asyncio
+async def test_join_offers_are_visible_only_to_their_owner(rls_engine: AsyncEngine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    offer_ids = {"a": uuid4(), "b": uuid4()}
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="join_offer_seed",
+                feature_area="security",
+            ),
+        )
+        for label in ("a", "b"):
+            invitation_id = uuid4()
+            await conn.execute(
+                text(
+                    """
+                    insert into workspace_invitations
+                        (id, workspace_id, target_contact, invited_role, status, source,
+                         created_by_user_id, expires_at, metadata_json)
+                    values
+                        (:id, :workspace_id, :target_contact, 'member', 'pending', 'admin',
+                         :created_by_user_id, now() + interval '1 day', '{}'::json)
+                    """
+                ),
+                {
+                    "id": invitation_id,
+                    "workspace_id": ids[f"workspace_{label}"],
+                    "target_contact": f"offer-{label}-{ids['slug']}@example.test",
+                    "created_by_user_id": ids[f"user_{label}"],
+                },
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into workspace_join_offers
+                        (id, workspace_id, user_id, invitation_id, status, expires_at)
+                    values
+                        (:id, :workspace_id, :user_id, :invitation_id, 'offered',
+                         now() + interval '1 day')
+                    """
+                ),
+                {
+                    "id": offer_ids[label],
+                    "workspace_id": ids[f"workspace_{label}"],
+                    "user_id": ids[f"user_{label}"],
+                    "invitation_id": invitation_id,
+                },
+            )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        visible_offer_ids = set(
+            (await conn.scalars(text("select id from workspace_join_offers"))).all()
+        )
+
+    assert visible_offer_ids == {offer_ids["a"]}
 
 
 @pytest.mark.asyncio
