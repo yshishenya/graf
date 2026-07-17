@@ -246,9 +246,10 @@ metadata-only evidence остаются подробной историей ре
   authorization/RLS/subprocess/privacy gates do not complete or replace 097.
   Release `v2026.07.14.7` remains owned by the separate «новый
   главный экран GRAF» rollout. None of the immutable feature-099 release tags
-  were moved. The next candidate is `v2026.07.16.3`; its hotfix merge and
-  explicit production-deploy approval are recorded, while release publication,
-  deploy and production proof remain pending.
+  were moved. The later `v2026.07.16.4`, `v2026.07.17.3` and `v2026.07.17.5`
+  production receipts supersede the old `.3` candidate note. Only the
+  T115 Chrome/embedded production receipt and the dependent T116 tracker
+  cleanup remain open; the 097 security scan is still explicitly skipped.
 - The separate Feature 099 production evidence includes the `v2026.07.17.3`
   startup-recovery release and the `v2026.07.17.5` active-attempt cleanup
   fix; it does not alter Feature 106 acceptance or its rollback boundary.
