@@ -10,20 +10,20 @@ CSRF, private GitHub egress, PostgreSQL-backed diagnostics, durable local state
 - Focused quickstart через disposable PostgreSQL runner: **45 passed, 2
   warnings**.
 - Ускоренный `bash apps/server/scripts/run_local_postgres_tests.sh --full`:
-  коллекция **1833** тестов, digest
-  `34e7b7193f4b32012aa0bf4729df258c7fc33e2410fd3cc1ec848251cb56df40`;
-  parallel-фаза на **8 workers** — **1802 passed, 1 skipped, 18 warnings**;
-  строгая RLS-фаза — **29 passed, 1 skipped, 2 warnings**.
+  коллекция **1872** тестов, digest
+  `455d3cbedf0d052ccf68c069aae432fc1d896dd11d3efe03c065f26293e6a083`;
+  parallel-фаза на **4 bounded workers** — **1836 passed, 1 skipped, 10
+  warnings**; строгая RLS-фаза — **34 passed, 1 skipped, 2 warnings**.
 - `infra/scripts/ci-local.sh`: **PASS**. Внутри gate: legacy-audio guard,
-  macOS build/tests (**572 tests, 0 failures**), `ContractValidation`, обе
+  macOS build/tests (**573 tests, 0 failures**), `ContractValidation`, обе
   PostgreSQL-фазы, Ruff и deployment evidence scan.
 - Результат canonical CI: `ci_local_result=pass`; disposable PostgreSQL
   контейнеры удалены после прогонов.
 - После финального двухстрочного shrink из ponytail review повторён focused
   support-поднабор: **31 passed, 2 warnings**. Он подтверждает, что удалённый
-  дублирующий flush не меняет поведение; полный CI выше был зелёным на том же
-  кодовом пути непосредственно до этого механического упрощения.
+  дублирующий flush не меняет поведение; актуальный rebased quickstart также
+  зелёный: **45 passed, 2 warnings**.
 
 В evidence нет секретов, live session material, аудио, расшифровок и private
-production identifiers. Release/deploy не выполнялся: для него нужна отдельная
-явная approval.
+production identifiers. Deploy выполнен после явной approval; отдельный
+CalVer release/tag остаётся границей release train.
