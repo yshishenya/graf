@@ -1,6 +1,6 @@
 """keep active playback normalization attempts out of cleanup
 
-Revision ID: 0026_skip_active_normalization_cleanup
+Revision ID: 0026_active_cleanup
 Revises: 0025_provider_link_cleanup
 Create Date: 2026-07-17
 """
@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0026_skip_active_normalization_cleanup"
+revision: str = "0026_active_cleanup"
 down_revision: str | None = "0025_provider_link_cleanup"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

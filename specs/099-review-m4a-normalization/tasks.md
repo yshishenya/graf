@@ -299,6 +299,7 @@ output of a still-owned normalization attempt.
 - [X] T121 [P] [US3] Add SQLite and PostgreSQL regressions that retain a `local_preparing` attempt while its parent job has an unexpired `running` lease in `apps/server/tests/integration/test_playback_normalization_restart.py` and `apps/server/tests/integration/test_playback_normalization_postgres.py`
 - [X] T122 [US3] Exclude active leased attempts from the cleanup selector in the SQLite path and PostgreSQL maintenance helper migration `0026_skip_active_normalization_cleanup.py` without changing expired-attempt cleanup in `apps/server/src/twobrain_rec_server/normalization/pickup.py`
 - [ ] T123 [US3] Run canonical CI, review and production closeout for the cleanup hotfix; prove the affected job reaches canonical playback-ready state without user action in `specs/099-review-m4a-normalization/validation/release-closeout.md`
+- [X] T124 [US3] Keep migration `0026` within Alembic's 32-character revision limit, update exact worker schema-head tests, then rerun canonical CI before release in `apps/server/src/twobrain_rec_server/db/migrations/versions/0026_skip_active_normalization_cleanup.py` and `apps/server/tests/unit/test_playback_normalization_worker.py`
 
 ---
 
