@@ -160,6 +160,20 @@ else
   fail "application signing kind is unavailable"
 fi
 
+APP_ENTITLEMENTS=$(codesign -d --entitlements :- "$APP_BUNDLE" 2>&1 || true)
+APP_ENTITLEMENTS_COMPACT=$(printf '%s\n' "$APP_ENTITLEMENTS" | tr -d '[:space:]')
+LIBRARY_VALIDATION_DISABLED=0
+case "$APP_ENTITLEMENTS_COMPACT" in
+  *"<key>com.apple.security.cs.disable-library-validation</key><true/>"*)
+    LIBRARY_VALIDATION_DISABLED=1
+    ;;
+esac
+if [ -z "$TEAM_IDENTIFIER" ]; then
+  [ "$LIBRARY_VALIDATION_DISABLED" = "1" ] || fail "teamless signing requires disabled library validation for embedded Sparkle"
+else
+  [ "$LIBRARY_VALIDATION_DISABLED" = "0" ] || fail "team-identified signing must keep library validation enabled"
+fi
+
 if { [ "$REQUIRE_PUBLIC_TRUST" = "1" ] || [ "$REQUIRE_OWNER_ONLY_TRUST" = "1" ]; } &&
    [ -z "$PREVIOUS_APP_BUNDLE" ]; then
   fail "release update validation requires the previous GRAF.app"

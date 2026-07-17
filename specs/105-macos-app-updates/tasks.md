@@ -95,7 +95,7 @@
 
 - [X] T014 [P] Record updater behavior, bootstrap limitation, permission-identity contract, release-only activation gates, and no-privileged-audio-component scope in `CHANGELOG.md` and `docs/current-product-status.md`.
 - [ ] T015 Execute `specs/105-macos-app-updates/quickstart.md` focused Swift/server/shell checks, inspect request/log fixtures for forbidden content, perform keyboard/VoiceOver review, and record only sanitized evidence in the relevant GitHub task issues; do not reset TCC or publish artifacts.
-- [ ] T016 Run `swift test --package-path apps/macos`, `apps/macos/Scripts/validate-app-updates.sh` for the built app, and `infra/scripts/ci-local.sh`; mark tasks complete only when all applicable gates pass and record any externally blocked Developer ID/notarization/two-update proof truthfully for release closeout.
+- [X] T016 Run `swift test --package-path apps/macos`, `apps/macos/Scripts/validate-app-updates.sh` for the built app, and `infra/scripts/ci-local.sh`; mark tasks complete only when all applicable gates pass and record any externally blocked Developer ID/notarization/two-update proof truthfully for release closeout.
 
 ---
 

@@ -294,18 +294,20 @@ sign_nested_code() {
 
 sign_app_bundle() {
   target=$1
-  if [ -n "$APP_SIGN_IDENTITY" ]; then
-    case "$APP_SIGN_IDENTITY" in
-      "Developer ID Application:"*)
-        codesign --force --options runtime --timestamp --sign "$APP_SIGN_IDENTITY" "$target" >/dev/null
-        ;;
-      *)
-        codesign --force --options runtime --timestamp=none --sign "$APP_SIGN_IDENTITY" "$target" >/dev/null
-        ;;
-    esac
-  else
-    codesign --force --options runtime --timestamp=none --sign - "$target" >/dev/null
+  set -- --force --options runtime
+  case "$APP_SIGN_IDENTITY" in
+    "Developer ID Application:"*) set -- "$@" --timestamp ;;
+    *) set -- "$@" --timestamp=none ;;
+  esac
+  if [ -n "$APP_ENTITLEMENTS" ]; then
+    set -- "$@" --entitlements "$APP_ENTITLEMENTS"
   fi
+  if [ -n "$APP_SIGN_IDENTITY" ]; then
+    set -- "$@" --sign "$APP_SIGN_IDENTITY"
+  else
+    set -- "$@" --sign -
+  fi
+  codesign "$@" "$target" >/dev/null
 }
 
 SPARKLE_FRAMEWORK="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
@@ -315,6 +317,24 @@ sign_nested_code "$SPARKLE_FRAMEWORK_VERSION/XPCServices/Installer.xpc"
 sign_nested_code "$SPARKLE_FRAMEWORK_VERSION/Updater.app"
 sign_nested_code "$SPARKLE_FRAMEWORK_VERSION/Autoupdate"
 sign_nested_code "$SPARKLE_FRAMEWORK"
+
+SPARKLE_SIGNATURE=$(codesign -dv --verbose=4 "$SPARKLE_FRAMEWORK" 2>&1)
+SPARKLE_TEAM_IDENTIFIER=$(printf '%s\n' "$SPARKLE_SIGNATURE" | sed -n 's/^TeamIdentifier=//p' | head -n 1)
+[ "$SPARKLE_TEAM_IDENTIFIER" != "not set" ] || SPARKLE_TEAM_IDENTIFIER=
+APP_ENTITLEMENTS=
+if [ -z "$SPARKLE_TEAM_IDENTIFIER" ]; then
+  APP_ENTITLEMENTS="$BUILD_DIR/teamless-signing.entitlements"
+  cat > "$APP_ENTITLEMENTS" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
+EOF
+fi
 
 if [ -z "$APP_SIGN_IDENTITY" ] && [ "$DEVELOPER_TOOLS_ENABLED" = "1" ]; then
   echo "Using ad-hoc app signing for local development because Developer Tools Security is enabled." >&2
