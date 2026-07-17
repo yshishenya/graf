@@ -57,6 +57,12 @@ release surface.
 - [ ] `prepare-app-update.sh` creates a versioned archive and signed appcast in
   staging only; archive length, EdDSA signatures, `arm64`, and macOS `14.5+`
   match the final app.
+- [ ] Production update artifacts were staged from a clean commit published at the exact release tag
+  and matching `origin/master`, with
+  `GRAF_REQUIRE_RELEASE_PROVENANCE=1` enabled.
+- [ ] ZIP, package, checksums, and Russian notes are present as GitHub Release
+  assets; the archive/package were published before the appcast, and every
+  public SHA-256 matches the reviewed local release artifact.
 - [ ] The private EdDSA key, Developer ID material, notarization credentials,
   and generated signed artifacts remain outside git and issue evidence.
 - [ ] An older installed build finds the staged release through both the daily
