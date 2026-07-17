@@ -304,6 +304,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let cookieHeaderProvider: @Sendable (URL) -> String?
+    private let requestExecutor: @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     public init(
         baseURL: URL,
@@ -311,10 +312,29 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         partSizeBytes: Int = Self.defaultPartSizeBytes,
         cookieHeaderProvider: @escaping @Sendable (URL) -> String? = DesktopUploadClient.defaultCookieHeader
     ) {
+        self.init(
+            baseURL: baseURL,
+            headers: headers,
+            partSizeBytes: partSizeBytes,
+            cookieHeaderProvider: cookieHeaderProvider,
+            requestExecutor: { request in
+                try await URLSession.shared.data(for: request)
+            }
+        )
+    }
+
+    init(
+        baseURL: URL,
+        headers: [String: String],
+        partSizeBytes: Int,
+        cookieHeaderProvider: @escaping @Sendable (URL) -> String?,
+        requestExecutor: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)
+    ) {
         self.baseURL = baseURL
         self.headers = headers
         self.partSizeBytes = max(64 * 1024, partSizeBytes)
         self.cookieHeaderProvider = cookieHeaderProvider
+        self.requestExecutor = requestExecutor
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -733,7 +753,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await requestExecutor(request)
         } catch {
             throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
         }
@@ -1190,7 +1210,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await requestExecutor(request)
         } catch {
             throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
         }

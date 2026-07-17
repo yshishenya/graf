@@ -179,7 +179,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
 
         XCTAssertTrue(checklist.contains("v2026.07.17.6"))
         XCTAssertTrue(checklist.contains("4be444e82ec449a3bb5312920fb0cd6008072c56"))
-        XCTAssertTrue(checklist.contains("v2026.07.17.7"))
+        XCTAssertTrue(checklist.contains("v2026.07.16.7"))
         XCTAssertTrue(checklist.contains("not a runtime switch"))
         XCTAssertTrue(checklist.contains("only through the separately approved local"))
         XCTAssertFalse(checklist.contains("v2026.07.16.6"))
