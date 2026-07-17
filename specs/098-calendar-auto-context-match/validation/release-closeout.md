@@ -26,8 +26,8 @@ feature-workspace cleanup are complete
   [`v2026.07.13.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.3).
 - Validated implementation SHA:
   `13af76a7adacc4ee18f8dc4ff8f89d59b2df79cb`.
-- The separately deferred feature 097 and its resumable Codex Security scan
-  remain untouched and are not release evidence for 098.
+- Feature 097 is separately released; its standalone Codex Security scan was
+  explicitly skipped by user instruction and is not release evidence for 098.
 
 ## T105 — Release Preparation
 
@@ -72,8 +72,8 @@ feature-workspace cleanup are complete
 
 - Полный локальный gate: 631 тест macOS и 1414 серверных тестов прошли, 4
   серверных теста пропущены по заявленным условиям.
-- Отдельно прошли миграции SQLite, одноразовая PostgreSQL/RLS-проверка с
-  очисткой, проверки границ доступа и приватности.
+- Historical portability migration receipts and the disposable PostgreSQL/RLS
+  check with cleanup passed, along with access-boundary and privacy checks.
 - В Chrome проверены список встреч, однозначное и повторяющееся событие,
   неоднозначный выбор, исправление и очистка контекста для browser и embedded
   маршрутов.
@@ -92,8 +92,8 @@ feature-workspace cleanup are complete
 - Публичный подписанный и notarized установщик macOS остаётся отдельным
   ограничением: production-выкладка сервера сама по себе не обновляет локальное
   приложение.
-- Отдельная проверка безопасности feature 097 отложена пользователем и не
-  считается выполненной этим релизом.
+- Standalone security scan for feature 097 was explicitly skipped by the user
+  and is not represented as completed by this release.
 
 ## Связи
 
@@ -241,8 +241,8 @@ Published Russian release notes:
 
 ## Ограничения и связи
 
-- Feature 097 и отдельно отложенный Codex Security scan не входят в этот
-  hotfix и остаются нетронутыми.
+- Feature 097 is separately released; its standalone Codex Security scan was
+  explicitly skipped by user instruction and is not part of this hotfix.
 - Hotfix PR: #3344. Feature PR: #3270. Release PR `v2026.07.13.2`: #3343.
 - Связанные release/deploy задачи: #3188 и #3189.
 ```
@@ -364,9 +364,9 @@ code did not change.
   user state was dropped.
 - The clean 099 worktree remains available for the next feature. The dirty
   detached `30ac` worktree was inspected only read-only and remains unchanged.
-- Feature 097 and resumable Codex Security scan
-  `97e2db82-ff16-4fda-9167-aa52b9b9cf59` were not opened, mutated, failed or
-  counted as 098 evidence.
+- Feature 097 is separately released. Its standalone Codex Security scan
+  `97e2db82-ff16-4fda-9167-aa52b9b9cf59` was explicitly skipped by the user,
+  was not counted as 098 evidence, and is not represented as a result here.
 - The two independent deployment clones are not registered repository
   worktrees. Their clean state was verified; they are removed only after the
   final evidence PR is merged so no in-progress closeout state is lost.
