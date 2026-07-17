@@ -7,6 +7,7 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
     case offline
     case timeout
     case expiredSession
+    case workspaceReselectionRequired
     case accessDenied
     case notFound
     case malformedResponse
@@ -28,6 +29,8 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
             return "Загрузка встреч заняла слишком много времени. Проверьте интернет-соединение и повторите попытку. \(Self.localRecordingBoundary)"
         case .expiredSession:
             return "Войдите снова, чтобы видеть встречи. \(Self.localRecordingBoundary)"
+        case .workspaceReselectionRequired:
+            return "Доступ к выбранному пространству больше не подтверждён. Войдите снова и выберите доступное пространство. \(Self.localRecordingBoundary)"
         case .accessDenied:
             return "Не удалось подтвердить доступ к встречам. Обратитесь к владельцу рабочего пространства."
         case .notFound:
@@ -43,6 +46,8 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .expiredSession:
             return "Нужно войти"
+        case .workspaceReselectionRequired:
+            return "Нужно выбрать пространство"
         case .accessDenied:
             return "Нет доступа к встречам"
         case .notFound:
@@ -64,6 +69,8 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .expiredSession:
             return "person.crop.circle.badge.exclamationmark"
+        case .workspaceReselectionRequired:
+            return "person.crop.circle.badge.xmark"
         case .accessDenied:
             return "lock.trianglebadge.exclamationmark"
         case .notFound:
@@ -83,6 +90,8 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .expiredSession:
             return "Войти в кабинет"
+        case .workspaceReselectionRequired:
+            return "Войти и выбрать пространство"
         case .offline, .timeout, .malformedResponse:
             return "Повторить"
         default:
@@ -93,6 +102,8 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
     public var recoverySystemImage: String {
         switch self {
         case .expiredSession:
+            return "person.crop.circle"
+        case .workspaceReselectionRequired:
             return "person.crop.circle"
         case .offline, .timeout, .malformedResponse:
             return "arrow.clockwise"
@@ -105,7 +116,7 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .loading, .ready:
             return true
-        case .notConfigured, .offline, .timeout, .expiredSession, .accessDenied, .notFound, .malformedResponse, .blockedRoute:
+        case .notConfigured, .offline, .timeout, .expiredSession, .workspaceReselectionRequired, .accessDenied, .notFound, .malformedResponse, .blockedRoute:
             return false
         }
     }
@@ -127,6 +138,13 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         default:
             return .malformedResponse
         }
+    }
+
+    public static func state(forHTTPResponse response: HTTPURLResponse) -> DesktopCabinetState? {
+        if response.value(forHTTPHeaderField: "X-GRAF-Cabinet-Recovery") == "reselect-space" {
+            return .workspaceReselectionRequired
+        }
+        return state(forHTTPStatus: response.statusCode)
     }
 
     public static func state(forNavigationError error: Error, currentState: DesktopCabinetState) -> DesktopCabinetState {
@@ -227,7 +245,7 @@ public enum DesktopCabinetWorkspace {
         configuration: DesktopCabinetConfiguration
     ) -> DesktopCabinetRecoveryTarget? {
         switch state {
-        case .expiredSession:
+        case .expiredSession, .workspaceReselectionRequired:
             return .embedded(loginRoute(configuration: configuration))
         case .offline, .timeout, .malformedResponse:
             return .embedded(configuration.meetingsURL())
@@ -259,7 +277,7 @@ public enum DesktopCabinetWorkspace {
         if state.shouldShowEmbeddedSurface {
             return true
         }
-        guard state == .expiredSession, let configuration else {
+        guard [.expiredSession, .workspaceReselectionRequired].contains(state), let configuration else {
             return false
         }
         guard let route = currentRoute ?? initialRoute else {

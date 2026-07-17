@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fixtures.processing import apply_job_worker_scope
 from tests.integration.test_playback_normalization_finalize import (
     _accept_first_party_recording,
 )
@@ -24,6 +25,7 @@ from twobrain_rec_server.db.models import (
     TrackArtifact,
     Workspace,
 )
+from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.normalization.pickup import (
     dispatch_normalization_after_accepted_commit,
 )
@@ -80,6 +82,7 @@ def test_duplicate_finalize_job_and_expired_pickup_reuse_one_workflow(client) ->
 
     async def duplicate_upsert_and_dispatch():
         async with client.app_state["sessionmaker"]() as db:
+            await apply_tenant_scope(db, tenant_scope)
             first_job = await upsert_playback_normalization_job(
                 db,
                 workspace_id=WORKSPACE_ID,
@@ -105,6 +108,7 @@ def test_duplicate_finalize_job_and_expired_pickup_reuse_one_workflow(client) ->
                 now=now,
             )
         async with client.app_state["sessionmaker"]() as db:
+            await apply_tenant_scope(db, tenant_scope)
             job = await db.get(PlaybackNormalizationJob, first_job.id)
             assert job is not None
             job.lease_expires_at = now - timedelta(seconds=1)
@@ -168,6 +172,7 @@ def test_late_duplicate_publisher_preserves_cleanup_truth_and_reuses_one_canonic
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             winner = await run_normalization_job(
                 db=db,
                 storage=storage,

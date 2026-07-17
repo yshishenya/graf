@@ -11,6 +11,7 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     set_desktop_calendar_auth_cookie,
 )
+from twobrain_rec_server.auth.workspace_onboarding import list_active_workspaces
 from twobrain_rec_server.cabinet.deletion_rendering import (
     render_deletion_report_fragment,
     render_deletion_report_page,
@@ -273,11 +274,20 @@ async def embedded_settings_page(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
+    provider_link_options = await get_provider_link_start_options(db, tenant_scope)
+    spaces = await list_active_workspaces(
+        db,
+        organization_id=principal.organization_id,
+        current_workspace_id=tenant_scope.workspace_id,
+        user_id=principal.user_id,
+    )
+    await db.commit()
     return cabinet_html_response(
         render_settings_page(
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
-            provider_link_options=await get_provider_link_start_options(db, tenant_scope),
+            provider_link_options=provider_link_options,
+            workspace_spaces=spaces,
         )
     )
 

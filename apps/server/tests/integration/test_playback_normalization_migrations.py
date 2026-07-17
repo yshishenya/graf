@@ -212,29 +212,29 @@ def test_migration_declares_additive_revision_contract() -> None:
 
 
 def test_postgres_upgrade_preserves_legacy_rows_and_enforces_one_canonical(
-    postgres_test_database_url: str,
+    postgres_clean_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = _alembic_config(postgres_test_database_url, monkeypatch)
+    config = _alembic_config(postgres_clean_database_url, monkeypatch)
     command.upgrade(config, "0021_calendar_auto_context_match")
-    ids = asyncio.run(_seed_legacy_playback_rows(postgres_test_database_url))
+    ids = asyncio.run(_seed_legacy_playback_rows(postgres_clean_database_url))
     command.upgrade(config, "head")
 
-    assert asyncio.run(_legacy_count(postgres_test_database_url, ids["revision"])) == 2
-    asyncio.run(_canonical_duplicate_is_rejected(postgres_test_database_url, ids))
+    assert asyncio.run(_legacy_count(postgres_clean_database_url, ids["revision"])) == 2
+    asyncio.run(_canonical_duplicate_is_rejected(postgres_clean_database_url, ids))
     get_settings.cache_clear()
 
 
 def test_postgres_downgrade_removes_only_playback_normalization_schema(
-    postgres_test_database_url: str,
+    postgres_clean_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = _alembic_config(postgres_test_database_url, monkeypatch)
+    config = _alembic_config(postgres_clean_database_url, monkeypatch)
     command.upgrade(config, "head")
     command.downgrade(config, "0021_calendar_auto_context_match")
 
     async def summary() -> tuple[set[str], set[str]]:
-        engine = create_async_engine(postgres_test_database_url)
+        engine = create_async_engine(postgres_clean_database_url)
         try:
             async with engine.connect() as connection:
                 return await connection.run_sync(

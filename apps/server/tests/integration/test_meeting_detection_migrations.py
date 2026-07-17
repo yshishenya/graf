@@ -168,14 +168,14 @@ def test_meeting_detection_publish_migration_uses_explicit_registry_data() -> No
 
 
 def test_clean_postgres_database_migrates_meeting_detection_tables(
-    postgres_test_database_url: str,
+    postgres_clean_database_url: str,
     monkeypatch,
 ) -> None:
-    alembic_config = _alembic_config(postgres_test_database_url, monkeypatch)
+    alembic_config = _alembic_config(postgres_clean_database_url, monkeypatch)
 
     command.upgrade(alembic_config, "head")
     tables, candidate_indexes, non_target_indexes, registry_row, entry_count = asyncio.run(
-        _migration_summary(postgres_test_database_url)
+        _migration_summary(postgres_clean_database_url)
     )
     get_settings.cache_clear()
 
@@ -189,10 +189,10 @@ def test_clean_postgres_database_migrates_meeting_detection_tables(
 
 
 def test_publish_registry_migration_downgrade_restores_previous_published_registry(
-    postgres_test_database_url: str,
+    postgres_clean_database_url: str,
     monkeypatch,
 ) -> None:
-    alembic_config = _alembic_config(postgres_test_database_url, monkeypatch)
+    alembic_config = _alembic_config(postgres_clean_database_url, monkeypatch)
     previous_registry: dict[str, object] = {
         "schemaVersion": 1,
         "registryVersion": "2026.07.08.99",
@@ -201,13 +201,13 @@ def test_publish_registry_migration_downgrade_restores_previous_published_regist
     }
 
     command.upgrade(alembic_config, "0017_meeting_detection")
-    asyncio.run(_seed_previous_registry(postgres_test_database_url, previous_registry))
+    asyncio.run(_seed_previous_registry(postgres_clean_database_url, previous_registry))
 
     command.upgrade(alembic_config, "head")
-    upgraded_rows = asyncio.run(_registry_rows(postgres_test_database_url))
+    upgraded_rows = asyncio.run(_registry_rows(postgres_clean_database_url))
 
     command.downgrade(alembic_config, "0018_mediascribe_result")
-    downgraded_rows = asyncio.run(_registry_rows(postgres_test_database_url))
+    downgraded_rows = asyncio.run(_registry_rows(postgres_clean_database_url))
     get_settings.cache_clear()
 
     assert ("2026.07.08.99", "superseded", "admin") in upgraded_rows

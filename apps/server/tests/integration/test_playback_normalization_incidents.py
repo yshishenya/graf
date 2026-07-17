@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from tests.fixtures.processing import apply_job_worker_scope
 from tests.integration.test_playback_normalization_finalize import (
     _accept_first_party_recording,
 )
@@ -32,6 +33,7 @@ def test_cycle_exhaustion_incident_is_metadata_only_and_deduplicated(client) -> 
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             job.state = "running"
             job.attempt_count = 4
             job.cycle_attempt_count = 4

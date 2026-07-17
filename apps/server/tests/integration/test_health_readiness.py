@@ -53,8 +53,8 @@ def test_ready_reports_ready_without_dependency_detail(client) -> None:
     assert internal.json()["checks"]["minio"] == "ok"
 
 
-def test_ready_reports_not_ready_when_database_schema_is_empty(postgres_test_database_url: str) -> None:
-    database_url = postgres_test_database_url
+def test_ready_reports_not_ready_when_database_schema_is_empty(postgres_clean_database_url: str) -> None:
+    database_url = postgres_clean_database_url
     settings = Settings(
         database_url=database_url,
         minio_access_key="test",

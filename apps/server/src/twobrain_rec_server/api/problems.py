@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
@@ -26,6 +27,7 @@ class ProblemDetail(Exception):
     retry_class: str | None = None
     normal_user_action: str | None = None
     metadata_safety: str | None = None
+    headers: Mapping[str, str] | None = None
 
 
 def problem_response(problem: ProblemDetail, request: Request | None = None) -> JSONResponse:
@@ -54,6 +56,7 @@ def problem_response(problem: ProblemDetail, request: Request | None = None) -> 
         status_code=problem.status,
         content=redact_mapping(body),
         media_type="application/problem+json",
+        headers=problem.headers,
     )
 
 

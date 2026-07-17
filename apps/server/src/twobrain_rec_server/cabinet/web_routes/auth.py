@@ -55,7 +55,6 @@ from twobrain_rec_server.db.tenant_context import (
 
 router = APIRouter(tags=["cabinet-web"])
 
-LoginWorkspaceQuery = Query(default=None)
 LoginNextQuery = Query(default="/meetings", alias="next", max_length=512)
 LoginErrorQuery = Query(default=None, max_length=120)
 SignupModeQuery = Query(default=None, max_length=32, alias="mode")
@@ -63,7 +62,6 @@ LoginAuthProviderQuery = Query(default=None, alias="auth_provider", max_length=3
 LoginEmailForm = Form(..., max_length=240)
 LoginCodeForm = Form(..., max_length=32)
 LoginStateForm = Form(..., max_length=160)
-LoginWorkspaceForm = Form(default=None)
 LoginNextForm = Form(default="/meetings", alias="next", max_length=512)
 LogoutNextForm = Form(default="/login?next=/meetings", alias="next", max_length=512)
 
@@ -71,14 +69,12 @@ LogoutNextForm = Form(default="/login?next=/meetings", alias="next", max_length=
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
 async def browser_login_page(
     request: Request,
-    workspace_id: UUID | None = LoginWorkspaceQuery,
     next_path: str = LoginNextQuery,
     error: str | None = LoginErrorQuery,
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse:
     resolved_workspace_id, providers, safe_next, load_error = await _load_browser_auth_page_context(
         request,
-        workspace_id=workspace_id,
         next_path=next_path,
         error=error,
         db=db,
@@ -96,7 +92,6 @@ async def browser_login_page(
 @router.get("/sign-up", response_class=HTMLResponse, include_in_schema=False)
 async def browser_signup_page(
     request: Request,
-    workspace_id: UUID | None = LoginWorkspaceQuery,
     next_path: str = LoginNextQuery,
     error: str | None = LoginErrorQuery,
     mode: str | None = SignupModeQuery,
@@ -104,7 +99,6 @@ async def browser_signup_page(
 ) -> HTMLResponse:
     resolved_workspace_id, providers, safe_next, load_error = await _load_browser_auth_page_context(
         request,
-        workspace_id=workspace_id,
         next_path=next_path,
         error=error,
         db=db,
@@ -124,12 +118,11 @@ async def browser_signup_page(
 async def browser_email_login_start(
     request: Request,
     email: str = LoginEmailForm,
-    workspace_id: UUID | None = LoginWorkspaceForm,
     next_path: str = LoginNextForm,
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     if resolved_workspace_id is None:
         return HTMLResponse(
             render_login_page(
@@ -242,12 +235,11 @@ async def browser_email_login_start(
 async def browser_email_signup_start(
     request: Request,
     email: str = LoginEmailForm,
-    workspace_id: UUID | None = LoginWorkspaceForm,
     next_path: str = LoginNextForm,
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     if resolved_workspace_id is None:
         return HTMLResponse(
             render_signup_page(
@@ -285,26 +277,6 @@ async def browser_email_signup_start(
                 error="email_start_unavailable",
             ),
             status_code=400,
-        )
-    snapshot = await read_auth_providers(db, resolved_workspace_id, adapters=build_provider_registry())
-    if not snapshot.allow_provider_self_enrollment:
-        await _record_email_login_audit(
-            db,
-            request=request,
-            workspace_id=resolved_workspace_id,
-            outcome="failure",
-            error_code="workspace_enrollment_required",
-            metadata={"flow": "registration"},
-        )
-        await db.commit()
-        return HTMLResponse(
-            render_signup_page(
-                workspace_id=resolved_workspace_id,
-                providers=[],
-                next_path=safe_next,
-                error="workspace_enrollment_required",
-            ),
-            status_code=403,
         )
     code = _issue_email_login_code()
     ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
@@ -373,12 +345,11 @@ async def browser_email_login_verify(
     email: str = LoginEmailForm,
     code: str = LoginCodeForm,
     state: str = LoginStateForm,
-    workspace_id: UUID | None = LoginWorkspaceForm,
     next_path: str = LoginNextForm,
     db: AsyncSession | None = LoginDbDependency,
 ):
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     normalized_email = _normalize_email(email)
     if db is None:
         raise ProblemDetail(
@@ -497,12 +468,11 @@ async def browser_email_signup_verify(
     email: str = LoginEmailForm,
     code: str = LoginCodeForm,
     state: str = LoginStateForm,
-    workspace_id: UUID | None = LoginWorkspaceForm,
     next_path: str = LoginNextForm,
     db: AsyncSession | None = LoginDbDependency,
 ):
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     normalized_email = _normalize_email(email)
     if db is None:
         raise ProblemDetail(
@@ -551,13 +521,12 @@ async def browser_email_signup_verify(
 async def browser_login_provider_start(
     provider: str,
     request: Request,
-    workspace_id: UUID | None = LoginWorkspaceQuery,
     next_path: str = LoginNextQuery,
     auth_provider: str | None = LoginAuthProviderQuery,
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse | RedirectResponse:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     if resolved_workspace_id is None:
         return HTMLResponse(
             render_login_page(
@@ -684,13 +653,12 @@ async def browser_login_provider_start(
 async def _load_browser_auth_page_context(
     request: Request,
     *,
-    workspace_id: UUID | None,
     next_path: str,
     error: str | None,
     db: AsyncSession | None,
 ) -> tuple[UUID | None, list, str, str | None]:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     providers = []
     load_error = error
     if resolved_workspace_id is not None and db is not None:
@@ -724,9 +692,8 @@ def _provider_client_secret(settings, provider: str) -> str | None:
         return None
 
 
-def _resolve_browser_login_workspace_id(request: Request, workspace_id: UUID | None) -> UUID | None:
-    if workspace_id is not None:
-        return workspace_id
+def _resolve_browser_login_workspace_id(request: Request):
+    """Use the deployment bootstrap internally; public routes never accept it."""
     settings = request.app.state.settings
     configured = getattr(settings, "web_login_workspace_id", None)
     if configured is not None:

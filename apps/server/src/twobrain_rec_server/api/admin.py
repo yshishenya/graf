@@ -20,6 +20,7 @@ from twobrain_rec_server.admin.invitations import (
     complete_workspace_invitation,
     create_workspace_invitation,
     invitation_to_dict,
+    resend_workspace_invitation,
     revoke_workspace_invitation,
 )
 from twobrain_rec_server.admin.meeting_detection import build_meeting_detection_admin_model
@@ -37,6 +38,7 @@ from twobrain_rec_server.admin.users import (
 from twobrain_rec_server.api.ingest import get_request_db_session, get_request_storage
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import ArtifactClass, CreateExportPackageRequest
+from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
@@ -411,6 +413,49 @@ async def revoke_admin_invitation(
         invitation_id=invitation_id,
         reason_code=payload.reason_code,
     )
+    await db.commit()
+    return invitation_to_dict(invitation)
+
+
+@router.post(
+    "/invitations/{invitation_id}/resend",
+    operation_id="resendAdminInvitation",
+    dependencies=[WebCSRFDependency],
+)
+async def resend_admin_invitation(
+    invitation_id: UUID,
+    request: Request,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> dict[str, object]:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="admin_store_unavailable", title="Admin store unavailable"
+        )
+    context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
+    invitation = await resend_workspace_invitation(
+        db,
+        context=context,
+        invitation_id=invitation_id,
+    )
+    if "@" not in invitation.target_contact:
+        raise ProblemDetail(
+            status=409,
+            code="invitation_resend_unavailable",
+            title="Invitation resend unavailable",
+        )
+    try:
+        await email_delivery.send_workspace_invitation_review_notice(
+            settings=request.app.state.settings,
+            recipient_email=invitation.target_contact,
+        )
+    except email_delivery.EmailLoginDeliveryError as exc:
+        raise ProblemDetail(
+            status=503,
+            code="invitation_delivery_unavailable",
+            title="Invitation delivery unavailable",
+        ) from exc
     await db.commit()
     return invitation_to_dict(invitation)
 

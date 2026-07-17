@@ -474,6 +474,34 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 429), .malformedResponse)
     }
 
+    func testRevokedEmbeddedWorkspaceRequiresExplicitReauthenticationAndReselection() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [:]
+        ))
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: configuration.meetingsURL(),
+            statusCode: 403,
+            httpVersion: nil,
+            headerFields: ["X-GRAF-Cabinet-Recovery": "reselect-space"]
+        ))
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPResponse: response), .workspaceReselectionRequired)
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(for: .workspaceReselectionRequired, configuration: configuration),
+            .embedded(login)
+        )
+        XCTAssertEqual(DesktopCabinetState.workspaceReselectionRequired.recoveryActionTitle, "Войти и выбрать пространство")
+        XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .workspaceReselectionRequired,
+            currentRoute: login,
+            initialRoute: nil,
+            configuration: configuration
+        ))
+        XCTAssertFalse(DesktopCabinetState.workspaceReselectionRequired.shouldShowEmbeddedSurface)
+    }
+
     func testOwnerReviewDetailRouteUsesServerOwnedDesktopCabinetOnlyWhenReady() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
         let route = DesktopCabinetWorkspace.detailRoute(meetingId: "meeting-051", configuration: configuration)

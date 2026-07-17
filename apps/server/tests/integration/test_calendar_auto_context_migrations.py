@@ -172,18 +172,18 @@ def test_calendar_auto_context_migration_declares_revision_and_rls_boundary() ->
 
 
 def test_postgres_upgrade_backfills_title_provenance_and_enforces_attempt_identity(
-    postgres_test_database_url: str,
+    postgres_clean_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = _alembic_config(postgres_test_database_url, monkeypatch)
+    config = _alembic_config(postgres_clean_database_url, monkeypatch)
     command.upgrade(config, "0020_user_scoped_recording_ids")
-    ids = asyncio.run(_seed_legacy_rows(postgres_test_database_url))
+    ids = asyncio.run(_seed_legacy_rows(postgres_clean_database_url))
     command.upgrade(config, "head")
 
     tables, meeting_columns, title_source = asyncio.run(
-        _upgrade_summary(postgres_test_database_url, ids)
+        _upgrade_summary(postgres_clean_database_url, ids)
     )
-    asyncio.run(_duplicate_attempt_is_rejected(postgres_test_database_url, ids))
+    asyncio.run(_duplicate_attempt_is_rejected(postgres_clean_database_url, ids))
     get_settings.cache_clear()
 
     assert "recording_calendar_match_attempts" in tables
@@ -192,15 +192,15 @@ def test_postgres_upgrade_backfills_title_provenance_and_enforces_attempt_identi
 
 
 def test_postgres_downgrade_restores_pre_calendar_auto_context_schema(
-    postgres_test_database_url: str,
+    postgres_clean_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = _alembic_config(postgres_test_database_url, monkeypatch)
+    config = _alembic_config(postgres_clean_database_url, monkeypatch)
     command.upgrade(config, "head")
     command.downgrade(config, "0020_user_scoped_recording_ids")
 
     async def summary() -> tuple[set[str], set[str]]:
-        engine = create_async_engine(postgres_test_database_url)
+        engine = create_async_engine(postgres_clean_database_url)
         try:
             async with engine.connect() as connection:
                 return await connection.run_sync(

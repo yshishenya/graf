@@ -77,10 +77,10 @@ def test_public_landing_footer_links_to_legal_pages_without_analytics_by_default
 
 
 def test_public_landing_render_only_consent_markup_is_accessible_and_category_scoped(
-    postgres_test_database_url: str,
+    postgres_worker_database_url: str,
 ) -> None:
     settings = Settings(
-        database_url=postgres_test_database_url,
+        database_url=postgres_worker_database_url,
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",

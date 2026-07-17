@@ -208,6 +208,8 @@ public struct DesktopCabinetWorkspaceView: View {
             return "Не подключено"
         case .expiredSession:
             return "Нужен вход"
+        case .workspaceReselectionRequired:
+            return "Выберите пространство"
         case .accessDenied:
             return "Нет доступа"
         case .notFound:

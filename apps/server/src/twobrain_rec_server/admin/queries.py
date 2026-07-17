@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.admin.permissions import corporate_admin_workspace_decision
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.db.models import (
@@ -42,9 +43,15 @@ async def load_admin_workspace_context(
     if membership is None or membership.role not in {"owner", "admin"}:
         raise ProblemDetail(status=403, code="admin_forbidden", title="Admin access is restricted")
     workspace = await db.get(Workspace, tenant_scope.workspace_id)
+    if workspace is None or not corporate_admin_workspace_decision(workspace.kind).allowed:
+        raise ProblemDetail(
+            status=403,
+            code="corporate_admin_required",
+            title="Corporate workspace admin access is required",
+        )
     return AdminWorkspaceContext(
         workspace_id=tenant_scope.workspace_id,
-        workspace_name=workspace.name if workspace is not None else "Рабочая область",
+        workspace_name=workspace.name,
         actor_user_id=principal.user_id,
         actor_role=membership.role,
     )
