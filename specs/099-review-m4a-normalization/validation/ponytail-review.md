@@ -66,3 +66,14 @@ Lean already. Ship.
 - One integration regression covers both the allowed immediate recovery and the
   required non-preemption case. Full local CI passed; production proof remains
   the intentionally separate T120 gate.
+
+## 2026-07-17 active-cleanup hotfix review
+
+Lean already. Ship.
+
+- The fix is one existing-job lease predicate in each selector implementation
+  plus the required PostgreSQL function replacement migration.
+- It reuses the active lease as the sole ownership fact; no timer, retry path,
+  background service, dependency or configuration is added.
+- SQLite and PostgreSQL regressions are the minimum complementary coverage for
+  the two selector paths. Canonical CI passes; production proof remains T123.

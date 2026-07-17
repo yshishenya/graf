@@ -1123,6 +1123,60 @@ async def test_postgres_cleanup_function_returns_only_unverified_purged_attempts
         assert unverified_deleted_attempt_id in candidate_ids
         assert verified_deleted_attempt_id not in candidate_ids
         assert unrelated_purged_attempt_id not in candidate_ids
+
+        active_attempt_id = uuid4()
+        async with owner_engine.begin() as conn:
+            await conn.execute(
+                text(
+                    """
+                    update playback_normalization_jobs
+                    set state = 'running', lease_expires_at = :lease_expires_at
+                    where id = :job_id
+                    """
+                ),
+                {"job_id": job_id, "lease_expires_at": current_time + timedelta(hours=1)},
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into playback_normalization_attempts
+                        (id, workspace_id, meeting_id, media_revision_id, job_id,
+                         attempt_number, cycle_number, state, storage_object_key,
+                         derivation_kind, source_stream_count, source_audio_stream_count,
+                         created_at, updated_at)
+                    values
+                        (:id, :workspace_id, :meeting_id, :media_revision_id, :job_id,
+                         4, 1, 'local_preparing', :storage_object_key,
+                         'single_source_transcode', 1, 1, :now, :now)
+                    """
+                ),
+                {
+                    "id": active_attempt_id,
+                    "workspace_id": ids["workspace_id"],
+                    "meeting_id": ids["meeting_id"],
+                    "media_revision_id": ids["media_revision_id"],
+                    "job_id": job_id,
+                    "storage_object_key": f"normalization-attempts/{active_attempt_id}.m4a",
+                    "now": current_time,
+                },
+            )
+
+        async with sessionmaker() as db:
+            await apply_tenant_context(
+                db,
+                MaintenanceTenantContext(
+                    operation_name="playback_normalization_dispatch",
+                    actor_id="postgres-cleanup-test",
+                    reason_category="automatic_recovery",
+                    feature_area="playback_normalization",
+                ),
+            )
+            active_candidates = await enumerate_normalization_cleanup_candidates(
+                db,
+                batch_size=25,
+            )
+
+        assert active_attempt_id not in {candidate.attempt_id for candidate in active_candidates}
     finally:
         await media_engine.dispose()
         await owner_engine.dispose()

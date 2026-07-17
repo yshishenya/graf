@@ -291,6 +291,17 @@
 
 ---
 
+## Phase 13: Active Attempt Cleanup Hotfix
+
+**Purpose**: Prevent the maintenance cleanup loop from deleting the temporary
+output of a still-owned normalization attempt.
+
+- [X] T121 [P] [US3] Add SQLite and PostgreSQL regressions that retain a `local_preparing` attempt while its parent job has an unexpired `running` lease in `apps/server/tests/integration/test_playback_normalization_restart.py` and `apps/server/tests/integration/test_playback_normalization_postgres.py`
+- [X] T122 [US3] Exclude active leased attempts from the cleanup selector in the SQLite path and PostgreSQL maintenance helper migration `0026_skip_active_normalization_cleanup.py` without changing expired-attempt cleanup in `apps/server/src/twobrain_rec_server/normalization/pickup.py`
+- [ ] T123 [US3] Run canonical CI, review and production closeout for the cleanup hotfix; prove the affected job reaches canonical playback-ready state without user action in `specs/099-review-m4a-normalization/validation/release-closeout.md`
+
+---
+
 ## Dependencies And Execution Order
 
 ### Phase Dependencies

@@ -259,6 +259,9 @@ Authoritative read-back выполнен через GitHub REST API по label `
 | T118 | готово | [#3617](https://github.com/yshishenya/crisp/issues/3617) — open | existing retry/lease/dispatch path in `normalization/` |
 | T119 | готово | [#3618](https://github.com/yshishenya/crisp/issues/3618) — open | `validation/hotfix-worker-recovery.md` |
 | T120 | ожидается | [#3619](https://github.com/yshishenya/crisp/issues/3619) — open | `validation/release-closeout.md` (canonical CI, release/deploy and production proof) |
+| T121 | готово | [#3623](https://github.com/yshishenya/crisp/issues/3623) — open | `test_playback_normalization_restart.py`; `test_playback_normalization_postgres.py` |
+| T122 | готово | [#3624](https://github.com/yshishenya/crisp/issues/3624) — open | `pickup.py`; migration `0026_skip_active_normalization_cleanup.py` |
+| T123 | ожидается | [#3631](https://github.com/yshishenya/crisp/issues/3631) — open | `validation/release-closeout.md` |
 
 
 ## Evidence hygiene
@@ -301,3 +304,5 @@ paths and private meeting data.
 | T111–T116 | pending | task-specific receipts listed in `tasks.md` |
 | T117–T119 | complete | `hotfix-worker-recovery.md`; focused regression `7 passed`, related recovery suite `12 passed`, Ruff pass |
 | T120 | pending | canonical CI, lean-diff review, release/deploy and production recovery receipt |
+| T121–T122 | complete | active worker lease is excluded from SQLite/PostgreSQL cleanup selectors; focused SQLite suite `8 passed` |
+| T123 | pending | canonical CI, release/deploy and production convergence receipt |

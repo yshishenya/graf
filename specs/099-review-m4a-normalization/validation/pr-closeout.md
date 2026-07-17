@@ -111,3 +111,12 @@ manually reviewed stage/commit boundary.
 This approval does not authorize release preparation, tagging, GitHub Release
 publication or production deployment. Those actions remain T112-T115 and need
 a fresh release/deploy approval after merge and successful deploy dry-run.
+
+## 2026-07-17 active-cleanup hotfix
+
+The user has granted standing authorization for commit, push, PR, merge, release
+and production deployment. This hotfix covers T121–T123 and references #3623,
+#3624 and #3631. It contains only the active-lease cleanup predicate, migration
+`0026`, regressions and truthful status/evidence updates. Canonical local CI,
+focused tests, Ruff and `git diff --check` pass; production closeout remains
+open until the affected retained-source job is canonical playback-ready.

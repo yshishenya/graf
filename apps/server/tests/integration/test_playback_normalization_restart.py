@@ -440,6 +440,69 @@ def test_reconciler_cleans_expired_worker_attempt_and_schedules_automatic_retry(
     assert temporal.starts == {}
 
 
+def test_reconciler_keeps_attempt_owned_by_an_active_worker(client) -> None:
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-active-worker-cleanup",
+        include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+    client.app.state.settings.playback_normalization_enabled = True
+    now = datetime.now(UTC)
+    attempt_body = b"active-normalization-attempt"
+
+    async def seed_and_reconcile():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id
+                )
+            )
+            assert job is not None
+            attempt_id = uuid4()
+            object_key = f"tests/normalization-attempts/{attempt_id}"
+            client.app_state["storage"].put_bytes(object_key, attempt_body)
+            job.state = "running"
+            job.attempt_count = 1
+            job.cycle_attempt_count = 1
+            job.lease_owner_sha256 = sha256(b"active-worker").hexdigest()
+            job.lease_expires_at = now + timedelta(minutes=5)
+            db.add(
+                PlaybackNormalizationAttempt(
+                    id=attempt_id,
+                    workspace_id=job.workspace_id,
+                    meeting_id=job.meeting_id,
+                    media_revision_id=job.media_revision_id,
+                    job_id=job.id,
+                    attempt_number=1,
+                    cycle_number=1,
+                    state="local_preparing",
+                    storage_object_key=object_key,
+                    derivation_kind="uploaded_candidate",
+                    selected_stream_index=None,
+                    source_stream_count=0,
+                    source_audio_stream_count=0,
+                )
+            )
+            await db.commit()
+        await reconcile_normalization_jobs(
+            sessionmaker=client.app_state["sessionmaker"],
+            settings=client.app.state.settings,
+            storage=client.app_state["storage"],
+            temporal_client=FakeTemporalClient(),
+            now=now,
+            actor_id="active-worker-test",
+        )
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await db.get(PlaybackNormalizationAttempt, attempt_id)
+        return attempt, object_key
+
+    attempt, object_key = asyncio.run(seed_and_reconcile())
+    assert attempt is not None and attempt.state == "local_preparing"
+    assert object_key in client.app_state["storage"].objects
+
+
 def test_startup_reconciler_immediately_dispatches_only_worker_interrupted_retry(client) -> None:
     interrupted_meeting, interrupted_result = _accept_first_party_recording(
         client,
