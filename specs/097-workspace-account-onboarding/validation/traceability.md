@@ -13,13 +13,16 @@ has one canonical issue for each group.
 | [#3710](https://github.com/yshishenya/crisp/issues/3710) | T027–T028 | Domain-only enrollment remains disabled; generic email/provider outcomes do not disclose corporate membership. |
 | [#3711](https://github.com/yshishenya/crisp/issues/3711) | T029–T034 | Server-verified active-space listing and switching, revocation fallback, non-retargeting semantics and embedded macOS recovery state. |
 | [#3712](https://github.com/yshishenya/crisp/issues/3712) | T035–T036 | Read-only legacy bootstrap classification and no-move backup/rollback runbook. |
-| [#3713](https://github.com/yshishenya/crisp/issues/3713) | T037–T041 | Focused/full PostgreSQL receipts, review, tracker reconciliation and release/deploy closeout. The expanded 097 canonical CI limitation is recorded explicitly in `validation/local.md`. |
+| [#3713](https://github.com/yshishenya/crisp/issues/3713) | T037–T041 | Focused/full PostgreSQL receipts, review, tracker reconciliation and release/deploy closeout. Canonical CI, release and deploy receipts are recorded in `validation/local.md` and `validation/release-closeout.md`; the feature-specific production B2C/invitation/revocation smoke remains open. |
 
 ## Open validation boundary
 
-The direct expanded PostgreSQL gate is green with four workers. The complete
-`infra/scripts/ci-local.sh` gate for the 1,866-node collection was not repeated
-after the user stopped additional full test cycles; the prior Feature 110
-1,827-node gate passed. Production release and smoke receipts are intentionally
-added only after the release gate is executed.
-
+The direct expanded PostgreSQL gate is green with four workers. The canonical
+`infra/scripts/ci-local.sh` gate also passed during the approved deploy at the
+release-preparation SHA; the receipt is recorded in `validation/local.md`.
+Release and production infrastructure closeout are complete at
+`v2026.07.18.1`. The remaining validation boundary is deliberately narrow:
+the deploy used the generic upload/auth-cleanup smoke profile and did not
+separately exercise a production B2C signup, invitation acceptance or
+corporate revocation/fallback flow. Issue #3713 stays open until that receipt
+exists or the product owner explicitly waives it.
