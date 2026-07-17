@@ -104,6 +104,20 @@ def render_meeting_list_page(
     )
 
 
+def render_meeting_unavailable_page(
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+) -> str:
+    return _page_shell(
+        "Страница недоступна",
+        embedded=embedded,
+        csrf_token=csrf_token,
+        content_template="cabinet/pages/meeting_unavailable_content.html",
+        meeting_list_href=_base_path(embedded),
+    )
+
+
 def render_settings_page(
     *,
     embedded: bool = False,

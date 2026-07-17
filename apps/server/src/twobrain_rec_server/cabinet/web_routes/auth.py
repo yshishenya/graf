@@ -28,6 +28,7 @@ from twobrain_rec_server.cabinet.auth_rendering import (
     render_login_page,
     render_signup_page,
 )
+from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EMAIL_SIGNUP_PROVIDER,
     _consume_email_login_code,
@@ -406,7 +407,15 @@ async def browser_email_login_verify(
     )
     if isinstance(result, HTMLResponse):
         return result
-    redirect = RedirectResponse(safe_next, status_code=303)
+    redirect_path = await resolve_browser_auth_return_path(
+        db,
+        requested_redirect=result.requested_redirect,
+        organization_id=result.organization_id,
+        workspace_id=result.workspace_id,
+        user_id=result.user_id,
+        auth_session_id=result.auth_session_id,
+    )
+    redirect = RedirectResponse(redirect_path or "/meetings", status_code=303)
     _set_browser_auth_cookie(redirect, token=result.token, expires_at=result.expires_at)
     return redirect
 
@@ -525,7 +534,15 @@ async def browser_email_signup_verify(
     )
     if isinstance(result, HTMLResponse):
         return result
-    redirect = RedirectResponse(safe_next, status_code=303)
+    redirect_path = await resolve_browser_auth_return_path(
+        db,
+        requested_redirect=result.requested_redirect,
+        organization_id=result.organization_id,
+        workspace_id=result.workspace_id,
+        user_id=result.user_id,
+        auth_session_id=result.auth_session_id,
+    )
+    redirect = RedirectResponse(redirect_path or "/meetings", status_code=303)
     _set_browser_auth_cookie(redirect, token=result.token, expires_at=result.expires_at)
     return redirect
 

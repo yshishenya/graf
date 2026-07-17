@@ -9,6 +9,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_providers import fake_provider_map
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from twobrain_rec_server.api.auth import BROWSER_AUTH_STATE_COOKIE_NAME
 from twobrain_rec_server.auth import email_delivery
@@ -74,6 +75,50 @@ async def _set_workspace_self_enrollment_policy(client, enabled: bool) -> None:
             db.add(policy)
         policy.allow_provider_self_enrollment = enabled
         await db.commit()
+
+
+async def _link_owner_yandex_identity(client, *, subject: str) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        db.add(
+            ExternalIdentity(
+                user_id=USER_ID,
+                provider="yandex",
+                provider_subject=subject,
+                provider_username=subject,
+                display_name="Browser Yandex Owner",
+                is_verified=True,
+            )
+        )
+        await db.commit()
+
+
+def _patch_browser_provider_callbacks(monkeypatch) -> None:
+    provider_map = fake_provider_map()
+    monkeypatch.setattr(
+        "twobrain_rec_server.api.auth.build_provider_registry", lambda: provider_map
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.auth.callbacks.get_provider_adapter",
+        lambda provider: provider_map[provider],
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.web_routes.auth.build_provider_registry",
+        lambda: provider_map,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.cabinet.web_routes.auth.get_provider_adapter",
+        lambda provider: provider_map[provider],
+    )
+
+
+def _bind_browser_callback_cookie(client, response) -> None:
+    nonce_match = re.search(
+        rf"{re.escape(BROWSER_AUTH_STATE_COOKIE_NAME)}=([^;]+)",
+        response.headers["set-cookie"],
+    )
+    assert nonce_match is not None
+    client.cookies.clear()
+    client.cookies.set(BROWSER_AUTH_STATE_COOKIE_NAME, nonce_match.group(1))
 
 
 async def _seed_owner_review_session(
@@ -364,6 +409,49 @@ def test_browser_yandex_callback_rejects_missing_browser_state_cookie(client) ->
     assert callback.json()["code"] == "callback_state_invalid"
 
 
+def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypatch, client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    _patch_browser_provider_callbacks(monkeypatch)
+    client.portal.call(lambda: _link_owner_yandex_identity(client, subject="browser-yandex-owner"))
+
+    allowed_start = client.get(
+        f"/login/yandex/start?next=/meetings/{seeds.ready_id}?calendar_context_action=change",
+        follow_redirects=False,
+    )
+    allowed_state = parse_qs(urlsplit(allowed_start.headers["location"]).query)["state"][0]
+    _bind_browser_callback_cookie(client, allowed_start)
+    allowed_callback = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": allowed_state, "code": "browser-yandex-owner"},
+        follow_redirects=False,
+    )
+
+    assert allowed_callback.status_code == 303
+    assert allowed_callback.headers["location"] == (
+        f"/meetings/{seeds.ready_id}?calendar_context_action=change"
+    )
+
+    client.cookies.clear()
+    client.portal.call(_set_workspace_self_enrollment_policy, client, True)
+    denied_cases = (
+        ("yandex", f"/meetings/{seeds.ready_id}", "/meetings", "browser-yandex-new-user"),
+        ("vk", f"/desktop/meetings/{seeds.ready_id}", "/desktop/meetings", "browser-vk-new-user"),
+    )
+    for provider, candidate, expected_fallback, code in denied_cases:
+        start = client.get(f"/login/{provider}/start?next={candidate}", follow_redirects=False)
+        state = parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+        _bind_browser_callback_cookie(client, start)
+        callback = client.get(
+            f"/api/v1/auth/callback/{provider}",
+            params={"state": state, "code": code},
+            follow_redirects=False,
+        )
+
+        assert callback.status_code == 303
+        assert callback.headers["location"] == expected_fallback
+        client.cookies.clear()
+
+
 def test_browser_vk_login_start_redirects_to_provider(client) -> None:
     response = client.get(
         "/login/vk/start?next=/meetings",
@@ -497,6 +585,60 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert meetings.status_code == 200
     assert "Проектный синк" in meetings.text
     assert "missing_auth_context" not in meetings.text
+
+
+def test_browser_email_login_verification_uses_state_bound_return_path(client) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+
+    start = client.post(
+        "/login/email/start",
+        data={"email": BROWSER_OWNER_EMAIL, "next": "/meetings"},
+    )
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None
+    assert code_match is not None
+
+    callback = client.post(
+        "/login/email/verify",
+        data={
+            "email": BROWSER_OWNER_EMAIL,
+            "code": code_match.group(1),
+            "state": state_match.group(1),
+            "next": f"/desktop/meetings/{uuid4()}",
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/meetings"
+
+
+def test_browser_email_signup_verification_uses_state_bound_return_path(client) -> None:
+    client.portal.call(_set_workspace_self_enrollment_policy, client, True)
+    signup_email = "state-bound-signup@example.test"
+    start = client.post(
+        "/sign-up/email/start",
+        data={"email": signup_email, "next": "/meetings"},
+    )
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None
+    assert code_match is not None
+
+    callback = client.post(
+        "/sign-up/email/verify",
+        data={
+            "email": signup_email,
+            "code": code_match.group(1),
+            "state": state_match.group(1),
+            "next": f"/desktop/meetings/{uuid4()}",
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/meetings"
 
 
 def test_browser_email_login_wrong_code_consumes_state(client) -> None:

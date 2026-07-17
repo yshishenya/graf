@@ -37,18 +37,37 @@ def test_cabinet_web_detail_renders_access_artifacts_and_activity_without_privat
     assert "share_token_hash" not in response.text
 
 
-def test_cabinet_web_denied_and_missing_meetings_fail_closed_without_private_content(client) -> None:
+def test_cabinet_web_unavailable_meetings_render_safe_html_and_keep_hx_problem_details(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
-    denied = client.get(f"/meetings/{seeds.foreign_id}", headers=auth_headers())
-    missing = client.get(f"/meetings/{uuid4()}", headers=auth_headers())
+    for base_path in ("/meetings", "/desktop/meetings"):
+        denied_path = f"{base_path}/{seeds.foreign_id}"
+        unavailable_paths = (
+            denied_path,
+            f"{base_path}/{uuid4()}",
+            f"{base_path}/not-a-uuid",
+        )
+        for path in unavailable_paths:
+            response = client.get(path, headers=auth_headers())
 
-    for response in (denied, missing):
-        assert response.status_code in {403, 404}
-        assert PRIVATE_EXTERNAL_JOB_ID not in response.text
-        assert SAFE_TRANSCRIPT_TEXT not in response.text
-        assert "storage_object_key" not in response.text
-        assert "share_token_hash" not in response.text
+            assert response.status_code == 404
+            assert response.headers["content-type"].startswith("text/html")
+            assert "Страница недоступна" in response.text
+            assert f'href="{base_path}"' in response.text
+            assert "meeting_not_found" not in response.text
+            assert str(seeds.foreign_id) not in response.text
+            assert PRIVATE_EXTERNAL_JOB_ID not in response.text
+            assert SAFE_TRANSCRIPT_TEXT not in response.text
+            assert "storage_object_key" not in response.text
+            assert "share_token_hash" not in response.text
+
+        hx_response = client.get(
+            denied_path,
+            headers=auth_headers() | {"HX-Request": "true"},
+        )
+        assert hx_response.status_code == 404
+        assert hx_response.headers["content-type"].startswith("application/problem+json")
+        assert hx_response.json()["code"] == "meeting_not_found"
 
 
 def test_cabinet_web_deletion_report_preserves_bounded_lifecycle_truth(client) -> None:

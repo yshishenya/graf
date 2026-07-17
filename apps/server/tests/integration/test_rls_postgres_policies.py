@@ -24,6 +24,7 @@ from scripts.seed_smoke_identity import seed_identity
 from tests.fixtures.postgres_rls import rls_test_database_url
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.provider_links import confirm_provider_link
+from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
@@ -559,6 +560,41 @@ async def test_same_tenant_and_cross_tenant_reads_follow_workspace_context(
 
     assert visible_count == 1
     assert foreign_count == 0
+
+
+@pytest.mark.asyncio
+async def test_browser_auth_return_resolver_keeps_only_authenticated_detail_candidates(
+    rls_engine: AsyncEngine,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    sessionmaker = async_sessionmaker(rls_engine, expire_on_commit=False)
+
+    async with sessionmaker() as db:
+        allowed_path = f"/meetings/{ids['meeting_a']}?calendar_context_action=change"
+        assert await resolve_browser_auth_return_path(
+            db,
+            requested_redirect=allowed_path,
+            organization_id=ids["org_a"],
+            workspace_id=ids["workspace_a"],
+            user_id=ids["user_a"],
+            auth_session_id=ids["session_a"],
+        ) == allowed_path
+        assert await resolve_browser_auth_return_path(
+            db,
+            requested_redirect=f"/meetings/{ids['meeting_b']}",
+            organization_id=ids["org_a"],
+            workspace_id=ids["workspace_a"],
+            user_id=ids["user_a"],
+            auth_session_id=ids["session_a"],
+        ) == "/meetings"
+        assert await resolve_browser_auth_return_path(
+            db,
+            requested_redirect=f"/desktop/meetings/{ids['meeting_a']}",
+            organization_id=ids["org_b"],
+            workspace_id=ids["workspace_b"],
+            user_id=ids["user_b"],
+            auth_session_id=None,
+        ) == "/desktop/meetings"
 
 
 @pytest.mark.asyncio

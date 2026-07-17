@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -36,6 +37,17 @@ from twobrain_rec_server.db.tenant_context import (
 
 EMAIL_LOGIN_PROVIDER = "email"
 EMAIL_SIGNUP_PROVIDER = "email_signup"
+
+
+@dataclass(frozen=True, slots=True)
+class EmailLoginCompletion:
+    organization_id: UUID
+    workspace_id: UUID
+    user_id: UUID
+    auth_session_id: UUID
+    token: str
+    expires_at: datetime
+    requested_redirect: str | None
 
 
 async def _record_email_login_audit(
@@ -104,7 +116,7 @@ async def _consume_email_login_code(
     next_path: str,
     provider: str = EMAIL_LOGIN_PROVIDER,
     allow_registration: bool = False,
-):
+) -> HTMLResponse | EmailLoginCompletion:
     now = datetime.now(UTC)
     await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state_nonce))
     state = await db.scalar(
@@ -268,8 +280,17 @@ async def _consume_email_login_code(
         user_id=user.id,
         metadata={"flow": "registration"} if allow_registration else None,
     )
+    requested_redirect = state.requested_redirect
     await db.commit()
-    return issued
+    return EmailLoginCompletion(
+        organization_id=workspace.organization_id,
+        workspace_id=workspace.id,
+        user_id=user.id,
+        auth_session_id=issued.id,
+        token=issued.token,
+        expires_at=issued.expires_at,
+        requested_redirect=requested_redirect,
+    )
 
 
 async def _resolve_email_login_user(
