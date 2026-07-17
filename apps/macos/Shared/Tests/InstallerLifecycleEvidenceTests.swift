@@ -72,6 +72,17 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertFalse(source.contains("codesign --force --deep"))
     }
 
+    func testTeamlessSigningDisablesLibraryValidationForEmbeddedSparkle() throws {
+        let installer = try Self.readRepositoryFile("apps/macos/Installer/Scripts/build-local-installer.sh")
+        let validator = try Self.readRepositoryFile("apps/macos/Scripts/validate-app-updates.sh")
+
+        XCTAssertTrue(installer.contains("com.apple.security.cs.disable-library-validation"))
+        XCTAssertTrue(installer.contains(#"--entitlements "$APP_ENTITLEMENTS""#))
+        XCTAssertTrue(installer.contains("TeamIdentifier"))
+        XCTAssertTrue(validator.contains("teamless signing requires disabled library validation"))
+        XCTAssertTrue(validator.contains("team-identified signing must keep library validation enabled"))
+    }
+
     func testUpdateValidatorChecksIdentityTrustAndPublicReleaseGatesWithoutMutatingTCC() throws {
         let source = try Self.readRepositoryFile("apps/macos/Scripts/validate-app-updates.sh")
 
