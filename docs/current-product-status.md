@@ -115,8 +115,8 @@ metadata-only evidence остаются подробной историей ре
   not create access, shares, recipients, delivery or speaker-name assignment.
   Current focused evidence passes `145` unit/read-model, `99` contract, `162`
   integration, `195` focused macOS and `72` authorization/privacy tests;
-  SQLite migration checks and disposable PostgreSQL/RLS probes pass with
-  cleanup. Canonical local CI also passes with `631` macOS tests, `1414` server
+  the historical portability migration receipt and disposable PostgreSQL/RLS
+  probes pass with cleanup. Canonical local CI also passes with `631` macOS tests, `1414` server
   tests passed and `4` skipped, Ruff, compile, Compose rendering and deployment
   evidence scan. Its intentionally non-live RLS boundary reports that a
   PostgreSQL test URL is required; the separate disposable PostgreSQL/RLS run
