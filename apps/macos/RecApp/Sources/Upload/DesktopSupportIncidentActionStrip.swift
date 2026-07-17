@@ -1,17 +1,35 @@
+import AppKit
 import SwiftUI
 import TwoBrainRecShared
 
 public enum DesktopSupportIncidentActionCopy {
     public static let sendTitle = "Связаться с поддержкой"
+    public static let syncTitle = "Проверить синхронизацию"
+    public static let signInTitle = "Войти в кабинет"
+    public static let copyTitle = "Скопировать безопасную сводку"
     public static let sendingMessage = "Отправляем запрос в поддержку…"
-    public static let failureMessage = "Не удалось связаться с поддержкой. Попробуйте ещё раз."
+    public static let rejectedMessage = "Запрос не принят. Проверьте подключение или скопируйте безопасную сводку."
+    public static let failureMessage = rejectedMessage
 
     public static func successMessage(incidentNumber: String?) -> String {
-        guard let incidentNumber = incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !incidentNumber.isEmpty else {
-            return "Запрос отправлен в поддержку."
+        guard let incidentNumber = normalized(incidentNumber) else {
+            return "Запрос принят и передан в поддержку."
         }
-        return "Запрос отправлен в поддержку. Номер: \(incidentNumber)"
+        return "Запрос принят и передан в поддержку. Номер: \(incidentNumber)"
+    }
+
+    public static func pendingMessage(incidentNumber: String?) -> String {
+        guard let incidentNumber = normalized(incidentNumber) else {
+            return "Запрос принят сервером. Синхронизация с поддержкой ожидает проверки."
+        }
+        return "Запрос принят сервером. Синхронизация с поддержкой ожидает проверки. Номер: \(incidentNumber)"
+    }
+
+    public static func signInRequiredMessage(incidentNumber: String?) -> String {
+        if let incidentNumber = normalized(incidentNumber) {
+            return "Запрос с номером \(incidentNumber) уже принят сервером. Войдите в кабинет, чтобы проверить синхронизацию."
+        }
+        return "Нужен вход в кабинет, чтобы отправить запрос в поддержку."
     }
 
     public static func visibleMessage(for state: DesktopSupportIncidentSubmissionState?) -> String? {
@@ -21,11 +39,30 @@ public enum DesktopSupportIncidentActionCopy {
             return nil
         case .sending:
             return sendingMessage
+        case .pendingSync:
+            return pendingMessage(incidentNumber: state.incidentNumber)
         case .sent:
             return successMessage(incidentNumber: state.incidentNumber)
-        case .failedWithCopyFallback, .unavailable:
-            return failureMessage
+        case .failedWithCopyFallback:
+            return requiresSignIn(state) ? signInRequiredMessage(incidentNumber: state.incidentNumber) : rejectedMessage
+        case .unavailable:
+            return rejectedMessage
         }
+    }
+
+    public static func requiresSignIn(_ state: DesktopSupportIncidentSubmissionState?) -> Bool {
+        guard let code = state?.lastFailureCode?.lowercased() else { return false }
+        return code == "support_incident.auth_session_required" ||
+            code.contains("auth_session") ||
+            code.contains("csrf_") ||
+            code == "legacy_header_auth_disabled"
+    }
+
+    private static func normalized(_ incidentNumber: String?) -> String? {
+        guard let value = incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 }
 
@@ -33,8 +70,26 @@ struct DesktopSupportIncidentActionStrip: View {
     let summary: DesktopUploadCustodySummary
     var leadingPadding: CGFloat = 0
     let onSubmit: ([String]) async throws -> DesktopSupportIncidentResponse
+    let onSync: ([String]) async throws -> DesktopSupportIncidentResponse
+    let onOpenSignIn: () -> Void
 
     @State private var submissionOverride: DesktopSupportIncidentSubmissionState?
+
+    init(
+        summary: DesktopUploadCustodySummary,
+        leadingPadding: CGFloat = 0,
+        onSubmit: @escaping ([String]) async throws -> DesktopSupportIncidentResponse,
+        onSync: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
+            throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
+        },
+        onOpenSignIn: @escaping () -> Void = {}
+    ) {
+        self.summary = summary
+        self.leadingPadding = leadingPadding
+        self.onSubmit = onSubmit
+        self.onSync = onSync
+        self.onOpenSignIn = onOpenSignIn
+    }
 
     var body: some View {
         if summary.safeReport != nil, showsSupportSurface {
@@ -49,9 +104,7 @@ struct DesktopSupportIncidentActionStrip: View {
                 }
 
                 if showsSendButton {
-                    Button {
-                        submit()
-                    } label: {
+                    Button(action: submit) {
                         Label(sendButtonTitle, systemImage: "questionmark.bubble")
                     }
                     .font(.caption)
@@ -60,6 +113,39 @@ struct DesktopSupportIncidentActionStrip: View {
                     .disabled(isSending)
                     .accessibilityLabel(DesktopSupportIncidentActionCopy.sendTitle)
                     .help("Отправить запрос в поддержку GRAF.")
+                }
+
+                if showsSyncButton {
+                    Button(action: sync) {
+                        Label(DesktopSupportIncidentActionCopy.syncTitle, systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isSending)
+                    .accessibilityLabel(DesktopSupportIncidentActionCopy.syncTitle)
+                }
+
+                if DesktopSupportIncidentActionCopy.requiresSignIn(submissionState) {
+                    Button(action: onOpenSignIn) {
+                        Label(DesktopSupportIncidentActionCopy.signInTitle, systemImage: "person.crop.circle.badge.exclamationmark")
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel(DesktopSupportIncidentActionCopy.signInTitle)
+                }
+
+                if submissionState?.copyFallbackAvailable == true,
+                   showsCopyFallbackButton {
+                    Button(action: copySafeReport) {
+                        Label(DesktopSupportIncidentActionCopy.copyTitle, systemImage: "doc.on.doc")
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel(DesktopSupportIncidentActionCopy.copyTitle)
+                    .help("Скопировать только безопасную metadata-only сводку.")
                 }
             }
             .padding(.leading, leadingPadding)
@@ -73,7 +159,21 @@ struct DesktopSupportIncidentActionStrip: View {
 
     private var showsSendButton: Bool {
         summary.primaryProjection.normalUserAction == .sendSupportReport &&
-            submissionState?.state != .sent
+            submissionState?.state != .sent &&
+            submissionState?.state != .pendingSync
+    }
+
+    private var showsSyncButton: Bool {
+        submissionState?.state == .pendingSync
+    }
+
+    private var showsCopyFallbackButton: Bool {
+        switch submissionState?.state {
+        case .failedWithCopyFallback, .pendingSync:
+            return true
+        case .notSent, .sending, .sent, .unavailable, nil:
+            return false
+        }
     }
 
     private var showsSupportSurface: Bool {
@@ -92,7 +192,7 @@ struct DesktopSupportIncidentActionStrip: View {
         switch submissionState?.state {
         case .sent:
             return .secondary
-        case .failedWithCopyFallback, .unavailable:
+        case .pendingSync, .failedWithCopyFallback, .unavailable:
             return .orange
         case .sending, .notSent, nil:
             return .secondary
@@ -113,13 +213,10 @@ struct DesktopSupportIncidentActionStrip: View {
             do {
                 let response = try await onSubmit(itemIDs)
                 await MainActor.run {
-                    submissionOverride = DesktopSupportIncidentSubmissionState.sent(
+                    submissionOverride = state(
+                        for: response,
                         reportFingerprint: submissionState?.localReportFingerprint ?? "pending",
-                        dedupeKey: submissionState?.dedupeKey ?? "pending",
-                        incidentNumber: response.incidentId,
-                        githubIssueNumber: response.githubIssueNumber,
-                        attemptedAt: Date(),
-                        copyFallbackAvailable: response.copyFallbackAvailable
+                        dedupeKey: submissionState?.dedupeKey ?? "pending"
                     )
                 }
             } catch {
@@ -135,6 +232,81 @@ struct DesktopSupportIncidentActionStrip: View {
                 }
             }
         }
+    }
+
+    private func sync() {
+        guard let pending = submissionState,
+              let incidentNumber = pending.incidentNumber,
+              !incidentNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return
+        }
+        let itemIDs = supportIncidentItemIDs
+        submissionOverride = DesktopSupportIncidentSubmissionState(
+            state: .sending,
+            localReportFingerprint: pending.localReportFingerprint,
+            dedupeKey: pending.dedupeKey,
+            incidentNumber: incidentNumber,
+            lastSubmissionAttemptAt: Date(),
+            copyFallbackAvailable: pending.copyFallbackAvailable,
+            accessibilityLabel: DesktopSupportIncidentActionCopy.sendingMessage
+        )
+
+        Task {
+            do {
+                let response = try await onSync(itemIDs)
+                await MainActor.run {
+                    submissionOverride = state(
+                        for: response,
+                        reportFingerprint: pending.localReportFingerprint ?? "pending",
+                        dedupeKey: pending.dedupeKey ?? "pending"
+                    )
+                }
+            } catch {
+                let failure = Self.failure(error)
+                await MainActor.run {
+                    submissionOverride = DesktopSupportIncidentSubmissionState.pendingSync(
+                        reportFingerprint: pending.localReportFingerprint ?? "pending",
+                        dedupeKey: pending.dedupeKey ?? "pending",
+                        incidentNumber: incidentNumber,
+                        attemptedAt: Date(),
+                        copyFallbackAvailable: pending.copyFallbackAvailable,
+                        failureCode: failure.code
+                    )
+                }
+            }
+        }
+    }
+
+    private func state(
+        for response: DesktopSupportIncidentResponse,
+        reportFingerprint: String,
+        dedupeKey: String
+    ) -> DesktopSupportIncidentSubmissionState {
+        if response.isPendingSync {
+            return .pendingSync(
+                reportFingerprint: reportFingerprint,
+                dedupeKey: dedupeKey,
+                incidentNumber: response.incidentId,
+                attemptedAt: Date(),
+                copyFallbackAvailable: response.copyFallbackAvailable
+            )
+        }
+        return .sent(
+            reportFingerprint: reportFingerprint,
+            dedupeKey: dedupeKey,
+            incidentNumber: response.incidentId,
+            githubIssueNumber: response.githubIssueNumber,
+            attemptedAt: Date(),
+            copyFallbackAvailable: response.copyFallbackAvailable
+        )
+    }
+
+    private func copySafeReport() {
+        guard let text = summary.safeReport?.clipboardText else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     private var supportIncidentItemIDs: [String] {

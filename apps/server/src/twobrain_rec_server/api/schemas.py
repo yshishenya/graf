@@ -198,10 +198,10 @@ class SupportIncidentReportRequest(BaseModel):
 
 
 class SupportIncidentResponse(BaseModel):
-    incident_id: Annotated[str, Field(pattern=r"^CUST-[1-9][0-9]*$")]
-    incident_status: Literal["created", "updated"]
-    github_issue_number: int = Field(gt=0)
-    github_issue_url: str
+    incident_id: Annotated[str, Field(pattern=r"^CUST-[A-Z0-9-]{1,27}$")]
+    incident_status: Literal["synced", "pending_sync"]
+    github_issue_number: int | None = Field(default=None, gt=0)
+    github_issue_url: str | None = None
     dedupe_status: Literal["created", "updated"]
     affected_count: int = Field(ge=1)
     copy_fallback_available: bool = True

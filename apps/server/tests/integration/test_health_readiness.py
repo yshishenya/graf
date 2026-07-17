@@ -51,6 +51,8 @@ def test_ready_reports_ready_without_dependency_detail(client) -> None:
     assert internal.json()["status"] == "ready"
     assert internal.json()["checks"]["postgres"] == "ok"
     assert internal.json()["checks"]["minio"] == "ok"
+    assert internal.json()["checks"]["support_incidents"] == "not_configured"
+    assert "token" not in str(internal.json()["checks"]).lower()
 
 
 def test_ready_reports_not_ready_when_database_schema_is_empty(postgres_clean_database_url: str) -> None:

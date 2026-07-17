@@ -15,6 +15,9 @@
   [#3708](https://github.com/yshishenya/crisp/issues/3708)).
 - Metadata-only отчёт классификации legacy bootstrap-пользователей без
   переноса записей, membership или содержимого ([#3712](https://github.com/yshishenya/crisp/issues/3712)).
+- Для отчётов поддержки добавлены server-side `CUST-*` номера, metadata-only
+  private Issue с детальной безопасной сводкой и повторная синхронизация без
+  повторной отправки отчёта.
 - Защищённая custody-процедура подписи Sparkle: публичный manifest доверия,
   named Keychain recovery signer, protected GitHub-environment signer и
   metadata-only attestation.
@@ -32,6 +35,9 @@
 - Canonical local CI ограничивает ускоренный PostgreSQL runner четырьмя
   изолированными воркерами на стандартной 8 GB Docker-конфигурации; больший
   bounded override остаётся доступен для машин с достаточным ресурсом.
+- macOS теперь отправляет support-report через авторизованный embedded cabinet
+  с same-origin cookie и CSRF-контекстом; native upload client больше не
+  копирует web-сессию и не использует устаревшие support-заголовки.
 - Активные server-тесты, миграционные проверки и локальный UI-harness теперь
   используют только PostgreSQL с asyncpg; canonical local CI запускает тот же
   изолированный путь.
@@ -39,6 +45,9 @@
   затем делают ограниченный truncate+seed вместо пересоздания всей схемы.
 
 ### Исправлено
+- Ошибка GitHub больше не теряет принятый отчёт: пользователь получает
+  `pending_sync` и номер обращения, а интерфейс различает принятие, ожидание,
+  отказ и необходимость входа.
 - Удалены активные SQLite-драйвер, URL и dialect-specific ветви индексов.
   PostgreSQL-проверки дополнительно выявили и исправили порядок fixture-вставок
   по внешним ключам и auth-запрос с `DISTINCT` по JSON-полю.

@@ -34,6 +34,182 @@ public enum EmbeddedCabinetUpdateBridge {
     }
 }
 
+@MainActor
+public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentSubmitting {
+    public static let intakePath = "/api/v1/desktop/support-incidents"
+    public static let requestScript = """
+    (async () => {
+      const request = arguments.request;
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+      if (!csrfToken) {
+        return JSON.stringify({
+          status: 401,
+          body: JSON.stringify({code: 'support_incident.auth_session_required'})
+        });
+      }
+      const headers = {
+        'Accept': 'application/json',
+        'X-CSRF-Token': csrfToken
+      };
+      if (request.hasBody) headers['Content-Type'] = 'application/json';
+      if (request.idempotencyKey) headers['Idempotency-Key'] = request.idempotencyKey;
+      try {
+        const response = await fetch(request.path, {
+          method: 'POST',
+          credentials: "same-origin",
+          headers,
+          body: request.hasBody ? request.body : undefined
+        });
+        return JSON.stringify({status: response.status, body: await response.text()});
+      } catch (_error) {
+        return JSON.stringify({
+          status: 503,
+          body: JSON.stringify({code: 'support_incident.network_unavailable'})
+        });
+      }
+    })()
+    """
+
+    private weak var webView: WKWebView?
+    private var routePolicy: DesktopCabinetRoutePolicy?
+
+    public init() {}
+
+    public func attach(webView: WKWebView, routePolicy: DesktopCabinetRoutePolicy) {
+        self.webView = webView
+        self.routePolicy = routePolicy
+    }
+
+    public func detach(webView: WKWebView) {
+        guard self.webView === webView else { return }
+        self.webView = nil
+        routePolicy = nil
+    }
+
+    public func submitSupportIncident(
+        report: DesktopSupportIncidentReport
+    ) async throws -> DesktopSupportIncidentResponse {
+        let body = String(decoding: try JSONEncoder().encode(report), as: UTF8.self)
+        return try await execute(
+            path: Self.intakePath,
+            body: body,
+            idempotencyKey: "support-incident:\(report.safeReportFingerprint)"
+        )
+    }
+
+    public func syncSupportIncident(incidentID: String) async throws -> DesktopSupportIncidentResponse {
+        guard incidentID.range(of: #"^CUST-[A-Z0-9-]{1,27}$"#, options: .regularExpression) != nil else {
+            throw DesktopUploadClientError.httpStatus(400, "support_incident.invalid_correlation_number")
+        }
+        return try await execute(
+            path: "\(Self.intakePath)/\(incidentID)/sync",
+            body: nil,
+            idempotencyKey: nil
+        )
+    }
+
+    public nonisolated static func isAllowedCabinetDocument(
+        _ url: URL,
+        routePolicy: DesktopCabinetRoutePolicy
+    ) -> Bool {
+        let decision = routePolicy.decision(for: url)
+        guard decision.decision == .allow else { return false }
+        switch decision.route.kind {
+        case .meetingList, .meetingDetail, .meetingDeletionReport:
+            return true
+        case .calendarSettings, .meetingDetectionSettings, .admin, .authLogin, .authSignup,
+             .authProvider, .authCallback, .unsupported, .external, .forbiddenAction:
+            return false
+        }
+    }
+
+    private func execute(
+        path: String,
+        body: String?,
+        idempotencyKey: String?
+    ) async throws -> DesktopSupportIncidentResponse {
+        guard let webView,
+              let routePolicy,
+              let documentURL = webView.url,
+              Self.isAllowedCabinetDocument(documentURL, routePolicy: routePolicy)
+        else {
+            throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
+        }
+
+        let request: [String: Any] = [
+            "path": path,
+            "body": body ?? "",
+            "hasBody": body != nil,
+            "idempotencyKey": idempotencyKey ?? ""
+        ]
+        let rawResult = try await evaluate(script: Self.requestScript, arguments: ["request": request], in: webView)
+        guard let data = rawResult.data(using: .utf8) else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        let result: JavaScriptResult
+        do {
+            result = try JSONDecoder().decode(JavaScriptResult.self, from: data)
+        } catch {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        guard let responseData = result.body.data(using: .utf8) else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        guard (200..<300).contains(result.status) else {
+            let problem = try? JSONDecoder().decode(ProblemCode.self, from: responseData)
+            throw DesktopUploadClientError.httpStatus(
+                result.status,
+                problem?.code ?? "support_incident.unavailable"
+            )
+        }
+        do {
+            return try JSONDecoder().decode(DesktopSupportIncidentResponse.self, from: responseData)
+        } catch {
+            throw DesktopUploadClientError.invalidResponse
+        }
+    }
+
+    private func evaluate(
+        script: String,
+        arguments: [String: Any],
+        in webView: WKWebView
+    ) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            webView.callAsyncJavaScript(
+                script,
+                arguments: arguments,
+                in: nil,
+                in: .page
+            ) { result in
+                switch result {
+                case let .success(value):
+                    guard let rawResult = value as? String else {
+                        continuation.resume(throwing: DesktopUploadClientError.invalidResponse)
+                        return
+                    }
+                    continuation.resume(returning: rawResult)
+                case .failure:
+                    continuation.resume(
+                        throwing: DesktopUploadClientError.httpStatus(
+                            503,
+                            "support_incident.network_unavailable"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private struct JavaScriptResult: Decodable {
+        let status: Int
+        let body: String
+    }
+
+    private struct ProblemCode: Decodable {
+        let code: String?
+    }
+}
+
 public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
     public typealias CheckForUpdatesAction = @MainActor @Sendable () -> Void
@@ -44,6 +220,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let navigationEventLogger: NavigationEventLogger?
     private let showsAppUpdateBadge: Bool
     private let onCheckForUpdates: CheckForUpdatesAction
+    private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
     @Binding private var cabinetState: DesktopCabinetState
     @Binding private var currentRoute: URL?
 
@@ -55,7 +232,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         currentRoute: Binding<URL?> = .constant(nil),
         navigationEventLogger: NavigationEventLogger? = nil,
         showsAppUpdateBadge: Bool = false,
-        onCheckForUpdates: @escaping CheckForUpdatesAction = {}
+        onCheckForUpdates: @escaping CheckForUpdatesAction = {},
+        supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil
     ) {
         self.request = request
         self.routePolicy = routePolicy
@@ -63,6 +241,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         self.navigationEventLogger = navigationEventLogger
         self.showsAppUpdateBadge = showsAppUpdateBadge
         self.onCheckForUpdates = onCheckForUpdates
+        self.supportIncidentBridge = supportIncidentBridge
         _cabinetState = cabinetState
         _currentRoute = currentRoute
     }
@@ -117,6 +296,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: webView)
+        supportIncidentBridge?.attach(webView: webView, routePolicy: routePolicy)
         context.coordinator.update(
             showsAppUpdateBadge: showsAppUpdateBadge,
             onCheckForUpdates: onCheckForUpdates
@@ -133,6 +313,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: showsAppUpdateBadge,
             onCheckForUpdates: onCheckForUpdates
         )
+        supportIncidentBridge?.attach(webView: container.webView, routePolicy: routePolicy)
         EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: container.webView)
         context.coordinator.applyUpdateVisibility(to: container.webView)
         guard Self.shouldLoad(request: request, lastLoadedRequestIdentity: container.lastLoadedRequestIdentity) else {
@@ -150,12 +331,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             currentRoute: $currentRoute,
             navigationEventLogger: navigationEventLogger,
             showsAppUpdateBadge: showsAppUpdateBadge,
-            onCheckForUpdates: onCheckForUpdates
+            onCheckForUpdates: onCheckForUpdates,
+            supportIncidentBridge: supportIncidentBridge
         )
     }
 
-    public static func dismantleNSView(_ nsView: NSView, coordinator _: Coordinator) {
+    public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         guard let container = nsView as? WebViewContainer else { return }
+        coordinator.detachSupportIncidentBridge(from: container.webView)
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetUpdateBridge.messageHandlerName
         )
@@ -168,6 +351,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private var authContinuationActive = false
         private var showsAppUpdateBadge: Bool
         private var onCheckForUpdates: CheckForUpdatesAction
+        private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
         @Binding private var cabinetState: DesktopCabinetState
         @Binding private var currentRoute: URL?
 
@@ -178,7 +362,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             currentRoute: Binding<URL?>,
             navigationEventLogger: NavigationEventLogger?,
             showsAppUpdateBadge: Bool,
-            onCheckForUpdates: @escaping CheckForUpdatesAction
+            onCheckForUpdates: @escaping CheckForUpdatesAction,
+            supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
         ) {
             self.routePolicy = routePolicy
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
@@ -188,6 +373,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.navigationEventLogger = navigationEventLogger
             self.showsAppUpdateBadge = showsAppUpdateBadge
             self.onCheckForUpdates = onCheckForUpdates
+            self.supportIncidentBridge = supportIncidentBridge
             _cabinetState = cabinetState
             _currentRoute = currentRoute
         }
@@ -207,6 +393,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 EmbeddedCabinetUpdateBridge.visibilityScript(showsBadge: showsAppUpdateBadge),
                 completionHandler: nil
             )
+        }
+
+        @MainActor
+        public func detachSupportIncidentBridge(from webView: WKWebView) {
+            supportIncidentBridge?.detach(webView: webView)
         }
 
         @MainActor
@@ -483,6 +674,33 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     }
 }
 #else
+@MainActor
+public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentSubmitting {
+    public static let intakePath = "/api/v1/desktop/support-incidents"
+    public static let requestScript = ""
+
+    public init() {}
+
+    public nonisolated static func isAllowedCabinetDocument(
+        _: URL,
+        routePolicy _: DesktopCabinetRoutePolicy
+    ) -> Bool {
+        false
+    }
+
+    public func submitSupportIncident(
+        report _: DesktopSupportIncidentReport
+    ) async throws -> DesktopSupportIncidentResponse {
+        throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
+    }
+
+    public func syncSupportIncident(
+        incidentID _: String
+    ) async throws -> DesktopSupportIncidentResponse {
+        throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
+    }
+}
+
 public struct EmbeddedCabinetWebView: View {
     public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
     public typealias CheckForUpdatesAction = @MainActor @Sendable () -> Void
@@ -497,7 +715,8 @@ public struct EmbeddedCabinetWebView: View {
         currentRoute _: Binding<URL?> = .constant(nil),
         navigationEventLogger _: NavigationEventLogger? = nil,
         showsAppUpdateBadge _: Bool = false,
-        onCheckForUpdates _: @escaping CheckForUpdatesAction = {}
+        onCheckForUpdates _: @escaping CheckForUpdatesAction = {},
+        supportIncidentBridge _: EmbeddedCabinetSupportIncidentBridge? = nil
     ) {
         message = DesktopCabinetState.notConfigured.userMessage
     }

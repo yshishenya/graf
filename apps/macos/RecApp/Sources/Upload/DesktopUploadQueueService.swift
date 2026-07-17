@@ -366,26 +366,56 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     @discardableResult
-    public func submitSupportIncident(itemId: String) async throws -> DesktopSupportIncidentResponse {
-        try await submitSupportIncident(itemIds: [itemId])
+    public func submitSupportIncident(
+        itemId: String,
+        using submitter: any DesktopSupportIncidentSubmitting
+    ) async throws -> DesktopSupportIncidentResponse {
+        try await submitSupportIncident(itemIds: [itemId], using: submitter)
     }
 
     @discardableResult
-    public func submitSupportIncident(itemIds: [String]) async throws -> DesktopSupportIncidentResponse {
+    public func submitSupportIncident(
+        itemIds: [String],
+        using submitter: any DesktopSupportIncidentSubmitting
+    ) async throws -> DesktopSupportIncidentResponse {
         let context = client?.supportIncidentContext() ?? .unknown
         let submission = try markSupportIncidentSending(itemIds: itemIds, context: context)
-        guard let client else {
-            let error = DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
-            try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
-            throw error
-        }
 
         do {
-            let response = try await client.submitSupportIncident(report: submission.report)
-            try markSupportIncidentSent(itemIds: submission.itemIds, report: submission.report, response: response)
+            let response = try await submitter.submitSupportIncident(report: submission.report)
+            try markSupportIncidentResponse(itemIds: submission.itemIds, report: submission.report, response: response)
             return response
         } catch {
             try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
+            throw error
+        }
+    }
+
+    @discardableResult
+    public func syncSupportIncident(
+        itemId: String,
+        using submitter: any DesktopSupportIncidentSubmitting
+    ) async throws -> DesktopSupportIncidentResponse {
+        try await syncSupportIncident(itemIds: [itemId], using: submitter)
+    }
+
+    @discardableResult
+    public func syncSupportIncident(
+        itemIds: [String],
+        using submitter: any DesktopSupportIncidentSubmitting
+    ) async throws -> DesktopSupportIncidentResponse {
+        let draft = try markSupportIncidentSyncing(itemIds: itemIds)
+        do {
+            let response = try await submitter.syncSupportIncident(incidentID: draft.incidentNumber)
+            try markSupportIncidentResponse(
+                itemIds: draft.itemIds,
+                reportFingerprint: draft.reportFingerprint,
+                dedupeKey: draft.dedupeKey,
+                response: response
+            )
+            return response
+        } catch {
+            try markSupportIncidentPendingAfterSyncFailure(draft: draft, error: error)
             throw error
         }
     }
@@ -1171,6 +1201,14 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         var report: DesktopSupportIncidentReport
     }
 
+    private struct SupportIncidentSyncDraft {
+        var itemIds: [String]
+        var incidentNumber: String
+        var reportFingerprint: String
+        var dedupeKey: String
+        var copyFallbackAvailable: Bool
+    }
+
     private func markSupportIncidentSending(
         itemIds: [String],
         context: DesktopSupportIncidentReportContext
@@ -1222,22 +1260,153 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
-    private func markSupportIncidentSent(
+    private func markSupportIncidentResponse(
         itemIds: [String],
         report: DesktopSupportIncidentReport,
+        response: DesktopSupportIncidentResponse
+    ) throws {
+        if response.isPendingSync {
+            try markSupportIncidentPending(
+                itemIds: itemIds,
+                reportFingerprint: report.safeReportFingerprint,
+                dedupeKey: report.dedupeKey,
+                incidentNumber: response.incidentId,
+                copyFallbackAvailable: response.copyFallbackAvailable
+            )
+            return
+        }
+        try markSupportIncidentSent(
+            itemIds: itemIds,
+            reportFingerprint: report.safeReportFingerprint,
+            dedupeKey: report.dedupeKey,
+            response: response
+        )
+    }
+
+    private func markSupportIncidentResponse(
+        itemIds: [String],
+        reportFingerprint: String,
+        dedupeKey: String,
+        response: DesktopSupportIncidentResponse
+    ) throws {
+        if response.isPendingSync {
+            try markSupportIncidentPending(
+                itemIds: itemIds,
+                reportFingerprint: reportFingerprint,
+                dedupeKey: dedupeKey,
+                incidentNumber: response.incidentId,
+                copyFallbackAvailable: response.copyFallbackAvailable
+            )
+            return
+        }
+        try markSupportIncidentSent(
+            itemIds: itemIds,
+            reportFingerprint: reportFingerprint,
+            dedupeKey: dedupeKey,
+            response: response
+        )
+    }
+
+    private func markSupportIncidentSent(
+        itemIds: [String],
+        reportFingerprint: String,
+        dedupeKey: String,
         response: DesktopSupportIncidentResponse
     ) throws {
         let changedIds = Set(itemIds)
         try updateSupportIncidentSubmission(itemIds: changedIds) { item, now in
             item.supportIncidentSubmission = .sent(
-                reportFingerprint: report.safeReportFingerprint,
-                dedupeKey: report.dedupeKey,
+                reportFingerprint: reportFingerprint,
+                dedupeKey: dedupeKey,
                 incidentNumber: response.incidentId,
                 githubIssueNumber: response.githubIssueNumber,
                 attemptedAt: now,
                 copyFallbackAvailable: response.copyFallbackAvailable
             )
         }
+    }
+
+    private func markSupportIncidentPending(
+        itemIds: [String],
+        reportFingerprint: String,
+        dedupeKey: String,
+        incidentNumber: String,
+        copyFallbackAvailable: Bool,
+        failureCode: String? = nil
+    ) throws {
+        let changedIds = Set(itemIds)
+        try updateSupportIncidentSubmission(itemIds: changedIds) { item, now in
+            item.supportIncidentSubmission = .pendingSync(
+                reportFingerprint: reportFingerprint,
+                dedupeKey: dedupeKey,
+                incidentNumber: incidentNumber,
+                attemptedAt: now,
+                copyFallbackAvailable: copyFallbackAvailable,
+                failureCode: failureCode
+            )
+        }
+    }
+
+    private func markSupportIncidentSyncing(itemIds: [String]) throws -> SupportIncidentSyncDraft {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            guard let primaryItemId = itemIds.first,
+                  let primaryIndex = document.items.firstIndex(where: { $0.id == primaryItemId }),
+                  let submission = document.items[primaryIndex].supportIncidentSubmission,
+                  submission.state == .pendingSync,
+                  let incidentNumber = submission.incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !incidentNumber.isEmpty,
+                  let reportFingerprint = submission.localReportFingerprint,
+                  let dedupeKey = submission.dedupeKey
+            else {
+                throw DesktopUploadClientError.httpStatus(409, "support_incident.sync_unavailable")
+            }
+            let changedIds = Set(itemIds).intersection(Set(document.items.map(\.id)))
+            guard !changedIds.isEmpty else {
+                throw DesktopUploadQueueServiceError.packageNotFound(primaryItemId)
+            }
+            let now = clock()
+            document.items = document.items.map { candidate in
+                guard changedIds.contains(candidate.id) else { return candidate }
+                var next = candidate
+                next.updatedAt = now
+                next.supportIncidentSubmission = DesktopSupportIncidentSubmissionState(
+                    state: .sending,
+                    localReportFingerprint: reportFingerprint,
+                    dedupeKey: dedupeKey,
+                    incidentNumber: incidentNumber,
+                    lastSubmissionAttemptAt: now,
+                    copyFallbackAvailable: submission.copyFallbackAvailable,
+                    accessibilityLabel: DesktopSupportIncidentActionCopy.sendingMessage
+                )
+                return next
+            }
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+            return SupportIncidentSyncDraft(
+                itemIds: Array(changedIds),
+                incidentNumber: incidentNumber,
+                reportFingerprint: reportFingerprint,
+                dedupeKey: dedupeKey,
+                copyFallbackAvailable: submission.copyFallbackAvailable
+            )
+        }
+    }
+
+    private func markSupportIncidentPendingAfterSyncFailure(
+        draft: SupportIncidentSyncDraft,
+        error: Error
+    ) throws {
+        let failure = Self.supportIncidentFailure(error)
+        try markSupportIncidentPending(
+            itemIds: draft.itemIds,
+            reportFingerprint: draft.reportFingerprint,
+            dedupeKey: draft.dedupeKey,
+            incidentNumber: draft.incidentNumber,
+            copyFallbackAvailable: draft.copyFallbackAvailable,
+            failureCode: failure.code
+        )
     }
 
     private func markSupportIncidentFailed(
