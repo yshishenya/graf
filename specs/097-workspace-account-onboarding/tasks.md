@@ -18,8 +18,8 @@ the quickstart, `infra/scripts/ci-local.sh`, review and approved deploy gates.
 - [X] T005 Write upgrade/downgrade and legacy-classification assertions for the onboarding schema in `apps/server/tests/integration/test_postgres_migrations.py`.
 - [X] T006 Add the reversible personal-workspace/join-offer migration and PostgreSQL RLS policies in `apps/server/src/twobrain_rec_server/db/migrations/versions/0027_workspace_account_onboarding.py`.
 - [X] T007 Add PostgreSQL RLS tests proving a user can see only their offers and active spaces in `apps/server/tests/integration/test_rls_postgres_policies.py`.
-- [ ] T008 Implement the shared idempotent personal-space, offer and active-membership helpers in `apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py`.
-- [ ] T009 Add metadata-only onboarding audit event helpers and redaction tests in `apps/server/src/twobrain_rec_server/auth/audit.py` and `apps/server/tests/unit/test_auth_audit.py`.
+- [X] T008 Implement the shared idempotent personal-space, offer and active-membership helpers in `apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py`.
+- [X] T009 Add metadata-only onboarding audit event helpers and redaction tests in `apps/server/src/twobrain_rec_server/auth/audit.py` and `apps/server/tests/unit/test_auth_audit.py`.
 
 **Checkpoint**: schema migration and RLS receipts pass before altering public login behavior.
 
