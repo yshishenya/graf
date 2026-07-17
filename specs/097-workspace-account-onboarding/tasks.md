@@ -76,8 +76,8 @@ personal-space requests are denied and cannot remove the last corporate owner.
 **Independent test**: a matching email domain with no explicit invitation has a
 personal space only and receives no corporate existence disclosure.
 
-- [ ] T027 [P] [US4] Add regression tests for disabled-by-default domain discovery and email/provider parity in `apps/server/tests/contract/test_auth_contracts.py`.
-- [ ] T028 [US4] Make the workspace enrollment policy reject domain-only automatic joins and return only safe generic outcomes in `apps/server/src/twobrain_rec_server/auth/policy.py` and `apps/server/src/twobrain_rec_server/auth/callbacks.py`.
+- [X] T027 [P] [US4] Add regression tests for disabled-by-default domain discovery and email/provider parity in `apps/server/tests/contract/test_auth_contracts.py`.
+- [X] T028 [US4] Make the workspace enrollment policy reject domain-only automatic joins and return only safe generic outcomes in `apps/server/src/twobrain_rec_server/auth/policy.py` and `apps/server/src/twobrain_rec_server/auth/callbacks.py`.
 
 ## Phase 7: User Story 5 — visible and server-verified active space (P2)
 

@@ -16,6 +16,7 @@ from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.policy import (
     is_provider_enabled_in_policy,
     load_workspace_auth_policy,
+    requires_explicit_corporate_enrollment,
 )
 from twobrain_rec_server.auth.provider_links import (
     ProviderLinkError,
@@ -587,6 +588,13 @@ async def resolve_callback_to_user(
         )
     )
     if membership is None:
+        if not requires_explicit_corporate_enrollment():
+            raise CallbackFlowError(
+                "corporate_enrollment_not_supported",
+                "automatic corporate enrollment is not supported",
+            )
+        # Provider/email claims only create safe personal access.  A corporate
+        # membership can be created later by an explicit accepted join offer.
         workspace = personal_workspace
     browser_device = None
     if _is_browser_requested_redirect(state.requested_redirect):

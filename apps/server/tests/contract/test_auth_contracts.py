@@ -16,6 +16,7 @@ from twobrain_rec_server.api.auth import router as auth_api_router
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+from twobrain_rec_server.auth.policy import requires_explicit_corporate_enrollment
 from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
@@ -1331,6 +1332,68 @@ def test_provider_callback_creates_personal_space_when_corporate_enrollment_is_d
     personal, corporate_memberships, offers = asyncio.run(load())
     assert personal.kind == "personal"
     assert corporate_memberships == []
+    assert offers == []
+
+
+def test_provider_domain_claim_never_auto_joins_or_discloses_corporate_space(monkeypatch, client: TestClient) -> None:
+    _patch_fake_providers(monkeypatch, client, allow_self_enrollment=True)
+    corporate_workspace_id = uuid4()
+    corporate_name = "Закрытая команда Acme"
+
+    async def seed_corporate_space() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                Workspace(
+                    id=corporate_workspace_id,
+                    organization_id=ORG_ID,
+                    slug="acme-corporate",
+                    name=corporate_name,
+                    kind="corporate",
+                )
+            )
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(seed_corporate_space())
+    start = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    callback = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={
+            "state": start.json()["state_nonce"],
+            "code": "DOMAIN-ONLY-USER",
+            "email": "new.user@acme.example",
+        },
+    )
+
+    assert callback.status_code == 200
+    assert corporate_name not in callback.text
+    payload = callback.json()
+    assert payload["workspace_id"] != str(corporate_workspace_id)
+    assert requires_explicit_corporate_enrollment() is True
+
+    async def load() -> tuple[list[WorkspaceMembership], list[WorkspaceJoinOffer]]:
+        async with client.app_state["sessionmaker"]() as db:
+            memberships = list(
+                await db.scalars(
+                    select(WorkspaceMembership).where(
+                        WorkspaceMembership.workspace_id == corporate_workspace_id,
+                        WorkspaceMembership.user_id == UUID(payload["user_id"]),
+                    )
+                )
+            )
+            offers = list(
+                await db.scalars(
+                    select(WorkspaceJoinOffer).where(WorkspaceJoinOffer.user_id == UUID(payload["user_id"]))
+                )
+            )
+            return memberships, offers
+
+    memberships, offers = asyncio.run(load())
+    assert memberships == []
     assert offers == []
 
 
