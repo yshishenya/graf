@@ -119,7 +119,7 @@ evidence.
 - [X] T031 Run full server evidence with workers 1, 4, 6 and 8 through `apps/server/scripts/run_local_postgres_tests.sh`; select the fastest stable default and record only safe aggregate measurements in `specs/110-postgres-test-acceleration/validation/local-postgres-test-pipeline.md`.
 - [X] T032 Repeat the selected full server gate three times and run `infra/scripts/ci-local.sh`; record final timing/count/cleanup evidence in `specs/110-postgres-test-acceleration/validation/local-ci.md`.
 - [X] T033 Run a Ponytail complexity review over `apps/server/scripts/run_local_postgres_tests.sh`, `apps/server/tests/fixtures/postgres_test_database.py`, `apps/server/tests/conftest.py` and `apps/server/tests/fixtures/postgres_rls.py`; record the conclusion in `specs/110-postgres-test-acceleration/validation/ponytail-review.md`.
-- [ ] T034 Reconcile completed task evidence in `specs/110-postgres-test-acceleration/tasks.md` with the Feature 110 GitHub issues, remove confirmed obsolete test-pipeline compatibility aliases, and perform final code/Spec Kit review before integration.
+- [X] T034 Reconcile completed task evidence in `specs/110-postgres-test-acceleration/tasks.md` with the Feature 110 GitHub issues, remove confirmed obsolete test-pipeline compatibility aliases, and perform final code/Spec Kit review before integration.
 
 ## Dependencies & Execution Order
 
