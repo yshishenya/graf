@@ -367,9 +367,10 @@ def _create_foreign_meeting(client: TestClient) -> UUID:
 
 async def _seed_foreign_workspace(client: TestClient, meeting_id: UUID) -> None:
     async with client.app_state["sessionmaker"]() as db:
+        db.add(Organization(id=FOREIGN_ORG_ID, slug="foreign-org", name="Foreign Org"))
+        await db.flush()
         db.add_all(
             [
-                Organization(id=FOREIGN_ORG_ID, slug="foreign-org", name="Foreign Org"),
                 Workspace(
                     id=FOREIGN_WORKSPACE_ID,
                     organization_id=FOREIGN_ORG_ID,
@@ -382,6 +383,11 @@ async def _seed_foreign_workspace(client: TestClient, meeting_id: UUID) -> None:
                     external_subject=str(FOREIGN_USER_ID),
                     display_name="Foreign User",
                 ),
+            ]
+        )
+        await db.flush()
+        db.add_all(
+            [
                 WorkspaceMembership(
                     workspace_id=FOREIGN_WORKSPACE_ID,
                     user_id=FOREIGN_USER_ID,
@@ -395,18 +401,21 @@ async def _seed_foreign_workspace(client: TestClient, meeting_id: UUID) -> None:
                     device_public_id="foreign-device",
                     status="active",
                 ),
-                Meeting(
-                    id=meeting_id,
-                    workspace_id=FOREIGN_WORKSPACE_ID,
-                    created_by_user_id=FOREIGN_USER_ID,
-                    device_id=FOREIGN_DEVICE_ID,
-                    local_recording_id="foreign-private-recording",
-                    title="Foreign private meeting",
-                    started_at=datetime(2026, 6, 16, 7, 0, tzinfo=UTC),
-                    duration_seconds=120,
-                    status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
-                    processing_status=ProcessingStatus.PROCESSED.value,
-                ),
             ]
+        )
+        await db.flush()
+        db.add(
+            Meeting(
+                id=meeting_id,
+                workspace_id=FOREIGN_WORKSPACE_ID,
+                created_by_user_id=FOREIGN_USER_ID,
+                device_id=FOREIGN_DEVICE_ID,
+                local_recording_id="foreign-private-recording",
+                title="Foreign private meeting",
+                started_at=datetime(2026, 6, 16, 7, 0, tzinfo=UTC),
+                duration_seconds=120,
+                status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
+                processing_status=ProcessingStatus.PROCESSED.value,
+            )
         )
         await db.commit()

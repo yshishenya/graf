@@ -213,14 +213,17 @@ def test_calendar_settings_sources_are_scoped_to_current_user(client) -> None:
 
     async def seed() -> UUID:
         async with sessionmaker() as session:
+            session.add(
+                UserIdentity(
+                    id=FORGED_USER_ID,
+                    organization_id=ORG_ID,
+                    external_subject=str(FORGED_USER_ID),
+                    display_name="Other User",
+                )
+            )
+            await session.flush()
             session.add_all(
                 [
-                    UserIdentity(
-                        id=FORGED_USER_ID,
-                        organization_id=ORG_ID,
-                        external_subject=str(FORGED_USER_ID),
-                        display_name="Other User",
-                    ),
                     WorkspaceMembership(
                         workspace_id=WORKSPACE_ID,
                         user_id=FORGED_USER_ID,
@@ -236,6 +239,7 @@ def test_calendar_settings_sources_are_scoped_to_current_user(client) -> None:
                     ),
                 ]
             )
+            await session.flush()
             own_source = CalendarSource(
                 workspace_id=WORKSPACE_ID,
                 owner_user_id=USER_ID,

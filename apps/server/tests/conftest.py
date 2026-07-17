@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 import twobrain_rec_server.ingest.store as store_module
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, REVOKED_DEVICE_ID, USER_ID, WORKSPACE_ID
@@ -24,6 +25,8 @@ from twobrain_rec_server.ingest.store import InMemoryIngestStore
 from twobrain_rec_server.main import create_app
 from twobrain_rec_server.meeting_detection.registry import registry_entries, registry_etag
 
+pytest_plugins = ("tests.fixtures.postgres_test_database",)
+
 REGISTRY_DATA = (
     Path(__file__).resolve().parents[1]
     / "src/twobrain_rec_server/db/migrations/data/0019_meeting_target_registry.json"
@@ -31,9 +34,9 @@ REGISTRY_DATA = (
 
 
 @pytest.fixture
-def test_settings(tmp_path) -> Settings:
+def test_settings(postgres_test_database_url: str) -> Settings:
     return Settings(
-        database_url=f"sqlite+aiosqlite:///{tmp_path / 'rec-test.db'}",
+        database_url=postgres_test_database_url,
         minio_endpoint="localhost:9000",
         minio_access_key="test",
         minio_secret_key="test",
@@ -44,13 +47,13 @@ def test_settings(tmp_path) -> Settings:
 
 @pytest.fixture
 def client(test_settings: Settings) -> TestClient:
-    engine = create_async_engine(test_settings.database_url)
-    sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+    seed_engine = create_async_engine(test_settings.database_url)
+    seed_sessionmaker = async_sessionmaker(seed_engine, expire_on_commit=False)
 
     async def seed_database() -> None:
-        async with engine.begin() as connection:
+        async with seed_engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
-        async with sessionmaker() as session:
+        async with seed_sessionmaker() as session:
             registry_document = json.loads(REGISTRY_DATA.read_text(encoding="utf-8"))
             registry_version = MeetingTargetRegistryVersion(
                 workspace_id=None,
@@ -64,8 +67,19 @@ def client(test_settings: Settings) -> TestClient:
             session.add_all(
                 [
                     Organization(id=ORG_ID, slug="test-org", name="Test Org"),
+                ]
+            )
+            await session.flush()
+            session.add_all(
+                [
                     Workspace(id=WORKSPACE_ID, organization_id=ORG_ID, slug="test-workspace", name="Test Workspace"),
                     UserIdentity(id=USER_ID, organization_id=ORG_ID, external_subject=str(USER_ID), display_name="Test User"),
+                    registry_version,
+                ]
+            )
+            await session.flush()
+            session.add_all(
+                [
                     WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=USER_ID, role="owner", status="active"),
                     RegisteredDevice(
                         id=DEVICE_ID,
@@ -81,7 +95,6 @@ def client(test_settings: Settings) -> TestClient:
                         device_public_id="revoked-device",
                         status="revoked",
                     ),
-                    registry_version,
                 ]
             )
             await session.flush()
@@ -93,9 +106,13 @@ def client(test_settings: Settings) -> TestClient:
                 for entry in registry_entries(registry_document)
             )
             await session.commit()
+        await seed_engine.dispose()
 
     asyncio.run(seed_database())
+    engine = create_async_engine(test_settings.database_url, poolclass=NullPool)
+    sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
     app = create_app(test_settings)
+    app.state.db_engine = engine
     app.state.db_sessionmaker = sessionmaker
     app.state.storage = FakeMinioStorage()
     with TestClient(app) as test_client:
@@ -103,7 +120,6 @@ def client(test_settings: Settings) -> TestClient:
         test_client.app_state["sessionmaker"] = sessionmaker
         test_client.app_state["storage"] = app.state.storage
         yield test_client
-    asyncio.run(engine.dispose())
 
 
 @pytest.fixture(autouse=True)

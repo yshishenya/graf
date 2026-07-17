@@ -9,17 +9,33 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.integration.test_playback_normalization_finalize import (
     _accept_first_party_recording,
 )
 from tests.integration.test_playback_normalization_retry import TransientFailurePipeline
 from tests.integration.test_playback_normalization_workflow import FakeNormalizationPipeline
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import IngestAuditEvent, PlaybackNormalizationJob
+from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.normalization.service import (
     NormalizationExecutionFailure,
     activate_due_normalization_retry,
     run_normalization_job,
 )
+
+
+async def _apply_worker_context(db) -> None:
+    await apply_tenant_scope(
+        db,
+        TenantScope(
+            organization_id=ORG_ID,
+            workspace_id=WORKSPACE_ID,
+            user_id=USER_ID,
+            device_id=DEVICE_ID,
+        ),
+        context_kind="worker",
+    )
 
 
 def test_success_lifecycle_audit_is_persisted_once_and_ready_reuse_is_silent(
@@ -36,6 +52,7 @@ def test_success_lifecycle_audit_is_persisted_once_and_ready_reuse_is_silent(
 
     async def exercise():
         async with client.app_state["sessionmaker"]() as db:
+            await _apply_worker_context(db)
             job = await db.scalar(
                 select(PlaybackNormalizationJob).where(
                     PlaybackNormalizationJob.meeting_id == meeting_id
@@ -58,6 +75,7 @@ def test_success_lifecycle_audit_is_persisted_once_and_ready_reuse_is_silent(
             )
             assert reused.reused is True
         async with client.app_state["sessionmaker"]() as db:
+            await _apply_worker_context(db)
             return list(
                 await db.scalars(
                     select(IngestAuditEvent).where(
@@ -99,6 +117,7 @@ def test_failed_attempt_cleanup_and_due_retry_each_emit_one_durable_event(
 
     async def exercise():
         async with client.app_state["sessionmaker"]() as db:
+            await _apply_worker_context(db)
             job = await db.scalar(
                 select(PlaybackNormalizationJob).where(
                     PlaybackNormalizationJob.meeting_id == meeting_id
@@ -123,6 +142,7 @@ def test_failed_attempt_cleanup_and_due_retry_each_emit_one_durable_event(
                 now=datetime.now(UTC),
             )
         async with client.app_state["sessionmaker"]() as db:
+            await _apply_worker_context(db)
             return list(
                 await db.scalars(
                     select(IngestAuditEvent).where(

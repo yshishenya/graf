@@ -296,13 +296,16 @@ def test_create_meeting_local_recording_id_is_scoped_to_current_user(client: Tes
 
     async def seed_other_user() -> None:
         async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                UserIdentity(
+                    id=other_user_id,
+                    organization_id=ORG_ID,
+                    external_subject=str(other_user_id),
+                )
+            )
+            await db.flush()
             db.add_all(
                 [
-                    UserIdentity(
-                        id=other_user_id,
-                        organization_id=ORG_ID,
-                        external_subject=str(other_user_id),
-                    ),
                     WorkspaceMembership(
                         workspace_id=WORKSPACE_ID,
                         user_id=other_user_id,

@@ -149,12 +149,6 @@ class TrackArtifact(Base):
                 "'review_m4a_aac_lc_48k_mono_64k_v1' "
                 "and validated_at is not null"
             ),
-            sqlite_where=text(
-                "track_role = 'playback' and status = 'stored' "
-                "and normalization_profile_version = "
-                "'review_m4a_aac_lc_48k_mono_64k_v1' "
-                "and validated_at is not null"
-            ),
         ),
         Index(
             "ix_track_artifacts_workspace_meeting_role_status",

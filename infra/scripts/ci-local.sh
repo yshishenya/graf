@@ -20,7 +20,7 @@ else
   printf '\n==> macOS Swift validation skipped (requires Darwin)\n'
 fi
 
-run_step "server tests" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q"
+run_step "server tests" bash apps/server/scripts/run_local_postgres_tests.sh -q
 run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ."
 run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
 run_step "rls hardening validation boundary" python3 apps/server/scripts/verify_rls_hardening.py
