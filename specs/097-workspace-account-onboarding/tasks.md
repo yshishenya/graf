@@ -49,12 +49,12 @@ after explicit acceptance.
 accepting one creates only that membership, while rejection, expiry, revocation
 and replay create none.
 
-- [ ] T017 [P] [US2] Add invitation-offer, identity-match, replay and multi-offer tests in `apps/server/tests/unit/test_workspace_onboarding.py`.
-- [ ] T018 [P] [US2] Add authenticated browser contract tests for listing, accepting and rejecting offers in `apps/server/tests/contract/test_auth_contracts.py`.
-- [ ] T019 [US2] Replace `complete_matching_invitation_after_login` auto-completion with server-side offer creation in `apps/server/src/twobrain_rec_server/admin/invitations.py` and `apps/server/src/twobrain_rec_server/auth/callbacks.py`.
-- [ ] T020 [US2] Add CSRF-protected offer list, accept and reject routes in `apps/server/src/twobrain_rec_server/cabinet/web_routes/spaces.py` and register them from `apps/server/src/twobrain_rec_server/cabinet/web.py`.
-- [ ] T021 [US2] Render accessible offer status, confirmation and recovery states in `apps/server/src/twobrain_rec_server/cabinet/rendering.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html`.
-- [ ] T022 [US2] Ensure offer/invitation audit entries are metadata-only and no route reveals target contacts or unrelated workspace data in `apps/server/src/twobrain_rec_server/admin/invitations.py` and `apps/server/tests/unit/test_admin_invitations.py`.
+- [X] T017 [P] [US2] Add invitation-offer, identity-match, replay and multi-offer tests in `apps/server/tests/unit/test_workspace_onboarding.py`.
+- [X] T018 [P] [US2] Add authenticated browser contract tests for listing, accepting and rejecting offers in `apps/server/tests/contract/test_auth_contracts.py`.
+- [X] T019 [US2] Replace `complete_matching_invitation_after_login` auto-completion with server-side offer creation in `apps/server/src/twobrain_rec_server/admin/invitations.py` and `apps/server/src/twobrain_rec_server/auth/callbacks.py`.
+- [X] T020 [US2] Add CSRF-protected offer list, accept and reject routes in `apps/server/src/twobrain_rec_server/cabinet/web_routes/spaces.py` and register them from `apps/server/src/twobrain_rec_server/cabinet/web.py`.
+- [X] T021 [US2] Render accessible offer status, confirmation and recovery states in `apps/server/src/twobrain_rec_server/cabinet/rendering.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html`.
+- [X] T022 [US2] Ensure offer/invitation audit entries are metadata-only and no route reveals target contacts or unrelated workspace data in `apps/server/src/twobrain_rec_server/admin/invitations.py` and `apps/server/tests/unit/test_admin_invitations.py`.
 
 ## Phase 5: User Story 3 — corporate admin control remains intact (P1)
 

@@ -28,5 +28,31 @@
       </div>
     </section>
     {% endif %}
+    {% if workspace_offer_result or workspace_join_offers %}
+    <section class="settings-section cabinet-card" id="workspace-join-offers" aria-labelledby="workspace-join-offers-title">
+      <div>
+        <div class="section-title" id="workspace-join-offers-title">Приглашения в команды</div>
+        <p class="muted">Выбирайте команды сами. Принятие приглашения не переносит ваши личные записи.</p>
+        {% if workspace_offer_result %}<p role="status" aria-live="polite">{{ workspace_offer_result }}</p>{% endif %}
+      </div>
+      {% if workspace_join_offers %}
+      <ul class="settings-actions" aria-label="Доступные приглашения">
+        {% for offer in workspace_join_offers %}
+        <li>
+          <strong>{{ offer.workspace_name }}</strong><span class="muted">Роль: {{ offer.invited_role_label }}</span>
+          <form action="{{ workspace_offer_action_base_path }}/{{ offer.id }}/accept?return_to_settings=true" method="post">
+            {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+            <button class="button quiet" type="submit">Присоединиться</button>
+          </form>
+          <form action="{{ workspace_offer_action_base_path }}/{{ offer.id }}/reject?return_to_settings=true" method="post">
+            {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+            <button class="button quiet" type="submit">Не сейчас</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+    {% endif %}
   </div>
 </main>

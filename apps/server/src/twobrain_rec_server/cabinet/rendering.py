@@ -11,6 +11,7 @@ from twobrain_rec_server.api.schemas import (
     PreviousRecurringMeetingView,
     TranscriptSegmentView,
 )
+from twobrain_rec_server.auth.workspace_onboarding import WorkspaceJoinOfferView
 from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 from twobrain_rec_server.cabinet.auth_rendering import (
     render_email_code_page as render_email_code_page,
@@ -123,7 +124,14 @@ def render_settings_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     provider_link_options: tuple[cabinet_view_models.ProviderLinkStartOption, ...] = (),
+    workspace_join_offers: tuple[WorkspaceJoinOfferView, ...] = (),
+    workspace_offer_result: str | None = None,
 ) -> str:
+    offer_result_copy = {
+        "accepted": "Вы присоединились к команде. Личное пространство остаётся вашим.",
+        "rejected": "Приглашение отклонено. Вы можете продолжить в личном пространстве.",
+        "unavailable": "Это приглашение уже недоступно. Личное пространство остаётся вашим.",
+    }.get(workspace_offer_result)
     return _page_shell(
         "Настройки",
         embedded=embedded,
@@ -135,6 +143,9 @@ def render_settings_page(
         provider_link_start_base_path="/desktop/settings/provider-links"
         if embedded
         else "/settings/provider-links",
+        workspace_join_offers=workspace_join_offers,
+        workspace_offer_result=offer_result_copy,
+        workspace_offer_action_base_path="/settings/join-offers",
     )
 
 

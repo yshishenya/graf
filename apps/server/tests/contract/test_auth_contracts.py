@@ -1,6 +1,6 @@
 import hashlib
 import hmac
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
@@ -28,6 +28,8 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceAuthPolicy,
     WorkspaceConsentCopy,
+    WorkspaceInvitation,
+    WorkspaceJoinOffer,
     WorkspaceMembership,
     WorkspaceProviderLinkState,
 )
@@ -1297,6 +1299,79 @@ def test_provider_callback_requires_workspace_enrollment_policy(monkeypatch, cli
     assert failures[0].metadata_json["error_code"] == "workspace_enrollment_required"
 
 
+def test_provider_callback_creates_offer_and_personal_space_without_auto_join(monkeypatch, client: TestClient) -> None:
+    _patch_fake_providers(monkeypatch, client, allow_self_enrollment=False)
+
+    async def seed_invitation() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                WorkspaceInvitation(
+                    workspace_id=WORKSPACE_ID,
+                    target_contact="invited@example.test",
+                    invited_role="member",
+                    created_by_user_id=USER_ID,
+                    expires_at=datetime.now(UTC) + timedelta(days=1),
+                )
+            )
+            await db.commit()
+
+    import asyncio
+
+    asyncio.run(seed_invitation())
+
+    start = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_id": str(WORKSPACE_ID), "workspace_return_url": "app://auth-callback"},
+    )
+    callback = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={
+            "state": start.json()["state_nonce"],
+            "code": "NEW-INVITED-USER",
+            "email": "invited@example.test",
+        },
+    )
+
+    assert callback.status_code == 200
+    callback_payload = callback.json()
+    assert callback_payload["workspace_id"] != str(WORKSPACE_ID)
+
+    async def load() -> tuple[Workspace, list[WorkspaceMembership], list[WorkspaceJoinOffer]]:
+        async with client.app_state["sessionmaker"]() as db:
+            user_id = UUID(callback_payload["user_id"])
+            personal = await db.scalar(
+                select(Workspace).where(
+                    Workspace.id == UUID(callback_payload["workspace_id"]),
+                    Workspace.kind == "personal",
+                    Workspace.owner_user_id == user_id,
+                )
+            )
+            assert personal is not None
+            corporate_memberships = list(
+                await db.scalars(
+                    select(WorkspaceMembership).where(
+                        WorkspaceMembership.workspace_id == WORKSPACE_ID,
+                        WorkspaceMembership.user_id == user_id,
+                    )
+                )
+            )
+            offers = list(
+                await db.scalars(
+                    select(WorkspaceJoinOffer).where(
+                        WorkspaceJoinOffer.workspace_id == WORKSPACE_ID,
+                        WorkspaceJoinOffer.user_id == user_id,
+                    )
+                )
+            )
+            return personal, corporate_memberships, offers
+
+    personal, corporate_memberships, offers = asyncio.run(load())
+    assert personal.kind == "personal"
+    assert corporate_memberships == []
+    assert len(offers) == 1
+    assert offers[0].status == "offered"
+
+
 def test_auth_callback_provider_unavailable_returns_service_unavailable(monkeypatch, client: TestClient) -> None:
     _patch_fake_providers(monkeypatch, client)
 
@@ -1726,3 +1801,132 @@ def test_workspace_member_cannot_revoke_another_user_device(client: TestClient) 
 
     assert response.status_code == 403
     assert response.json()["code"] == "link_denied"
+
+
+def test_workspace_join_offers_require_explicit_csrf_protected_decisions(client: TestClient) -> None:
+    async def seed() -> tuple[str, UUID, UUID, UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            accepted_workspace = Workspace(
+                organization_id=ORG_ID,
+                slug="offer-accepted-team",
+                name="Команда для принятия",
+                kind="corporate",
+            )
+            rejected_workspace = Workspace(
+                organization_id=ORG_ID,
+                slug="offer-rejected-team",
+                name="Команда для отклонения",
+                kind="corporate",
+            )
+            db.add_all((accepted_workspace, rejected_workspace))
+            await db.flush()
+            accepted_invitation = WorkspaceInvitation(
+                workspace_id=accepted_workspace.id,
+                target_contact="offer-owner@example.test",
+                invited_role="member",
+                created_by_user_id=USER_ID,
+                expires_at=datetime.now(UTC) + timedelta(days=1),
+            )
+            rejected_invitation = WorkspaceInvitation(
+                workspace_id=rejected_workspace.id,
+                target_contact="offer-owner@example.test",
+                invited_role="admin",
+                created_by_user_id=USER_ID,
+                expires_at=datetime.now(UTC) + timedelta(days=1),
+            )
+            db.add_all((accepted_invitation, rejected_invitation))
+            await db.flush()
+            accepted_offer = WorkspaceJoinOffer(
+                workspace_id=accepted_workspace.id,
+                user_id=USER_ID,
+                invitation_id=accepted_invitation.id,
+                workspace_name=accepted_workspace.name,
+                invited_role=accepted_invitation.invited_role,
+                expires_at=accepted_invitation.expires_at,
+            )
+            rejected_offer = WorkspaceJoinOffer(
+                workspace_id=rejected_workspace.id,
+                user_id=USER_ID,
+                invitation_id=rejected_invitation.id,
+                workspace_name=rejected_workspace.name,
+                invited_role=rejected_invitation.invited_role,
+                expires_at=rejected_invitation.expires_at,
+            )
+            db.add_all((accepted_offer, rejected_offer))
+            session = await issue_auth_session(
+                db,
+                user_id=USER_ID,
+                workspace_id=WORKSPACE_ID,
+                device_id=DEVICE_ID,
+                provider="yandex",
+            )
+            db.add(
+                AuthSessionDeviceBinding(
+                    auth_session_id=session.id,
+                    registered_device_id=DEVICE_ID,
+                    device_state="trusted",
+                    last_heartbeat_at=datetime.now(UTC),
+                )
+            )
+            await db.commit()
+            return session.token, session.id, accepted_offer.id, rejected_offer.id
+
+    import asyncio
+
+    token, session_id, accepted_offer_id, rejected_offer_id = asyncio.run(seed())
+    csrf = issue_csrf_token(session_id=session_id, secret=client.app.state.web_csrf_secret)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, token)
+
+    listed = client.get("/settings/join-offers")
+    assert listed.status_code == 200
+    assert {offer["workspace_name"] for offer in listed.json()["offers"]} == {
+        "Команда для принятия",
+        "Команда для отклонения",
+    }
+    assert "offer-owner@example.test" not in listed.text
+
+    settings = client.get("/settings")
+    assert settings.status_code == 200
+    assert "Приглашения в команды" in settings.text
+    assert "Команда для принятия" in settings.text
+    assert "offer-owner@example.test" not in settings.text
+
+    missing_csrf = client.post(f"/settings/join-offers/{accepted_offer_id}/accept")
+    assert missing_csrf.status_code == 403
+
+    accepted = client.post(
+        f"/settings/join-offers/{accepted_offer_id}/accept",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json() == {"status": "accepted", "idempotent": False}
+    replay = client.post(
+        f"/settings/join-offers/{accepted_offer_id}/accept",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert replay.status_code == 200
+    assert replay.json() == {"status": "accepted", "idempotent": True}
+    rejected = client.post(
+        f"/settings/join-offers/{rejected_offer_id}/reject",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json() == {"status": "rejected", "idempotent": False}
+
+    async def load() -> tuple[WorkspaceJoinOffer, WorkspaceJoinOffer, WorkspaceMembership | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            accepted_offer = await db.get(WorkspaceJoinOffer, accepted_offer_id)
+            rejected_offer = await db.get(WorkspaceJoinOffer, rejected_offer_id)
+            assert accepted_offer is not None
+            assert rejected_offer is not None
+            membership = await db.get(
+                WorkspaceMembership,
+                {"workspace_id": accepted_offer.workspace_id, "user_id": USER_ID},
+            )
+            return accepted_offer, rejected_offer, membership
+
+    accepted_offer, rejected_offer, membership = asyncio.run(load())
+    assert accepted_offer.status == "accepted"
+    assert rejected_offer.status == "rejected"
+    assert membership is not None
+    assert membership.status == "active"

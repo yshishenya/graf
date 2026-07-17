@@ -1,7 +1,9 @@
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi.routing import APIRoute
 
+from twobrain_rec_server.auth.workspace_onboarding import WorkspaceJoinOfferView
 from twobrain_rec_server.cabinet.rendering import (
     render_provider_link_settings_page,
     render_settings_page,
@@ -11,6 +13,7 @@ from twobrain_rec_server.cabinet.view_models import (
     ProviderLinkStartOption,
 )
 from twobrain_rec_server.cabinet.web_routes.provider_links import router as provider_link_router
+from twobrain_rec_server.cabinet.web_routes.spaces import router as spaces_router
 
 
 def test_settings_provider_link_actions_share_browser_and_embedded_contract() -> None:
@@ -58,6 +61,47 @@ def test_pending_provider_link_confirmation_renders_safe_copy_only() -> None:
     assert 'id="cabinet-main" class="cabinet-main" tabindex="-1"' in page
     assert 'role="status" aria-live="polite"' in page
     assert '<button class="button primary" type="submit">Подтвердить подключение</button>' in page
+
+
+def test_workspace_offer_settings_render_explicit_choice_and_safe_recovery() -> None:
+    offer = WorkspaceJoinOfferView(
+        id=uuid4(),
+        workspace_name="Команда продукта",
+        invited_role="member",
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+
+    page = render_settings_page(
+        csrf_token="safe-csrf",
+        workspace_join_offers=(offer,),
+        workspace_offer_result="accepted",
+    )
+
+    assert 'id="workspace-join-offers"' in page
+    assert "Команда продукта" in page
+    assert "Роль: Участник" in page
+    assert "Роль: member" not in page
+    assert "Личное пространство остаётся вашим" in page
+    assert f'action="/settings/join-offers/{offer.id}/accept?return_to_settings=true"' in page
+    assert f'action="/settings/join-offers/{offer.id}/reject?return_to_settings=true"' in page
+    assert 'role="status" aria-live="polite"' in page
+    assert "target_contact" not in page
+    assert "workspace_id" not in page
+
+
+def test_workspace_offer_mutation_route_requires_csrf() -> None:
+    route = next(
+        route
+        for route in spaces_router.routes
+        if isinstance(route, APIRoute) and route.path == "/settings/join-offers/{offer_id}/{action}"
+    )
+    dependencies = {
+        getattr(dependency.call, "__name__", "")
+        for dependency in route.dependant.dependencies
+        if dependency.call is not None
+    }
+
+    assert "require_web_csrf" in dependencies
 
 
 def test_provider_link_settings_mutations_require_csrf_on_both_surfaces() -> None:

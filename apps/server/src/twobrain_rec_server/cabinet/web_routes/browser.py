@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
+from twobrain_rec_server.auth.workspace_onboarding import list_workspace_join_offers
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
     get_provider_link_start_options,
@@ -153,6 +154,7 @@ async def meeting_detail_page(
 @router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
 async def settings_page(
     request: Request,
+    workspace_offer: str | None = Query(default=None, max_length=24),
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -161,9 +163,18 @@ async def settings_page(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
+    offers = await list_workspace_join_offers(
+        db,
+        organization_id=principal.organization_id,
+        current_workspace_id=tenant_scope.workspace_id,
+        user_id=principal.user_id,
+    )
+    await db.commit()
     return cabinet_html_response(
         render_settings_page(
             csrf_token=_csrf_token_for_principal(request, principal),
             provider_link_options=await get_provider_link_start_options(db, tenant_scope),
+            workspace_join_offers=offers,
+            workspace_offer_result=workspace_offer,
         )
     )

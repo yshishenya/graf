@@ -19,6 +19,8 @@ class WorkspaceJoinOffer(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
     invitation_id: Mapped[UUID] = mapped_column(ForeignKey("workspace_invitations.id"), nullable=False)
+    workspace_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    invited_role: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="offered")
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

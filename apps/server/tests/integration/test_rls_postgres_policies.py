@@ -600,9 +600,9 @@ async def test_join_offers_are_visible_only_to_their_owner(rls_engine: AsyncEngi
                 text(
                     """
                     insert into workspace_join_offers
-                        (id, workspace_id, user_id, invitation_id, status, expires_at)
+                        (id, workspace_id, user_id, invitation_id, workspace_name, invited_role, status, expires_at)
                     values
-                        (:id, :workspace_id, :user_id, :invitation_id, 'offered',
+                        (:id, :workspace_id, :user_id, :invitation_id, 'RLS offer', 'member', 'offered',
                          now() + interval '1 day')
                     """
                 ),
@@ -621,6 +621,112 @@ async def test_join_offers_are_visible_only_to_their_owner(rls_engine: AsyncEngi
         )
 
     assert visible_offer_ids == {offer_ids["a"]}
+
+
+@pytest.mark.asyncio
+async def test_join_offer_exposes_only_its_safe_target_metadata_to_the_owner(
+    rls_engine: AsyncEngine,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    target_workspace_id = uuid4()
+    invitation_id = uuid4()
+    offer_id = uuid4()
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="join_offer_target_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspaces (id, organization_id, slug, name)
+                values (:id, :organization_id, :slug, :name)
+                """
+            ),
+            {
+                "id": target_workspace_id,
+                "organization_id": ids["org_a"],
+                "slug": f"rls-offer-target-{ids['slug']}",
+                "name": "RLS Offer Target",
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspace_invitations
+                    (id, workspace_id, target_contact, invited_role, status, source,
+                     created_by_user_id, expires_at, metadata_json)
+                values
+                    (:id, :workspace_id, 'private-target@example.test', 'member', 'pending', 'admin',
+                     :created_by_user_id, now() + interval '1 day', '{}'::json)
+                """
+            ),
+            {
+                "id": invitation_id,
+                "workspace_id": target_workspace_id,
+                "created_by_user_id": ids["user_a"],
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspace_join_offers
+                    (id, workspace_id, user_id, invitation_id, workspace_name, invited_role, status, expires_at)
+                values
+                    (:id, :workspace_id, :user_id, :invitation_id, 'RLS Offer Target', 'member', 'offered',
+                     now() + interval '1 day')
+                """
+            ),
+            {
+                "id": offer_id,
+                "workspace_id": target_workspace_id,
+                "user_id": ids["user_a"],
+                "invitation_id": invitation_id,
+            },
+        )
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        offer_target = (
+            await conn.execute(
+                text(
+                    """
+                    select workspace_name, invited_role
+                    from workspace_join_offers
+                    where id = :offer_id
+                    """
+                ),
+                {"offer_id": offer_id},
+            )
+        ).one_or_none()
+        rejected = await conn.scalar(
+            text(
+                "update workspace_join_offers set status = 'rejected' where id = :offer_id returning status"
+            ),
+            {"offer_id": offer_id},
+        )
+        invitation_visible = await conn.scalar(
+            text("select count(*) from workspace_invitations where id = :invitation_id"),
+            {"invitation_id": invitation_id},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "b"))
+        foreign_count = await conn.scalar(
+            text("select count(*) from workspace_join_offers where id = :offer_id"),
+            {"offer_id": offer_id},
+        )
+
+    assert offer_target == ("RLS Offer Target", "member")
+    assert rejected == "rejected"
+    assert invitation_visible == 0
+    assert foreign_count == 0
 
 
 @pytest.mark.asyncio

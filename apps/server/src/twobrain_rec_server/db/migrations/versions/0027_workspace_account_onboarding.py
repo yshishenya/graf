@@ -38,6 +38,10 @@ def _replace_workspace_policy(*, allow_personal_creation: bool) -> None:
                 rec_context_kind() in ('request', 'auth_public', 'auth_bootstrap')
                 and id = rec_current_workspace_id()
             )
+            or (
+                rec_context_kind() = 'auth_bootstrap'
+                and organization_id = rec_current_organization_id()
+            )
             {personal_creation}
             or rec_maintenance_allowed()
         )
@@ -104,6 +108,11 @@ def _create_join_offer_policy() -> None:
             and user_id = rec_current_user_id()
             and rec_current_user_has_active_workspace_membership()
         )
+        or (
+            rec_context_kind() = 'auth_bootstrap'
+            and workspace_id = rec_current_workspace_id()
+            and user_id = rec_current_user_id()
+        )
         or rec_maintenance_allowed()
     """
     op.execute("alter table workspace_join_offers enable row level security")
@@ -112,6 +121,53 @@ def _create_join_offer_policy() -> None:
     op.execute(
         "create policy workspace_join_offers_tenant_isolation on workspace_join_offers "
         f"using ({predicate}) with check ({predicate})"
+    )
+
+
+def _replace_invitation_policy(*, allow_cross_workspace_offer_match: bool) -> None:
+    cross_workspace_offer_match = (
+        """
+        or (
+            rec_context_kind() = 'auth_bootstrap'
+            and exists (
+                select 1 from workspaces
+                where workspaces.id = workspace_invitations.workspace_id
+                  and workspaces.organization_id = rec_current_organization_id()
+            )
+        )
+        """
+        if allow_cross_workspace_offer_match
+        else ""
+    )
+    predicate = f"""
+        (
+            rec_context_kind() in ('request', 'worker')
+            and workspace_id = rec_current_workspace_id()
+        )
+        or (
+            rec_context_kind() = 'auth_bootstrap'
+            and workspace_id = rec_current_workspace_id()
+        )
+        {cross_workspace_offer_match}
+        or rec_maintenance_allowed()
+    """
+    op.execute("drop policy if exists workspace_invitations_tenant_isolation on workspace_invitations")
+    op.execute(
+        "create policy workspace_invitations_tenant_isolation on workspace_invitations "
+        f"""
+        using ({predicate})
+        with check (
+            (
+                rec_context_kind() in ('request', 'worker')
+                and workspace_id = rec_current_workspace_id()
+            )
+            or (
+                rec_context_kind() = 'auth_bootstrap'
+                and workspace_id = rec_current_workspace_id()
+            )
+            or rec_maintenance_allowed()
+        )
+        """
     )
 
 
@@ -136,6 +192,8 @@ def upgrade() -> None:
         sa.Column("workspace_id", sa.Uuid(), sa.ForeignKey("workspaces.id"), nullable=False),
         sa.Column("user_id", sa.Uuid(), sa.ForeignKey("user_identities.id"), nullable=False),
         sa.Column("invitation_id", sa.Uuid(), sa.ForeignKey("workspace_invitations.id"), nullable=False),
+        sa.Column("workspace_name", sa.String(length=240), nullable=False),
+        sa.Column("invited_role", sa.String(length=32), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="offered"),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
@@ -149,6 +207,7 @@ def upgrade() -> None:
     )
     _replace_workspace_policy(allow_personal_creation=True)
     _replace_membership_policy(allow_personal_creation=True)
+    _replace_invitation_policy(allow_cross_workspace_offer_match=True)
     _create_join_offer_policy()
 
 
@@ -156,6 +215,7 @@ def downgrade() -> None:
     op.execute("drop policy if exists workspace_join_offers_tenant_isolation on workspace_join_offers")
     op.execute("alter table workspace_join_offers no force row level security")
     op.execute("alter table workspace_join_offers disable row level security")
+    _replace_invitation_policy(allow_cross_workspace_offer_match=False)
     _replace_membership_policy(allow_personal_creation=False)
     _replace_workspace_policy(allow_personal_creation=False)
     op.drop_index("ix_workspace_join_offers_user_status", table_name="workspace_join_offers")

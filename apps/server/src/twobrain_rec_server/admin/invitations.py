@@ -15,7 +15,16 @@ from twobrain_rec_server.admin.permissions import (
 )
 from twobrain_rec_server.admin.queries import AdminWorkspaceContext
 from twobrain_rec_server.api.problems import ProblemDetail
-from twobrain_rec_server.db.models import UserIdentity, WorkspaceInvitation, WorkspaceMembership
+from twobrain_rec_server.auth.audit import write_onboarding_audit_event
+from twobrain_rec_server.auth.workspace_onboarding import create_or_reuse_join_offer
+from twobrain_rec_server.db.models import (
+    UserIdentity,
+    Workspace,
+    WorkspaceInvitation,
+    WorkspaceJoinOffer,
+    WorkspaceMembership,
+)
+from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
 
 
 def normalize_invitation_target(value: str) -> str:
@@ -195,17 +204,24 @@ async def complete_workspace_invitation(
     return invitation
 
 
-async def complete_matching_invitation_after_login(
+async def create_matching_join_offers_after_login(
     db: AsyncSession,
     *,
-    workspace_id: UUID,
+    organization_id: UUID,
+    bootstrap_workspace_id: UUID,
     user_id: UUID,
     provider: str,
     provider_subject: str | None,
     provider_username: str | None,
     email: str | None,
     phone: str | None,
-) -> WorkspaceInvitation | None:
+) -> tuple[WorkspaceJoinOffer, ...]:
+    """Create opaque, user-bound offers after a verified identity match.
+
+    A callback may prove an identity, but it must never create a corporate
+    membership by itself. The resulting offer is the only state the browser
+    needs before the person explicitly accepts it.
+    """
     contacts = matching_invitation_contacts(
         provider_subject=provider_subject,
         provider_username=provider_username,
@@ -213,23 +229,61 @@ async def complete_matching_invitation_after_login(
         phone=phone,
     )
     if not contacts:
-        return None
-    invitation = await find_matching_pending_invitation(
+        return ()
+    invitations = await find_matching_pending_invitations(
         db,
-        workspace_id=workspace_id,
+        organization_id=organization_id,
         provider=provider,
         contacts=contacts,
     )
-    if invitation is None:
-        return None
-    return await complete_workspace_invitation(
+    offers: list[WorkspaceJoinOffer] = []
+    for invitation in invitations:
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=invitation.workspace_id,
+                organization_id=organization_id,
+                user_id=user_id,
+                context_kind="auth_bootstrap",
+            ),
+        )
+        workspace = await db.get(Workspace, invitation.workspace_id)
+        if workspace is None:
+            continue
+        existing_offer = await db.scalar(
+            select(WorkspaceJoinOffer).where(
+                WorkspaceJoinOffer.user_id == user_id,
+                WorkspaceJoinOffer.invitation_id == invitation.id,
+            )
+        )
+        offer = await create_or_reuse_join_offer(
+            db,
+            workspace_id=invitation.workspace_id,
+            user_id=user_id,
+            invitation_id=invitation.id,
+            workspace_name=workspace.name,
+            invited_role=invitation.invited_role,
+            expires_at=invitation.expires_at,
+        )
+        if existing_offer is None:
+            await write_onboarding_audit_event(
+                db,
+                workspace_id=invitation.workspace_id,
+                user_id=user_id,
+                event_type="workspace_join_offer_created",
+                metadata={"offer_id": str(offer.id), "invitation_id": str(invitation.id)},
+            )
+        offers.append(offer)
+    await apply_tenant_context(
         db,
-        workspace_id=workspace_id,
-        invitation_id=invitation.id,
-        completed_user_id=user_id,
-        provider=provider,
-        login_contacts=contacts,
+        WorkspaceAuthContext(
+            workspace_id=bootstrap_workspace_id,
+            organization_id=organization_id,
+            user_id=user_id,
+            context_kind="auth_bootstrap",
+        ),
     )
+    return tuple(offers)
 
 
 async def find_matching_pending_invitation(
@@ -239,29 +293,43 @@ async def find_matching_pending_invitation(
     provider: str,
     contacts: Iterable[str],
 ) -> WorkspaceInvitation | None:
-    normalized_contacts = {normalize_invitation_target(value) for value in contacts if value}
-    invitations = (
-        (
-            await db.execute(
-                select(WorkspaceInvitation).where(
-                    WorkspaceInvitation.workspace_id == workspace_id,
-                    WorkspaceInvitation.status == "pending",
-                )
-            )
-        )
-        .scalars()
-        .all()
+    invitations = await find_matching_pending_invitations(
+        db,
+        organization_id=None,
+        workspace_id=workspace_id,
+        provider=provider,
+        contacts=contacts,
     )
+    return invitations[0] if invitations else None
+
+
+async def find_matching_pending_invitations(
+    db: AsyncSession,
+    *,
+    organization_id: UUID | None,
+    provider: str,
+    contacts: Iterable[str],
+    workspace_id: UUID | None = None,
+) -> tuple[WorkspaceInvitation, ...]:
+    normalized_contacts = {normalize_invitation_target(value) for value in contacts if value}
+    if not normalized_contacts:
+        return ()
+    statement = select(WorkspaceInvitation).where(WorkspaceInvitation.status == "pending")
+    if workspace_id is not None:
+        statement = statement.where(WorkspaceInvitation.workspace_id == workspace_id)
+    if organization_id is not None:
+        statement = statement.join(Workspace).where(Workspace.organization_id == organization_id)
+    invitations = (await db.execute(statement)).scalars().all()
+    matches: list[WorkspaceInvitation] = []
     for invitation in invitations:
         if invitation_runtime_status(invitation) == "expired":
-            invitation.status = "expired"
             continue
         if invitation.target_contact in normalized_contacts and invitation.target_provider in {
             None,
             provider,
         }:
-            return invitation
-    return None
+            matches.append(invitation)
+    return tuple(matches)
 
 
 def invitation_to_dict(invitation: WorkspaceInvitation) -> dict[str, object]:
