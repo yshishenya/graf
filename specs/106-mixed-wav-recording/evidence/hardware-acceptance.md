@@ -12,14 +12,15 @@
 
 ## Non-install candidate proof
 
-- A local-only `2026.07.17.9` candidate was built from merge
-  `a5f1a1a030bdf025c348caf6ee0a273b2de608eb` with the stable owner signing
-  identity. Its update validator passed against the separately installed
-  `2026.07.17.7` app with designated-requirement identity continuity and one
-  configured signed-feed contract.
-- The local package is intentionally not Developer ID signed or notarized. No
-  installation, launch, recording, hardware measurement or release action was
-  performed, and the parallel installed app was left untouched.
+- A local-only `2026.07.17.10` candidate was built from
+  `d9d4d6f7970bb21f20cc2d2a66bde1f850d2e9da` with the stable owner signing
+  identity. Its strict owner-only update validator passed against the
+  separately installed `2026.07.17.9` app with designated-requirement
+  continuity and the same configured public update contract.
+- The local package intentionally has no Developer ID package signature and is
+  not notarized. No installation, launch, recording, hardware measurement or
+  release action was performed, and the parallel installed app was left
+  untouched.
 
 ## Required future metadata-only verdicts
 
