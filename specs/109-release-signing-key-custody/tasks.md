@@ -68,8 +68,8 @@
 
 ### Tests for User Story 2
 
-- [ ] T015 [P] [US2] Add no-secret-output, safe-attestation, protected-manual-trigger, least-permission, no-untrusted-PR and temporary-key-cleanup expectations to `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`.
-- [ ] T016 [P] [US2] Add workflow syntax/static-policy checks for `.github/workflows/verify-release-signing-custody.yml` and `.github/workflows/sign-graf-app-update.yml` to `apps/macos/Installer/Scripts/test-release-signing-custody.sh`.
+- [ ] T015 [P] [US2] Add no-secret-output, safe-attestation, protected-manual-trigger, least-permission, no-untrusted-PR, immutable external-action SHA and temporary-key-cleanup expectations to `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`.
+- [ ] T016 [P] [US2] Add workflow syntax/static-policy checks for immutable external-action SHAs, `.github/workflows/verify-release-signing-custody.yml` and `.github/workflows/sign-graf-app-update.yml` to `apps/macos/Installer/Scripts/test-release-signing-custody.sh`.
 
 ### Implementation for User Story 2
 
@@ -78,7 +78,7 @@
 - [ ] T019 [US2] Create `.github/workflows/verify-release-signing-custody.yml` with `workflow_dispatch`, `graf-release-signing` gate, exact-tag checks and metadata-only attestation; it must have no public-host write path.
 - [ ] T020 [US2] Create `.github/workflows/sign-graf-app-update.yml` to validate exact tagged draft inputs, materialize the protected secret only in a restrictive runner-temporary file, invoke the shared staging contract, upload only signed draft assets/checksums, and serialize release runs.
 - [ ] T021 [US2] Update `apps/macos/Installer/README.md` and `specs/109-release-signing-key-custody/quickstart.md` with environment approval, readiness drill, degraded fallback and safe attestation retrieval instructions.
-- [ ] T022 [US2] Run local disposable-key tests in `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and dispatch `.github/workflows/verify-release-signing-custody.yml` against an approved non-production tag; prove matching, missing and mismatched states without exposing a secret.
+- [ ] T022 [US2] Run local disposable-key tests in `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and dispatch `.github/workflows/verify-release-signing-custody.yml` against an approved non-production tag using a dedicated disposable test secret/environment; prove matching, missing and mismatched states without exposing or activating the future production generation.
 
 **Checkpoint**: The normal and recovery signers are independently usable and known equal before a release can proceed.
 
@@ -113,9 +113,11 @@
 - [ ] T029 [P] Run `git diff --check`, shell syntax, workflow static checks, `swift test --package-path apps/macos/Shared --filter InstallerLifecycleEvidenceTests`, and `apps/macos/Installer/Scripts/test-release-signing-custody.sh`.
 - [ ] T030 Run `infra/scripts/ci-local.sh`, triage every new failure, and preserve high-risk validation evidence without raw keys/audio/transcripts.
 - [ ] T031 Re-run Spec Kit analyze for `specs/109-release-signing-key-custody/`, reconcile feature-109 GitHub task issues, and obtain required code/release review before a production secret enrollment or tag.
-- [ ] T032 After merge and release approval, configure GitHub environment `graf-release-signing`, enroll the active public manifest through `apps/macos/Installer/Scripts/provision-release-signing-custody.sh`, and record only safe readiness results.
-- [ ] T033 Build/install the next unused CalVer manual bootstrap with `apps/macos/Installer/Scripts/build-trust-bootstrap.sh`; prove app identity and retained permissions without resetting/regranting TCC.
-- [ ] T034 Produce and verify two strictly greater normal updates through `.github/workflows/sign-graf-app-update.yml`, publish versioned assets before `graf-appcast.xml`, and capture metadata-only proof of the two in-app installations.
+- [ ] T032 After `v2026.07.17.12` is merged, fetch and semantically merge the exact current `origin/master` into the feature/release branch; preserve the completed `.12` behavior, re-run focused tests, and do not create a tag or package during this sync.
+- [ ] T033 After feature merge and release approval, create a clean release worktree at exact refreshed `origin/master`, enumerate remote CalVer tags, choose the next free version strictly greater than `.12`, and verify the branch/tag provenance before any active-key enrollment.
+- [ ] T034 Configure GitHub environment `graf-release-signing` with independently revocable protected access, reviewer approval and no public-host signer access; enroll the active public manifest through `apps/macos/Installer/Scripts/provision-release-signing-custody.sh` and record only safe readiness results.
+- [ ] T035 Build/install the selected next-free CalVer manual bootstrap with `apps/macos/Installer/Scripts/build-trust-bootstrap.sh`; prove app identity and retained permissions without resetting/regranting TCC.
+- [ ] T036 Produce and verify two strictly greater normal updates through `.github/workflows/sign-graf-app-update.yml`, publish versioned assets before `graf-appcast.xml`, and capture metadata-only proof of the two in-app installations.
 
 ---
 
@@ -128,7 +130,7 @@
 - **US1**: depends on Phase 2 and delivers the manual migration boundary.
 - **US2**: depends on Phase 2; disposable proof can run beside US1 documentation after shared scripts stabilize.
 - **US3**: depends on core US1/US2 controls because it hardens their state transitions.
-- **Phase 6**: depends on all code/tests. T032–T034 require explicit release approval and a green repository gate.
+- **Phase 6**: depends on all code/tests. T032–T036 require explicit release approval and a green repository gate.
 
 ### User Story Dependencies
 
@@ -170,7 +172,7 @@ Task: "Add workflow policy checks in apps/macos/Installer/Scripts/test-release-s
 2. Bootstrap boundary → one honest migration path.
 3. Protected signer workflows → no single local signer.
 4. State/rollback checks → release safety under failure.
-5. Green repository gate + approved migration → bootstrap and two in-app proofs.
+5. Green repository gate + refreshed master after `.12` + approved migration → bootstrap and two in-app proofs.
 
 ## Notes
 

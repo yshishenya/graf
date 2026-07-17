@@ -35,11 +35,11 @@ account and a different test key: each must fail before ZIP/appcast creation.
 
 ## 3. Protected cloud-channel proof
 
-In GitHub, create the `graf-release-signing` environment, limit it to approved
-release reviewers, and populate its secret only using the controlled
-provisioning path.  Run `verify-release-signing-custody.yml` manually from the
-approved default branch with the expected public `keyId`.  Download its safe
-attestation and pass it to the local verifier.
+For code acceptance, use a separate non-production protected environment with a
+disposable test signer. Run `verify-release-signing-custody.yml` manually from
+the approved default branch with the test public `keyId`. Download its safe
+attestation and pass it to the local verifier. Do not use this test secret to
+activate the future production generation.
 
 Expected result: both channels report `ready` only if their derived public
 identifiers equal the app and manifest.  A missing secret, wrong secret, stale
@@ -85,3 +85,8 @@ remote assets and checksums, copy archive/package before `graf-appcast.xml`,
 replace the appcast last, then fetch and verify the public result.  Retain the
 prior signed feed and publish a higher forward-fix rather than an unsigned or
 downgrade rollback.
+
+Before choosing the bootstrap version, wait for any parallel release to merge,
+create a clean worktree from exact refreshed `origin/master`, enumerate remote
+CalVer tags and choose the next free number.  Do not preallocate or reuse a
+parallel release version.

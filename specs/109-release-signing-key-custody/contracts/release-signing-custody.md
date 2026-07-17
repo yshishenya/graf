@@ -88,6 +88,14 @@ draft-release upload permission.  They must only check out/operate on the exact
 approved tag after confirming it is the intended `master` release commit.  The
 Sparkle secret is materialized only in a restrictive runner-temporary file,
 deleted by an exit trap, and never included in an artifact/output/cache.
+Any external GitHub Action must be referenced by an immutable full commit SHA;
+built-in runner tools and `gh` are preferred when they avoid an extra action.
+
+A disposable workflow proof uses a separate non-production environment and a
+disposable test signer.  It proves behavior only; it cannot activate or attest
+the future production trust generation.  Production activation additionally
+requires distinct protected access/reviewer policy for the GitHub environment,
+the named Keychain recovery channel, and the public-host operator.
 
 ## Ordinary Staging Contract
 
@@ -126,3 +134,8 @@ The first protected-signer update and one more sequential update are both
 required release evidence.  A failed preflight, signer mismatch, unavailable
 channel, missing archive, or invalid appcast leaves the current public appcast
 unchanged.
+
+Before a physical migration, start from a clean worktree at the exact refreshed
+`origin/master` commit, enumerate remote CalVer tags, and select the next free
+version only then.  A parallel release tag is never reused or assumed to be the
+bootstrap version.

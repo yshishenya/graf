@@ -178,6 +178,9 @@
   и его provenance, иметь least repository permissions, требовать protected
   environment approval для доступа к секрету и MUST NOT иметь trigger,
   предоставляющий секрет untrusted pull request, fork или произвольному ref.
+  Любой внешний GitHub Action в таком workflow MUST быть закреплён immutable
+  full commit SHA; встроенные runner/`gh` возможности предпочтительны, если
+  позволяют не добавлять внешний Action.
 - **FR-017**: До подписи workflow MUST проверить, что draft archive и русские
   release notes принадлежат запрошенной версии, содержат ожидаемый GRAF.app,
   identity и публичный ключ; публиковать он MAY только inspectable draft
