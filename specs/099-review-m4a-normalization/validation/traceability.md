@@ -258,11 +258,11 @@ Authoritative read-back выполнен через GitHub REST API по label `
 | T117 | готово | [#3616](https://github.com/yshishenya/crisp/issues/3616) — open | `validation/hotfix-worker-recovery.md` (focused startup regression) |
 | T118 | готово | [#3617](https://github.com/yshishenya/crisp/issues/3617) — open | existing retry/lease/dispatch path in `normalization/` |
 | T119 | готово | [#3618](https://github.com/yshishenya/crisp/issues/3618) — open | `validation/hotfix-worker-recovery.md` |
-| T120 | готово | [#3619](https://github.com/yshishenya/crisp/issues/3619) — open | `validation/release-closeout.md` (canonical CI, release/deploy and production proof) |
-| T121 | готово | [#3623](https://github.com/yshishenya/crisp/issues/3623) — open | `test_playback_normalization_restart.py`; `test_playback_normalization_postgres.py` |
-| T122 | готово | [#3624](https://github.com/yshishenya/crisp/issues/3624) — open | `pickup.py`; migration `0026_skip_active_normalization_cleanup.py` |
-| T123 | готово | [#3631](https://github.com/yshishenya/crisp/issues/3631) — open | `validation/release-closeout.md` |
-| T124 | готово | [#3624](https://github.com/yshishenya/crisp/issues/3624) — open | migration revision ID and worker schema-head tests |
+| T120 | готово | [#3619](https://github.com/yshishenya/crisp/issues/3619) — closed | `validation/release-closeout.md` (canonical CI, release/deploy and production proof) |
+| T121 | готово | [#3623](https://github.com/yshishenya/crisp/issues/3623) — closed | `test_playback_normalization_restart.py`; `test_playback_normalization_postgres.py` |
+| T122 | готово | [#3624](https://github.com/yshishenya/crisp/issues/3624) — closed | `pickup.py`; migration `0026_skip_active_normalization_cleanup.py` |
+| T123 | готово | [#3631](https://github.com/yshishenya/crisp/issues/3631) — closed | `validation/release-closeout.md` |
+| T124 | готово | [#3624](https://github.com/yshishenya/crisp/issues/3624) — closed | migration revision ID and worker schema-head tests |
 
 
 ## Evidence hygiene
