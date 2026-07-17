@@ -218,11 +218,13 @@ async def _consume_email_login_code(
             error="email_code_invalid",
             flow=flow,
         )
-    workspace = await ensure_personal_workspace(
+    personal_workspace = await ensure_personal_workspace(
         db,
         organization_id=workspace.organization_id,
         user_id=user.id,
     )
+    if allow_registration:
+        workspace = personal_workspace
     device = await _resolve_email_browser_device(db, workspace=workspace, user=user, now=now)
     issued = await issue_auth_session(
         db,
@@ -326,6 +328,22 @@ async def _resolve_email_login_user(
         )
         if membership is not None:
             return workspace, user
+        personal_workspace = await db.scalar(
+            select(Workspace)
+            .join(
+                WorkspaceMembership,
+                WorkspaceMembership.workspace_id == Workspace.id,
+            )
+            .where(
+                Workspace.organization_id == workspace.organization_id,
+                Workspace.kind == "personal",
+                Workspace.owner_user_id == user.id,
+                WorkspaceMembership.user_id == user.id,
+                WorkspaceMembership.status == "active",
+            )
+        )
+        if personal_workspace is not None:
+            return personal_workspace, user
     return workspace, None
 
 

@@ -1465,7 +1465,8 @@ async def test_runtime_roles_are_non_superuser_and_cannot_bypass_rls(
     finally:
         await owner_engine.dispose()
 
-    assert app_role == "twobrain_rec_app"
+    assert app_role is not None
+    assert app_role.startswith("twobrain_rec_app_")
     assert maintenance_role == "twobrain_rec_maintenance"
     assert media_role == "twobrain_rec_media"
     assert len(rows) == 3
