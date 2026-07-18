@@ -39,6 +39,10 @@
 - Canonical local CI ограничивает ускоренный PostgreSQL runner четырьмя
   изолированными воркерами на стандартной 8 GB Docker-конфигурации; больший
   bounded override остаётся доступен для машин с достаточным ресурсом.
+- Кандидат Feature 096 синхронизирован с каноническим OpenAPI: server-mediated
+  PostHog web/desktop capture endpoints, env/secret handoff и metadata-only
+  PostHog operations receipts теперь проверяются тем же текущим master-кодом;
+  production provider delivery остаётся fail-closed.
 - macOS теперь отправляет support-report через авторизованный embedded cabinet
   с same-origin cookie и CSRF-контекстом; native upload client больше не
   копирует web-сессию и не использует устаревшие support-заголовки.
