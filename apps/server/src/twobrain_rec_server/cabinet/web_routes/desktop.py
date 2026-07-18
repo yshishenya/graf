@@ -63,6 +63,9 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _request_path_with_query,
 )
 from twobrain_rec_server.deletion.service import deletion_report_response
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
+)
 
 router = APIRouter(tags=["cabinet-web"])
 EmbeddedLogoutNextForm = Form(default="/login?next=/desktop/meetings", alias="next", max_length=512)
@@ -124,6 +127,13 @@ async def embedded_meeting_list_page(
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=_request_path_with_query(request),
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "embedded_desktop_webview",
+                principal=principal,
+                tenant_scope=tenant_scope,
+                device_class="desktop_webview",
+            ),
         )
     )
 
@@ -196,6 +206,13 @@ async def embedded_meeting_detail_page(
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=_request_path_with_query(request),
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "meeting_result_detail",
+                principal=principal,
+                tenant_scope=tenant_scope,
+                device_class="desktop_webview",
+            ),
         )
     )
 
@@ -252,6 +269,13 @@ async def embedded_calendar_settings_page(
             surface,
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "settings",
+                principal=principal,
+                tenant_scope=tenant_scope,
+                device_class="desktop_webview",
+            ),
         )
     )
     set_desktop_calendar_auth_cookie(
@@ -288,6 +312,13 @@ async def embedded_settings_page(
             csrf_token=_csrf_token_for_principal(request, principal),
             provider_link_options=provider_link_options,
             workspace_spaces=spaces,
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "settings",
+                principal=principal,
+                tenant_scope=tenant_scope,
+                device_class="desktop_webview",
+            ),
         )
     )
 
@@ -327,5 +358,12 @@ async def embedded_meeting_deletion_report_page(
             report,
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "deletion",
+                principal=principal,
+                tenant_scope=tenant_scope,
+                device_class="desktop_webview",
+            ),
         )
     )

@@ -26,6 +26,14 @@ Date: 2026-07-18
 - `infra/scripts/rollback-product-analytics-providers.sh --dry-run`: pass with
   `dry_run_no_state_change`.
 - Ruff over the changed server provider/API/public modules: pass.
+- Targeted provider page/template contract checks:
+  `8 passed` (`test_product_analytics_autocapture_pages` template contract,
+  PostHog autocapture contract, replay/Webvisor boundaries).
+- Targeted rendered-page integration test was not started because this clean
+  worktree has no `TWOBRAIN_DATABASE_URL`; the fixture explicitly requires the
+  repository's local-Postgres test runner. No long test run was started.
+- `python -m compileall -q` over the changed server provider/admin/cabinet
+  modules: pass.
 - `git diff --check`: pass.
 
 ## Not claimed
@@ -36,6 +44,9 @@ Date: 2026-07-18
   changed.
 - Full repository CI was not rerun in this turn by user instruction; this
   receipt is bounded evidence only.
+- The targeted contract checks do not replace the database-backed rendered
+  page test; that test remains open until the local Postgres test environment is
+  available.
 
 ## Read-only production probe
 

@@ -11,6 +11,7 @@ def _page_shell(
     embedded: bool,
     page_template: str = "cabinet/pages/shell.html",
     csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
     content_source: str = "cabinet.shell",
     active_nav: str = "meetings",
     **context,
@@ -40,6 +41,7 @@ def _page_shell(
         title=title,
         surface_mode="desktop_embedded" if embedded else "standalone_browser",
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content=trusted_component_html(shell, source="cabinet.shell"),
     )
 

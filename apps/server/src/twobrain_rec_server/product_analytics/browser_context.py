@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.product_analytics.identity import build_safe_identity
 from twobrain_rec_server.product_analytics.page_inventory import get_page_class_policy
 from twobrain_rec_server.product_analytics.provider_config import ProductAnalyticsProviderConfig
 from twobrain_rec_server.public.analytics import build_product_yandex_provider_context
@@ -64,3 +65,52 @@ def build_browser_provider_context(settings: Settings, page_class: str) -> dict[
             "paid_campaign_launch": "blocked",
         },
     }
+
+
+def build_request_browser_provider_context(
+    request: Any,
+    page_class: str,
+    *,
+    principal: Any | None = None,
+    tenant_scope: Any | None = None,
+    device_class: str = "browser",
+    include_workspace: bool = True,
+) -> dict[str, Any]:
+    """Build page analytics context from the request's runtime settings."""
+    app_state = getattr(getattr(request, "app", None), "state", None)
+    settings = getattr(app_state, "settings", None) or Settings()
+    provider = build_browser_provider_context(settings, page_class)
+    if principal is None:
+        return provider
+
+    workspace_source_id = getattr(tenant_scope, "workspace_id", None)
+    if workspace_source_id is None:
+        workspace_source_id = getattr(principal, "session_workspace_id", None)
+    if include_workspace and workspace_source_id is None:
+        workspace_ids = getattr(principal, "workspace_ids", frozenset()) or frozenset()
+        if len(workspace_ids) == 1:
+            workspace_source_id = next(iter(workspace_ids))
+    identity = build_safe_identity(
+        user_source_id=str(principal.user_id),
+        workspace_source_id=(
+            str(workspace_source_id) if include_workspace and workspace_source_id else None
+        ),
+        device_class=device_class,
+    )
+    posthog = provider["posthog"]
+    posthog.update(
+        {
+            "identity_state": "authenticated_pseudonymous",
+            "distinct_id": identity.posthog_distinct_id,
+            "workspace_pseudonym": identity.workspace_pseudonym,
+            "device_class": identity.device_class,
+        }
+    )
+    yandex = provider["yandex"]
+    yandex.update(
+        {
+            "user_id": identity.stable_pseudonymous_user_id,
+            "user_id_source": "graf_pseudonymous_user",
+        }
+    )
+    return provider

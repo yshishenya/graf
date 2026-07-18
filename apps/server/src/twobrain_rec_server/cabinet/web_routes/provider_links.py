@@ -30,6 +30,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebDbDependency,
     WebTenantDependency,
     _csrf_token_for_principal,
+    product_analytics_provider_for_page,
 )
 from twobrain_rec_server.db.models import AuthCallbackState
 
@@ -90,6 +91,12 @@ async def provider_link_settings_page(
             surface,
             embedded=_is_embedded(request),
             csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
+            product_analytics_provider=product_analytics_provider_for_page(
+                request,
+                "settings",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
             result=result,
         )
     )
