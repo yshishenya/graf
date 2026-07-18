@@ -228,7 +228,7 @@ def _walk(
     if isinstance(value, str) and value_predicate(value):
         findings.append(path)
         return
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
         for index, nested in enumerate(value):
             _walk(
                 nested,

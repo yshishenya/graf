@@ -273,7 +273,7 @@ def _query_value(query_params: Any | None, field: str) -> str | None:
         value = getter(field)
     elif isinstance(query_params, dict):
         value = query_params.get(field)
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         value = value[0] if value else None
     if value is None:
         return None
