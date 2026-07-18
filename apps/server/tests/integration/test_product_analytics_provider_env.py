@@ -12,7 +12,7 @@ ENV_TEMPLATE_PATH = REPO_ROOT / "infra/env/rec.production.env.example"
 POSTHOG_COMPOSE_PATH = REPO_ROOT / "infra/posthog/docker-compose.posthog.yml"
 POSTHOG_ENV_EXAMPLE_PATH = REPO_ROOT / "infra/posthog/posthog.production.env.example"
 CD_REMOTE_PATH = REPO_ROOT / "infra/scripts/cd-remote.sh"
-OPTIONAL_SECRET_PLACEHOLDER = "./secret-placeholders/disabled_optional_provider_secret"
+OPTIONAL_SECRET_PLACEHOLDER = "./infra/secret-placeholders/disabled_optional_provider_secret"
 
 
 def _compose() -> dict:

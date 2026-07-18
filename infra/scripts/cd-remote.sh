@@ -45,6 +45,10 @@ remote_host=$REMOTE_HOST
 remote_path=$REMOTE_PATH
 branch=$BRANCH
 local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped || echo required)
+posthog_stack_handoff=dry_run_metadata_only
+posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
+posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
+posthog_stack_execute=requires_explicit_release_approval
 steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,restore_rehearsal,runtime_secret_group,runtime_service_secret_permissions,runtime_db_secret_provision,media_storage_secret_provision,compose_config_secret_scan,migration_head,runtime_db_role_bootstrap,runtime_db_identity,initial_dispatch_closed,temporal_readiness,processing_worker_readiness,image_capability,profile_contract,media_worker_readiness_control,production_smoke,automatic_dispatch_open,guarded_rollback,runtime_secret_env_scan,public_health,automatic_retry_post_deploy,backfill_inventory_post_deploy,range_playback_post_deploy,normalization_cleanup_post_deploy
 EOF
   exit 0
