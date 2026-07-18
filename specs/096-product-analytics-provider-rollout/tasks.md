@@ -309,10 +309,10 @@ The historical provider branch was based on `d419b5af` and is not safe to
 merge wholesale into the current master. These append-only tasks preserve the
 checked historical task record while closing the current integration gap.
 
-- [ ] T097 [P] Create the clean integration branch from current `origin/master` and transfer only reviewed provider code, contracts, and docs while preserving Features 097–111 behavior.
-- [ ] T098 Reconcile `config.py`, Compose, OpenAPI, cabinet/admin rendering, and public routes manually; do not cherry-pick or rebase the historical branch wholesale.
-- [ ] T099 Regenerate the browser/page inventory and privacy/credential-suppression evidence against the current master route set.
-- [ ] T100 Run the bounded provider/privacy smoke required by the integrated code and record metadata-only output; do not substitute the historical fake-transport receipt for real provider evidence.
+- [X] T097 [P] Create the clean integration branch from current `origin/master` and transfer only reviewed provider code, contracts, and docs while preserving Features 097–111 behavior.
+- [X] T098 Reconcile `config.py`, Compose, OpenAPI, cabinet/admin rendering, and public routes manually; do not cherry-pick or rebase the historical branch wholesale.
+- [X] T099 Regenerate the browser/page inventory and privacy/credential-suppression evidence against the current master route set.
+- [X] T100 Run the bounded provider/privacy smoke required by the integrated code and record metadata-only output; do not substitute the historical fake-transport receipt for real provider evidence.
 - [ ] T101 Complete real PostHog backup/isolated-restore, RBAC/audit, retention/lifecycle, dashboard freshness, and concrete resource-threshold review.
 - [ ] T102 Provide the out-of-git Yandex OAuth secret-file setup and run live-safe upload smoke for exactly `desktop_account_connected` and `first_value_session_completed` without committing or printing credentials.
 - [ ] T103 Resolve or explicitly scope the ClientId/Yclid identity-resolver gap, execute rollback, and verify ordinary recording, processing, auth, and cabinet workflows remain intact.

@@ -63,7 +63,9 @@ production; it is not provider delivery or dashboard evidence.
 
 ## Remaining convergence tasks
 
-T097–T104 in `tasks.md` remain open. In particular, the current page inventory,
-real PostHog backup/restore and dashboard/RBAC review, Yandex OAuth/live upload,
-executed rollback, ClientId/Yclid resolver decision, approvals, release, and
-production receipt are still required before Feature 096 can be accepted.
+T101–T104 in `tasks.md` remain open. The completed T097–T100 receipts cover the
+clean branch transfer, manual current-master reconciliation, current page and
+privacy contract validation, and bounded metadata-only smoke. Real PostHog
+backup/restore and dashboard/RBAC review, Yandex OAuth/live upload, executed
+rollback, ClientId/Yclid resolver decision, approvals, release, and production
+receipt are still required before Feature 096 can be accepted.
