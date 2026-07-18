@@ -112,15 +112,29 @@ production; it is not provider delivery or dashboard evidence.
 - The production PostHog project-key secret file is present, while both checked
   Yandex OAuth secret-file variables resolve to absent; product analytics is
   disabled in the runtime environment.
-- Read-only generated-stack inventory counted 32 running PostHog containers,
-  8 containers reporting an explicit health state, 0 unhealthy containers, and
-  0 containers with an enforced Docker memory/CPU limit in `HostConfig`; the
-  resource-threshold review therefore remains open.
+- The latest generated-stack inventory counted 33 running PostHog containers,
+  0 unhealthy containers, and 0 containers with an enforced Docker memory/CPU
+  limit in `HostConfig`; the resource-threshold review therefore remains open.
+- An earlier read-only inventory counted 32 running containers and 8 explicit
+  health states; the latest check supersedes that count for runtime status.
 - `https://analytics.2brain.pro/_health/` returned `200 ok`; this proves service
   health only, not dashboard freshness, RBAC/audit, or business data review.
-- No backup, restore, dashboard/RBAC mutation, provider enablement, or service
-  restart was performed during this continuation. A consistent PostHog backup
-  still requires the operator-controlled runtime rehearsal in `infra/posthog/`.
+- A metadata-only backup and isolated restore rehearsal for all twelve
+  generated-runtime volume classes passed under receipt `20260718T011751Z`.
+  Archive SHA/tar integrity passed, the restored web health endpoint returned
+  HTTP `200` with the approved analytics host header, all twelve rehearsal
+  volumes were removed, and the GRAF readiness probe remained `ready`.
+- No dashboard/RBAC mutation, provider enablement, or user-content export was
+  performed. PostHog restarted as part of the controlled rehearsal and
+  recovered to health after delayed migrations.
+
+## T101 backup/restore subgate receipt
+
+The backup/restore portion of T101 is now evidenced, but T101 stays open for
+the independent RBAC/audit, retention/deletion lifecycle, dashboard
+freshness/goal visibility, and concrete resource-alert threshold reviews.
+The receipt is metadata-only and contains no secrets, event payloads, or
+private host paths.
 
 ## Remaining convergence tasks
 
@@ -128,6 +142,7 @@ T101, T102, and T104 in `tasks.md` remain open. T103 is now explicitly scoped
 and evidenced by the rollback-path and ordinary-workflow receipt above. The
 completed T097–T100 receipts cover the clean branch transfer, manual
 current-master reconciliation, current page and privacy contract validation,
-and bounded metadata-only smoke. Real PostHog backup/restore and
-dashboard/RBAC review, Yandex OAuth/live upload, approvals, release, and
-production receipt are still required before Feature 096 can be accepted.
+and bounded metadata-only smoke. Remaining PostHog operations (dashboard/RBAC,
+retention/lifecycle, and resource thresholds), Yandex OAuth/live upload,
+approvals, release, and production receipt are still required before Feature
+096 can be accepted. The backup/restore subgate itself is now passed.

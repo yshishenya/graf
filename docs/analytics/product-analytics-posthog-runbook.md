@@ -310,11 +310,13 @@ The runbook must always identify:
 
 Evidence remains metadata-only.
 
-Current backup/restore follow-up: the generated runtime has more volumes than
-the original handoff placeholder, including relational data, ClickHouse,
-Kafka/Redpanda, Redis, object/blob storage, Caddy, and coordination volumes.
-An isolated restore rehearsal for that full set is still required before
-claiming full PostHog operational readiness.
+Current backup/restore receipt: on 2026-07-18 the generated runtime volume set
+(relational data, ClickHouse, Kafka/Redpanda, Redis, object/blob storage, Caddy,
+and coordination volumes) passed a metadata-only archive integrity check and
+an isolated restore rehearsal. The restored web health endpoint returned `200`,
+the rehearsal volumes were removed, and GRAF stayed ready. Full PostHog
+operational readiness is still gated by the separate resource, RBAC/audit,
+retention/lifecycle, and dashboard-freshness reviews.
 
 Backup retention:
 

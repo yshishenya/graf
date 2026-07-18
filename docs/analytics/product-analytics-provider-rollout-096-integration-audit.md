@@ -22,8 +22,10 @@ Date: 2026-07-18
 - The branch contains provider contracts, secret-file boundaries, page-scope
   rules, rollback procedures, and a production deploy narrative that can be
   reviewed as source material.
-- The historical GRAF backup/restore rehearsal is not evidence of a complete
-  generated PostHog-volume backup/restore rehearsal.
+- The current integration continuation now has a metadata-only backup and
+  isolated restore receipt for all twelve generated PostHog volume classes;
+  see `infra/posthog/backup-restore.md` and the current-master validation
+  receipt. The historical GRAF rehearsal remains separate evidence.
 
 ## Evidence that remains open
 
@@ -31,9 +33,10 @@ Date: 2026-07-18
   `desktop_account_connected` and `first_value_session_completed`.
 - A resolver for runtime ClientId/Yclid values, or an explicit decision that
   the first production slice supports only the proven UserId path.
-- Full PostHog backup and isolated restore, concrete resource/alert thresholds,
-  retention/deletion lifecycle proof, RBAC/audit review, and real dashboard
-  freshness/goal visibility review.
+- Concrete resource/alert thresholds, retention/deletion lifecycle proof,
+  RBAC/audit review, and real dashboard freshness/goal visibility review. The
+  backup/isolated-restore subgate is now passed but does not replace these
+  operational reviews.
 - Executed rollback proving that provider delivery can be disabled without
   breaking ordinary recording, processing, auth, or cabinet workflows.
 - A regenerated page inventory and provider proof for the current master,
@@ -56,9 +59,9 @@ rewrite its checked task history.
 - [ ] T100 Re-run the bounded provider/privacy smoke required by the integrated
   code and record metadata-only output; the current turn deliberately does not
   start another long test suite.
-- [ ] T101 Complete a real PostHog backup/isolated-restore, RBAC/audit,
-  retention/lifecycle, dashboard freshness, and concrete resource-threshold
-  review.
+- [ ] T101 Complete the remaining PostHog RBAC/audit, retention/lifecycle,
+  dashboard freshness, and concrete resource-threshold reviews; the real
+  backup/isolated-restore subgate is already evidenced.
 - [ ] T102 Provide the out-of-git Yandex OAuth secret-file setup and run the
   two-event live-safe upload smoke without committing or printing credentials.
 - [X] T103 Explicitly scope the ClientId/Yclid identity-resolver gap to the

@@ -792,8 +792,8 @@ metadata-only evidence остаются подробной историей ре
   ends at `137565c0`; it is not merged or tagged and diverged by `272`
   master-only versus `15` branch-only commits at the recorded comparison
   snapshot. The branch proves only a PostHog live-safe technical
-  path. Yandex offline OAuth/live upload, full PostHog backup/restore,
-  executed rollback, current-page inventory, real dashboard/RBAC review, and
+  path. Yandex offline OAuth/live upload, executed rollback, current-page
+  inventory, real dashboard/RBAC review, and
   legal/product rollout approval remain unproven. The branch's checked tasks
   and evidence contain contradictory "complete" versus "blocked" wording, so
   the current integration candidate uses the append-only worklist in
@@ -802,8 +802,10 @@ metadata-only evidence остаются подробной историей ре
   provider code selectively onto current master with live delivery still
   fail-closed; it is not a release, production approval, or paid-campaign
   readiness claim. T097–T100 and T103 are now evidenced on the current
-  integration branch; T101 (PostHog operations), T102 (Yandex OAuth/live
-  upload), and T104 (release/tracker/production closeout) remain open.
+  integration branch. The PostHog backup/restore subgate for T101 now has a
+  metadata-only isolated-rehearsal receipt; T101 (remaining PostHog operations),
+  T102 (Yandex OAuth/live upload), and T104 (release/tracker/production
+  closeout) remain open.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route
   unchanged, incoming volume delta no greater than 1 dB, no unexplained

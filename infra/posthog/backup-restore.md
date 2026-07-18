@@ -2,7 +2,7 @@
 
 Feature: `096-product-analytics-provider-rollout`
 
-Status: `runtime_inventory_updated_restore_rehearsal_blocked`
+Status: `runtime_inventory_updated_restore_rehearsal_passed_followups_open`
 
 This document is safe to commit. It contains no live provider secrets, database
 passwords, backup object URLs, signed URLs, account identifiers, raw payloads,
@@ -43,10 +43,31 @@ docker volume ls --format '{{.Name}}' | grep '^graf-posthog-'
 Evidence may record volume names only. Do not record dump contents or private
 host paths.
 
-Current evidence status: volume inventory has been recorded, but a full backup
-and isolated restore rehearsal for all generated-runtime volumes has not passed
-yet. That keeps full PostHog operational readiness blocked while normal GRAF
-product workflows and PostHog live-safe delivery continue to work.
+Current evidence status: the metadata-only backup and isolated restore subgate
+passed on 2026-07-18 for all twelve generated-runtime volume classes. Full
+PostHog operational readiness remains blocked until the separate RBAC/audit,
+retention/lifecycle, dashboard-freshness, and resource-threshold reviews pass.
+Normal GRAF product workflows and provider live-safe delivery remain unchanged.
+
+## Latest Rehearsal Receipt
+
+Receipt label: `20260718T011751Z`.
+
+- All twelve generated-runtime volume archives passed SHA-256 and tar-listing
+  integrity checks.
+- The production PostHog stack recovered to external analytics health `200`
+  after its expected delayed migrations/startup.
+- The archives were restored into twelve isolated rehearsal volumes. Core
+  services became healthy and the restored web service returned HTTP `200` for
+  `/_health/` with the approved analytics host header.
+- The isolated containers, network, and all twelve rehearsal volumes were
+  removed after the check; the live GRAF readiness probe remained `ready`.
+- No provider flags, secrets, dashboard data, GRAF services, or user content
+  were changed by the rehearsal.
+
+This receipt proves backup/restore recoverability only. It does not prove
+access/RBAC or audit review, retention/deletion lifecycle enforcement,
+dashboard freshness/goal visibility, or concrete resource-alert thresholds.
 
 ## Backup Rules
 

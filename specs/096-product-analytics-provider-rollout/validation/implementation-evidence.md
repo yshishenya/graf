@@ -18,10 +18,25 @@ receipts from the old 096 branch at `137565c0`; they are not evidence for
 current `master` or the integration candidate PR #3852. Current-branch
 evidence is limited to `validation/current-master-integration.md`: bounded
 compile/default checks, Compose config, page validation, synthetic
-metadata-only smoke, rollback dry-run, ordinary-workflow regression, and diff
-hygiene. T097–T100 and T103 are closed by the current-master receipts; T101,
-T102, and T104 remain open. No release, production enablement, or campaign
-launch may be inferred from the historical rows.
+metadata-only smoke, rollback dry-run, ordinary-workflow regression, diff
+hygiene, and the 2026-07-18 remote PostHog backup/restore subgate receipt.
+T097–T100 and T103 are closed by the current-master receipts; T101 remains
+open for its other operational reviews, alongside T102 and T104. No release,
+production enablement, or campaign launch may be inferred from the historical
+rows.
+
+## Current Integration Continuation: 2026-07-18
+
+This append-only receipt is for the clean current-master integration branch,
+not for the historical runtime rows below.
+
+| Area | Status | Metadata-Only Evidence |
+| --- | --- | --- |
+| PostHog generated-volume backup | pass | All twelve generated-runtime volume archives passed SHA-256 and tar-listing integrity checks under receipt `20260718T011751Z`. |
+| Isolated restore rehearsal | pass | The archives were restored into twelve isolated volumes; core services became healthy and the restored web `/_health/` endpoint returned HTTP `200` with the approved analytics host header. |
+| Rehearsal cleanup | pass | Isolated containers/network and all twelve rehearsal volumes were removed; live GRAF readiness remained `ready`. |
+| T101 remaining operations | open | RBAC/audit, retention/lifecycle, dashboard freshness/goal visibility, and concrete resource-alert thresholds still require independent review. |
+| T102/T104 | open | Yandex OAuth/live upload and the approved merge/release/deploy closeout remain blocked by missing runtime OAuth setup and invalid GitHub credentials. |
 
 ## Planning Pass Evidence
 
@@ -246,7 +261,7 @@ See [research.md](../research.md) for decisions and source links.
 096 PostHog production runtime delivery is live-safe validated. Remaining live
 production evidence must append metadata-only proof for:
 
-- full PostHog backup and isolated restore rehearsal for all generated runtime volumes;
+- backup/restore subgate is passed; retain a fresh receipt after any generated-runtime volume change;
 - PostHog resource limit and retention proof beyond the initial health checks;
 - PostHog RBAC/access model and audit expectation proof;
 - provider retention/deletion lifecycle proof for PostHog data, backups, exports, delivery gaps, Yandex offline conversions, and dashboard/report aggregates;
@@ -308,7 +323,7 @@ Forbidden evidence:
 scope:
 
 - live production Yandex offline OAuth setup and upload smoke;
-- PostHog full backup/restore rehearsal;
+- PostHog RBAC/audit, retention/lifecycle, dashboard-freshness, and resource-threshold review;
 - dashboard verification with real provider data using metadata-only evidence;
 - legal, privacy, security, QA, and disclosure closeout for product rollout;
 - product rollout readiness;
