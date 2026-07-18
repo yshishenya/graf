@@ -17,8 +17,9 @@ old 096 branch at `137565c0`; they are not evidence for current `master` or
 the integration candidate PR #3852. Current-branch evidence is limited to
 `validation/current-master-integration.md`: compile/default checks, Compose
 config, page validation, synthetic metadata-only smoke, rollback dry-run, and
-diff hygiene. T097–T104 remain open; do not use historical rows to approve a
-release, production provider enablement, or campaign launch.
+diff hygiene. T097–T100 are closed by that receipt; T101–T104 remain open. Do
+not use historical rows to approve a release, production provider enablement,
+or campaign launch.
 
 ## Current Planning Evidence
 

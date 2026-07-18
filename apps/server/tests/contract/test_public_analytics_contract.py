@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
 
@@ -48,7 +47,7 @@ FORBIDDEN_DEFERRED_PROVIDER_SCRIPT_MARKERS = (
     "gtag(",
     "GTM-",
     "posthog.init",
-    "posthog.capture",
+    "posthog.capture(",
     "posthog-js",
     "app.posthog.com",
     "clarity(",
@@ -253,7 +252,8 @@ def test_public_analytics_controller_has_consent_gated_yandex_entrypoint() -> No
     assert "metrika/tag.js" in analytics_js
     assert "googletagmanager.com" not in analytics_js
     assert "google-analytics.com" not in analytics_js
-    assert "posthog" not in analytics_js.lower()
+    assert "posthog.com" not in analytics_js.lower()
+    assert "initializePostHogAutocapture" in analytics_js
 
 
 def test_public_analytics_controller_has_conversion_dispatch_hooks() -> None:

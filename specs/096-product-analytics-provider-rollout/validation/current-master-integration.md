@@ -25,6 +25,13 @@ Date: 2026-07-18
   metadata-only/fake transports.
 - `infra/scripts/rollback-product-analytics-providers.sh --dry-run`: pass with
   `dry_run_no_state_change`.
+- Rollback execution-path check with the explicit local metadata-only guard:
+  `rollback_execution=execute_confirmed_metadata_only`, no provider or product
+  state changed, and `normal_product_workflows=preserved`.
+- Rollback/provider/Yandex contract tests: `10 passed`; Yandex offline unit
+  tests: `6 passed`.
+- Public analytics contract drift was reconciled with 096 first-party
+  PostHog autocapture: `7 passed` for the no-database controller/assets subset.
 - Ruff over the changed server provider/API/public modules: pass.
 - Targeted provider page/template contract checks:
   `8 passed` (`test_product_analytics_autocapture_pages` template contract,
@@ -45,6 +52,9 @@ Date: 2026-07-18
   request; it uses synthetic values and fake transports.
 - No production flags, provider secrets, dashboard data, or rollback state were
   changed.
+- Local PostHog operational prerequisites are absent: no `graf-posthog-*`
+  volumes and no runtime secret files were present, so backup/restore and live
+  Yandex OAuth upload remain blocked rather than simulated.
 - Full repository CI was not rerun in this turn by user instruction; this
   receipt is bounded evidence only.
 - The targeted contract checks do not replace the database-backed rendered
