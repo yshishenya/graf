@@ -66,6 +66,9 @@
   attestation; изменённый ключ или feed по-прежнему отклоняется.
 
 ### Документы
+- Зафиксирован append-only integration audit Feature 096: историческая ветка
+  не вливается целиком в актуальный master, а открытые Yandex/PostHog/
+  dashboard/rollback и approval gates перечислены отдельным worklist.
 - Сверены границы Features 090–092: добавлена каноническая запись о релизной
   линии 090, отдельно отмечено отсутствие post-deploy квитанции 091, а статус
   092 приведён в соответствие с merged/release history без заявления о новой

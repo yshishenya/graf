@@ -787,6 +787,18 @@ metadata-only evidence остаются подробной историей ре
 
 ## Not Accepted Yet
 
+- Feature `096-product-analytics-provider-rollout` is not accepted on the
+  current master. Its historical branch `096-product-analytics-provider-rollout`
+  ends at `137565c0`, while current `origin/master` is `068679aa`; the branch
+  is not merged or tagged and diverged by `272` master-only versus `15`
+  branch-only commits. The branch proves only a PostHog live-safe technical
+  path. Yandex offline OAuth/live upload, full PostHog backup/restore,
+  executed rollback, current-page inventory, real dashboard/RBAC review, and
+  legal/product rollout approval remain unproven. The branch's checked tasks
+  and evidence contain contradictory "complete" versus "blocked" wording, so
+  the next integration must use the append-only worklist in
+  `docs/analytics/product-analytics-provider-rollout-096-integration-audit.md`
+  and must not cherry-pick the old branch wholesale.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route
   unchanged, incoming volume delta no greater than 1 dB, no unexplained
