@@ -35,3 +35,15 @@ v5 record may be rewritten or resubmitted during that rehearsal.
 - The result validates the v3/v4 read-only compatibility boundary, v5-only
   creation/rejection rules, deletion coverage and the no-live-toggle rollback
   contract. It does not claim the separate installed-app baseline rehearsal.
+
+## 2026-07-18 — exact baseline rehearsal outcome
+
+- `baseline_ref=v2026.07.17.6`, `baseline_sha=4be444e82ec449a3bb5312920fb0cd6008072c56`.
+- `baseline_artifact_and_signature=pass`; `installed_app_replaced=no`.
+- `rollback_scope=isolated_future_capture_rehearsal`; `baseline_subsequent_recording=fail`.
+  The baseline manual Start surface was exercised, but ScreenCaptureKit timed
+  out (`runtime_start_failed`) before a recording package was published.
+- `candidate_v5_integrity_pre_post=unchanged`; `candidate_v5_resubmit_or_rewrite=no`.
+- `synthetic_e2e_and_deletion=pass`; `rollback=fail/open`.
+- Limitation: this receipt makes no installer, updater, TCC or deployment
+  rollback claim and does not mark T064 complete.

@@ -54,3 +54,9 @@ exact-baseline rollback acceptance gate.
 This closes the installed desktop upload/finalize/process/cabinet/deletion
 portion of T064. The exact pre-v5 baseline reinstall rehearsal remains a
 separate release-boundary check and is recorded as such below until performed.
+
+The exact baseline rehearsal was subsequently attempted in an isolated future
+capture scope. The signed baseline artifact was valid and the candidate v5
+manifest/WAV/M4A hashes stayed unchanged, but the baseline ScreenCaptureKit
+runtime timed out before publishing any artifact. Therefore the rollback part
+of T064 remains open; no rollback pass is claimed.

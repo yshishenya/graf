@@ -59,3 +59,26 @@ private path, credential, signed URL or provider payload to this file.
   but does **not** claim audible incoming/system-signal acceptance. T063 stays
   open until the same run is repeated with an observable non-zero incoming
   signal after the Mac is unlocked.
+
+## 2026-07-18 — exact baseline rollback attempt
+
+- The exact baseline package for `v2026.07.17.6` was built from peeled commit
+  `4be444e82ec449a3bb5312920fb0cd6008072c56`; its package hash and strict
+  designated-requirement signature check passed. The staged app was never
+  copied over `/Applications`.
+- The baseline was launched through the visible desktop shell with manual
+  Start in a temporary `CFFIXED_USER_HOME` and with upload/cabinet traffic
+  constrained to loopback. No baseline WAV, M4A or manifest was created. A
+  second user-context launch reached the same manual Start surface and failed
+  closed with `system_audio.runtime_start_failed` (`timeoutMs=30000`). The
+  isolated launch timed out at the baseline runtime bound (`timeoutMs=120000`).
+- Candidate v5 integrity was unchanged across the attempt: manifest SHA-256
+  `c76acc2267d1b4db4ac3acaa9d46d6ef6d7f4489c1b72d327d67cca0505da4d2`, WAV
+  SHA-256 `381450f9fb26bca6a298f19c83ab89b1eec0f783857f20a961fea7e80015a3fd`,
+  and M4A SHA-256
+  `67193de638b497de1e62a0c86f1365d5cbb88535088b1eaf41013d0dbc791a41` both
+  before and after. No candidate resubmit or rewrite occurred.
+- This is a rollback **fail/open**, not a pass: the exact baseline could not
+  produce a subsequent recording because the OS capture runtime timed out.
+  T063 and T064 remain open; no installer, updater, TCC or deployment rollback
+  claim is made.
