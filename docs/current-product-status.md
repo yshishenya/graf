@@ -329,8 +329,23 @@ metadata-only evidence остаются подробной историей ре
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
-- Feature `092-automatic-meeting-detection` is implemented locally as the first
-  registry-driven detect-and-ask foundation for the Russian-market VKS scope.
+- Feature `090-manual-media-upload-ui` is merged and released as
+  [`v2026.07.11.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.11.1).
+  Its manual one-file upload surface, CSRF/tenant/storage boundaries, embedded
+  cabinet path, migration, release build, and production smoke were closed in
+  PR `#3040` and release PR `#3042`; the canonical evidence is recorded in
+  `specs/090-manual-media-upload-ui/tasks.md`.
+- Feature `091-mediascribe-result-contract` is implemented and released as
+  `v2026.07.09.5` for the MediaScribe result-contract slice. The repository
+  still does not contain a separate post-deploy receipt for the complete
+  transcript-plus-summary user path, so production acceptance of that path is
+  not claimed here; the implementation boundary and its no-deploy closeout are
+  recorded in `specs/091-mediascribe-result-contract/tasks.md`.
+- Feature `092-automatic-meeting-detection` is merged through PR `#2808`, with
+  convergence PR `#3029` and release/deploy lineage
+  `v2026.07.09.1`, `v2026.07.09.7`, `v2026.07.09.8`, and
+  `v2026.07.09.16`. It is the first registry-driven detect-and-ask foundation
+  for the Russian-market VKS scope.
   It adds server-side metadata-only meeting-detection telemetry, admin candidate
   review and registry publishing, RLS-covered registry/candidate tables, a
   server-published macOS target registry with last-good client cache, low-noise
@@ -342,9 +357,10 @@ metadata-only evidence остаются подробной историей ре
   browser extension. Prompt-capable first targets remain limited to locally
   verified native Zoom and Yandex Telemost paths; browser targets, unverified
   native apps, and unsupported metadata states stay detect-only/manual-only
-  until separate live validation promotes them. This slice is local
-  implementation readiness only: it is not committed, merged, released,
-  deployed, or production-rollout evidence. Critical review remediation on
+  until separate live validation promotes them. The repository does not yet
+  contain a canonical post-deploy runtime receipt or seeded admin-browser
+  receipt for 092, so target promotion and production telemetry rollout are
+  not claimed. Critical review remediation on
   2026-07-08 connected the native `AudioHAL` log stream to
   prompt/auto-record decisioning, moved the registry source to server publish
   plus last-good client cache,
