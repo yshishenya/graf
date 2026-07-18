@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "status": "unprovisioned",
-  "trustGeneration": 0,
-  "keyId": null,
-  "publicKey": null,
+  "status": "active",
+  "trustGeneration": 1,
+  "keyId": "sha256:63c373b20f82851a6b4443bad2100eede5d50d897ed2aaf9fa8c94db56e4ecce",
+  "publicKey": "Arod6toNHZ/p5uy+V86sOMZ/XLMfwGnb7RR5/I/QpZg=",
   "channels": {
     "primary": {
       "kind": "github-environment",
