@@ -20,8 +20,9 @@ evidence is limited to `validation/current-master-integration.md`: bounded
 compile/default checks, Compose config, page validation, synthetic
 metadata-only smoke, rollback dry-run, ordinary-workflow regression, diff
 hygiene, and the 2026-07-18 remote PostHog backup/restore subgate receipt.
-T097–T100 and T103 are closed by the current-master receipts; T101 remains
-open for its other operational reviews, alongside T102 and T104. No release,
+T097–T100 and T103 are closed by the current-master receipts and tracker issues
+#3853–#3856/#3859. T101 (issue #3857) remains open for its other operational
+reviews, alongside T102 (issue #3858) and T104 (issue #3860). No release,
 production enablement, or campaign launch may be inferred from the historical
 rows.
 
@@ -39,7 +40,7 @@ not for the historical runtime rows below.
 | Deploy dry-run | pass | `infra/scripts/cd-remote.sh --dry-run` reported the PostHog handoff contract, official generated-runtime source, and explicit-approval execution boundary without changing state. |
 | PostHog RBAC/audit and retention read-only review | partial | One team reports `event_retention_months=84`; one activity log has 4 rows; one organization/membership/project is present. Custom role/resource memberships are empty, session-recording retention is unset, and `enforce_2fa` is not confirmed. Aggregate dashboard/event checks found one dashboard with eight items and only historical July 9 provider events; no offline conversion events. No payloads or user data were inspected. |
 | T101 remaining operations | open | RBAC/audit, retention/lifecycle, dashboard freshness/goal visibility, and concrete resource-alert thresholds still require independent review. |
-| T102/T104 | open | Yandex OAuth/live upload and the approved merge/release/deploy closeout remain blocked by missing runtime OAuth setup and invalid GitHub credentials. |
+| T102/T104 | open | T102 remains blocked by missing runtime Yandex OAuth setup. PR #3852 is still draft; reviewer approval, merge, release and production closeout remain open. GitHub tracker issues #3857, #3858 and #3860 are now synchronized. |
 
 ## Planning Pass Evidence
 

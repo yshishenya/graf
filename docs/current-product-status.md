@@ -805,7 +805,8 @@ metadata-only evidence остаются подробной историей ре
   integration branch. The PostHog backup/restore subgate for T101 now has a
   metadata-only isolated-rehearsal receipt; T101 (remaining PostHog operations),
   T102 (Yandex OAuth/live upload), and T104 (release/tracker/production
-  closeout) remain open.
+  closeout) remain open. The current convergence tracker is synchronized in
+  issues #3853–#3860; T101/T102/T104 correspond to #3857/#3858/#3860.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route
   unchanged, incoming volume delta no greater than 1 dB, no unexplained

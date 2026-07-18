@@ -165,7 +165,8 @@ private host paths.
 
 ## Remaining convergence tasks
 
-T101, T102, and T104 in `tasks.md` remain open. T103 is now explicitly scoped
+T101, T102, and T104 in `tasks.md` remain open (tracker issues #3857, #3858 and
+#3860). T103 is now explicitly scoped
 and evidenced by the rollback-path and ordinary-workflow receipt above. The
 completed T097–T100 receipts cover the clean branch transfer, manual
 current-master reconciliation, current page and privacy contract validation,
