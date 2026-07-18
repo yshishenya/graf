@@ -149,7 +149,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertFalse(source.localizedCaseInsensitiveContains("private key:"))
     }
 
-    func testReleaseSigningManifestIsPublicOnlyAndUnprovisionedUntilApprovedEnrollment() throws {
+    func testReleaseSigningManifestIsPublicOnlyBeforeOrAfterApprovedEnrollment() throws {
         let manifestURL = try Self.repositoryRoot()
             .appendingPathComponent("apps/macos/Installer/UpdateSigningKey.json")
         let data = try Data(contentsOf: manifestURL)
@@ -158,10 +158,20 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         )
 
         XCTAssertEqual(manifest["schemaVersion"] as? Int, 1)
-        XCTAssertEqual(manifest["status"] as? String, "unprovisioned")
-        XCTAssertEqual(manifest["trustGeneration"] as? Int, 0)
-        XCTAssertNil(manifest["keyId"] as? String)
-        XCTAssertNil(manifest["publicKey"] as? String)
+        let status = try XCTUnwrap(manifest["status"] as? String)
+        XCTAssertTrue(["unprovisioned", "active"].contains(status))
+        let trustGeneration = try XCTUnwrap(manifest["trustGeneration"] as? Int)
+        if status == "unprovisioned" {
+            XCTAssertEqual(trustGeneration, 0)
+            XCTAssertNil(manifest["keyId"] as? String)
+            XCTAssertNil(manifest["publicKey"] as? String)
+        } else {
+            XCTAssertGreaterThan(trustGeneration, 0)
+            let keyID = try XCTUnwrap(manifest["keyId"] as? String)
+            XCTAssertNotNil(keyID.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression))
+            let publicKey = try XCTUnwrap(manifest["publicKey"] as? String)
+            XCTAssertEqual(Data(base64Encoded: publicKey)?.count, 32)
+        }
 
         let channels = try XCTUnwrap(manifest["channels"] as? [String: Any])
         let primary = try XCTUnwrap(channels["primary"] as? [String: String])
