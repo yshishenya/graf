@@ -29,6 +29,9 @@ Date: 2026-07-18
 - Targeted provider page/template contract checks:
   `8 passed` (`test_product_analytics_autocapture_pages` template contract,
   PostHog autocapture contract, replay/Webvisor boundaries).
+- Direct synthetic render check for authenticated browser provider context:
+  `browser-provider-render=pass` (one config script, pseudonymous user and
+  workspace IDs).
 - Targeted rendered-page integration test was not started because this clean
   worktree has no `TWOBRAIN_DATABASE_URL`; the fixture explicitly requires the
   repository's local-Postgres test runner. No long test run was started.
