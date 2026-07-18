@@ -136,12 +136,23 @@ production; it is not provider delivery or dashboard evidence.
 - No dashboard/RBAC mutation, provider enablement, or user-content export was
   performed. PostHog restarted as part of the controlled rehearsal and
   recovered to health after delayed migrations.
+- Read-only PostHog schema/config review found one team with event retention
+  configured to `84` months and one non-empty activity log with `4` rows; only
+  counts, settings, and timestamps were inspected, never activity detail or
+  user data.
+- The same review found one organization, one membership, one project, no
+  custom role/resource-access memberships, invitations enabled, project
+  creation disabled, and no confirmed `enforce_2fa` value. Session-recording
+  retention was unset. These are partial operational signals, not a completed
+  RBAC/audit or lifecycle approval.
 
 ## T101 backup/restore subgate receipt
 
-The backup/restore portion of T101 is now evidenced, but T101 stays open for
-the independent RBAC/audit, retention/deletion lifecycle, dashboard
-freshness/goal visibility, and concrete resource-alert threshold reviews.
+The backup/restore portion of T101 is now evidenced. The read-only schema/config
+review adds partial retention and audit-surface evidence, but T101 stays open
+for the independent RBAC/audit approval, complete retention/deletion lifecycle
+coverage (including backups/exports/session data), dashboard freshness/goal
+visibility, and concrete resource-alert threshold reviews.
 The receipt is metadata-only and contains no secrets, event payloads, or
 private host paths.
 
