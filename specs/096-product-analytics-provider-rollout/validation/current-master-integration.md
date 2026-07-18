@@ -37,6 +37,16 @@ Date: 2026-07-18
 - Full repository CI was not rerun in this turn by user instruction; this
   receipt is bounded evidence only.
 
+## Read-only production probe
+
+- `GET https://rec.2brain.pro/api/v1/health/ready`: `{"status":"ready"}`.
+- `GET https://rec.2brain.pro/api/v1/product-analytics/catalog` reported
+  `enabled=false`, `validation_mode=disabled`, `provider_mode=disabled`, all
+  PostHog/Yandex provider states disabled, and rollout readiness `blocked`.
+
+This confirms that the candidate PR has not been deployed or enabled in
+production; it is not provider delivery or dashboard evidence.
+
 ## Remaining convergence tasks
 
 T097–T104 in `tasks.md` remain open. In particular, the current page inventory,
