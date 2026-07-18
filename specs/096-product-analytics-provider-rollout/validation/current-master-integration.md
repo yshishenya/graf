@@ -49,6 +49,31 @@ Date: 2026-07-18
   modules: pass.
 - `git diff --check`: pass.
 
+## T103 ordinary-workflow and identity-scope receipt
+
+- Identity decision: this current integration slice supports only a real,
+  previously bound Yandex `UserId`. `ClientId` and `Yclid` remain explicitly
+  out of the live upload slice until a runtime resolver supplies their real
+  values; the exporter rejects unresolved values instead of deriving them
+  from the GRAF pseudonymous ID.
+- The rollback execution-path check passed with the metadata-only guard and
+  reported `normal_product_workflows=preserved`; no provider or product state
+  was changed.
+- `apps/server/scripts/run_local_postgres_tests.sh --focused -q
+  tests/integration/test_recording_sync_conflicts.py
+  tests/integration/test_processing_pickup.py
+  tests/integration/test_cabinet_web_access_states.py
+  tests/integration/test_cabinet_meeting_list.py` passed: **35 passed** in
+  63 seconds. The disposable PostgreSQL container was removed by the runner.
+- The same runner also passed the focused browser-session/auth subset:
+  **5 passed, 30 deselected** in 16 seconds, covering owner-session cookies,
+  provider callback return safety, email login, and the workspace-provider
+  login page; its disposable container was removed as well.
+- This receipt proves the ordinary recording-sync, processing-pickup, and
+  cabinet web/list/auth paths remain intact on the current integration branch.
+  It does not prove Yandex OAuth/live upload, PostHog operations, or product
+  rollout approval.
+
 ## Not claimed
 
 - The provider smoke above does not prove a real PostHog or Yandex production
@@ -94,9 +119,10 @@ production; it is not provider delivery or dashboard evidence.
 
 ## Remaining convergence tasks
 
-T101–T104 in `tasks.md` remain open. The completed T097–T100 receipts cover the
-clean branch transfer, manual current-master reconciliation, current page and
-privacy contract validation, and bounded metadata-only smoke. Real PostHog
-backup/restore and dashboard/RBAC review, Yandex OAuth/live upload, executed
-rollback, ClientId/Yclid resolver decision, approvals, release, and production
-receipt are still required before Feature 096 can be accepted.
+T101, T102, and T104 in `tasks.md` remain open. T103 is now explicitly scoped
+and evidenced by the rollback-path and ordinary-workflow receipt above. The
+completed T097–T100 receipts cover the clean branch transfer, manual
+current-master reconciliation, current page and privacy contract validation,
+and bounded metadata-only smoke. Real PostHog backup/restore and
+dashboard/RBAC review, Yandex OAuth/live upload, approvals, release, and
+production receipt are still required before Feature 096 can be accepted.

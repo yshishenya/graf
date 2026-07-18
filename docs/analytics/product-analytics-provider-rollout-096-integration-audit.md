@@ -61,14 +61,16 @@ rewrite its checked task history.
   review.
 - [ ] T102 Provide the out-of-git Yandex OAuth secret-file setup and run the
   two-event live-safe upload smoke without committing or printing credentials.
-- [ ] T103 Resolve or explicitly scope the ClientId/Yclid identity-resolver gap,
-  execute rollback, and verify ordinary product workflows remain intact.
+- [X] T103 Explicitly scope the ClientId/Yclid identity-resolver gap to the
+  proven UserId path, execute the metadata-only rollback path, and verify
+  ordinary product workflows remain intact in the current-master receipt.
 - [ ] T104 Reconcile `spec.md` status, evidence wording, tasks, tracker, release
   notes, tag, and production receipt before claiming Feature 096 complete.
 
 ## Safety boundary
 
-Until T097–T104 are complete, Feature 096 remains a provider/infrastructure
-integration candidate, not a production product-rollout approval. Do not enable
-Yandex offline upload, change production approval flags, or claim paid-campaign
-readiness from the historical branch's fake-transport smoke.
+Until T101, T102, and T104 are complete, Feature 096 remains a
+provider/infrastructure integration candidate, not a production product-rollout
+approval. Do not enable Yandex offline upload, change production approval
+flags, or claim paid-campaign readiness from the historical branch's
+fake-transport smoke.

@@ -801,7 +801,9 @@ metadata-only evidence остаются подробной историей ре
   and does not cherry-pick the old branch wholesale. The candidate transfers
   provider code selectively onto current master with live delivery still
   fail-closed; it is not a release, production approval, or paid-campaign
-  readiness claim. T097–T104 and their real external evidence remain open.
+  readiness claim. T097–T100 and T103 are now evidenced on the current
+  integration branch; T101 (PostHog operations), T102 (Yandex OAuth/live
+  upload), and T104 (release/tracker/production closeout) remain open.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route
   unchanged, incoming volume delta no greater than 1 dB, no unexplained

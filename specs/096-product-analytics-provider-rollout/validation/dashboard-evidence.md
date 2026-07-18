@@ -16,8 +16,9 @@ The production/runtime rows below are retained historical receipts from the
 old 096 branch at `137565c0`; they are not evidence for current `master` or
 the integration candidate PR #3852. Current-branch evidence is limited to
 `validation/current-master-integration.md`: compile/default checks, Compose
-config, page validation, synthetic metadata-only smoke, rollback dry-run, and
-diff hygiene. T097–T100 are closed by that receipt; T101–T104 remain open. Do
+config, page validation, synthetic metadata-only smoke, rollback dry-run,
+ordinary-workflow regression, and diff hygiene. T097–T100 and T103 are closed
+by the current-master receipts; T101, T102, and T104 remain open. Do
 not use historical rows to approve a release, production provider enablement,
 or campaign launch.
 
