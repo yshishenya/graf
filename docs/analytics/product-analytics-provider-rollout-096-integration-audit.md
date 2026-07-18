@@ -4,7 +4,7 @@ Date: 2026-07-18
 
 ## Current anchor
 
-- Current `origin/master`: `068679aa`.
+- Current `origin/master`: `dfa976b4`.
 - Historical provider branch: `096-product-analytics-provider-rollout` at
   `137565c0`.
 - The branches share merge-base `d419b5af`; `git rev-list --left-right
