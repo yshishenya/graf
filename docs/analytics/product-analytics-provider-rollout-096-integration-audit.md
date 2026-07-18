@@ -4,7 +4,9 @@ Date: 2026-07-18
 
 ## Current anchor
 
-- Current `origin/master`: `dfa976b4`.
+- Current anchor: the `origin/master` line after the docs-only reconciliation
+  PRs #3848 and #3849.
+- The comparison snapshot before those docs-only merges was `dfa976b4`.
 - Historical provider branch: `096-product-analytics-provider-rollout` at
   `137565c0`.
 - The branches share merge-base `d419b5af`; `git rev-list --left-right

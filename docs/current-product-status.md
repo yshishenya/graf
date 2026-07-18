@@ -789,9 +789,9 @@ metadata-only evidence остаются подробной историей ре
 
 - Feature `096-product-analytics-provider-rollout` is not accepted on the
   current master. Its historical branch `096-product-analytics-provider-rollout`
-  ends at `137565c0`, while current `origin/master` is `dfa976b4`; the branch
-  is not merged or tagged and diverged by `272` master-only versus `15`
-  branch-only commits. The branch proves only a PostHog live-safe technical
+  ends at `137565c0`; it is not merged or tagged and diverged by `272`
+  master-only versus `15` branch-only commits at the recorded comparison
+  snapshot. The branch proves only a PostHog live-safe technical
   path. Yandex offline OAuth/live upload, full PostHog backup/restore,
   executed rollback, current-page inventory, real dashboard/RBAC review, and
   legal/product rollout approval remain unproven. The branch's checked tasks
