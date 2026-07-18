@@ -50,6 +50,14 @@ Date: 2026-07-18
   `provider_private_attrs` macro in the cabinet primitives template. The
   macro masks provider content without adding `data-ph-no-capture`, preserving
   first-party PostHog autocapture while protecting private values.
+- Canonical `infra/scripts/ci-local.sh` at the current integration SHA passed:
+  macOS **577 tests**, server **1910 passed, 1 skipped**, strict PostgreSQL/RLS
+  subset **34 passed, 1 skipped**, Ruff, Python compile, production Compose
+  rendering, and deployment-evidence scan. The RLS hardening step stayed at its
+  documented `postgres_test` boundary because no live production probe was
+  supplied; it did not fail the CI gate.
+- `infra/scripts/cd-remote.sh --dry-run` passed with the separate PostHog
+  handoff metadata and no execution or state change.
 - `python -m compileall -q` over the changed server provider/admin/cabinet
   modules: pass.
 - `git diff --check`: pass.
@@ -88,8 +96,9 @@ Date: 2026-07-18
 - Local PostHog operational prerequisites are absent: no `graf-posthog-*`
   volumes and no runtime secret files were present, so backup/restore and live
   Yandex OAuth upload remain blocked rather than simulated.
-- Full repository CI was not rerun in this turn by user instruction; this
-  receipt is bounded evidence only.
+- The full CI receipt covers the current integration SHA; production runtime
+  enablement, Yandex OAuth/live upload, dashboard business review, and live
+  RLS enforcement remain separate evidence gates.
 - The targeted contract checks do not replace the database-backed rendered
   page test; that test remains open until the local Postgres test environment is
   available.

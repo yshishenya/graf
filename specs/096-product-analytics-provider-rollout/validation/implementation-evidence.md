@@ -35,6 +35,8 @@ not for the historical runtime rows below.
 | PostHog generated-volume backup | pass | All twelve generated-runtime volume archives passed SHA-256 and tar-listing integrity checks under receipt `20260718T011751Z`. |
 | Isolated restore rehearsal | pass | The archives were restored into twelve isolated volumes; core services became healthy and the restored web `/_health/` endpoint returned HTTP `200` with the approved analytics host header. |
 | Rehearsal cleanup | pass | Isolated containers/network and all twelve rehearsal volumes were removed; live GRAF readiness remained `ready`. |
+| Canonical local CI | pass | At the current integration SHA, `infra/scripts/ci-local.sh` passed with macOS 577 tests, server 1910 passed/1 skipped, strict PostgreSQL/RLS 34 passed/1 skipped, Ruff, compile, Compose rendering, and deployment-evidence scan. The RLS checker correctly remained blocked at the postgres-test boundary without a live probe. |
+| Deploy dry-run | pass | `infra/scripts/cd-remote.sh --dry-run` reported the PostHog handoff contract, official generated-runtime source, and explicit-approval execution boundary without changing state. |
 | T101 remaining operations | open | RBAC/audit, retention/lifecycle, dashboard freshness/goal visibility, and concrete resource-alert thresholds still require independent review. |
 | T102/T104 | open | Yandex OAuth/live upload and the approved merge/release/deploy closeout remain blocked by missing runtime OAuth setup and invalid GitHub credentials. |
 
