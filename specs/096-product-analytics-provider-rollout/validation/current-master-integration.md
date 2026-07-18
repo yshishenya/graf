@@ -79,6 +79,12 @@ production; it is not provider delivery or dashboard evidence.
 - The production PostHog project-key secret file is present, while both checked
   Yandex OAuth secret-file variables resolve to absent; product analytics is
   disabled in the runtime environment.
+- Read-only generated-stack inventory counted 32 running PostHog containers,
+  8 containers reporting an explicit health state, 0 unhealthy containers, and
+  0 containers with an enforced Docker memory/CPU limit in `HostConfig`; the
+  resource-threshold review therefore remains open.
+- `https://analytics.2brain.pro/_health/` returned `200 ok`; this proves service
+  health only, not dashboard freshness, RBAC/audit, or business data review.
 - No backup, restore, dashboard/RBAC mutation, provider enablement, or service
   restart was performed during this continuation. A consistent PostHog backup
   still requires the operator-controlled runtime rehearsal in `infra/posthog/`.
