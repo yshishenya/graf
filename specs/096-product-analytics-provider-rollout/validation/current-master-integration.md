@@ -42,9 +42,14 @@ Date: 2026-07-18
 - Direct synthetic render check for authenticated browser provider context:
   `browser-provider-render=pass` (one config script, pseudonymous user and
   workspace IDs).
-- Targeted rendered-page integration test was not started because this clean
-  worktree has no `TWOBRAIN_DATABASE_URL`; the fixture explicitly requires the
-  repository's local-Postgres test runner. No long test run was started.
+- The accelerated PostgreSQL runner completed
+  `tests/integration/test_product_analytics_autocapture_pages.py`: **3 passed**
+  in 7 seconds, including public, auth, cabinet, and desktop rendered-page
+  provider configuration. The disposable container was removed by the runner.
+- The rendered-page check exposed and the integration fix restored the
+  `provider_private_attrs` macro in the cabinet primitives template. The
+  macro masks provider content without adding `data-ph-no-capture`, preserving
+  first-party PostHog autocapture while protecting private values.
 - `python -m compileall -q` over the changed server provider/admin/cabinet
   modules: pass.
 - `git diff --check`: pass.
