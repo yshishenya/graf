@@ -71,6 +71,18 @@ Date: 2026-07-18
 This confirms that the candidate PR has not been deployed or enabled in
 production; it is not provider delivery or dashboard evidence.
 
+## Read-only production runtime inventory
+
+- SSH metadata check reached the existing production host and found the
+  generated `graf-posthog` runtime running with its documented service family
+  and all twelve documented persistent volume classes present.
+- The production PostHog project-key secret file is present, while both checked
+  Yandex OAuth secret-file variables resolve to absent; product analytics is
+  disabled in the runtime environment.
+- No backup, restore, dashboard/RBAC mutation, provider enablement, or service
+  restart was performed during this continuation. A consistent PostHog backup
+  still requires the operator-controlled runtime rehearsal in `infra/posthog/`.
+
 ## Remaining convergence tasks
 
 T101–T104 in `tasks.md` remain open. The completed T097–T100 receipts cover the
