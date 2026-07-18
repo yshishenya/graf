@@ -145,6 +145,12 @@ production; it is not provider delivery or dashboard evidence.
   creation disabled, and no confirmed `enforce_2fa` value. Session-recording
   retention was unset. These are partial operational signals, not a completed
   RBAC/audit or lifecycle approval.
+- Aggregate-only dashboard checks found one dashboard with eight items
+  (created `2026-07-09`); ClickHouse contained three
+  `desktop_first_opened` events and twenty `graf_web_autocapture_pageview`
+  events, with latest timestamps on `2026-07-09`. No offline Yandex conversion
+  events were present, and the provider/catalog remains disabled, so this is
+  not current dashboard-freshness or campaign-goal evidence.
 
 ## T101 backup/restore subgate receipt
 
