@@ -32,6 +32,9 @@ Date: 2026-07-18
   tests: `6 passed`.
 - Public analytics contract drift was reconciled with 096 first-party
   PostHog autocapture: `7 passed` for the no-database controller/assets subset.
+- Full server Ruff pass: `ruff check .` returned `All checks passed`.
+- Provider/config/secret/retention/rollback/smoke/public contract subset:
+  `34 passed` (database-backed public render cases remain excluded).
 - Ruff over the changed server provider/API/public modules: pass.
 - Targeted provider page/template contract checks:
   `8 passed` (`test_product_analytics_autocapture_pages` template contract,
