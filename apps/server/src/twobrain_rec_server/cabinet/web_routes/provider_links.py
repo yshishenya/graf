@@ -30,9 +30,11 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebDbDependency,
     WebTenantDependency,
     _csrf_token_for_principal,
-    product_analytics_provider_for_page,
 )
 from twobrain_rec_server.db.models import AuthCallbackState
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
+)
 
 router = APIRouter(tags=["cabinet-web"])
 ProviderLinkResultQuery = Query(default=None, max_length=48, alias="result")
@@ -91,11 +93,12 @@ async def provider_link_settings_page(
             surface,
             embedded=_is_embedded(request),
             csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
-            product_analytics_provider=product_analytics_provider_for_page(
+            product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "settings",
                 principal=principal,
                 tenant_scope=tenant_scope,
+                device_class="desktop_webview" if _is_embedded(request) else "browser",
             ),
             result=result,
         )

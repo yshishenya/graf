@@ -27,9 +27,6 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.db.tenant_context import (
     apply_tenant_scope,
 )
-from twobrain_rec_server.product_analytics.browser_context import (
-    build_request_browser_provider_context,
-)
 
 WebTenantDependency = Depends(get_web_owner_tenant_scope)
 PrincipalDependency = Depends(get_principal)
@@ -69,22 +66,6 @@ def _is_hx_request(request: Request) -> bool:
 def _request_path_with_query(request: Request) -> str:
     query = request.url.query
     return f"{request.url.path}?{query}" if query else request.url.path
-
-
-def product_analytics_provider_for_page(
-    request: Request,
-    page_class: str,
-    *,
-    principal: AuthenticatedPrincipal | None = None,
-    tenant_scope: TenantScope | None = None,
-) -> dict[str, object]:
-    return build_request_browser_provider_context(
-        request,
-        page_class,
-        principal=principal,
-        tenant_scope=tenant_scope,
-        device_class="desktop_webview" if request.url.path.startswith("/desktop/") else "browser",
-    )
 
 
 async def get_web_request_db_session(
