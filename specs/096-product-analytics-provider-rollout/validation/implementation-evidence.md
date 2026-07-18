@@ -41,6 +41,7 @@ not for the historical runtime rows below.
 | PostHog RBAC/audit and retention read-only review | partial | One team reports `event_retention_months=84`; one activity log has 4 rows; one organization/membership/project is present. Custom role/resource memberships are empty, session-recording retention is unset, and `enforce_2fa` is not confirmed. Aggregate dashboard/event checks found one dashboard with eight items and only historical July 9 provider events; no offline conversion events. No payloads or user data were inspected. |
 | T101 remaining operations | open | RBAC/audit, retention/lifecycle, dashboard freshness/goal visibility, and concrete resource-alert thresholds still require independent review. |
 | T102/T104 | open | T102 remains blocked by missing runtime Yandex OAuth setup. PR #3852 is still draft; reviewer approval, merge, release and production closeout remain open. GitHub tracker issues #3857, #3858 and #3860 are now synchronized. |
+| T101 metadata-only continuation | partial | Additional aggregate review found zero session recordings, zero exported assets/recordings/batch exports, zero deletion requests, four audit-category records, unset organization `enforce_2fa`, JSON log rotation `50m`/`3`, and 32 healthy containers without enforced CPU/memory limits. Dashboard freshness and independent approval remain open. |
 
 ## Planning Pass Evidence
 

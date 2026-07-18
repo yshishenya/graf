@@ -163,6 +163,28 @@ visibility, and concrete resource-alert threshold reviews.
 The receipt is metadata-only and contains no secrets, event payloads, or
 private host paths.
 
+## T101 metadata-only operations continuation: 2026-07-18
+
+The additional production review inspected counts, settings, and resource
+metadata only. It did not inspect event rows, person rows, activity details,
+exports, identifiers, or provider payloads.
+
+| Review | Status | Metadata-only result |
+| --- | --- | --- |
+| Team retention | partial | One team reports `event_retention_months=84`; session-recording opt-in is false and session-recording retention is unset. |
+| Session data | pass for current empty state | `posthog_sessionrecording` contains 0 rows and 0 rows with a retention period; this does not prove future lifecycle enforcement. |
+| Exports | pass for current empty state | Exported assets, exported recordings, batch exports, batch-export runs, and batch-export downloads each have 0 rows. |
+| Deletion requests | pass for current empty state | No PostHog data-deletion requests are present; provider-held deletion behavior still needs a documented lifecycle approval. |
+| RBAC and MFA | partial | One organization exists; `enforce_2fa` is unset. Custom role, role-membership, organization-resource-access, and explicit-team-membership tables all contain 0 rows. |
+| Audit surface | partial | Four activity records exist across `created` Dashboard/Organization/OrganizationMembership and `updated` User categories; no activity details or actor identifiers were inspected. |
+| Log rotation | pass | Generated runtime containers report `json-file` rotation at `50m` with `3` files. |
+| Resource limits | blocked | Host metadata reports 12 CPUs, 128703 MiB memory and 71% disk free; the 32 running PostHog containers have no enforced non-zero Docker CPU/memory limits. |
+| Runtime health | pass | 32 PostHog containers are running without an unhealthy/restarting status; analytics health remains `200`. |
+
+These results narrow T101's remaining work to independent RBAC/audit and
+lifecycle approval, dashboard freshness/goal visibility, and applying/verifying
+concrete resource limits and alert/rollback thresholds for the generated stack.
+
 ## Remaining convergence tasks
 
 T101, T102, and T104 in `tasks.md` remain open (tracker issues #3857, #3858 and
