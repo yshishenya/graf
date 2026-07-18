@@ -40,10 +40,26 @@ installed-app UX. All results below are local and content-free.
   TestClient deprecation warning remains non-feature evidence.
 - GitHub reconciliation: every `[X]` task has its matching Feature 106 issue
   closed with a Russian metadata-only validation comment. The only open Feature
-  106 execution issues are `T049`, `T063` and `T064`; `T066` is marked
+  106 execution issues are `T063` and `T064`; `T066` is marked
   complete and its closure is recorded with this checkpoint. The
   `validate_issue_canon.py` check passed for all `210` Spec Kit issues after
   the completed task issues were closed.
 
 The installed-app hardware, exact-baseline rollback and release/deploy gates are
 intentionally still open and are documented in `hardware-acceptance.md`.
+
+## 2026-07-18
+
+- Focused macOS v5/capture/upload/UI group: `219` tests passed, `0` failures.
+- Focused server ingest/processing/deletion/playback group: `97` passed,
+  `0` failures, with the same pre-existing Starlette TestClient deprecation
+  warning.
+- `bash -n` for the recording validator and local installer script, production
+  Compose config, and server Ruff check: all passed.
+- `infra/scripts/ci-local.sh`: passed; full macOS suite `567` passed,
+  `0` failures; full server suite `1781` passed, `28` expected skips, `0`
+  failures; one pre-existing TestClient warning. The RLS production probe was
+  correctly blocked because no disposable PostgreSQL test database was
+  provided, so it is not presented as deployment evidence.
+- No raw audio, transcript, secret or private provider payload was added to
+  this repository or to the validation receipt.

@@ -123,7 +123,7 @@
 - [X] T046 [US3] Isolate historical schema decoding and queued dual upload behavior from all v5 writer defaults in `apps/macos/Shared/Sources/Models/AudioModelCore.swift` and `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`.
 - [X] T047 [US3] Preserve historic dual processing while making v5 reader/processing additive in `apps/server/src/twobrain_rec_server/processing/store.py`, `apps/server/src/twobrain_rec_server/ingest/manifest.py` and `apps/server/src/twobrain_rec_server/ingest/media_revisions.py`.
 - [X] T048 [US3] Add metadata-only baseline/canary/rollback rehearsal instructions and evidence template in `qa/macos/release-candidate-checklist.md` and `specs/106-mixed-wav-recording/evidence/README.md`.
-- [ ] T049 [US3] Run v3/v4/v5 compatibility, deletion and rollback-rehearsal checks from `specs/106-mixed-wav-recording/quickstart.md` and record safe results in `specs/106-mixed-wav-recording/evidence/us3-compatibility-rollback.md`.
+- [X] T049 [US3] Run v3/v4/v5 compatibility, deletion and rollback-rehearsal checks from `specs/106-mixed-wav-recording/quickstart.md` and record safe results in `specs/106-mixed-wav-recording/evidence/us3-compatibility-rollback.md`.
 
 **Checkpoint**: v5 can be safely rolled back for future capture without breaking or altering historical/v5 accepted records.
 

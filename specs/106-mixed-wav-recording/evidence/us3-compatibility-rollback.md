@@ -24,3 +24,14 @@ No release, install, rollback action, audio, transcript or credential was used.
 approved local install procedure, make one controlled v5 recording, and
 reinstall that baseline for one subsequent controlled recording. No accepted
 v5 record may be rewritten or resubmitted during that rehearsal.
+
+## 2026-07-18
+
+- Re-ran the compatibility/rollback-focused macOS group from `quickstart.md`:
+  `219` tests passed, `0` failures.
+- Re-ran the matching server ingest, processing, deletion and playback group:
+  `97` tests passed, `0` failures. One pre-existing Starlette TestClient
+  deprecation warning remains.
+- The result validates the v3/v4 read-only compatibility boundary, v5-only
+  creation/rejection rules, deletion coverage and the no-live-toggle rollback
+  contract. It does not claim the separate installed-app baseline rehearsal.

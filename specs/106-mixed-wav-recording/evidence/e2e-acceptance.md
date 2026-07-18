@@ -31,3 +31,26 @@ single installed desktop process has yet sent a package through a controlled
 server endpoint, and no exact-baseline rollback rehearsal has run. It is not a
 substitute for the installed-app route/volume/60-minute, real upload and
 exact-baseline rollback acceptance gate.
+
+## 2026-07-18 — installed desktop upload and local server boundary
+
+- A signed Feature 106 macOS candidate was launched as a real desktop process
+  with a disposable home directory and a loopback-only GRAF server. The input
+  was a copied, already-finalized v5 package; its audio bytes stayed outside
+  the repository and this receipt.
+- The running desktop process created one meeting and completed the real HTTP
+  sequence through the server: one upload session with exactly `manifest`,
+  `media` and `playback`, then server finalization. The server reported the
+  meeting as `ingested_pending_processing` before the processing step.
+- The controlled processing step used the existing fake MediaScribe-compatible
+  client at the server boundary. It recorded exactly one submission with
+  `request_mode=single_track`, one source artifact, no microphone/incoming
+  artifact, one job, and one imported processing result. The cabinet read
+  returned one available transcript segment and provenance `canonical_mixed`;
+  the review playback track was not submitted to ASR.
+- The standard deletion endpoint then purged all 12 loopback storage objects;
+  no provider, deployment or user-data surface was touched.
+
+This closes the installed desktop upload/finalize/process/cabinet/deletion
+portion of T064. The exact pre-v5 baseline reinstall rehearsal remains a
+separate release-boundary check and is recorded as such below until performed.
