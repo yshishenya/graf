@@ -50,7 +50,8 @@ Date: 2026-07-18
   `provider_private_attrs` macro in the cabinet primitives template. The
   macro masks provider content without adding `data-ph-no-capture`, preserving
   first-party PostHog autocapture while protecting private values.
-- Canonical `infra/scripts/ci-local.sh` at the current integration SHA passed:
+- Canonical `infra/scripts/ci-local.sh` at code SHA `0e467865` (later commits
+  are documentation-only) passed:
   macOS **577 tests**, server **1910 passed, 1 skipped**, strict PostgreSQL/RLS
   subset **34 passed, 1 skipped**, Ruff, Python compile, production Compose
   rendering, and deployment-evidence scan. The RLS hardening step stayed at its
