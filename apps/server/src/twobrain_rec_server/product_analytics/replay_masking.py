@@ -28,8 +28,8 @@ class ReplayMaskingDecision:
 def masking_attributes() -> dict[str, str]:
     return {
         "data-graf-analytics-private": "true",
-        "data-ph-no-capture": "true",
         "data-ph-mask": "true",
+        "data-graf-replay-disabled": "true",
         "data-ym-hide-content": "true",
         "data-ym-disable-keys": "true",
     }

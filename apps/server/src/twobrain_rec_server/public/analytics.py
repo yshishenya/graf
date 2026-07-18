@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.attribution import build_public_bridge_context
+from twobrain_rec_server.product_analytics.page_inventory import get_page_class_policy
 
 COOKIECONSENT_VERSION = "3.1.0"
 PUBLIC_ANALYTICS_PROVIDER = "yandex_metrica"
@@ -222,6 +223,37 @@ def build_public_analytics_context(
         "stable_labels": {key: list(values) for key, values in public_analytics_stable_labels().items()},
         "consent_categories": list(PUBLIC_ANALYTICS_CONSENT_CATEGORIES),
         "event_catalog": [dict(event) for event in PUBLIC_ANALYTICS_EVENT_CATALOG],
+    }
+
+
+def build_product_yandex_provider_context(settings: Settings, page_class: str) -> dict[str, Any]:
+    policy = get_page_class_policy(page_class)
+    counter_id = _normalized_counter_id(settings.product_analytics_yandex_counter_id)
+    enabled = bool(
+        settings.product_analytics_yandex_all_pages_enabled
+        and counter_id
+        and settings.product_analytics_legal_approved
+        and policy.yandex_state == "approved_page_view_event"
+    )
+    if policy.yandex_state == "approved_page_view_event":
+        blocked_reason = None if enabled else "runtime_disabled"
+    elif policy.yandex_state == "replay_unavailable":
+        blocked_reason = "replay_unavailable"
+    else:
+        blocked_reason = "inventory_blocked"
+    return {
+        "enabled": enabled,
+        "provider": PUBLIC_ANALYTICS_PROVIDER,
+        "page_class": policy.page_class,
+        "yandex_state": policy.yandex_state,
+        "counter_id_present": bool(counter_id),
+        "counter_id": counter_id if enabled else None,
+        "inventory_version": settings.product_analytics_yandex_inventory_version,
+        "blocked_reason": blocked_reason,
+        "webvisor_allowed": False,
+        "click_map_allowed": False,
+        "scroll_map_allowed": False,
+        "form_analytics_allowed": False,
     }
 
 

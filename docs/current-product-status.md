@@ -796,9 +796,12 @@ metadata-only evidence остаются подробной историей ре
   executed rollback, current-page inventory, real dashboard/RBAC review, and
   legal/product rollout approval remain unproven. The branch's checked tasks
   and evidence contain contradictory "complete" versus "blocked" wording, so
-  the next integration must use the append-only worklist in
+  the current integration candidate uses the append-only worklist in
   `docs/analytics/product-analytics-provider-rollout-096-integration-audit.md`
-  and must not cherry-pick the old branch wholesale.
+  and does not cherry-pick the old branch wholesale. The candidate transfers
+  provider code selectively onto current master with live delivery still
+  fail-closed; it is not a release, production approval, or paid-campaign
+  readiness claim. T097–T104 and their real external evidence remain open.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route
   unchanged, incoming volume delta no greater than 1 dB, no unexplained

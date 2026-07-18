@@ -9,6 +9,10 @@
 ## [Unreleased]
 
 ### Добавлено
+- Кандидат интеграции Feature 096: self-hosted PostHog/Yandex provider-layer,
+  browser и macOS-контракты, secret-file границы, runbooks и metadata-only
+  smoke/rollback-проверки. Provider delivery и production rollout остаются
+  выключенными до закрытия T097–T104 и отдельного evidence-gate.
 - Личное пространство для самостоятельной регистрации и явные предложения
   вступить в корпоративную команду; принятие приглашения больше не происходит
   автоматически ([#3706](https://github.com/yshishenya/crisp/issues/3706),
