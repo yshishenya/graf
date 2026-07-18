@@ -25,6 +25,7 @@ Date: 2026-07-18
   metadata-only/fake transports.
 - `infra/scripts/rollback-product-analytics-providers.sh --dry-run`: pass with
   `dry_run_no_state_change`.
+- Ruff over the changed server provider/API/public modules: pass.
 - `git diff --check`: pass.
 
 ## Not claimed
@@ -33,7 +34,8 @@ Date: 2026-07-18
   request; it uses synthetic values and fake transports.
 - No production flags, provider secrets, dashboard data, or rollback state were
   changed.
-- Full repository CI was not rerun in this turn by user instruction.
+- Full repository CI was not rerun in this turn by user instruction; this
+  receipt is bounded evidence only.
 
 ## Remaining convergence tasks
 

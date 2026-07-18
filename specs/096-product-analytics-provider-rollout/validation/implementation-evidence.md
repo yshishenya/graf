@@ -2,7 +2,7 @@
 
 **Feature**: `096-product-analytics-provider-rollout`
 
-**Evidence status**: `production_posthog_live_safe_validated_yandex_offline_blocked`
+**Evidence status**: `historical_branch_reference_current_integration_unaccepted`
 
 This file records what has been completed for planning, implementation,
 convergence, and review remediation. Future live rollout evidence must follow
@@ -10,6 +10,17 @@ the same metadata-only rules. It is safe to commit because it contains no live
 secrets, counter IDs, project keys, payloads, screenshots, visitor/account
 identifiers, meeting content, transcripts, audio, signed URLs, local paths,
 cookies, or private provider exports.
+
+## Current-master boundary
+
+The implementation, production, and runtime rows below are retained historical
+receipts from the old 096 branch at `137565c0`; they are not evidence for
+current `master` or the integration candidate PR #3852. Current-branch
+evidence is limited to `validation/current-master-integration.md`: bounded
+compile/default checks, Compose config, page validation, synthetic
+metadata-only smoke, rollback dry-run, and diff hygiene. T097–T104 remain
+open; no release, production enablement, or campaign launch may be inferred
+from the historical rows.
 
 ## Planning Pass Evidence
 

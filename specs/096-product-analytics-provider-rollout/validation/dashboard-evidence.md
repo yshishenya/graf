@@ -2,13 +2,23 @@
 
 **Feature**: `096-product-analytics-provider-rollout`
 
-**Evidence status**: `production_posthog_metadata_live_safe_verified`
+**Evidence status**: `historical_branch_reference_current_integration_unaccepted`
 
 This file is the metadata-only dashboard evidence for the 096 implementation and
 review-remediation pass. Future live dashboard proof must keep the same
 metadata-only shape. It intentionally contains no live provider IDs,
 screenshots, visitor/account identifiers, event payload rows, meeting content,
 transcripts, audio, signed URLs, local paths, cookies, or secrets.
+
+## Current-master boundary
+
+The production/runtime rows below are retained historical receipts from the
+old 096 branch at `137565c0`; they are not evidence for current `master` or
+the integration candidate PR #3852. Current-branch evidence is limited to
+`validation/current-master-integration.md`: compile/default checks, Compose
+config, page validation, synthetic metadata-only smoke, rollback dry-run, and
+diff hygiene. T097–T104 remain open; do not use historical rows to approve a
+release, production provider enablement, or campaign launch.
 
 ## Current Planning Evidence
 
