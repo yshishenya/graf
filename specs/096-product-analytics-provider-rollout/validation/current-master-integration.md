@@ -88,6 +88,20 @@ Date: 2026-07-20
   It does not prove Yandex OAuth/live upload, PostHog operations, or product
   rollout approval.
 
+## Yandex ID production configuration recheck: 2026-07-20
+
+- The Yandex ID application `rec` was saved with the production callback
+  `https://rec.2brain.pro/api/v1/auth/callback/yandex`.
+- The production `TWOBRAIN_YANDEX_CLIENT_ID` matches that application; the value
+  is intentionally not recorded here. The client-secret file is present outside
+  git and was tightened to mode `600` without reading or printing its value.
+- A metadata-only request to `/login/yandex/start?next=/meetings` returned `303`
+  with the expected Yandex authorization redirect, a redacted state value, and
+  an auth-state cookie. GRAF readiness and analytics health both returned HTTP
+  `200` after the change.
+- `TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OFFLINE_ENABLED` remains `false`; this
+  recheck did not enable provider delivery or change product rollout state.
+
 ## Not claimed
 
 - The provider smoke above does not prove a real PostHog or Yandex production
