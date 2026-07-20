@@ -164,8 +164,8 @@ clean detached release worktree. The metadata-only receipt is:
 
 No tag, package, active-key enrollment, protected environment, public appcast,
 or remote release asset was created or changed. T034 is now the recorded scope
-decision; T035 is closed by the physical receipt below, while T036–T037 remain
-separate release gates.
+decision; T035 is closed by the physical receipt below, T036 is closed by the
+normal-update receipt, and T037 remains a separate release gate.
 
 ## Решение для приватного репозитория без платного GitHub — 2026-07-20
 
@@ -192,9 +192,9 @@ HTTP 422, потому что текущий тариф не поддержив�
   записываются.
 
 Решение закрывает исходный T034 как superseded: полноценный protected reviewer
-gate недоступен на текущем тарифе и не объявляется настроенным. T035 закрыт
-отдельным физическим receipt ниже; T036–T037 не объявляются выполненными по
-этому решению. Текущий release lane использует
+gate недоступен на текущем тарифе и не объявляется настроенным. T035 и T036
+закрыты отдельными receipts ниже; T037 не объявляется выполненным по этому
+решению. Текущий release lane использует
 только named Keychain signer с явным degraded approval; копия в Bitwarden
 остаётся ручным recovery backup и не читается автоматически. Если позже
 появится поддержка reviewer approval, cloud-путь можно вернуть без изменения
@@ -209,7 +209,7 @@ gate недоступен на текущем тарифе и не объявл�
   metadata-only `keyId`;
 - T034 переведён в завершённое состояние решения и superseded закрытие issue;
   bootstrap proof закрыт отдельным T035 receipt, а owner-only release/update
-  proof остаётся в T036–T037;
+  proof остаётся в T037;
 - в Git, issue и evidence нет приватного ключа, секрета или локального пути.
 
 ## T035 physical bootstrap + normal updater receipt — 2026-07-21
@@ -240,5 +240,38 @@ gate недоступен на текущем тарифе и не объявл�
 
 Таким образом, первый переход на новый trust anchor подтверждён единственным
 ручным bootstrap, а обычные последующие обновления — штатным Sparkle updater.
-T035 закрыт. Публикация двух новых versioned assets и отдельное owner-only
-release-attestation остаются в T036 и T037.
+T035 закрыт. Публикация двух новых versioned assets подтверждена в T036, а
+отдельное owner-only release-attestation остаётся в T037.
+
+## T036 two normal update receipt — 2026-07-21
+
+Receipt собран только из metadata-only данных GitHub Actions, GitHub Release,
+appcast и локального app log; секреты, приватные ключи, живые пути, raw audio и
+transcript data не сохраняются.
+
+- workflow `.github/workflows/sign-graf-app-update.yml` run
+  [29786274841](https://github.com/yshishenya/crisp/actions/runs/29786274841)
+  завершился `success` для `v2026.07.21.1`; validation сначала показала
+  `previous=yes archive=no appcast=no`, затем
+  `previous=yes archive=yes appcast=yes`, после чего были опубликованы ZIP,
+  appcast, checksum и metadata-only attestation;
+- [release `v2026.07.21.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.1)
+  содержит `GRAF-2026.07.21.1.zip`, `graf-appcast.xml` и checksum assets;
+  публичный appcast сейчас предлагает `2026.07.21.1`;
+- первая штатная установка: `2026.07.18.3 → 2026.07.20.1`, события
+  `user_choice_install`, download, `install_requested` и
+  `app_update.started`, после relaunch — `microphone=granted
+  systemAudio=granted ready=true`;
+- вторая штатная установка: `2026.07.20.2 → 2026.07.21.1`, события
+  `user_choice_install` в `23:14:24Z`, `download_finished`,
+  `install_requested` и `app_update.started` в `23:14:34Z`, после relaunch —
+  тот же permission state;
+- текущая установка подтверждена bundle `pro.2brain.graf`, версией
+  `2026.07.21.1`, сохранённым designated requirement и активным Sparkle
+  public key. После установки один follow-up download check записал
+  `SUDownloadError=2001`, затем ручная проверка вернула
+  `app_update.current`; установка и запуск новой версии завершились успешно.
+
+T036 закрыт: две строго возрастающие normal updates прошли через Sparkle,
+release assets опубликованы после подготовки архива/appcast, а metadata-only
+proof сохранён. Owner-only release attestation остаётся отдельным T037.
