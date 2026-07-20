@@ -10,7 +10,7 @@
 - Server intake/contract/redaction/readiness quickstart: **45 passed, 2
   warnings**.
 - XCTest: `DesktopUploadQueueV5Tests` — **59**, `CaptureControlV5Tests` —
-  **37**, `EmbeddedCabinetSupportIncidentBridgeTests` — **2**, все без ошибок.
+  **37**, `EmbeddedCabinetSupportIncidentBridgeTests` — **6**, все без ошибок.
 - Интеграционные тесты покрывают pending-to-sync переход по одному
   correlation number, idempotency, rate limit и отсутствие повторного GitHub
   Issue.
