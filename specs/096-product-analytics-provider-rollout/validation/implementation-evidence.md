@@ -8,7 +8,7 @@ This file records what has been completed for planning, implementation,
 convergence, and review remediation. Future live rollout evidence must follow
 the same metadata-only rules. It is safe to commit because it contains no live
 secrets, counter IDs, project keys, payloads, screenshots, visitor/account
-identifiers, meeting content, transcripts, audio, signed URLs, local paths,
+identifiers, content-bearing data, transcript artifacts, audio, signed URLs, local paths,
 cookies, or private provider exports.
 
 ## Current-master boundary
@@ -92,7 +92,7 @@ goal visibility, and the missing automated alert/rollback receipt.
 | Task Range | Status | Metadata-Only Evidence |
 | --- | --- | --- |
 | T001-T008 Phase 1 setup | complete | Created durable PostHog, Yandex, rollback, PostHog infra, Compose handoff placeholder, runtime env example, and backup/restore shells. |
-| Phase 1 no-deploy state | historical checkpoint | At the Phase 1 setup checkpoint, production execute had not run; no live provider ID, project key, OAuth token, cookie, client ID, raw payload, screenshot, meeting content, transcript, audio, signed URL, or private local path was added to committed artifacts. |
+| Phase 1 no-deploy state | historical checkpoint | At the Phase 1 setup checkpoint, production execute had not run; no live provider ID, project key, OAuth token, cookie, client ID, raw payload, screenshot, content-bearing data, transcript artifact, audio, signed URL, or private local path was added to committed artifacts. |
 | Phase 1 validation | complete | `docker compose -f infra/posthog/docker-compose.posthog.yml config` passed; `git diff --check` passed; file existence checks passed. |
 | T009-T022 Phase 2 foundation | complete | Added provider config tests, env/secret propagation tests, provider secret redaction tests, page inventory tests, retention/lifecycle tests, 096 runtime flags, provider config value objects, redacted secret helpers, expanded forbidden-field coverage, 096 page inventory, provider lifecycle records, catalog output, rec-api-only env wiring, Docker secret mounts, PostHog dry-run handoff, env owner/rotation comments, and expanded no-live-secret scans. |
 | Phase 2 owner/rotation inventory | complete | `default_provider_secret_inventory()` covers PostHog project key, stack secret, DB password, Redis/object-storage placeholders, Yandex counter, Yandex OAuth token, and product analytics flags with owner roles, rotation notes, committed defaults, propagation tests, and redacted evidence states. |
@@ -145,7 +145,7 @@ goal visibility, and the missing automated alert/rollback receipt.
 
 This section records only metadata. It contains no PostHog project key, internal
 secret, Yandex counter ID, OAuth token, cookie, visitor/account identifier, raw
-payload, event export, screenshot, meeting content, transcript, audio, signed
+payload, event export, screenshot, content-bearing data, transcript artifact, audio, signed
 URL, or private host path.
 
 | Area | Status | Metadata-Only Evidence |
@@ -177,7 +177,7 @@ This section records the extra review requested after runtime enablement: Yandex
 public counter troubleshooting, admin audit/metrics usefulness, cleanup, and
 pre-commit validation. Evidence is metadata-only and does not include live
 counter IDs, project keys, OAuth tokens, cookies, visitor/account rows, raw
-payloads, screenshots, names, emails, meeting content, transcripts, audio,
+payloads, screenshots, names, emails, content-bearing data, transcript artifacts, audio,
 signed URLs, or private local paths.
 
 | Area | Status | Metadata-Only Evidence |
@@ -198,7 +198,7 @@ signed URLs, or private local paths.
 This section records the final production deploy and live verification after
 the post-runtime review fixes. It is metadata-only and contains no live counter
 IDs, PostHog project keys, OAuth tokens, cookies, visitor/account rows, raw
-payloads, screenshots, names, emails, meeting content, transcripts, audio,
+payloads, screenshots, names, emails, content-bearing data, transcript artifacts, audio,
 signed URLs, or private local paths.
 
 | Area | Status | Metadata-Only Evidence |
@@ -224,7 +224,7 @@ signed URLs, or private local paths.
 This section records the additional code-review pass requested after the final
 production closeout. It is metadata-only and contains no live counter IDs,
 PostHog project keys, OAuth tokens, cookies, visitor/account rows, raw payloads,
-screenshots, names, emails, meeting content, transcripts, audio, signed URLs, or
+screenshots, names, emails, content-bearing data, transcript artifacts, audio, signed URLs, or
 private local paths.
 
 | Area | Status | Metadata-Only Evidence |
@@ -244,7 +244,7 @@ This section records the follow-up closeout requested after the final code
 review fixes, with special attention to product rollout readiness. It is
 metadata-only and contains no live counter IDs, PostHog project keys, OAuth
 tokens, cookies, visitor/account rows, raw payloads, screenshots, names, emails,
-meeting content, transcripts, audio, signed URLs, or private local paths.
+content-bearing data, transcript artifacts, audio, signed URLs, or private local paths.
 
 | Area | Status | Metadata-Only Evidence |
 | --- | --- | --- |
@@ -259,7 +259,7 @@ meeting content, transcripts, audio, signed URLs, or private local paths.
 This section records the production deploy after the follow-up review fixes. It
 is metadata-only and excludes live counter IDs, PostHog project keys, OAuth
 tokens, cookies, visitor/account rows, raw payloads, screenshots, names, emails,
-meeting content, transcripts, audio, signed URLs, private local paths, smoke
+content-bearing data, transcript artifacts, audio, signed URLs, private local paths, smoke
 meeting IDs, session IDs, and auth session IDs.
 
 | Area | Status | Metadata-Only Evidence |
@@ -342,7 +342,7 @@ Forbidden evidence:
 - Yandex CSV rows;
 - PostHog event/autocapture/replay exports;
 - screenshots with visitor/account/meeting data;
-- raw audio, transcript text, meeting content, or meeting filenames.
+- source-media payloads, transcript artifacts, content-bearing data, or meeting filenames.
 
 ## Current Blockers After Production Runtime Enablement
 
