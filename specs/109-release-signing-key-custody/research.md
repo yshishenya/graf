@@ -124,6 +124,25 @@ step working while leaving release custody or version ordering fragile.
 - Call a manual package an automatic update: rejected; users must understand
   that it is a one-time trust migration.
 
+## Decision 6: Use the owner-only lane until protected review is available
+
+**Decision**: Do not pretend that the current private-repository GitHub plan
+provides the required reviewer gate.  Use the named macOS Keychain signer for
+the current owner-controlled release lane, keep the private key as a manual
+Bitwarden recovery backup, and treat cloud signing as a future reactivation.
+
+**Rationale**: The environment, secret and branch policy exist, but GitHub
+rejects the required reviewer protection rule on the current plan.  A local
+Keychain signer already has the required public-key equality checks and safe
+attestation path.  The fallback stays degraded and therefore requires exact
+tag/provenance, fresh Keychain evidence, explicit owner approval and
+archive-before-appcast publication.  Bitwarden is not an automated signer and
+is never read by CI or the application.
+
+**Consequence**: T034 is superseded as an unavailable cloud setup task.  T037
+tracks the remaining owner-only release proof; a later plan upgrade can reopen
+the protected two-channel path without rotating the active public key.
+
 ## Sources
 
 - [Sparkle documentation](https://sparkle-project.org/documentation/) — key
