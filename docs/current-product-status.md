@@ -847,10 +847,13 @@ metadata-only evidence остаются подробной историей ре
   `v2026.07.20.6`. Provider flags remain disabled/fail-closed, so this is an
   infrastructure integration receipt, not product-rollout or paid-campaign
   approval. T097–T100, T102 and T103 have current-master evidence. T101 remains
-  open for independent RBAC/MFA/audit and retention/lifecycle review, dashboard
+  open for independent RBAC/MFA/audit, future deletion-enforcement, dashboard
   freshness and approved-goal review, and full persistent alert/restore
-  evidence; the root-owned guard/timer and reviewed automatic rollback override
-  now have a production receipt. T104 remains open until that dependency is
+  evidence. The self-hosted session-recording policy and replay-bucket
+  lifecycle are now configured at the 90-day baseline; the session-replay
+  bucket was empty and provider delivery remains fail-closed. The root-owned
+  guard/timer and reviewed automatic rollback override now have a production
+  receipt. T104 remains open until that dependency is
   complete and the tracker/spec reconciliation is truthful; Issue #3860 was
   reopened on 2026-07-20 after its premature closure. The exact receipts and
   remaining boundaries are in

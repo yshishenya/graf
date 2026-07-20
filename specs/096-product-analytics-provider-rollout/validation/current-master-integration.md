@@ -314,6 +314,29 @@ This closes only the alert/rollback configuration subtask. T101 remains open
 for independent RBAC/audit, retention/deletion lifecycle, dashboard freshness
 and approved-goal review, and full persistent alert/restore evidence.
 
+## T101 PostHog operations receipt: 2026-07-21
+
+The production retention and approved-goal configuration was completed without
+enabling provider delivery. The supported PostHog retention update path rejected
+`90d` with `Invalid retention entitlement`; because session replay is disabled
+and its object-storage bucket was empty, a reversible self-hosted database
+override set the project session-recording policy to `90d`. A `90`-day enabled
+expiration lifecycle was applied only to the session-replay bucket. The bucket
+remained at `0` objects and `0` bytes, no ClickHouse TTL was changed, no content
+was deleted, and the general GRAF/PostHog object-storage bucket was untouched.
+
+The dashboard now exposes aggregate-only insights for the approved goals
+`desktop_account_connected` and `first_value_session_completed`, with provider
+delivery still fail-closed. Its refresh timestamp remains unset because no
+approved provider data exists; freshness is therefore still open. GRAF and
+PostHog health both returned HTTP `200`. The detailed metadata-only receipt is
+[`t101-posthog-operations-receipt-20260721.md`](t101-posthog-operations-receipt-20260721.md).
+
+This closes only the retention configuration and goal-visibility sub-steps.
+T101 remains open for independent RBAC/MFA/audit, future deletion-enforcement
+proof, dashboard freshness after approved rollout (or an approved empty-data
+procedure), and persistent restore/alert review.
+
 ## T102 live-safe Yandex upload receipt: 2026-07-20
 
 - A separate Yandex OAuth application was created with the minimal
