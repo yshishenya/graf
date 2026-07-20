@@ -56,6 +56,9 @@
   вынесено в T037.
 
 ### Операции
+- Исправлена проверка metadata-only JSON-attestation в macOS release workflow;
+  проверка теперь корректно конвертирует JSON через `plutil` без ослабления
+  проверки содержимого.
 - Для текущего release lane используется только явно подтверждённый Keychain
   signer в degraded mode; Bitwarden остаётся ручным recovery backup.
 

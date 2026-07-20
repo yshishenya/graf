@@ -200,7 +200,7 @@ jobs:
             "runId": "$GITHUB_RUN_ID"
           }
           EOF
-          /usr/bin/plutil -lint "$ATTESTATION" >/dev/null
+          /usr/bin/plutil -convert xml1 -o /dev/null "$ATTESTATION" >/dev/null
           GRAF_VERSION="$VERSION" \
           GRAF_UPDATE_APP_BUNDLE="$WORK_DIR/candidate/GRAF.app" \
           GRAF_PREVIOUS_APP_BUNDLE="$WORK_DIR/previous/GRAF.app" \
