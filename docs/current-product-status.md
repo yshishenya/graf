@@ -355,8 +355,9 @@ metadata-only evidence остаются подробной историей ре
   non-empty transcript/speaker/summary and its zero-residue receipt; production
   smoke is infrastructure proof, not that final user-path claim. Deferred
   post-deploy checks remain explicitly marked `required_post_deploy`. Review and
-  cleanup receipts closed #3044, #3055, #3056 and #3059; #3049, #3050 and the
-  external test-rec/browser gates remain open. Current-diff evidence is in
+  cleanup/evidence receipts closed #3044–#3048, #3051, #3052, #3054–#3059 and
+  #3061; #3049, #3050 and #3060 remain open for external test-rec/browser
+  evidence. Current-diff evidence is in
   `specs/090-manual-media-upload-ui/validation/current-diff-closeout-2026-07-20.md`;
   production evidence is in
   `specs/090-manual-media-upload-ui/validation/production-closeout-2026-07-20.md`.
