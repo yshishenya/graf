@@ -821,34 +821,22 @@ metadata-only evidence остаются подробной историей ре
 
 ## Not Accepted Yet
 
-- Feature `096-product-analytics-provider-rollout` is not accepted on the
-  current master. Its historical branch `096-product-analytics-provider-rollout`
-  ends at `137565c0`; it is not merged or tagged and diverged by `272`
-  master-only versus `15` branch-only commits at the recorded comparison
-  snapshot. The branch proves only a PostHog live-safe technical
-  path. Yandex offline OAuth/live upload, executed rollback, current-page
-  inventory, real dashboard/RBAC review, and
-  legal/product rollout approval remain unproven. The branch's checked tasks
-  and evidence contain contradictory "complete" versus "blocked" wording, so
-  the current integration candidate uses the append-only worklist in
-  `docs/analytics/product-analytics-provider-rollout-096-integration-audit.md`
-  and does not cherry-pick the old branch wholesale. The candidate transfers
-  provider code selectively onto current master with live delivery still
-  fail-closed; it is not a release, production approval, or paid-campaign
-  readiness claim. T097–T100 and T103 are now evidenced on the current
-  integration branch. The PostHog backup/restore subgate for T101 now has a
-  metadata-only isolated-rehearsal receipt, and the 2026-07-20 production
-  runtime receipt verifies generated-stack CPU/memory limits and health
-  recovery. T101 still needs automated alert/rollback evidence, independent
-  RBAC/MFA/audit and lifecycle review, and dashboard freshness/goal approval.
-  T102 (Yandex OAuth/live-safe upload) and T103 are evidenced on the integration
-  branch; T104 (release/tracker/production closeout) remains open. The current
-  convergence tracker is synchronized in issues #3853–#3860;
-  T101/T102/T104 correspond to #3857/#3858/#3860.
-  The current candidate head `5c30ff75` is synchronized with `master`; the
-  canonical CI receipt is on code merge-head `46dd0e02` and later commits are
-  documentation-only, while `cd-remote.sh --dry-run` passes and PR #3852
-  remains draft with no release or production execute claimed.
+- Feature `096-product-analytics-provider-rollout` is integrated into the
+  current master through merged PR
+  [#3852](https://github.com/yshishenya/crisp/pull/3852) at merge SHA
+  `11b82f378c24007b40d90f4c08e9645ce617e91d`. The provider code and runtime
+  guard are released as part of `v2026.07.20.3`; the current production runtime
+  is later master `bcfba51a212bf723ed9fa86f96bbe3dcd49282fb` from
+  `v2026.07.20.6`. Provider flags remain disabled/fail-closed, so this is an
+  infrastructure integration receipt, not product-rollout or paid-campaign
+  approval. T097–T100, T102 and T103 have current-master evidence. T101 remains
+  open for a root-owned production guard/timer receipt, independent RBAC/MFA/
+  audit and retention/lifecycle review, dashboard freshness and approved-goal
+  review, and persistent alert/rollback evidence. T104 remains open until that
+  dependency is complete and the tracker/spec reconciliation is truthful; Issue
+  #3860 was reopened on 2026-07-20 after its premature closure. The exact
+  receipts and remaining boundaries are in
+  `specs/096-product-analytics-provider-rollout/validation/current-master-integration.md`.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route
   unchanged, incoming volume delta no greater than 1 dB, no unexplained
