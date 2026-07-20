@@ -5,7 +5,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 docker compose -f infra/posthog/docker-compose.posthog.yml config >/dev/null
-infra/scripts/cd-remote.sh --dry-run >/dev/null
+deploy_branch="${TWOBRAIN_DEPLOY_BRANCH:-$(git branch --show-current || true)}"
+if [[ -z "$deploy_branch" ]]; then
+  deploy_branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  deploy_branch="${deploy_branch#origin/}"
+fi
+if [[ -z "$deploy_branch" ]]; then
+  echo "provider_smoke_result=blocked"
+  echo "reason=missing_deploy_branch"
+  exit 2
+fi
+infra/scripts/cd-remote.sh --dry-run --branch "$deploy_branch" >/dev/null
 
 PYTHONPATH="$ROOT_DIR/apps/server/src" python - <<'PY'
 from pathlib import Path
