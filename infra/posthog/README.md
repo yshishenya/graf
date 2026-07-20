@@ -76,5 +76,8 @@ root-owned copy, the systemd timer is `enabled` and `active`, and a metadata-onl
 one-shot returned `posthog_guard_result=pass` (`containers=33`, `oom=0`,
 `health_failures=0`). The only host-level repair was creating the missing empty
 `/opt/projects/2brain-rec/.env.lock` as `root:root` mode `0600`, required by the
-systemd namespace. Automatic rollback, dry-run override, and stack stop remain
-disabled; this receipt does not approve product analytics rollout.
+systemd namespace. On 2026-07-21 the separately reviewed production override
+enabled automatic analytics rollback (`AUTO_ROLLBACK=1`, `DRY_RUN=0`) while
+keeping full-stack stop disabled (`STOP_STACK=0`). The follow-up one-shot passed
+and both GRAF and analytics health checks returned HTTP 200. Provider delivery
+remains fail-closed; this receipt does not approve product analytics rollout.
