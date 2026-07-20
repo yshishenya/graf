@@ -10,6 +10,7 @@ from twobrain_rec_server.api.schemas import (
     NotesActionCategoryState,
     PreviousRecurringMeetingView,
     TranscriptSegmentView,
+    TranscriptSpeakerTurnView,
 )
 from twobrain_rec_server.auth.workspace_onboarding import (
     WorkspaceAccessView,
@@ -444,8 +445,9 @@ def _render_meeting_detail_content(
     focus_calendar_context: bool = False,
     poll_url: str | None = None,
 ) -> str:
+    transcript_rows = review.transcript.speaker_turns or review.transcript.segments
     transcript = trusted_component_html(
-        _render_transcript(review.transcript.segments), source="meeting_detail.transcript"
+        _render_transcript(transcript_rows), source="meeting_detail.transcript"
     )
     if not review.transcript.available:
         transcript = trusted_component_html(
@@ -982,7 +984,9 @@ def _render_list_delete_dialog() -> str:
     """
 
 
-def _render_transcript(segments: list[TranscriptSegmentView]) -> str:
+def _render_transcript(
+    segments: list[TranscriptSegmentView | TranscriptSpeakerTurnView],
+) -> str:
     return "\n".join(
         f"""
           <article class="segment">
@@ -995,7 +999,7 @@ def _render_transcript(segments: list[TranscriptSegmentView]) -> str:
     )
 
 
-def _render_timestamp(segment: TranscriptSegmentView) -> str:
+def _render_timestamp(segment: TranscriptSegmentView | TranscriptSpeakerTurnView) -> str:
     if segment.seekable and segment.seek_seconds is not None:
         return (
             f'<button class="timestamp timestamp-seek" type="button" '

@@ -44,6 +44,7 @@ from twobrain_rec_server.api.schemas import (
     SpeakerReviewState,
     TranscriptReviewState,
     TranscriptSegmentView,
+    TranscriptSpeakerTurnView,
 )
 from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
@@ -1808,30 +1809,34 @@ def transcript_state(
             segments=[],
         )
     segments = []
+    mapped_rows: list[tuple[TranscriptSegmentView, bool]] = []
     for segment in transcripts:
         seek_seconds = _seek_seconds(
             segment.start_seconds,
             playback_available=playback_available,
             playback_duration_seconds=playback_duration_seconds,
         )
-        segments.append(
-            TranscriptSegmentView(
-                segment_id=str(segment.id),
-                sequence=segment.sequence,
-                start_seconds=float(segment.start_seconds),
-                end_seconds=float(segment.end_seconds),
-                timestamp_label=format_timestamp(segment.start_seconds),
-                speaker_label=speaker_label_for_segment(
-                    segment,
-                    matching_diarization_segment(segment, diarization_rows),
-                    speaker_labels_by_key=speaker_labels_by_key,
-                ),
-                source_role=source_role_label(segment.source_role),
-                text=segment.text,
-                confidence_label="unknown",
-                seekable=seek_seconds is not None,
-                seek_seconds=seek_seconds,
-            )
+        matching_diarization = matching_diarization_segment(segment, diarization_rows)
+        view = TranscriptSegmentView(
+            segment_id=str(segment.id),
+            sequence=segment.sequence,
+            start_seconds=float(segment.start_seconds),
+            end_seconds=float(segment.end_seconds),
+            timestamp_label=format_timestamp(segment.start_seconds),
+            speaker_label=speaker_label_for_segment(
+                segment,
+                matching_diarization,
+                speaker_labels_by_key=speaker_labels_by_key,
+            ),
+            source_role=source_role_label(segment.source_role),
+            text=segment.text,
+            confidence_label="unknown",
+            seekable=seek_seconds is not None,
+            seek_seconds=seek_seconds,
+        )
+        segments.append(view)
+        mapped_rows.append(
+            (view, matching_diarization is not None and bool(matching_diarization.speaker_label.strip()))
         )
     return TranscriptReviewState(
         available=True,
@@ -1839,6 +1844,7 @@ def transcript_state(
         degraded_reason=None if status == "ready" else "partial_transcript",
         search_enabled=True,
         segments=segments,
+        speaker_turns=_derive_speaker_turns(mapped_rows) if status == "ready" else [],
     )
 
 
@@ -1883,7 +1889,64 @@ def diarization_transcript_state(
         degraded_reason=None if status == "ready" else "partial_transcript",
         search_enabled=True,
         segments=segments,
+        speaker_turns=(
+            _derive_speaker_turns([(view, bool(speaker_rows)) for view in segments])
+            if status == "ready"
+            else []
+        ),
     )
+
+
+def _derive_speaker_turns(
+    rows: list[tuple[TranscriptSegmentView, bool]],
+) -> list[TranscriptSpeakerTurnView]:
+    turns: list[TranscriptSpeakerTurnView] = []
+    current: list[TranscriptSegmentView] = []
+
+    def flush() -> None:
+        if not current or not any(row.text.strip() for row in current):
+            current.clear()
+            return
+        first = current[0]
+        last = current[-1]
+        turns.append(
+            TranscriptSpeakerTurnView(
+                turn_id=first.segment_id,
+                sequence=first.sequence,
+                start_seconds=first.start_seconds,
+                end_seconds=last.end_seconds,
+                timestamp_label=first.timestamp_label,
+                speaker_label=first.speaker_label,
+                source_role=first.source_role,
+                text=" ".join(row.text.strip() for row in current if row.text.strip()),
+                source_segment_ids=[row.segment_id for row in current],
+                confidence_label=first.confidence_label,
+                seekable=first.seekable,
+                seek_seconds=first.seek_seconds,
+            )
+        )
+        current.clear()
+
+    for row, confirmed in rows:
+        if not confirmed or row.start_seconds < 0 or row.end_seconds < row.start_seconds:
+            flush()
+            continue
+        if not current:
+            current.append(row)
+            continue
+        previous = current[-1]
+        gap = Decimal(str(row.start_seconds)) - Decimal(str(previous.end_seconds))
+        if (
+            row.speaker_label == previous.speaker_label
+            and row.source_role == previous.source_role
+            and Decimal("0") <= gap <= Decimal("1")
+        ):
+            current.append(row)
+            continue
+        flush()
+        current.append(row)
+    flush()
+    return turns
 
 
 def _seek_seconds(

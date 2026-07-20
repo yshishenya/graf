@@ -1486,12 +1486,28 @@ class TranscriptSegmentView(BaseModel):
     seek_seconds: float | None = None
 
 
+class TranscriptSpeakerTurnView(BaseModel):
+    turn_id: str
+    sequence: int
+    start_seconds: float
+    end_seconds: float
+    timestamp_label: str
+    speaker_label: str
+    source_role: SourceRoleView
+    text: str
+    source_segment_ids: list[str] = Field(default_factory=list)
+    confidence_label: str | None = None
+    seekable: bool = False
+    seek_seconds: float | None = None
+
+
 class TranscriptReviewState(BaseModel):
     available: bool
     language: str | None = None
     degraded_reason: str | None = None
     search_enabled: bool = False
     segments: list[TranscriptSegmentView] = Field(default_factory=list)
+    speaker_turns: list[TranscriptSpeakerTurnView] = Field(default_factory=list)
 
 
 class SpeakerLaneSegment(BaseModel):
