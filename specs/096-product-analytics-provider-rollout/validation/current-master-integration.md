@@ -1,6 +1,6 @@
 # Feature 096 current-master integration receipt
 
-Date: 2026-07-18
+Date: 2026-07-20
 
 ## Scope transferred
 
@@ -119,8 +119,8 @@ production; it is not provider delivery or dashboard evidence.
 - SSH metadata check reached the existing production host and found the
   generated `graf-posthog` runtime running with its documented service family
   and all twelve documented persistent volume classes present.
-- The production PostHog project-key secret file is present, while both checked
-  Yandex OAuth secret-file variables resolve to absent; product analytics is
+- The production PostHog project-key secret file and the out-of-git Yandex OAuth
+  secret file are present with redacted metadata; product analytics remains
   disabled in the runtime environment.
 - The latest generated-stack inventory counted 33 running PostHog containers,
   0 unhealthy containers, and 0 containers with an enforced Docker memory/CPU
@@ -185,14 +185,35 @@ These results narrow T101's remaining work to independent RBAC/audit and
 lifecycle approval, dashboard freshness/goal visibility, and applying/verifying
 concrete resource limits and alert/rollback thresholds for the generated stack.
 
+## T102 live-safe Yandex upload receipt: 2026-07-20
+
+- A separate Yandex OAuth application was created with the minimal
+  `metrika:offline_data` permission. Its client metadata and OAuth credential
+  remain outside git and outside committed evidence.
+- The production host now has a non-empty Yandex OAuth secret file with mode
+  `600`. The token value was never printed, logged, or committed; the temporary
+  local handoff file was removed after provisioning.
+- Production product-analytics flags remain disabled. The smoke used the
+  current integration candidate source in a disposable container, passed
+  `live_safe` approval gates only for that invocation, and did not recreate or
+  modify the long-running production service.
+- Exactly the approved conversion names were uploaded to the reused runtime
+  counter: `desktop_account_connected` and `first_value_session_completed`.
+  Both provider results were `live_safe_uploaded`.
+- The smoke used a synthetic safe pseudonymous `UserId` path. This proves
+  secret-file loading, OAuth authorization, request reachability, and provider
+  acceptance for the two-row contract; it does not approve product rollout,
+  campaign launch, dashboard freshness, or unresolved ClientId/Yclid paths.
+
 ## Remaining convergence tasks
 
-T101, T102, and T104 in `tasks.md` remain open (tracker issues #3857, #3858 and
-#3860). T103 is now explicitly scoped
+T101 and T104 in `tasks.md` remain open (tracker issues #3857 and #3860). T102
+is closed by the live-safe receipt above (tracker issue #3858). T103 is now explicitly scoped
 and evidenced by the rollback-path and ordinary-workflow receipt above. The
 completed T097–T100 receipts cover the clean branch transfer, manual
 current-master reconciliation, current page and privacy contract validation,
-and bounded metadata-only smoke. Remaining PostHog operations (dashboard/RBAC,
-retention/lifecycle, and resource thresholds), Yandex OAuth/live upload,
-approvals, release, and production receipt are still required before Feature
-096 can be accepted. The backup/restore subgate itself is now passed.
+bounded metadata-only smoke, and T102 covers the real two-event Yandex upload.
+Remaining PostHog operations (dashboard/RBAC, retention/lifecycle, and resource
+thresholds), approvals, release, and production receipt are still required
+before Feature 096 can be accepted. The backup/restore subgate itself is now
+passed.

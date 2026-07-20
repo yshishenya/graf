@@ -22,7 +22,8 @@ metadata-only smoke, rollback dry-run, ordinary-workflow regression, diff
 hygiene, and the 2026-07-18 remote PostHog backup/restore subgate receipt.
 T097–T100 and T103 are closed by the current-master receipts and tracker issues
 #3853–#3856/#3859. T101 (issue #3857) remains open for its other operational
-reviews, alongside T102 (issue #3858) and T104 (issue #3860). No release,
+reviews, alongside T104 (issue #3860); T102 (issue #3858) is closed by the
+live-safe receipt below. No release,
 production enablement, or campaign launch may be inferred from the historical
 rows.
 
@@ -40,7 +41,8 @@ not for the historical runtime rows below.
 | Deploy dry-run | pass | `infra/scripts/cd-remote.sh --dry-run` reported the PostHog handoff contract, official generated-runtime source, and explicit-approval execution boundary without changing state. |
 | PostHog RBAC/audit and retention read-only review | partial | One team reports `event_retention_months=84`; one activity log has 4 rows; one organization/membership/project is present. Custom role/resource memberships are empty, session-recording retention is unset, and `enforce_2fa` is not confirmed. Aggregate dashboard/event checks found one dashboard with eight items and only historical July 9 provider events; no offline conversion events. No payloads or user data were inspected. |
 | T101 remaining operations | open | RBAC/audit, retention/lifecycle, dashboard freshness/goal visibility, and concrete resource-alert thresholds still require independent review. |
-| T102/T104 | open | T102 remains blocked by missing runtime Yandex OAuth setup. PR #3852 is still draft; reviewer approval, merge, release and production closeout remain open. GitHub tracker issues #3857, #3858 and #3860 are now synchronized. |
+| T102 | complete | Out-of-git Yandex OAuth secret-file setup is present with mode `600`; a disposable current-candidate smoke accepted exactly `desktop_account_connected` and `first_value_session_completed` with `live_safe_uploaded`. No credential, counter ID, CSV row, or response body was printed or committed; production flags remain disabled. |
+| T104 | open | PR #3852 is still draft; reviewer approval, merge, release and production closeout remain open. GitHub tracker issues #3857, #3858 and #3860 are synchronized. |
 | T101 metadata-only continuation | partial | Additional aggregate review found zero session recordings, zero exported assets/recordings/batch exports, zero deletion requests, four audit-category records, unset organization `enforce_2fa`, JSON log rotation `50m`/`3`, and 32 healthy containers without enforced CPU/memory limits. Dashboard freshness and independent approval remain open. |
 
 ## Planning Pass Evidence
@@ -61,7 +63,7 @@ not for the historical runtime rows below.
 | Baseline validation before implementation | complete | `infra/scripts/ci-local.sh` passed before implementation: server tests `1160 passed, 4 skipped`, lint passed, compile passed, compose config passed, deployment evidence scan passed. |
 | Agent context | complete with local tool caveat | Official agent-context helper was attempted, but the local Python environment lacked `PyYAML`; the managed `AGENTS.md` Spec Kit plan pointer was updated manually to the 096 plan path. |
 | Implementation | complete | 096 provider layer implementation, convergence fixes, review remediation, production deploy execute, runtime PostHog secret/config wiring, and live-safe PostHog delivery smoke are complete. Product rollout readiness and paid campaign launch remain separate blocked steps. |
-| Production deploy/runtime provider enablement | complete for PostHog, partial for Yandex | Production deploy for the 096 branch passed before runtime provider enablement. PostHog was then configured outside git on the analytics domain and validated through GRAF live-safe delivery. Yandex public/all-pages inventory uses the existing runtime counter strategy, but Yandex offline upload remains blocked until OAuth token secret-file setup. |
+| Production deploy/runtime provider enablement | complete for PostHog, live-safe verified but disabled for Yandex | Production deploy for the 096 branch passed before runtime provider enablement. PostHog was then configured outside git on the analytics domain and validated through GRAF live-safe delivery. Yandex public/all-pages inventory uses the existing runtime counter strategy; the out-of-git OAuth secret and two-event live-safe upload smoke now pass in disposable candidate code, while long-running production upload remains disabled. |
 | Paid campaign launch | blocked | Campaign launch remains outside 096 readiness. |
 
 ## Implementation Pass Evidence
@@ -142,7 +144,7 @@ URL, or private host path.
 | Provider smoke scripts | pass | `infra/scripts/run-product-analytics-provider-smoke.sh` and `infra/scripts/validate-product-analytics-provider-pages.sh` passed after runtime enablement. |
 | PostHog image pinning | pass | Mutable generated-runtime image references were pinned by reviewed digest outside git. Post-pinning Compose config validation passed, image listing found no remaining `latest`/`master` references, the analytics domain returned `_health=ok` after restart, and metadata-only web/desktop live-safe smoke events were ingested. |
 | Yandex public/all-pages inventory | partial pass | Product analytics runtime reports Yandex all-pages enabled with counter configured/redacted, while the page inventory still allows only the approved public baseline classes and keeps blocked/replay-unavailable classes out of Yandex. |
-| Yandex offline upload | blocked | Runtime reports Yandex offline disabled. OAuth token secret-file setup and live upload smoke for `desktop_account_connected` and `first_value_session_completed` remain required before offline conversion readiness can pass. |
+| Yandex offline upload | live_safe_verified_runtime_disabled | The out-of-git OAuth secret file is present with mode `600`; disposable candidate-code smoke returned `live_safe_uploaded` for exactly `desktop_account_connected` and `first_value_session_completed` using the proven synthetic safe `UserId` path. Long-running production flags remain disabled. |
 | Paid campaign launch | blocked | 096 still reports campaign launch as blocked; technical provider smoke does not approve paid campaign launch. |
 | Product rollout readiness | blocked | Production provider delivery is working for PostHog, but product rollout readiness remains a separate product/legal/security/QA decision. |
 | PostHog backup/restore | blocked for full readiness | Runtime volume inventory exists, but a full PostHog backup and isolated restore rehearsal for the generated stack has not been completed in this pass. |
@@ -194,7 +196,7 @@ signed URLs, or private local paths.
 | Yandex browser behavior | pass | Headless browser/CDP check found no Yandex requests and no Yandex goals before analytics consent; after granted analytics/attribution consent, the public landing page loaded Yandex tag traffic and sent one approved public landing goal request. |
 | Admin UI improvement deploy | pass | Admin audit/metrics usability changes are included in deployed SHA `f12b8761538a31152a1cf3db9780643cb55d1301`; production smoke remained green. Authenticated production admin screen review still requires an operator session and must not use raw private evidence. |
 | GitHub tracker closeout | pass | `feature:096` GitHub tracker now has 96 closed issues and 0 open issues. Initial task-to-issues sync covered T001-T090; convergence tasks T091-T096 were missing from GitHub, so metadata-only issues #3034-#3039 were created and closed with production/evidence closeout comments. Earlier task-backed issues #2889-#2978 were also closed with Russian closure comments. |
-| Remaining blockers | expected | Yandex offline OAuth/upload smoke, real dashboard business review, product rollout readiness, paid campaign launch, and full PostHog backup/restore ops readiness remain separate gates. |
+| Remaining blockers | expected | Real dashboard business review, PostHog RBAC/audit and lifecycle/resource review, product rollout readiness, paid campaign launch, and full PostHog operations approval remain separate gates. |
 
 ## Final Code Review Follow-Up: 2026-07-10
 
@@ -229,7 +231,7 @@ meeting content, transcripts, audio, signed URLs, or private local paths.
 | Rollout/campaign blocker tests | pass | `PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_product_analytics_provider_config.py tests/integration/test_product_analytics_provider_readiness_blockers.py tests/contract/test_product_analytics_provider_rollback.py` passed: `13 passed`. These tests prove provider/live-safe delivery gates can be validated without approving product rollout readiness or paid campaign launch in 096. |
 | Deployment-focused smoke contracts | pass | `PYTHONPATH=src uv run --extra dev pytest -q tests/integration/test_product_activation_analytics_rollout.py tests/contract/test_product_analytics_provider_smoke_output.py tests/contract/test_product_analytics_provider_smoke_contract.py` passed: `9 passed`. |
 | Live-secret guard | pass | `PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_product_activation_analytics.py::test_no_live_product_analytics_secrets_are_committed` passed: `1 passed`. |
-| Product rollout readiness | intentionally blocked | 096 remains a provider/infrastructure rollout, not a product rollout approval. `product_rollout_allowed=false`, `campaign_launch_allowed=false`, Yandex offline live upload still requires OAuth secret-file setup and live upload smoke, real provider dashboard review remains separate, and paid campaign launch remains blocked by 096. |
+| Product rollout readiness | intentionally blocked | 096 remains a provider/infrastructure rollout, not a product rollout approval. `product_rollout_allowed=false`, `campaign_launch_allowed=false`, the Yandex secret setup and two-event live-safe smoke are complete but runtime upload remains disabled, real provider dashboard review remains separate, and paid campaign launch remains blocked by 096. |
 
 ## Production Deploy Closeout: 2026-07-10
 
@@ -270,8 +272,7 @@ production evidence must append metadata-only proof for:
 - PostHog resource limit and retention proof beyond the initial health checks;
 - PostHog RBAC/access model and audit expectation proof;
 - provider retention/deletion lifecycle proof for PostHog data, backups, exports, delivery gaps, Yandex offline conversions, and dashboard/report aggregates;
-- Yandex offline conversion OAuth secret-file proof;
-- Yandex offline live upload smoke for exactly two conversion names;
+- Yandex offline conversion lifecycle/deletion proof after the live-safe smoke;
 - duplicate-protection proof;
 - real dashboard readiness review with metadata-only freshness proof;
 - rollback proof after any future runtime switch changes;
@@ -327,7 +328,7 @@ Forbidden evidence:
 096 PostHog runtime delivery is validated, but these remain blocked/out of
 scope:
 
-- live production Yandex offline OAuth setup and upload smoke;
+- product rollout approval for Yandex offline upload (the secret setup and two-event live-safe smoke are complete);
 - PostHog RBAC/audit, retention/lifecycle, dashboard-freshness, and resource-threshold review;
 - dashboard verification with real provider data using metadata-only evidence;
 - legal, privacy, security, QA, and disclosure closeout for product rollout;

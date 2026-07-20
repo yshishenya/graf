@@ -17,8 +17,9 @@ old 096 branch at `137565c0`; they are not evidence for current `master` or
 the integration candidate PR #3852. Current-branch evidence is limited to
 `validation/current-master-integration.md`: compile/default checks, Compose
 config, page validation, synthetic metadata-only smoke, rollback dry-run,
-ordinary-workflow regression, and diff hygiene. T097–T100 and T103 are closed
-by the current-master receipts; T101, T102, and T104 remain open. Do
+ordinary-workflow regression, diff hygiene, and the T102 live-safe receipt.
+T097–T100, T102, and T103 are closed by the current-master receipts; T101 and
+T104 remain open. Do
 not use historical rows to approve a release, production provider enablement,
 or campaign launch.
 
@@ -48,7 +49,7 @@ activity details, exports, identifiers, or provider payloads.
 | PostHog replay | blocked by default | Separate masking/storage/legal/QA proof required. |
 | Yandex counter | metadata_only_validated | Existing 093 production counter reuse selected; live ID not committed. |
 | Yandex all-pages inventory | metadata_only_validated | Inventory-gated; future pages default blocked for Yandex. |
-| Yandex offline conversions | blocked_pending_oauth | Exactly two approved conversion names; `UserId` upload requires prior Yandex `setUserID`/`userParams` binding. Runtime upload remains disabled until OAuth secret-file setup and live upload smoke pass. |
+| Yandex offline conversions | live_safe_verified_runtime_disabled | Exactly two approved conversion names were accepted by the provider in a two-event live-safe smoke using the out-of-git OAuth secret file and synthetic safe `UserId` path. Production runtime upload remains disabled; product rollout, dashboard freshness, and campaign launch remain separate gates. |
 | Provider smoke | production_posthog_live_safe_verified | Provider smoke records dry-run delivery, live-safe transport proof, dashboard/goal metadata contract proof, blockers, and rollback without private payload output. Production PostHog web/desktop proxy delivery and aggregate ClickHouse presence were verified metadata-only. |
 | Rollback | ready_not_executed | Rollback script records switches and product-impact rules in dry-run mode; no production state change performed. |
 | Paid campaign launch | blocked | Not approved by this feature. |
@@ -83,6 +84,7 @@ ClientIDs, Yclids, cookies, or project keys.
 | PostHog secret-material rejection | provider_smoke_verified | Provider smoke and endpoint tests reject token/secret-like autocapture material before dry-run success while allowing first-party product-visible identity context inside self-hosted PostHog. | Raw provider payloads and content-bearing exports remain forbidden in git. |
 | PostHog desktop route | first_party_desktop_proxy_verified | macOS builds PostHog-style body with `event`, `distinct_id`, `properties`, and `api_key_state=server_injected_redacted`; no Authorization header or provider secret is shipped. | Direct desktop Yandex remains blocked. |
 | Yandex offline upload | live_safe_transport_verified | Fake transport confirms Yandex offline upload URL, multipart CSV upload shape, OAuth secret-file loading, exactly two conversion names, `UserId` binding rule, and redacted result metadata. | Production Yandex upload and paid campaign launch. |
+| Yandex live-safe upload | live_safe_runtime_verified | Disposable candidate-code smoke accepted exactly `desktop_account_connected` and `first_value_session_completed` with `live_safe_uploaded`; the OAuth secret file was present with mode `600`, and no token, counter ID, CSV row, or response body entered evidence. | Runtime flags stay disabled; product rollout, dashboard freshness, and paid campaign launch remain blocked. |
 | Dashboard/goal visibility | metadata_only_contract_verified | Smoke verifies dashboard evidence contains PostHog dashboard names and Yandex conversion names only. | Screenshots and real provider rows remain forbidden in git. |
 
 ## Production Runtime Dashboard Metadata: 2026-07-09
@@ -102,7 +104,7 @@ audio.
 | PostHog storage freshness | pass | Aggregate ClickHouse query found one `graf_web_autocapture_pageview` smoke event and one `desktop_first_opened` smoke event. | This proves ingestion, not business dashboard correctness. |
 | Production smoke | pass | Full production smoke passed with config validation, migration verification, upload smoke, auth cleanup, and artifact cleanup. | Verdict is `infra_smoke_ready`, not product rollout readiness. |
 | Yandex public/all-pages inventory | partial pass | Runtime reports Yandex all-pages enabled with counter configured/redacted; inventory still limits Yandex to the approved public baseline classes and blocks/replay-unavailable classes. | Webvisor/maps/forms remain disabled. |
-| Yandex offline upload | blocked | Runtime reports Yandex offline disabled. | OAuth token secret-file setup and live upload smoke are still required. |
+| Yandex offline upload | live_safe_verified_runtime_disabled | Candidate-code smoke accepted both approved conversion names; the long-running production runtime still reports Yandex offline disabled. | Product rollout, dashboard freshness, and paid campaign launch remain separate gates. |
 | PostHog backup/restore | subgate pass; readiness follow-ups open | All twelve generated runtime volume classes passed metadata-only archive integrity and isolated restore; the restored web health endpoint returned `200`, and rehearsal volumes were removed. | RBAC/audit, retention/lifecycle, dashboard freshness, and resource-threshold reviews remain required before full long-term ops readiness. |
 | PostHog image pinning | pass | Mutable generated-runtime image references were pinned by reviewed digest outside git; Compose config validation, mutable-tag scan, analytics health, and post-pinning live-safe smoke passed. | Repeat the pinning check after every future PostHog stack update. |
 
@@ -168,7 +170,7 @@ included.
 | Sources by source/medium/campaign | drafted_metadata_only | growth analytics operator | Existing 093 counter strategy; campaign report status pending provider dashboard review | Paid campaign launch remains blocked. |
 | Public landing to download funnel | preserved_metadata_only | growth analytics operator | `/` and `/download` remain approved public baseline | Live counter ID screenshots are forbidden. |
 | Yandex Direct linkage | blocked_for_campaign_launch | growth analytics operator | Linkage status is runtime-only/redacted | Technical provider setup does not approve campaign launch. |
-| Offline conversions | blocked_pending_oauth | growth analytics operator | Conversion names: `desktop_account_connected`, `first_value_session_completed`; dry-run/live-safe fake transport status pass; `UserId` requires rendered-page `setUserID`/`userParams` binding | Runtime OAuth token secret-file setup and live upload smoke are still required; raw CSV rows and identity values are forbidden. |
+| Offline conversions | live_safe_verified_runtime_disabled | growth analytics operator | Conversion names: `desktop_account_connected`, `first_value_session_completed`; both candidate-code live-safe uploads returned `live_safe_uploaded`; the proven path uses a safe pseudonymous `UserId` bound by the existing Yandex identity contract | Long-running production upload remains disabled; raw CSV rows, token values, and identity values are forbidden. |
 | Page-class scope | drafted_metadata_only | privacy/security reviewer | Approved: 2 public page classes; blocked/replay-unavailable classes recorded in inventory | Future pages default blocked for Yandex. |
 | Webvisor/maps/forms availability | blocked_by_default | privacy/security reviewer | No page class has Webvisor/maps/forms proof in 096 | PostHog autocapture does not approve Yandex behavior replay. |
 | Retention/deletion caveats | drafted_metadata_only | privacy/security reviewer | Yandex page events/offline conversions/provider aggregates have lifecycle caveats | Already uploaded offline conversions and provider aggregates are not promised deleted by GRAF user deletion. |

@@ -32,10 +32,11 @@ Date: 2026-07-18
   goal visibility, and concrete resource/alert thresholds. The twelve-volume
   backup/isolated-restore subgate passed under receipt `20260718T011751Z`, but
   the generated stack still has no enforced per-service CPU/memory limits.
-- T102: out-of-git Yandex OAuth secret-file setup and a real live upload of
-  exactly `desktop_account_connected` and `first_value_session_completed`.
-  Checked production secret locations are absent; the token must be provisioned
-  by the infrastructure operator and never placed in git or evidence.
+- T102 is now complete: the out-of-git Yandex OAuth secret-file setup is
+  present and the current-candidate live-safe smoke accepted exactly
+  `desktop_account_connected` and `first_value_session_completed`. Production
+  upload flags remain disabled.
+  The token remains outside git and evidence.
 - T104: reviewer approval, merge, CalVer release/tag, production receipt and
   final status reconciliation. PR #3852 is still draft; no release or execute
   deploy is claimed.
@@ -66,21 +67,22 @@ rewrite its checked task history.
   dashboard freshness, and concrete resource-threshold reviews; the real
   backup/isolated-restore subgate is already evidenced, but the generated
   runtime has no enforced per-service CPU/memory limits.
-- [ ] T102 Provide the out-of-git Yandex OAuth secret-file setup and run the
-  two-event live-safe upload smoke without committing or printing credentials;
-  the checked production secret locations are currently absent.
+- [X] T102 Provide the out-of-git Yandex OAuth secret-file setup and run the
+  two-event live-safe upload smoke without committing or printing credentials.
+  Receipt: `validation/current-master-integration.md`; no credential, counter
+  ID, CSV row, or response body is included in evidence.
 - [X] T103 Explicitly scope the ClientId/Yclid identity-resolver gap to the
   proven UserId path, execute the metadata-only rollback path, and verify
   ordinary product workflows remain intact in the current-master receipt.
 - [ ] T104 Reconcile `spec.md` status, evidence wording, tasks, tracker, release
   notes, tag, and production receipt before claiming Feature 096 complete. The
   current PR is #3852 (draft); convergence issues #3853–#3860 now mirror
-  T097–T104, with T101/T102/T104 still open.
+  T097–T104, with T101/T104 still open.
 
 ## Safety boundary
 
-Until T101, T102, and T104 are complete, Feature 096 remains a
+Until T101 and T104 are complete, Feature 096 remains a
 provider/infrastructure integration candidate, not a production product-rollout
-approval. Do not enable Yandex offline upload, change production approval
-flags, or claim paid-campaign readiness from the historical branch's
-fake-transport smoke.
+approval. The T102 live-safe receipt proves provider acceptance only; do not
+enable long-running Yandex offline upload, change production approval flags, or
+claim paid-campaign readiness from smoke evidence alone.

@@ -314,6 +314,6 @@ checked historical task record while closing the current integration gap.
 - [X] T099 Regenerate the browser/page inventory and privacy/credential-suppression evidence against the current master route set.
 - [X] T100 Run the bounded provider/privacy smoke required by the integrated code and record metadata-only output; do not substitute the historical fake-transport receipt for real provider evidence.
 - [ ] T101 Complete real PostHog backup/isolated-restore, RBAC/audit, retention/lifecycle, dashboard freshness, and concrete resource-threshold review.
-- [ ] T102 Provide the out-of-git Yandex OAuth secret-file setup and run live-safe upload smoke for exactly `desktop_account_connected` and `first_value_session_completed` without committing or printing credentials.
+- [X] T102 Provide the out-of-git Yandex OAuth secret-file setup and run live-safe upload smoke for exactly `desktop_account_connected` and `first_value_session_completed` without committing or printing credentials. The secret-file receipt and both approved conversion results are recorded in `validation/current-master-integration.md`.
 - [X] T103 Explicitly scope the ClientId/Yclid identity-resolver gap to the proven UserId path, execute the metadata-only rollback path, and verify ordinary recording, processing, auth, and cabinet workflows remain intact in `validation/current-master-integration.md`.
 - [ ] T104 Reconcile spec status, evidence wording, task receipts, tracker, release notes, tag, and production receipt before claiming Feature 096 complete.
