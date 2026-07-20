@@ -260,6 +260,26 @@ timestamps, and aggregate provider events whose latest timestamp remains
 2026-07-09. No approved Yandex conversion events are present. This is not a
 freshness or goal-visibility approval.
 
+## T101 independent read-only operations receipt: 2026-07-20
+
+An additional read-only pass was run independently of the implementation
+receipt. It inspected only aggregate counts, timestamps, service metadata, and
+systemd timer inventory; no event/person rows, activity details, identifiers,
+exports, secrets, or payloads were read.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Access model | open | `ee_role=0`, role memberships `0`, dashboard privileges `0`, and organization resource-access rows `0`; one organization and one membership exist. |
+| MFA posture | open | `enforce_2fa=true=0`, `false=0`, `NULL=1`; enabling MFA is an owner decision because it can affect the sole current operator account. |
+| Audit surface | partial | Four aggregate activity records exist; no actor or detail fields were inspected. |
+| Lifecycle current state | partial | Session recordings, exported assets/recordings, batch exports and non-deleted batch exports are all `0`; empty tables do not prove future deletion enforcement. |
+| Dashboard freshness | open | One active dashboard and eight active items; item refresh timestamps are all absent and latest item modification is `2026-07-09`. |
+| Goal visibility | open | Aggregate ClickHouse data contains `46` events, latest `2026-07-09`; approved Yandex conversion event names are absent. |
+| Alert/rollback automation | open | Host systemd inventory has no PostHog-specific timer/service. Numeric limits and rollback script remain documented/available, but no persistent alert or automatic rollback receipt exists. |
+
+This independent pass confirms the existing T101 blockers rather than closing
+them. No production state was changed.
+
 ## T102 live-safe Yandex upload receipt: 2026-07-20
 
 - A separate Yandex OAuth application was created with the minimal
