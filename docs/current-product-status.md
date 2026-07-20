@@ -262,7 +262,8 @@ metadata-only evidence остаются подробной историей ре
   feature-099 issues were reconciled and the clean release worktree was
   verified; the user-owned/test-rec and unrelated historical worktrees were
   preserved. The separate Feature-090 manual-upload browser receipt remains
-  open in #3049/#3050/#3060 and is not reclassified as a 099 failure.
+  open in #3049/#3050 and is not reclassified as a 099 failure; #3060 focus
+  evidence is closed separately.
   Feature 097 remains released but its standalone Codex Security scan is still
   explicitly skipped by user instruction.
 - The separate Feature 099 production evidence includes the `v2026.07.17.3`
@@ -371,8 +372,9 @@ metadata-only evidence остаются подробной историей ре
   smoke is infrastructure proof, not that final user-path claim. Deferred
   post-deploy checks remain explicitly marked `required_post_deploy`. Review and
   cleanup/evidence receipts closed #3044–#3048, #3051, #3052, #3054–#3059 and
-  #3061; #3049, #3050 and #3060 remain open for external test-rec/browser
-  evidence. Current-diff evidence is in
+  #3061; #3049 and #3050 remain open for external test-rec manual-upload
+  evidence, while #3060 is closed after the production focus-trap receipt.
+  Current-diff evidence is in
   `specs/090-manual-media-upload-ui/validation/current-diff-closeout-2026-07-20.md`;
   production evidence is in
   `specs/090-manual-media-upload-ui/validation/production-closeout-2026-07-20.md`.
