@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 
 from twobrain_rec_server.product_analytics.forbidden_fields import assert_no_forbidden_fields
 
 PSEUDONYM_PREFIX = "graf_pseudo_"
+ANONYMOUS_BROWSER_PSEUDONYM = "graf_pseudo_browser_anonymous"
+SAFE_PSEUDONYMOUS_ID_RE = re.compile(
+    r"^graf_pseudo_(?:user|workspace|account|bridge)_[0-9a-f]{8,64}$"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,4 +63,4 @@ def build_safe_identity(
 
 
 def is_safe_pseudonymous_id(value: str) -> bool:
-    return value.startswith(PSEUDONYM_PREFIX) and "@" not in value and "/" not in value and "\\" not in value
+    return value == ANONYMOUS_BROWSER_PSEUDONYM or bool(SAFE_PSEUDONYMOUS_ID_RE.fullmatch(value))

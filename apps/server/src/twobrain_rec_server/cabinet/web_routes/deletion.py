@@ -30,6 +30,9 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _is_hx_request,
 )
 from twobrain_rec_server.deletion.service import deletion_report_response, request_meeting_deletion
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
+)
 
 router = APIRouter(tags=["cabinet-web"])
 
@@ -66,6 +69,12 @@ async def meeting_deletion_report_page(
             meeting_title,
             report,
             csrf_token=_csrf_token_for_principal(request, principal),
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "deletion",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )
 

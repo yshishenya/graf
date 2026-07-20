@@ -30,6 +30,7 @@ class AttributionBridgeRecord:
     expires_at: datetime
     source_context: dict[str, str | None]
     yandex_client_id_present: bool = False
+    yandex_user_id_present: bool = False
     yclid_present: bool = False
     posthog_anonymous_id_present: bool = False
     link_state: str = "unlinked"
@@ -42,12 +43,24 @@ class AttributionBridgeRecord:
             "created_at": self.created_at.isoformat(),
             "expires_at": self.expires_at.isoformat(),
             "source_context": dict(self.source_context),
+            "yandex_user_id_present": self.yandex_user_id_present,
             "yandex_client_id_present": self.yandex_client_id_present,
             "yclid_present": self.yclid_present,
+            "yandex_identity_sources_present": self.yandex_identity_sources_present(),
             "posthog_anonymous_id_present": self.posthog_anonymous_id_present,
             "link_state": self.link_state,
             "reliability_level": self.reliability_level,
         }
+
+    def yandex_identity_sources_present(self) -> list[str]:
+        sources: list[str] = []
+        if self.yandex_user_id_present:
+            sources.append("UserId")
+        if self.yandex_client_id_present:
+            sources.append("ClientId")
+        if self.yclid_present:
+            sources.append("Yclid")
+        return sources
 
 
 def build_public_bridge_context(attribution: Mapping[str, Any] | None) -> dict[str, Any]:

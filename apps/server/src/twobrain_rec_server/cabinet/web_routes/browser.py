@@ -42,6 +42,9 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _is_hx_request,
     _request_path_with_query,
 )
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
+)
 
 router = APIRouter(tags=["cabinet-web"])
 
@@ -99,6 +102,12 @@ async def meeting_list_page(
             response,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=_request_path_with_query(request),
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "recording_list",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )
 
@@ -150,6 +159,12 @@ async def meeting_detail_page(
             response,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=_request_path_with_query(request),
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "meeting_result_detail",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )
 
@@ -189,5 +204,11 @@ async def settings_page(
             workspace_join_offers=offers,
             workspace_offer_result=workspace_offer,
             workspace_switch_result=space_switch,
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "settings",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )

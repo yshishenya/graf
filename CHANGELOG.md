@@ -9,7 +9,12 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Кандидат интеграции Feature 096: self-hosted PostHog/Yandex provider-layer,
+  browser и macOS-контракты, secret-file границы, runbooks и metadata-only
+  smoke/rollback-проверки. Provider delivery и production rollout остаются
+  выключенными до закрытия T097–T104 и отдельного evidence-gate.
+- Metadata-only PostHog runtime guard с journald alert и fail-closed rollback
+  contract; production systemd installation остаётся отдельным T101 gate.
 
 ### Изменено
 - _Пока нет записей._
@@ -115,6 +120,10 @@
 - Canonical local CI ограничивает ускоренный PostgreSQL runner четырьмя
   изолированными воркерами на стандартной 8 GB Docker-конфигурации; больший
   bounded override остаётся доступен для машин с достаточным ресурсом.
+- Кандидат Feature 096 синхронизирован с каноническим OpenAPI: server-mediated
+  PostHog web/desktop capture endpoints, env/secret handoff и metadata-only
+  PostHog operations receipts теперь проверяются тем же текущим master-кодом;
+  production provider delivery остаётся fail-closed.
 - macOS теперь отправляет support-report через авторизованный embedded cabinet
   с same-origin cookie и CSRF-контекстом; native upload client больше не
   копирует web-сессию и не использует устаревшие support-заголовки.
@@ -166,6 +175,11 @@
   ограниченные auth/bootstrap compatibility anchors оставлены намеренно.
 
 ### Операции
+- Для Feature 096 зафиксировано production-hardening PostHog: 35 сервисов
+  получили явные CPU/memory limits, JSON-логи ограничены `50m`/`3`, web
+  startup-path исправлен и health/readiness восстановлены. Автоматические
+  alert/rollback и независимые RBAC/lifecycle/dashboard approvals остаются
+  отдельными незакрытыми воротами T101.
 - Добавлены ручные protected workflows для безопасной проверки signer и
   подписания только в draft GitHub Release. Публичный download host по-прежнему
   обновляется отдельно, versioned assets раньше graf-appcast.xml.

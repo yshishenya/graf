@@ -103,18 +103,30 @@ class Settings(BaseSettings):
     product_analytics_posthog_enabled: bool = False
     product_analytics_posthog_host: AnyUrl | None = None
     product_analytics_posthog_project_key_file: Path | None = None
+    product_analytics_posthog_autocapture_enabled: bool = True
+    product_analytics_posthog_credential_suppression_enabled: bool = True
+    product_analytics_posthog_web_direct_enabled: bool = True
+    product_analytics_posthog_desktop_direct_enabled: bool = False
     product_analytics_yandex_all_pages_enabled: bool = False
     product_analytics_yandex_offline_enabled: bool = False
     product_analytics_yandex_counter_id: str | None = None
     product_analytics_yandex_oauth_token_file: Path | None = None
+    product_analytics_yandex_inventory_version: str = "096.2026-07-09.1"
+    product_analytics_rollback_mode: str = "none"
     product_analytics_replay_enabled: bool = False
     product_analytics_retention_min_days: PositiveInt = Field(default=90)
     product_analytics_consent_copy_version: str = "2026-07-09.1"
     product_analytics_direct_desktop_egress_enabled: bool = False
     product_analytics_direct_desktop_egress_approved: bool = False
     product_analytics_legal_approved: bool = False
+    product_analytics_privacy_approved: bool = False
+    product_analytics_security_approved: bool = False
+    product_analytics_qa_approved: bool = False
+    product_analytics_disclosure_approved: bool = False
     product_analytics_dashboard_ready: bool = False
     product_analytics_provider_smoke_approved: bool = False
+    product_analytics_rollback_approved: bool = False
+    product_analytics_live_provider_delivery_approved: bool = False
     product_analytics_campaign_readiness_approved: bool = False
 
     mediascribe_base_url: AnyUrl | None = None
@@ -248,9 +260,9 @@ class Settings(BaseSettings):
     @classmethod
     def validate_product_analytics_validation_mode(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if normalized not in {"disabled", "render_only", "provider_smoke"}:
+        if normalized not in {"disabled", "render_only", "provider_smoke", "live_safe"}:
             raise ValueError(
-                "product_analytics_validation_mode must be disabled, render_only, or provider_smoke"
+                "product_analytics_validation_mode must be disabled, render_only, provider_smoke, or live_safe"
             )
         return normalized
 
@@ -261,6 +273,23 @@ class Settings(BaseSettings):
         if normalized not in {"disabled", "posthog_primary", "parallel_measurement"}:
             raise ValueError(
                 "product_analytics_provider_mode must be disabled, posthog_primary, or parallel_measurement"
+            )
+        return normalized
+
+    @field_validator("product_analytics_rollback_mode")
+    @classmethod
+    def validate_product_analytics_rollback_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {
+            "none",
+            "posthog_delivery_disabled",
+            "posthog_autocapture_disabled",
+            "yandex_disabled",
+            "all_disabled",
+        }:
+            raise ValueError(
+                "product_analytics_rollback_mode must be none, posthog_delivery_disabled, "
+                "posthog_autocapture_disabled, yandex_disabled, or all_disabled"
             )
         return normalized
 
@@ -363,6 +392,14 @@ class Settings(BaseSettings):
             raise ValueError("production product analytics requires a non-disabled validation mode")
         if self.product_analytics_enabled and self.product_analytics_provider_mode == "disabled":
             raise ValueError("production product analytics requires an explicit provider mode")
+        if (
+            self.product_analytics_validation_mode == "live_safe"
+            and not self.product_analytics_live_provider_delivery_allowed()
+        ):
+            raise ValueError(
+                "live-safe product analytics provider delivery requires legal/privacy/security/QA/disclosure/"
+                "dashboard/provider-smoke/rollback approval gates"
+            )
         if self.product_analytics_posthog_enabled:
             if self.product_analytics_posthog_host is None:
                 raise ValueError(
@@ -372,6 +409,16 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "production PostHog product analytics requires product_analytics_posthog_project_key_file"
                 )
+            if (
+                self.product_analytics_posthog_autocapture_enabled
+                and not self.product_analytics_posthog_credential_suppression_enabled
+            ):
+                raise ValueError("production PostHog autocapture requires credential suppression")
+        if (
+            self.product_analytics_posthog_desktop_direct_enabled
+            and not self.product_analytics_direct_desktop_egress_enabled
+        ):
+            raise ValueError("PostHog desktop-direct route requires direct desktop egress gate")
         if (
             self.product_analytics_yandex_all_pages_enabled
             or self.product_analytics_yandex_offline_enabled
@@ -389,10 +436,11 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "production product_analytics_yandex_counter_id must be a real numeric Yandex counter ID"
                 )
+        if self.product_analytics_yandex_offline_enabled and self.product_analytics_yandex_oauth_token_file is None:
+            raise ValueError("production Yandex offline upload requires product_analytics_yandex_oauth_token_file")
         if self.product_analytics_direct_desktop_egress_enabled and not (
             self.product_analytics_direct_desktop_egress_approved
-            and self.product_analytics_legal_approved
-            and self.product_analytics_provider_smoke_approved
+            and self.product_analytics_live_provider_delivery_allowed()
         ):
             raise ValueError(
                 "direct desktop product analytics egress requires legal/security/QA/provider approval"
@@ -553,6 +601,20 @@ class Settings(BaseSettings):
                 "production smoke identity/device must not reuse local development seed identifiers"
             )
         return self
+
+    def product_analytics_live_provider_delivery_allowed(self) -> bool:
+        return (
+            self.product_analytics_live_provider_delivery_approved
+            and self.product_analytics_legal_approved
+            and self.product_analytics_privacy_approved
+            and self.product_analytics_security_approved
+            and self.product_analytics_qa_approved
+            and self.product_analytics_disclosure_approved
+            and self.product_analytics_dashboard_ready
+            and self.product_analytics_provider_smoke_approved
+            and self.product_analytics_rollback_approved
+            and self.product_analytics_rollback_mode == "none"
+        )
 
 
 def _is_valid_email_address(value: str) -> bool:

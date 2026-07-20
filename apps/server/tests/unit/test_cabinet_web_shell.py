@@ -566,7 +566,7 @@ def test_web_shell_uses_base_template_and_static_assets() -> None:
     assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' in page
     assert f'src="{CABINET_STATIC_URL}/graf-logo.svg"' not in page
     assert "Бесплатный" not in page
-    assert '<body data-surface-mode="standalone_browser">' in page
+    assert '<body data-surface-mode="standalone_browser"' in page
     assert 'data-icon="audio"' in page
     assert 'fill="none" stroke="currentColor" stroke-width="2"' in page
     assert "<style>" not in page
@@ -652,7 +652,7 @@ def test_legacy_render_helpers_keep_full_page_contract_after_template_refactor()
     for page in (list_page, detail_page, deletion_page):
         assert "<!doctype html>" in page
         assert '<html lang="ru">' in page
-        assert '<body data-surface-mode="standalone_browser">' in page
+        assert '<body data-surface-mode="standalone_browser"' in page
         assert 'class="app-shell" data-shell-scroll="contained" data-cabinet-shell' in page
         assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in page
         assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in page
@@ -676,7 +676,7 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
             'class="app-shell desktop-embedded" data-shell-scroll="contained" data-cabinet-shell'
             in page
         )
-        assert '<body data-surface-mode="desktop_embedded">' in page
+        assert '<body data-surface-mode="desktop_embedded"' in page
         assert 'href="/desktop/meetings"' in page
 
     assert "data-manual-upload-open" in list_page

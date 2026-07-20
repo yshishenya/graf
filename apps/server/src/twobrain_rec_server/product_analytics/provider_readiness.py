@@ -12,6 +12,7 @@ class ProviderReadiness:
     enabled: bool
     configured: bool
     blockers: tuple[str, ...]
+    metadata: dict[str, str] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -19,6 +20,7 @@ class ProviderReadiness:
             "enabled": self.enabled,
             "configured": self.configured,
             "blockers": list(self.blockers),
+            "metadata": dict(self.metadata or {}),
         }
 
 
@@ -73,17 +75,36 @@ def build_provider_readiness(settings: Settings) -> ProductAnalyticsProviderRead
             settings.product_analytics_posthog_enabled,
             settings.product_analytics_posthog_enabled and not posthog_blockers,
             tuple(posthog_blockers),
+            {
+                "rbac_access_model": "role_based_metadata_only",
+                "audit_expectation": "provider_config_access_export_replay_retention_changes",
+                "retention_deletion_lifecycle": "documented",
+                "dashboard_caveat": "required",
+                "deploy_handoff": "dry_run_documented",
+                "resource_thresholds": "configured",
+                "backup_restore": "documented",
+            },
         ),
         yandex_all_pages=ProviderReadiness(
             "yandex_all_pages",
             settings.product_analytics_yandex_all_pages_enabled,
             settings.product_analytics_yandex_all_pages_enabled and not yandex_all_pages_blockers,
             tuple(yandex_all_pages_blockers),
+            {
+                "counter_strategy": "reuse_093_runtime_only",
+                "future_page_default": "blocked",
+                "webvisor_maps_forms": "separate_page_class_proof_required",
+            },
         ),
         yandex_offline=ProviderReadiness(
             "yandex_offline",
             settings.product_analytics_yandex_offline_enabled,
             settings.product_analytics_yandex_offline_enabled and not yandex_offline_blockers,
             tuple(yandex_offline_blockers),
+            {
+                "approved_conversions": "desktop_account_connected,first_value_session_completed",
+                "identity_values": "redacted_metadata_only",
+                "duplicate_protection": "required",
+            },
         ),
     )

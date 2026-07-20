@@ -1,0 +1,170 @@
+name: graf-posthog
+
+x-graf-official-runtime-handoff:
+  feature: "096-product-analytics-provider-rollout"
+  local_file_purpose: "metadata_only_handoff_contract_not_full_posthog_runtime"
+  production_runtime_source: "official_posthog_hobby_generated_compose"
+  production_domain: "analytics.2brain.pro"
+  required_upstream_components:
+    - web
+    - worker
+    - plugins
+    - ingestion
+    - capture
+    - clickhouse
+    - kafka
+    - object_storage
+    - proxy
+    - redis
+    - postgres
+  production_execute: "requires_explicit_release_approval"
+  secret_policy: "live_values_only_via_runtime_secret_files_or_operator_secret_store"
+
+x-posthog-common: &posthog-common
+  restart: unless-stopped
+  env_file:
+    - ${POSTHOG_RUNTIME_ENV_FILE:-./posthog.production.env.example}
+  networks:
+    - posthog-private
+  labels:
+    graf.feature: "096-product-analytics-provider-rollout"
+    graf.provider: "posthog"
+    graf.evidence: "metadata-only"
+    graf.rollout: "provider-infrastructure"
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
+services:
+  posthog-web:
+    <<: *posthog-common
+    image: ${POSTHOG_IMAGE:-posthog/posthog:REPLACE_WITH_PINNED_RELEASE_TAG}
+    command: ["./bin/start"]
+    depends_on:
+      posthog-db:
+        condition: service_healthy
+      posthog-redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4g
+    environment:
+      SITE_URL: ${SITE_URL:-https://analytics.2brain.pro}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-analytics.2brain.pro}
+      DISABLE_SECURE_SSL_REDIRECT: "false"
+      POSTHOG_SKIP_MIGRATION_LOCK: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://127.0.0.1:8000/_health/', timeout=3)\nPY"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "127.0.0.1:18082:8000"
+    secrets:
+      - posthog_secret_key
+      - posthog_db_password
+    volumes:
+      - posthog-media:/var/lib/posthog/media
+
+  posthog-worker:
+    <<: *posthog-common
+    image: ${POSTHOG_IMAGE:-posthog/posthog:REPLACE_WITH_PINNED_RELEASE_TAG}
+    command: ["./bin/docker-worker-celery"]
+    depends_on:
+      posthog-db:
+        condition: service_healthy
+      posthog-redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4g
+    secrets:
+      - posthog_secret_key
+      - posthog_db_password
+
+  posthog-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: posthog
+      POSTGRES_USER: posthog
+      POSTGRES_PASSWORD_FILE: /run/secrets/posthog_db_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U posthog -d posthog"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    labels:
+      graf.feature: "096-product-analytics-provider-rollout"
+      graf.provider: "posthog"
+      graf.role: "database"
+      graf.evidence: "metadata-only"
+    networks:
+      - posthog-private
+    secrets:
+      - posthog_db_password
+    volumes:
+      - posthog-db-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2g
+
+  posthog-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    labels:
+      graf.feature: "096-product-analytics-provider-rollout"
+      graf.provider: "posthog"
+      graf.role: "queue-cache"
+      graf.evidence: "metadata-only"
+    networks:
+      - posthog-private
+    volumes:
+      - posthog-redis-data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1g
+
+networks:
+  posthog-private:
+    name: graf-posthog-private
+
+volumes:
+  posthog-db-data:
+    name: graf-posthog-db-data
+  posthog-redis-data:
+    name: graf-posthog-redis-data
+  posthog-media:
+    name: graf-posthog-media
+
+secrets:
+  posthog_secret_key:
+    file: ../secrets/posthog_secret_key
+  posthog_db_password:
+    file: ../secrets/posthog_db_password
