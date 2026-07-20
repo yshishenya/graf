@@ -934,6 +934,24 @@
       syncReady();
     };
 
+    const focusDialogElement = (element) => element?.focus({ preventScroll: true });
+
+    const focusableDialogElements = () => Array.from(dialog.querySelectorAll(
+      "a[href], button:not([disabled]), input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+    )).filter((element) => !element.hidden && !element.matches(":disabled") && element.getAttribute("aria-hidden") !== "true");
+
+    const trapDialogFocus = (event) => {
+      if (event.key !== "Tab" || (!dialog.open && !dialog.hasAttribute("open"))) return;
+      const focusable = focusableDialogElements();
+      if (!focusable.length) return;
+      const currentIndex = focusable.indexOf(document.activeElement);
+      const nextIndex = event.shiftKey
+        ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
+        : (currentIndex < 0 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
+      event.preventDefault();
+      focusDialogElement(focusable[nextIndex]);
+    };
+
     const openDialog = (trigger) => {
       lastTrigger = trigger;
       if (dialog.dataset.uploadAvailable !== "true" || !csrfToken) {
@@ -942,14 +960,16 @@
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
       const focusTarget = fileInput || dialog.querySelector("a,button,input");
-      focusTarget?.focus({ preventScroll: true });
+      focusDialogElement(focusTarget);
     };
 
     const closeDialog = () => {
       if (typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
-      lastTrigger?.focus({ preventScroll: true });
+      focusDialogElement(lastTrigger);
     };
+
+    dialog.addEventListener("keydown", trapDialogFocus);
 
     document.body.addEventListener("click", (event) => {
       if (!(event.target instanceof Element)) return;
