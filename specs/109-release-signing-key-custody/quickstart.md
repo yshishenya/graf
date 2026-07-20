@@ -208,7 +208,8 @@ gate недоступен на текущем тарифе и не объявл�
 - активный public manifest и named Keychain public key уже совпадают по
   metadata-only `keyId`;
 - T034 переведён в завершённое состояние решения и superseded закрытие issue;
-  фактическая owner-only release/Bootstrap/update proof остаётся в T035–T037;
+  bootstrap proof закрыт отдельным T035 receipt, а owner-only release/update
+  proof остаётся в T036–T037;
 - в Git, issue и evidence нет приватного ключа, секрета или локального пути.
 
 ## T035 physical bootstrap + normal updater receipt — 2026-07-21
@@ -231,7 +232,8 @@ gate недоступен на текущем тарифе и не объявл�
   штатные старты `2026.07.20.2`–`2026.07.20.9` с сохранёнными разрешениями;
 - текущий публичный appcast содержит только `2026.07.20.1`, а установленное
   приложение — `2026.07.20.2`; поэтому повторная проверка через «Проверить
-  обновления…» корректно не предлагает downgrade и новый пакет не ставился;
+  обновления…» дала `app_update.manual_check_requested` → `app_update.current`,
+  корректно не предложила downgrade и новый пакет не ставился;
 - текущий bundle `pro.2brain.graf` сохраняет активный public-key id и прежний
   designated requirement; прямые metadata-only TCC checks показывают
   microphone и ScreenCapture `auth_value=2`.
