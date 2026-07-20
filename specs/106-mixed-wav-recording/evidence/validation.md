@@ -63,3 +63,27 @@ intentionally still open and are documented in `hardware-acceptance.md`.
   provided, so it is not presented as deployment evidence.
 - No raw audio, transcript, secret or private provider payload was added to
   this repository or to the validation receipt.
+
+## 2026-07-18 — stop-drain closeout rerun
+
+- The focused macOS quickstart group after the stop-drain change passed `219`
+  tests with `0` failures. `SystemAudioCaptureServiceTests` includes the
+  source-level assertion for draining the serial callback queue before
+  `stopCapture`.
+- The focused server quickstart group passed `97` tests with `0` failures;
+  Ruff reported `All checks passed!`. The only test warning remains the
+  pre-existing Starlette TestClient deprecation warning.
+- `swift run --package-path apps/macos ContractValidation` passed;
+  `sh apps/macos/Scripts/validate-recording-artifact-format.sh` passed its
+  `98` selected tests and reported `no-legacy-audio-driver: PASS`;
+  `bash -n apps/macos/Scripts/validate-recording-artifact-format.sh` and
+  `docker compose -f infra/docker-compose.yml config` passed.
+- The canonical `infra/scripts/ci-local.sh` gate passed after the code change:
+  macOS `567` tests passed with `0` failures, server `1781` passed with `28`
+  expected skips and `0` failures, and the deployment evidence scan passed.
+  Its RLS production probe was correctly blocked because no disposable
+  PostgreSQL database was supplied; this remains local validation only.
+- `git diff --check` passed. No raw audio, transcript, secret, private path or
+  provider payload was added. Exact pre-v5 baseline rollback remains the only
+  open Feature 106 acceptance gate (T064); no release or deployment claim is
+  made.

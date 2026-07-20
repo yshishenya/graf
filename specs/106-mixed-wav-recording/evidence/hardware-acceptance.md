@@ -82,3 +82,28 @@ private path, credential, signed URL or provider payload to this file.
   produce a subsequent recording because the OS capture runtime timed out.
   T063 and T064 remain open; no installer, updater, TCC or deployment rollback
   claim is made.
+
+## 2026-07-18 — stop-drain fix and installed marker retest
+
+- Candidate `2026.07.18.4` was built with the local validation signing
+  identity; the staged package SHA-256 was
+  `f7512c1dc55d51fcff392ecdcdfaf0c00b76d95b5051953c130a71b6ce223f17`.
+  The app was launched from a disposable staging directory and did not replace
+  `/Applications/GRAF.app`.
+- The capture runtime now drains its own serial ScreenCaptureKit callback queue
+  after removing audio/screen outputs and before `stopCapture`. A real desktop
+  run reached active state, a generated non-private system marker was played
+  only after `recording.started`, and manual Stop completed without a capture
+  failure. The local package status was `saved`, with exactly the three v5
+  members and no partial files.
+- Safe package receipt: WAV `112.677125 s`, PCM signed 16-bit little-endian,
+  mono, 16 kHz; M4A `112.725333 s`, AAC-LC, mono, 48 kHz; manifest duration
+  difference `0`, both timeline-aligned at `0 ms`, M4A AAC presentation delta
+  `0`, and transcription readiness `ready`. The final mixed WAV contained a
+  non-zero marker-level window (metadata-only level check); no audio content
+  was copied into evidence.
+- During the run the default output remained the built-in MacBook speakers,
+  volume `56`, and `output muted=false`; no route change was observed. The
+  earlier 60-minute candidate receipt remains the long-run drift/volume
+  record. Together these receipts close the installed v5 capture check for
+  T063; exact pre-v5 rollback remains a separate open T064 gate.

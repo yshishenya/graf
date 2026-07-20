@@ -533,6 +533,11 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         clearCurrentStreamIfSame(stream)
         try? stream.removeStreamOutput(self, type: .audio)
         try? stream.removeStreamOutput(self, type: .screen)
+        // ScreenCaptureKit may still have delivered an audio callback while the
+        // outputs were being removed. Drain our own serial queue before asking
+        // ScreenCaptureKit to tear down the stream so the callback cannot race the
+        // final writer flush or keep ScreenCaptureKit waiting on a live buffer.
+        outputQueue.sync {}
         try? await stream.stopCapture()
     }
 
