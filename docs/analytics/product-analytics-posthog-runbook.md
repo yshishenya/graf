@@ -255,14 +255,23 @@ blocker code described here.
 | Network | Analytics traffic remains on `analytics.2brain.pro`; probe analytics health every 60 seconds. | The guard alerts after 2 consecutive failed analytics/GRAF probes; latency and 3-of-5 probe review remain operator checks. |
 | Logs | `json-file` rotation `max-size=50m`, `max-file=3` for every generated-stack service. | Review if rotation is missing or forbidden fields appear; stop provider delivery before unbounded growth can affect GRAF. |
 | Backups | Daily metadata-only backup; latest backup age must be `<26h`; retain at least 90 days and rehearse isolated restore at least monthly. | Block readiness if backup is missing/stale or restore rehearsal fails; use the last known-good compose/volume state. |
-| Retention | Product event retention is `84` months; session recording policy is `5y` while recording is opted out; the 90-day baseline remains the minimum for new categories. | Review any policy/category without a documented owner and deletion behavior; do not claim lifecycle readiness from an empty table alone. |
+| Retention | Product event retention is `84` months; the self-hosted session-recording policy is now `90d` while recording is opted out; the session-replay bucket has an enabled 90-day object-lifecycle rule. | Review any policy/category without a documented owner and deletion behavior; do not claim lifecycle readiness from an empty table alone. The 90-day project value is a reversible self-hosted database override because the supported API rejected the entitlement. |
 
 The 2026-07-20 production receipt verified the 35-service Compose configuration,
 35 CPU entries, 35 memory entries, 33 running containers with non-zero runtime
 CPU/memory limits, zero OOM-killed containers, analytics health `200`, GRAF
 readiness `200`, and `29%` disk used. The production compose change is kept
 outside git with rollback copies. The repository guard contract now exists, but
-the production systemd installation remains a separate T101 deploy receipt.
+the production systemd installation and automatic-rollback override are recorded
+in the T101 production receipts.
+
+The 2026-07-21 operations receipt configured the session-recording policy at
+`90d` and an enabled 90-day lifecycle on the session-replay object-storage
+bucket. The bucket was empty, session replay remains disabled, and no general
+GRAF/PostHog object-storage lifecycle was changed. The approved-goal dashboard
+now contains aggregate-only insights, but its refresh timestamp remains unset
+while provider delivery is disabled. See
+`specs/096-product-analytics-provider-rollout/validation/t101-posthog-operations-receipt-20260721.md`.
 
 Analytics must degrade first. Normal GRAF workflows must not be starved by the
 PostHog stack.

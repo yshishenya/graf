@@ -44,10 +44,12 @@ Evidence may record volume names only. Do not record dump contents or private
 host paths.
 
 Current evidence status: the metadata-only backup and isolated restore subgate
-passed on 2026-07-18 for all twelve generated-runtime volume classes. Full
-PostHog operational readiness remains blocked until the separate RBAC/audit,
-retention/lifecycle, dashboard-freshness, and resource-threshold reviews pass.
-Normal GRAF product workflows and provider live-safe delivery remain unchanged.
+passed on 2026-07-18 for all twelve generated-runtime volume classes. A
+90-day session-recording policy and session-replay object-lifecycle rule were
+configured on 2026-07-21, but full PostHog operational readiness remains
+blocked until independent RBAC/audit, future deletion-enforcement,
+dashboard-freshness, and persistent alert/restore reviews pass. Normal GRAF
+product workflows and provider live-safe delivery remain unchanged.
 
 ## Latest Rehearsal Receipt
 

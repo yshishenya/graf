@@ -81,3 +81,15 @@ enabled automatic analytics rollback (`AUTO_ROLLBACK=1`, `DRY_RUN=0`) while
 keeping full-stack stop disabled (`STOP_STACK=0`). The follow-up one-shot passed
 and both GRAF and analytics health checks returned HTTP 200. Provider delivery
 remains fail-closed; this receipt does not approve product analytics rollout.
+
+PostHog operations receipt recorded on 2026-07-21: the self-hosted project
+session-recording policy is `90d` and the session-replay object-storage bucket
+has an enabled `90`-day expiration lifecycle. The bucket was empty at the time
+of configuration, session replay remains disabled, and the general
+GRAF/PostHog object-storage bucket was not changed. The supported retention API
+rejected `90d`, so the value was applied through a reversible self-hosted
+database override; this is not a hosted entitlement approval. The approved-goal
+dashboard is present, but its refresh timestamp remains unset until provider
+delivery is separately approved. T101 therefore remains open for independent
+RBAC/audit, deletion-enforcement, dashboard-freshness, and persistent
+restore/alert evidence.
