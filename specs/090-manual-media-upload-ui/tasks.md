@@ -459,20 +459,21 @@ macOS application, and publish a release from the merged `master` SHA.
 - [X] T097 [P1] Убрать blind retry для fingerprint/auth conflict и сохранить
   keyboard-safe recovery controls (#3060).
 - [X] T098 [P0] Провести текущий-diff closeout checks и закрыть связанные
-  GitHub issues только после receipts (#3061); доказанные review/cleanup
-  issues #3044, #3055 и #3059 закрыты, внешние E2E issues оставлены открытыми.
+  GitHub issues только после receipts (#3061); доказанные review/cleanup/evidence
+  issues #3044, #3055, #3056 и #3059 закрыты, внешние E2E issues оставлены открытыми.
 - [X] T092 [P0] Получить независимый review receipt после исправлений и
   зафиксировать остаточные ограничения без заявления production Chrome proof
   (#3055, canonical T092).
-- [ ] T093 [P0] Зафиксировать metadata-only E2E и zero-residue evidence на
+- [X] T093 [P0] Зафиксировать metadata-only E2E и zero-residue evidence на
   текущем exact SHA; raw audio/transcript/summary не сохраняются
-  (#3056, canonical T093).
+  (#3056, canonical T093). Receipt:
+  `validation/current-diff-closeout-2026-07-20.md`.
 
 ## Phase 13: Validation Receipt (2026-07-20)
 
 - [X] V001 Run `node --check`, focused PostgreSQL tests, focused Swift tests,
   `git diff --check`, Ruff, compile and forbidden-content scan; exact counts are
-  recorded in `validation/closeout-2026-07-20.md`.
+  recorded in `validation/closeout-2026-07-20.md` and the current-diff receipt.
 - [X] V002 Run `GRAF_TEST_WORKERS=4 bash infra/scripts/ci-local.sh` on the final
   candidate and record the exact SHA and result in the receipt.
 - [X] V003 Run independent code review and Ponytail review; record findings and
@@ -481,8 +482,9 @@ macOS application, and publish a release from the merged `master` SHA.
 ## Phase 14: Tracker and Release Boundary
 
 - [X] V004 Close only issues whose acceptance is proven by the receipt;
-  #3044, #3055 and #3059 закрыты после receipts, а #3050, #3056, #3049 и
-  #3061 остаются открытыми для внешних или дополнительных границ.
+  #3044, #3055, #3056 and #3059 закрыты после receipts, а #3050, #3049 и
+  внешние E2E/browser gates остаются открытыми для внешних или дополнительных
+  границ.
 - [X] V005 Prepare and deploy CalVer `v2026.07.20.6` only after runtime code
   from Phase 12 was merged and the production gate was green; the release and
   exact runtime SHA are recorded above.
