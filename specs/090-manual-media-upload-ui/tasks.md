@@ -446,13 +446,15 @@ macOS application, and publish a release from the merged `master` SHA.
   receipt после исправлений T073–T080 (#3044, canonical T083).
 - [X] T084 [P0] Добавить origin/cleanup/UI recovery regression assertions
   (#3057, canonical T094).
-- [ ] T085 [P0] Повторить release/deploy gate для текущего runtime diff после
-  merge; docs-only release не заявлять (#3049).
+- [X] T085 [P0] Повторить release/deploy gate для текущего runtime diff после
+  merge; `v2026.07.20.4` и production SHA `7575838f` подтверждены, а полный
+  external user-path E2E остаётся отдельным T072/#3050 gate (#3049).
 - [X] T095 [P0] Ограничить smoke helpers exact production HTTPS/loopback origin,
   mode-0600/O_NOFOLLOW auth material и exact `run_id` binding в
   `apps/server/scripts/smoke_target.py` (#3058).
-- [ ] T096 [P0] Дополнить workspace-prefix cleanup receipt фактическим
-  post-run zero-object read-back (#3059).
+- [X] T096 [P0] Дополнить workspace-prefix cleanup receipt фактическим
+  post-run zero-object read-back; production smoke returned residue `0` and
+  cleanup passed without publishing keys (#3059).
 - [X] T097 [P1] Убрать blind retry для fingerprint/auth conflict и сохранить
   keyboard-safe recovery controls (#3060).
 - [ ] T098 [P0] Провести текущий-diff closeout checks и закрыть связанные
@@ -479,6 +481,6 @@ macOS application, and publish a release from the merged `master` SHA.
 - [ ] V004 Close only issues whose acceptance is proven by the receipt; leave
   #3050, #3044/#3055, #3056, #3049, #3059 and #3061 open when external or
   exact-SHA evidence is unavailable.
-- [ ] V005 Prepare and deploy a new CalVer release only if runtime code from
-  Phase 12 is merged and the production gate is green; no release claim is made
-  from docs alone.
+- [X] V005 Prepare and deploy CalVer `v2026.07.20.4` only after runtime code
+  from Phase 12 was merged and the production gate was green; the release and
+  runtime SHA are recorded above.

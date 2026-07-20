@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-18
+Date: 2026-07-20
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -329,12 +329,33 @@ metadata-only evidence остаются подробной историей ре
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
-- Feature `090-manual-media-upload-ui` is merged and released as
-  [`v2026.07.11.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.11.1).
-  Its manual one-file upload surface, CSRF/tenant/storage boundaries, embedded
-  cabinet path, migration, release build, and production smoke were closed in
-  PR `#3040` and release PR `#3042`; the canonical evidence is recorded in
-  `specs/090-manual-media-upload-ui/tasks.md`.
+- Feature `090-manual-media-upload-ui` is merged through
+  [#3874](https://github.com/yshishenya/crisp/pull/3874), released through
+  [#3875](https://github.com/yshishenya/crisp/pull/3875) as
+  [`v2026.07.20.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.20.4),
+  and deployed at exact runtime SHA `7575838fff41e4f82945f45d3014460cc40702ea`.
+  The current convergence fixes make accepted-without-dispatch UI state
+  truthful, preserve accepted multipart custody before conflict materialization,
+  verify stored M4A size before egress headers, restrict the embedded picker to
+  the same-origin meeting list, and bind metadata-only smoke auth files to an
+  approved origin and exact run id. Backup/restore, migration head
+  `0028_active_space_read`, disposable RLS probes, service readiness, public
+  health/readiness and metadata-only smoke/cleanup passed. Canonical local CI
+  for the runtime candidate passed with 582 macOS tests, 1920 PostgreSQL tests
+  plus one skip, strict 34 tests plus one skip, Ruff, compile, Compose and
+  deployment evidence scan; the local live-production RLS boundary remains
+  intentionally unclaimed. The remaining open boundary is the external
+  `test-rec` manual-upload review with non-empty transcript/speaker/summary and
+  its zero-residue receipt; the old production smoke is infrastructure proof,
+  not that final user-path claim. Evidence is in
+  `specs/090-manual-media-upload-ui/validation/closeout-2026-07-20.md`.
+- Feature `108-local-postgres-only` is merged through
+  [#3873](https://github.com/yshishenya/crisp/pull/3873). The local runner now
+  uses disposable PostgreSQL for the complete server suite and the active
+  server/deployment surface has zero SQLite/aiosqlite references. Its receipt
+  records 1918 parallel PostgreSQL tests plus one skip, strict 34 tests plus one
+  skip, and the expected local-only RLS limitation; it was a validation-only
+  convergence and did not require a separate runtime release.
 - Feature `091-mediascribe-result-contract` is implemented and released as
   `v2026.07.09.5` for the MediaScribe result-contract slice. The repository
   still does not contain a separate post-deploy receipt for the complete
@@ -360,7 +381,8 @@ metadata-only evidence остаются подробной историей ре
   until separate live validation promotes them. The repository does not yet
   contain a canonical post-deploy runtime receipt or seeded admin-browser
   receipt for 092, so target promotion and production telemetry rollout are
-  not claimed. Critical review remediation on
+  not claimed; the spec is marked as implemented foundation with that
+  production boundary intentionally open. Critical review remediation on
   2026-07-08 connected the native `AudioHAL` log stream to
   prompt/auto-record decisioning, moved the registry source to server publish
   plus last-good client cache,
