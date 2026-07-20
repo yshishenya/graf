@@ -811,6 +811,9 @@ metadata-only evidence остаются подробной историей ре
   branch; T104 (release/tracker/production closeout) remains open. The current
   convergence tracker is synchronized in issues #3853–#3860;
   T101/T102/T104 correspond to #3857/#3858/#3860.
+  The current candidate head `f1a7f30e` is synchronized with `master`; its
+  canonical local CI and `cd-remote.sh --dry-run` pass, while PR #3852 remains
+  draft and no release or production execute has been claimed.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route
   unchanged, incoming volume delta no greater than 1 dB, no unexplained
