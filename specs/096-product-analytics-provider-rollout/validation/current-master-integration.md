@@ -275,7 +275,7 @@ exports, secrets, or payloads were read.
 | Lifecycle current state | partial | Session recordings, exported assets/recordings, batch exports and non-deleted batch exports are all `0`; empty tables do not prove future deletion enforcement. |
 | Dashboard freshness | open | One active dashboard and eight active items; item refresh timestamps are all absent and latest item modification is `2026-07-09`. |
 | Goal visibility | open | Aggregate ClickHouse data contains `46` events, latest `2026-07-09`; approved Yandex conversion event names are absent. |
-| Alert/rollback automation | open | Host systemd inventory has no PostHog-specific timer/service. Numeric limits and rollback script remain documented/available, but no persistent alert or automatic rollback receipt exists. |
+| Alert/rollback automation | partial | A root-owned PostHog guard service/timer is now installed and active; the metadata-only one-shot passed with `containers=33`, `oom=0`, and `health_failures=0`. Automatic rollback and stack stop remain disabled, and no alert/rollback approval exists. |
 
 After this independent pass, `infra/scripts/run-product-analytics-provider-smoke.sh`
 was rerun and returned `provider_smoke_result=pass`; it still reports
@@ -286,13 +286,18 @@ them. No production state was changed.
 
 ## T101 runtime guard contract: 2026-07-20
 
-The candidate now contains a narrow metadata-only runtime guard and one-minute
+The candidate contains a narrow metadata-only runtime guard and one-minute
 systemd timer. Contract validation passed: shell syntax, threshold checks,
 journald alert output, fail-closed analytics switches, secure root-owned
 installation path, zero-restart execution, and measurement-gap impact were
-verified. The guard was exercised against disposable endpoints and test
-containers; no production restart or state change was performed. Production
-installation and a real timer receipt remain pending the release/deploy gate.
+verified. On 2026-07-20 production installation was completed under the root
+operator boundary. The first start safely failed with `226/NAMESPACE` because
+the unit allow-listed a missing `.env.lock`; an empty `root:root` mode `0600`
+lock file was created, with no `.env`, container, or user-data change. After
+`daemon-reload`, the one-shot returned `Result=success` and the timer was
+`enabled`/`active`; the metadata-only receipt reported `containers=33`,
+`oom=0`, `restart_count=1`, and `health_failures=0`. The runtime flags remained
+`AUTO_ROLLBACK=0`, `DRY_RUN=1`, and `STOP_STACK=0`.
 
 ## T102 live-safe Yandex upload receipt: 2026-07-20
 
@@ -323,9 +328,9 @@ completed T097–T100 receipts cover the clean branch transfer, manual
 current-master reconciliation, current page and privacy contract validation,
 bounded metadata-only smoke, and T102 covers the real two-event Yandex upload.
 Remaining PostHog operations (dashboard/RBAC, retention/lifecycle, and resource
-thresholds), approvals, release, and production receipt are still required
-before Feature 096 can be accepted. The backup/restore subgate itself is now
-passed.
+thresholds) and their approvals are still required before Feature 096 can be
+accepted. The root guard production receipt is now recorded; the backup/restore
+subgate itself is also passed.
 
 ## Tracker reconciliation after merge and release: 2026-07-20
 
@@ -336,9 +341,10 @@ passed.
   `bcfba51a212bf723ed9fa86f96bbe3dcd49282fb` from `v2026.07.20.6`.
 - Product analytics provider flags remain disabled and fail-closed. No product
   rollout or paid-campaign approval is claimed.
-- T101 remains `[ ]` because its root-owned guard/timer, independent
-  RBAC/MFA/audit and lifecycle review, dashboard freshness/approved goals, and
-  persistent alert/rollback receipts are not complete.
+- T101 remains `[ ]` because independent RBAC/MFA/audit and lifecycle review,
+  dashboard freshness/approved goals, and alert/rollback approvals are not
+  complete. The root-owned guard/timer and metadata-only pass receipt are now
+  present.
 - T104 remains `[ ]` in `tasks.md`; Issue #3860 was reopened after its premature
   closure so the tracker matches the dependency on T101. This correction does
   not change production state.

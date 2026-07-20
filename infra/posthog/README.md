@@ -70,3 +70,11 @@ Runtime hardening recorded on 2026-07-09: mutable generated-runtime references
 were pinned by digest in the out-of-git production runtime, Compose config
 validation passed, and analytics health returned `ok` after restart. Future
 PostHog stack updates must repeat the mutable-tag scan and pinning check.
+
+Production guard receipt recorded on 2026-07-20: the script is installed as a
+root-owned copy, the systemd timer is `enabled` and `active`, and a metadata-only
+one-shot returned `posthog_guard_result=pass` (`containers=33`, `oom=0`,
+`health_failures=0`). The only host-level repair was creating the missing empty
+`/opt/projects/2brain-rec/.env.lock` as `root:root` mode `0600`, required by the
+systemd namespace. Automatic rollback, dry-run override, and stack stop remain
+disabled; this receipt does not approve product analytics rollout.
