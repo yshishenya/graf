@@ -56,6 +56,8 @@
   вынесено в T037.
 
 ### Операции
+- Signing workflow теперь сам разрешает pinned Sparkle release tools на
+  чистом macOS runner перед подготовкой appcast.
 - Исправлена проверка metadata-only JSON-attestation в macOS release workflow;
   проверка теперь корректно конвертирует JSON через `plutil` без ослабления
   проверки содержимого.

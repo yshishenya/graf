@@ -54,6 +54,9 @@ jobs:
           fetch-depth: 0
           ref: refs/tags/${{ inputs.release_tag }}
 
+      - name: Resolve pinned Sparkle release tools
+        run: swift build --package-path apps/macos -c release --product TwoBrainRecApp
+
       - name: Validate draft inputs and stage signed update assets
         env:
           GH_TOKEN: ${{ github.token }}
