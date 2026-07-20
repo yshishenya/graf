@@ -460,7 +460,8 @@ macOS application, and publish a release from the merged `master` SHA.
   keyboard-safe recovery controls (#3060).
 - [X] T098 [P0] Провести текущий-diff closeout checks и закрыть связанные
   GitHub issues только после receipts (#3061); доказанные review/cleanup/evidence
-  issues #3044, #3055, #3056 и #3059 закрыты, внешние E2E issues оставлены открытыми.
+  issues #3044–#3048, #3051, #3052, #3054, #3055–#3059 и #3061 закрыты;
+  внешний browser/user-path issue #3060 оставлен открытым.
 - [X] T092 [P0] Получить независимый review receipt после исправлений и
   зафиксировать остаточные ограничения без заявления production Chrome proof
   (#3055, canonical T092).
@@ -482,9 +483,8 @@ macOS application, and publish a release from the merged `master` SHA.
 ## Phase 14: Tracker and Release Boundary
 
 - [X] V004 Close only issues whose acceptance is proven by the receipt;
-  #3044, #3055, #3056 and #3059 закрыты после receipts, а #3050, #3049 и
-  внешние E2E/browser gates остаются открытыми для внешних или дополнительных
-  границ.
+  #3044–#3048, #3051, #3052, #3054–#3059 и #3061 закрыты после receipts, а
+  #3049, #3050 и #3060 остаются открытыми для внешних E2E/browser границ.
 - [X] V005 Prepare and deploy CalVer `v2026.07.20.6` only after runtime code
   from Phase 12 was merged and the production gate was green; the release and
   exact runtime SHA are recorded above.
