@@ -541,19 +541,43 @@ def test_media_worker_minio_policy_is_prefix_scoped_without_bucket_listing() -> 
             for action in actions
         }
 
-        assert "s3:ListBucket" not in actions
-        assert resources_by_action["s3:DeleteObject"] == {
+        bucket_resource = "arn:aws:s3:::twobrain-rec-ingest"
+        source_resources = {
+            "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
+            "artifacts/media-revisions/*/tracks/media",
+            "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
+            "artifacts/media-revisions/*/tracks/microphone",
+            "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
+            "artifacts/media-revisions/*/tracks/system",
+            "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
+            "artifacts/media-revisions/*/tracks/playback",
+        }
+        normalization_resource = (
             "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
             "artifacts/playback-normalization/revisions/*/attempts/*/meeting-review.m4a"
+        )
+        assert "s3:ListBucket" not in actions
+        assert resources_by_action["s3:GetBucketLocation"] == {bucket_resource}
+        assert resources_by_action["s3:GetObject"] == {
+            "arn:aws:s3:::twobrain-rec-ingest/_system/readiness/ready",
+            "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
+            "sessions/*/tracks/media/parts/*",
+            "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
+            "sessions/*/tracks/microphone/parts/*",
+            "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
+            "sessions/*/tracks/system/parts/*",
+            "arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/"
+            "sessions/*/tracks/playback/parts/*",
+            *source_resources,
+            normalization_resource,
         }
-        assert (
-            "arn:aws:s3:::twobrain-rec-ingest/_system/readiness/ready"
-            in resources_by_action["s3:GetObject"]
-        )
-        assert all(
-            "/sessions/*/tracks/" not in resource
-            for resource in resources_by_action["s3:DeleteObject"]
-        )
+        for action in (
+            "s3:PutObject",
+            "s3:DeleteObject",
+            "s3:AbortMultipartUpload",
+            "s3:ListMultipartUploadParts",
+        ):
+            assert resources_by_action[action] == {normalization_resource}
 
 
 def test_minio_init_publishes_storage_readiness_sentinel() -> None:
