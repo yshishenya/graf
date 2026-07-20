@@ -105,8 +105,9 @@ private path, credential, signed URL or provider payload to this file.
 - During the run the default output remained the built-in MacBook speakers,
   volume `56`, and `output muted=false`; no route change was observed. The
   earlier 60-minute candidate receipt remains the long-run drift/volume
-  record. Together these receipts close the installed v5 capture check for
-  T063; exact pre-v5 rollback remains a separate open T064 gate.
+  record. Together these receipts prove package shape, stop-drain behavior and
+  timeline metadata, but they do not close T063 because the required
+  60-minute incoming/system-signal acceptance is still unproven.
 
 ## 2026-07-20 — latest pre-v5 rollback follow-up
 
