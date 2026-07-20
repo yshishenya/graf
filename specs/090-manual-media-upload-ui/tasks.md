@@ -488,3 +488,12 @@ macOS application, and publish a release from the merged `master` SHA.
 - [X] V005 Prepare and deploy CalVer `v2026.07.20.6` only after runtime code
   from Phase 12 was merged and the production gate was green; the release and
   exact runtime SHA are recorded above.
+
+## Phase 15: Convergence (2026-07-20)
+
+- [X] T201 [P1] [US1] Удержать клавиатурный фокус внутри диалога ручной загрузки
+  и сохранить возврат фокуса на исходное действие в
+  `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`,
+  добавив соответствующую статическую contract-проверку в
+  `apps/server/tests/contract/test_cabinet_static_assets_contract.py` по
+  `FR-016` и Accessibility And Responsive Contract (partial).
