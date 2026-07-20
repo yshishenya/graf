@@ -15,7 +15,14 @@ fi
 
 REMOTE_HOST="${TWOBRAIN_DEPLOY_HOST:-2brain.dev}"
 REMOTE_PATH="${TWOBRAIN_DEPLOY_PATH:-/opt/projects/2brain-rec}"
-RUN_ID="${TWOBRAIN_SMOKE_RUN_ID-smoke-$(date -u +%Y%m%d-%H%M%S)}"
+if [[ -n "${TWOBRAIN_SMOKE_RUN_ID+x}" ]]; then
+  RUN_ID="$TWOBRAIN_SMOKE_RUN_ID"
+else
+  if ! run_nonce="$(od -An -N8 -tx1 /dev/urandom | tr -d '[:space:]')" || [[ -z "$run_nonce" ]]; then
+    run_nonce="pid$$"
+  fi
+  RUN_ID="smoke-$(date -u +%Y%m%d-%H%M%S)-${run_nonce}-$$"
+fi
 
 if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
   echo "run_id must start with an ASCII letter or digit and contain only ASCII letters, digits, '.', '_' or '-' (maximum 128 characters)" >&2
@@ -54,6 +61,26 @@ if [[ -f .env ]]; then
   set +a
 fi
 
+SMOKE_ARTIFACT_BASE="${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/tmp/twobrain-rec-smoke-artifact}"
+if [[ ! "$SMOKE_ARTIFACT_BASE" =~ ^/tmp/[A-Za-z0-9._-]+$ ]]; then
+  echo "TWOBRAIN_SMOKE_ARTIFACT_DIR must be a direct child name under /tmp" >&2
+  exit 2
+fi
+SMOKE_ARTIFACT_DIR="${SMOKE_ARTIFACT_BASE%/}-${RUN_ID}"
+SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-/tmp/twobrain-rec-smoke-auth-token-${RUN_ID}}"
+if [[ ! "$SMOKE_TOKEN_FILE" =~ ^/tmp/[A-Za-z0-9._-]+$ ]]; then
+  echo "TWOBRAIN_SMOKE_TOKEN_FILE must be a direct child under /tmp" >&2
+  exit 2
+fi
+token_basename="${SMOKE_TOKEN_FILE##*/}"
+if [[ "$token_basename" != "$RUN_ID" && "$token_basename" != *-"$RUN_ID" ]]; then
+  echo "TWOBRAIN_SMOKE_TOKEN_FILE must be bound to the exact run_id" >&2
+  exit 2
+fi
+if [[ -L "$SMOKE_ARTIFACT_DIR" || -L "$SMOKE_TOKEN_FILE" ]]; then
+  echo "smoke artifact and token paths must not be symlinks" >&2
+  exit 2
+fi
 SMOKE_RUN_DIR="$(mktemp -d "/tmp/twobrain-rec-smoke-${RUN_ID}.XXXXXX")"
 chmod 700 "$SMOKE_RUN_DIR"
 SMOKE_SEED_JSON="$SMOKE_RUN_DIR/seed.json"
@@ -64,22 +91,6 @@ SMOKE_ARTIFACT_JSON="$SMOKE_RUN_DIR/artifact.json"
 SMOKE_UPLOAD_JSON="$SMOKE_RUN_DIR/upload.json"
 SMOKE_AUTH_CLEANUP_ERR="$SMOKE_RUN_DIR/auth-cleanup.err"
 SMOKE_ARTIFACT_CLEANUP_ERR="$SMOKE_RUN_DIR/artifact-cleanup.err"
-SMOKE_ARTIFACT_BASE="${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/tmp/twobrain-rec-smoke-artifact}"
-if [[ "$SMOKE_ARTIFACT_BASE" != /tmp/* ]]; then
-  echo "TWOBRAIN_SMOKE_ARTIFACT_DIR must be under /tmp" >&2
-  exit 2
-fi
-SMOKE_ARTIFACT_DIR="${SMOKE_ARTIFACT_BASE%/}-${RUN_ID}"
-SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-/tmp/twobrain-rec-smoke-auth-token-${RUN_ID}}"
-if [[ "$SMOKE_TOKEN_FILE" != /tmp/* ]]; then
-  echo "TWOBRAIN_SMOKE_TOKEN_FILE must be under /tmp" >&2
-  exit 2
-fi
-token_basename="${SMOKE_TOKEN_FILE##*/}"
-if [[ "$token_basename" != "$RUN_ID" && "$token_basename" != *-"$RUN_ID" ]]; then
-  echo "TWOBRAIN_SMOKE_TOKEN_FILE must be bound to the exact run_id" >&2
-  exit 2
-fi
 SMOKE_AUTH_SESSION_ID=""
 SMOKE_AUTH_CLEANED="0"
 SMOKE_ARTIFACTS_CLEANED="0"
@@ -88,12 +99,40 @@ cleanup_smoke_container_files() {
   local mode="${1:-required}"
   if [[ "$mode" == "best_effort" ]]; then
     docker compose -f infra/docker-compose.yml exec -T rec-api \
-      sh -c 'rm -rf -- "$1" && rm -f -- "$2"' _ "$SMOKE_ARTIFACT_DIR" "$SMOKE_TOKEN_FILE" \
+      sh -eu -c '
+        for path in "$1" "$2"; do
+          case "$path" in
+            /tmp/*) ;;
+            *) exit 2 ;;
+          esac
+          [ "${path%/*}" = /tmp ]
+          if [ -e "$path" ] || [ -L "$path" ]; then
+            rm -rf -- "$path"
+          fi
+          if [ -e "$path" ] || [ -L "$path" ]; then
+            exit 1
+          fi
+        done
+      ' _ "$SMOKE_ARTIFACT_DIR" "$SMOKE_TOKEN_FILE" \
       >/dev/null 2>&1 || true
     return 0
   fi
   docker compose -f infra/docker-compose.yml exec -T rec-api \
-    sh -c 'rm -rf -- "$1" && rm -f -- "$2"' _ "$SMOKE_ARTIFACT_DIR" "$SMOKE_TOKEN_FILE" \
+    sh -eu -c '
+      for path in "$1" "$2"; do
+        case "$path" in
+          /tmp/*) ;;
+          *) exit 2 ;;
+        esac
+        [ "${path%/*}" = /tmp ]
+        if [ -e "$path" ] || [ -L "$path" ]; then
+          rm -rf -- "$path"
+        fi
+        if [ -e "$path" ] || [ -L "$path" ]; then
+          exit 1
+        fi
+      done
+    ' _ "$SMOKE_ARTIFACT_DIR" "$SMOKE_TOKEN_FILE" \
     >/dev/null
 }
 
@@ -192,6 +231,14 @@ docker compose -f infra/docker-compose.yml exec -T rec-api \
   --out "$SMOKE_ARTIFACT_DIR" \
   --duration-seconds "${TWOBRAIN_SMOKE_DURATION_SECONDS:-3}" >"$SMOKE_ARTIFACT_JSON"
 
+docker compose -f infra/docker-compose.yml exec -T rec-api \
+  sh -eu -c '
+    path="$1"
+    [ "${path%/*}" = /tmp ]
+    [ ! -L "$path" ]
+    [ -d "$path" ]
+  ' _ "$SMOKE_ARTIFACT_DIR"
+
 docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
   python scripts/seed_smoke_identity.py \
   --run-id "$RUN_ID" \
@@ -208,6 +255,10 @@ docker compose -f infra/docker-compose.yml exec -T rec-api \
 SMOKE_TOKEN_FILE="$(
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["token_file"])' "$SMOKE_AUTH_JSON"
 )"
+if [[ ! "$SMOKE_TOKEN_FILE" =~ ^/tmp/[A-Za-z0-9._-]+$ || "${SMOKE_TOKEN_FILE%/*}" != /tmp ]]; then
+  echo "issued smoke token path must be a direct child under /tmp" >&2
+  exit 2
+fi
 SMOKE_AUTH_SESSION_ID="$(
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("auth_session_id") or "")' "$SMOKE_AUTH_JSON"
 )"
@@ -225,7 +276,7 @@ docker compose -f infra/docker-compose.yml exec -T rec-api \
 
 cleanup_smoke_auth_session
 cleanup_smoke_artifacts
-cleanup_smoke_container_files best_effort
+cleanup_smoke_container_files required
 trap - EXIT
 
 upload_result="$(cat "$SMOKE_UPLOAD_JSON")"

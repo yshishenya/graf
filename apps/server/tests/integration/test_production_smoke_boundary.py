@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -55,8 +56,65 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
         "python scripts/issue_smoke_auth_session.py"
     )
     assert 'TWOBRAIN_SMOKE_RUN_ID=\'$RUN_ID\'' not in script
+    assert "od -An -N8 -tx1 /dev/urandom" in script
     assert 'SMOKE_RUN_DIR="$(mktemp -d "/tmp/twobrain-rec-smoke-${RUN_ID}.' in script
     assert 'SMOKE_ARTIFACT_DIR="${SMOKE_ARTIFACT_BASE%/}-${RUN_ID}"' in script
+    assert "must be a direct child name under /tmp" in script
+    assert "cleanup_smoke_container_files required" in script
+    assert "cleanup_smoke_container_files best_effort" in script
+
+
+def test_default_smoke_run_ids_are_unique_for_parallel_invocations() -> None:
+    def invoke() -> str:
+        env = os.environ.copy()
+        env.pop("TWOBRAIN_SMOKE_RUN_ID", None)
+        return subprocess.run(
+            [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), "--dry-run"],
+            check=True,
+            text=True,
+            capture_output=True,
+            env=env,
+        ).stdout
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        outputs = list(executor.map(lambda _: invoke(), range(4)))
+
+    run_ids = {
+        line.split("=", 1)[1]
+        for output in outputs
+        for line in output.splitlines()
+        if line.startswith("run_id=")
+    }
+    assert len(run_ids) == 4
+
+
+@pytest.mark.parametrize(
+    ("artifact_dir", "token_file"),
+    [
+        ("/tmp/../etc", "/tmp/token-smoke-014"),
+        ("/tmp/safe/nested", "/tmp/token-smoke-014"),
+        ("/tmp/safe", "/tmp/../var/run/token-smoke-014"),
+    ],
+)
+def test_smoke_execute_rejects_paths_that_escape_direct_tmp_children(
+    artifact_dir: str,
+    token_file: str,
+) -> None:
+    result = subprocess.run(
+        [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), "--execute"],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "TWOBRAIN_SMOKE_RUN_ID": "smoke-014",
+            "TWOBRAIN_SMOKE_ARTIFACT_DIR": artifact_dir,
+            "TWOBRAIN_SMOKE_TOKEN_FILE": token_file,
+        },
+    )
+
+    assert result.returncode == 2
+    assert "direct child" in result.stderr
 
 
 @pytest.mark.parametrize(
