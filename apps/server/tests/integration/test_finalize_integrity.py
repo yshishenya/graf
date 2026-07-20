@@ -17,6 +17,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.domain.statuses import MeetingStatus, UploadSessionStatus
 from twobrain_rec_server.ingest import store as store_module
+from twobrain_rec_server.ingest.media_revisions import ensure_media_revision_acceptance_is_safe
 
 
 class FinalizeStreamingOnlyStorage:
@@ -369,6 +370,63 @@ def test_finalize_rejects_immutable_media_revision_fingerprint_change(client: Te
     assert response.status_code == 409
     assert response.json()["code"] == "media_revision_fingerprint_conflict"
     assert _track_artifacts_for_meeting(client, meeting["meeting_id"]) == before_artifacts
+
+
+def test_media_revision_acceptance_lock_serializes_concurrent_checks(client: TestClient) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "finalize-fingerprint-lock", "duration_seconds": 60},
+    ).json()
+    media_revision_id = UUID(meeting["media_revision"]["media_revision_id"])
+
+    async def exercise_lock() -> None:
+        first = client.app_state["sessionmaker"]()
+        second = client.app_state["sessionmaker"]()
+        try:
+            await first.begin()
+            await ensure_media_revision_acceptance_is_safe(
+                first,
+                media_revision_id=media_revision_id,
+                manifest_sha256="m" * 64,
+                tracks=[
+                    {"track_role": "microphone", "sha256": "u" * 64},
+                    {"track_role": "system", "sha256": "s" * 64},
+                ],
+            )
+
+            second_started = asyncio.Event()
+
+            async def blocked_check() -> None:
+                await second.begin()
+                second_started.set()
+                await ensure_media_revision_acceptance_is_safe(
+                    second,
+                    media_revision_id=media_revision_id,
+                    manifest_sha256="m" * 64,
+                    tracks=[
+                        {"track_role": "microphone", "sha256": "u" * 64},
+                        {"track_role": "system", "sha256": "s" * 64},
+                    ],
+                )
+                await second.commit()
+
+            waiter = asyncio.create_task(blocked_check())
+            await asyncio.wait_for(second_started.wait(), timeout=1)
+            await asyncio.sleep(0.1)
+            assert not waiter.done(), "the second acceptance check must wait for the row lock"
+
+            await first.commit()
+            await asyncio.wait_for(waiter, timeout=2)
+        finally:
+            if first.in_transaction():
+                await first.rollback()
+            if second.in_transaction():
+                await second.rollback()
+            await first.close()
+            await second.close()
+
+    asyncio.run(exercise_lock())
 
 
 def test_finalize_fingerprint_conflict_preserves_existing_multipart_objects(client: TestClient) -> None:
