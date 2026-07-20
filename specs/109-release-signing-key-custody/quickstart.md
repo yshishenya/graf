@@ -164,7 +164,8 @@ clean detached release worktree. The metadata-only receipt is:
 
 No tag, package, active-key enrollment, protected environment, public appcast,
 or remote release asset was created or changed. T034 is now the recorded scope
-decision; T035–T037 remain separate release gates.
+decision; T035 is closed by the physical receipt below, while T036–T037 remain
+separate release gates.
 
 ## Решение для приватного репозитория без платного GitHub — 2026-07-20
 
@@ -191,8 +192,9 @@ HTTP 422, потому что текущий тариф не поддержив�
   записываются.
 
 Решение закрывает исходный T034 как superseded: полноценный protected reviewer
-gate недоступен на текущем тарифе и не объявляется настроенным. T035–T037 не
-объявляются выполненными по этому решению. Текущий release lane использует
+gate недоступен на текущем тарифе и не объявляется настроенным. T035 закрыт
+отдельным физическим receipt ниже; T036–T037 не объявляются выполненными по
+этому решению. Текущий release lane использует
 только named Keychain signer с явным degraded approval; копия в Bitwarden
 остаётся ручным recovery backup и не читается автоматически. Если позже
 появится поддержка reviewer approval, cloud-путь можно вернуть без изменения
@@ -208,3 +210,33 @@ gate недоступен на текущем тарифе и не объявл�
 - T034 переведён в завершённое состояние решения и superseded закрытие issue;
   фактическая owner-only release/Bootstrap/update proof остаётся в T035–T037;
 - в Git, issue и evidence нет приватного ключа, секрета или локального пути.
+
+## T035 physical bootstrap + normal updater receipt — 2026-07-21
+
+Ниже зафиксирован нормализованный metadata-only receipt с контролируемого Mac.
+Живые пути, секреты, raw audio и transcript data в Git, issue и evidence не
+записываются.
+
+- системный Installer history содержит успешную установку
+  `GRAF-trust-bootstrap-2026.07.18.3.pkg` 18 июля 2026 года; PackageKit указал
+  bundle `pro.2brain.graf.desktop-app`, версию `2026.07.18.3` и завершил install
+  без ошибки;
+- перед bootstrap app log показывал установленную версию `2026.07.17.6` и
+  `microphone=granted systemAudio=granted ready=true`;
+- после bootstrap app log показал `installedVersion=2026.07.18.3` и тот же
+  permission state; в receipt нет сброса TCC или повторной выдачи разрешений;
+- последующий переход `2026.07.18.3 → 2026.07.20.1` прошёл через обычный
+  Sparkle UI: `manual_check_requested`, `user_choice_install`, download,
+  `install_requested` и новый `app_update.started`; далее в app log есть
+  штатные старты `2026.07.20.2`–`2026.07.20.9` с сохранёнными разрешениями;
+- текущий публичный appcast содержит только `2026.07.20.1`, а установленное
+  приложение — `2026.07.20.2`; поэтому повторная проверка через «Проверить
+  обновления…» корректно не предлагает downgrade и новый пакет не ставился;
+- текущий bundle `pro.2brain.graf` сохраняет активный public-key id и прежний
+  designated requirement; прямые metadata-only TCC checks показывают
+  microphone и ScreenCapture `auth_value=2`.
+
+Таким образом, первый переход на новый trust anchor подтверждён единственным
+ручным bootstrap, а обычные последующие обновления — штатным Sparkle updater.
+T035 закрыт. Публикация двух новых versioned assets и отдельное owner-only
+release-attestation остаются в T036 и T037.
