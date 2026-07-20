@@ -7,8 +7,8 @@
 This file is the metadata-only dashboard evidence for the 096 implementation and
 review-remediation pass. Future live dashboard proof must keep the same
 metadata-only shape. It intentionally contains no live provider IDs,
-screenshots, visitor/account identifiers, event payload rows, meeting content,
-transcripts, audio, signed URLs, local paths, cookies, or secrets.
+screenshots, visitor/account identifiers, event payload rows, content-bearing
+data, transcript artifacts, audio, signed URLs, local paths, cookies, or secrets.
 
 ## Current-master boundary
 
@@ -112,7 +112,8 @@ ClientIDs, Yclids, cookies, or project keys.
 
 This section records production runtime proof without screenshots, provider
 exports, visitor/account rows, raw payloads, cookies, live counter IDs, project
-keys, OAuth tokens, local paths, signed URLs, meeting content, transcripts, or
+keys, OAuth tokens, local paths, signed URLs, content-bearing data, transcript
+artifacts, or
 audio.
 
 | Check | Status | Metadata-Only Evidence | Caveat |
@@ -134,7 +135,7 @@ audio.
 This section records metadata-only review follow-up after the user-reported
 Yandex zero-data and admin audit/metrics usability issues. It contains no live
 provider IDs, screenshots, visitor/account rows, raw payloads, cookies, names,
-emails, meeting content, transcripts, audio, signed URLs, or private local
+emails, content-bearing data, transcript artifacts, audio, signed URLs, or private local
 paths.
 
 | Check | Status | Metadata-Only Evidence | Caveat |
@@ -150,7 +151,7 @@ paths.
 This final closeout section records live transport/dashboard-readiness evidence
 after production deploy to SHA `f12b8761538a31152a1cf3db9780643cb55d1301`.
 It contains no provider IDs, screenshots, visitor/account rows, raw payloads,
-cookies, names, emails, meeting content, transcripts, audio, signed URLs, or
+cookies, names, emails, content-bearing data, transcript artifacts, audio, signed URLs, or
 private local paths.
 
 | Check | Status | Metadata-Only Evidence | Caveat |
@@ -166,7 +167,7 @@ private local paths.
 
 Metadata-only 096 implementation evidence for PostHog is recorded below. No
 screenshots, visitor/account rows, raw payloads, content-bearing exports, project
-keys, cookies, local paths, signed URLs, transcript text, meeting content, or
+keys, cookies, local paths, signed URLs, transcript artifacts, content-bearing data, or
 audio references are included.
 
 | Dashboard | Status | Owner Role | Required Metadata | Caveats |
