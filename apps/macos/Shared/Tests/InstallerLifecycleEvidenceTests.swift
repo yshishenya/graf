@@ -213,6 +213,43 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(custodyHarness.contains("$REPO_ROOT/.github"))
     }
 
+    func testReleaseSigningFailureSimulationsStayFailClosed() throws {
+        let repositoryRoot = try Self.repositoryRoot()
+        let harnessURL = repositoryRoot.appendingPathComponent(
+            "apps/macos/Installer/Scripts/test-release-signing-custody.sh"
+        )
+        let harnessSource = try String(contentsOf: harnessURL, encoding: .utf8)
+        for marker in [
+            "run_prepare_attestation_failure",
+            "run_prepare_missing_draft_failure",
+            "run_prepare_staging_guard_failures",
+            "assert_staged_appcast_unchanged",
+            "failure_simulation=concurrent_staging",
+            "failure_simulation=forward_rollback"
+        ] {
+            XCTAssertTrue(harnessSource.contains(marker), "missing failure-simulation marker: \(marker)")
+        }
+
+        let outputPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [harnessURL.path]
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+        try process.run()
+        process.waitUntilExit()
+        let output = String(
+            data: outputPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0, output)
+        XCTAssertTrue(output.contains("failure_simulation=stale_attestation attestation failure result=pass"))
+        XCTAssertTrue(output.contains("failure_simulation=wrong_release_attestation attestation failure result=pass"))
+        XCTAssertTrue(output.contains("failure_simulation=draft_asset_failure result=pass"))
+        XCTAssertTrue(output.contains("release-signing custody tests passed: fixture=disposable-public"))
+    }
+
     func testManualTrustBootstrapIsExplicitAndCannotWeakenOrdinaryUpdates() throws {
         let ordinary = try Self.readRepositoryFile("apps/macos/Scripts/validate-app-updates.sh")
         let bootstrapValidator = try Self.readRepositoryFile("apps/macos/Installer/Scripts/validate-manual-update-bootstrap.sh")
