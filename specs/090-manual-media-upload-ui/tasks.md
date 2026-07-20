@@ -442,22 +442,25 @@ macOS application, and publish a release from the merged `master` SHA.
   focused PostgreSQL тестом (#3052, canonical T089).
 - [X] T080 [P0] Проверить защищённый embedded picker в
   `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` (#3054, canonical T091).
-- [ ] T083 [P0] Получить независимый product/UX/code/security/release review
-  receipt после исправлений T073–T080 (#3044, canonical T083).
+- [X] T083 [P0] Получить независимый product/UX/code/security/release review
+  receipt после исправлений T073–T080; остаточные external E2E и browser
+  runtime gates явно сохранены открытыми (#3044, canonical T083).
 - [X] T084 [P0] Добавить origin/cleanup/UI recovery regression assertions
   (#3057, canonical T094).
-- [ ] T085 [P0] Повторить release/deploy gate для текущего runtime diff после
-  merge; docs-only release не заявлять (#3049).
+- [X] T085 [P0] Повторить release/deploy gate для текущего runtime diff после
+  merge; `v2026.07.20.5` и production SHA `271ba65c` подтверждены, а полный
+  external user-path E2E остаётся отдельным T072/#3050 gate (#3049).
 - [X] T095 [P0] Ограничить smoke helpers exact production HTTPS/loopback origin,
   mode-0600/O_NOFOLLOW auth material и exact `run_id` binding в
   `apps/server/scripts/smoke_target.py` (#3058).
-- [ ] T096 [P0] Дополнить workspace-prefix cleanup receipt фактическим
-  post-run zero-object read-back (#3059).
+- [X] T096 [P0] Дополнить workspace-prefix cleanup receipt фактическим
+  post-run zero-object read-back; production smoke returned residue `0` and
+  cleanup passed without publishing keys (#3059).
 - [X] T097 [P1] Убрать blind retry для fingerprint/auth conflict и сохранить
   keyboard-safe recovery controls (#3060).
 - [ ] T098 [P0] Провести текущий-diff closeout checks и закрыть связанные
   GitHub issues только после receipts (#3061).
-- [ ] T092 [P0] Получить независимый review receipt после исправлений и
+- [X] T092 [P0] Получить независимый review receipt после исправлений и
   зафиксировать остаточные ограничения без заявления production Chrome proof
   (#3055, canonical T092).
 - [ ] T093 [P0] Зафиксировать metadata-only E2E и zero-residue evidence на
@@ -469,7 +472,7 @@ macOS application, and publish a release from the merged `master` SHA.
 - [X] V001 Run `node --check`, focused PostgreSQL tests, focused Swift tests,
   `git diff --check`, Ruff, compile and forbidden-content scan; exact counts are
   recorded in `validation/closeout-2026-07-20.md`.
-- [X] V002 Run `GRAF_TEST_WORKERS=8 bash infra/scripts/ci-local.sh` on the final
+- [X] V002 Run `GRAF_TEST_WORKERS=4 bash infra/scripts/ci-local.sh` on the final
   candidate and record the exact SHA and result in the receipt.
 - [X] V003 Run independent code review and Ponytail review; record findings and
   residual limitations without claiming production Chrome proof.
@@ -479,6 +482,6 @@ macOS application, and publish a release from the merged `master` SHA.
 - [ ] V004 Close only issues whose acceptance is proven by the receipt; leave
   #3050, #3044/#3055, #3056, #3049, #3059 and #3061 open when external or
   exact-SHA evidence is unavailable.
-- [ ] V005 Prepare and deploy a new CalVer release only if runtime code from
-  Phase 12 is merged and the production gate is green; no release claim is made
-  from docs alone.
+- [X] V005 Prepare and deploy CalVer `v2026.07.20.5` only after runtime code
+  from Phase 12 was merged and the production gate was green; the release and
+  exact runtime SHA are recorded above.
