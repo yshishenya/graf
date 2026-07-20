@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 #if canImport(WebKit)
@@ -38,36 +39,27 @@ public enum EmbeddedCabinetUpdateBridge {
 public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentSubmitting {
     public static let intakePath = "/api/v1/desktop/support-incidents"
     public static let requestScript = """
-    (async () => {
-      const request = arguments.request;
-      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-      if (!csrfToken) {
-        return JSON.stringify({
-          status: 401,
-          body: JSON.stringify({code: 'support_incident.auth_session_required'})
-        });
-      }
-      const headers = {
-        'Accept': 'application/json',
-        'X-CSRF-Token': csrfToken
-      };
-      if (request.hasBody) headers['Content-Type'] = 'application/json';
-      if (request.idempotencyKey) headers['Idempotency-Key'] = request.idempotencyKey;
-      try {
-        const response = await fetch(request.path, {
-          method: 'POST',
-          credentials: "same-origin",
-          headers,
-          body: request.hasBody ? request.body : undefined
-        });
-        return JSON.stringify({status: response.status, body: await response.text()});
-      } catch (_error) {
-        return JSON.stringify({
-          status: 503,
-          body: JSON.stringify({code: 'support_incident.network_unavailable'})
-        });
-      }
-    })()
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    if (!csrfToken) {
+      return JSON.stringify([401, JSON.stringify({code: 'support_incident.auth_session_required'})]);
+    }
+    const headers = {
+      'Accept': 'application/json',
+      'X-CSRF-Token': csrfToken
+    };
+    if (request.hasBody) headers['Content-Type'] = 'application/json';
+    if (request.idempotencyKey) headers['Idempotency-Key'] = request.idempotencyKey;
+    try {
+      const response = await fetch(request.path, {
+        method: 'POST',
+        credentials: "same-origin",
+        headers,
+        body: request.hasBody ? request.body : undefined
+      });
+      return JSON.stringify([response.status, await response.text()]);
+    } catch (_error) {
+      return JSON.stringify([503, JSON.stringify({code: 'support_incident.network_unavailable'})]);
+    }
     """
 
     private weak var webView: WKWebView?
@@ -143,15 +135,7 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
             "idempotencyKey": idempotencyKey ?? ""
         ]
         let rawResult = try await evaluate(script: Self.requestScript, arguments: ["request": request], in: webView)
-        guard let data = rawResult.data(using: .utf8) else {
-            throw DesktopUploadClientError.invalidResponse
-        }
-        let result: JavaScriptResult
-        do {
-            result = try JSONDecoder().decode(JavaScriptResult.self, from: data)
-        } catch {
-            throw DesktopUploadClientError.invalidResponse
-        }
+        let result = try Self.decodeJavaScriptResult(rawResult)
         guard let responseData = result.body.data(using: .utf8) else {
             throw DesktopUploadClientError.invalidResponse
         }
@@ -173,34 +157,64 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
         script: String,
         arguments: [String: Any],
         in webView: WKWebView
-    ) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            webView.callAsyncJavaScript(
+    ) async throws -> Any {
+        do {
+            guard let value = try await webView.callAsyncJavaScript(
                 script,
                 arguments: arguments,
                 in: nil,
-                in: .page
-            ) { result in
-                switch result {
-                case let .success(value):
-                    guard let rawResult = value as? String else {
-                        continuation.resume(throwing: DesktopUploadClientError.invalidResponse)
-                        return
-                    }
-                    continuation.resume(returning: rawResult)
-                case .failure:
-                    continuation.resume(
-                        throwing: DesktopUploadClientError.httpStatus(
-                            503,
-                            "support_incident.network_unavailable"
-                        )
-                    )
-                }
+                contentWorld: .page
+            ) else {
+                throw DesktopUploadClientError.invalidResponse
             }
+            return value
+        } catch let error as DesktopUploadClientError {
+            throw error
+        } catch {
+            throw DesktopUploadClientError.httpStatus(
+                503,
+                "support_incident.network_unavailable"
+            )
         }
     }
 
-    private struct JavaScriptResult: Decodable {
+    static func decodeJavaScriptResult(_ value: Any) throws -> JavaScriptResult {
+        let data: Data
+        if let rawResult = value as? String, let rawData = rawResult.data(using: .utf8) {
+            data = rawData
+        } else if JSONSerialization.isValidJSONObject(value) {
+            do {
+                data = try JSONSerialization.data(withJSONObject: value)
+            } catch {
+                throw DesktopUploadClientError.invalidResponse
+            }
+        } else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+
+        if let result = try? JSONDecoder().decode(JavaScriptResult.self, from: data) {
+            return result
+        }
+        guard let pair = try? JSONSerialization.jsonObject(with: data) as? [Any],
+              pair.count == 2
+        else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        let status: Int
+        if let rawStatus = pair[0] as? Int {
+            status = rawStatus
+        } else if let rawStatus = pair[0] as? NSNumber {
+            status = rawStatus.intValue
+        } else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        guard let body = pair[1] as? String else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        return JavaScriptResult(status: status, body: body)
+    }
+
+    struct JavaScriptResult: Decodable, Equatable {
         let status: Int
         let body: String
     }

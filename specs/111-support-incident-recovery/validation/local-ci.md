@@ -15,10 +15,14 @@ CSRF, private GitHub egress, PostgreSQL-backed diagnostics, durable local state
   parallel-фаза на **4 bounded workers** — **1836 passed, 1 skipped, 10
   warnings**; строгая RLS-фаза — **34 passed, 1 skipped, 2 warnings**.
 - `infra/scripts/ci-local.sh`: **PASS**. Внутри gate: legacy-audio guard,
-  macOS build/tests (**573 tests, 0 failures**), `ContractValidation`, обе
+  macOS build/tests (**577 tests, 0 failures**), `ContractValidation`, обе
   PostgreSQL-фазы, Ruff и deployment evidence scan.
 - Результат canonical CI: `ci_local_result=pass`; disposable PostgreSQL
   контейнеры удалены после прогонов.
+- В follow-up исправлен runtime-декодер embedded cabinet: WebKit теперь может
+  вернуть JavaScript-объект без ложного `invalid_response`; строковый JSON
+  оставлен для обратной совместимости. Focused bridge subset: **6 passed, 0
+  failures**.
 - После финального двухстрочного shrink из ponytail review повторён focused
   support-поднабор: **31 passed, 2 warnings**. Он подтверждает, что удалённый
   дублирующий flush не меняет поведение; актуальный rebased quickstart также

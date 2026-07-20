@@ -11,9 +11,11 @@
   из `quickstart.md`: **45 passed, 2 warnings**.
 - После финального упрощения сервиса повторен server-поднабор intake/contract/
   Issue body: **31 passed, 2 warnings**.
-- Канонический macOS XCTest: **572 tests, 0 failures**; затронутые наборы
+- Канонический macOS XCTest: **577 tests, 0 failures**; затронутые наборы
   `DesktopUploadClientTests` — 38, `DesktopUploadQueueV5Tests` — 59,
-  `EmbeddedCabinetSupportIncidentBridgeTests` — 2, все без ошибок.
+  `EmbeddedCabinetSupportIncidentBridgeTests` — 6, все без ошибок. Bridge
+  проверен на объектный результат WebKit `callAsyncJavaScript` и на прежний
+  строковый JSON-результат.
 
 Проверки используют синтетические metadata-only данные и fake GitHub client;
 живые cookie, CSRF-токены, аудио, расшифровки и private URL в evidence не
