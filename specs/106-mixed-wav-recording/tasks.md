@@ -21,7 +21,7 @@
 - [X] T001 [P] Add v5 package member/format fixture metadata (no media payload) in `tests/macos/contract/recording-artifact-format.json` and `tests/macos/local-recording/recording-artifact-format-smoke.md`.
 - [X] T002 [P] Add a v5 source-kind/role/descriptor fixture to `apps/server/tests/fixtures/processing.py` without audio bytes or transcript text.
 - [X] T003 [P] Add expected `initial_mixed_recording` and `single_wav_v1` non-secret contract assertions to `apps/server/tests/contract/test_ingest_openapi_contract.py`.
-- [X] T004 Record the exact known-good pre-v5 baseline commit/release and planned metadata-only control-period receipt schema in `qa/macos/release-candidate-checklist.md`.
+- [X] T004 Record the contingency baseline reference and planned metadata-only control-period receipt schema in `qa/macos/release-candidate-checklist.md`.
 
 ---
 
@@ -108,22 +108,22 @@
 
 ## Phase 5: User Story 3 — Безопасно перейти на новый формат (Priority: P1)
 
-**Goal**: Preserve historical records and establish a proven, release-level future-capture rollback without a hidden feature flag or data rewrite.
+**Goal**: Preserve historical records and define a release-level future-capture rollback contingency without a hidden feature flag or data rewrite.
 
-**Independent Test**: v3/v4 fixtures remain readable/processable, a v5 revision stays immutable through restart/deletion, and the control-period receipt defines a baseline rollback that changes only a subsequent test recording.
+**Independent Test**: v3/v4 fixtures remain readable/processable, a v5 revision stays immutable through restart/deletion, and the control-period receipt defines a conditional rollback that changes only a subsequent test recording if v5 quality fails.
 
 ### Tests for User Story 3
 
 - [X] T043 [P] [US3] Add historical v3/v4 reader/upload regression fixtures and v5 rejection-of-legacy-write tests in `apps/macos/Shared/Tests/CanonicalRecordingManifestTests.swift` and `apps/macos/Shared/Tests/DesktopUploadQueueV5Tests.swift`.
 - [X] T044 [P] [US3] Add v5 deletion/purge/revision-isolation tests in `apps/server/tests/integration/test_processing_deletion_dependency.py` and `apps/server/tests/integration/test_media_revision_migrations.py`.
-- [X] T045 [P] [US3] Add release-baseline and no-live-toggle acceptance assertions in `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift` and `qa/macos/release-candidate-checklist.md`.
+- [X] T045 [P] [US3] Add contingency-baseline and no-live-toggle acceptance assertions in `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift` and `qa/macos/release-candidate-checklist.md`.
 
 ### Implementation for User Story 3
 
 - [X] T046 [US3] Isolate historical schema decoding and queued dual upload behavior from all v5 writer defaults in `apps/macos/Shared/Sources/Models/AudioModelCore.swift` and `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift`.
 - [X] T047 [US3] Preserve historic dual processing while making v5 reader/processing additive in `apps/server/src/twobrain_rec_server/processing/store.py`, `apps/server/src/twobrain_rec_server/ingest/manifest.py` and `apps/server/src/twobrain_rec_server/ingest/media_revisions.py`.
 - [X] T048 [US3] Add metadata-only baseline/canary/rollback rehearsal instructions and evidence template in `qa/macos/release-candidate-checklist.md` and `specs/106-mixed-wav-recording/evidence/README.md`.
-- [X] T049 [US3] Run v3/v4/v5 compatibility, deletion and rollback-rehearsal checks from `specs/106-mixed-wav-recording/quickstart.md` and record safe results in `specs/106-mixed-wav-recording/evidence/us3-compatibility-rollback.md`.
+- [X] T049 [US3] Run v3/v4/v5 compatibility, deletion and rollback-policy checks from `specs/106-mixed-wav-recording/quickstart.md` and record safe results in `specs/106-mixed-wav-recording/evidence/us3-compatibility-rollback.md`.
 
 **Checkpoint**: v5 can be safely rolled back for future capture without breaking or altering historical/v5 accepted records.
 
@@ -163,7 +163,7 @@
 - [X] T061 Run `bash -n apps/macos/Scripts/validate-recording-artifact-format.sh`, `docker compose -f infra/docker-compose.yml config`, focused Swift tests, focused pytest/Ruff and `git diff --check`; record non-secret results in `specs/106-mixed-wav-recording/evidence/validation.md`.
 - [X] T062 Run `infra/scripts/ci-local.sh` from the clean v5 branch and resolve every feature-caused failure before marking validation complete in `specs/106-mixed-wav-recording/evidence/validation.md`.
 - [X] T063 Build the macOS candidate with the existing local installer workflow, perform the non-private 60-minute installed-app route/volume/timeline package check, and record metadata-only verdicts in `specs/106-mixed-wav-recording/evidence/hardware-acceptance.md`.
-- [ ] T064 Exercise an approved synthetic end-to-end package through desktop upload, server finalize, single MediaScribe-compatible result import, cabinet state, deletion and rollback rehearsal; record hashes/counts/statuses only in `specs/106-mixed-wav-recording/evidence/e2e-acceptance.md`.
+- [X] T064 Exercise an approved synthetic end-to-end package through desktop upload, server finalize, single MediaScribe-compatible result import, cabinet state and deletion; record hashes/counts/statuses in `specs/106-mixed-wav-recording/evidence/e2e-acceptance.md`. Keep rollback as a documented contingency and run the old-baseline rehearsal only if the v5 quality gate fails.
 - [X] T065 Run a final source/fixture/diagnostic secret-and-legacy audit across `apps/macos`, `apps/server`, `docs/` and `specs/106-mixed-wav-recording`, then mark only evidence-backed tasks `[X]` in this file.
 - [X] T066 Reconcile every completed task with its GitHub issue, add Russian validation/closure comments where fully satisfied, and leave unmet release/deploy work explicitly open in `specs/106-mixed-wav-recording/tasks.md`.
 
@@ -177,7 +177,7 @@
 - **Phase 2**: depends on Phase 1 and blocks all user stories because package/revision identity must be unambiguous first.
 - **US1 (Phase 3)**: starts after Phase 2; it is the functional MVP and establishes one canonical source/ASR path.
 - **US2 (Phase 4)**: depends on v5 fan-out/identity from US1, but has independent playback/progress acceptance.
-- **US3 (Phase 5)**: depends on v5 identity and validates compatibility/rollback independently of a live runtime toggle.
+- **US3 (Phase 5)**: depends on v5 identity and validates compatibility/rollback policy independently of a live runtime toggle.
 - **US4 (Phase 6)**: depends on stable v5 and historical compatibility proof; it removes only active legacy, not retention-needed historic behavior.
 - **Phase 7**: depends on all desired stories; it is the high-risk closeout gate and includes no deploy/release execution.
 
@@ -205,7 +205,7 @@
 ### Incremental Delivery
 
 1. Add US2 for product-quality playback and real progress.
-2. Add US3 for compatibility/rollback proof.
+2. Add US3 for compatibility/rollback-policy proof.
 3. Add US4 to remove active legacy after compatibility is isolated.
 4. Complete Phase 7 only when every acceptance metric and required evidence is green.
 

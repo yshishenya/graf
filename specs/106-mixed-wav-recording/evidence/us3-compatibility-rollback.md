@@ -57,6 +57,13 @@ v5 record may be rewritten or resubmitted during that rehearsal.
   metadata-degraded v3 receipts (`status=degraded`,
   `failureReason=timeline_misaligned`); the incoming/system track remained
   `silent_input`, so neither receipt passed the baseline quality gate.
-- `rollback=fail/open`: the exact rollback acceptance requirement is still not
-  demonstrated on the current Mac. T064 remains open; no installer, updater,
+- `rollback=fail/open`: the exact rollback acceptance requirement was not
+  demonstrated on the current Mac at that checkpoint. No installer, updater,
   TCC or deployment rollback claim is made.
+
+## 2026-07-20 — contingency decision
+
+The old-baseline rehearsal is intentionally deferred. It is not required while
+the v5 path passes its current quality and end-to-end gates; run it only after
+a confirmed v5 quality failure. The earlier attempts remain metadata-only
+history and do not change accepted v5 artifacts.

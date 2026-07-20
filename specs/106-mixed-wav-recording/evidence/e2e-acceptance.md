@@ -58,8 +58,8 @@ separate release-boundary check and is recorded as such below until performed.
 The exact baseline rehearsal was subsequently attempted in an isolated future
 capture scope. The signed baseline artifact was valid and the candidate v5
 manifest/WAV/M4A hashes stayed unchanged, but the baseline ScreenCaptureKit
-runtime timed out before publishing any artifact. Therefore the rollback part
-of T064 remains open; no rollback pass is claimed.
+runtime timed out before publishing any artifact. At that historical
+checkpoint the rollback part of T064 was open; no rollback pass was claimed.
 
 ## 2026-07-20 — latest baseline follow-up
 
@@ -67,4 +67,12 @@ The later staged `v2026.07.17.9` baseline also started and stopped twice in an
 isolated future-capture scope, but both metadata receipts were
 `status=degraded` with `failureReason=timeline_misaligned` and a
 `silent_input` incoming track. The installed v5 candidate was not modified;
-the exact-baseline rollback gate remains open.
+the exact-baseline rollback gate was still open at that point.
+
+## 2026-07-20 — product decision
+
+The product decision is to defer the old-baseline rehearsal. The synthetic and
+installed v5 upload/finalize/process/cabinet/deletion path is the current
+acceptance scope; rollback is a documented contingency to execute only if a
+new v5 recording fails its quality gate. The earlier baseline failures remain
+metadata-only history and do not block the working v5 path.

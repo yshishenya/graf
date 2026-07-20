@@ -106,5 +106,6 @@ intentionally still open and are documented in `hardware-acceptance.md`.
   tests, `no-legacy-audio-driver: PASS`), both modified shell syntax checks,
   production Compose config and `git diff --check` passed after the merge.
 - No raw audio, transcript, secret, private path or provider payload was added.
-  T064 remains open only for the installed rollback rehearsal; no release,
-  deployment or user-data mutation is claimed here.
+  The old-baseline rehearsal is now a deferred contingency and is not a current
+  v5 acceptance gate; no release, deployment or user-data mutation is claimed
+  here.

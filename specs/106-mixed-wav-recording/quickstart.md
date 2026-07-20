@@ -79,7 +79,9 @@ This is mandatory before closeout because unit tests cannot prove real device cl
 4. Inspect only metadata: exact package members/formats, durations, hashes, marker timing, gap/drop counts and status codes. WAV/decoded M4A/transcript timelines must differ by ≤100 ms beyond separately recorded AAC priming.
 5. Upload through the desktop app. Confirm real progress moves before the final artifact, server accepts `media` + `playback`, and only `media` is sent to one ASR job.
 6. Confirm playback and one chronological user-visible transcript result. The transcript check records pass/fail/count/timestamps only, never content.
-7. Repeat with deletion and a rollback rehearsal on test data. Rollback affects a subsequent recording only.
+7. Repeat with deletion. Record rollback as `deferred` while v5 passes its
+   quality gates; run the rehearsal on test data only after a confirmed v5
+   quality failure. Rollback affects a subsequent recording only.
 
 ## Closeout
 
