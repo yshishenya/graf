@@ -98,3 +98,25 @@ Before choosing the bootstrap version, wait for any parallel release to merge,
 create a clean worktree from exact refreshed `origin/master`, enumerate remote
 CalVer tags and choose the next free number.  Do not preallocate or reuse a
 parallel release version.
+
+## T014 disposable-artifact receipt — 2026-07-20
+
+On the refreshed `origin/master` base, the required local-only validation used
+only the repository's disposable public fixture and a locally self-signed
+package. No production signing generation, protected environment, release tag,
+installed app, TCC permission, public appcast, or remote asset changed.
+
+- `apps/macos/Installer/Scripts/test-release-signing-custody.sh` passed with
+  `fixture=disposable-public`.
+- `apps/macos/Scripts/validate-macos-permission-retention.sh preflight`
+  confirmed the local validation signing identity is available.
+- `apps/macos/Scripts/validate-macos-permission-retention.sh build` created a
+  local validation package only; its own output confirms it is neither
+  Developer ID signed nor notarized for distribution.
+- `apps/macos/Scripts/validate-macos-permission-retention.sh staged-identity`
+  confirmed bundle identifier `pro.2brain.graf`, a valid local signing
+  authority, and a designated requirement for the staged disposable app.
+
+This proves the local/disposable boundary required by T014. Physical bootstrap
+installation, TCC-retention proof, protected environment enrollment, and
+normal in-app update proofs remain separate open tasks.
