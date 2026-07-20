@@ -358,6 +358,12 @@ Audit expectations:
 - retention changes are reviewed;
 - provider configuration changes are reviewed.
 
+Access review receipt (2026-07-21): a pending `ADMIN` invitation exists for a
+second trusted operator, but the active membership count is still one because
+email delivery is not configured and the invitation has not been accepted.
+The invitee must set their own password and enable MFA. Until then, the
+owner-only access boundary remains open and provider delivery stays fail-closed.
+
 ## Backup And Restore
 
 The detailed procedure lives in `infra/posthog/backup-restore.md`.

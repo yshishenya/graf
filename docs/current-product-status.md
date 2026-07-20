@@ -853,7 +853,9 @@ metadata-only evidence остаются подробной историей ре
   lifecycle are now configured at the 90-day baseline; the session-replay
   bucket was empty and provider delivery remains fail-closed. The root-owned
   guard/timer and reviewed automatic rollback override now have a production
-  receipt. T104 remains open until that dependency is
+  receipt. A pending second-operator admin invitation exists, but the active
+  membership count is still one because PostHog email delivery is unavailable
+  and the invite has not been accepted. T104 remains open until that dependency is
   complete and the tracker/spec reconciliation is truthful; Issue #3860 was
   reopened on 2026-07-20 after its premature closure. The exact receipts and
   remaining boundaries are in
