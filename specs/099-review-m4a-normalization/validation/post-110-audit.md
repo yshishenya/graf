@@ -49,3 +49,15 @@ This receipt changes no application code, schema, production state, release
 tag, task checkbox or GitHub issue state. It records the exact remaining
 limitation so the next continuation can resume after the Chrome Extension is
 reinstalled and the production browser/embedded receipt is collected.
+
+## Superseding closeout receipt — 2026-07-20
+
+The earlier audit above is historical. T115 is now complete: the production
+Chrome cabinet receipt recorded an authorized ready-audio playback with
+metadata-only `Range: bytes=262144-` and HTTP `206` with the matching
+`Content-Range` and `Accept-Ranges` headers. The production first-party/manual
+conversion, transient worker recovery, inventory-before-mutation backfill,
+transcript independence, worker/migration health and zero-residue cleanup
+receipts were already present in `release-closeout.md`. T116 is complete after
+status reconciliation and clean release-worktree verification. Feature 097
+and its standalone Codex Security scan remain explicitly deferred.
