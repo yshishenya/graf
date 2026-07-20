@@ -79,6 +79,8 @@ Date: 2026-07-20
 - `git diff --check` passed and the integration worktree is clean. This receipt
   validates the candidate branch only; T101 operational approvals and T104
   release/deploy closeout remain separate gates.
+- `infra/scripts/cd-remote.sh --dry-run` passed on this branch and preserved the
+  explicit execute boundary (`posthog_stack_execute=requires_explicit_release_approval`).
 
 ## T103 ordinary-workflow and identity-scope receipt
 
