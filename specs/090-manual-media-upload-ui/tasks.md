@@ -448,7 +448,7 @@ macOS application, and publish a release from the merged `master` SHA.
 - [X] T084 [P0] Добавить origin/cleanup/UI recovery regression assertions
   (#3057, canonical T094).
 - [X] T085 [P0] Повторить release/deploy gate для текущего runtime diff после
-  merge; `v2026.07.20.5` и production SHA `271ba65c` подтверждены, а полный
+  merge; `v2026.07.20.6` и production SHA `bcfba51a` подтверждены, а полный
   external user-path E2E остаётся отдельным T072/#3050 gate (#3049).
 - [X] T095 [P0] Ограничить smoke helpers exact production HTTPS/loopback origin,
   mode-0600/O_NOFOLLOW auth material и exact `run_id` binding в
@@ -458,8 +458,9 @@ macOS application, and publish a release from the merged `master` SHA.
   cleanup passed without publishing keys (#3059).
 - [X] T097 [P1] Убрать blind retry для fingerprint/auth conflict и сохранить
   keyboard-safe recovery controls (#3060).
-- [ ] T098 [P0] Провести текущий-diff closeout checks и закрыть связанные
-  GitHub issues только после receipts (#3061).
+- [X] T098 [P0] Провести текущий-diff closeout checks и закрыть связанные
+  GitHub issues только после receipts (#3061); доказанные review/cleanup
+  issues #3044, #3055 и #3059 закрыты, внешние E2E issues оставлены открытыми.
 - [X] T092 [P0] Получить независимый review receipt после исправлений и
   зафиксировать остаточные ограничения без заявления production Chrome proof
   (#3055, canonical T092).
@@ -479,9 +480,9 @@ macOS application, and publish a release from the merged `master` SHA.
 
 ## Phase 14: Tracker and Release Boundary
 
-- [ ] V004 Close only issues whose acceptance is proven by the receipt; leave
-  #3050, #3044/#3055, #3056, #3049, #3059 and #3061 open when external or
-  exact-SHA evidence is unavailable.
-- [X] V005 Prepare and deploy CalVer `v2026.07.20.5` only after runtime code
+- [X] V004 Close only issues whose acceptance is proven by the receipt;
+  #3044, #3055 and #3059 закрыты после receipts, а #3050, #3056, #3049 и
+  #3061 остаются открытыми для внешних или дополнительных границ.
+- [X] V005 Prepare and deploy CalVer `v2026.07.20.6` only after runtime code
   from Phase 12 was merged and the production gate was green; the release and
   exact runtime SHA are recorded above.

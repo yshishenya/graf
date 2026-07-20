@@ -331,29 +331,33 @@ metadata-only evidence остаются подробной историей ре
   policy, and local-trust-shell/server-dashboard UI authority model.
 - Feature `090-manual-media-upload-ui` is merged through
   [#3874](https://github.com/yshishenya/crisp/pull/3874) and follow-up review
-  fixes in [#3877](https://github.com/yshishenya/crisp/pull/3877), released
-  through [#3878](https://github.com/yshishenya/crisp/pull/3878) as
-  [`v2026.07.20.5`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.20.5),
-  and deployed at exact runtime SHA `271ba65c433025fb10c7ef57004acc56cb325f13`.
+  fixes in [#3877](https://github.com/yshishenya/crisp/pull/3877). The final
+  no-follow artifact hardening is in [#3880](https://github.com/yshishenya/crisp/pull/3880),
+  released through [#3881](https://github.com/yshishenya/crisp/pull/3881) as
+  [`v2026.07.20.6`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.20.6),
+  and deployed at exact runtime SHA `bcfba51a212bf723ed9fa86f96bbe3dcd49282fb`.
   The convergence fixes make accepted-without-dispatch UI state truthful,
   preserve accepted multipart custody before conflict materialization, verify
   stored M4A size before egress headers, restrict the embedded picker to the
   same-origin meeting list, and bind metadata-only smoke auth files to an
   approved origin and exact run id. The follow-up also makes default smoke run
   IDs collision-resistant, limits artifact/token paths to direct `/tmp`
-  children without traversal or symlink parents, requires container cleanup
-  verification before `infra_smoke_ready`, and proves row-lock serialization
-  with two PostgreSQL transactions. Backup/restore, migration head
+  children without traversal or symlink parents, creates the in-container
+  artifact leaf atomically without following a pre-existing file or symlink,
+  requires container cleanup verification before `infra_smoke_ready`, and
+  proves row-lock serialization with two PostgreSQL transactions. Backup/restore, migration head
   `0028_active_space_read`, disposable RLS probes, service readiness, public
   health/readiness and metadata-only smoke/cleanup passed. Final local CI passed
-  with 582 macOS tests, PostgreSQL parallel 1935 passed plus one skip, strict
+  with 582 macOS tests, PostgreSQL parallel 1936 passed plus one skip, strict
   34 passed plus one skip, Ruff, compile, Compose and deployment evidence scan;
   the local live-production RLS boundary remains intentionally unclaimed. The
   remaining open boundary is the external `test-rec` manual-upload review with
   non-empty transcript/speaker/summary and its zero-residue receipt; production
   smoke is infrastructure proof, not that final user-path claim. Deferred
-  post-deploy checks remain explicitly marked `required_post_deploy`. Evidence
-  is in `specs/090-manual-media-upload-ui/validation/production-closeout-2026-07-20.md`.
+  post-deploy checks remain explicitly marked `required_post_deploy`. Review and
+  cleanup receipts closed #3044, #3055 and #3059; #3049, #3050 and the external
+  test-rec/browser gates remain open. Evidence is in
+  `specs/090-manual-media-upload-ui/validation/production-closeout-2026-07-20.md`.
 - Feature `108-local-postgres-only` is merged through
   [#3873](https://github.com/yshishenya/crisp/pull/3873). The local runner now
   uses disposable PostgreSQL for the complete server suite and the active
