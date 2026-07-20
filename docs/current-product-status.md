@@ -847,12 +847,13 @@ metadata-only evidence остаются подробной историей ре
   `v2026.07.20.6`. Provider flags remain disabled/fail-closed, so this is an
   infrastructure integration receipt, not product-rollout or paid-campaign
   approval. T097–T100, T102 and T103 have current-master evidence. T101 remains
-  open for a root-owned production guard/timer receipt, independent RBAC/MFA/
-  audit and retention/lifecycle review, dashboard freshness and approved-goal
-  review, and persistent alert/rollback evidence. T104 remains open until that
-  dependency is complete and the tracker/spec reconciliation is truthful; Issue
-  #3860 was reopened on 2026-07-20 after its premature closure. The exact
-  receipts and remaining boundaries are in
+  open for independent RBAC/MFA/audit and retention/lifecycle review, dashboard
+  freshness and approved-goal review, and full persistent alert/restore
+  evidence; the root-owned guard/timer and reviewed automatic rollback override
+  now have a production receipt. T104 remains open until that dependency is
+  complete and the tracker/spec reconciliation is truthful; Issue #3860 was
+  reopened on 2026-07-20 after its premature closure. The exact receipts and
+  remaining boundaries are in
   `specs/096-product-analytics-provider-rollout/validation/current-master-integration.md`.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route

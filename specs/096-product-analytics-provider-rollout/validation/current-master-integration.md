@@ -299,6 +299,21 @@ lock file was created, with no `.env`, container, or user-data change. After
 `oom=0`, `restart_count=1`, and `health_failures=0`. The runtime flags remained
 `AUTO_ROLLBACK=0`, `DRY_RUN=1`, and `STOP_STACK=0`.
 
+## T101 production rollback override receipt: 2026-07-21
+
+The root operator applied the separately reviewed production override:
+`AUTO_ROLLBACK=1`, `DRY_RUN=0`, and `STOP_STACK=0`. The one-shot guard then
+returned `Result=success`/`ExecMainStatus=0` with `result=pass`, `containers=33`,
+`oom=0`, `restarts=0`, and `health_failures=0`; the timer remained enabled and
+active. GRAF readiness and the PostHog `_health` endpoint both returned HTTP
+200. No breach was simulated, no stack was stopped, and provider delivery
+remained disabled. The detailed metadata-only receipt is
+[`t101-production-runtime-guard-receipt-20260721.md`](t101-production-runtime-guard-receipt-20260721.md).
+
+This closes only the alert/rollback configuration subtask. T101 remains open
+for independent RBAC/audit, retention/deletion lifecycle, dashboard freshness
+and approved-goal review, and full persistent alert/restore evidence.
+
 ## T102 live-safe Yandex upload receipt: 2026-07-20
 
 - A separate Yandex OAuth application was created with the minimal
