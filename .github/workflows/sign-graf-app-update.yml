@@ -55,7 +55,25 @@ jobs:
           ref: refs/tags/${{ inputs.release_tag }}
 
       - name: Resolve pinned Sparkle release tools
-        run: swift build --package-path apps/macos -c release --product TwoBrainRecApp
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          ARTIFACT_DIR=apps/macos/.build/artifacts/sparkle
+          DOWNLOAD_DIR="$RUNNER_TEMP/graf-sparkle-download"
+          ARCHIVE="$DOWNLOAD_DIR/Sparkle-for-Swift-Package-Manager.zip"
+          mkdir -p "$DOWNLOAD_DIR" "$ARTIFACT_DIR/Sparkle"
+          gh release download 2.9.4 \
+            --repo sparkle-project/Sparkle \
+            --pattern Sparkle-for-Swift-Package-Manager.zip \
+            --dir "$DOWNLOAD_DIR"
+          printf '%s  %s\n' \
+            cb6fdbdc8884f15d62a616e79face92b08322410fd2d425edc6596ccbf4ba3b0 \
+            "$ARCHIVE" | shasum -a 256 -c -
+          ditto -x -k "$ARCHIVE" "$ARTIFACT_DIR/Sparkle"
+          test -x "$ARTIFACT_DIR/Sparkle/bin/generate_keys"
+          test -x "$ARTIFACT_DIR/Sparkle/bin/generate_appcast"
+          test -x "$ARTIFACT_DIR/Sparkle/bin/sign_update"
 
       - name: Validate draft inputs and stage signed update assets
         env:
