@@ -337,6 +337,25 @@ T101 remains open for independent RBAC/MFA/audit, future deletion-enforcement
 proof, dashboard freshness after approved rollout (or an approved empty-data
 procedure), and persistent restore/alert review.
 
+## T101 access and rollout boundary receipt: 2026-07-21
+
+A pending organization invitation with `ADMIN` level was created for the second
+trusted operator supplied by the owner. The active membership count remains
+`1`; the invitation is not accepted, and PostHog email delivery is unavailable,
+so no invitation email was sent. No invite URL, email address, password, or
+credential was written to evidence. The invitee must accept the invitation,
+choose their own password, and enable MFA before independent RBAC/audit review
+can pass.
+
+The request to enable “all events” was not applied. Broad first-party PostHog
+autocapture, the two approved Yandex conversion events, and replay/Webvisor/
+maps/forms are separate scopes. Credential/content suppression, page-class
+approval, retention/deletion truth, legal/QA evidence, and rollback remain
+required; provider delivery therefore remains disabled/fail-closed.
+
+The detailed metadata-only receipt is
+[`t101-access-review-receipt-20260721.md`](t101-access-review-receipt-20260721.md).
+
 ## T102 live-safe Yandex upload receipt: 2026-07-20
 
 - A separate Yandex OAuth application was created with the minimal
