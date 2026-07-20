@@ -117,6 +117,31 @@ def test_smoke_execute_rejects_paths_that_escape_direct_tmp_children(
     assert "direct child" in result.stderr
 
 
+def test_test_artifact_generator_refuses_preexisting_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    output = tmp_path / "artifact"
+    output.symlink_to(target, target_is_directory=True)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "apps/server/scripts/create_test_artifact.py"),
+            "--duration-seconds",
+            "3",
+            "--out",
+            str(output),
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+
+    assert result.returncode != 0
+    assert not (target / "mic.wav").exists()
+
+
 @pytest.mark.parametrize(
     "run_id",
     ["", "../escape", "bad;touch /tmp/pwned", "bad value", "ключ", "a" * 129],
