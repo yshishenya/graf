@@ -63,6 +63,23 @@ Date: 2026-07-20
   modules: pass.
 - `git diff --check`: pass.
 
+## Current merge-head validation receipt: 2026-07-20
+
+- After synchronizing with `origin/master` at `97fe1e5762582aa7bb5dcca60d248ab12ab937f7`,
+  the canonical `infra/scripts/ci-local.sh` run completed on merge-head
+  `46dd0e021361adc835f3d81049e15d0d27108852`: macOS **577 tests**, server
+  PostgreSQL phase **1910 passed, 1 skipped**, strict PostgreSQL/RLS subset
+  **34 passed, 1 skipped**, and the macOS contract validation all passed.
+- The post-master Sparkle lifecycle receipt also passed: **17 tests, 0
+  failures** (`InstallerLifecycleEvidenceTests`). The remaining CI checks on
+  the same merge-head passed: Ruff, Python compile, production Compose
+  rendering, and deployment-evidence scan. The RLS hardening checker reported
+  its documented `postgres_test` boundary block because no live production
+  probe was supplied; this is not treated as production enforcement proof.
+- `git diff --check` passed and the integration worktree is clean. This receipt
+  validates the candidate branch only; T101 operational approvals and T104
+  release/deploy closeout remain separate gates.
+
 ## T103 ordinary-workflow and identity-scope receipt
 
 - Identity decision: this current integration slice supports only a real,
