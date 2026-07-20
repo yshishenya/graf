@@ -12058,6 +12058,11 @@ components:
             $ref: '#/components/schemas/TranscriptSegmentView'
           type: array
           title: Segments
+        speaker_turns:
+          items:
+            $ref: '#/components/schemas/TranscriptSpeakerTurnView'
+          type: array
+          title: Speaker Turns
       type: object
       required:
       - available
@@ -12119,6 +12124,68 @@ components:
       - source_role
       - text
       title: TranscriptSegmentView
+    TranscriptSpeakerTurnView:
+      properties:
+        turn_id:
+          type: string
+          title: Turn Id
+        sequence:
+          type: integer
+          title: Sequence
+        start_seconds:
+          type: number
+          title: Start Seconds
+        end_seconds:
+          type: number
+          title: End Seconds
+        timestamp_label:
+          type: string
+          title: Timestamp Label
+        speaker_label:
+          type: string
+          title: Speaker Label
+        source_role:
+          type: string
+          enum:
+          - local_microphone
+          - incoming_system
+          - uploaded_media
+          - canonical_mixed
+          - unknown
+          title: Source Role
+        text:
+          type: string
+          title: Text
+        source_segment_ids:
+          items:
+            type: string
+          type: array
+          title: Source Segment Ids
+        confidence_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Confidence Label
+        seekable:
+          type: boolean
+          title: Seekable
+          default: false
+        seek_seconds:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Seek Seconds
+      type: object
+      required:
+      - turn_id
+      - sequence
+      - start_seconds
+      - end_seconds
+      - timestamp_label
+      - speaker_label
+      - source_role
+      - text
+      title: TranscriptSpeakerTurnView
     UpcomingCalendarEventsResponse:
       properties:
         events:

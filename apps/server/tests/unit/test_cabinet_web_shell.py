@@ -34,6 +34,7 @@ from twobrain_rec_server.api.schemas import (
     SpeakerReviewState,
     TranscriptReviewState,
     TranscriptSegmentView,
+    TranscriptSpeakerTurnView,
 )
 from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 from twobrain_rec_server.cabinet.deletion_rendering import render_deletion_report_page
@@ -1114,6 +1115,61 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert "Не удалось обновить статус. GRAF попробует снова автоматически." in script
     assert "dataset.playbackRecoveryCopy" in script
     assert "stopPlaybackRecoveryPolling()" in script
+
+
+def test_detail_shell_prefers_derived_turns_and_keeps_raw_fallback_safe() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        duration_seconds=120,
+        speed_options=[0.75, 1.0, 1.25, 1.5, 2.0],
+        unavailable_reason="none",
+        playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
+        policy_label="Аудио доступно для проверки",
+        source_mode="stored_review_m4a",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.transcript = TranscriptReviewState(
+        available=True,
+        language="ru",
+        search_enabled=True,
+        segments=[
+            TranscriptSegmentView(
+                segment_id="raw-only-id",
+                sequence=0,
+                start_seconds=10.0,
+                end_seconds=11.0,
+                timestamp_label="00:10",
+                speaker_label="SPEAKER_00",
+                source_role="incoming_system",
+                text="raw fragment must not be rendered when a turn exists",
+                seekable=True,
+                seek_seconds=10.0,
+            )
+        ],
+        speaker_turns=[
+            TranscriptSpeakerTurnView(
+                turn_id="turn-id",
+                sequence=0,
+                start_seconds=10.0,
+                end_seconds=12.0,
+                timestamp_label="00:10",
+                speaker_label="SPEAKER_00",
+                source_role="incoming_system",
+                text="<synthetic merged turn>",
+                source_segment_ids=["raw-only-id", "raw-second-id"],
+                seekable=True,
+                seek_seconds=10.0,
+            )
+        ],
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert "&lt;synthetic merged turn&gt;" in page
+    assert "raw fragment must not be rendered when a turn exists" not in page
+    assert 'data-seek-seconds="10.0"' in page
+    assert 'data-playback-transcript' in page
 
 
 def test_cabinet_web_py_no_longer_owns_inline_page_scripts() -> None:
