@@ -21,6 +21,12 @@ class DownloadStreamingOnlyStorage:
     def iter_object(self, object_key: str, *, offset: int = 0, length: int | None = None):
         return self.delegate.iter_object(object_key, offset=offset, length=length)
 
+    def stat_object(self, object_key: str):
+        return self.delegate.stat_object(object_key)
+
+    async def stat_object_async(self, object_key: str):
+        return await self.delegate.stat_object_async(object_key)
+
 
 def test_allowed_transcript_download_is_server_mediated_and_audited(client) -> None:
     seeds = seed_cabinet_meetings(client)

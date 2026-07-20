@@ -171,6 +171,7 @@ docker compose -f infra/docker-compose.yml exec -T rec-api \
   --workspace "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["X-Workspace-Id"])' "$SMOKE_AUTH_JSON")" \
   --user "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["X-User-Id"])' "$SMOKE_AUTH_JSON")" \
   --device "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["X-Device-Id"])' "$SMOKE_AUTH_JSON")" \
+  --run-id "$RUN_ID" \
   --token-file "$SMOKE_TOKEN_FILE" \
   --artifact "${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/tmp/twobrain-rec-smoke-artifact}" >/tmp/twobrain-rec-smoke-upload.json
 

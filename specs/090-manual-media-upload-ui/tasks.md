@@ -412,3 +412,73 @@ macOS application, and publish a release from the merged `master` SHA.
   `0933abf173f1367a382835a1d723c1f5c1b432a1895f7aa1108092473e91a38e`.
   Public Developer ID signing/notarization remains unavailable, and installing
   the local package requires interactive administrator authorization.
+
+---
+
+## Phase 12: Current-Diff Convergence (2026-07-20)
+
+Эта append-only фаза закрывает только проверенные расхождения текущего diff.
+Старые релизные receipts выше не переиспользуются как доказательство новых
+границ. Внешний production Chrome/E2E путь остаётся отдельным gate.
+
+- [ ] T072 [P0] Доказать полный результат ручной загрузки на реальной записи
+  (transcript, speaker truth, сохранённый summary и cleanup) без публикации
+  содержимого в evidence; зависит от внешнего MediaScribe/Chrome пути (#3050).
+- [X] T073 [P1] Показать в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+  честный accepted-without-dispatch статус и recovery для auth/session failure;
+  покрыто static asset contract (#3047).
+- [X] T074 [P0] Сохранить source-kind-aware playback M4A contract и regression
+  coverage текущего `manifest.py`/`finalize.py`/normalization пути (#3046).
+- [X] T075 [P0] Выполнить fingerprint preflight до materialization в
+  `apps/server/src/twobrain_rec_server/ingest/finalize.py` и доказать сохранение
+  принятого multipart object при конфликтном retry (#3048).
+- [X] T076 [P1] Добавить stat size в `MinioStorage` и fail-closed проверку
+  playback/download до выдачи range headers в `cabinet/egress.py` (#3045).
+- [X] T077 [P1] Добавить regression checks для UI recovery controls и
+  `workflow_started` handoff в `tests/contract/test_cabinet_static_assets_contract.py`.
+- [X] T078 [P0] Подтвердить bounded multipart stream и отсутствие whole-file
+  `UploadFile.read` в текущем manual-upload path (#3053, canonical T090).
+- [X] T079 [P0] Подтвердить durable custody и immutable conflict boundary
+  focused PostgreSQL тестом (#3052, canonical T089).
+- [X] T080 [P0] Проверить защищённый embedded picker в
+  `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` (#3054, canonical T091).
+- [ ] T083 [P0] Получить независимый product/UX/code/security/release review
+  receipt после исправлений T073–T080 (#3044, canonical T083).
+- [X] T084 [P0] Добавить origin/cleanup/UI recovery regression assertions
+  (#3057, canonical T094).
+- [ ] T085 [P0] Повторить release/deploy gate для текущего runtime diff после
+  merge; docs-only release не заявлять (#3049).
+- [X] T095 [P0] Ограничить smoke helpers exact production HTTPS/loopback origin,
+  mode-0600/O_NOFOLLOW auth material и exact `run_id` binding в
+  `apps/server/scripts/smoke_target.py` (#3058).
+- [ ] T096 [P0] Дополнить workspace-prefix cleanup receipt фактическим
+  post-run zero-object read-back (#3059).
+- [X] T097 [P1] Убрать blind retry для fingerprint/auth conflict и сохранить
+  keyboard-safe recovery controls (#3060).
+- [ ] T098 [P0] Провести текущий-diff closeout checks и закрыть связанные
+  GitHub issues только после receipts (#3061).
+- [ ] T092 [P0] Получить независимый review receipt после исправлений и
+  зафиксировать остаточные ограничения без заявления production Chrome proof
+  (#3055, canonical T092).
+- [ ] T093 [P0] Зафиксировать metadata-only E2E и zero-residue evidence на
+  текущем exact SHA; raw audio/transcript/summary не сохраняются
+  (#3056, canonical T093).
+
+## Phase 13: Validation Receipt (2026-07-20)
+
+- [X] V001 Run `node --check`, focused PostgreSQL tests, focused Swift tests,
+  `git diff --check`, Ruff, compile and forbidden-content scan; exact counts are
+  recorded in `validation/closeout-2026-07-20.md`.
+- [X] V002 Run `GRAF_TEST_WORKERS=8 bash infra/scripts/ci-local.sh` on the final
+  candidate and record the exact SHA and result in the receipt.
+- [X] V003 Run independent code review and Ponytail review; record findings and
+  residual limitations without claiming production Chrome proof.
+
+## Phase 14: Tracker and Release Boundary
+
+- [ ] V004 Close only issues whose acceptance is proven by the receipt; leave
+  #3050, #3044/#3055, #3056, #3049, #3059 and #3061 open when external or
+  exact-SHA evidence is unavailable.
+- [ ] V005 Prepare and deploy a new CalVer release only if runtime code from
+  Phase 12 is merged and the production gate is green; no release claim is made
+  from docs alone.

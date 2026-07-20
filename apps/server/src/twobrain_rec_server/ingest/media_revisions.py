@@ -125,6 +125,28 @@ def ensure_media_revision_fingerprint_is_immutable(
         raise MediaRevisionFingerprintConflict("track_sha256_by_role_changed")
 
 
+async def ensure_media_revision_acceptance_is_safe(
+    db: AsyncSession | None,
+    *,
+    media_revision_id: UUID | None,
+    manifest_sha256: str,
+    tracks: Iterable[object],
+) -> None:
+    """Check an accepted revision before any new storage object is materialized."""
+    if db is None or media_revision_id is None:
+        return
+    revision = await db.get(MediaRevision, media_revision_id)
+    if revision is None:
+        return
+    if revision.status == MediaRevisionStatus.ACCEPTED.value and revision.immutable:
+        ensure_media_revision_fingerprint_is_immutable(
+            existing_manifest_sha256=revision.manifest_sha256,
+            existing_track_sha256_by_role=revision.track_sha256_by_role,
+            new_manifest_sha256=manifest_sha256,
+            new_track_sha256_by_role=track_sha256_by_role(tracks),
+        )
+
+
 async def mark_media_revision_accepted(
     db: AsyncSession | None,
     *,

@@ -309,9 +309,53 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(webViewSource.contains("runOpenPanelWith parameters: WKOpenPanelParameters"))
         XCTAssertTrue(webViewSource.contains("let panel = NSOpenPanel()"))
         XCTAssertTrue(webViewSource.contains("panel.canChooseFiles = true"))
-        XCTAssertTrue(webViewSource.contains("panel.canChooseDirectories = parameters.allowsDirectories"))
-        XCTAssertTrue(webViewSource.contains("panel.allowsMultipleSelection = parameters.allowsMultipleSelection"))
+        XCTAssertTrue(webViewSource.contains("initiatedByFrame: WKFrameInfo"))
+        XCTAssertTrue(webViewSource.contains("panel.canChooseDirectories = false"))
+        XCTAssertTrue(webViewSource.contains("panel.allowsMultipleSelection = false"))
+        XCTAssertTrue(webViewSource.contains("completionHandler(nil)"))
         XCTAssertTrue(webViewSource.contains("completionHandler(urls.isEmpty ? nil : urls)"))
+    }
+
+    func testEmbeddedCabinetFilePickerIsBoundToMainFrameSameOriginMeetingList() throws {
+        let policy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        )
+        let listURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings"))
+        let detailURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/abc"))
+        let externalURL = try XCTUnwrap(URL(string: "https://evil.example/desktop/meetings"))
+
+        XCTAssertTrue(
+            EmbeddedCabinetWebView.allowsFilePicker(
+                webViewURL: listURL,
+                frameURL: listURL,
+                frameIsMainFrame: true,
+                routePolicy: policy
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.allowsFilePicker(
+                webViewURL: listURL,
+                frameURL: listURL,
+                frameIsMainFrame: false,
+                routePolicy: policy
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.allowsFilePicker(
+                webViewURL: listURL,
+                frameURL: detailURL,
+                frameIsMainFrame: true,
+                routePolicy: policy
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.allowsFilePicker(
+                webViewURL: listURL,
+                frameURL: externalURL,
+                frameIsMainFrame: true,
+                routePolicy: policy
+            )
+        )
     }
 
     private func makeActiveSession() -> CaptureSession {
