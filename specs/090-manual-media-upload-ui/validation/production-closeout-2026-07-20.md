@@ -43,3 +43,13 @@ real user identifiers.
 The remaining production boundary is the separate `test-rec` final-review path
 that must prove non-empty transcript, speaker truth, stored GRAF summary and
 zero residue without recording private content in evidence.
+
+## Chrome reachability recheck: 2026-07-20
+
+- After the user-requested Chrome restart, the ChatGPT Chrome Extension
+  connection succeeded.
+- A fresh Chrome tab attempted `https://rec.2brain.pro/meetings` twice and
+  received the browser error page `ERR_TIMED_OUT` both times.
+- No authentication, upload, media, transcript, summary, or user data was
+  entered or transmitted. The external `test-rec` final-review receipt and
+  Chrome accessibility gate remain open.
