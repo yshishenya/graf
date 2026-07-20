@@ -326,3 +326,19 @@ Remaining PostHog operations (dashboard/RBAC, retention/lifecycle, and resource
 thresholds), approvals, release, and production receipt are still required
 before Feature 096 can be accepted. The backup/restore subgate itself is now
 passed.
+
+## Tracker reconciliation after merge and release: 2026-07-20
+
+- PR #3852 is merged into `master` at
+  `11b82f378c24007b40d90f4c08e9645ce617e91d`.
+- The integrated provider/runtime-guard scope is included in
+  `v2026.07.20.3`; the later production runtime is
+  `bcfba51a212bf723ed9fa86f96bbe3dcd49282fb` from `v2026.07.20.6`.
+- Product analytics provider flags remain disabled and fail-closed. No product
+  rollout or paid-campaign approval is claimed.
+- T101 remains `[ ]` because its root-owned guard/timer, independent
+  RBAC/MFA/audit and lifecycle review, dashboard freshness/approved goals, and
+  persistent alert/rollback receipts are not complete.
+- T104 remains `[ ]` in `tasks.md`; Issue #3860 was reopened after its premature
+  closure so the tracker matches the dependency on T101. This correction does
+  not change production state.

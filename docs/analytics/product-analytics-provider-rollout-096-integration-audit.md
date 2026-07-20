@@ -1,5 +1,10 @@
 # Feature 096 integration audit
 
+> The opening anchor is the pre-merge snapshot from 2026-07-18. The
+> post-merge reconciliation at the end of this document is the current source
+> for merge, release, and production status; the older wording is retained as
+> audit history.
+
 Date: 2026-07-18
 
 ## Current anchor
@@ -89,3 +94,19 @@ provider/infrastructure integration candidate, not a production product-rollout
 approval. The T102 live-safe receipt proves provider acceptance only; do not
 enable long-running Yandex offline upload, change production approval flags, or
 claim paid-campaign readiness from smoke evidence alone.
+
+## Current-master post-merge reconciliation: 2026-07-20
+
+- PR #3852 is merged into `master` at `11b82f378c24007b40d90f4c08e9645ce617e91d`.
+- The integrated provider/runtime-guard scope is included in release
+  `v2026.07.20.3`; the later production runtime is
+  `bcfba51a212bf723ed9fa86f96bbe3dcd49282fb` from `v2026.07.20.6`.
+- Production provider flags remain disabled/fail-closed. No product-rollout or
+  paid-campaign approval is claimed.
+- T097-T100, T102 and T103 have current-master receipts. T101 remains open for
+  the root-owned production guard/timer, independent RBAC/MFA/audit and
+  lifecycle review, dashboard freshness/approved goals, and persistent
+  alert/rollback evidence.
+- T104 remains `[ ]` in `tasks.md`; Issue #3860 was reopened on 2026-07-20
+  because release/deploy evidence alone cannot close a task that depends on the
+  still-open T101. This is tracker correction, not a new implementation claim.
