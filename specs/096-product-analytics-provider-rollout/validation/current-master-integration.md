@@ -277,6 +277,10 @@ exports, secrets, or payloads were read.
 | Goal visibility | open | Aggregate ClickHouse data contains `46` events, latest `2026-07-09`; approved Yandex conversion event names are absent. |
 | Alert/rollback automation | open | Host systemd inventory has no PostHog-specific timer/service. Numeric limits and rollback script remain documented/available, but no persistent alert or automatic rollback receipt exists. |
 
+After this independent pass, `infra/scripts/run-product-analytics-provider-smoke.sh`
+was rerun and returned `provider_smoke_result=pass`; it still reports
+`product_rollout=blocked` and `rollback_status=ready_not_executed`.
+
 This independent pass confirms the existing T101 blockers rather than closing
 them. No production state was changed.
 
