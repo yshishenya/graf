@@ -4,11 +4,24 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import stat
+from argparse import ArgumentParser
 from pathlib import Path
 from urllib.parse import urlsplit
 
 PRODUCTION_ORIGIN = "https://rec.2brain.pro"
+_RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+
+
+def validate_run_id(value: str) -> str:
+    """Return a run id that is safe for paths, shell args, and smoke identity keys."""
+    if not isinstance(value, str) or _RUN_ID_PATTERN.fullmatch(value) is None:
+        raise ValueError(
+            "run_id must start with an ASCII letter or digit and contain only "
+            "ASCII letters, digits, '.', '_' or '-' (maximum 128 characters)"
+        )
+    return value
 
 
 def validate_origin(value: str) -> str:
@@ -32,8 +45,7 @@ def validate_origin(value: str) -> str:
 
 def read_private_auth_material(path: Path, *, expected_run_id: str | None = None) -> str:
     if expected_run_id is not None:
-        if not expected_run_id or Path(expected_run_id).name != expected_run_id:
-            raise ValueError("run_id must be a path-safe identifier")
+        validate_run_id(expected_run_id)
         if path.name != expected_run_id and not path.name.endswith(f"-{expected_run_id}"):
             raise ValueError("auth material is not bound to the exact run_id")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -53,3 +65,17 @@ def read_private_auth_material(path: Path, *, expected_run_id: str | None = None
     if not value:
         raise ValueError("auth material is empty")
     return value
+
+
+def main() -> None:
+    parser = ArgumentParser(description="Validate a production smoke run id.")
+    parser.add_argument("--validate-run-id", required=True)
+    args = parser.parse_args()
+    try:
+        validate_run_id(args.validate_run_id)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+
+if __name__ == "__main__":
+    main()

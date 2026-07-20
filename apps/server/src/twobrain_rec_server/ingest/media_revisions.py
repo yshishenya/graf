@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.db.models import MediaRevision
@@ -14,6 +15,19 @@ from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind, MediaRe
 
 class MediaRevisionFingerprintConflict(ValueError):
     pass
+
+
+async def _load_media_revision(
+    db: AsyncSession,
+    media_revision_id: UUID,
+    *,
+    for_update: bool,
+) -> MediaRevision | None:
+    statement = select(MediaRevision).where(MediaRevision.id == media_revision_id)
+    if for_update:
+        statement = statement.with_for_update()
+    result = await db.execute(statement)
+    return result.scalar_one_or_none()
 
 
 def initial_local_media_revision_id(local_recording_id: str) -> str:
@@ -135,7 +149,7 @@ async def ensure_media_revision_acceptance_is_safe(
     """Check an accepted revision before any new storage object is materialized."""
     if db is None or media_revision_id is None:
         return
-    revision = await db.get(MediaRevision, media_revision_id)
+    revision = await _load_media_revision(db, media_revision_id, for_update=True)
     if revision is None:
         return
     if revision.status == MediaRevisionStatus.ACCEPTED.value and revision.immutable:
@@ -157,7 +171,7 @@ async def mark_media_revision_accepted(
 ) -> None:
     if db is None or media_revision_id is None:
         return
-    revision = await db.get(MediaRevision, media_revision_id)
+    revision = await _load_media_revision(db, media_revision_id, for_update=True)
     if revision is None:
         return
     new_track_sha256_by_role = track_sha256_by_role(tracks)

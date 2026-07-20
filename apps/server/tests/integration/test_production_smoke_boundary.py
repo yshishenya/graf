@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).parents[4]
 
 
@@ -52,6 +54,39 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert script.index("python scripts/seed_smoke_identity.py") < script.index(
         "python scripts/issue_smoke_auth_session.py"
     )
+    assert 'TWOBRAIN_SMOKE_RUN_ID=\'$RUN_ID\'' not in script
+    assert 'SMOKE_RUN_DIR="$(mktemp -d "/tmp/twobrain-rec-smoke-${RUN_ID}.' in script
+    assert 'SMOKE_ARTIFACT_DIR="${SMOKE_ARTIFACT_BASE%/}-${RUN_ID}"' in script
+
+
+@pytest.mark.parametrize(
+    "run_id",
+    ["", "../escape", "bad;touch /tmp/pwned", "bad value", "ключ", "a" * 129],
+)
+def test_smoke_run_id_rejects_shell_and_path_injection(run_id: str) -> None:
+    result = subprocess.run(
+        [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), "--dry-run"],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "TWOBRAIN_SMOKE_RUN_ID": run_id},
+    )
+
+    assert result.returncode == 2
+    assert "run_id" in result.stderr
+
+
+@pytest.mark.parametrize("run_id", ["smoke-014", "run.2026_07-20", "A" + "x" * 127])
+def test_smoke_run_id_accepts_bounded_safe_identifiers(run_id: str) -> None:
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "apps/server/scripts/smoke_target.py"), "--validate-run-id", run_id],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_remote_cd_deploys_processing_runtime_services() -> None:

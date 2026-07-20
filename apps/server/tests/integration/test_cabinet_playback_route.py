@@ -64,6 +64,11 @@ class PlaybackLoopCheckingStorage(PlaybackStreamingOnlyStorage):
         return self.delegate.iter_object(object_key, offset=offset, length=length)
 
 
+class PlaybackReaderFailingStorage(PlaybackStreamingOnlyStorage):
+    def iter_object(self, _object_key: str, *, offset: int = 0, length: int | None = None):
+        raise RuntimeError("storage backend unavailable")
+
+
 def _samples(body: bytes) -> list[int]:
     with wave.open(io.BytesIO(body), "rb") as wav:
         frames = wav.readframes(wav.getnframes())
@@ -204,15 +209,11 @@ def test_owner_playback_route_reports_storage_unavailable_when_reader_is_missing
 
 
 def test_owner_playback_route_audits_storage_reader_failure(client) -> None:
-    class FailingStorage:
-        def iter_object(self, _object_key: str, *, offset: int = 0, length: int | None = None):
-            raise RuntimeError("storage backend unavailable")
-
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
     add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A storage")
     original_storage = client.app.state.storage
-    client.app.state.storage = FailingStorage()
+    client.app.state.storage = PlaybackReaderFailingStorage(client.app_state["storage"])
     try:
         response = client.get(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers()
