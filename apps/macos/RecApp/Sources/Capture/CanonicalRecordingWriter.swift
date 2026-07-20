@@ -42,7 +42,7 @@ public struct CanonicalRecordingArtifact: Equatable, Sendable {
 public final class CanonicalRecordingWriter: @unchecked Sendable {
     public static let canonicalSampleRate: Double = 48_000
     public static let transcriptionSampleRate: Double = 16_000
-    public static let reviewBitRate = 96_000
+    public static let reviewBitRate = 64_000
 
     private let directory: LocalRecordingDirectory
     private let fileManager: FileManager

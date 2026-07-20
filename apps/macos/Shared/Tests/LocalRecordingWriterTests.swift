@@ -113,6 +113,7 @@ final class LocalRecordingWriterTests: XCTestCase {
     }
 
     func testCanonicalWriterFansOutOneTimelineIntoOnlyFinalV5Artifacts() throws {
+        XCTAssertEqual(CanonicalRecordingWriter.reviewBitRate, 64_000)
         let root = makeWriterTestRoot("canonical-fan-out")
         defer { try? FileManager.default.removeItem(at: root) }
         let directory = try LocalRecordingStore(rootURL: root).createDirectory(sessionId: "canonical-fan-out")
