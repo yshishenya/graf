@@ -13,6 +13,8 @@
   browser и macOS-контракты, secret-file границы, runbooks и metadata-only
   smoke/rollback-проверки. Provider delivery и production rollout остаются
   выключенными до закрытия T097–T104 и отдельного evidence-gate.
+- Metadata-only PostHog runtime guard с journald alert и fail-closed rollback
+  contract; production systemd installation остаётся отдельным T101 gate.
 
 ### Изменено
 - _Пока нет записей._

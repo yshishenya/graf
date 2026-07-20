@@ -284,6 +284,16 @@ was rerun and returned `provider_smoke_result=pass`; it still reports
 This independent pass confirms the existing T101 blockers rather than closing
 them. No production state was changed.
 
+## T101 runtime guard contract: 2026-07-20
+
+The candidate now contains a narrow metadata-only runtime guard and one-minute
+systemd timer. Contract validation passed: shell syntax, threshold checks,
+journald alert output, fail-closed analytics switches, secure root-owned
+installation path, zero-restart execution, and measurement-gap impact were
+verified. The guard was exercised against disposable endpoints and test
+containers; no production restart or state change was performed. Production
+installation and a real timer receipt remain pending the release/deploy gate.
+
 ## T102 live-safe Yandex upload receipt: 2026-07-20
 
 - A separate Yandex OAuth application was created with the minimal

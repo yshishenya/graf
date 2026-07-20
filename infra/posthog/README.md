@@ -22,6 +22,8 @@ visitor/account identifiers, raw payloads, or provider exports.
 | `docker-compose.posthog.yml` | GRAF handoff/preflight contract for the separate self-hosted PostHog runtime; not the full upstream stack. |
 | `posthog.production.env.example` | Redacted runtime environment example to copy outside git. |
 | `backup-restore.md` | Backup, restore, and restore rehearsal procedure. |
+| `graf-posthog-runtime-guard.*` | One-minute aggregate health/resource guard and fail-closed provider rollback contract. |
+| `runtime-guard.env.example` | Out-of-git systemd guard settings; no secrets. |
 
 ## Runtime Placement
 
@@ -58,6 +60,11 @@ infra/scripts/run-product-analytics-provider-smoke.sh
 ```
 
 Future production deploy or PostHog stack changes require separate approval.
+
+Install the guard script as a root-owned copy under `/usr/local/libexec`; the
+systemd unit must never execute the mutable checkout. The checked-in env example
+is observe-only and must be copied to `/etc` with mode `0600`; automatic
+rollback/stack-stop require a separately reviewed production override.
 
 Runtime hardening recorded on 2026-07-09: mutable generated-runtime references
 were pinned by digest in the out-of-git production runtime, Compose config

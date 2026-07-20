@@ -249,10 +249,10 @@ blocker code described here.
 
 | Area | Initial Threshold | Rollback/Review Trigger |
 | --- | --- | --- |
-| CPU | Per-service Compose caps: `worker=4`, `web=3`, `clickhouse=3`, `elasticsearch=2`, `db=2`, `kafka=2`, `plugins=2`, `temporal-django-worker=2`; all other services are capped at `0.5–1` CPU. | Review at host 1-minute load `>=9` for 5 minutes; rollback provider delivery if GRAF readiness fails twice in 60 seconds or host load reaches `>=11`. |
-| Memory | Per-service Compose caps: `worker=12g`, `web/clickhouse/elasticsearch=8g`, `db/kafka/plugins/temporal-django-worker=4g`, `zookeeper/temporal/ingestion/object-storage/recording-api=2g`, small services `1g`. | Roll back on any PostHog `OOMKilled=true`, more than 2 restarts in 10 minutes, or host available memory `<16 GiB`. |
-| Disk | Keep analytics volumes separate; review below `20%` free and block/rollback before `<10%` free on the analytics filesystem. | Mark PostHog not ready, disable provider delivery, preserve GRAF workflows, and restore only after backup and free-space checks pass. |
-| Network | Analytics traffic remains on `analytics.2brain.pro`; probe analytics health every 60 seconds. | Review after 3 failed analytics probes in 5 minutes or analytics latency `>2s`; rollback provider delivery immediately if GRAF readiness or latency degrades. |
+| CPU | Per-service Compose caps: `worker=4`, `web=3`, `clickhouse=3`, `elasticsearch=2`, `db=2`, `kafka=2`, `plugins=2`, `temporal-django-worker=2`; all other services are capped at `0.5–1` CPU. | Review at host 1-minute load `>=9` for 5 minutes; the guard alerts on a sample at `>=11`. |
+| Memory | Per-service Compose caps: `worker=12g`, `web/clickhouse/elasticsearch=8g`, `db/kafka/plugins/temporal-django-worker=4g`, `zookeeper/temporal/ingestion/object-storage/recording-api=2g`, small services `1g`. | Roll back on any PostHog `OOMKilled=true`, more than 2 new restarts in 10 minutes, or host available memory `<16 GiB`. |
+| Disk | Keep analytics volumes separate; review below `20%` free and block/rollback before `<10%` free on the configured analytics filesystem. | Mark PostHog not ready, disable provider delivery, preserve GRAF workflows, and restore only after backup and free-space checks pass. |
+| Network | Analytics traffic remains on `analytics.2brain.pro`; probe analytics health every 60 seconds. | The guard alerts after 2 consecutive failed analytics/GRAF probes; latency and 3-of-5 probe review remain operator checks. |
 | Logs | `json-file` rotation `max-size=50m`, `max-file=3` for every generated-stack service. | Review if rotation is missing or forbidden fields appear; stop provider delivery before unbounded growth can affect GRAF. |
 | Backups | Daily metadata-only backup; latest backup age must be `<26h`; retain at least 90 days and rehearse isolated restore at least monthly. | Block readiness if backup is missing/stale or restore rehearsal fails; use the last known-good compose/volume state. |
 | Retention | Product event retention is `84` months; session recording policy is `5y` while recording is opted out; the 90-day baseline remains the minimum for new categories. | Review any policy/category without a documented owner and deletion behavior; do not claim lifecycle readiness from an empty table alone. |
@@ -261,9 +261,8 @@ The 2026-07-20 production receipt verified the 35-service Compose configuration,
 35 CPU entries, 35 memory entries, 33 running containers with non-zero runtime
 CPU/memory limits, zero OOM-killed containers, analytics health `200`, GRAF
 readiness `200`, and `29%` disk used. The production compose change is kept
-outside git with rollback copies. No automated host alert/rollback service was
-found, so the alerting portion remains an explicit T101 follow-up rather than a
-completed monitoring claim.
+outside git with rollback copies. The repository guard contract now exists, but
+the production systemd installation remains a separate T101 deploy receipt.
 
 Analytics must degrade first. Normal GRAF workflows must not be starved by the
 PostHog stack.
@@ -282,6 +281,51 @@ Resource-pressure behavior:
 2. Keep dashboard caveats visible.
 3. Run provider smoke after resource changes.
 4. Record only status, threshold, and blocker code.
+
+## Automated Runtime Guard
+
+The repository includes a deliberately narrow guard at
+`infra/scripts/posthog-runtime-guard.sh`. Production must run a reviewed,
+root-owned copy from `/usr/local/libexec`, not the mutable application
+checkout, through the systemd oneshot/timer pair
+(`graf-posthog-runtime-guard.service` and `graf-posthog-runtime-guard.timer`)
+once per minute.
+The guard emits only aggregate metrics and threshold/blocker codes to stdout
+and journald. It fails closed when host, Docker, or health metrics are
+unavailable, validates that running analytics containers retain non-zero CPU
+and memory limits, and never reads, prints, or copies provider secrets or event
+payloads.
+
+On a breach it logs an alert and, when the out-of-git environment sets
+`GRAF_POSTHOG_GUARD_AUTO_ROLLBACK=1` with `GRAF_POSTHOG_GUARD_DRY_RUN=0`,
+sets all product-analytics provider switches to their fail-closed values and
+restarts only `rec-api`. Set `GRAF_POSTHOG_GUARD_STOP_STACK=1` in the reviewed
+production override when the analytics containers must also be stopped to
+remove resource pressure. The expected impact is a measurement gap; GRAF
+readiness and normal product workflows remain the guarded health checks. A
+rollback or stack-stop failure returns a non-zero status for systemd/alerting.
+The runtime environment example is `infra/posthog/runtime-guard.env.example`.
+
+Installation is a release/deploy step, not a local smoke side effect:
+
+```sh
+install -d -o root -g root -m 0755 /usr/local/libexec
+install -o root -g root -m 0755 infra/scripts/posthog-runtime-guard.sh /usr/local/libexec/graf-posthog-runtime-guard.sh
+install -o root -g root -m 0644 infra/posthog/graf-posthog-runtime-guard.service /etc/systemd/system/
+install -o root -g root -m 0644 infra/posthog/graf-posthog-runtime-guard.timer /etc/systemd/system/
+install -o root -g root -m 0600 infra/posthog/runtime-guard.env.example /etc/graf-posthog-runtime-guard.env
+systemctl daemon-reload
+stat -c '%U:%G %a %n' /usr/local/libexec/graf-posthog-runtime-guard.sh /etc/graf-posthog-runtime-guard.env
+GRAF_POSTHOG_GUARD_DRY_RUN=1 systemctl start graf-posthog-runtime-guard.service
+systemctl enable --now graf-posthog-runtime-guard.timer
+```
+
+The checked-in environment example is observe-only (`AUTO_ROLLBACK=0`,
+`DRY_RUN=1`, `STOP_STACK=0`). Before enabling automatic rollback, create a
+separate root-owned production override, verify the dry-run receipt, and record
+the operator approval. The contract test checks the thresholds, metadata-only
+logging, fail-closed switches, secure install path, zero-restart execution, and
+one-minute timer; it does not constitute a production timer receipt.
 
 ## RBAC And Audit Model
 
