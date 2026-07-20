@@ -40,3 +40,10 @@ summary, credential, object key, private path, or user identifier.
 This is a review receipt, not a production-complete claim. The remediation is
 closed by #3877/#3880 and the `v2026.07.20.6` release/deploy receipt, while full external E2E and
 browser focus/AX/zoom gates remain open.
+
+## Superseding T201 receipt — 2026-07-20
+
+The focus/AX browser gate is now proven by the post-deploy Chrome receipt and
+#3060 is closed. The review remains intentionally non-production-complete only
+for the separate external manual-upload/test-rec transcript, speaker, summary
+and zero-residue path tracked by #3049/#3050.

@@ -461,7 +461,8 @@ macOS application, and publish a release from the merged `master` SHA.
 - [X] T098 [P0] Провести текущий-diff closeout checks и закрыть связанные
   GitHub issues только после receipts (#3061); доказанные review/cleanup/evidence
   issues #3044–#3048, #3051, #3052, #3054, #3055–#3059 и #3061 закрыты;
-  внешний browser/user-path issue #3060 оставлен открытым.
+  внешний manual-upload user-path остаётся в #3049/#3050; #3060 закрыт после
+  отдельного production Chrome focus-trap receipt.
 - [X] T092 [P0] Получить независимый review receipt после исправлений и
   зафиксировать остаточные ограничения без заявления production Chrome proof
   (#3055, canonical T092).
@@ -483,8 +484,9 @@ macOS application, and publish a release from the merged `master` SHA.
 ## Phase 14: Tracker and Release Boundary
 
 - [X] V004 Close only issues whose acceptance is proven by the receipt;
-  #3044–#3048, #3051, #3052, #3054–#3059 и #3061 закрыты после receipts, а
-  #3049, #3050 и #3060 остаются открытыми для внешних E2E/browser границ.
+  #3044–#3048, #3051, #3052, #3054–#3059 и #3061 закрыты после receipts;
+  #3049 и #3050 остаются открытыми для внешней manual-upload E2E границы;
+  #3060 закрыт после доказательства T097.
 - [X] V005 Prepare and deploy CalVer `v2026.07.20.6` only after runtime code
   from Phase 12 was merged and the production gate was green; the release and
   exact runtime SHA are recorded above.
@@ -497,3 +499,12 @@ macOS application, and publish a release from the merged `master` SHA.
   добавив соответствующую статическую contract-проверку в
   `apps/server/tests/contract/test_cabinet_static_assets_contract.py` по
   `FR-016` и Accessibility And Responsive Contract (partial).
+
+## Phase 16: T201 production receipt (2026-07-20)
+
+- [X] V006 Production Chrome metadata-only receipt подтвердил открытие
+  диалога, циклический Tab/Shift+Tab внутри него и возврат фокуса после
+  Escape на кнопку «Загрузить запись» после deploy `v2026.07.20.7`.
+  Файл не выбирался, новая запись не создавалась, production user data не
+  менялись; issue #3060 закрыт. Полный manual-upload/test-rec путь T072/T085
+  остаётся отдельной границей #3049/#3050.

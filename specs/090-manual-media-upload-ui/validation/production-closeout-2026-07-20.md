@@ -52,4 +52,16 @@ zero residue without recording private content in evidence.
   received the browser error page `ERR_TIMED_OUT` both times.
 - No authentication, upload, media, transcript, summary, or user data was
   entered or transmitted. The external `test-rec` final-review receipt and
-  Chrome accessibility gate remain open.
+  manual-upload gate remain open; the separate Chrome accessibility gate is
+  now closed by the T201 receipt below.
+
+## Superseding T201 browser receipt — 2026-07-20
+
+After `v2026.07.20.7` was deployed, an authorized production Chrome session
+reloaded the current cabinet bundle and verified the manual-upload dialog
+keyboard contract: initial focus on the file input, Tab to the title field,
+next Tab cycling to the close button, Shift+Tab returning to the title field,
+and Escape closing the dialog and returning focus to «Загрузить запись». No
+file was selected and no production record was created or modified. This
+closes #3060/T097. The separate external manual-upload/test-rec result with
+transcript, speaker, summary and residue-zero proof remains #3049/#3050.
