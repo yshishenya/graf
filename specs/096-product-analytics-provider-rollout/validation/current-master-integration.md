@@ -171,7 +171,7 @@ exports, identifiers, or provider payloads.
 
 | Review | Status | Metadata-only result |
 | --- | --- | --- |
-| Team retention | partial | One team reports `event_retention_months=84`; session-recording opt-in is false and session-recording retention is unset. |
+| Team retention | partial | One team reports `event_retention_months=84`; session-recording opt-in is false. The earlier day-field check appeared unset; the corrected 2026-07-20 recheck found policy string `5y`. |
 | Session data | pass for current empty state | `posthog_sessionrecording` contains 0 rows and 0 rows with a retention period; this does not prove future lifecycle enforcement. |
 | Exports | pass for current empty state | Exported assets, exported recordings, batch exports, batch-export runs, and batch-export downloads each have 0 rows. |
 | Deletion requests | pass for current empty state | No PostHog data-deletion requests are present; provider-held deletion behavior still needs a documented lifecycle approval. |

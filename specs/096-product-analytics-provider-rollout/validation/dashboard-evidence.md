@@ -31,7 +31,7 @@ activity details, exports, identifiers, or provider payloads.
 | Review | Status | Metadata-only result | Remaining gate |
 | --- | --- | --- | --- |
 | PostHog backup/restore | subgate_pass | Twelve generated runtime volume classes passed archive integrity and isolated restore; GRAF readiness remained ready. | Independent ops approval. |
-| Retention/session lifecycle | partial | Team event retention is 84 months; session recording is opted out, with 0 current recordings and no configured session retention period. Export and deletion-request tables are empty. | Future lifecycle enforcement and backup/export deletion approval. |
+| Retention/session lifecycle | partial | At the 2026-07-18 snapshot the separate day field appeared unset; the 2026-07-20 recheck found event retention `84` months and policy string `5y`, with recording opted out and 0 current recordings. Export and deletion-request tables are empty. | Future lifecycle enforcement and backup/export deletion approval. |
 | RBAC/audit | partial | One organization has unset `enforce_2fa`; custom role/resource-access tables are empty. Four audit-category records exist; only categories/counts were inspected. | Independent access/audit review and MFA decision. |
 | Dashboard freshness | open | One dashboard with eight items and historical aggregate provider events is present; current business-goal freshness has not been independently approved. | Aggregate-only dashboard review. |
 | Resource thresholds | blocked | Generated runtime has 32 healthy containers but no enforced Docker CPU/memory limits; host free disk is 71% and JSON logs rotate at `50m`/`3`. | Apply and verify concrete limits, alerts and rollback triggers. |
