@@ -1,3 +1,6 @@
+import os
+import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -37,3 +40,39 @@ def test_provider_smoke_script_outputs_metadata_only_posthog_statuses() -> None:
     assert "private_payload_status=none_committed" in output
     forbidden_fragments = ("phc_", "oauth", "cookie=", "stable_pseudonymous_user_id", "properties", "raw_payload")
     assert all(fragment not in output.lower() for fragment in forbidden_fragments)
+
+
+def test_provider_smoke_uses_origin_default_branch_when_head_is_detached(tmp_path: Path) -> None:
+    real_git = shutil.which("git")
+    assert real_git is not None
+
+    fake_git = tmp_path / "git"
+    fake_git.write_text(
+        "\n".join(
+            (
+                "#!/bin/sh",
+                'if [ "$1" = "branch" ] && [ "$2" = "--show-current" ]; then',
+                "  exit 0",
+                "fi",
+                'if [ "$1" = "symbolic-ref" ] && [ "$2" = "--quiet" ] && [ "$3" = "--short" ] && [ "$4" = "refs/remotes/origin/HEAD" ]; then',
+                "  printf '%s\\n' origin/master",
+                "  exit 0",
+                "fi",
+                f"exec {shlex.quote(real_git)} \"$@\"",
+            )
+        ),
+        encoding="utf-8",
+    )
+    fake_git.chmod(0o755)
+
+    result = subprocess.run(
+        [str(SMOKE_PATH)],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "provider_smoke_result=pass" in result.stdout
