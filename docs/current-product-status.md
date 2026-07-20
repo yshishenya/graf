@@ -250,6 +250,21 @@ metadata-only evidence остаются подробной историей ре
   production receipts supersede the old `.3` candidate note. Only the
   T115 Chrome/embedded production receipt and the dependent T116 tracker
   cleanup remain open; the 097 security scan is still explicitly skipped.
+- **Feature 099 final closeout update (2026-07-20):** after `v2026.07.20.7`
+  deployment, an authorized production Chrome cabinet session opened an
+  existing meeting whose audio was marked ready, started and stopped playback,
+  and recorded only network metadata: `Range: bytes=262144-`, HTTP `206`,
+  `Content-Range: bytes 262144-8384167/8384168`, and
+  `Accept-Ranges: bytes`. No signed URL, media, transcript or user data was
+  retained. Combined with the preceding first-party/manual synthetic
+  conversion, worker-interruption recovery, inventory guard and zero-residue
+  cleanup receipts, this completes T115. T116 is complete after the final
+  feature-099 issues were reconciled and the clean release worktree was
+  verified; the user-owned/test-rec and unrelated historical worktrees were
+  preserved. The separate Feature-090 manual-upload browser receipt remains
+  open in #3049/#3050/#3060 and is not reclassified as a 099 failure.
+  Feature 097 remains released but its standalone Codex Security scan is still
+  explicitly skipped by user instruction.
 - The separate Feature 099 production evidence includes the `v2026.07.17.3`
   startup-recovery release and the `v2026.07.17.5` active-attempt cleanup
   fix; it does not alter Feature 106 acceptance or its rollback boundary.
