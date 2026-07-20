@@ -275,3 +275,30 @@ transcript data не сохраняются.
 T036 закрыт: две строго возрастающие normal updates прошли через Sparkle,
 release assets опубликованы после подготовки архива/appcast, а metadata-only
 proof сохранён. Owner-only release attestation остаётся отдельным T037.
+
+## T037 owner-only staging receipt — 2026-07-21
+
+Это частичный receipt локального degraded lane. Он не объявляет T037
+выполненным и не содержит приватного ключа, секрета, живого пути, raw audio или
+transcript data.
+
+- active manifest и именованный Keychain `graf-release-signing` совпали по
+  `keyId=sha256:63c373b20f82851a6b4443bad2100eede5d50d897ed2aaf9fa8c94db56e4ecce`;
+- свежая Keychain attestation для `v2026.07.21.1` прошла локальный verifier:
+  `channel=macos-keychain`, `state=ready`, `trustGeneration=1`, commit
+  `5a53cbb29377a62b99ef5e9e79a0f873fb2d1403`;
+- `prepare-app-update.sh` с `GRAF_RELEASE_SIGNING_MODE=keychain`, безопасным
+  degraded approval identifier и теми же candidate/previous apps прошёл обе
+  проверки `archive=no appcast=no` → `archive=yes appcast=yes`; результат
+  `signer=keychain`, `published=no`;
+- exact tag и его remote peeled commit проверены отдельно; строгий режим
+  `GRAF_REQUIRE_RELEASE_PROVENANCE=1` намеренно отказался от staging, потому
+  что после публикации `v2026.07.21.1` в `master` вошли последующие receipt-only
+  commits и tag больше не равен изменяемому `origin/master`.
+
+Публичные assets `v2026.07.21.1` уже проверены в T036, но они были опубликованы
+CI-путём, а не этим Keychain staging. Поэтому T037 остаётся открытым: для его
+закрытия нужен отдельный owner-approved новый higher-CalVer release, его
+Keychain-подписанные archive/package, публикация archive/package до appcast и
+повторная проверка public result. Существующий `v2026.07.21.1` переиспользовать
+для этого нельзя.
