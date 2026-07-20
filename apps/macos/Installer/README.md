@@ -345,6 +345,18 @@ a safe `GRAF_RELEASE_SIGNING_DEGRADED_APPROVAL_ID`. A present but malformed
 cloud attestation never falls back silently; it blocks the release. The cloud
 workflow itself always uses normal two-channel readiness.
 
+#### Current private-repository mode
+
+The current private repository does not have the GitHub plan capability needed
+for a required reviewer protection rule. Until that changes, the approved
+release lane is the named macOS Keychain signer in explicit degraded mode. The
+owner must provide exact tag/provenance, a fresh metadata-only Keychain
+attestation, the degraded-approval flag and identifier, and must copy/version
+check the archive or package before replacing `graf-appcast.xml`. Bitwarden is
+an offline recovery backup only; CI, the app and the public host never read it
+automatically. This mode does not claim that the protected cloud signer is
+ready, and it does not close the manual bootstrap or two-update proof gates.
+
 For a normal cloud release, first attach the signed candidate-app ZIP,
 predecessor ZIP, and Russian notes to a draft GitHub Release. Dispatch
 `sign-graf-app-update.yml` manually from `master`; it only reads those

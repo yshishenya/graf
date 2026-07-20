@@ -95,6 +95,10 @@ release surface.
   more than 90 calendar days after the prior drill and immediately after any
   control-plane change; its retained evidence contains only timestamp,
   generation, key ID and channel states.
+- [ ] If this private-repository release uses the current owner-only fallback,
+  the receipt explicitly records degraded approval, exact tag/provenance,
+  fresh Keychain attestation and archive-before-appcast ordering; Bitwarden is
+  recovery-only and no workflow or public host reads it automatically.
 - [ ] The protected signing environments require independent reviewer approval,
   permit the protected master branch only, and have no public-host write path.
   Every external workflow action is pinned to a full immutable SHA.

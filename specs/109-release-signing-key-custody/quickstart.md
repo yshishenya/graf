@@ -34,7 +34,7 @@ Expected result: the output reports the safe `key_id`, `keychain=ready`, and
 does not show private bytes or an absolute secret path.  Repeat with a missing
 account and a different test key: each must fail before ZIP/appcast creation.
 
-## 3. Protected cloud-channel proof
+## 3. Protected cloud-channel proof (future lane)
 
 For code acceptance, use a separate non-production protected environment with a
 disposable test signer. Run the custody verification workflow manually from the
@@ -51,7 +51,7 @@ manifest, candidate app, named Keychain recovery signer and current production
 attestation agree. A missing secret, wrong secret, stale tag, malformed or
 expired attestation is `unavailable` and cannot be treated as release success.
 
-## 4. Cloud signing proof without publication
+## 4. Cloud signing proof without publication (future lane)
 
 Create a draft release for a disposable tag with a candidate-app ZIP,
 predecessor-app ZIP, Russian notes and a fresh metadata-only Keychain
@@ -72,7 +72,8 @@ uploads a signed appcast.
    controlled Mac with the old unavailable-key app.
 2. Verify GRAF identity, microphone and Screen/System Audio permissions using
    existing permission-retention tools.  Do not reset/regrant TCC permissions.
-3. Release a strictly newer signed update through the new protected signer and
+3. Release a strictly newer signed update through the approved owner-only
+   Keychain signer (or the protected cloud lane if it is later re-enabled) and
    install it through GRAF's normal update UI.
 4. Repeat for one further strictly newer update.
 
@@ -162,8 +163,8 @@ clean detached release worktree. The metadata-only receipt is:
   the remote tag check confirms that candidate is absent.
 
 No tag, package, active-key enrollment, protected environment, public appcast,
-or remote release asset was created or changed. T034–T036 remain separate
-release gates.
+or remote release asset was created or changed. T034 is now the recorded scope
+decision; T035–T037 remain separate release gates.
 
 ## Решение для приватного репозитория без платного GitHub — 2026-07-20
 
@@ -189,7 +190,21 @@ HTTP 422, потому что текущий тариф не поддержив�
 - значения секретов, приватные ключи и credential-bearing URLs в репозиторий не
   записываются.
 
-Это не закрывает T034: полноценный protected reviewer gate отсутствует. T035 и
-T036 не объявляются выполненными по этому fallback. Если позже появится CI с
-бесплатным ручным approval и внешним secret manager, protection можно вернуть в
-нормальный двухканальный режим без изменения публичного ключа приложения.
+Решение закрывает исходный T034 как superseded: полноценный protected reviewer
+gate недоступен на текущем тарифе и не объявляется настроенным. T035–T037 не
+объявляются выполненными по этому решению. Текущий release lane использует
+только named Keychain signer с явным degraded approval; копия в Bitwarden
+остаётся ручным recovery backup и не читается автоматически. Если позже
+появится поддержка reviewer approval, cloud-путь можно вернуть без изменения
+публичного ключа приложения.
+
+## T034 decision receipt — 2026-07-21
+
+- protected environment `graf-release-signing` и production secret не менялись;
+- попытка добавить required reviewer по-прежнему отклоняется GitHub API с
+  HTTP 422 на текущем private-repository плане;
+- активный public manifest и named Keychain public key уже совпадают по
+  metadata-only `keyId`;
+- T034 переведён в завершённое состояние решения и superseded закрытие issue;
+  фактическая owner-only release/Bootstrap/update proof остаётся в T035–T037;
+- в Git, issue и evidence нет приватного ключа, секрета или локального пути.
