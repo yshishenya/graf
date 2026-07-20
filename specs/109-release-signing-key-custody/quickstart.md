@@ -147,3 +147,20 @@ The receipt was:
 
 No production key, GitHub environment, release tag, public appcast, remote
 asset, installed app, TCC permission, audio or transcript data was changed.
+
+## T033 release-provenance receipt — 2026-07-20
+
+After explicit release approval, the refreshed `origin/master` was checked in a
+clean detached release worktree. The metadata-only receipt is:
+
+- `origin/master` and the detached `HEAD` both resolve to
+  `b23950053a09c6e395a5742d3d8a9e5f2a67a910`;
+- the newest remote CalVer tag is `v2026.07.20.7`, targeting
+  `0036ff5ce3bca7eff9f822389fa897c02966b34f`, and the refreshed
+  `origin/master` is its ancestor;
+- the next free version strictly greater than `.12` is `v2026.07.20.8`, and
+  the remote tag check confirms that candidate is absent.
+
+No tag, package, active-key enrollment, protected environment, public appcast,
+or remote release asset was created or changed. T034–T036 remain separate
+release gates.
