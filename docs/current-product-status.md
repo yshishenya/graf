@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-17
+Date: 2026-07-18
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -27,8 +27,8 @@ metadata-only evidence остаются подробной историей ре
   protected backup point, public health/readiness and metadata-only smoke pass,
   and the actual browser and embedded Settings pages show the same safe
   provider-only start surface without starting a provider flow.
-  The standalone formal Codex Security scan for deferred feature `097` remains
-  out of this feature's evidence by user instruction.
+  The standalone formal Codex Security scan for Feature `097` was explicitly
+  skipped by user instruction and is not represented as a security result.
 - Feature `105-macos-app-updates` is merged and live on the owner-only production
   channel as
   [`v2026.07.17.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.17.9)
@@ -68,6 +68,30 @@ metadata-only evidence остаются подробной историей ре
   refreshes the public download package with the local self-signed build so
   the owner machine can update from the hosted package while the Developer ID
   path remains out of scope.
+- Feature `097-workspace-account-onboarding` is merged through
+  [#3842](https://github.com/yshishenya/crisp/pull/3842) at merge SHA
+  `d79f24a9b91a739e90826a5e51659614628b62d1`, released as
+  [`v2026.07.18.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.18.1)
+  and deployed at exact runtime SHA
+  `2e94cd76a716c46238a67a65ec9f83bd7381f8b6`. New self-serve accounts land
+  in an idempotent personal space; corporate membership requires an explicit,
+  identity-matched offer; domain-only discovery stays disabled; active-space
+  switching and revoked-access fallback are server-verified; and the legacy
+  bootstrap report remains metadata-only with no data move. Migration head is
+  `0028_active_space_read`; backup/restore rehearsal, runtime readiness,
+  metadata-only production smoke and cleanup passed. Canonical local CI passed
+  with 572 macOS tests and the accelerated PostgreSQL/RLS gate recorded in
+  `specs/097-workspace-account-onboarding/validation/release-closeout.md`.
+  A bounded post-deploy metadata-only user-path smoke also listed and accepted
+  an identity-matched offer, switched spaces, revoked the corporate
+  membership, blocked the revoked session and confirmed personal fallback with
+  residue `0`; it used an internal disposable identity rather than live email
+  delivery. Older macOS app builds need the 097 client
+  changes for embedded revoked-session recovery. The standalone Codex Security
+  scan was skipped by explicit user instruction and is not a security result.
+  Active server runtime has no SQLite or `aiosqlite` support; historical ADRs,
+  the macOS TCC `sqlite3` permission probe, and bounded bootstrap/legacy aliases
+  remain intentionally retained compatibility or audit anchors.
 - Feature `098-calendar-auto-context-match` is implemented, released and live
   in production. Feature PR
   [#3270](https://github.com/yshishenya/crisp/pull/3270) merged as
@@ -91,8 +115,8 @@ metadata-only evidence остаются подробной историей ре
   not create access, shares, recipients, delivery or speaker-name assignment.
   Current focused evidence passes `145` unit/read-model, `99` contract, `162`
   integration, `195` focused macOS and `72` authorization/privacy tests;
-  SQLite migration checks and disposable PostgreSQL/RLS probes pass with
-  cleanup. Canonical local CI also passes with `631` macOS tests, `1414` server
+  the historical portability migration receipt and disposable PostgreSQL/RLS
+  probes pass with cleanup. Canonical local CI also passes with `631` macOS tests, `1414` server
   tests passed and `4` skipped, Ruff, compile, Compose rendering and deployment
   evidence scan. Its intentionally non-live RLS boundary reports that a
   PostgreSQL test URL is required; the separate disposable PostgreSQL/RLS run
@@ -106,9 +130,9 @@ metadata-only evidence остаются подробной историей ре
   clear/ambiguous and browser/embedded receipts remain synthetic same-code QA,
   not a claim that private production calendars were inspected. Older app
   builds must be updated to gain feature 098; the server-only `.3` hotfix has
-  no `apps/macos` diff and requires no additional reinstall. Feature `097` and
-  its resumable standalone Codex Security scan stay separately deferred by
-  user instruction and are not counted as 098 acceptance evidence.
+  no `apps/macos` diff and requires no additional reinstall. Feature `097` is
+  separately released; its standalone Codex Security scan was skipped by user
+  instruction and is not counted as 098 acceptance evidence.
 - Feature `099-review-m4a-normalization` is implemented, validated and merged
   through [PR #3470](https://github.com/yshishenya/crisp/pull/3470) at exact
   merge SHA `da8b22ea069202d9d9961f9a4f46dd4192821da3`. Release
@@ -217,13 +241,15 @@ metadata-only evidence остаются подробной историей ре
   conversion reached canonical playback-ready state automatically; no retry,
   upload, or other user action was needed. Broader T115 browser/embedded
   production proof and T116 full feature issue cleanup remain separately open.
-  Feature 097 and its resumable standalone Codex Security scan remain deferred
-  and untouched; ordinary 099 authorization/RLS/subprocess/privacy gates do not
-  complete it. Release `v2026.07.14.7` remains owned by the separate «новый
+  Feature 097 is separately released; its standalone Codex Security scan was
+  skipped by explicit user instruction. Ordinary 099
+  authorization/RLS/subprocess/privacy gates do not complete or replace 097.
+  Release `v2026.07.14.7` remains owned by the separate «новый
   главный экран GRAF» rollout. None of the immutable feature-099 release tags
-  were moved. The next candidate is `v2026.07.16.3`; its hotfix merge and
-  explicit production-deploy approval are recorded, while release publication,
-  deploy and production proof remain pending.
+  were moved. The later `v2026.07.16.4`, `v2026.07.17.3` and `v2026.07.17.5`
+  production receipts supersede the old `.3` candidate note. Only the
+  T115 Chrome/embedded production receipt and the dependent T116 tracker
+  cleanup remain open; the 097 security scan is still explicitly skipped.
 - The separate Feature 099 production evidence includes the `v2026.07.17.3`
   startup-recovery release and the `v2026.07.17.5` active-attempt cleanup
   fix; it does not alter Feature 106 acceptance or its rollback boundary.
@@ -303,8 +329,23 @@ metadata-only evidence остаются подробной историей ре
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
-- Feature `092-automatic-meeting-detection` is implemented locally as the first
-  registry-driven detect-and-ask foundation for the Russian-market VKS scope.
+- Feature `090-manual-media-upload-ui` is merged and released as
+  [`v2026.07.11.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.11.1).
+  Its manual one-file upload surface, CSRF/tenant/storage boundaries, embedded
+  cabinet path, migration, release build, and production smoke were closed in
+  PR `#3040` and release PR `#3042`; the canonical evidence is recorded in
+  `specs/090-manual-media-upload-ui/tasks.md`.
+- Feature `091-mediascribe-result-contract` is implemented and released as
+  `v2026.07.09.5` for the MediaScribe result-contract slice. The repository
+  still does not contain a separate post-deploy receipt for the complete
+  transcript-plus-summary user path, so production acceptance of that path is
+  not claimed here; the implementation boundary and its no-deploy closeout are
+  recorded in `specs/091-mediascribe-result-contract/tasks.md`.
+- Feature `092-automatic-meeting-detection` is merged through PR `#2808`, with
+  convergence PR `#3029` and release/deploy lineage
+  `v2026.07.09.1`, `v2026.07.09.7`, `v2026.07.09.8`, and
+  `v2026.07.09.16`. It is the first registry-driven detect-and-ask foundation
+  for the Russian-market VKS scope.
   It adds server-side metadata-only meeting-detection telemetry, admin candidate
   review and registry publishing, RLS-covered registry/candidate tables, a
   server-published macOS target registry with last-good client cache, low-noise
@@ -316,9 +357,10 @@ metadata-only evidence остаются подробной историей ре
   browser extension. Prompt-capable first targets remain limited to locally
   verified native Zoom and Yandex Telemost paths; browser targets, unverified
   native apps, and unsupported metadata states stay detect-only/manual-only
-  until separate live validation promotes them. This slice is local
-  implementation readiness only: it is not committed, merged, released,
-  deployed, or production-rollout evidence. Critical review remediation on
+  until separate live validation promotes them. The repository does not yet
+  contain a canonical post-deploy runtime receipt or seeded admin-browser
+  receipt for 092, so target promotion and production telemetry rollout are
+  not claimed. Critical review remediation on
   2026-07-08 connected the native `AudioHAL` log stream to
   prompt/auto-record decisioning, moved the registry source to server publish
   plus last-good client cache,
@@ -745,6 +787,18 @@ metadata-only evidence остаются подробной историей ре
 
 ## Not Accepted Yet
 
+- Feature `096-product-analytics-provider-rollout` is not accepted on the
+  current master. Its historical branch `096-product-analytics-provider-rollout`
+  ends at `137565c0`; it is not merged or tagged and diverged by `272`
+  master-only versus `15` branch-only commits at the recorded comparison
+  snapshot. The branch proves only a PostHog live-safe technical
+  path. Yandex offline OAuth/live upload, full PostHog backup/restore,
+  executed rollback, current-page inventory, real dashboard/RBAC review, and
+  legal/product rollout approval remain unproven. The branch's checked tasks
+  and evidence contain contradictory "complete" versus "blocked" wording, so
+  the next integration must use the append-only worklist in
+  `docs/analytics/product-analytics-provider-rollout-096-integration-audit.md`
+  and must not cherry-pick the old branch wholesale.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route
   unchanged, incoming volume delta no greater than 1 dB, no unexplained

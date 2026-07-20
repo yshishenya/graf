@@ -56,6 +56,32 @@ async def test_postal_email_login_client_sends_code_with_server_api_key() -> Non
 
 
 @pytest.mark.anyio
+async def test_postal_invitation_resend_is_generic_and_requires_explicit_acceptance() -> None:
+    seen: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen["payload"] = json.loads(request.content)
+        return httpx.Response(200, json={"status": "success"})
+
+    client = PostalEmailLoginClient(
+        api_url="http://postal-web:5000",
+        api_key="postal-test-key",
+        from_address="no-reply@rec.2brain.pro",
+        transport=httpx.MockTransport(handler),
+    )
+
+    await client.send_workspace_invitation_review_notice(recipient_email="owner@example.test")
+
+    payload = seen["payload"]
+    assert isinstance(payload, dict)
+    assert payload["tag"] == "workspace-invitation-review"
+    assert payload["to"] == ["owner@example.test"]
+    assert "самостоятельно решите" in payload["plain_body"]
+    assert "Без вашего подтверждения" in payload["html_body"]
+    assert "workspace_id" not in payload["plain_body"]
+
+
+@pytest.mark.anyio
 async def test_postal_email_login_client_rejects_postal_error_response() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"status": "error", "data": {"code": "UnauthenticatedFromAddress"}})

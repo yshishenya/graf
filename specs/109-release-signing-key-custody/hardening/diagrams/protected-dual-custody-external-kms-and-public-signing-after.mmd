@@ -1,0 +1,7 @@
+flowchart LR
+    Manifest["Public trust manifest"] --> KMS["External KMS/HSM"]
+    DeveloperID["Developer ID + notarization"] --> Pipeline["Public release pipeline"]
+    KMS --> Pipeline
+    Pipeline --> Host["Public host"]
+    Host --> Client["Installed GRAF"]
+    Bootstrap["Manual trust/identity bootstrap"] --> Client

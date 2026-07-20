@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import re
 from pathlib import Path
@@ -7,6 +8,7 @@ from uuid import UUID
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.fakes.fake_minio import FakeMinioStorage
@@ -27,6 +29,9 @@ USER_ID = UUID("30000000-0000-0000-0000-000000000001")
 DEVICE_ID = UUID("40000000-0000-0000-0000-000000000001")
 USER_SCOPED_RECORDING_MIGRATION = (
     ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0020_user_scoped_recording_ids.py"
+)
+WORKSPACE_ONBOARDING_MIGRATION = (
+    ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0027_workspace_account_onboarding.py"
 )
 
 
@@ -87,11 +92,17 @@ def _load_migration_module(path: Path, module_name: str):
 
 async def _seed_identity(sessionmaker) -> None:
     async with sessionmaker() as db:
+        db.add(Organization(id=ORG_ID, slug="local-org", name="Local Org"))
+        await db.flush()
         db.add_all(
             [
-                Organization(id=ORG_ID, slug="local-org", name="Local Org"),
                 Workspace(id=WORKSPACE_ID, organization_id=ORG_ID, slug="local-workspace", name="Local Workspace"),
                 UserIdentity(id=USER_ID, organization_id=ORG_ID, external_subject=str(USER_ID), display_name="Local User"),
+            ]
+        )
+        await db.flush()
+        db.add_all(
+            [
                 WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=USER_ID, role="owner", status="active"),
                 RegisteredDevice(
                     id=DEVICE_ID,
@@ -140,6 +151,62 @@ def test_alembic_revision_ids_fit_default_version_table_length() -> None:
 
         assert match is not None, migration_path.name
         assert len(match.group(1)) <= 32, migration_path.name
+
+
+def test_workspace_onboarding_migration_keeps_personal_space_and_offer_boundaries() -> None:
+    migration = WORKSPACE_ONBOARDING_MIGRATION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "0027_workspace_onboarding"' in migration
+    assert 'down_revision: str | None = "0026_active_cleanup"' in migration
+    assert '"workspace_join_offers"' in migration
+    assert '"owner_user_id"' in migration
+    assert '"kind"' in migration
+    assert "workspace_join_offers_tenant_isolation" in migration
+
+
+def test_workspace_onboarding_migration_downgrades_cleanly(
+    postgres_clean_database_url: str,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
+    get_settings.cache_clear()
+    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
+    alembic_config.set_main_option("script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations"))
+
+    command.upgrade(alembic_config, "head")
+    command.downgrade(alembic_config, "0026_active_cleanup")
+
+    async def inspect_schema() -> tuple[set[str], set[str]]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.connect() as connection:
+                tables = set(
+                    (
+                        await connection.scalars(
+                            text("select tablename from pg_tables where schemaname = 'public'")
+                        )
+                    ).all()
+                )
+                workspace_columns = set(
+                    (
+                        await connection.scalars(
+                            text(
+                                "select column_name from information_schema.columns "
+                                "where table_schema = 'public' and table_name = 'workspaces'"
+                            )
+                        )
+                    ).all()
+                )
+                return tables, workspace_columns
+        finally:
+            await engine.dispose()
+
+    tables, workspace_columns = asyncio.run(inspect_schema())
+
+    get_settings.cache_clear()
+    assert "workspace_join_offers" not in tables
+    assert "kind" not in workspace_columns
+    assert "owner_user_id" not in workspace_columns
 
 
 def test_user_scoped_recording_migration_drops_both_postgres_legacy_constraint_names() -> None:
@@ -209,8 +276,11 @@ def test_user_scoped_recording_migration_skips_existing_postgres_target_constrai
     assert fake_op.created_constraints == []
 
 
-def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, monkeypatch) -> None:
-    database_url = f"sqlite+aiosqlite:///{tmp_path / 'migrated.db'}"
+def test_clean_database_migrates_and_accepts_seeded_identity_request(
+    postgres_clean_database_url: str,
+    monkeypatch,
+) -> None:
+    database_url = postgres_clean_database_url
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", database_url)
     get_settings.cache_clear()
     alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
@@ -221,9 +291,12 @@ def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, m
     settings = Settings(database_url=database_url, minio_access_key="test", minio_secret_key="test", minio_bucket="test-bucket")
     import asyncio
 
+    seed_engine = create_async_engine(database_url)
+    seed_sessionmaker = async_sessionmaker(seed_engine, expire_on_commit=False)
+    asyncio.run(_seed_identity(seed_sessionmaker))
+    asyncio.run(seed_engine.dispose())
     engine = create_async_engine(database_url)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
-    asyncio.run(_seed_identity(sessionmaker))
     app = create_app(settings)
     app.state.db_sessionmaker = sessionmaker
     app.state.storage = FakeMinioStorage()

@@ -87,3 +87,24 @@ intentionally still open and are documented in `hardware-acceptance.md`.
   provider payload was added. Exact pre-v5 baseline rollback remains the only
   open Feature 106 acceptance gate (T064); no release or deployment claim is
   made.
+
+## 2026-07-20 — master v2026.07.20.1 integration closeout
+
+- `origin/master` was merged into the feature branch without conflicts. The
+  active feature pointer in `AGENTS.md` remains
+  `specs/106-mixed-wav-recording/plan.md`; the master release/bootstrap,
+  cabinet, support and server updates are included.
+- Post-merge focused macOS recording/upload/UI group passed `252` tests with
+  `0` failures. The full macOS suite in `infra/scripts/ci-local.sh` passed
+  `573` tests with `0` failures.
+- The focused v5 server group passed `97` tests with `0` failures against the
+  disposable PostgreSQL runner. The full PostgreSQL runner collected `1872`
+  tests and the canonical `infra/scripts/ci-local.sh` completed with
+  `ci_local_result=pass`; Ruff, Python compile, RLS hardening validation and
+  deployment evidence scan also passed.
+- `ContractValidation`, the recording artifact validator (`97` selected
+  tests, `no-legacy-audio-driver: PASS`), both modified shell syntax checks,
+  production Compose config and `git diff --check` passed after the merge.
+- No raw audio, transcript, secret, private path or provider payload was added.
+  T064 remains open only for the installed rollback rehearsal; no release,
+  deployment or user-data mutation is claimed here.

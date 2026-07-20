@@ -107,3 +107,14 @@ private path, credential, signed URL or provider payload to this file.
   earlier 60-minute candidate receipt remains the long-run drift/volume
   record. Together these receipts close the installed v5 capture check for
   T063; exact pre-v5 rollback remains a separate open T064 gate.
+
+## 2026-07-20 — latest pre-v5 rollback follow-up
+
+- The staged `v2026.07.17.9` baseline was exercised twice with manual
+  start/stop from an isolated disposable home. Both attempts ended as
+  `status=degraded` with `failureReason=timeline_misaligned`; the incoming
+  system track was `silent_input`.
+- No installed app replacement, candidate-v5 rewrite or upload occurred. This
+  is additional evidence for `rollback=fail/open`, not a rollback pass; T064
+  remains open until a pre-v5 baseline can produce an accepted subsequent
+  recording on the current Mac.

@@ -1219,6 +1219,7 @@ public struct RetentionDecision: Codable, Equatable, Sendable {
 public enum DesktopSupportIncidentSubmissionStatus: String, Codable, CaseIterable, Sendable {
     case notSent = "not_sent"
     case sending
+    case pendingSync = "pending_sync"
     case sent
     case failedWithCopyFallback = "failed_with_copy_fallback"
     case unavailable
@@ -1281,7 +1282,7 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
         reportFingerprint: String,
         dedupeKey: String,
         incidentNumber: String,
-        githubIssueNumber: Int,
+        githubIssueNumber: Int?,
         attemptedAt: Date,
         copyFallbackAvailable: Bool
     ) -> DesktopSupportIncidentSubmissionState {
@@ -1293,7 +1294,28 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
             githubIssueNumber: githubIssueNumber,
             lastSubmissionAttemptAt: attemptedAt,
             copyFallbackAvailable: copyFallbackAvailable,
-            accessibilityLabel: "Запрос отправлен в поддержку. Номер: \(incidentNumber)."
+            accessibilityLabel: "Запрос принят и передан в поддержку. Номер: \(incidentNumber)."
+        )
+    }
+
+    public static func pendingSync(
+        reportFingerprint: String,
+        dedupeKey: String,
+        incidentNumber: String,
+        attemptedAt: Date,
+        copyFallbackAvailable: Bool,
+        failureCode: String? = nil
+    ) -> DesktopSupportIncidentSubmissionState {
+        DesktopSupportIncidentSubmissionState(
+            state: .pendingSync,
+            localReportFingerprint: reportFingerprint,
+            dedupeKey: dedupeKey,
+            incidentNumber: incidentNumber,
+            lastSubmissionAttemptAt: attemptedAt,
+            lastFailureCategory: failureCode == nil ? nil : UploadFailureCategory.network.rawValue,
+            lastFailureCode: failureCode,
+            copyFallbackAvailable: copyFallbackAvailable,
+            accessibilityLabel: "Запрос принят сервером. Синхронизация с поддержкой ожидает проверки. Номер: \(incidentNumber)."
         )
     }
 
@@ -1312,7 +1334,7 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
             lastFailureCategory: failureCategory,
             lastFailureCode: failureCode,
             copyFallbackAvailable: true,
-            accessibilityLabel: "Не удалось связаться с поддержкой. Попробуйте ещё раз."
+            accessibilityLabel: "Запрос не принят. Проверьте подключение или скопируйте безопасную сводку."
         )
     }
 
@@ -1334,14 +1356,20 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
             return "Запрос в поддержку не отправлен."
         case .sending:
             return "Отправляем запрос в поддержку…"
+        case .pendingSync:
+            guard let incidentNumber = incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !incidentNumber.isEmpty else {
+                return "Запрос принят сервером. Синхронизация с поддержкой ожидает проверки."
+            }
+            return "Запрос принят сервером. Синхронизация с поддержкой ожидает проверки. Номер: \(incidentNumber)."
         case .sent:
             guard let incidentNumber = incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !incidentNumber.isEmpty else {
-                return "Запрос отправлен в поддержку."
+                return "Запрос принят и передан в поддержку."
             }
-            return "Запрос отправлен в поддержку. Номер: \(incidentNumber)."
+            return "Запрос принят и передан в поддержку. Номер: \(incidentNumber)."
         case .failedWithCopyFallback:
-            return "Не удалось связаться с поддержкой. Попробуйте ещё раз."
+            return "Запрос не принят. Проверьте подключение или скопируйте безопасную сводку."
         case .unavailable:
             return "Поддержка сейчас недоступна. Попробуйте позже."
         }

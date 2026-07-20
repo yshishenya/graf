@@ -42,6 +42,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_login_page,
     render_meeting_detail_page,
     render_meeting_list_page,
+    render_meeting_unavailable_page,
     render_settings_page,
     render_signup_page,
 )
@@ -622,6 +623,19 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
     assert calendar_settings_page.count('aria-current="page"') == 1
     assert 'data-active-nav="settings"' in calendar_settings_page
     assert 'href="/settings/integrations/calendar"' in calendar_settings_page
+
+
+def test_meeting_unavailable_page_uses_safe_shell_and_matching_list_link() -> None:
+    for embedded, list_path in ((False, "/meetings"), (True, "/desktop/meetings")):
+        page = render_meeting_unavailable_page(embedded=embedded)
+
+        assert page.count("data-cabinet-shell") == 1
+        assert '<main id="cabinet-main" class="cabinet-main" tabindex="-1">' in page
+        assert "Страница недоступна" in page
+        assert "Эта страница больше недоступна или у вас нет доступа к ней." in page
+        assert f'href="{list_path}"' in page
+        assert "meeting_not_found" not in page
+        assert "11111111-1111-1111-1111-111111111111" not in page
 
 
 def test_legacy_render_helpers_keep_full_page_contract_after_template_refactor() -> None:

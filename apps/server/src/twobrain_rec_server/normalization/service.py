@@ -2358,8 +2358,7 @@ async def _execute_normalization_job(
         # Deletion locks the same meeting row before it enumerates and removes
         # object keys. Keep that lock through the upload and durable state
         # transition so a completed deletion can never be followed by a late
-        # worker upload. The no-op UPDATE also provides an equivalent write
-        # lock in the SQLite validation lane where FOR UPDATE is ignored.
+        # worker upload. The no-op UPDATE retains the PostgreSQL write lock.
         lock_result = await db.execute(
             update(Meeting)
             .where(

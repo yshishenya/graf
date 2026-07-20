@@ -196,6 +196,7 @@ private struct ContentView: View {
     @State private var desktopCabinetConfiguration = DesktopCabinetConfiguration.configuredFromEnvironment()
     @State private var desktopCabinetState: DesktopCabinetState = DesktopCabinetConfiguration.configuredFromEnvironment() == nil ? .notConfigured : .loading
     @State private var selectedCabinetRoute: URL?
+    @State private var supportIncidentBridge = EmbeddedCabinetSupportIncidentBridge()
     @State private var permissionOnboardingStatus = DesktopPermissionOnboardingStatus.unknown
     @State private var permissionOnboardingPresented = false
     @State private var permissionOnboardingRequestInProgress = false
@@ -245,6 +246,12 @@ private struct ContentView: View {
             },
             onSupportIncidentReport: { itemIds in
                 try await submitSupportIncidentReport(itemIds: itemIds)
+            },
+            onSupportIncidentSync: { itemIds in
+                try await syncSupportIncident(itemIds: itemIds)
+            },
+            onOpenSupportSignIn: {
+                openSupportSignIn()
             }
         ) {
             CaptureControlView(
@@ -304,7 +311,8 @@ private struct ContentView: View {
                 showsAppUpdateBadge: appUpdateController.presentation.showsSidebarBadge,
                 onCheckForUpdates: {
                     (NSApp.delegate as? AppLifecycleDelegate)?.checkForUpdates(nil)
-                }
+                },
+                supportIncidentBridge: supportIncidentBridge
             )
         }
         .sheet(isPresented: $permissionOnboardingPresented) {
@@ -1696,7 +1704,10 @@ private struct ContentView: View {
     private func submitSupportIncidentReport(itemIds: [String]) async throws -> DesktopSupportIncidentResponse {
         let service = desktopUploadQueueService
         do {
-            let response = try await service.submitSupportIncident(itemIds: itemIds)
+            let response = try await service.submitSupportIncident(
+                itemIds: itemIds,
+                using: supportIncidentBridge
+            )
             uploadQueueItems = try service.loadItems()
             AppLog.writeRaw(
                 event: "support_incident.submitted",
@@ -1711,6 +1722,37 @@ private struct ContentView: View {
             )
             throw error
         }
+    }
+
+    @MainActor
+    private func syncSupportIncident(itemIds: [String]) async throws -> DesktopSupportIncidentResponse {
+        let service = desktopUploadQueueService
+        do {
+            let response = try await service.syncSupportIncident(
+                itemIds: itemIds,
+                using: supportIncidentBridge
+            )
+            uploadQueueItems = try service.loadItems()
+            AppLog.writeRaw(
+                event: "support_incident.sync_checked",
+                detail: "incident=\(response.incidentId) status=\(response.incidentStatus)"
+            )
+            return response
+        } catch {
+            uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+            AppLog.writeRaw(
+                event: "support_incident.sync_failed",
+                detail: "code=\(safeSupportIncidentErrorCode(error))"
+            )
+            throw error
+        }
+    }
+
+    @MainActor
+    private func openSupportSignIn() {
+        guard let configuration = desktopCabinetConfiguration else { return }
+        selectedCabinetRoute = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        desktopCabinetState = .loading
     }
 
     private func safeSupportIncidentErrorCode(_ error: Error) -> String {

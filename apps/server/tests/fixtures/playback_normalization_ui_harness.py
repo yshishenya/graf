@@ -9,6 +9,7 @@ import tempfile
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from urllib.parse import urlparse
 from uuid import UUID
 
 import uvicorn
@@ -40,6 +41,7 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceMembership,
 )
+from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
 from twobrain_rec_server.main import create_app
 from twobrain_rec_server.meeting_detection.registry import registry_entries, registry_etag
@@ -53,6 +55,8 @@ REGISTRY_DATA = (
     / "src/twobrain_rec_server/db/migrations/data/0019_meeting_target_registry.json"
 )
 SYNTHETIC_DURATION_SECONDS = 40
+TEST_DATABASE_PREFIX = "twobrain_rec_test_"
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 async def _seed_database(app: FastAPI) -> None:
@@ -294,11 +298,12 @@ def create_harness(
     *,
     runtime_directory: Path,
     origin: str,
+    database_url: str,
 ) -> tuple[FastAPI, dict[str, object]]:
     settings = Settings(
         env="development",
         log_level="WARNING",
-        database_url=f"sqlite+aiosqlite:///{runtime_directory / 'feature-099-ui.db'}",
+        database_url=database_url,
         minio_endpoint="localhost:9000",
         minio_access_key="test",
         minio_secret_key="test",
@@ -311,6 +316,9 @@ def create_harness(
     app.state.storage = FakeMinioStorage()
     app.state.ingest_store = InMemoryIngestStore()
     asyncio.run(_seed_database(app))
+    asyncio.run(app.state.db_engine.dispose())
+    app.state.db_engine = create_engine(settings)
+    app.state.db_sessionmaker = create_sessionmaker(app.state.db_engine)
     body = _synthetic_m4a(runtime_directory)
 
     with TestClient(app) as client:
@@ -320,15 +328,18 @@ def create_harness(
         seeds = seed_cabinet_meetings(client)
         add_retained_playback_m4a(client, seeds.ready_id, body)
         add_retained_playback_m4a(client, seeds.partial_id, body)
-        asyncio.run(
-            _set_harness_truth(
-                app,
-                available_id=seeds.ready_id,
-                preparing_id=seeds.processing_id,
-                unavailable_id=seeds.failed_id,
-                independent_id=seeds.partial_id,
-            )
+    asyncio.run(
+        _set_harness_truth(
+            app,
+            available_id=seeds.ready_id,
+            preparing_id=seeds.processing_id,
+            unavailable_id=seeds.failed_id,
+            independent_id=seeds.partial_id,
         )
+    )
+    asyncio.run(app.state.db_engine.dispose())
+    app.state.db_engine = create_engine(settings)
+    app.state.db_sessionmaker = create_sessionmaker(app.state.db_engine)
 
     harness_state: dict[str, object] = {
         "origin": origin,
@@ -374,10 +385,25 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8099)
     parser.add_argument("--state-file", type=Path)
+    parser.add_argument("--database-url", required=True)
     arguments = parser.parse_args()
+    parsed_database_url = urlparse(arguments.database_url)
+    if (
+        parsed_database_url.scheme != "postgresql+asyncpg"
+        or parsed_database_url.hostname not in LOOPBACK_HOSTS
+        or not parsed_database_url.path.lstrip("/").startswith(TEST_DATABASE_PREFIX)
+    ):
+        parser.error(
+            "--database-url must target a disposable local PostgreSQL database created by "
+            "apps/server/scripts/run_local_postgres_tests.sh"
+        )
     runtime_directory = Path(tempfile.mkdtemp(prefix="graf-feature-099-ui-"))
     origin = f"http://{arguments.host}:{arguments.port}"
-    app, state = create_harness(runtime_directory=runtime_directory, origin=origin)
+    app, state = create_harness(
+        runtime_directory=runtime_directory,
+        origin=origin,
+        database_url=arguments.database_url,
+    )
     public_state = {
         "origin": origin,
         "available_id": str(state["available_id"]),

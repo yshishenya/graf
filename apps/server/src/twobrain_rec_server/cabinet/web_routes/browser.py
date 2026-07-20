@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
+from twobrain_rec_server.auth.workspace_onboarding import (
+    list_active_workspaces,
+    list_workspace_join_offers,
+)
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
     get_provider_link_start_options,
@@ -18,6 +22,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_detail_page,
     render_meeting_list_fragment,
     render_meeting_list_page,
+    render_meeting_unavailable_page,
     render_settings_page,
 )
 from twobrain_rec_server.cabinet.templates import (
@@ -39,6 +44,19 @@ from twobrain_rec_server.cabinet.web_routes.support import (
 )
 
 router = APIRouter(tags=["cabinet-web"])
+
+
+def _meeting_unavailable_response(
+    request: Request,
+    *,
+    csrf_token: str | None,
+) -> HTMLResponse:
+    if _is_hx_request(request):
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return cabinet_html_response(
+        render_meeting_unavailable_page(csrf_token=csrf_token),
+        status_code=404,
+    )
 
 
 @router.get("/meetings", response_class=HTMLResponse, include_in_schema=False)
@@ -88,7 +106,7 @@ async def meeting_list_page(
 @router.get("/meetings/{meeting_id}", response_class=HTMLResponse, include_in_schema=False)
 async def meeting_detail_page(
     request: Request,
-    meeting_id: UUID,
+    meeting_id: str,
     calendar_context_action: str | None = Query(default=None, pattern="^change$"),
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -99,16 +117,26 @@ async def meeting_detail_page(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
+    try:
+        parsed_meeting_id = UUID(meeting_id)
+    except ValueError:
+        return _meeting_unavailable_response(
+            request,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
     response = await get_cabinet_meeting_review(
         db,
         workspace_id=tenant_scope.workspace_id,
-        meeting_id=meeting_id,
+        meeting_id=parsed_meeting_id,
         viewer_user_id=principal.user_id,
         storage=storage,
         include_calendar_correction_candidates=calendar_context_action == "change",
     )
     if response is None:
-        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+        return _meeting_unavailable_response(
+            request,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
     if _is_hx_request(request):
         return cabinet_html_response(
             render_meeting_detail_fragment(
@@ -129,6 +157,8 @@ async def meeting_detail_page(
 @router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
 async def settings_page(
     request: Request,
+    workspace_offer: str | None = Query(default=None, max_length=24),
+    space_switch: str | None = Query(default=None, max_length=24),
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -137,9 +167,27 @@ async def settings_page(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
+    offers = await list_workspace_join_offers(
+        db,
+        organization_id=principal.organization_id,
+        current_workspace_id=tenant_scope.workspace_id,
+        user_id=principal.user_id,
+    )
+    provider_link_options = await get_provider_link_start_options(db, tenant_scope)
+    spaces = await list_active_workspaces(
+        db,
+        organization_id=principal.organization_id,
+        current_workspace_id=tenant_scope.workspace_id,
+        user_id=principal.user_id,
+    )
+    await db.commit()
     return cabinet_html_response(
         render_settings_page(
             csrf_token=_csrf_token_for_principal(request, principal),
-            provider_link_options=await get_provider_link_start_options(db, tenant_scope),
+            provider_link_options=provider_link_options,
+            workspace_spaces=spaces,
+            workspace_join_offers=offers,
+            workspace_offer_result=workspace_offer,
+            workspace_switch_result=space_switch,
         )
     )

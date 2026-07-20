@@ -17,11 +17,12 @@ def test_support_incident_contract_creates_private_issue_server_side(client: Tes
 
     assert response.status_code == 201
     body = response.json()
-    assert body["incident_id"] == "CUST-123"
+    assert body["incident_id"].startswith("CUST-")
+    assert body["incident_status"] == "synced"
     assert body["github_issue_number"] == 123
     assert body["dedupe_status"] == "created"
     assert body["copy_fallback_available"] is True
-    assert body["user_message"] == "Запрос отправлен в поддержку. Номер: CUST-123"
+    assert body["user_message"] == f"Запрос принят и передан в поддержку. Номер: {body['incident_id']}"
     assert len(fake_github.created_issues) == 1
     assert "github_token" not in response.text
 
@@ -56,8 +57,9 @@ def test_support_incident_contract_maps_fallback_problem_responses(client: TestC
 
     client.app.state.support_incident_github_client = None
     config_response = client.post("/api/v1/desktop/support-incidents", headers=auth_headers(), json=safe_report_payload())
-    assert config_response.status_code == 503
-    assert config_response.json()["code"] == "support_incident.configuration_invalid"
+    assert config_response.status_code == 202
+    assert config_response.json()["incident_status"] == "pending_sync"
+    assert config_response.json()["github_issue_number"] is None
 
 
 def test_support_incident_contract_rate_limit_blocks_github_mutation(client: TestClient) -> None:
@@ -73,3 +75,10 @@ def test_support_incident_contract_rate_limit_blocks_github_mutation(client: Tes
     assert second.json()["code"] == "support_incident.rate_limited"
     assert len(fake_github.created_issues) == 1
     assert not fake_github.updated_issues
+
+
+def test_support_incident_sync_contract_has_no_report_request_body(client: TestClient) -> None:
+    operation = client.app.openapi()["paths"]["/api/v1/desktop/support-incidents/{incident_id}/sync"]["post"]
+
+    assert "requestBody" not in operation
+    assert "SupportIncidentReportRequest" not in str(operation)

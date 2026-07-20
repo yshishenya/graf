@@ -73,7 +73,13 @@ class Settings(BaseSettings):
     smoke_workspace_id: UUID | None = None
     smoke_user_id: UUID | None = None
     smoke_device_id: UUID | None = None
-    web_login_workspace_id: UUID | None = None
+    web_login_workspace_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Internal bootstrap workspace for public auth policy and organization lookup; "
+            "never a public enrollment destination."
+        ),
+    )
     email_login_delivery_enabled: bool = False
     email_login_from_address: str | None = None
     email_login_from_name: str = "GRAF"
@@ -219,6 +225,13 @@ class Settings(BaseSettings):
     def empty_optional_string_is_unset(cls, value: object) -> object:
         if isinstance(value, str) and value.strip() == "":
             return None
+        return value
+
+    @field_validator("database_url")
+    @classmethod
+    def database_url_requires_postgresql_asyncpg(cls, value: str) -> str:
+        if not value.startswith("postgresql+asyncpg://"):
+            raise ValueError("database_url must use PostgreSQL with the asyncpg driver")
         return value
 
     @field_validator("public_analytics_validation_mode")
@@ -436,7 +449,10 @@ class Settings(BaseSettings):
             raise ValueError("production support incidents must target yshishenya/crisp")
         if self.email_login_delivery_enabled:
             if self.web_login_workspace_id is None:
-                raise ValueError("production email login delivery requires web_login_workspace_id")
+                raise ValueError(
+                    "production email login delivery requires web_login_workspace_id "
+                    "as an internal bootstrap"
+                )
             if self.postal_api_url is None:
                 raise ValueError("production email login delivery requires postal_api_url")
             if self.postal_api_key_file is None:

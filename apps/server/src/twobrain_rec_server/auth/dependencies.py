@@ -511,22 +511,30 @@ async def _validate_tenant_scope(
             )
         )
         registered_device = await db.get(RegisteredDevice, device_id)
+        membership_is_inactive = membership is None or membership.status != "active"
         if (
             user is None
             or user.organization_id != principal.organization_id
             or user.status != "active"
             or workspace is None
             or workspace.organization_id != principal.organization_id
-            or membership is None
-            or membership.status != "active"
+            or membership_is_inactive
             or registered_device is None
             or registered_device.workspace_id != workspace_id
             or registered_device.user_id != principal.user_id
         ):
+            if principal.auth_via_session and principal.session_id is not None and membership_is_inactive:
+                session = await db.get(AuthSession, principal.session_id)
+                if session is not None and session.status == "active":
+                    session.status = "revoked"
+                    await db.commit()
             raise ProblemDetail(
                 status=403,
                 code="workspace_scope_denied",
                 title="Workspace scope denied",
+                headers={"X-GRAF-Cabinet-Recovery": "reselect-space"}
+                if membership_is_inactive and request.url.path.startswith("/desktop/")
+                else None,
             )
         if registered_device.status == "revoked" or registered_device.registration_state == "revoked":
             raise ProblemDetail(

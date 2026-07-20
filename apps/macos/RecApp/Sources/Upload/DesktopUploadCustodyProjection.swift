@@ -910,8 +910,8 @@ public struct DesktopSupportIncidentLocalFileCompletenessProfile: Codable, Equat
 public struct DesktopSupportIncidentResponse: Decodable, Equatable, Sendable {
     public let incidentId: String
     public let incidentStatus: String
-    public let githubIssueNumber: Int
-    public let githubIssueURL: String
+    public let githubIssueNumber: Int?
+    public let githubIssueURL: String?
     public let dedupeStatus: String
     public let affectedCount: Int
     public let copyFallbackAvailable: Bool
@@ -920,8 +920,8 @@ public struct DesktopSupportIncidentResponse: Decodable, Equatable, Sendable {
     public init(
         incidentId: String,
         incidentStatus: String,
-        githubIssueNumber: Int,
-        githubIssueURL: String,
+        githubIssueNumber: Int? = nil,
+        githubIssueURL: String? = nil,
         dedupeStatus: String,
         affectedCount: Int,
         copyFallbackAvailable: Bool,
@@ -935,6 +935,14 @@ public struct DesktopSupportIncidentResponse: Decodable, Equatable, Sendable {
         self.affectedCount = affectedCount
         self.copyFallbackAvailable = copyFallbackAvailable
         self.userMessage = userMessage
+    }
+
+    public var isPendingSync: Bool {
+        incidentStatus == "pending_sync"
+    }
+
+    public var isSynced: Bool {
+        incidentStatus == "synced"
     }
 
     private enum CodingKeys: String, CodingKey {

@@ -294,7 +294,8 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
     }
 
     func testRetryWaitsForTimedOutRuntimeStartCleanup() async throws {
-        let runtime = RecoveringSlowStartingSystemAudioRuntime(firstStartDelaySeconds: 0.2)
+        let firstStartGate = RecoveringRuntimeStartGate()
+        let runtime = RecoveringSlowStartingSystemAudioRuntime(firstStartGate: firstStartGate)
         let service = SystemAudioCaptureService(
             runtime: runtime,
             runtimeStartTimeoutSeconds: 0.05
@@ -312,6 +313,10 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
             XCTAssertFalse(running)
         }
 
+        // Wait until the cleanup has stopped the timed-out runtime and is now
+        // blocked on its first start. This is a deterministic boundary: a retry
+        // must not create a second runtime start until the gate is released.
+        await firstStartGate.waitUntilFirstStop()
         let retry = Task {
             try await service.start(
                 sessionId: "second",
@@ -319,12 +324,15 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
                 scopeApproval: approvedScope()
             )
         }
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        for _ in 0..<10 {
+            await Task.yield()
+        }
 
         XCTAssertEqual(runtime.startCount, 1)
         let runningWhileRetryWaits = await service.isRunning
         XCTAssertFalse(runningWhileRetryWaits)
 
+        await firstStartGate.releaseFirstStart()
         let second = try await retry.value
         XCTAssertEqual(second.sessionId, "second")
         XCTAssertEqual(runtime.startCount, 2)
@@ -498,13 +506,13 @@ private final class SlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @
 }
 
 private final class RecoveringSlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
-    private let firstStartDelaySeconds: TimeInterval
+    private let firstStartGate: RecoveringRuntimeStartGate
     private let lock = NSLock()
     private var protectedStartCount = 0
     private var protectedStopCount = 0
 
-    init(firstStartDelaySeconds: TimeInterval) {
-        self.firstStartDelaySeconds = firstStartDelaySeconds
+    init(firstStartGate: RecoveringRuntimeStartGate) {
+        self.firstStartGate = firstStartGate
     }
 
     var startCount: Int {
@@ -522,7 +530,7 @@ private final class RecoveringSlowStartingSystemAudioRuntime: SystemAudioCapture
         }
 
         if currentStart == 1 {
-            try? await Task.sleep(nanoseconds: UInt64(firstStartDelaySeconds * 1_000_000_000))
+            await firstStartGate.waitForRelease()
         }
     }
 
@@ -530,6 +538,59 @@ private final class RecoveringSlowStartingSystemAudioRuntime: SystemAudioCapture
         lock.withLock {
             protectedStopCount += 1
         }
+        await firstStartGate.recordStop()
+    }
+}
+
+private actor RecoveringRuntimeStartGate {
+    private var firstStopObserved = false
+    private var firstStopWaiters: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func waitForRelease() async {
+        guard !released else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            if released {
+                continuation.resume()
+            } else {
+                releaseContinuation = continuation
+            }
+        }
+    }
+
+    func recordStop() {
+        guard !firstStopObserved else {
+            return
+        }
+        firstStopObserved = true
+        let waiters = firstStopWaiters
+        firstStopWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitUntilFirstStop() async {
+        guard !firstStopObserved else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            if firstStopObserved {
+                continuation.resume()
+            } else {
+                firstStopWaiters.append(continuation)
+            }
+        }
+    }
+
+    func releaseFirstStart() {
+        guard !released else {
+            return
+        }
+        released = true
+        releaseContinuation?.resume()
+        releaseContinuation = nil
     }
 }
 

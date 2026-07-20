@@ -14,11 +14,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from tests.integration.test_playback_normalization_finalize import (
     _accept_first_party_recording,
 )
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import (
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
     TrackArtifact,
 )
+from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.normalization import service as normalization_service
 from twobrain_rec_server.normalization.media import (
     MediaPolicyError,
@@ -122,6 +124,21 @@ class InvalidReceiptPipeline:
         )
 
 
+async def _apply_worker_scope(db, job: PlaybackNormalizationJob) -> None:
+    """Match the production worker's exact database authority for direct calls."""
+
+    await apply_tenant_scope(
+        db,
+        TenantScope(
+            organization_id=job.organization_id,
+            workspace_id=job.workspace_id,
+            user_id=job.requested_by_user_id,
+            device_id=job.source_device_id,
+        ),
+        context_kind="worker",
+    )
+
+
 @pytest.mark.parametrize(
     ("case_name", "failure", "expected_reason"),
     [
@@ -177,6 +194,7 @@ def test_system_resource_and_output_failures_stay_in_automatic_recovery_and_clea
                 )
             )
             assert job is not None
+            await _apply_worker_scope(db, job)
             with pytest.raises(NormalizationExecutionFailure) as caught:
                 await run_normalization_job(
                     db=db,
@@ -254,6 +272,7 @@ def test_work_capacity_preflight_stops_before_download_and_retries_automatically
                 )
             )
             assert job is not None
+            await _apply_worker_scope(db, job)
             with pytest.raises(NormalizationExecutionFailure) as caught:
                 await run_normalization_job(
                     db=db,
@@ -306,6 +325,7 @@ def test_invalid_output_receipt_cannot_publish_and_cleanup_remains_server_owned(
                 )
             )
             assert job is not None
+            await _apply_worker_scope(db, job)
             with pytest.raises(NormalizationExecutionFailure) as caught:
                 await run_normalization_job(
                     db=db,

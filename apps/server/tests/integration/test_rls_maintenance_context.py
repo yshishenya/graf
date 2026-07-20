@@ -17,6 +17,7 @@ def test_global_inventory_context_returns_only_bounded_tenant_scope_ids(client) 
     async def exercise():
         async with client.app_state["sessionmaker"]() as db:
             await _seed_legacy_revision(db, ordinal=3000, created_at=now)
+        async with client.app_state["media_sessionmaker"]() as db:
             context = MaintenanceTenantContext(
                 operation_name="playback_normalization_inventory",
                 actor_id="rls-maintenance-test",

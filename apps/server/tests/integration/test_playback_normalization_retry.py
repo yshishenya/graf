@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
+from tests.fixtures.processing import apply_job_worker_scope
 from tests.integration.test_playback_normalization_finalize import (
     _accept_first_party_recording,
 )
@@ -57,6 +58,7 @@ def test_retryable_failures_persist_four_attempt_cycle_and_continue_daily(client
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             now = datetime(2026, 7, 14, 12, 0, tzinfo=UTC)
             short_delays: list[timedelta] = []
             long_delays: list[timedelta] = []
@@ -158,6 +160,7 @@ def test_permanent_source_failure_stops_automatic_retry_without_reupload(client)
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             job.state = "running"
             job.attempt_count = 1
             job.cycle_attempt_count = 1
@@ -201,6 +204,7 @@ def test_real_attempt_failure_is_durable_cleaned_and_keeps_accepted_source(
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             with pytest.raises(NormalizationExecutionFailure) as caught:
                 await run_normalization_job(
                     db=db,

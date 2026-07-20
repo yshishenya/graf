@@ -47,3 +47,16 @@ v5 record may be rewritten or resubmitted during that rehearsal.
 - `synthetic_e2e_and_deletion=pass`; `rollback=fail/open`.
 - Limitation: this receipt makes no installer, updater, TCC or deployment
   rollback claim and does not mark T064 complete.
+
+## 2026-07-20 — latest pre-v5 baseline rehearsal
+
+- The staged `v2026.07.17.9` baseline was launched from an isolated disposable
+  home; `/Applications/GRAF.app` was not replaced and no candidate v5 artifact
+  was rewritten or resubmitted.
+- Two manual future-capture attempts started and stopped. Both produced only
+  metadata-degraded v3 receipts (`status=degraded`,
+  `failureReason=timeline_misaligned`); the incoming/system track remained
+  `silent_input`, so neither receipt passed the baseline quality gate.
+- `rollback=fail/open`: the exact rollback acceptance requirement is still not
+  demonstrated on the current Mac. T064 remains open; no installer, updater,
+  TCC or deployment rollback claim is made.

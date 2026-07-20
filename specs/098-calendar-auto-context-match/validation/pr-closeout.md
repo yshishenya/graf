@@ -28,8 +28,8 @@
 - Chrome visual QA passed for web and embedded routes. It found and closed an
   invalid nested-link/grid-wrap defect before the final rerun; eight synthetic
   screenshots and interaction receipts are in `validation/visual-qa.md`.
-- Feature 097 and its standalone Codex Security scan remain separately
-  deferred and untouched.
+- Feature 097 is separately released; its standalone Codex Security scan was
+  explicitly skipped by user instruction and is not part of this PR evidence.
 
 ## Russian PR Description
 
@@ -104,7 +104,8 @@ use after commit approval and final branch/CI evidence are inserted.
 
 ## Что не входит
 
-- Feature 097 и отдельно возобновляемый Codex Security scan.
+- Feature 097 is a separate release; its standalone Codex Security scan was
+  explicitly skipped by user instruction.
 - Auto-record, provider writes, auto-share/delivery, speaker naming, native
   duplicate review UI и retrospective matching recovery-очередей.
 - Production deploy/runtime smoke и публичный signed/notarized macOS installer.

@@ -10,14 +10,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.invitations import (
-    complete_matching_invitation_after_login,
-    find_matching_pending_invitation,
-    matching_invitation_contacts,
+    create_matching_join_offers_after_login,
 )
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.policy import (
     is_provider_enabled_in_policy,
     load_workspace_auth_policy,
+    requires_explicit_corporate_enrollment,
 )
 from twobrain_rec_server.auth.provider_links import (
     ProviderLinkError,
@@ -32,6 +31,7 @@ from twobrain_rec_server.auth.providers.base import (
     get_provider_http_client,
 )
 from twobrain_rec_server.auth.sessions import consume_callback_state, issue_auth_session
+from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSessionDeviceBinding,
@@ -51,6 +51,7 @@ from twobrain_rec_server.db.tenant_context import (
 
 @dataclass(frozen=True)
 class CallbackProfile:
+    organization_id: UUID
     user_id: UUID
     workspace_id: UUID
     auth_session_id: UUID
@@ -105,10 +106,19 @@ def _fingerprint_identity(subject: str, provider: str, workspace_id: UUID) -> st
 
 def _is_external_identity_unique_conflict(exc: IntegrityError) -> bool:
     message = str(exc.orig).lower()
+    constraint_name = str(getattr(exc.orig, "constraint_name", "")).lower()
+    known_constraint_names = frozenset(
+        {
+            "external_identities_provider_provider_subject_key",
+            "uq_external_identities_provider",
+        }
+    )
     return (
         "external_identities.provider" in message
         and "external_identities.provider_subject" in message
-    ) or "external_identities_provider_provider_subject_key" in message
+    ) or constraint_name in known_constraint_names or any(
+        known_constraint in message for known_constraint in known_constraint_names
+    )
 
 
 async def _mark_state_error(state, code: str, now: datetime | None = None) -> None:
@@ -186,7 +196,7 @@ async def _create_scoped_user(
     provider: str,
     provider_subject: str,
     profile: dict[str, str | None],
-    role: str = "member",
+    role: str | None = None,
 ) -> UserIdentity:
     try:
         async with db.begin_nested():
@@ -206,14 +216,15 @@ async def _create_scoped_user(
                     context_kind="auth_bootstrap",
                 ),
             )
-            db.add(
-                WorkspaceMembership(
-                    workspace_id=workspace_id,
-                    user_id=user.id,
-                    role=role,
-                    status="active",
+            if role is not None:
+                db.add(
+                    WorkspaceMembership(
+                        workspace_id=workspace_id,
+                        user_id=user.id,
+                        role=role,
+                        status="active",
+                    )
                 )
-            )
             db.add(
                 ExternalIdentity(
                     user_id=user.id,
@@ -315,14 +326,7 @@ async def _get_or_create_user_from_provider_claims(
     email: str | None,
     phone: str | None,
     display_name: str | None,
-    allow_provider_self_enrollment: bool,
 ) -> UserIdentity:
-    invitation_contacts = matching_invitation_contacts(
-        provider_subject=provider_subject,
-        provider_username=provider_username,
-        email=email,
-        phone=phone,
-    )
     user = await _user_by_external_identity(
         db,
         organization_id=organization_id,
@@ -341,50 +345,17 @@ async def _get_or_create_user_from_provider_claims(
                 context_kind="auth_bootstrap",
             ),
         )
-        membership = await db.scalar(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.user_id == user.id,
-            )
+        await create_matching_join_offers_after_login(
+            db,
+            organization_id=organization_id,
+            bootstrap_workspace_id=workspace_id,
+            user_id=user.id,
+            provider=provider,
+            provider_subject=provider_subject,
+            provider_username=provider_username,
+            email=email,
+            phone=phone,
         )
-        if membership is None:
-            if not allow_provider_self_enrollment:
-                invitation = await complete_matching_invitation_after_login(
-                    db,
-                    workspace_id=workspace_id,
-                    user_id=user.id,
-                    provider=provider,
-                    provider_subject=provider_subject,
-                    provider_username=provider_username,
-                    email=email,
-                    phone=phone,
-                )
-                if invitation is None:
-                    raise CallbackFlowError(
-                        "workspace_enrollment_required",
-                        "workspace policy requires invite or pre-existing membership",
-                        workspace_id=workspace_id,
-                    )
-            else:
-                db.add(
-                    WorkspaceMembership(
-                        workspace_id=workspace_id,
-                        user_id=user.id,
-                        role="member",
-                        status="active",
-                    )
-                )
-        else:
-            await complete_matching_invitation_after_login(
-                db,
-                workspace_id=workspace_id,
-                user_id=user.id,
-                provider=provider,
-                provider_subject=provider_subject,
-                provider_username=provider_username,
-                email=email,
-                phone=phone,
-            )
         return user
 
     existing_identity = await db.scalar(
@@ -407,40 +378,7 @@ async def _get_or_create_user_from_provider_claims(
         "phone": phone,
         "display_name": display_name,
     }
-    if not allow_provider_self_enrollment:
-        invitation = await find_matching_pending_invitation(
-            db,
-            workspace_id=workspace_id,
-            provider=provider,
-            contacts=invitation_contacts,
-        )
-        if invitation is None:
-            raise CallbackFlowError(
-                "workspace_enrollment_required",
-                "workspace policy requires invite or pre-existing membership",
-                workspace_id=workspace_id,
-            )
-        user = await _create_scoped_user(
-            db,
-            organization_id=organization_id,
-            workspace_id=workspace_id,
-            provider=provider,
-            provider_subject=provider_subject,
-            profile=profile,
-            role=invitation.invited_role,
-        )
-        await complete_matching_invitation_after_login(
-            db,
-            workspace_id=workspace_id,
-            user_id=user.id,
-            provider=provider,
-            provider_subject=provider_subject,
-            provider_username=provider_username,
-            email=email,
-            phone=phone,
-        )
-        return user
-    return await _create_scoped_user(
+    user = await _create_scoped_user(
         db,
         organization_id=organization_id,
         workspace_id=workspace_id,
@@ -448,6 +386,18 @@ async def _get_or_create_user_from_provider_claims(
         provider_subject=provider_subject,
         profile=profile,
     )
+    await create_matching_join_offers_after_login(
+        db,
+        organization_id=organization_id,
+        bootstrap_workspace_id=workspace_id,
+        user_id=user.id,
+        provider=provider,
+        provider_subject=provider_subject,
+        provider_username=provider_username,
+        email=email,
+        phone=phone,
+    )
+    return user
 
 
 async def resolve_callback_to_user(
@@ -566,7 +516,7 @@ async def resolve_callback_to_user(
         raise CallbackFlowError("callback_parse_error", "unable to parse callback payload") from exc
 
     try:
-        policy = await _assert_provider_allowed(db, state.workspace_id, identity.provider)
+        await _assert_provider_allowed(db, state.workspace_id, identity.provider)
         workspace = await assert_workspace_active(db, state.workspace_id)
     except CallbackFlowError as exc:
         await _mark_state_error(state, exc.code, now=now)
@@ -619,7 +569,6 @@ async def resolve_callback_to_user(
             email=identity.email,
             phone=identity.phone,
             display_name=identity.display_name,
-            allow_provider_self_enrollment=policy.allow_provider_self_enrollment,
         )
     except CallbackFlowError as exc:
         await _mark_state_error(state, exc.code, now=now)
@@ -635,38 +584,27 @@ async def resolve_callback_to_user(
         )
         raise
 
+    personal_workspace = await ensure_personal_workspace(
+        db,
+        organization_id=workspace.organization_id,
+        user_id=user.id,
+    )
     membership = await db.scalar(
         select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == workspace.id,
             WorkspaceMembership.user_id == user.id,
+            WorkspaceMembership.status == "active",
         )
     )
     if membership is None:
-        if not policy.allow_provider_self_enrollment:
-            await _mark_state_error(state, "workspace_enrollment_required", now=now)
-            await _record_callback_audit_event(
-                db,
-                workspace_id=workspace.id,
-                event_type="provider_callback_failed",
-                provider=provider,
-                actor_ip=actor_ip,
-                request_id=request_id,
-                outcome="failure",
-                metadata={"error_code": "workspace_enrollment_required", "state_nonce": state_nonce},
-            )
+        if not requires_explicit_corporate_enrollment():
             raise CallbackFlowError(
-                "workspace_enrollment_required",
-                "workspace policy requires invite or pre-existing membership",
-                workspace_id=workspace.id,
+                "corporate_enrollment_not_supported",
+                "automatic corporate enrollment is not supported",
             )
-        db.add(
-            WorkspaceMembership(
-                workspace_id=workspace.id,
-                user_id=user.id,
-                role="member",
-                status="active",
-            )
-        )
+        # Provider/email claims only create safe personal access.  A corporate
+        # membership can be created later by an explicit accepted join offer.
+        workspace = personal_workspace
     browser_device = None
     if _is_browser_requested_redirect(state.requested_redirect):
         browser_device = await _resolve_browser_login_device(
@@ -740,6 +678,7 @@ async def resolve_callback_to_user(
     )
 
     return CallbackProfile(
+        organization_id=workspace.organization_id,
         user_id=user.id,
         workspace_id=workspace.id,
         auth_session_id=issued.id,

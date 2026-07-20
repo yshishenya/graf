@@ -113,6 +113,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let onOpenSettings: () -> Void
     private let onCheckForUpdates: () -> Void
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
+    private let onSupportIncidentSync: ([String]) async throws -> DesktopSupportIncidentResponse
+    private let onOpenSupportSignIn: () -> Void
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     @State private var inspectorExpanded = false
@@ -138,6 +140,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         onSupportIncidentReport: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
             throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
         },
+        onSupportIncidentSync: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
+            throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
+        },
+        onOpenSupportSignIn: @escaping () -> Void = {},
         @ViewBuilder captureControls: () -> CaptureControls,
         @ViewBuilder meetingsWorkspace: () -> MeetingsWorkspace
     ) {
@@ -156,6 +162,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.onOpenSettings = onOpenSettings
         self.onCheckForUpdates = onCheckForUpdates
         self.onSupportIncidentReport = onSupportIncidentReport
+        self.onSupportIncidentSync = onSupportIncidentSync
+        self.onOpenSupportSignIn = onOpenSupportSignIn
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
     }
@@ -780,7 +788,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             DesktopSupportIncidentActionStrip(
                 summary: summary,
                 leadingPadding: 22,
-                onSubmit: onSupportIncidentReport
+                onSubmit: onSupportIncidentReport,
+                onSync: onSupportIncidentSync,
+                onOpenSignIn: onOpenSupportSignIn
             )
         }
         .accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)
@@ -963,6 +973,13 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
                 tileTitle: "Нужен вход",
                 tileDetail: "Откройте кабинет заново",
                 systemImage: "person.crop.circle.badge.exclamationmark",
+                tone: .warning
+            )
+        case .workspaceReselectionRequired:
+            return DesktopMeetingShellCabinetStatusPresentation(
+                tileTitle: "Нужно выбрать пространство",
+                tileDetail: "Войдите снова, чтобы продолжить",
+                systemImage: "person.crop.circle.badge.xmark",
                 tone: .warning
             )
         case .accessDenied:

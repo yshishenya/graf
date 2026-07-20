@@ -41,4 +41,4 @@ USER twobrain
 
 EXPOSE 8080
 
-CMD ["uvicorn", "twobrain_rec_server.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "twobrain_rec_server.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--no-access-log"]

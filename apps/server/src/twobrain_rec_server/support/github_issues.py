@@ -149,7 +149,8 @@ def build_github_issue_draft(
     *,
     affected_count: int = 1,
     safe_affected_identities: tuple[str, ...] | list[str] = (),
-    github_issue_number: int | None = None,
+    incident_number: str = "CUST-UNASSIGNED",
+    sync_status: str = "synced",
 ) -> GitHubIssueDraft:
     priority = priority_for_report(report)
     labels = (
@@ -165,7 +166,8 @@ def build_github_issue_draft(
         report,
         affected_count=affected_count,
         safe_affected_identities=tuple(safe_affected_identities)[:5],
-        github_issue_number=github_issue_number,
+        incident_number=incident_number,
+        sync_status=sync_status,
     )
     return GitHubIssueDraft(title=title, body=body, labels=labels)
 
@@ -185,13 +187,15 @@ def updated_deduped_issue_body(
     *,
     affected_count: int,
     safe_affected_identities: tuple[str, ...] | list[str],
-    github_issue_number: int,
+    incident_number: str,
+    sync_status: str = "synced",
 ) -> str:
     draft = build_github_issue_draft(
         report,
         affected_count=affected_count,
         safe_affected_identities=safe_affected_identities,
-        github_issue_number=github_issue_number,
+        incident_number=incident_number,
+        sync_status=sync_status,
     )
     return replace_generated_issue_metadata(existing_body, draft)
 
@@ -210,9 +214,9 @@ def _issue_body(
     *,
     affected_count: int,
     safe_affected_identities: tuple[str, ...],
-    github_issue_number: int | None,
+    incident_number: str,
+    sync_status: str,
 ) -> str:
-    issue_number = str(github_issue_number) if github_issue_number is not None else "new"
     return f"""## Кратко
 
 Пользовательская проблема из GRAF: локальная запись не была отправлена автоматически. Отчет metadata-only, без аудио, транскрипта, raw paths, токенов, signed URL и private meeting content.
@@ -237,7 +241,8 @@ def _issue_body(
         report,
         affected_count=affected_count,
         safe_affected_identities=safe_affected_identities,
-        issue_number=issue_number,
+        incident_number=incident_number,
+        sync_status=sync_status,
     )}
 
 ## Границы задачи
@@ -281,12 +286,14 @@ def _generated_block(
     *,
     affected_count: int,
     safe_affected_identities: tuple[str, ...],
-    issue_number: str,
+    incident_number: str,
+    sync_status: str,
 ) -> str:
     report_json = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     return f"""
 {GENERATED_START}
-- Номер для пользователя: `CUST-{issue_number}`
+- Номер обращения: `{incident_number}`
+- Статус синхронизации: `{sync_status}`
 - Problem code: `{report.get("problem_code", "unknown")}`
 - Dedupe key: `{report.get("dedupe_key", "unknown")}`
 - Affected count: `{affected_count}`

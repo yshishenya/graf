@@ -13,7 +13,8 @@
 This evidence covers ordinary feature validation for automatic calendar context,
 authorization, privacy-safe metadata projections, migration portability, macOS
 prompt/queue behavior and fail-soft recording/upload behavior. It does **not**
-run or complete the separately deferred feature 097 / Codex Security scan. No
+run the standalone feature 097 Codex Security scan, which was explicitly
+skipped by user instruction. No
 production deploy, production migration, runtime smoke or installed-app release
 proof is claimed here.
 
@@ -284,8 +285,8 @@ comments remain a post-merge responsibility under T109.
   real keyboard, choose and clear interactions. Responsive/mobile visual QA is
   outside this same-viewport 098 gate; existing responsive CSS remains covered
   by the cabinet contract tests.
-- The standalone feature 097 security scan remains running/resumable and
-  deliberately untouched.
+- The standalone feature 097 security scan was explicitly skipped by user
+  instruction and is not represented as a result here.
 - Implementation commit requires explicit user approval.
 - PR review/merge, CalVer release, production migration/deploy/runtime smoke,
   installed-app evidence and issue closure remain later gates.

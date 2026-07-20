@@ -60,3 +60,11 @@ capture scope. The signed baseline artifact was valid and the candidate v5
 manifest/WAV/M4A hashes stayed unchanged, but the baseline ScreenCaptureKit
 runtime timed out before publishing any artifact. Therefore the rollback part
 of T064 remains open; no rollback pass is claimed.
+
+## 2026-07-20 — latest baseline follow-up
+
+The later staged `v2026.07.17.9` baseline also started and stopped twice in an
+isolated future-capture scope, but both metadata receipts were
+`status=degraded` with `failureReason=timeline_misaligned` and a
+`silent_input` incoming track. The installed v5 candidate was not modified;
+the exact-baseline rollback gate remains open.

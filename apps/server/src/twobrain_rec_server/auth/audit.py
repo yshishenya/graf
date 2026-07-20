@@ -35,6 +35,10 @@ DENIED_AUTH_ACCESS_METADATA_KEYS = frozenset(
     }
 )
 
+ONBOARDING_AUDIT_METADATA_KEYS = frozenset(
+    {"offer_id", "invitation_id", "workspace_kind", "status", "action"}
+)
+
 
 @dataclass(frozen=True, slots=True)
 class AuthAuditEventRecord:
@@ -101,3 +105,28 @@ async def write_auth_audit_event(
     )
     db.add(event)
     return event
+
+
+async def write_onboarding_audit_event(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    event_type: str,
+    metadata: Mapping[str, object] | None = None,
+) -> AuthAuditEvent:
+    """Persist only opaque onboarding state; never identity-match inputs."""
+
+    safe_metadata = {
+        key: value
+        for key, value in (metadata or {}).items()
+        if key in ONBOARDING_AUDIT_METADATA_KEYS
+    }
+    return await write_auth_audit_event(
+        db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        actor_user_id=user_id,
+        event_type=event_type,
+        metadata=safe_metadata,
+    )

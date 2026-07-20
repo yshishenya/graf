@@ -4,6 +4,11 @@ import TwoBrainRecShared
 
 public typealias DesktopUploadProgressHandler = @Sendable (ServerTruthFingerprint) async throws -> Void
 
+public protocol DesktopSupportIncidentSubmitting: Sendable {
+    func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse
+    func syncSupportIncident(incidentID: String) async throws -> DesktopSupportIncidentResponse
+}
+
 public protocol DesktopUploadClientProtocol: Sendable {
     func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation?
     func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult
@@ -12,7 +17,6 @@ public protocol DesktopUploadClientProtocol: Sendable {
         onProgress: @escaping DesktopUploadProgressHandler
     ) async throws -> DesktopUploadResult
     func supportIncidentContext() -> DesktopSupportIncidentReportContext
-    func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse
     func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask]
     func acknowledgeLocalPurgeTask(
         _ task: DesktopLocalPurgeTask,
@@ -40,9 +44,6 @@ public extension DesktopUploadClientProtocol {
         .unknown
     }
 
-    func submitSupportIncident(report _: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse {
-        throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
-    }
 }
 
 public struct DesktopUploadReconciliation: Equatable, Sendable {
@@ -295,8 +296,6 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
     public static let meetingDetectionTargetRegistryPath = "/api/v1/desktop/meeting-detection/target-registry"
     public static let meetingDetectionTelemetryPath = "/api/v1/desktop/meeting-detection/telemetry"
-    public static let supportIncidentPath = "/api/v1/desktop/support-incidents"
-    public static let supportIncidentTimeoutSeconds: TimeInterval = 5
 
     private let baseURL: URL
     private let headers: [String: String]
@@ -687,21 +686,6 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             deviceFingerprint: deviceFingerprint,
             safeDeviceIdentifier: deviceFingerprint == "unknown" ? "unknown" : "device:\(deviceFingerprint)"
         )
-    }
-
-    public func supportIncidentRequest(for report: DesktopSupportIncidentReport) throws -> URLRequest {
-        var request = try jsonRequest(
-            path: Self.supportIncidentPath,
-            method: "POST",
-            body: report,
-            timeoutInterval: Self.supportIncidentTimeoutSeconds
-        )
-        request.setValue("support-incident:\(report.safeReportFingerprint)", forHTTPHeaderField: "Idempotency-Key")
-        return request
-    }
-
-    public func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse {
-        try await perform(supportIncidentRequest(for: report))
     }
 
     public func listDesktopCalendarUpcoming(

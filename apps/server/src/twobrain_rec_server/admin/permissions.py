@@ -13,6 +13,7 @@ class AdminPermissionOutcome(StrEnum):
     DENIED_ADMIN_CANNOT_MANAGE_OWNER_ADMIN = "denied_admin_cannot_manage_owner_admin"
     DENIED_LAST_OWNER = "denied_last_owner"
     DENIED_INACTIVE_MEMBERSHIP = "denied_inactive_membership"
+    DENIED_PERSONAL_WORKSPACE = "denied_personal_workspace"
     DENIED_AUDIT_UNAVAILABLE = "denied_audit_unavailable"
 
 
@@ -46,6 +47,12 @@ def admin_access_decision(
     if not audit_available:
         return AdminPermissionDecision(AdminPermissionOutcome.DENIED_AUDIT_UNAVAILABLE)
     return base
+
+
+def corporate_admin_workspace_decision(workspace_kind: str) -> AdminPermissionDecision:
+    if workspace_kind != "corporate":
+        return AdminPermissionDecision(AdminPermissionOutcome.DENIED_PERSONAL_WORKSPACE)
+    return AdminPermissionDecision(AdminPermissionOutcome.ALLOWED)
 
 
 def invitation_role_decision(

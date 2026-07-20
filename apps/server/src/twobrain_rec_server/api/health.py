@@ -88,8 +88,22 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
         "temporal": temporal_status,
         "mediascribe": mediascribe_status,
         "langfuse": "not_configured" if settings.langfuse_base_url is None else "configured",
+        "support_incidents": getattr(
+            request.app.state,
+            "support_incident_integration_status",
+            "configuration_invalid",
+        ),
     }
-    non_blocking_statuses = {"ok", "configured", "dispatcher_only", "not_required", "not_configured", "disabled", "enabled"}
+    non_blocking_statuses = {
+        "ok",
+        "configured",
+        "dispatcher_only",
+        "not_required",
+        "not_configured",
+        "disabled",
+        "enabled",
+        "configuration_invalid",
+    }
     status = "ready" if all(v in non_blocking_statuses for v in checks.values()) else "not_ready"
     return status, checks
 

@@ -1,0 +1,160 @@
+{
+  "documentType": "codex-security.hardening-analysis",
+  "schemaVersion": "1.0",
+  "analysisId": "hardening_109_release_signing_custody",
+  "sourceEvidence": {
+    "kind": "document_collection",
+    "label": "GRAF Sparkle signer availability incident and release-tool source review",
+    "collectionSha256": "7396331047d1daa3849d5097efe04105df17d2c56041b039c8664d655b815eaa",
+    "artifactCount": 5,
+    "targetRevision": "085993cf0c7289df5b4b69e864526906599843b6",
+    "sourceDrift": "none"
+  },
+  "assessment": {
+    "outcome": "opportunities_identified",
+    "summary": "One high-leverage custody boundary can eliminate the accidental single local signer without weakening ordinary Sparkle trust continuity."
+  },
+  "constraints": {
+    "profile": "balanced",
+    "changeHorizons": ["incremental", "medium_term"],
+    "nonNegotiables": [
+      "No private key, seed, secret path or secret-bearing log is committed, shipped or published.",
+      "Ordinary in-app updates keep the same Sparkle public key and HTTPS feed.",
+      "The historic unavailable signer is not treated as recoverable.",
+      "Public appcast replacement remains after verified versioned assets."
+    ],
+    "assumptions": [
+      "The current owner-only signing channel can use a protected GitHub environment and a controlled macOS Keychain.",
+      "No measured release latency or secret-management budget was supplied."
+    ]
+  },
+  "opportunities": [
+    {
+      "opportunityId": "protected-dual-custody",
+      "title": "Own Sparkle signer custody behind two protected channels",
+      "summary": "Replace arbitrary local-file/one-Keychain custody with a public manifest, protected GitHub environment signer, Keychain recovery signer, and fail-closed attestations.",
+      "diagnosis": "The release tool correctly validates a selected signer but ownership and recovery live outside a single durable control boundary, allowing availability to depend on one local secret copy.",
+      "evidence": [
+        {
+          "claimType": "observed",
+          "sourceKind": "document",
+          "evidenceId": "E001",
+          "claim": "The historic private signer is unavailable while installed applications retain its public verifier."
+        },
+        {
+          "claimType": "observed",
+          "sourceKind": "source",
+          "evidenceId": "E002",
+          "path": "apps/macos/Installer/Scripts/prepare-app-update.sh",
+          "claim": "Staging accepts either a Keychain account or arbitrary external private key file and validates only the selected path."
+        },
+        {
+          "claimType": "observed",
+          "sourceKind": "source",
+          "evidenceId": "E003",
+          "path": "apps/macos/Scripts/validate-app-updates.sh",
+          "claim": "Normal update continuity rejects changed Sparkle public key and feed URL."
+        },
+        {
+          "claimType": "inferred",
+          "sourceKind": "source",
+          "evidenceId": "E004",
+          "path": "apps/macos/Installer/README.md",
+          "claim": "Without a versioned public custody declaration and cross-channel attestation, operators cannot prove redundant recovery before a release."
+        }
+      ],
+      "desiredInvariants": [
+        "Every signer derives the same public key as the active manifest and candidate GRAF app before staging begins.",
+        "No regular appcast can change its own feed verifier or feed address.",
+        "At least one protected signer remains usable if the other channel is unavailable, while routine readiness visibly reports degraded redundancy.",
+        "No secret material crosses the repository, application, public host, artifact, log or diagnostic boundary."
+      ],
+      "proposalPath": "proposals/protected-dual-custody.md",
+      "options": [
+        {
+          "optionId": "current-local-custody",
+          "title": "Retain local Keychain/file custody with stronger documentation",
+          "kind": "baseline",
+          "summary": "Keep the current release helper and ask operators to maintain backups manually.",
+          "diagramPaths": {
+            "before": "diagrams/protected-dual-custody-before.mmd",
+            "after": "diagrams/protected-dual-custody-current-local-custody-after.mmd"
+          },
+          "evidenceCoverage": [
+            {"evidenceId": "E001", "effect": "unaffected", "tacticalFixRequired": true, "rationale": "Documentation cannot recreate the unavailable signer or prove an independent recovery path."},
+            {"evidenceId": "E002", "effect": "mitigates", "tacticalFixRequired": true, "rationale": "A documented backup policy could reduce accidents but retains arbitrary private-file capability."},
+            {"evidenceId": "E003", "effect": "unaffected", "tacticalFixRequired": true, "rationale": "Ordinary trust continuity remains correct but does not solve availability."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "Existing signature verification remains, but secret custody stays dispersed and a file fallback remains available.", "validationPlan": "Review releases for use of arbitrary file input and attempt one-channel loss recovery."},
+            {"dimension": "performance", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "No release-path process is added.", "validationPlan": "Measure existing staging duration as baseline."},
+            {"dimension": "memory", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "No new process or retained memory is introduced.", "validationPlan": "No special memory validation beyond existing staging checks."},
+            {"dimension": "reliability", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "A lost local signer still blocks updates.", "validationPlan": "Perform a loss drill with the only local signer unavailable."},
+            {"dimension": "operability", "direction": "neutral", "confidence": "medium", "basis": "source-derived", "assessment": "The current manual procedure remains familiar but lacks preflight proof of redundancy.", "validationPlan": "Ask an alternate operator to reproduce recovery from docs alone."},
+            {"dimension": "migration", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "No client migration occurs, so historic-key clients remain blocked.", "validationPlan": "Confirm current client cannot validate a new signer."}
+          ],
+          "residualRisks": ["Single-copy loss remains possible.", "An arbitrary local key file can be mishandled or leaked."],
+          "implementationReadiness": {"affectedComponents": ["apps/macos/Installer/README.md"], "workPackages": ["Document backup expectations."], "acceptanceCriteria": ["A documented local procedure exists."], "migrationNotes": ["Does not migrate historic trust."], "rollback": "Revert documentation only."}
+        },
+        {
+          "optionId": "protected-dual-custody",
+          "title": "Protected GitHub environment signer plus Keychain recovery signer",
+          "kind": "structural",
+          "summary": "Introduce an active public trust manifest, protected cloud signing workflow, local Keychain fallback, safe cross-channel attestation, and manual bootstrap migration.",
+          "diagramPaths": {
+            "before": "diagrams/protected-dual-custody-before.mmd",
+            "after": "diagrams/protected-dual-custody-protected-dual-custody-after.mmd"
+          },
+          "evidenceCoverage": [
+            {"evidenceId": "E001", "effect": "addresses", "tacticalFixRequired": true, "rationale": "A manual bootstrap migrates the unrecoverable historic trust line to a new managed signer."},
+            {"evidenceId": "E002", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Local arbitrary-file signing becomes CI-only ephemeral material and local recovery is named Keychain custody."},
+            {"evidenceId": "E003", "effect": "addresses", "tacticalFixRequired": true, "rationale": "The strict ordinary update validator remains in place and bootstrap gets a separate explicit path."},
+            {"evidenceId": "E004", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Public manifest, attestation and drills make custody ownership/testability explicit."},
+            {"evidenceId": "E005", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Focused evidence tests cover no legacy local file signer and fail-closed channel checks."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "The private key is no longer accepted from arbitrary local files; protected environment access and app/manifest/signer equality create a single auditable release boundary.", "validationPlan": "Exercise missing/mismatched local and cloud channel cases; scan tracked files and artifacts for key material."},
+            {"dimension": "performance", "direction": "neutral", "confidence": "medium", "basis": "source-derived", "assessment": "Extra derivation and workflow validation occur only during releases, not recording or normal update checks.", "validationPlan": "Record staging and protected-workflow durations for a representative release."},
+            {"dimension": "memory", "direction": "neutral", "confidence": "medium", "basis": "source-derived", "assessment": "The cloud path uses a short-lived restrictive key file; no long-lived app memory/process is added.", "validationPlan": "Inspect workflow cleanup and ensure no cache/artifact contains the file."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Either protected channel can sign; normal readiness detects loss of redundancy before a critical release.", "validationPlan": "Run one-channel unavailable drills and a complete two-channel readiness proof."},
+            {"dimension": "operability", "direction": "regresses", "confidence": "medium", "basis": "source-derived", "assessment": "Operators must manage a protected environment, approval and draft-release workflow, but receive a deterministic readiness/rollback procedure.", "validationPlan": "Have a second approved operator run the quickstart without access to secret values."},
+            {"dimension": "migration", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "One manual bootstrap package is necessary for clients bound to the lost historic public key.", "validationPlan": "Prove bootstrap plus two sequential normal in-app updates and permission continuity."}
+          ],
+          "residualRisks": ["If both protected channels are lost, another manual bootstrap is required.", "Owner-only code-signing identity remains a separate future migration."],
+          "implementationReadiness": {"affectedComponents": ["apps/macos/Installer", "apps/macos/Scripts", ".github/workflows", "apps/macos/Shared/Tests", "qa/macos"], "workPackages": ["Manifest and local custody tools", "protected workflows", "strict staging/validator integration", "bootstrap and documentation", "tests and release proof"], "acceptanceCriteria": ["Both channels attest to one active public key.", "Mismatches fail before staging/publication.", "Bootstrap then two in-app updates pass."], "migrationNotes": ["Use the first unused CalVer for manual bootstrap and later greater versions for normal updates."], "rollback": "Keep previous signed feed; halt before appcast replacement; fix forward for installed clients."}
+        },
+        {
+          "optionId": "external-kms-and-public-signing",
+          "title": "Move directly to an external KMS/HSM and public signing program",
+          "kind": "foundational",
+          "summary": "Adopt managed hardware-backed signing, Developer ID and notarization in one broad migration.",
+          "diagramPaths": {
+            "before": "diagrams/protected-dual-custody-before.mmd",
+            "after": "diagrams/protected-dual-custody-external-kms-and-public-signing-after.mmd"
+          },
+          "evidenceCoverage": [
+            {"evidenceId": "E001", "effect": "mitigates", "tacticalFixRequired": true, "rationale": "A KMS can improve custody but still cannot recover the historic Sparkle key; bootstrap remains necessary."},
+            {"evidenceId": "E002", "effect": "addresses", "tacticalFixRequired": true, "rationale": "It can eliminate local-file signing, but requires new provider and certificate workflows."},
+            {"evidenceId": "E003", "effect": "unknown", "tacticalFixRequired": true, "rationale": "Code-signing identity migration can affect continuity and must be validated separately."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "medium", "basis": "analogous", "assessment": "A managed non-exportable signer can reduce private-key export risk, subject to provider design and access policy.", "validationPlan": "Perform a separate threat model and provider access review."},
+            {"dimension": "performance", "direction": "unknown", "confidence": "low", "basis": "hypothetical", "assessment": "Remote signing adds release latency but not recording runtime cost.", "validationPlan": "Benchmark provider signing during a pilot."},
+            {"dimension": "memory", "direction": "neutral", "confidence": "medium", "basis": "analogous", "assessment": "No client memory impact is expected.", "validationPlan": "Review client bundle and updater behavior after prototype."},
+            {"dimension": "reliability", "direction": "unknown", "confidence": "low", "basis": "hypothetical", "assessment": "Provider availability and account recovery become new dependencies.", "validationPlan": "Run outage/recovery drills and audit SLA assumptions."},
+            {"dimension": "operability", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "It adds vendor, billing, certificate, notarization and identity-migration operations outside this slice.", "validationPlan": "Cost and ownership review before selection."},
+            {"dimension": "migration", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "Developer ID changes can affect designated requirements and TCC continuity.", "validationPlan": "Require a dedicated Spec Kit feature and permission-retention matrix."}
+          ],
+          "residualRisks": ["Historic trust still needs manual bootstrap.", "External service lock-in and code-signing migration risk increase."],
+          "implementationReadiness": {"affectedComponents": ["future identity/release architecture"], "workPackages": ["separate provider selection and Developer ID feature"], "acceptanceCriteria": ["separate approval and trust-continuity proof"], "migrationNotes": ["Not part of feature 109."], "rollback": "Remain on the protected dual-custody design until the separate migration is proven."}
+        }
+      ],
+      "recommendedOptionId": "protected-dual-custody",
+      "recommendation": "Use protected dual custody now; revisit an external KMS/Developer ID migration only after the owner-only release line is stable and a separate permission-continuity plan is approved."
+    }
+  ],
+  "openQuestions": [
+    "The exact release reviewers and environment policy must be configured by the repository owner before the first physical release.",
+    "A future Developer ID/notarization migration needs its own trust and TCC continuity feature."
+  ]
+}
