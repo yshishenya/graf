@@ -36,6 +36,27 @@ activity details, exports, identifiers, or provider payloads.
 | Dashboard freshness | open | One dashboard with eight items and historical aggregate provider events is present; current business-goal freshness has not been independently approved. | Aggregate-only dashboard review. |
 | Resource thresholds | blocked | Generated runtime has 32 healthy containers but no enforced Docker CPU/memory limits; host free disk is 71% and JSON logs rotate at `50m`/`3`. | Apply and verify concrete limits, alerts and rollback triggers. |
 
+The resource row above is superseded by the 2026-07-20 runtime receipt below;
+the RBAC, lifecycle and dashboard rows remain open.
+
+## Current-master operations recheck: 2026-07-20
+
+This recheck is aggregate-only and contains no event rows, persons, activity
+details, exports, identifiers, screenshots, or provider payloads.
+
+| Review | Status | Metadata-only result | Remaining gate |
+| --- | --- | --- | --- |
+| Resource limits | runtime_subgate_pass | Generated compose renders 35 services with 35 CPU and 35 memory entries; 33 running containers report non-zero Docker limits, zero OOM-killed containers, and web restart count `0`. | Automated alert/rollback receipt is still absent. |
+| Health and disk | pass | Analytics health returned `200` repeatedly; GRAF readiness returned `200`; analytics filesystem is `29%` used. | Keep the documented `20%` review / `10%` rollback disk thresholds. |
+| Log rotation | pass | All checked generated containers use `json-file` `50m`/`3` rotation. | Recheck after every generated-runtime update. |
+| Session policy | policy_signal | Event retention is `84` months; session recording is opted out and the configured policy string is `5y`; current recording rows are `0`. | Prove future deletion behavior and owner approval; null day field is not enforcement proof. |
+| RBAC and audit | partial | `enforce_2fa` is unset; custom roles/access memberships are empty; four audit-category rows cover only create/user-update categories. | Independent MFA/access and audit review. |
+| Dashboard freshness | open | One dashboard has eight saved items with no refresh timestamps; latest aggregate provider events remain `2026-07-09`; no approved Yandex conversions are present. | Owner review of freshness, goals and smoke/test filtering. |
+
+The 2026-07-20 production compose hardening and web startup-path repair were
+performed outside git with retained rollback copies. They do not enable provider
+delivery or product rollout.
+
 ## Current Planning Evidence
 
 | Item | Status | Metadata-Only Evidence |

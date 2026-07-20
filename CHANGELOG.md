@@ -91,6 +91,11 @@
   ограниченные auth/bootstrap compatibility anchors оставлены намеренно.
 
 ### Операции
+- Для Feature 096 зафиксировано production-hardening PostHog: 35 сервисов
+  получили явные CPU/memory limits, JSON-логи ограничены `50m`/`3`, web
+  startup-path исправлен и health/readiness восстановлены. Автоматические
+  alert/rollback и независимые RBAC/lifecycle/dashboard approvals остаются
+  отдельными незакрытыми воротами T101.
 - Добавлены ручные protected workflows для безопасной проверки signer и
   подписания только в draft GitHub Release. Публичный download host по-прежнему
   обновляется отдельно, versioned assets раньше graf-appcast.xml.

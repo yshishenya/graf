@@ -29,9 +29,11 @@ Date: 2026-07-18
 
 - T101: independent RBAC/audit review, complete retention/deletion lifecycle
   for provider data, session data, backups and exports, dashboard freshness and
-  goal visibility, and concrete resource/alert thresholds. The twelve-volume
-  backup/isolated-restore subgate passed under receipt `20260718T011751Z`, but
-  the generated stack still has no enforced per-service CPU/memory limits.
+  goal visibility, and concrete alert/rollback evidence. The twelve-volume
+  backup/isolated-restore subgate passed under receipt `20260718T011751Z`; the
+  2026-07-20 runtime receipt now verifies 35 configured resource limits and 33
+  running containers with non-zero CPU/memory limits, while automated alerts and
+  the independent review gates remain open.
 - T102 is now complete: the out-of-git Yandex OAuth secret-file setup is
   present and the current-candidate live-safe smoke accepted exactly
   `desktop_account_connected` and `first_value_session_completed`. Production
@@ -64,9 +66,10 @@ rewrite its checked task history.
   code and record metadata-only output. Receipt: bounded smoke, rollback
   dry-run and full CI; this is not real-provider evidence.
 - [ ] T101 Complete the remaining PostHog RBAC/audit, retention/lifecycle,
-  dashboard freshness, and concrete resource-threshold reviews; the real
-  backup/isolated-restore subgate is already evidenced, but the generated
-  runtime has no enforced per-service CPU/memory limits.
+  dashboard freshness, and concrete resource-alert/rollback reviews; the real
+  backup/isolated-restore subgate and runtime CPU/memory limit subgate are
+  evidenced, but independent review and automated alert receipts are still
+  missing.
 - [X] T102 Provide the out-of-git Yandex OAuth secret-file setup and run the
   two-event live-safe upload smoke without committing or printing credentials.
   Receipt: `validation/current-master-integration.md`; no credential, counter

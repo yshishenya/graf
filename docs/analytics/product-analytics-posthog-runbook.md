@@ -242,18 +242,28 @@ Replay may be enabled later only after page-class proof covers:
 
 ## Initial Same-Server Resource Thresholds
 
-These are initial operational thresholds. Implementation evidence must record
-whether the runtime configuration and smoke checks saw them.
+These are the concrete first-pass limits for the same-server deployment. The
+thresholds are review and rollback contracts; they do not claim that an alerting
+service exists. A future monitor must emit only the status, threshold and
+blocker code described here.
 
 | Area | Initial Threshold | Rollback/Review Trigger |
 | --- | --- | --- |
-| CPU | PostHog stack limited separately from GRAF services | sustained pressure that affects GRAF health |
-| Memory | explicit per-service limits in Compose | OOM/restart loop or GRAF degradation |
-| Disk | separate volumes and monitored free space | low free space before GRAF storage is endangered |
-| Network | provider traffic isolated to analytics route | provider traffic harms product availability |
-| Logs | bounded JSON/file log rotation | logs grow unexpectedly or include forbidden fields |
-| Backups | PostHog volumes backed up separately | backup missing or restore cannot be rehearsed |
-| Retention | at least 90 days unless a narrower approved category applies | retention cannot be proven |
+| CPU | Per-service Compose caps: `worker=4`, `web=3`, `clickhouse=3`, `elasticsearch=2`, `db=2`, `kafka=2`, `plugins=2`, `temporal-django-worker=2`; all other services are capped at `0.5–1` CPU. | Review at host 1-minute load `>=9` for 5 minutes; rollback provider delivery if GRAF readiness fails twice in 60 seconds or host load reaches `>=11`. |
+| Memory | Per-service Compose caps: `worker=12g`, `web/clickhouse/elasticsearch=8g`, `db/kafka/plugins/temporal-django-worker=4g`, `zookeeper/temporal/ingestion/object-storage/recording-api=2g`, small services `1g`. | Roll back on any PostHog `OOMKilled=true`, more than 2 restarts in 10 minutes, or host available memory `<16 GiB`. |
+| Disk | Keep analytics volumes separate; review below `20%` free and block/rollback before `<10%` free on the analytics filesystem. | Mark PostHog not ready, disable provider delivery, preserve GRAF workflows, and restore only after backup and free-space checks pass. |
+| Network | Analytics traffic remains on `analytics.2brain.pro`; probe analytics health every 60 seconds. | Review after 3 failed analytics probes in 5 minutes or analytics latency `>2s`; rollback provider delivery immediately if GRAF readiness or latency degrades. |
+| Logs | `json-file` rotation `max-size=50m`, `max-file=3` for every generated-stack service. | Review if rotation is missing or forbidden fields appear; stop provider delivery before unbounded growth can affect GRAF. |
+| Backups | Daily metadata-only backup; latest backup age must be `<26h`; retain at least 90 days and rehearse isolated restore at least monthly. | Block readiness if backup is missing/stale or restore rehearsal fails; use the last known-good compose/volume state. |
+| Retention | Product event retention is `84` months; session recording policy is `5y` while recording is opted out; the 90-day baseline remains the minimum for new categories. | Review any policy/category without a documented owner and deletion behavior; do not claim lifecycle readiness from an empty table alone. |
+
+The 2026-07-20 production receipt verified the 35-service Compose configuration,
+35 CPU entries, 35 memory entries, 33 running containers with non-zero runtime
+CPU/memory limits, zero OOM-killed containers, analytics health `200`, GRAF
+readiness `200`, and `29%` disk used. The production compose change is kept
+outside git with rollback copies. No automated host alert/rollback service was
+found, so the alerting portion remains an explicit T101 follow-up rather than a
+completed monitoring claim.
 
 Analytics must degrade first. Normal GRAF workflows must not be starved by the
 PostHog stack.

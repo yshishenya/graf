@@ -183,7 +183,49 @@ exports, identifiers, or provider payloads.
 
 These results narrow T101's remaining work to independent RBAC/audit and
 lifecycle approval, dashboard freshness/goal visibility, and applying/verifying
-concrete resource limits and alert/rollback thresholds for the generated stack.
+concrete alert/rollback thresholds for the generated stack.
+
+## T101 production resource and health receipt: 2026-07-20
+
+The generated production PostHog compose was hardened in place with a retained
+out-of-git rollback copy. The first controlled restart exposed a latent web
+mount mismatch: `/compose/start` used a relative `./compose/wait` path while the
+generated compose mounted the directory elsewhere. The narrow fix changed the
+web command and mount to the same `/code/compose` location; it did not change
+provider flags, secrets, data volumes, or GRAF services.
+
+| Check | Status | Metadata-only result |
+| --- | --- | --- |
+| Compose rendering | pass | `docker compose config` passed; 35 services, 35 CPU entries, 35 memory entries. |
+| Runtime limits | pass | 33 running containers all report non-zero Docker `NanoCpus` and memory limits; web is `running` with restart count `0`. |
+| Resource safety | pass | No PostHog container is `OOMKilled`; one historical non-zero restart count remains outside the web container and was not an OOM event. |
+| Log rotation | pass | Generated containers report `json-file` rotation at `50m` with `3` files. |
+| Disk headroom | pass | Analytics filesystem reports `29%` used (`71%` free), above the documented `20%` review and `10%` rollback boundaries. |
+| Analytics health | pass | `https://analytics.2brain.pro/_health/` returned HTTP `200` on repeated probes after migrations completed. |
+| GRAF readiness | pass | `https://rec.2brain.pro/api/v1/health/ready` returned HTTP `200`. |
+| Rollback safety | partial | Compose rollback copies are retained and provider rollback remains fail-closed; no automated host alert/rollback service is installed. |
+
+The resource/runtime subgate is therefore verified. T101 remains open because
+the numeric thresholds are currently a documented operator contract, not an
+automated alert receipt, and because independent RBAC/MFA, lifecycle/deletion,
+and dashboard freshness/goal reviews are still missing.
+
+## T101 corrected aggregate lifecycle and dashboard recheck: 2026-07-20
+
+The fresh read-only review supersedes the earlier session-retention wording:
+PostHog reports event retention `84` months and a session-recording policy of
+`5y`; recording is opted out, with zero current recording rows. The separate
+`retention_period_days` field is null, so this is a policy signal, not proof of
+future deletion enforcement. Export/asset/recording/batch-export/download and
+deletion-request counts are zero. Organization `enforce_2fa` remains unset;
+custom roles, role memberships, resource-access rows, and explicit team
+memberships remain empty; four audit-category records exist only for create or
+user-update categories.
+
+Dashboard review found one dashboard with eight saved items, no item refresh
+timestamps, and aggregate provider events whose latest timestamp remains
+2026-07-09. No approved Yandex conversion events are present. This is not a
+freshness or goal-visibility approval.
 
 ## T102 live-safe Yandex upload receipt: 2026-07-20
 

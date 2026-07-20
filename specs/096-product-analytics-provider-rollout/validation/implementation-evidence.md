@@ -39,11 +39,32 @@ not for the historical runtime rows below.
 | Rehearsal cleanup | pass | Isolated containers/network and all twelve rehearsal volumes were removed; live GRAF readiness remained `ready`. |
 | Canonical local CI | pass | At code SHA `0e467865` (later commits are documentation-only), `infra/scripts/ci-local.sh` passed with macOS 577 tests, server 1910 passed/1 skipped, strict PostgreSQL/RLS 34 passed/1 skipped, Ruff, compile, Compose rendering, and deployment-evidence scan. The RLS checker correctly remained blocked at the postgres-test boundary without a live probe. |
 | Deploy dry-run | pass | `infra/scripts/cd-remote.sh --dry-run` reported the PostHog handoff contract, official generated-runtime source, and explicit-approval execution boundary without changing state. |
-| PostHog RBAC/audit and retention read-only review | partial | One team reports `event_retention_months=84`; one activity log has 4 rows; one organization/membership/project is present. Custom role/resource memberships are empty, session-recording retention is unset, and `enforce_2fa` is not confirmed. Aggregate dashboard/event checks found one dashboard with eight items and only historical July 9 provider events; no offline conversion events. No payloads or user data were inspected. |
-| T101 remaining operations | open | RBAC/audit, retention/lifecycle, dashboard freshness/goal visibility, and concrete resource-alert thresholds still require independent review. |
+| PostHog RBAC/audit and retention read-only review | partial | One team reports `event_retention_months=84`; the session-recording policy string is `5y` while recording is opted out and the separate day field is null. One activity log has 4 rows; one organization/membership/project is present. Custom role/resource memberships are empty and `enforce_2fa` is not confirmed. Aggregate dashboard/event checks found one dashboard with eight items and only historical July 9 provider events; no offline conversion events. No payloads or user data were inspected. |
+| T101 remaining operations | open | The resource/runtime subgate is now verified, but an automated alert/rollback receipt, independent RBAC/MFA/audit review, complete retention/deletion lifecycle approval, and dashboard freshness/goal review remain open. |
 | T102 | complete | Out-of-git Yandex OAuth secret-file setup is present with mode `600`; a disposable current-candidate smoke accepted exactly `desktop_account_connected` and `first_value_session_completed` with `live_safe_uploaded`. No credential, counter ID, CSV row, or response body was printed or committed; production flags remain disabled. |
 | T104 | open | PR #3852 is still draft; reviewer approval, merge, release and production closeout remain open. GitHub tracker issues #3857, #3858 and #3860 are synchronized. |
-| T101 metadata-only continuation | partial | Additional aggregate review found zero session recordings, zero exported assets/recordings/batch exports, zero deletion requests, four audit-category records, unset organization `enforce_2fa`, JSON log rotation `50m`/`3`, and 32 healthy containers without enforced CPU/memory limits. Dashboard freshness and independent approval remain open. |
+| T101 metadata-only continuation | partial | Additional aggregate review found zero session recordings, zero exported assets/recordings/batch exports, zero deletion requests, four audit-category records, unset organization `enforce_2fa`, JSON log rotation `50m`/`3`, and the configured session policy string `5y`. Dashboard freshness and independent approval remain open; the earlier no-limits snapshot is superseded by the 2026-07-20 runtime receipt. |
+
+## T101 production resource and health receipt: 2026-07-20
+
+The generated production PostHog compose now has explicit resource limits on all
+35 configured services. The first controlled restart exposed a latent web
+startup-path mismatch; the web command and mount were aligned to `/code/compose`,
+then the stack completed migrations and returned to health. The change stayed
+outside git, with rollback copies retained, and did not enable provider flags.
+
+| Check | Status | Metadata-only evidence |
+| --- | --- | --- |
+| Compose and limits | pass | `docker compose config` passed; 35 services, 35 CPU entries, 35 memory entries; 33 running containers report non-zero `NanoCpus` and memory limits. |
+| Runtime safety | pass | No checked container is OOM-killed; web is `running` with restart count `0`; one non-web historical restart count remains for review. |
+| Health | pass | Analytics `/_health/` returned HTTP `200` on repeated probes; GRAF readiness returned HTTP `200`. |
+| Capacity | pass | Host has 12 CPUs and 128703 MiB memory; analytics filesystem is `29%` used (`71%` free). |
+| Logs | pass | Generated containers use JSON rotation `50m`/`3`. |
+| Alert/rollback automation | partial | Numeric thresholds and rollback triggers are now documented in the PostHog runbook; no automated host monitor/alert service was found, so this receipt cannot close the alerting acceptance box. |
+
+The remaining T101 gates are independent RBAC/MFA/audit review, provider and
+backup/export/session deletion lifecycle proof, dashboard freshness and approved
+goal visibility, and the missing automated alert/rollback receipt.
 
 ## Planning Pass Evidence
 
