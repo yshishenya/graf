@@ -164,3 +164,32 @@ clean detached release worktree. The metadata-only receipt is:
 No tag, package, active-key enrollment, protected environment, public appcast,
 or remote release asset was created or changed. T034–T036 remain separate
 release gates.
+
+## Решение для приватного репозитория без платного GitHub — 2026-07-20
+
+Required reviewer нужен не для работы GRAF, а как ручной предохранитель перед
+доступом CI к приватному ключу Sparkle. Установленное приложение принимает
+обновление только с подписью соответствующего ключа, поэтому утечка ключа
+позволила бы выпустить доверенное вредоносное обновление.
+
+Репозиторий остаётся приватным, платный GitHub-тариф и публикация исходников не
+используются. Environment `graf-release-signing`, его secret и branch policy
+`master` уже существуют, но GitHub API отклоняет добавление required reviewer с
+HTTP 422, потому что текущий тариф не поддерживает такую protection rule.
+
+Принятый бесплатный fallback:
+
+- автоматический cloud signing и обычная публикация через GitHub Actions не
+  считаются доступными;
+- редкий owner-only выпуск выполняется локальным macOS Keychain signer через
+  существующий `GRAF_RELEASE_SIGNING_MODE=keychain` путь;
+- такой выпуск остаётся явно `degraded`: нужны exact CalVer tag/provenance,
+  свежая Keychain attestation и явное owner approval; архив и appcast проверяются
+  локально, а публикация выполняется вручную в порядке archive-before-appcast;
+- значения секретов, приватные ключи и credential-bearing URLs в репозиторий не
+  записываются.
+
+Это не закрывает T034: полноценный protected reviewer gate отсутствует. T035 и
+T036 не объявляются выполненными по этому fallback. Если позже появится CI с
+бесплатным ручным approval и внешним secret manager, protection можно вернуть в
+нормальный двухканальный режим без изменения публичного ключа приложения.
