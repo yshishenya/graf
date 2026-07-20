@@ -4,7 +4,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from html import unescape
 from urllib.parse import parse_qs, urlsplit
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
@@ -23,6 +23,7 @@ from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
     ExternalIdentity,
     UserIdentity,
+    Workspace,
     WorkspaceAuthPolicy,
     WorkspaceMembership,
 )
@@ -522,15 +523,17 @@ def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
     assert 'action="/login/email/start"' in start.text
 
 
-def test_browser_email_login_start_rejects_unknown_workspace_without_code(client) -> None:
+def test_browser_email_login_ignores_public_workspace_id_and_uses_internal_bootstrap(client) -> None:
+    client.portal.call(_link_owner_email_identity, client)
+
     response = client.post(
         "/login/email/start",
         data={"email": BROWSER_OWNER_EMAIL, "workspace_id": str(uuid4()), "next": "/meetings"},
     )
 
-    assert response.status_code == 400
-    assert "Не удалось отправить код для этого кабинета" in response.text
-    assert "Код для локальной проверки" not in response.text
+    assert response.status_code == 200
+    assert "Код для локальной проверки" in response.text
+    assert "workspace_id" not in response.text
 
 
 def test_browser_email_login_start_rejects_unknown_email_without_code(client) -> None:
@@ -540,7 +543,7 @@ def test_browser_email_login_start_rejects_unknown_email_without_code(client) ->
     )
 
     assert response.status_code == 400
-    assert "Не удалось отправить код для этого кабинета" in response.text
+    assert "Не удалось отправить код. Проверьте email и попробуйте снова." in response.text
     assert "Код для локальной проверки" not in response.text
 
 
@@ -727,11 +730,96 @@ def test_browser_email_signup_flow_creates_user_and_opens_meetings(client) -> No
             assert identity is not None
             user = await db.get(UserIdentity, identity.user_id)
             assert user is not None
-            membership = await db.get(WorkspaceMembership, (WORKSPACE_ID, user.id))
+            personal_workspace = await db.scalar(
+                select(Workspace).where(
+                    Workspace.organization_id == user.organization_id,
+                    Workspace.owner_user_id == user.id,
+                    Workspace.kind == "personal",
+                )
+            )
+            assert personal_workspace is not None
+            membership = await db.get(WorkspaceMembership, (personal_workspace.id, user.id))
             assert membership is not None
+            bootstrap_membership = await db.get(WorkspaceMembership, (WORKSPACE_ID, user.id))
+            session = await db.scalar(
+                select(AuthSession).where(
+                    AuthSession.session_token_hash == hash_token(session_cookie),
+                )
+            )
+            assert session is not None
+            assert session.workspace_id == personal_workspace.id
+            assert bootstrap_membership is None
             return identity
 
     client.portal.call(read_created_identity)
+
+
+def test_browser_email_login_reuses_personal_space_after_signup(client) -> None:
+    signup_email = "personal-login@example.test"
+    started = client.post("/sign-up/email/start", data={"email": signup_email, "next": "/meetings"})
+    state_match = re.search(r'name="state" value="([^"]+)"', started.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", started.text)
+    assert state_match is not None
+    assert code_match is not None
+    completed = client.post(
+        "/sign-up/email/verify",
+        data={
+            "email": signup_email,
+            "code": code_match.group(1),
+            "state": state_match.group(1),
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+    assert completed.status_code == 303
+
+    login_started = client.post(
+        "/login/email/start",
+        data={"email": signup_email, "next": "/meetings"},
+    )
+    login_state_match = re.search(r'name="state" value="([^"]+)"', login_started.text)
+    login_code_match = re.search(
+        r"Код для локальной проверки: <strong>(\d{6})</strong>", login_started.text
+    )
+    assert login_started.status_code == 200
+    assert login_state_match is not None
+    assert login_code_match is not None
+
+    callback = client.post(
+        "/login/email/verify",
+        data={
+            "email": signup_email,
+            "code": login_code_match.group(1),
+            "state": login_state_match.group(1),
+            "next": "/meetings",
+        },
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+
+    async def read_login_session() -> tuple[UUID, UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            identity = await db.scalar(
+                select(ExternalIdentity).where(ExternalIdentity.email == signup_email)
+            )
+            assert identity is not None
+            personal = await db.scalar(
+                select(Workspace).where(
+                    Workspace.owner_user_id == identity.user_id,
+                    Workspace.kind == "personal",
+                )
+            )
+            assert personal is not None
+            token = callback.cookies.get(AUTH_SESSION_COOKIE_NAME)
+            assert token is not None
+            session = await db.scalar(
+                select(AuthSession).where(AuthSession.session_token_hash == hash_token(token))
+            )
+            assert session is not None
+            return session.workspace_id, personal.id
+
+    workspace_id, personal_workspace_id = client.portal.call(read_login_session)
+    assert workspace_id == personal_workspace_id
 
 
 def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:
@@ -775,7 +863,7 @@ def test_browser_email_signup_code_is_bound_to_started_email(client) -> None:
     assert client.portal.call(read_rejected_signup) == ("failed", "email_code_invalid", None)
 
 
-def test_browser_email_signup_requires_workspace_enrollment_policy(client) -> None:
+def test_browser_email_signup_creates_a_personal_space_when_corporate_enrollment_is_disabled(client) -> None:
     signup_email = "closed-signup@example.test"
 
     start = client.post(
@@ -783,19 +871,12 @@ def test_browser_email_signup_requires_workspace_enrollment_policy(client) -> No
         data={"email": signup_email, "next": "/meetings"},
     )
 
-    assert start.status_code == 403
-    assert "Регистрация в этом кабинете закрыта" in start.text
-    assert 'action="/sign-up/email/verify"' not in start.text
-
-    async def no_created_identity() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            identity = await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == signup_email))
-            assert identity is None
-
-    client.portal.call(no_created_identity)
+    assert start.status_code == 200
+    assert 'action="/sign-up/email/verify"' in start.text
+    assert "Регистрация в этом кабинете закрыта" not in start.text
 
 
-def test_browser_email_signup_verify_rechecks_workspace_enrollment_policy(client) -> None:
+def test_browser_email_signup_is_not_retargeted_when_corporate_policy_changes(client) -> None:
     client.portal.call(_set_workspace_self_enrollment_policy, client, True)
     signup_email = "stale-policy-signup@example.test"
     start = client.post(
@@ -819,9 +900,9 @@ def test_browser_email_signup_verify_rechecks_workspace_enrollment_policy(client
         follow_redirects=False,
     )
 
-    assert callback.status_code == 400
-    assert "Регистрация в этом кабинете закрыта" in callback.text
-    assert callback.cookies.get(AUTH_SESSION_COOKIE_NAME) is None
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/meetings"
+    assert callback.cookies.get(AUTH_SESSION_COOKIE_NAME)
 
 
 def test_browser_email_login_production_delivery_hides_code(monkeypatch, client) -> None:

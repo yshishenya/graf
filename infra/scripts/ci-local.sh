@@ -20,7 +20,9 @@ else
   printf '\n==> macOS Swift validation skipped (requires Darwin)\n'
 fi
 
-run_step "server tests" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q"
+# The expanded 097 collection is stable on the current 8 GB Docker allocation
+# with four isolated workers. Keep an explicit override for larger runners.
+run_step "server tests" env GRAF_TEST_WORKERS="${GRAF_TEST_WORKERS:-4}" bash apps/server/scripts/run_local_postgres_tests.sh -q
 run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ."
 run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
 run_step "rls hardening validation boundary" python3 apps/server/scripts/verify_rls_hardening.py

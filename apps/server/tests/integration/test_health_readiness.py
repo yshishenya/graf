@@ -51,10 +51,12 @@ def test_ready_reports_ready_without_dependency_detail(client) -> None:
     assert internal.json()["status"] == "ready"
     assert internal.json()["checks"]["postgres"] == "ok"
     assert internal.json()["checks"]["minio"] == "ok"
+    assert internal.json()["checks"]["support_incidents"] == "not_configured"
+    assert "token" not in str(internal.json()["checks"]).lower()
 
 
-def test_ready_reports_not_ready_when_database_schema_is_empty(tmp_path) -> None:
-    database_url = f"sqlite+aiosqlite:///{tmp_path / 'empty-schema.db'}"
+def test_ready_reports_not_ready_when_database_schema_is_empty(postgres_clean_database_url: str) -> None:
+    database_url = postgres_clean_database_url
     settings = Settings(
         database_url=database_url,
         minio_access_key="test",

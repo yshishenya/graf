@@ -75,6 +75,9 @@ _COMMON_FIELDS = (
     "bridge_present",
     "elapsed_bucket",
     "source_bucket",
+    "yandex_user_id_present",
+    "yandex_client_id_present",
+    "yclid_present",
 )
 
 ACTIVATION_EVENT_CATALOG: dict[str, ActivationEventDefinition] = {

@@ -98,3 +98,52 @@ Before choosing the bootstrap version, wait for any parallel release to merge,
 create a clean worktree from exact refreshed `origin/master`, enumerate remote
 CalVer tags and choose the next free number.  Do not preallocate or reuse a
 parallel release version.
+
+## T014 disposable-artifact receipt — 2026-07-20
+
+On the refreshed `origin/master` base, the required local-only validation used
+only the repository's disposable public fixture and a locally self-signed
+package. No production signing generation, protected environment, release tag,
+installed app, TCC permission, public appcast, or remote asset changed.
+
+- `apps/macos/Installer/Scripts/test-release-signing-custody.sh` passed with
+  `fixture=disposable-public`.
+- `apps/macos/Scripts/validate-macos-permission-retention.sh preflight`
+  confirmed the local validation signing identity is available.
+- `apps/macos/Scripts/validate-macos-permission-retention.sh build` created a
+  local validation package only; its own output confirms it is neither
+  Developer ID signed nor notarized for distribution.
+- `apps/macos/Scripts/validate-macos-permission-retention.sh staged-identity`
+  confirmed bundle identifier `pro.2brain.graf`, a valid local signing
+  authority, and a designated requirement for the staged disposable app.
+
+This proves the local/disposable boundary required by T014. Physical bootstrap
+installation, TCC-retention proof, protected environment enrollment, and
+normal in-app update proofs remain separate open tasks.
+
+## T023/T027 fail-closed simulation receipt — 2026-07-20
+
+The US3 failure matrix was run with metadata-only attestations, a disposable
+signed-app pair supplied only at runtime, and a temporary staging directory.
+The command path was:
+
+```sh
+GRAF_RELEASE_SIGNING_CANDIDATE_APP_BUNDLE=<disposable-candidate-app> \
+GRAF_RELEASE_SIGNING_PREVIOUS_APP_BUNDLE=<disposable-previous-app> \
+apps/macos/Installer/Scripts/test-release-signing-custody.sh
+swift test --package-path apps/macos --filter InstallerLifecycleEvidenceTests
+```
+
+The receipt was:
+
+- stale attestation: blocked before staging, digest unchanged;
+- wrong release/commit attestation: blocked before staging, digest unchanged;
+- missing draft app bundle: blocked before staging, digest unchanged;
+- concurrent staging lock: blocked, digest unchanged;
+- forward-rollback request against a higher staged version: blocked, digest unchanged;
+- `InstallerLifecycleEvidenceTests`: 18 passed;
+- custody harness: `release-signing custody tests passed`, fixture remained
+  `disposable-public`.
+
+No production key, GitHub environment, release tag, public appcast, remote
+asset, installed app, TCC permission, audio or transcript data was changed.

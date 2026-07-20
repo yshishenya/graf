@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from math import ceil
 from time import perf_counter_ns
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 import pytest
@@ -845,11 +846,31 @@ def test_us1_resolve_reads_snapshots_without_provider_network_io(
     recording_started_at = datetime.now(UTC).replace(microsecond=0)
     _seed_clear_calendar(client, recording_started_at=recording_started_at)
 
-    def reject_network(*_args, **_kwargs):
+    original_create_connection = socket.create_connection
+    original_connect = socket.socket.connect
+    postgres_port = urlparse(client.app.state.settings.database_url).port
+    assert postgres_port is not None
+
+    def is_local_postgres(address: object) -> bool:
+        return (
+            isinstance(address, tuple)
+            and len(address) >= 2
+            and address[0] in {"127.0.0.1", "::1", "localhost"}
+            and address[1] == postgres_port
+        )
+
+    def reject_create_connection(address, *args, **kwargs):
+        if is_local_postgres(address):
+            return original_create_connection(address, *args, **kwargs)
         raise AssertionError("calendar resolve attempted provider/network I/O")
 
-    monkeypatch.setattr(socket, "create_connection", reject_network)
-    monkeypatch.setattr(socket.socket, "connect", reject_network)
+    def reject_connect(sock, address):
+        if is_local_postgres(address):
+            return original_connect(sock, address)
+        raise AssertionError("calendar resolve attempted provider/network I/O")
+
+    monkeypatch.setattr(socket, "create_connection", reject_create_connection)
+    monkeypatch.setattr(socket.socket, "connect", reject_connect)
 
     resolved = _resolve(
         client,

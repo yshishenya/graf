@@ -19,8 +19,14 @@ from twobrain_rec_server.db.tenant_context import (
 )
 from twobrain_rec_server.deployment import build_smoke_identity_seed
 
+try:
+    from scripts.smoke_target import validate_run_id
+except ModuleNotFoundError:  # script execution from the server container
+    from smoke_target import validate_run_id
+
 
 async def seed_identity(settings: Settings, run_id: str, *, execute: bool) -> dict[str, str]:
+    run_id = validate_run_id(run_id)
     seed = build_smoke_identity_seed(run_id)
     if not execute:
         return seed.headers() | {

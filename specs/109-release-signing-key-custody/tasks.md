@@ -54,7 +54,7 @@
 - [X] T011 [US1] Create `apps/macos/Installer/Scripts/build-trust-bootstrap.sh` that calls `validate-manual-update-bootstrap.sh`, labels a one-time migration, preserves GRAF identity and never stages an appcast.
 - [X] T012 [US1] Update `apps/macos/Installer/README.md` with migration, failed-install recovery, old-client limitation and two sequential in-app proof steps without a secret or local secret path.
 - [X] T013 [US1] Update `qa/macos/release-candidate-checklist.md` with bootstrap identity/TCC continuity, manual-install boundary and the first/second normal update gates.
-- [ ] T014 [US1] Run `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Scripts/validate-macos-permission-retention.sh` identity checks on disposable artifacts; preserve only metadata-safe evidence.
+- [X] T014 [US1] Run `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Scripts/validate-macos-permission-retention.sh` identity checks on disposable artifacts; preserve only metadata-safe evidence in `quickstart.md`.
 
 **Checkpoint**: A bootstrap cannot masquerade as an ordinary update and normal validation cannot be weakened by migration.
 
@@ -92,14 +92,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T023 [P] [US3] Add stale/wrong-release attestation, draft-asset failure, concurrent-run and forward-rollback coverage to `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`.
+- [X] T023 [P] [US3] Add stale/wrong-release attestation, draft-asset failure, concurrent-run and forward-rollback coverage to `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`; receipt recorded in `quickstart.md`.
 
 ### Implementation for User Story 3
 
 - [X] T024 [US3] Add release-attempt serialization, attestation binding and atomic draft/staging failure handling to `apps/macos/Installer/Scripts/prepare-app-update.sh` and `.github/workflows/sign-graf-app-update.yml`.
 - [X] T025 [US3] Add compromised-key, appcast-restore and forward-fix procedure to `apps/macos/Installer/README.md` and `qa/macos/release-candidate-checklist.md`, including the required new manual bootstrap after compromise.
 - [X] T026 [US3] Add a tracked-source/artifact secret-pattern guard to `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and document intentional false-positive handling in `apps/macos/Installer/README.md` without a real-secret exception.
-- [ ] T027 [US3] Run all US3 failure simulations with `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Installer/Scripts/prepare-app-update.sh`; verify the previous staged/public appcast digest is unchanged for every blocked path.
+- [X] T027 [US3] Run all US3 failure simulations with `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Installer/Scripts/prepare-app-update.sh`; verify the previous staged/public appcast digest is unchanged for every blocked path; receipt recorded in `quickstart.md`.
 
 **Checkpoint**: Release errors are fail-closed, serialized, safely diagnosable and recover only through a known-good feed or higher signed forward fix.
 

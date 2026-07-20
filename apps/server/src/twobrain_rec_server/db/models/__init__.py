@@ -74,6 +74,7 @@ from twobrain_rec_server.db.models.normalization import (
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
 )
+from twobrain_rec_server.db.models.onboarding import WorkspaceJoinOffer
 from twobrain_rec_server.db.models.outcomes import (
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
@@ -138,6 +139,7 @@ __all__ = [
     "UserUsageDaily",
     "Workspace",
     "WorkspaceInvitation",
+    "WorkspaceJoinOffer",
     "WorkspaceMembership",
     "WorkspaceQuotaPolicy",
     "WorkspaceUsageDaily",

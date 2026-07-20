@@ -26,6 +26,7 @@ if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
 
 from scripts.seed_smoke_identity import seed_identity  # noqa: E402
+from scripts.smoke_target import validate_run_id  # noqa: E402
 from twobrain_rec_server.config import Settings  # noqa: E402
 from twobrain_rec_server.db.tenant_context import (  # noqa: E402
     TenantDatabaseContext,
@@ -253,6 +254,7 @@ async def issue_smoke_auth_session(
     purpose: str,
     execute: bool,
 ) -> dict[str, Any]:
+    run_id = validate_run_id(run_id)
     identity_result = await seed_identity(settings, run_id, execute=False)
     if not execute:
         return {

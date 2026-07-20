@@ -26,7 +26,7 @@ def test_reconciler_is_a_no_op_while_automatic_dispatch_gate_is_closed(
 
     result = asyncio.run(
         pickup.reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=FakeTemporalClient(),
@@ -70,7 +70,7 @@ def test_reconciler_switches_from_two_narrow_maintenance_operations_to_exact_wor
         async with client.app_state["sessionmaker"]() as db:
             seed = await _seed_legacy_revision(db, ordinal=4000, created_at=now)
         result = await pickup.reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=FakeTemporalClient(),
@@ -107,7 +107,7 @@ def test_worker_retries_a_safe_blocked_inventory_without_operator_action(
             await _seed_legacy_revision(db, ordinal=4100, created_at=now)
         monkeypatch.setattr(pickup, "inventory_playback_backfill_page", fail_inventory_once)
         first = await pickup.reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=FakeTemporalClient(),
@@ -121,7 +121,7 @@ def test_worker_retries_a_safe_blocked_inventory_without_operator_action(
 
         monkeypatch.setattr(pickup, "inventory_playback_backfill_page", original_inventory)
         second = await pickup.reconcile_normalization_jobs(
-            sessionmaker=client.app_state["sessionmaker"],
+            sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
             temporal_client=FakeTemporalClient(),

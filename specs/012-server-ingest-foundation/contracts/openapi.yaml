@@ -2500,6 +2500,86 @@ paths:
           description: Validation error
           content:
             application/json:
+                schema:
+                  $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/posthog-web-capture:
+    post:
+      tags:
+      - product-analytics
+      summary: Product Analytics Posthog Web Capture
+      operationId: product_analytics_posthog_web_capture_api_v1_product_analytics_posthog_web_capture_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostHogAutocaptureEventRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Posthog Web Capture Api V1 Product Analytics
+                  Posthog Web Capture Post
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/posthog-desktop-capture:
+    post:
+      tags:
+      - product-analytics
+      summary: Product Analytics Posthog Desktop Capture
+      operationId: product_analytics_posthog_desktop_capture_api_v1_product_analytics_posthog_desktop_capture_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostHogDesktopCaptureRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Posthog Desktop Capture Api V1 Product
+                  Analytics Posthog Desktop Capture Post
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
   /api/v1/calendar/providers:
@@ -3484,6 +3564,121 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '404':
+          description: Support incident not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Unsupported support incident schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: Support incident rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Support incident unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/support-incidents/{incident_id}/sync:
+    post:
+      tags:
+      - support-incidents
+      summary: Retry Support Incident Sync
+      operationId: retry_support_incident_sync_api_v1_desktop_support_incidents__incident_id__sync_post
+      parameters:
+      - name: incident_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^CUST-[A-Z0-9-]{1,27}$
+          title: Incident Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportIncidentResponse'
+        '400':
+          description: Unsafe support incident payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Support incident not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '409':
           description: Idempotency conflict
           content:
@@ -4329,6 +4524,75 @@ paths:
                 type: object
                 additionalProperties: true
                 title: Response Revokeadmininvitation
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/invitations/{invitation_id}/resend:
+    post:
+      tags:
+      - admin
+      summary: Resend Admin Invitation
+      operationId: resendAdminInvitation
+      parameters:
+      - name: invitation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Invitation Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Resendadmininvitation
         '422':
           description: Validation Error
           content:
@@ -11660,20 +11924,24 @@ components:
       properties:
         incident_id:
           type: string
-          pattern: ^CUST-[1-9][0-9]*$
+          pattern: ^CUST-[A-Z0-9-]{1,27}$
           title: Incident Id
         incident_status:
           type: string
           enum:
-          - created
-          - updated
+          - synced
+          - pending_sync
           title: Incident Status
         github_issue_number:
-          type: integer
-          exclusiveMinimum: 0.0
+          anyOf:
+          - type: integer
+            exclusiveMinimum: 0.0
+          - type: 'null'
           title: Github Issue Number
         github_issue_url:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Github Issue Url
         dedupe_status:
           type: string
@@ -11696,8 +11964,6 @@ components:
       required:
       - incident_id
       - incident_status
-      - github_issue_number
-      - github_issue_url
       - dedupe_status
       - affected_count
       - user_message
@@ -12075,3 +12341,121 @@ components:
       - require_ru_local
       - residency_region_tag
       title: _ResidencyState
+    PostHogAutocaptureEventRequest:
+      properties:
+        distinct_id:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Distinct Id
+        event_type:
+          type: string
+          enum:
+          - ready
+          - pageview
+          - click
+          title: Event Type
+          default: pageview
+        page_class:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Page Class
+        path_class:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Path Class
+        tag_name:
+          anyOf:
+          - type: string
+            maxLength: 24
+          - type: 'null'
+          title: Tag Name
+        role:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Role
+        analytics_action:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Analytics Action
+        analytics_target:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Analytics Target
+        identity_state:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Identity State
+        workspace_pseudonym:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Workspace Pseudonym
+        device_class:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Device Class
+        sensitivity:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Sensitivity
+        source:
+          type: string
+          maxLength: 80
+          title: Source
+          default: browser_autocapture
+      type: object
+      required:
+      - page_class
+      title: PostHogAutocaptureEventRequest
+    PostHogDesktopCaptureRequest:
+      properties:
+        event:
+          type: string
+          minLength: 1
+          title: Event
+        distinct_id:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Distinct Id
+        timestamp:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Timestamp
+        telemetry_gate_state:
+          type: string
+          title: Telemetry Gate State
+          default: accepted
+        properties:
+          additionalProperties: true
+          type: object
+          title: Properties
+        api_key_state:
+          type: string
+          title: Api Key State
+          default: server_injected_redacted
+      type: object
+      required:
+      - event
+      - distinct_id
+      title: PostHogDesktopCaptureRequest

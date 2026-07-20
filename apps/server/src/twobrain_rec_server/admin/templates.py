@@ -9,6 +9,10 @@ from starlette.responses import HTMLResponse
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME, issue_csrf_token
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
+)
+from twobrain_rec_server.public.templates import public_static_asset_url
 from twobrain_rec_server.templates import (
     html_response,
     package_path,
@@ -41,6 +45,7 @@ def render_template(template_name: str, **context: Any) -> str:
         template_name,
         admin_static_url=ADMIN_STATIC_URL,
         cabinet_static_url=CABINET_STATIC_URL,
+        public_static_asset_url=public_static_asset_url,
         **context,
     )
 
@@ -52,6 +57,15 @@ def admin_template_response(
     status_code: int = 200,
     **context: Any,
 ) -> HTMLResponse:
+    context.setdefault(
+        "product_analytics_provider",
+        build_request_browser_provider_context(
+            request,
+            "admin",
+            principal=context.get("principal"),
+            include_workspace=False,
+        ),
+    )
     return html_response(
         render_template(template_name, request=request, **context),
         status_code=status_code,

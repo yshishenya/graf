@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -20,12 +20,24 @@ class Organization(Base):
 
 class Workspace(Base):
     __tablename__ = "workspaces"
-    __table_args__ = (UniqueConstraint("organization_id", "slug"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "slug"),
+        CheckConstraint("kind in ('personal', 'corporate')", name="ck_workspaces_kind"),
+        Index(
+            "uq_workspaces_personal_owner",
+            "organization_id",
+            "owner_user_id",
+            unique=True,
+            postgresql_where=text("kind = 'personal'"),
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     slug: Mapped[str] = mapped_column(String(120))
     name: Mapped[str] = mapped_column(String(240))
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, default="corporate")
+    owner_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

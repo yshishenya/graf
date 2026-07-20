@@ -36,13 +36,16 @@ async def _seed_global_identity_conflict(db, *, provider: str, provider_subject:
                 external_subject=f"other-{provider_subject}",
                 display_name="Other User",
             ),
-            ExternalIdentity(
-                user_id=other_user_id,
-                provider=provider,
-                provider_subject=provider_subject,
-                is_verified=True,
-            ),
         ]
+    )
+    await db.flush()
+    db.add(
+        ExternalIdentity(
+            user_id=other_user_id,
+            provider=provider,
+            provider_subject=provider_subject,
+            is_verified=True,
+        )
     )
     await db.commit()
 

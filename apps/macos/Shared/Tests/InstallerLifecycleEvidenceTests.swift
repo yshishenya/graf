@@ -149,7 +149,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertFalse(source.localizedCaseInsensitiveContains("private key:"))
     }
 
-    func testReleaseSigningManifestIsPublicOnlyAndUnprovisionedUntilApprovedEnrollment() throws {
+    func testReleaseSigningManifestIsPublicOnlyBeforeOrAfterApprovedEnrollment() throws {
         let manifestURL = try Self.repositoryRoot()
             .appendingPathComponent("apps/macos/Installer/UpdateSigningKey.json")
         let data = try Data(contentsOf: manifestURL)
@@ -158,10 +158,20 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         )
 
         XCTAssertEqual(manifest["schemaVersion"] as? Int, 1)
-        XCTAssertEqual(manifest["status"] as? String, "unprovisioned")
-        XCTAssertEqual(manifest["trustGeneration"] as? Int, 0)
-        XCTAssertNil(manifest["keyId"] as? String)
-        XCTAssertNil(manifest["publicKey"] as? String)
+        let status = try XCTUnwrap(manifest["status"] as? String)
+        XCTAssertTrue(["unprovisioned", "active"].contains(status))
+        let trustGeneration = try XCTUnwrap(manifest["trustGeneration"] as? Int)
+        if status == "unprovisioned" {
+            XCTAssertEqual(trustGeneration, 0)
+            XCTAssertNil(manifest["keyId"] as? String)
+            XCTAssertNil(manifest["publicKey"] as? String)
+        } else {
+            XCTAssertGreaterThan(trustGeneration, 0)
+            let keyID = try XCTUnwrap(manifest["keyId"] as? String)
+            XCTAssertNotNil(keyID.range(of: #"^sha256:[0-9a-f]{64}$"#, options: .regularExpression))
+            let publicKey = try XCTUnwrap(manifest["publicKey"] as? String)
+            XCTAssertEqual(Data(base64Encoded: publicKey)?.count, 32)
+        }
 
         let channels = try XCTUnwrap(manifest["channels"] as? [String: Any])
         let primary = try XCTUnwrap(channels["primary"] as? [String: String])
@@ -201,6 +211,43 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         let custodyHarness = try Self.readRepositoryFile("apps/macos/Installer/Scripts/test-release-signing-custody.sh")
         XCTAssertTrue(custodyHarness.contains("current source contains a probable secret literal"))
         XCTAssertTrue(custodyHarness.contains("$REPO_ROOT/.github"))
+    }
+
+    func testReleaseSigningFailureSimulationsStayFailClosed() throws {
+        let repositoryRoot = try Self.repositoryRoot()
+        let harnessURL = repositoryRoot.appendingPathComponent(
+            "apps/macos/Installer/Scripts/test-release-signing-custody.sh"
+        )
+        let harnessSource = try String(contentsOf: harnessURL, encoding: .utf8)
+        for marker in [
+            "run_prepare_attestation_failure",
+            "run_prepare_missing_draft_failure",
+            "run_prepare_staging_guard_failures",
+            "assert_staged_appcast_unchanged",
+            "failure_simulation=concurrent_staging",
+            "failure_simulation=forward_rollback"
+        ] {
+            XCTAssertTrue(harnessSource.contains(marker), "missing failure-simulation marker: \(marker)")
+        }
+
+        let outputPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [harnessURL.path]
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+        try process.run()
+        process.waitUntilExit()
+        let output = String(
+            data: outputPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0, output)
+        XCTAssertTrue(output.contains("failure_simulation=stale_attestation attestation failure result=pass"))
+        XCTAssertTrue(output.contains("failure_simulation=wrong_release_attestation attestation failure result=pass"))
+        XCTAssertTrue(output.contains("failure_simulation=draft_asset_failure result=pass"))
+        XCTAssertTrue(output.contains("release-signing custody tests passed: fixture=disposable-public"))
     }
 
     func testManualTrustBootstrapIsExplicitAndCannotWeakenOrdinaryUpdates() throws {

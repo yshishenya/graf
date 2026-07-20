@@ -14,6 +14,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
@@ -21,10 +22,13 @@ from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
 from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
 from scripts.issue_smoke_auth_session import issue_smoke_auth_session
 from scripts.seed_smoke_identity import seed_identity
-from tests.fixtures.postgres_rls import rls_test_database_url
+from tests.fixtures.postgres_rls import optional_rls_test_database_url, rls_test_database_url
+from tests.fixtures.postgres_test_database import ensure_disposable_media_role
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.provider_links import confirm_provider_link
+from twobrain_rec_server.auth.workspace_onboarding import activate_workspace_session
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
+from twobrain_rec_server.cli.workspace_migration_report import workspace_migration_report
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     AuthAuditEvent,
@@ -46,6 +50,7 @@ from twobrain_rec_server.db.tenant_context import (
     MaintenanceTenantContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
+    apply_tenant_context,
     apply_tenant_context_to_connection,
 )
 from twobrain_rec_server.deployment import build_smoke_identity_seed
@@ -66,6 +71,7 @@ MEDIA_READ_WRITE_TABLES = (
 )
 MEDIA_INSERT_ONLY_TABLES = ("ingest_audit_events",)
 MEDIA_LOCK_COLUMNS = (("meetings", "updated_at"), ("media_revisions", "updated_at"))
+pytestmark = pytest.mark.strict_rls
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +81,7 @@ class MigratedPostgresUrls:
     app_url: str
     media_url: str
     probe_role: str | None = None
-    app_role_created: bool = False
+    app_role: str | None = None
     media_role_created: bool = False
 
 
@@ -130,7 +136,7 @@ async def _create_media_role(migration_url: str) -> tuple[str, bool]:
                 )
             )
             if exists:
-                pytest.skip(
+                pytest.fail(
                     "RLS_TEST_MEDIA_DATABASE_URL is required when twobrain_rec_media exists"
                 )
             quoted_role = _quote_identifier(role_name)
@@ -206,7 +212,7 @@ async def _drop_probe_role(migration_url: str, role_name: str) -> None:
 
 
 @pytest.fixture(scope="module")
-def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
+def migrated_postgres_urls(postgres_advisory_lock: None) -> Iterator[MigratedPostgresUrls]:
     url = rls_test_database_url()
     previous_url = os.environ.get("TWOBRAIN_DATABASE_URL")
     os.environ["TWOBRAIN_DATABASE_URL"] = url
@@ -218,7 +224,7 @@ def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
     )
     command.upgrade(alembic_config, "head")
     probe_role: str | None = None
-    probe_url = os.getenv("RLS_TEST_PROBE_DATABASE_URL")
+    probe_url = optional_rls_test_database_url("RLS_TEST_PROBE_DATABASE_URL")
     if not probe_url:
         probe_role, password = asyncio.run(
             _create_probe_role(url, role_name="twobrain_rec_maintenance")
@@ -228,21 +234,27 @@ def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
             .set(username=probe_role, password=password)
             .render_as_string(hide_password=False)
         )
-    app_role_created = False
-    app_url = os.getenv("RLS_TEST_APP_DATABASE_URL")
+    app_role: str | None = None
+    app_url = optional_rls_test_database_url("RLS_TEST_APP_DATABASE_URL")
     if not app_url:
         app_role, app_password = asyncio.run(
-            _create_probe_role(url, role_name="twobrain_rec_app")
+            _create_probe_role(url, role_name=f"twobrain_rec_app_{uuid4().hex[:12]}")
         )
-        app_role_created = True
         app_url = (
             make_url(url)
             .set(username=app_role, password=app_password)
             .render_as_string(hide_password=False)
         )
     media_role_created = False
-    media_url = os.getenv("RLS_TEST_MEDIA_DATABASE_URL")
-    if not media_url:
+    media_url = optional_rls_test_database_url("RLS_TEST_MEDIA_DATABASE_URL")
+    if media_url:
+        media_url = asyncio.run(
+            ensure_disposable_media_role(
+                url,
+                media_database_url=media_url,
+            )
+        )
+    else:
         media_url, media_role_created = asyncio.run(_create_media_role(url))
     try:
         yield MigratedPostgresUrls(
@@ -251,14 +263,14 @@ def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
             app_url=app_url,
             media_url=media_url,
             probe_role=probe_role,
-            app_role_created=app_role_created,
+            app_role=app_role,
             media_role_created=media_role_created,
         )
     finally:
         if probe_role is not None:
             asyncio.run(_drop_probe_role(url, probe_role))
-        if app_role_created:
-            asyncio.run(_drop_probe_role(url, "twobrain_rec_app"))
+        if app_role is not None:
+            asyncio.run(_drop_probe_role(url, app_role))
         if media_role_created:
             asyncio.run(_drop_probe_role(url, "twobrain_rec_media"))
         if previous_url is None:
@@ -559,6 +571,364 @@ async def test_same_tenant_and_cross_tenant_reads_follow_workspace_context(
         )
 
     assert visible_count == 1
+    assert foreign_count == 0
+
+
+@pytest.mark.asyncio
+async def test_workspace_migration_report_runs_with_maintenance_rls_context(
+    rls_engine: AsyncEngine,
+    migrated_postgres_urls: MigratedPostgresUrls,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+
+    report = await workspace_migration_report(
+        migrated_postgres_urls.probe_url,
+        bootstrap_workspace_id=ids["workspace_a"],
+    )
+
+    assert report == {
+        "report_schema": "workspace_migration_report.v1",
+        "report_result": "pass",
+        "mode": "read_only_metadata_only",
+        "bootstrap_user_count": 1,
+        "bootstrap_active_user_count": 1,
+        "bootstrap_inactive_user_count": 0,
+        "bootstrap_users_with_personal_space_count": 0,
+        "bootstrap_users_without_personal_space_count": 1,
+        "bootstrap_workspace_recording_count": 1,
+        "bootstrap_workspace_recording_owner_count": 1,
+        "membership_changes": 0,
+        "recording_reassignments": 0,
+        "write_operations": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_join_offers_are_visible_only_to_their_owner(rls_engine: AsyncEngine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    offer_ids = {"a": uuid4(), "b": uuid4()}
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="join_offer_seed",
+                feature_area="security",
+            ),
+        )
+        for label in ("a", "b"):
+            invitation_id = uuid4()
+            await conn.execute(
+                text(
+                    """
+                    insert into workspace_invitations
+                        (id, workspace_id, target_contact, invited_role, status, source,
+                         created_by_user_id, expires_at, metadata_json)
+                    values
+                        (:id, :workspace_id, :target_contact, 'member', 'pending', 'admin',
+                         :created_by_user_id, now() + interval '1 day', '{}'::json)
+                    """
+                ),
+                {
+                    "id": invitation_id,
+                    "workspace_id": ids[f"workspace_{label}"],
+                    "target_contact": f"offer-{label}-{ids['slug']}@example.test",
+                    "created_by_user_id": ids[f"user_{label}"],
+                },
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into workspace_join_offers
+                        (id, workspace_id, user_id, invitation_id, workspace_name, invited_role, status, expires_at)
+                    values
+                        (:id, :workspace_id, :user_id, :invitation_id, 'RLS offer', 'member', 'offered',
+                         now() + interval '1 day')
+                    """
+                ),
+                {
+                    "id": offer_ids[label],
+                    "workspace_id": ids[f"workspace_{label}"],
+                    "user_id": ids[f"user_{label}"],
+                    "invitation_id": invitation_id,
+                },
+            )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        visible_offer_ids = set(
+            (await conn.scalars(text("select id from workspace_join_offers"))).all()
+        )
+
+    assert visible_offer_ids == {offer_ids["a"]}
+
+
+@pytest.mark.asyncio
+async def test_auth_bootstrap_can_list_only_own_active_spaces_without_cross_workspace_writes(
+    rls_engine: AsyncEngine,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    second_workspace_id = uuid4()
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="active_space_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspaces (id, organization_id, slug, name, kind)
+                values (:id, :organization_id, :slug, 'RLS Second Space', 'corporate')
+                """
+            ),
+            {
+                "id": second_workspace_id,
+                "organization_id": ids["org_a"],
+                "slug": f"rls-second-space-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspace_memberships (workspace_id, user_id, role, status)
+                values (:workspace_id, :user_id, 'member', 'active')
+                """
+            ),
+            {"workspace_id": second_workspace_id, "user_id": ids["user_a"]},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            WorkspaceAuthContext(
+                workspace_id=ids["workspace_a"],
+                organization_id=ids["org_a"],
+                user_id=ids["user_a"],
+                context_kind="auth_bootstrap",
+            ),
+        )
+        visible_workspace_ids = set(
+            (await conn.scalars(text("select workspace_id from workspace_memberships"))).all()
+        )
+        with pytest.raises(DBAPIError):
+            await conn.execute(
+                text(
+                    """
+                    update workspace_memberships
+                    set status = 'revoked'
+                    where workspace_id = :workspace_id
+                    returning workspace_id
+                    """
+                ),
+                {"workspace_id": second_workspace_id},
+            )
+        await conn.rollback()
+
+    assert visible_workspace_ids == {ids["workspace_a"], second_workspace_id}
+
+
+@pytest.mark.asyncio
+async def test_active_space_switch_replaces_session_inside_rls_context(rls_engine: AsyncEngine) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    target_workspace_id = uuid4()
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="active_space_switch_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspaces (id, organization_id, slug, name, kind)
+                values (:id, :organization_id, :slug, 'RLS Switch Target', 'corporate')
+                """
+            ),
+            {
+                "id": target_workspace_id,
+                "organization_id": ids["org_a"],
+                "slug": f"rls-switch-target-{ids['slug']}",
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspace_memberships (workspace_id, user_id, role, status)
+                values (:workspace_id, :user_id, 'member', 'active')
+                """
+            ),
+            {"workspace_id": target_workspace_id, "user_id": ids["user_a"]},
+        )
+
+    sessionmaker = async_sessionmaker(rls_engine, expire_on_commit=False)
+    async with sessionmaker() as db:
+        await apply_tenant_context(
+            db,
+            TenantDatabaseContext(
+                organization_id=ids["org_a"],
+                workspace_id=ids["workspace_a"],
+                user_id=ids["user_a"],
+                device_id=ids["device_a"],
+                auth_session_id=ids["session_a"],
+            ),
+        )
+        activated = await activate_workspace_session(
+            db,
+            organization_id=ids["org_a"],
+            current_workspace_id=ids["workspace_a"],
+            user_id=ids["user_a"],
+            current_session_id=ids["session_a"],
+            target_workspace_id=target_workspace_id,
+        )
+        await db.commit()
+
+    assert activated.workspace.id == target_workspace_id
+    assert activated.issued_session.token
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="active_space_switch_verify",
+                feature_area="security",
+            ),
+        )
+        source_status = await conn.scalar(
+            text("select status from auth_sessions where id = :session_id"),
+            {"session_id": ids["session_a"]},
+        )
+        replacement_count = await conn.scalar(
+            text(
+                """
+                select count(*) from auth_sessions
+                where workspace_id = :workspace_id and user_id = :user_id and status = 'active'
+                """
+            ),
+            {"workspace_id": target_workspace_id, "user_id": ids["user_a"]},
+        )
+
+    assert source_status == "replaced"
+    assert replacement_count == 1
+
+
+@pytest.mark.asyncio
+async def test_join_offer_exposes_only_its_safe_target_metadata_to_the_owner(
+    rls_engine: AsyncEngine,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    target_workspace_id = uuid4()
+    invitation_id = uuid4()
+    offer_id = uuid4()
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="join_offer_target_seed",
+                feature_area="security",
+            ),
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspaces (id, organization_id, slug, name)
+                values (:id, :organization_id, :slug, :name)
+                """
+            ),
+            {
+                "id": target_workspace_id,
+                "organization_id": ids["org_a"],
+                "slug": f"rls-offer-target-{ids['slug']}",
+                "name": "RLS Offer Target",
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspace_invitations
+                    (id, workspace_id, target_contact, invited_role, status, source,
+                     created_by_user_id, expires_at, metadata_json)
+                values
+                    (:id, :workspace_id, 'private-target@example.test', 'member', 'pending', 'admin',
+                     :created_by_user_id, now() + interval '1 day', '{}'::json)
+                """
+            ),
+            {
+                "id": invitation_id,
+                "workspace_id": target_workspace_id,
+                "created_by_user_id": ids["user_a"],
+            },
+        )
+        await conn.execute(
+            text(
+                """
+                insert into workspace_join_offers
+                    (id, workspace_id, user_id, invitation_id, workspace_name, invited_role, status, expires_at)
+                values
+                    (:id, :workspace_id, :user_id, :invitation_id, 'RLS Offer Target', 'member', 'offered',
+                     now() + interval '1 day')
+                """
+            ),
+            {
+                "id": offer_id,
+                "workspace_id": target_workspace_id,
+                "user_id": ids["user_a"],
+                "invitation_id": invitation_id,
+            },
+        )
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        offer_target = (
+            await conn.execute(
+                text(
+                    """
+                    select workspace_name, invited_role
+                    from workspace_join_offers
+                    where id = :offer_id
+                    """
+                ),
+                {"offer_id": offer_id},
+            )
+        ).one_or_none()
+        rejected = await conn.scalar(
+            text(
+                "update workspace_join_offers set status = 'rejected' where id = :offer_id returning status"
+            ),
+            {"offer_id": offer_id},
+        )
+        invitation_visible = await conn.scalar(
+            text("select count(*) from workspace_invitations where id = :invitation_id"),
+            {"invitation_id": invitation_id},
+        )
+
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "b"))
+        foreign_count = await conn.scalar(
+            text("select count(*) from workspace_join_offers where id = :offer_id"),
+            {"offer_id": offer_id},
+        )
+
+    assert offer_target == ("RLS Offer Target", "member")
+    assert rejected == "rejected"
+    assert invitation_visible == 0
     assert foreign_count == 0
 
 
@@ -1104,7 +1474,8 @@ async def test_runtime_roles_are_non_superuser_and_cannot_bypass_rls(
     finally:
         await owner_engine.dispose()
 
-    assert app_role == "twobrain_rec_app"
+    assert app_role is not None
+    assert app_role.startswith("twobrain_rec_app_")
     assert maintenance_role == "twobrain_rec_maintenance"
     assert media_role == "twobrain_rec_media"
     assert len(rows) == 3

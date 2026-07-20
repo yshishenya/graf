@@ -75,15 +75,18 @@ async def _add_workspace_user(
     display_name: str,
 ) -> None:
     async with client.app_state["sessionmaker"]() as db:
+        db.add(
+            UserIdentity(
+                id=user_id,
+                organization_id=ORG_ID,
+                external_subject=str(user_id),
+                display_name=display_name,
+                status="active",
+            )
+        )
+        await db.flush()
         db.add_all(
             [
-                UserIdentity(
-                    id=user_id,
-                    organization_id=ORG_ID,
-                    external_subject=str(user_id),
-                    display_name=display_name,
-                    status="active",
-                ),
                 WorkspaceMembership(
                     workspace_id=WORKSPACE_ID,
                     user_id=user_id,

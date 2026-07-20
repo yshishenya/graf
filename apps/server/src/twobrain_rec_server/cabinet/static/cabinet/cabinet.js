@@ -563,10 +563,24 @@
     unsafe_meeting_title: "Название содержит небезопасные данные. Измените его или оставьте поле пустым.",
     media_revision_not_accepting_uploads: "Эта загрузка уже принята. Откройте встречу в списке.",
     meeting_not_accepting_uploads: "Эта загрузка уже принята. Откройте встречу в списке.",
-    idempotency_conflict: "Эта попытка отличается от уже начатой загрузки. Выберите файл заново."
+    idempotency_conflict: "Эта попытка отличается от уже начатой загрузки. Выберите файл заново.",
+    media_revision_fingerprint_conflict: "Эта встреча уже приняла другой файл. Выберите файл заново."
   };
 
   const safeUploadMessage = (code) => uploadMessages[code] || "Не удалось загрузить файл. Попробуйте ещё раз.";
+  const authUploadFailure = (code) => [
+    "csrf_token_missing",
+    "csrf_token_invalid",
+    "auth_session_required_for_manual_upload",
+    "auth_session_invalid",
+    "auth_session_expired"
+  ].includes(code);
+  const conflictUploadFailure = (code) => [
+    "media_revision_fingerprint_conflict",
+    "media_revision_not_accepting_uploads",
+    "meeting_not_accepting_uploads",
+    "idempotency_conflict"
+  ].includes(code);
 
   const formatBytes = (value) => {
     if (!Number.isFinite(value) || value <= 0) return "";
@@ -689,7 +703,14 @@
     const updateActivityControls = (activity) => {
       const state = activity.state;
       if (activity.cancelButton) activity.cancelButton.hidden = state !== "uploading";
-      if (activity.retryButton) activity.retryButton.hidden = state !== "failed";
+      if (activity.retryButton) {
+        activity.retryButton.hidden = state !== "failed" || activity.recoveryMode !== null;
+      }
+      if (activity.recoverButton) {
+        activity.recoverButton.hidden = state !== "failed" || activity.recoveryMode === null;
+        if (activity.recoveryMode === "auth") activity.recoverButton.textContent = "Обновить страницу";
+        if (activity.recoveryMode === "conflict") activity.recoverButton.textContent = "Выбрать другой файл";
+      }
       if (activity.resumeButton) activity.resumeButton.hidden = state !== "canceled";
       if (activity.detailLink) activity.detailLink.hidden = !activity.detailHref;
     };
@@ -745,6 +766,7 @@
         <div class="upload-activity-actions" aria-label="Управление загрузкой">
           <button class="upload-activity-action" type="button" data-upload-activity-cancel>Отменить</button>
           <button class="upload-activity-action" type="button" data-upload-activity-retry hidden>Повторить</button>
+          <button class="upload-activity-action" type="button" data-upload-activity-recover hidden>Восстановить</button>
           <button class="upload-activity-action" type="button" data-upload-activity-resume hidden>Продолжить</button>
           <a class="upload-activity-action" href="#" data-upload-activity-detail hidden>Открыть</a>
         </div>
@@ -761,6 +783,7 @@
         state: "queued",
         xhr: null,
         accepted: false,
+        recoveryMode: null,
         detailHref: "",
         titleLabel: row.querySelector("[data-upload-activity-title]"),
         meta: row.querySelector("[data-upload-activity-meta]"),
@@ -770,6 +793,7 @@
         percentLabel: row.querySelector("[data-upload-activity-percent]"),
         cancelButton: row.querySelector("[data-upload-activity-cancel]"),
         retryButton: row.querySelector("[data-upload-activity-retry]"),
+        recoverButton: row.querySelector("[data-upload-activity-recover]"),
         resumeButton: row.querySelector("[data-upload-activity-resume]"),
         detailLink: row.querySelector("[data-upload-activity-detail]")
       };
@@ -785,6 +809,15 @@
         }
         if (event.target.closest("[data-upload-activity-retry]")) {
           startActivityUpload(activity, { continued: false });
+          return;
+        }
+        if (event.target.closest("[data-upload-activity-recover]")) {
+          if (activity.recoveryMode === "auth") {
+            window.location.reload();
+          } else if (activity.recoveryMode === "conflict") {
+            resetDraft();
+            openDialog(lastTrigger);
+          }
           return;
         }
         if (event.target.closest("[data-upload-activity-resume]")) {
@@ -805,6 +838,7 @@
       const xhr = new XMLHttpRequest();
       activity.xhr = xhr;
       activity.accepted = false;
+      activity.recoveryMode = null;
       setActivityProgress(activity, 0, true);
       setActivityState(activity, "uploading", continued ? "Продолжаем загрузку…" : "Загружаем файл…");
 
@@ -833,10 +867,22 @@
             activity.detailHref = `${dialog.dataset.uploadDetailBase || "/meetings"}/${meetingId}`;
             if (activity.detailLink) activity.detailLink.href = activity.detailHref;
           }
-          setActivityState(activity, "accepted", "Файл принят. Обработка началась.", "success");
+          const workflowStarted = payload.workflow_started === true;
+          setActivityState(
+            activity,
+            "accepted",
+            workflowStarted
+              ? "Файл принят. Обработка началась."
+              : "Файл принят. Обработка ещё не запущена. Проверьте статус встречи.",
+            workflowStarted ? "success" : "warning"
+          );
           await refreshMeetingList(dialog.dataset.uploadRefreshUrl);
           return;
         }
+        const failureCode = typeof payload.code === "string" ? payload.code : "";
+        activity.recoveryMode = authUploadFailure(failureCode)
+          ? "auth"
+          : conflictUploadFailure(failureCode) ? "conflict" : null;
         setActivityState(activity, "failed", safeUploadMessage(payload.code), "error");
       };
       xhr.onerror = () => {

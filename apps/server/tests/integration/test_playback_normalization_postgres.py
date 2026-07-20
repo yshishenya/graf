@@ -23,7 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 from tests.fakes.fake_minio import FakeMinioStorage
 from tests.fakes.fake_temporal import FakeTemporalClient
-from tests.fixtures.postgres_rls import rls_test_database_url
+from tests.fixtures.postgres_rls import optional_rls_test_database_url, rls_test_database_url
+from tests.fixtures.postgres_test_database import ensure_disposable_media_role
 from tests.integration.test_playback_normalization_workflow import (
     FakeNormalizationPipeline,
 )
@@ -62,6 +63,7 @@ RUNTIME_ROLE_BOOTSTRAP = REPO_ROOT / "apps/server/scripts/bootstrap_runtime_data
 RUNTIME_IDENTITY_VERIFY = REPO_ROOT / "apps/server/scripts/verify_runtime_database_identity.py"
 PROFILE_VERSION = "review_m4a_aac_lc_48k_mono_64k_v1"
 VALIDATION_VERSION = "playback_validator_v1"
+pytestmark = pytest.mark.strict_rls
 
 
 def _load_migration() -> ModuleType:
@@ -118,7 +120,7 @@ async def _create_media_test_role(owner_url: str) -> tuple[str, bool]:
                 )
             )
             if exists:
-                pytest.skip(
+                pytest.fail(
                     "RLS_TEST_MEDIA_DATABASE_URL is required when twobrain_rec_media exists"
                 )
             quoted_role = _quote_identifier(role_name)
@@ -192,7 +194,7 @@ async def _drop_media_test_role(owner_url: str) -> None:
 
 
 @pytest.fixture(scope="module")
-def migrated_postgres_url() -> Iterator[str]:
+def migrated_postgres_url(postgres_advisory_lock: None) -> Iterator[str]:
     url = rls_test_database_url()
     previous_url = os.environ.get("TWOBRAIN_DATABASE_URL")
     os.environ["TWOBRAIN_DATABASE_URL"] = url
@@ -215,9 +217,16 @@ def migrated_postgres_url() -> Iterator[str]:
 
 @pytest.fixture(scope="module")
 def media_postgres_url(migrated_postgres_url: str) -> Iterator[str]:
-    media_url = os.getenv("RLS_TEST_MEDIA_DATABASE_URL")
+    media_url = optional_rls_test_database_url("RLS_TEST_MEDIA_DATABASE_URL")
     created = False
-    if not media_url:
+    if media_url:
+        media_url = asyncio.run(
+            ensure_disposable_media_role(
+                migrated_postgres_url,
+                media_database_url=media_url,
+            )
+        )
+    else:
         media_url, created = asyncio.run(_create_media_test_role(migrated_postgres_url))
     try:
         yield media_url

@@ -77,6 +77,14 @@ class _ReadinessClient:
         return object()
 
 
+class _StatClient:
+    def __init__(self, size: int) -> None:
+        self.size = size
+
+    def stat_object(self, _bucket: str, _object_key: str) -> object:
+        return type("Stat", (), {"size": self.size})()
+
+
 def _storage_with_client(client: object) -> MinioStorage:
     storage = MinioStorage.__new__(MinioStorage)
     storage.settings = _Settings()
@@ -135,6 +143,20 @@ def test_readiness_is_false_when_sentinel_is_missing() -> None:
     storage = _storage_with_client(_ReadinessClient("NoSuchKey"))
 
     assert MinioStorage.is_ready(storage) is False
+
+
+def test_stat_object_returns_safe_size_metadata_and_async_wrapper() -> None:
+    storage = _storage_with_client(_StatClient(123))
+
+    assert MinioStorage.stat_object(storage, "objects/audio.m4a").size == 123
+    assert asyncio.run(MinioStorage.stat_object_async(storage, "objects/audio.m4a")).size == 123
+
+
+def test_stat_object_normalizes_missing_object_errors() -> None:
+    storage = _storage_with_client(_ReadinessClient("NoSuchKey"))
+
+    with pytest.raises(KeyError, match="objects/missing.m4a"):
+        MinioStorage.stat_object(storage, "objects/missing.m4a")
 
 
 def test_get_bytes_preserves_non_missing_storage_errors() -> None:

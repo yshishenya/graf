@@ -12,9 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
-from twobrain_rec_server.auth.policy import read_auth_providers
-from twobrain_rec_server.auth.providers import build_provider_registry
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
+from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
@@ -33,6 +32,9 @@ from twobrain_rec_server.db.tenant_context import (
     TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context,
+)
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
 )
 
 EMAIL_LOGIN_PROVIDER = "email"
@@ -128,6 +130,7 @@ async def _consume_email_login_code(
     flow = "signup" if allow_registration else "login"
     if state is None:
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -136,6 +139,7 @@ async def _consume_email_login_code(
         )
     if workspace_id is not None and state.workspace_id != workspace_id:
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -145,6 +149,7 @@ async def _consume_email_login_code(
     workspace_id = state.workspace_id
     if state.result != "pending":
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -167,6 +172,7 @@ async def _consume_email_login_code(
         )
         await db.commit()
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -186,6 +192,7 @@ async def _consume_email_login_code(
         )
         await db.commit()
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -194,26 +201,6 @@ async def _consume_email_login_code(
         )
     workspace, user = await _resolve_email_login_user(db, workspace_id=workspace_id, email=email)
     if workspace is not None and user is None and allow_registration:
-        if not await _email_registration_allowed(db, workspace_id=workspace.id):
-            state.result = "failed"
-            state.used_at = now
-            state.error_code = "workspace_enrollment_required"
-            await _record_email_login_audit(
-                db,
-                request=request,
-                workspace_id=workspace.id,
-                outcome="failure",
-                error_code="workspace_enrollment_required",
-                metadata={"flow": "registration"},
-            )
-            await db.commit()
-            return _email_code_error_response(
-                email=email,
-                state_nonce=state_nonce,
-                next_path=next_path,
-                error="workspace_enrollment_required",
-                flow=flow,
-            )
         user = await _ensure_email_registration_user(
             db,
             workspace=workspace,
@@ -233,12 +220,20 @@ async def _consume_email_login_code(
         )
         await db.commit()
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
             error="email_code_invalid",
             flow=flow,
         )
+    personal_workspace = await ensure_personal_workspace(
+        db,
+        organization_id=workspace.organization_id,
+        user_id=user.id,
+    )
+    if allow_registration:
+        workspace = personal_workspace
     device = await _resolve_email_browser_device(db, workspace=workspace, user=user, now=now)
     issued = await issue_auth_session(
         db,
@@ -342,17 +337,28 @@ async def _resolve_email_login_user(
         )
         if membership is not None:
             return workspace, user
+        personal_workspace = await db.scalar(
+            select(Workspace)
+            .join(
+                WorkspaceMembership,
+                WorkspaceMembership.workspace_id == Workspace.id,
+            )
+            .where(
+                Workspace.organization_id == workspace.organization_id,
+                Workspace.kind == "personal",
+                Workspace.owner_user_id == user.id,
+                WorkspaceMembership.user_id == user.id,
+                WorkspaceMembership.status == "active",
+            )
+        )
+        if personal_workspace is not None:
+            return personal_workspace, user
     return workspace, None
 
 
 async def _resolve_email_workspace(db: AsyncSession, *, workspace_id: UUID) -> Workspace | None:
     await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
     return await db.get(Workspace, workspace_id)
-
-
-async def _email_registration_allowed(db: AsyncSession, *, workspace_id: UUID) -> bool:
-    snapshot = await read_auth_providers(db, workspace_id, adapters=build_provider_registry())
-    return snapshot.allow_provider_self_enrollment
 
 
 async def _ensure_email_registration_user(
@@ -393,24 +399,6 @@ async def _ensure_email_registration_user(
                 context_kind="auth_bootstrap",
             ),
         )
-        membership = await db.scalar(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == workspace.id,
-                WorkspaceMembership.user_id == identity.user_id,
-            )
-        )
-        if membership is None:
-            db.add(
-                WorkspaceMembership(
-                    workspace_id=workspace.id,
-                    user_id=user.id,
-                    role="member",
-                    status="active",
-                )
-            )
-            await db.flush()
-        else:
-            membership.status = "active"
         identity.is_verified = True
         identity.last_seen_at = now
         return user
@@ -433,14 +421,6 @@ async def _ensure_email_registration_user(
             user_id=user.id,
             context_kind="auth_bootstrap",
         ),
-    )
-    db.add(
-        WorkspaceMembership(
-            workspace_id=workspace.id,
-            user_id=user.id,
-            role="member",
-            status="active",
-        )
     )
     db.add(
         ExternalIdentity(
@@ -509,6 +489,7 @@ async def _resolve_email_browser_device(
 
 def _email_code_error_response(
     *,
+    request: Request,
     email: str,
     state_nonce: str,
     next_path: str,
@@ -522,6 +503,9 @@ def _email_code_error_response(
             next_path=next_path,
             error=error,
             flow=flow,
+            product_analytics_provider=build_request_browser_provider_context(
+                request, "login_signup"
+            ),
         ),
         status_code=400,
     )

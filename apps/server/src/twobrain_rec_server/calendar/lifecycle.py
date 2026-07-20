@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.calendar.matching import scrub_match_attempt_snapshot
@@ -120,6 +120,11 @@ async def disconnect_source(db: AsyncSession, source: CalendarSource) -> dict[st
         )
     )
     for snapshot in purge_snapshots:
+        await db.execute(
+            update(CalendarAuditEvent)
+            .where(CalendarAuditEvent.calendar_event_snapshot_id == snapshot.id)
+            .values(calendar_event_snapshot_id=None)
+        )
         await db.execute(
             delete(CalendarParticipant).where(
                 CalendarParticipant.calendar_event_snapshot_id == snapshot.id

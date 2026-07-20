@@ -56,6 +56,9 @@ from twobrain_rec_server.calendar.service import (
     save_calendar_settings_preferences,
     unlink_meeting_calendar_context,
 )
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
+)
 
 router = APIRouter(tags=["cabinet-web"])
 
@@ -116,6 +119,12 @@ async def calendar_settings_page(
         render_calendar_settings_page(
             surface,
             csrf_token=_csrf_token_for_principal(request, principal),
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "settings",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )
 

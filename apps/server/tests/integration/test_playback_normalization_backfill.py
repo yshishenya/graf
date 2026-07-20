@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fixtures.processing import apply_job_worker_scope
 from tests.integration.test_playback_normalization_workflow import (
     FakeManualNormalizationPipeline,
 )
@@ -21,6 +22,11 @@ from twobrain_rec_server.db.models import (
     PlaybackNormalizationJob,
     SupportIncident,
     TrackArtifact,
+)
+from twobrain_rec_server.db.tenant_context import (
+    MaintenanceTenantContext,
+    apply_tenant_context,
+    apply_tenant_scope,
 )
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_sha256
 from twobrain_rec_server.normalization.service import (
@@ -64,6 +70,7 @@ async def _seed_legacy_revision(
     playback_candidates: int = 0,
     canonical: bool = False,
 ) -> LegacySeed:
+    await apply_tenant_scope(db, _worker_scope(), context_kind="worker")
     meeting_id = uuid4()
     revision_id = uuid4()
     title = f"Synthetic legacy meeting {ordinal}"
@@ -86,26 +93,25 @@ async def _seed_legacy_revision(
         created_at=created_at,
         updated_at=created_at,
     )
-    db.add_all(
-        [
-            Meeting(
-                id=meeting_id,
-                workspace_id=WORKSPACE_ID,
-                created_by_user_id=USER_ID,
-                device_id=DEVICE_ID,
-                local_recording_id=f"synthetic-legacy-meeting-{ordinal}",
-                title=title,
-                title_source="manual_upload",
-                duration_seconds=60,
-                status="ingested_pending_processing",
-                processing_status="submitted",
-                deletion_state="none",
-                created_at=created_at,
-                updated_at=created_at,
-            ),
-            revision,
-        ]
+    db.add(
+        Meeting(
+            id=meeting_id,
+            workspace_id=WORKSPACE_ID,
+            created_by_user_id=USER_ID,
+            device_id=DEVICE_ID,
+            local_recording_id=f"synthetic-legacy-meeting-{ordinal}",
+            title=title,
+            title_source="manual_upload",
+            duration_seconds=60,
+            status="ingested_pending_processing",
+            processing_status="submitted",
+            deletion_state="none",
+            created_at=created_at,
+            updated_at=created_at,
+        )
     )
+    await db.flush()
+    db.add(revision)
     await db.flush()
 
     if source_state != "missing":
@@ -257,6 +263,7 @@ def test_legacy_completion_persists_one_backfilled_audit_event(client, tmp_path:
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             await run_normalization_job(
                 db=db,
                 storage=client.app_state["storage"],
@@ -549,6 +556,15 @@ def test_backfill_persists_page_100_cursor_and_blocks_dispatch_until_inventory_c
                 run_after_first.cursor_created_at,
                 run_after_first.cursor_media_revision_id,
             )
+            await apply_tenant_context(
+                db,
+                MaintenanceTenantContext(
+                    operation_name="playback_normalization_dispatch",
+                    actor_id="test-worker",
+                    reason_category="test",
+                    feature_area="playback_normalization",
+                ),
+            )
             before_complete = await enumerate_normalization_pickup_candidates(
                 db,
                 now=now + timedelta(minutes=3),
@@ -556,6 +572,7 @@ def test_backfill_persists_page_100_cursor_and_blocks_dispatch_until_inventory_c
             )
 
         async with client.app_state["sessionmaker"]() as db:
+            await apply_tenant_scope(db, _worker_scope(), context_kind="worker")
             second = await inventory_playback_backfill_page(
                 db,
                 workspace_id=WORKSPACE_ID,
@@ -563,6 +580,15 @@ def test_backfill_persists_page_100_cursor_and_blocks_dispatch_until_inventory_c
                 now=now + timedelta(minutes=4),
             )
             run_after_second = await db.get(PlaybackBackfillRun, second.run_id)
+            await apply_tenant_context(
+                db,
+                MaintenanceTenantContext(
+                    operation_name="playback_normalization_dispatch",
+                    actor_id="test-worker",
+                    reason_category="test",
+                    feature_area="playback_normalization",
+                ),
+            )
             after_complete = await enumerate_normalization_pickup_candidates(
                 db,
                 now=now + timedelta(minutes=4),

@@ -744,7 +744,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(report.clipboardText.contains("Bearer"))
     }
 
-    func testSupportIncidentActionCopyUsesRequiredSuccessAndFailureText() {
+    func testSupportIncidentActionCopyDistinguishesSyncedPendingAndRejectedText() {
         let sent = DesktopSupportIncidentSubmissionState.sent(
             reportFingerprint: "report_fpr_test",
             dedupeKey: "support_dedupe_test",
@@ -760,14 +760,25 @@ final class CaptureControlTests: XCTestCase {
             failureCategory: "network",
             failureCode: "support_incident.github_unavailable"
         )
+        let pending = DesktopSupportIncidentSubmissionState.pendingSync(
+            reportFingerprint: "report_fpr_test",
+            dedupeKey: "support_dedupe_test",
+            incidentNumber: "CUST-123",
+            attemptedAt: Date(timeIntervalSince1970: 1),
+            copyFallbackAvailable: true
+        )
 
         XCTAssertEqual(
             DesktopSupportIncidentActionCopy.visibleMessage(for: sent),
-            DesktopSupportIncidentFixture.successMessage
+            "Запрос принят и передан в поддержку. Номер: CUST-123"
         )
         XCTAssertEqual(
             DesktopSupportIncidentActionCopy.visibleMessage(for: failed),
-            DesktopSupportIncidentFixture.failureMessage
+            "Запрос не принят. Проверьте подключение или скопируйте безопасную сводку."
+        )
+        XCTAssertEqual(
+            DesktopSupportIncidentActionCopy.visibleMessage(for: pending),
+            "Запрос принят сервером. Синхронизация с поддержкой ожидает проверки. Номер: CUST-123"
         )
         XCTAssertEqual(DesktopSupportIncidentActionCopy.sendTitle, DesktopSupportIncidentFixture.supportTitle)
     }
@@ -784,9 +795,9 @@ final class CaptureControlTests: XCTestCase {
 
         XCTAssertEqual(
             DesktopSupportIncidentActionCopy.visibleMessage(for: sentWithoutNumber),
-            "Запрос отправлен в поддержку."
+            "Запрос принят и передан в поддержку."
         )
-        XCTAssertEqual(sentWithoutNumber.accessibilityLabel, "Запрос отправлен в поддержку.")
+        XCTAssertEqual(sentWithoutNumber.accessibilityLabel, "Запрос принят и передан в поддержку.")
         XCTAssertFalse(
             DesktopSupportIncidentActionCopy.visibleMessage(for: sentWithoutNumber)?.contains("?") == true
         )

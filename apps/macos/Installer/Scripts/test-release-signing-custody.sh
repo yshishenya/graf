@@ -95,6 +95,7 @@ write_attestation() {
   destination=$1
   release_ref=$2
   checked_at=${3:-$SAFE_CHECKED_AT}
+  commit=${4:-0000000000000000000000000000000000000000}
   cat > "$destination" <<EOF
 {
   "schemaVersion": 1,
@@ -104,7 +105,7 @@ write_attestation() {
   "state": "ready",
   "checkedAt": "$checked_at",
   "releaseRef": "$release_ref",
-  "commit": "0000000000000000000000000000000000000000",
+  "commit": "$commit",
   "workflow": "verify-release-signing-custody",
   "runId": "1"
 }
@@ -124,6 +125,7 @@ write_keychain_attestation() {
   destination=$1
   release_ref=$2
   checked_at=${3:-$SAFE_CHECKED_AT}
+  commit=${4:-0000000000000000000000000000000000000000}
   cat > "$destination" <<EOF
 {
   "schemaVersion": 1,
@@ -133,7 +135,7 @@ write_keychain_attestation() {
   "state": "ready",
   "checkedAt": "$checked_at",
   "releaseRef": "$release_ref",
-  "commit": "0000000000000000000000000000000000000000",
+  "commit": "$commit",
   "workflow": "verify-release-signing-custody-local",
   "evidenceId": "00000000-0000-4000-8000-000000000000"
 }
@@ -176,6 +178,184 @@ if (
 ) >/dev/null 2>&1; then
   fail "expired safe attestation was accepted"
 fi
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+write_staged_appcast() {
+  destination=$1
+  version=$2
+  cat > "$destination" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<rss><channel><item><version>$version</version></item></channel></rss>
+EOF
+}
+
+assert_staged_appcast_unchanged() {
+  label=$1
+  destination=$2
+  expected_digest=$3
+  [ "$(sha256_file "$destination")" = "$expected_digest" ] ||
+    fail "$label changed the staged appcast"
+}
+
+run_prepare_attestation_failure() {
+  label=$1
+  release_ref=$2
+  commit=$3
+  fixture="$TEMP_ROOT/prepare-$label"
+  staged_appcast="$REPO_ROOT/apps/macos/.build/updates/graf-appcast.xml"
+  fake_git="$fixture/git"
+  mkdir -p "$fixture/candidate/GRAF.app" "$fixture/previous/GRAF.app"
+  printf '%s\n' 'Проверка безопасного выпуска.' > "$fixture/release-notes.md"
+  write_keychain_attestation "$fixture/keychain-attestation.json" v2026.07.20.6 "$SAFE_CHECKED_AT"
+  write_attestation "$fixture/attestation.json" "$release_ref" "$SAFE_CHECKED_AT" "$commit"
+  mkdir -p "$(dirname -- "$staged_appcast")"
+  write_staged_appcast "$staged_appcast" 2026.07.20.1
+  before_digest=$(sha256_file "$staged_appcast")
+  cat > "$fake_git" <<'EOF'
+#!/usr/bin/env sh
+if [ "$1" = "-C" ] && [ "$3" = "rev-parse" ] && [ "$4" = "--show-toplevel" ]; then
+  exec "$(command -p git)" "$@"
+fi
+if [ "$1" = "-C" ] && [ "$3" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "rev-parse" ]; then
+  case "$4" in
+    HEAD|refs/tags/*)
+      printf '%s\n' 0000000000000000000000000000000000000000
+      exit 0
+      ;;
+  esac
+fi
+if [ "$1" = "-C" ] && [ "$3" = "ls-remote" ]; then
+  case "$5" in
+    refs/heads/master)
+      printf '%s\trefs/heads/master\n' 0000000000000000000000000000000000000000
+      ;;
+    refs/tags/*)
+      printf '%s\t%s\n' 0000000000000000000000000000000000000000 "$5"
+      printf '%s\t%s^{}\n' 0000000000000000000000000000000000000000 "$5"
+      ;;
+    *)
+      exec "$(command -p git)" "$@"
+      ;;
+  esac
+  exit 0
+fi
+exec "$(command -p git)" "$@"
+EOF
+  chmod 755 "$fake_git"
+  if PATH="$fixture:$PATH" \
+    GRAF_VERSION=2026.07.20.6 \
+    GRAF_UPDATE_APP_BUNDLE="$fixture/candidate/GRAF.app" \
+    GRAF_PREVIOUS_APP_BUNDLE="$fixture/previous/GRAF.app" \
+    GRAF_UPDATE_RELEASE_NOTES="$fixture/release-notes.md" \
+    GRAF_UPDATE_DOWNLOAD_BASE_URL=https://rec.2brain.pro/static/public/downloads \
+    GRAF_REQUIRE_RELEASE_PROVENANCE=1 \
+    GRAF_RELEASE_SIGNING_MODE=keychain \
+    GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION="$fixture/keychain-attestation.json" \
+    GRAF_RELEASE_SIGNING_ATTESTATION="$fixture/attestation.json" \
+    sh "$PREPARE" >/dev/null 2>&1; then
+    fail "$label attestation failure was accepted"
+  fi
+  assert_staged_appcast_unchanged "$label attestation failure" "$staged_appcast" "$before_digest"
+  rm -rf "$REPO_ROOT/apps/macos/.build/updates"
+  echo "failure_simulation=$label result=pass"
+}
+
+run_prepare_missing_draft_failure() {
+  fixture="$TEMP_ROOT/prepare-missing-draft"
+  staged_appcast="$REPO_ROOT/apps/macos/.build/updates/graf-appcast.xml"
+  mkdir -p "$fixture"
+  mkdir -p "$(dirname -- "$staged_appcast")"
+  write_staged_appcast "$staged_appcast" 2026.07.20.1
+  before_digest=$(sha256_file "$staged_appcast")
+  if GRAF_VERSION=2026.07.20.6 \
+    GRAF_UPDATE_APP_BUNDLE="$fixture/missing/GRAF.app" \
+    sh "$PREPARE" >/dev/null 2>&1; then
+    fail "missing draft app bundle was accepted"
+  fi
+  assert_staged_appcast_unchanged "missing draft app bundle" "$staged_appcast" "$before_digest"
+  rm -rf "$REPO_ROOT/apps/macos/.build/updates"
+  echo "failure_simulation=draft_asset_failure result=pass"
+}
+
+run_prepare_staging_guard_failures() {
+  candidate_app=$(printenv GRAF_RELEASE_SIGNING_CANDIDATE_APP_BUNDLE || true)
+  previous_app=$(printenv GRAF_RELEASE_SIGNING_PREVIOUS_APP_BUNDLE || true)
+  if [ ! -d "$candidate_app" ] || [ ! -d "$previous_app" ]; then
+    echo "staging_failure_simulations=skipped reason=disposable_app_fixture_not_provided"
+    return 0
+  fi
+
+  if [ -e "$MACOS_DIR/.build/artifacts/sparkle" ]; then
+    echo "staging_failure_simulations=skipped reason=existing_sparkle_tools_preserved"
+    return 0
+  fi
+
+  sparkle_bin_dir="$MACOS_DIR/.build/artifacts/sparkle/Sparkle/bin"
+  staged_appcast="$REPO_ROOT/apps/macos/.build/updates/graf-appcast.xml"
+  manifest_public_key=$(/usr/bin/plutil -extract publicKey raw -o - "$MACOS_DIR/Installer/UpdateSigningKey.json")
+  mkdir -p "$sparkle_bin_dir"
+  cat > "$sparkle_bin_dir/generate_keys" <<EOF
+#!/usr/bin/env sh
+case " \$* " in
+  *" -p "*) printf '%s\n' "$manifest_public_key" ;;
+esac
+EOF
+  cat > "$sparkle_bin_dir/generate_appcast" <<'EOF'
+#!/usr/bin/env sh
+exit 0
+EOF
+  cat > "$sparkle_bin_dir/sign_update" <<'EOF'
+#!/usr/bin/env sh
+exit 0
+EOF
+  chmod 755 "$sparkle_bin_dir/generate_keys" "$sparkle_bin_dir/generate_appcast" "$sparkle_bin_dir/sign_update"
+  release_notes="$TEMP_ROOT/staging-release-notes.md"
+  printf '%s\n' 'Проверка безопасного выпуска.' > "$release_notes"
+
+  mkdir -p "$(dirname -- "$staged_appcast")"
+  write_staged_appcast "$staged_appcast" 2026.07.20.1
+  before_digest=$(sha256_file "$staged_appcast")
+  mkdir "$REPO_ROOT/apps/macos/.build/.graf-update-staging.lock"
+  if GRAF_VERSION=2026.07.20.2 \
+    GRAF_UPDATE_APP_BUNDLE="$candidate_app" \
+    GRAF_PREVIOUS_APP_BUNDLE="$previous_app" \
+    GRAF_UPDATE_RELEASE_NOTES="$release_notes" \
+    GRAF_UPDATE_DOWNLOAD_BASE_URL=https://rec.2brain.pro/static/public/downloads \
+    GRAF_RELEASE_SIGNING_MODE=keychain \
+    sh "$PREPARE" >/dev/null 2>&1; then
+    fail "concurrent staging attempt was accepted"
+  fi
+  assert_staged_appcast_unchanged "concurrent staging attempt" "$staged_appcast" "$before_digest"
+  rmdir "$REPO_ROOT/apps/macos/.build/.graf-update-staging.lock"
+  rm -rf "$REPO_ROOT/apps/macos/.build/updates"
+  echo "failure_simulation=concurrent_staging result=pass"
+
+  mkdir -p "$(dirname -- "$staged_appcast")"
+  write_staged_appcast "$staged_appcast" 2099.12.31.1
+  before_digest=$(sha256_file "$staged_appcast")
+  if GRAF_VERSION=2026.07.20.2 \
+    GRAF_UPDATE_APP_BUNDLE="$candidate_app" \
+    GRAF_PREVIOUS_APP_BUNDLE="$previous_app" \
+    GRAF_UPDATE_RELEASE_NOTES="$release_notes" \
+    GRAF_UPDATE_DOWNLOAD_BASE_URL=https://rec.2brain.pro/static/public/downloads \
+    GRAF_RELEASE_SIGNING_MODE=keychain \
+    sh "$PREPARE" >/dev/null 2>&1; then
+    fail "forward-rollback attempt was accepted"
+  fi
+  assert_staged_appcast_unchanged "forward rollback" "$staged_appcast" "$before_digest"
+  rm -rf "$REPO_ROOT/apps/macos/.build/updates"
+  rm -f "$sparkle_bin_dir/generate_keys" "$sparkle_bin_dir/generate_appcast" "$sparkle_bin_dir/sign_update"
+  rmdir "$sparkle_bin_dir" "$MACOS_DIR/.build/artifacts/sparkle/Sparkle" \
+    "$MACOS_DIR/.build/artifacts/sparkle" 2>/dev/null || true
+  echo "failure_simulation=forward_rollback result=pass"
+  echo "staging_failure_simulations=pass"
+}
 
 printf '%s' '{not-json}' > "$TEMP_ROOT/malformed.json"
 if (
@@ -328,5 +508,10 @@ else
   [ "$secret_scan_status" = "1" ] ||
     fail "current-source secret-pattern guard could not complete"
 fi
+
+run_prepare_attestation_failure stale_attestation v2026.07.20.5 0000000000000000000000000000000000000000
+run_prepare_attestation_failure wrong_release_attestation v2026.07.20.6 1111111111111111111111111111111111111111
+run_prepare_missing_draft_failure
+run_prepare_staging_guard_failures
 
 echo "release-signing custody tests passed: fixture=disposable-public key_id=$DUMMY_KEY_ID"

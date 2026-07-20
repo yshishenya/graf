@@ -2,7 +2,10 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).parents[4]
 
@@ -44,6 +47,7 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert 'SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-/tmp/twobrain-rec-smoke-auth-token-${RUN_ID}}"' in script
     assert "--auth-session-id" in script
     assert '--token-file "$SMOKE_TOKEN_FILE"' in script
+    assert '--run-id "$RUN_ID"' in script
     assert "TWOBRAIN_SMOKE_CREDENTIAL_FILE" not in script
     assert "--token " not in script
     assert "cat $SMOKE_TOKEN_FILE" not in script
@@ -51,6 +55,121 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert script.index("python scripts/seed_smoke_identity.py") < script.index(
         "python scripts/issue_smoke_auth_session.py"
     )
+    assert 'TWOBRAIN_SMOKE_RUN_ID=\'$RUN_ID\'' not in script
+    assert "od -An -N8 -tx1 /dev/urandom" in script
+    assert 'SMOKE_RUN_DIR="$(mktemp -d "/tmp/twobrain-rec-smoke-${RUN_ID}.' in script
+    assert 'SMOKE_ARTIFACT_DIR="${SMOKE_ARTIFACT_BASE%/}-${RUN_ID}"' in script
+    assert "must be a direct child name under /tmp" in script
+    assert "cleanup_smoke_container_files required" in script
+    assert "cleanup_smoke_container_files best_effort" in script
+
+
+def test_default_smoke_run_ids_are_unique_for_parallel_invocations() -> None:
+    def invoke() -> str:
+        env = os.environ.copy()
+        env.pop("TWOBRAIN_SMOKE_RUN_ID", None)
+        return subprocess.run(
+            [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), "--dry-run"],
+            check=True,
+            text=True,
+            capture_output=True,
+            env=env,
+        ).stdout
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        outputs = list(executor.map(lambda _: invoke(), range(4)))
+
+    run_ids = {
+        line.split("=", 1)[1]
+        for output in outputs
+        for line in output.splitlines()
+        if line.startswith("run_id=")
+    }
+    assert len(run_ids) == 4
+
+
+@pytest.mark.parametrize(
+    ("artifact_dir", "token_file"),
+    [
+        ("/tmp/../etc", "/tmp/token-smoke-014"),
+        ("/tmp/safe/nested", "/tmp/token-smoke-014"),
+        ("/tmp/safe", "/tmp/../var/run/token-smoke-014"),
+    ],
+)
+def test_smoke_execute_rejects_paths_that_escape_direct_tmp_children(
+    artifact_dir: str,
+    token_file: str,
+) -> None:
+    result = subprocess.run(
+        [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), "--execute"],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "TWOBRAIN_SMOKE_RUN_ID": "smoke-014",
+            "TWOBRAIN_SMOKE_ARTIFACT_DIR": artifact_dir,
+            "TWOBRAIN_SMOKE_TOKEN_FILE": token_file,
+        },
+    )
+
+    assert result.returncode == 2
+    assert "direct child" in result.stderr
+
+
+def test_test_artifact_generator_refuses_preexisting_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    output = tmp_path / "artifact"
+    output.symlink_to(target, target_is_directory=True)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "apps/server/scripts/create_test_artifact.py"),
+            "--duration-seconds",
+            "3",
+            "--out",
+            str(output),
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+
+    assert result.returncode != 0
+    assert not (target / "mic.wav").exists()
+
+
+@pytest.mark.parametrize(
+    "run_id",
+    ["", "../escape", "bad;touch /tmp/pwned", "bad value", "ключ", "a" * 129],
+)
+def test_smoke_run_id_rejects_shell_and_path_injection(run_id: str) -> None:
+    result = subprocess.run(
+        [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), "--dry-run"],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "TWOBRAIN_SMOKE_RUN_ID": run_id},
+    )
+
+    assert result.returncode == 2
+    assert "run_id" in result.stderr
+
+
+@pytest.mark.parametrize("run_id", ["smoke-014", "run.2026_07-20", "A" + "x" * 127])
+def test_smoke_run_id_accepts_bounded_safe_identifiers(run_id: str) -> None:
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "apps/server/scripts/smoke_target.py"), "--validate-run-id", run_id],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_remote_cd_deploys_processing_runtime_services() -> None:

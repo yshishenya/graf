@@ -677,3 +677,14 @@ cleanup. The standalone feature 097 security scan remains deferred.
 - This completes T120 and T123. It does not complete the broader T115 browser
   and embedded production-path receipt or T116 feature-wide issue cleanup.
   Deferred feature 097 remains untouched.
+
+## T115 — Chrome reconnection and production reachability recheck: 2026-07-20
+
+- The user-requested Chrome restart completed. The ChatGPT Chrome Extension
+  connection then succeeded through the selected Chrome surface.
+- A fresh Chrome tab attempted `https://rec.2brain.pro/meetings` twice. Both
+  attempts ended at the browser error page with `ERR_TIMED_OUT`; no login,
+  upload, media, transcript, or meeting data was entered or transmitted.
+- No alternate browser or automation surface was substituted. The production
+  Chrome/embedded visual and Range receipt therefore remains unavailable and
+  T115/T116 stay open.

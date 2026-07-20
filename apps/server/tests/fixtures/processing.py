@@ -1,9 +1,28 @@
 from hashlib import sha256
 
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
+from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.db.models import PlaybackNormalizationJob
+from twobrain_rec_server.db.tenant_context import apply_tenant_scope
+
+
+async def apply_job_worker_scope(db: AsyncSession, job: PlaybackNormalizationJob) -> None:
+    """Apply the exact production worker authority before a direct job execution."""
+
+    await apply_tenant_scope(
+        db,
+        TenantScope(
+            organization_id=job.organization_id,
+            workspace_id=job.workspace_id,
+            user_id=job.requested_by_user_id,
+            device_id=job.source_device_id,
+        ),
+        context_kind="worker",
+    )
 
 
 def enable_processing_autostart(client: TestClient, temporal_client: object | None = None) -> object | None:

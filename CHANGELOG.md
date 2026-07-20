@@ -9,17 +9,267 @@
 ## [Unreleased]
 
 ### Добавлено
-- Защищённая custody-процедура подписи Sparkle: публичный manifest доверия,
-  named Keychain recovery signer, protected GitHub-environment signer и
-  metadata-only attestation.
-- Явный одноразовый manual bootstrap для неизбежной миграции со старого
-  недоступного ключа, без обхода обычной проверки Sparkle.
+- _Пока нет записей._
 
 ### Изменено
 - _Пока нет записей._
 
 ### Исправлено
 - _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.20.6] - 2026-07-20
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Production smoke дополнительно защищён от записи через заранее созданный
+  leaf-путь или симлинк: синтетический артефакт создаётся атомарно без follow.
+
+### Исправлено
+- Закрыт остаточный P2 в границе тестового артефакта: существующий файл или
+  симлинк теперь блокирует запись до открытия целевого аудио.
+
+### Безопасность
+- Усилена изоляция временных артефактов production smoke без изменения
+  пользовательского аудио или публичного API.
+
+### Документы
+- Обновлены receipts Feature 090 и зафиксированы границы внешних E2E-проверок.
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.20.5] - 2026-07-20
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Production smoke теперь создаёт отдельную временную область для каждого
+  `run_id`, чтобы параллельные проверки не перезаписывали JSON, token и
+  synthetic artifact state.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- `run_id` smoke-проверок принимает только ограниченный ASCII-набор и больше
+  не попадает в remote shell/path до проверки; immutable media revision
+  preflight сериализуется row-level lock до материализации multipart output.
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.20.4] - 2026-07-20
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Feature 090: статус ручной загрузки теперь различает принятое аудио и
+  реально запущенную обработку; для истёкшей сессии предлагается восстановить
+  вход, а для конфликта версии — выбрать другой файл.
+
+### Исправлено
+- Feature 090: playback сверяет фактический размер объекта MinIO с
+  подтверждённым размером артефакта до выдачи диапазонных заголовков; конфликт
+  immutable media revision проверяется до материализации multipart-объекта.
+- Feature 090: системный picker embedded macOS принимает только один файл из
+  главного same-origin маршрута списка встреч.
+
+### Безопасность
+- Feature 090: production smoke auth material теперь читается только из
+  mode-0600/O_NOFOLLOW файла, привязанного к exact run_id и разрешённому
+  origin.
+
+### Документы
+- Зафиксированы текущие receipts и ограничения convergence-проверки Feature 090
+  и Feature 092; security scan Feature 097 остаётся пропущен по указанию
+  пользователя.
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.20.3] - 2026-07-20
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Исправлены относительные пути optional provider secret placeholders в
+  production Compose после fail-closed rollback релиза `v2026.07.20.2`.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.20.2] - 2026-07-20
+
+
+### Добавлено
+- Кандидат интеграции Feature 096: self-hosted PostHog/Yandex provider-layer,
+  browser и macOS-контракты, secret-file границы, runbooks и metadata-only
+  smoke/rollback-проверки. Provider delivery и production rollout остаются
+  выключенными до закрытия T097–T104 и отдельного evidence-gate.
+- Metadata-only PostHog runtime guard с journald alert и fail-closed rollback
+  contract; production systemd installation остаётся отдельным T101 gate.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.20.1] - 2026-07-20
+
+
+### Добавлено
+- Подписанный owner-only appcast и архив обновления после миграции на новое
+  поколение доверия Sparkle.
+
+### Изменено
+- Проверка обновлений теперь получает feed, подписанный тем же ключом, который
+  встроен в bootstrap `2026.07.18.3`.
+
+### Исправлено
+- Устранена ошибка `The update feed is improperly signed` после ручного
+  перехода на новое поколение ключа.
+
+### Безопасность
+- Архив и appcast подписаны через именованный macOS Keychain; feed заменяется
+  только после проверки подписи, длины архива и bundle identity.
+
+### Документы
+- Зафиксирован порядок публикации: versioned archive сначала, `graf-appcast.xml`
+  последним.
+
+### Операции
+- Проверки: `prepare-app-update.sh` в owner-only режиме, Sparkle signature
+  verification и live повторное чтение опубликованных файлов.
+- Ограничение: канал остаётся owner-only self-signed до перехода на Developer ID
+  и approval-защищённое окружение GitHub.
+
+## [2026.07.18.3] - 2026-07-18
+
+
+### Добавлено
+- Одноразовый ручной bootstrap для перехода с updater-disabled сборки на
+  сборку с новым доверенным поколением подписи Sparkle.
+
+### Изменено
+- Версия `2026.07.18.3` содержит production feed и публичный ключ активного
+  поколения доверия; после ручной установки проверка обновлений доступна.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- Приватный ключ подписи хранится только в именованном macOS Keychain и
+  GitHub Environment; в репозитории и публичном feed остаются только
+  безопасные публичные метаданные.
+
+### Документы
+- Зафиксированы границы ручного bootstrap и owner-only канала: смена ключа не
+  выполняется обычным Sparkle-обновлением.
+
+### Операции
+- Проверки: активный manifest, стабильный bundle identity и designated
+  requirement, вложенные подписи Sparkle и manual-bootstrap validator.
+- Ограничение: это owner-only self-signed выпуск для контролируемого Mac;
+  Developer ID, notarization и независимое approval-защищённое окружение
+  остаются необходимыми для публичной дистрибуции.
+
+## [2026.07.18.2] - 2026-07-18
+
+
+### Добавлено
+- Личное пространство для самостоятельной регистрации и явные предложения
+  вступить в корпоративную команду; принятие приглашения больше не происходит
+  автоматически ([#3706](https://github.com/yshishenya/crisp/issues/3706),
+  [#3708](https://github.com/yshishenya/crisp/issues/3708)).
+- Metadata-only отчёт классификации legacy bootstrap-пользователей без
+  переноса записей, membership или содержимого ([#3712](https://github.com/yshishenya/crisp/issues/3712)).
+- Для отчётов поддержки добавлены server-side `CUST-*` номера, metadata-only
+  private Issue с детальной безопасной сводкой и повторная синхронизация без
+  повторной отправки отчёта.
+- Защищённая custody-процедура подписи Sparkle: публичный manifest доверия,
+  named Keychain recovery signer, protected GitHub-environment signer и
+  metadata-only attestation.
+- Явный одноразовый manual bootstrap для неизбежной миграции со старого
+  недоступного ключа, без обхода обычной проверки Sparkle.
+- Безопасный локальный runner для server-тестов: на каждый запуск он поднимает
+  отдельный `postgres:17-alpine` на случайном loopback-порту, создаёт
+  независимые worker/clean/RLS базы и удаляет весь контейнер после завершения.
+- Параллельный PostgreSQL full-gate с восемью проверенными worker’ами по
+  умолчанию; строгие RLS-модули остаются отдельной последовательной фазой.
+- Bounded retry старта одноразового PostgreSQL-контейнера: runner принимает
+  контейнер только после готовности и успешного создания своей RLS-базы.
+
+### Изменено
+- Canonical local CI ограничивает ускоренный PostgreSQL runner четырьмя
+  изолированными воркерами на стандартной 8 GB Docker-конфигурации; больший
+  bounded override остаётся доступен для машин с достаточным ресурсом.
+- Кандидат Feature 096 синхронизирован с каноническим OpenAPI: server-mediated
+  PostHog web/desktop capture endpoints, env/secret handoff и metadata-only
+  PostHog operations receipts теперь проверяются тем же текущим master-кодом;
+  production provider delivery остаётся fail-closed.
+- macOS теперь отправляет support-report через авторизованный embedded cabinet
+  с same-origin cookie и CSRF-контекстом; native upload client больше не
+  копирует web-сессию и не использует устаревшие support-заголовки.
+- Активные server-тесты, миграционные проверки и локальный UI-harness теперь
+  используют только PostgreSQL с asyncpg; canonical local CI запускает тот же
+  изолированный путь.
+- Обычные client-тесты один раз применяют настоящий Alembic head на worker и
+  затем делают ограниченный truncate+seed вместо пересоздания всей схемы.
+
+### Исправлено
+- Ошибка GitHub больше не теряет принятый отчёт: пользователь получает
+  `pending_sync` и номер обращения, а интерфейс различает принятие, ожидание,
+  отказ и необходимость входа.
+- Исправлен embedded cabinet bridge на macOS: объектный результат
+  `callAsyncJavaScript` больше не ошибочно классифицируется как
+  `support_incident.invalid_response`; поддержан и прежний строковый JSON.
+- Удалены активные SQLite-драйвер, URL и dialect-specific ветви индексов.
+  PostgreSQL-проверки дополнительно выявили и исправили порядок fixture-вставок
+  по внешним ключам и auth-запрос с `DISTINCT` по JSON-полю.
+- PostgreSQL-проверка auth callback теперь распознаёт реальное имя ограничения
+  уникальности и возвращает безопасный `identity_subject_conflict` вместо
+  необработанной ошибки базы.
+- Удалён неиспользуемый compatibility-алиас test fixture: render-only тесты
+  теперь явно получают актуальную worker-базу.
 
 ### Безопасность
 - Обычный выпуск больше не принимает произвольный файл с приватным ключом.
@@ -30,21 +280,48 @@
   attestation; изменённый ключ или feed по-прежнему отклоняется.
 
 ### Документы
-- _Пока нет записей._
+- Зафиксирован append-only integration audit Feature 096: историческая ветка
+  не вливается целиком в актуальный master, а открытые Yandex/PostHog/
+  dashboard/rollback и approval gates перечислены отдельным worklist.
+- Сверены границы Features 090–092: добавлена каноническая запись о релизной
+  линии 090, отдельно отмечено отсутствие post-deploy квитанции 091, а статус
+  092 приведён в соответствие с merged/release history без заявления о новой
+  production telemetry rollout.
+- Описан единый безопасный локальный запуск и восстановление при недоступном
+  Docker Engine или занятом локальном порте.
+- Зафиксирован post-deploy closeout Feature 097: merge, релиз, runtime SHA,
+  migration head, backup/restore rehearsal, CI receipts и границы
+  feature-specific production smoke.
+- Обновлён текущий статус продукта: активный серверный runtime больше не
+  содержит SQLite/aiosqlite; исторические миграции, TCC-проверка macOS и
+  ограниченные auth/bootstrap compatibility anchors оставлены намеренно.
 
 ### Операции
+- Для Feature 096 зафиксировано production-hardening PostHog: 35 сервисов
+  получили явные CPU/memory limits, JSON-логи ограничены `50m`/`3`, web
+  startup-path исправлен и health/readiness восстановлены. Автоматические
+  alert/rollback и независимые RBAC/lifecycle/dashboard approvals остаются
+  отдельными незакрытыми воротами T101.
 - Добавлены ручные protected workflows для безопасной проверки signer и
   подписания только в draft GitHub Release. Публичный download host по-прежнему
   обновляется отдельно, versioned assets раньше graf-appcast.xml.
+- Feature 097 выпущена и развернута через `v2026.07.18.1`; canonical deploy gate
+  завершился `ci_local_result=pass`, production smoke и cleanup завершились
+  без остаточных smoke-артефактов.
+- Отдельный metadata-only production smoke 097 подтвердил explicit invitation,
+  переключение personal/corporate space, блокировку revoked corporate session
+  и personal fallback; cleanup завершился с residue `0`.
 
 ## [2026.07.17.13] - 2026-07-17
 
 
-### Добавлено
-- _Пока нет записей._
+- Подготавливается 097: личное пространство для самостоятельной регистрации и
+  отдельное подтверждение приглашения в корпоративную команду ([#3706](https://github.com/yshishenya/crisp/issues/3706), [#3708](https://github.com/yshishenya/crisp/issues/3708)).
 
 ### Изменено
-- _Пока нет записей._
+- Перед включением 097 будет сформирован metadata-only отчёт о legacy
+  bootstrap-пользователях; записи и существующие memberships автоматически не
+  переносятся ([#3712](https://github.com/yshishenya/crisp/issues/3712)).
 
 ### Исправлено
 - _Пока нет записей._

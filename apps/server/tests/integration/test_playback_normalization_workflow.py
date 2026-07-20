@@ -13,6 +13,7 @@ from sqlalchemy import select
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.artifacts import deterministic_wav_bytes
 from tests.fixtures.playback_normalization import synthetic_pcm_wav_bytes
+from tests.fixtures.processing import apply_job_worker_scope
 from tests.integration.test_playback_normalization_finalize import (
     _accept_first_party_recording,
 )
@@ -151,6 +152,7 @@ def test_first_party_workflow_uses_candidate_then_deterministic_source_fallback(
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             execution = await run_normalization_job(
                 db=db,
                 storage=client.app_state["storage"],
@@ -216,6 +218,7 @@ def test_ready_job_is_reused_without_running_media_again(
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             first = await run_normalization_job(
                 db=db,
                 storage=client.app_state["storage"],
@@ -278,6 +281,7 @@ def test_manual_media_job_uses_the_accepted_media_artifact_and_publishes_canonic
                 )
             )
             assert job is not None
+            await apply_job_worker_scope(db, job)
             execution = await run_normalization_job(
                 db=db,
                 storage=client.app_state["storage"],

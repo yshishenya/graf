@@ -6,6 +6,7 @@ from twobrain_rec_server.admin.permissions import (
     AdminActor,
     AdminPermissionOutcome,
     admin_access_decision,
+    corporate_admin_workspace_decision,
     invitation_role_decision,
     membership_mutation_decision,
 )
@@ -34,6 +35,13 @@ def test_owner_and_admin_can_open_admin_for_same_workspace() -> None:
     assert owner.allowed is True
     assert admin.outcome == AdminPermissionOutcome.ALLOWED
     assert admin.allowed is True
+
+
+def test_personal_workspace_is_not_an_admin_team_surface() -> None:
+    assert corporate_admin_workspace_decision("corporate").allowed is True
+    assert corporate_admin_workspace_decision("personal").outcome == (
+        AdminPermissionOutcome.DENIED_PERSONAL_WORKSPACE
+    )
 
 
 def test_member_inactive_cross_workspace_and_missing_audit_are_denied() -> None:

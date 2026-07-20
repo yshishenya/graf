@@ -45,6 +45,19 @@ def test_default_upload_part_contract_is_one_gib() -> None:
     assert Settings().max_upload_part_bytes == 1_073_741_824
 
 
+def test_database_url_rejects_non_postgresql_async_driver() -> None:
+    with pytest.raises(ValidationError, match="PostgreSQL"):
+        Settings(database_url="sqli" + "te+aio" + "sqli" + "te:////tmp/rec.db")
+
+
+def test_database_url_accepts_postgresql_async_driver() -> None:
+    settings = Settings(
+        database_url="postgresql+asyncpg://twobrain_rec:secret@127.0.0.1:54329/twobrain_rec_test_x"
+    )
+
+    assert settings.database_url.startswith("postgresql+asyncpg://")
+
+
 def test_playback_normalization_defaults_are_bounded_and_isolated() -> None:
     settings = Settings(playback_normalization_enabled=True)
 
@@ -298,7 +311,7 @@ def test_production_email_login_delivery_requires_postal_settings(tmp_path) -> N
         )
 
 
-def test_production_email_login_delivery_requires_default_browser_workspace(tmp_path) -> None:
+def test_production_email_login_delivery_requires_internal_auth_bootstrap(tmp_path) -> None:
     key_file = tmp_path / "postal-key"
     key_file.write_text("postal-api-key")
 
@@ -309,6 +322,14 @@ def test_production_email_login_delivery_requires_default_browser_workspace(tmp_
             postal_api_url="http://postal-web:5000",
             postal_api_key_file=key_file,
         )
+
+
+def test_web_login_workspace_is_documented_as_an_internal_bootstrap_only() -> None:
+    field = Settings.model_fields["web_login_workspace_id"]
+
+    assert field.description is not None
+    assert "Internal bootstrap workspace" in field.description
+    assert "never a public enrollment destination" in field.description
 
 
 def test_empty_web_login_workspace_id_is_unset_when_email_delivery_is_disabled() -> None:

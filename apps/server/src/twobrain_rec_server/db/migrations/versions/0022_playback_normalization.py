@@ -95,7 +95,6 @@ def _add_track_artifact_validation() -> None:
         ["workspace_id", "media_revision_id"],
         unique=True,
         postgresql_where=sa.text(CANONICAL_PLAYBACK_PREDICATE),
-        sqlite_where=sa.text(CANONICAL_PLAYBACK_PREDICATE),
     )
     op.create_index(
         "ix_track_artifacts_workspace_meeting_role_status",

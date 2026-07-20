@@ -11,6 +11,10 @@ from twobrain_rec_server.api.schemas import (
     PreviousRecurringMeetingView,
     TranscriptSegmentView,
 )
+from twobrain_rec_server.auth.workspace_onboarding import (
+    WorkspaceAccessView,
+    WorkspaceJoinOfferView,
+)
 from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 from twobrain_rec_server.cabinet.auth_rendering import (
     render_email_code_page as render_email_code_page,
@@ -60,11 +64,13 @@ def render_meeting_list_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     poll_url: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     return _page_shell(
         "Мои встречи",
         embedded=embedded,
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_template="cabinet/pages/meeting_list_content.html",
         filter_action=_base_path(embedded),
         list_region=trusted_component_html(
@@ -108,11 +114,13 @@ def render_meeting_unavailable_page(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     return _page_shell(
         "Страница недоступна",
         embedded=embedded,
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_template="cabinet/pages/meeting_unavailable_content.html",
         meeting_list_href=_base_path(embedded),
     )
@@ -122,19 +130,40 @@ def render_settings_page(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
     provider_link_options: tuple[cabinet_view_models.ProviderLinkStartOption, ...] = (),
+    workspace_spaces: tuple[WorkspaceAccessView, ...] = (),
+    workspace_join_offers: tuple[WorkspaceJoinOfferView, ...] = (),
+    workspace_offer_result: str | None = None,
+    workspace_switch_result: str | None = None,
 ) -> str:
+    offer_result_copy = {
+        "accepted": "Вы присоединились к команде. Личное пространство остаётся вашим.",
+        "rejected": "Приглашение отклонено. Вы можете продолжить в личном пространстве.",
+        "unavailable": "Это приглашение уже недоступно. Личное пространство остаётся вашим.",
+    }.get(workspace_offer_result)
+    switch_result_copy = {
+        "activated": "Активное пространство изменено. Новые действия останутся в выбранном пространстве.",
+    }.get(workspace_switch_result)
     return _page_shell(
         "Настройки",
         embedded=embedded,
         active_nav="settings",
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_template="cabinet/pages/settings_content.html",
         calendar_settings_href=_settings_path(embedded),
         provider_link_options=provider_link_options,
         provider_link_start_base_path="/desktop/settings/provider-links"
         if embedded
         else "/settings/provider-links",
+        workspace_spaces=workspace_spaces,
+        workspace_switch_result=switch_result_copy,
+        workspace_switch_action_base_path="/settings/spaces",
+        workspace_switch_available=not embedded,
+        workspace_join_offers=workspace_join_offers,
+        workspace_offer_result=offer_result_copy,
+        workspace_offer_action_base_path="/settings/join-offers",
     )
 
 
@@ -143,6 +172,7 @@ def render_provider_link_settings_page(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
     result: str | None = None,
 ) -> str:
     base_path = "/desktop/settings/provider-links" if embedded else "/settings/provider-links"
@@ -151,6 +181,7 @@ def render_provider_link_settings_page(
         embedded=embedded,
         active_nav="settings",
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_template="cabinet/fragments/provider_link_settings.html",
         surface=surface,
         settings_href="/desktop/settings" if embedded else "/settings",
@@ -173,11 +204,13 @@ def render_calendar_settings_page(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     return _page_shell(
         surface.title,
         embedded=embedded,
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_template="cabinet/fragments/calendar_settings.html",
         active_nav="settings",
         skip_target="calendar-settings-region",
@@ -362,6 +395,7 @@ def render_meeting_detail_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     poll_url: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     content = _render_meeting_detail_content(
         review,
@@ -374,6 +408,7 @@ def render_meeting_detail_page(
         content,
         embedded=embedded,
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_source="meeting_detail.content",
     )
 
