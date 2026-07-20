@@ -4,7 +4,8 @@
 
 **Created**: 2026-07-08
 
-**Status**: Draft - research-backed specify
+**Status**: Implemented and released foundation; production target promotion and
+live admin-browser receipt remain intentionally unclaimed
 
 **Input**: User description: "091 занят. Давай 092. Новую функцию. Автоматическое
 определение, что началась новая встреча, и предлагать ее записывать. Запись

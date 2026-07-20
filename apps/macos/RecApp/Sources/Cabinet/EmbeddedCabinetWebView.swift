@@ -278,6 +278,42 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         loaded
     }
 
+    public nonisolated static func allowsFilePicker(
+        webViewURL: URL?,
+        frameURL: URL?,
+        frameIsMainFrame: Bool,
+        routePolicy: DesktopCabinetRoutePolicy
+    ) -> Bool {
+        guard frameIsMainFrame, let webViewURL, let frameURL else {
+            return false
+        }
+        guard sameOrigin(webViewURL, frameURL) else {
+            return false
+        }
+        let webViewDecision = routePolicy.decision(for: webViewURL)
+        let frameDecision = routePolicy.decision(for: frameURL)
+        return webViewDecision.decision == .allow
+            && frameDecision.decision == .allow
+            && webViewDecision.route.kind == .meetingList
+            && frameDecision.route.kind == .meetingList
+    }
+
+    private nonisolated static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        guard
+            let leftScheme = lhs.scheme?.lowercased(),
+            let rightScheme = rhs.scheme?.lowercased(),
+            let leftHost = lhs.host?.lowercased(),
+            let rightHost = rhs.host?.lowercased(),
+            leftScheme == rightScheme,
+            leftHost == rightHost
+        else {
+            return false
+        }
+        let leftPort = lhs.port ?? (leftScheme == "https" ? 443 : 80)
+        let rightPort = rhs.port ?? (rightScheme == "https" ? 443 : 80)
+        return leftPort == rightPort
+    }
+
     public nonisolated static func finishedState(for routeKind: DesktopCabinetRouteKind) -> DesktopCabinetState {
         switch routeKind {
         case .authLogin, .authSignup, .authProvider, .authCallback:
@@ -487,22 +523,34 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(
             _ webView: WKWebView,
             runOpenPanelWith parameters: WKOpenPanelParameters,
-            initiatedByFrame _: WKFrameInfo,
+            initiatedByFrame: WKFrameInfo,
             completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
         ) {
+            guard EmbeddedCabinetWebView.allowsFilePicker(
+                webViewURL: webView.url,
+                frameURL: initiatedByFrame.request.url,
+                frameIsMainFrame: initiatedByFrame.isMainFrame,
+                routePolicy: routePolicy
+            ) else {
+                completionHandler(nil)
+                return
+            }
             let panel = NSOpenPanel()
             panel.canChooseFiles = true
-            panel.canChooseDirectories = parameters.allowsDirectories
-            panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
             panel.canCreateDirectories = false
             panel.resolvesAliases = true
+            panel.title = "Выберите аудиофайл"
+            panel.message = "Выберите один файл записи для загрузки в GRAF."
+            panel.prompt = "Выбрать"
 
             let complete: (NSApplication.ModalResponse) -> Void = { response in
                 guard response == .OK else {
                     completionHandler(nil)
                     return
                 }
-                let urls = parameters.allowsMultipleSelection ? panel.urls : Array(panel.urls.prefix(1))
+                let urls = Array(panel.urls.prefix(1))
                 completionHandler(urls.isEmpty ? nil : urls)
             }
 

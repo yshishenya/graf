@@ -67,3 +67,81 @@ def test_owner_review_live_proof_contract_keeps_private_artifacts_out_of_git() -
     assert "cookies" in docs
     assert "/Applications/GRAF.app" in docs
     assert "Krisp" not in docs
+
+
+def test_owner_review_live_execute_rejects_unapproved_origin_before_reading_auth_file(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--api",
+            "https://unapproved.example",
+            "--token-file",
+            str(tmp_path / "missing-token"),
+            "--run-id",
+            "feature-036-owner-review-origin-contract",
+            "--execute",
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+
+    assert result.returncode != 0
+    assert "api origin is not approved" in result.stderr
+    assert "missing-token" not in result.stderr
+
+
+def test_owner_review_live_execute_rejects_auth_file_bound_to_another_run(tmp_path: Path) -> None:
+    token_file = tmp_path / "owner-review-token-other-run"
+    token_file.write_text("synthetic-token", encoding="utf-8")
+    token_file.chmod(0o600)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--api",
+            "https://rec.2brain.pro",
+            "--token-file",
+            str(token_file),
+            "--run-id",
+            "feature-036-owner-review-exact-run",
+            "--execute",
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+
+    assert result.returncode != 0
+    assert "exact run_id" in result.stderr
+
+
+def test_owner_review_live_execute_rejects_symlink_auth_file(tmp_path: Path) -> None:
+    target = tmp_path / "owner-review-token-feature-036-owner-review-symlink"
+    target.write_text("synthetic-token", encoding="utf-8")
+    target.chmod(0o600)
+    link = tmp_path / "owner-review-token-feature-036-owner-review-symlink-link"
+    link.symlink_to(target)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--api",
+            "https://rec.2brain.pro",
+            "--token-file",
+            str(link),
+            "--run-id",
+            "feature-036-owner-review-symlink-link",
+            "--execute",
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+
+    assert result.returncode != 0
+    assert "Too many levels of symbolic links" in result.stderr or "symbolic link" in result.stderr

@@ -44,6 +44,7 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert 'SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-/tmp/twobrain-rec-smoke-auth-token-${RUN_ID}}"' in script
     assert "--auth-session-id" in script
     assert '--token-file "$SMOKE_TOKEN_FILE"' in script
+    assert '--run-id "$RUN_ID"' in script
     assert "TWOBRAIN_SMOKE_CREDENTIAL_FILE" not in script
     assert "--token " not in script
     assert "cat $SMOKE_TOKEN_FILE" not in script

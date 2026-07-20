@@ -7,6 +7,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from uuid import UUID
 
+from smoke_target import read_private_auth_material, validate_origin
+
 from twobrain_rec_server.config import LOCAL_DEV_SMOKE_IDS, SMOKE_IDENTITY_CLASS
 
 
@@ -58,15 +60,25 @@ def main() -> None:
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--user", required=True)
     parser.add_argument("--device", required=True)
-    parser.add_argument("--token")
+    parser.add_argument("--token", help=argparse.SUPPRESS)
     parser.add_argument("--token-file", type=Path)
+    parser.add_argument("--run-id")
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--stop-after-parts", type=int)
     parser.add_argument("--smoke-dry-run", action="store_true")
     args = parser.parse_args()
 
+    try:
+        api_origin = validate_origin(args.api)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     if args.token and args.token_file:
         parser.error("--token and --token-file are mutually exclusive")
+    if args.token:
+        parser.error("--token is not supported; use --token-file")
+    if args.token_file and not args.run_id:
+        parser.error("--run-id is required with --token-file")
 
     if args.smoke_dry_run:
         _validate_smoke_identity(args.organization, args.workspace, args.user, args.device)
@@ -74,7 +86,7 @@ def main() -> None:
             json.dumps(
                 {
                     "would_upload": True,
-                    "api": args.api,
+                    "api": api_origin,
                     "artifact_path": str(args.artifact),
                     "smoke_identity_class": SMOKE_IDENTITY_CLASS,
                     "side_effect_assertions": {
@@ -99,7 +111,7 @@ def main() -> None:
     }
     bearer_token = args.token
     if args.token_file:
-        bearer_token = args.token_file.read_text(encoding="utf-8").strip()
+        bearer_token = read_private_auth_material(args.token_file, expected_run_id=args.run_id)
     if bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
     files = [
@@ -114,7 +126,7 @@ def main() -> None:
     manifest = json.loads(payloads["manifest"])
     duration_seconds = int(manifest.get("duration_seconds", 60))
     expected_track_sizes = {role: len(data) for role, data in payloads.items()}
-    client = JsonHttpClient(base_url=args.api, headers=headers)
+    client = JsonHttpClient(base_url=api_origin, headers=headers)
     meeting = client.post_json(
         "/api/v1/meetings",
         {"local_recording_id": args.artifact.name, "duration_seconds": duration_seconds},

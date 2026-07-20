@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from twobrain_rec_server.storage.minio_client import StorageObjectStat
+
 DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
 
 
@@ -23,6 +25,14 @@ class FakeMinioStorage:
 
     async def object_exists_async(self, object_key: str) -> bool:
         return self.object_exists(object_key)
+
+    def stat_object(self, object_key: str) -> StorageObjectStat:
+        if object_key not in self.objects:
+            raise KeyError(object_key)
+        return StorageObjectStat(size=len(self.objects[object_key]))
+
+    async def stat_object_async(self, object_key: str) -> StorageObjectStat:
+        return self.stat_object(object_key)
 
     def put_bytes(self, object_key: str, data: bytes) -> None:
         self.objects[object_key] = data

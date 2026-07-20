@@ -1,6 +1,7 @@
 import os
 import stat
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from typing import BinaryIO
@@ -20,6 +21,13 @@ class StorageTransferError(RuntimeError):
     def __init__(self, reason_code: str) -> None:
         self.reason_code = reason_code
         super().__init__(f"Storage transfer failed: {reason_code}")
+
+
+@dataclass(frozen=True, slots=True)
+class StorageObjectStat:
+    """Metadata needed to validate an object before serving it to a user."""
+
+    size: int
 
 
 class MinioStorage:
@@ -65,6 +73,21 @@ class MinioStorage:
 
     async def object_exists_async(self, object_key: str) -> bool:
         return await to_thread.run_sync(self.object_exists, object_key)
+
+    def stat_object(self, object_key: str) -> StorageObjectStat:
+        try:
+            result = self.client.stat_object(self.settings.minio_bucket, object_key)
+        except S3Error as exc:
+            if exc.code in MISSING_OBJECT_CODES:
+                raise KeyError(object_key) from exc
+            raise
+        size = getattr(result, "size", None)
+        if not isinstance(size, int) or size < 0:
+            raise StorageTransferError("storage_unavailable")
+        return StorageObjectStat(size=size)
+
+    async def stat_object_async(self, object_key: str) -> StorageObjectStat:
+        return await to_thread.run_sync(self.stat_object, object_key)
 
     def put_stream(self, object_key: str, stream: BinaryIO, length: int) -> None:
         self.client.put_object(
