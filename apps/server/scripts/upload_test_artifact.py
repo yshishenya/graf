@@ -77,7 +77,7 @@ def main() -> None:
         parser.error("--token and --token-file are mutually exclusive")
     if args.token:
         parser.error("--token is not supported; use --token-file")
-    if args.token_file and not args.run_id:
+    if args.token_file and not args.run_id and not args.smoke_dry_run:
         parser.error("--run-id is required with --token-file")
 
     if args.smoke_dry_run:

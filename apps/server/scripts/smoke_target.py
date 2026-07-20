@@ -34,7 +34,7 @@ def read_private_auth_material(path: Path, *, expected_run_id: str | None = None
     if expected_run_id is not None:
         if not expected_run_id or Path(expected_run_id).name != expected_run_id:
             raise ValueError("run_id must be a path-safe identifier")
-        if not path.name.endswith(expected_run_id):
+        if path.name != expected_run_id and not path.name.endswith(f"-{expected_run_id}"):
             raise ValueError("auth material is not bound to the exact run_id")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags)
