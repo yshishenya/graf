@@ -250,6 +250,9 @@ private struct ContentView: View {
             onSupportIncidentSync: { itemIds in
                 try await syncSupportIncident(itemIds: itemIds)
             },
+            onCopySupportIncidentReport: { itemIds in
+                try copySupportIncidentReport(itemIds: itemIds)
+            },
             onOpenSupportSignIn: {
                 openSupportSignIn()
             }
@@ -1746,6 +1749,10 @@ private struct ContentView: View {
             )
             throw error
         }
+    }
+
+    private func copySupportIncidentReport(itemIds: [String]) throws -> String? {
+        try desktopUploadQueueService.supportIncidentReportText(itemIds: itemIds)
     }
 
     @MainActor

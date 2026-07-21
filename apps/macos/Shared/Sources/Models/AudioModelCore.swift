@@ -1036,6 +1036,14 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
     public var expectedTrackRoles: [String]?
     public var finalizedAt: Date?
     public var desktopTruthRule: String?
+    public var deletionState: String?
+    public var accessState: String?
+    public var uploadStatus: String?
+    public var processingReasonCode: String?
+    public var reviewAvailable: Bool?
+    public var reviewStatus: String?
+    public var conflictReason: String?
+    public var nextAction: String?
 
     public init(
         meetingId: String? = nil,
@@ -1047,7 +1055,15 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         requiredTrackSha256: [String: String] = [:],
         expectedTrackRoles: [String]? = nil,
         finalizedAt: Date? = nil,
-        desktopTruthRule: String? = nil
+        desktopTruthRule: String? = nil,
+        deletionState: String? = nil,
+        accessState: String? = nil,
+        uploadStatus: String? = nil,
+        processingReasonCode: String? = nil,
+        reviewAvailable: Bool? = nil,
+        reviewStatus: String? = nil,
+        conflictReason: String? = nil,
+        nextAction: String? = nil
     ) {
         self.meetingId = meetingId
         self.mediaRevisionId = mediaRevisionId
@@ -1059,6 +1075,14 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         self.expectedTrackRoles = expectedTrackRoles
         self.finalizedAt = finalizedAt
         self.desktopTruthRule = desktopTruthRule
+        self.deletionState = deletionState
+        self.accessState = accessState
+        self.uploadStatus = uploadStatus
+        self.processingReasonCode = processingReasonCode
+        self.reviewAvailable = reviewAvailable
+        self.reviewStatus = reviewStatus
+        self.conflictReason = conflictReason
+        self.nextAction = nextAction
     }
 
     public func hasAcceptedAll(profile: ArtifactCompletenessProfile) -> Bool {
@@ -1120,6 +1144,14 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         }
         merged.finalizedAt = reported.finalizedAt ?? finalizedAt
         merged.desktopTruthRule = reported.desktopTruthRule ?? desktopTruthRule
+        merged.deletionState = reported.deletionState ?? deletionState
+        merged.accessState = reported.accessState ?? accessState
+        merged.uploadStatus = reported.uploadStatus ?? uploadStatus
+        merged.processingReasonCode = reported.processingReasonCode ?? processingReasonCode
+        merged.reviewAvailable = reported.reviewAvailable ?? reviewAvailable
+        merged.reviewStatus = reported.reviewStatus ?? reviewStatus
+        merged.conflictReason = reported.conflictReason ?? conflictReason
+        merged.nextAction = reported.nextAction ?? nextAction
         for (role, acceptedBytes) in acceptedBytesByTrack {
             merged.acceptedBytesByTrack[role] = max(
                 max(0, acceptedBytes),

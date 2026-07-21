@@ -18,6 +18,15 @@ Requirements-only остаются `011`, `026–029` и `101`; для них н
 имеет полный Spec Kit package и release receipt. Эта сверка не
 закрывает production, security, installed-app или approval gates.
 
+Feature `114-support-incident-diagnostics` находится в implementation lane от
+свежего `master`: v2 metadata-only report уже связывает client/server
+correlation, canonical stage/problem, bounded retry/timeline и truthful
+deletion/access state, а clipboard fallback использует тот же report builder.
+Private Issue canon синхронизирован с задачами T001–T026 (Issues #3953–#3978),
+а полный `infra/scripts/ci-local.sh` прошёл: 587 Swift-тестов, 1960 server
+тестов и strict-проверка. Это не claim о merge, production deploy или
+установленной сборке; остаются отдельные approval/release gates.
+
 ## Accepted Now
 
 - macOS is the selected MVP platform.
