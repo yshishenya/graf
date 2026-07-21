@@ -1357,6 +1357,8 @@ def test_playback_timeline_owns_one_visual_scale_and_inline_speaker_editor() -> 
     assert ".playback-range-thumb" in css
     assert "grid-column: 2;" in css
     assert ".lane-scale" in css
+    assert ".timeline-speaker-name {" in css
+    assert "justify-content: flex-start;" in css
     assert "data-speaker-name-open" in script
     assert "data-speaker-name-cancel" in script
 
