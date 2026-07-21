@@ -32,3 +32,12 @@ Temporary list UI state shown when `Selection Set` is not empty.
 - Shows selected count in Russian.
 - Shows disabled download action with later-copy.
 - Shows enabled delete action.
+
+## Owner Delete Feedback
+
+Short-lived metadata-only status shown after a deletion request is accepted.
+
+- Confirms that the selected row was removed from the active list.
+- States that GRAF-controlled cleanup may continue.
+- Contains no report link, lifecycle table, object key, transcript, or private data.
+- Does not replace the existing server lifecycle report used by support or operators.

@@ -60,6 +60,7 @@ from twobrain_rec_server.cabinet.access import (
     share_panel_state,
 )
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
+from twobrain_rec_server.cabinet.deletion_rendering import render_deletion_feedback_fragment
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
     artifact_egress_states,
@@ -73,7 +74,7 @@ from twobrain_rec_server.cabinet.queries import (
     latest_processing_result,
     list_cabinet_meetings,
 )
-from twobrain_rec_server.cabinet.templates import cabinet_html_response, render_template
+from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.db.models import Meeting, WorkspaceMembership
 from twobrain_rec_server.deletion.local_purge import (
     acknowledge_local_purge_task,
@@ -341,10 +342,7 @@ async def create_meeting_deletion_request_route(
     await db.commit()
     if _is_hx_request(request):
         return cabinet_html_response(
-            render_template(
-                "cabinet/fragments/deletion_feedback.html",
-                report_url=response.report_url,
-            ),
+            render_deletion_feedback_fragment(),
             status_code=202,
             hx_request=True,
         )

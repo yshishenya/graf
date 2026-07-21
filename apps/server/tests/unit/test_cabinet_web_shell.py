@@ -418,6 +418,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-hx-post="/meetings/' in page
     assert 'name="confirmation_boundary"' in page
     assert 'id="delete-feedback-region"' in page
+    assert "Отчет удаления" not in page
     assert "data-delete-dialog" in page
     assert "Удалить запись?" in page
     assert 'role="status" aria-live="polite" data-delete-error' in page
@@ -435,6 +436,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'toolbar.dataset.selectionState = allSelected ? "all" : "partial"' in script
     assert "Снять выбор" in script
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
+    assert "row.remove()" in script
+    assert "row.dataset.deletionRequested" not in script
 
 
 def test_feature_104_removed_main_window_fragments_have_no_current_entry_point() -> None:

@@ -108,7 +108,7 @@ async def meeting_deletion_request_page(
         viewer_user_id=principal.user_id,
     )
     _ensure_lifecycle_manager(decision)
-    response = await request_meeting_deletion(
+    await request_meeting_deletion(
         db,
         meeting=meeting,
         actor_user_id=principal.user_id,
@@ -118,11 +118,10 @@ async def meeting_deletion_request_page(
     )
     await db.commit()
     embedded = request.url.path.startswith("/desktop/")
-    report_url = f"{_base_path(embedded)}/{response.meeting_id}/deletion-report"
     if _is_hx_request(request):
         return cabinet_html_response(
-            render_deletion_feedback_fragment(report_url=report_url),
+            render_deletion_feedback_fragment(),
             status_code=202,
             hx_request=True,
         )
-    return RedirectResponse(report_url, status_code=303)
+    return RedirectResponse(_base_path(embedded), status_code=303)
