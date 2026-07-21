@@ -67,10 +67,31 @@ non-merged overlap turns without the former pairwise scan.
 
 ## Final validation
 
-The post-review diff passed `infra/scripts/ci-local.sh`: 592 macOS tests, 2,013
+The post-review diff passed `infra/scripts/ci-local.sh`: 594 macOS tests, 2,013
 parallel server tests with one skip, and 35 strict PostgreSQL/RLS tests with one
 skip, followed by Ruff, Python compile, Compose validation, and the deployment
 evidence scan. The final marker was `ci_local_result=pass`.
 
 The representative-user study required by SC-014 remains a separate
 pre-release gate; green engineering CI does not satisfy it.
+
+## Embedded macOS download regression
+
+The production regression was reproduced in the installed GRAF client: the
+web export flow created a `blob:` attachment, but the embedded route policy
+classified the WebKit download navigation as an unsupported cabinet route and
+replaced the meeting detail with `Раздел недоступен`.
+
+The corrected native flow was validated at three levels on 2026-07-22:
+
+| Check | Evidence | Result |
+|---|---|---|
+| Route boundary | Focused tests accept only an explicit main-frame `blob:` download from an allowed meeting-detail source; iframe, non-download, non-blob, external, login, and API targets remain denied | PASS |
+| Destination safety | Focused tests strip path components, avoid overwrites, and choose a unique flat filename in the destination directory | PASS |
+| WebKit handoff | A standalone WebKit smoke created a real `Blob`, clicked an attachment link, transitioned through `WKDownload`, and verified the saved bytes | PASS |
+| Signed GRAF runtime | A locally signed `2026.07.22.1` build exported the production owner meeting to one 14,654-byte TXT file in Downloads while the meeting detail and playback timeline stayed visible | PASS |
+| Metadata-only diagnostics | Native log recorded `cabinet_download_started` and `cabinet_download_finished` without filename, path, transcript content, or meeting identifier | PASS |
+
+No production meeting content, filename, identifier, or screenshot is stored in
+the repository evidence. This engineering hotfix does not replace the T059
+representative-reviewer study required before general release.

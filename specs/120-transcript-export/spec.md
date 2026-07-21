@@ -173,9 +173,10 @@ and safe errors.
    **When** the reviewer chooses that combination, **Then** the option is
    disabled with a plain-language reason instead of silently producing a
    partial file.
-3. **Given** a file is generated, **When** the browser receives it, **Then**
-   the filename, media type, byte length, and displayed revision/status agree
-   with the selected artifact and format.
+3. **Given** a file is generated, **When** the browser or embedded macOS client
+   receives it, **Then** the filename, media type, byte length, and displayed
+   revision/status agree with the selected artifact and format, and the
+   embedded client keeps the reviewer on the meeting detail.
 4. **Given** generation fails transiently, **When** the reviewer retries,
    **Then** the original meeting content and policy state remain unchanged and
    the error does not reveal storage keys, provider URLs, or private content.
@@ -350,7 +351,9 @@ transcript content in evidence or audit logs.
 - **FR-039**: Export controls, format selection, preview, progress, success,
   failure, and disabled reasons MUST be keyboard operable, focus-visible,
   screen-reader understandable, localization-ready, and free of color-only
-  meaning.
+  meaning. In the embedded macOS client, starting a file download MUST preserve
+  the current meeting route and MUST NOT treat the generated artifact as a
+  cabinet navigation target.
 - **FR-040**: Export presentation MUST use the existing GRAF design system and
   clean-room product language; competitor layouts, labels, colors, icons, and
   proprietary copy MUST NOT be copied.

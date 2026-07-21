@@ -151,6 +151,77 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: try XCTUnwrap(URL(string: "https://evil.example/desktop/meetings"))).decision, .blockWithMessage)
     }
 
+    func testAllowsBlobDownloadOnlyFromAnAllowedMainFrame() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let blob = try XCTUnwrap(URL(string: "blob:https://rec.2brain.dev/export-id"))
+        let detail = try url("/desktop/meetings/meeting-033")
+
+        XCTAssertTrue(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: blob,
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: false,
+            targetURL: blob,
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: blob,
+            sourceURL: detail,
+            sourceIsMainFrame: false,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: try url("/api/v1/cabinet/meetings/meeting-033/content-exports"),
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: blob,
+            sourceURL: try XCTUnwrap(URL(string: "https://evil.example/desktop/meetings/meeting-033")),
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: blob,
+            sourceURL: try url("/login"),
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+    }
+
+    func testDownloadDestinationUsesAFlatUniqueFilename() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        try Data().write(to: directory.appendingPathComponent("meeting.txt"))
+
+        let destination = EmbeddedCabinetWebView.downloadDestination(
+            suggestedFilename: "../../meeting.txt",
+            directory: directory
+        )
+
+        XCTAssertEqual(destination, directory.appendingPathComponent("meeting 2.txt"))
+        XCTAssertFalse(fileManager.fileExists(atPath: destination.path))
+
+        let fallbackDestination = EmbeddedCabinetWebView.downloadDestination(
+            suggestedFilename: "/",
+            directory: directory
+        )
+        XCTAssertEqual(fallbackDestination, directory.appendingPathComponent("GRAF export"))
+    }
+
     func testReviewRouteRequiresReviewAvailableServerMeeting() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
 

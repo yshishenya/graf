@@ -143,6 +143,9 @@ credential, or signed URL is accepted by the audit metadata sanitizer.
 - Submit enters a live announced preparing state and prevents duplicate submit.
   Success closes/returns focus after download begins. Failure retains selection,
   announces a safe reason, and offers retry when appropriate.
+- In the embedded macOS client, the generated attachment is downloaded through
+  the native WebKit download path; the meeting document remains visible and a
+  `blob:` artifact is never classified as a cabinet route.
 - Escape/close, focus containment/return, keyboard operation, visible focus,
   reduced motion, no color-only status, Russian localization, browser and
   embedded widths are mandatory.

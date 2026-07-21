@@ -298,6 +298,47 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             && frameDecision.route.kind == .meetingList
     }
 
+    public nonisolated static func allowsBlobDownload(
+        requested: Bool,
+        targetURL: URL?,
+        sourceURL: URL?,
+        sourceIsMainFrame: Bool,
+        routePolicy: DesktopCabinetRoutePolicy
+    ) -> Bool {
+        guard requested,
+              sourceIsMainFrame,
+              targetURL?.scheme?.lowercased() == "blob",
+              let sourceURL
+        else {
+            return false
+        }
+        let sourceDecision = routePolicy.decision(for: sourceURL)
+        return sourceDecision.decision == .allow && sourceDecision.route.kind == .meetingDetail
+    }
+
+    public nonisolated static func downloadDestination(
+        suggestedFilename: String,
+        directory: URL
+    ) -> URL {
+        let filename = (suggestedFilename as NSString).lastPathComponent
+        let safeFilename = filename.isEmpty || filename == "." || filename == ".." || filename == "/"
+            ? "GRAF export"
+            : filename
+        let candidate = URL(fileURLWithPath: safeFilename)
+        let stem = candidate.deletingPathExtension().lastPathComponent
+        let pathExtension = candidate.pathExtension
+        var destination = directory.appendingPathComponent(safeFilename, isDirectory: false)
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: destination.path) {
+            let nextFilename = pathExtension.isEmpty
+                ? "\(stem) \(suffix)"
+                : "\(stem) \(suffix).\(pathExtension)"
+            destination = directory.appendingPathComponent(nextFilename, isDirectory: false)
+            suffix += 1
+        }
+        return destination
+    }
+
     private nonisolated static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
         guard
             let leftScheme = lhs.scheme?.lowercased(),
@@ -394,7 +435,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         )
     }
 
-    public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+    public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
         private let routePolicy: DesktopCabinetRoutePolicy
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         private let navigationEventLogger: NavigationEventLogger?
@@ -482,6 +523,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 decisionHandler(.allow)
                 return
             }
+            if EmbeddedCabinetWebView.allowsBlobDownload(
+                requested: navigationAction.shouldPerformDownload,
+                targetURL: url,
+                sourceURL: navigationAction.sourceFrame.request.url,
+                sourceIsMainFrame: navigationAction.sourceFrame.isMainFrame,
+                routePolicy: routePolicy
+            ) {
+                decisionHandler(.download)
+                return
+            }
             if navigationAction.targetFrame?.isMainFrame == false {
                 decisionHandler(.allow)
                 return
@@ -517,6 +568,52 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 cabinetState = .blockedRoute
                 decisionHandler(.cancel)
             }
+        }
+
+        @MainActor
+        public func webView(
+            _: WKWebView,
+            navigationAction _: WKNavigationAction,
+            didBecome download: WKDownload
+        ) {
+            download.delegate = self
+        }
+
+        @MainActor
+        public func download(
+            _: WKDownload,
+            decideDestinationUsing _: URLResponse,
+            suggestedFilename: String,
+            completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
+        ) {
+            guard let directory = FileManager.default.urls(
+                for: .downloadsDirectory,
+                in: .userDomainMask
+            ).first else {
+                logNavigationEvent("cabinet_download_failed", detail: "reason=downloads_directory_unavailable")
+                completionHandler(nil)
+                return
+            }
+            let destination = EmbeddedCabinetWebView.downloadDestination(
+                suggestedFilename: suggestedFilename,
+                directory: directory
+            )
+            logNavigationEvent("cabinet_download_started", detail: "result=started")
+            completionHandler(destination)
+        }
+
+        @MainActor
+        public func downloadDidFinish(_: WKDownload) {
+            logNavigationEvent("cabinet_download_finished", detail: "result=completed")
+        }
+
+        @MainActor
+        public func download(_: WKDownload, didFailWithError error: Error, resumeData _: Data?) {
+            let nsError = error as NSError
+            logNavigationEvent(
+                "cabinet_download_failed",
+                detail: "domain=\(sanitized(nsError.domain)) code=\(nsError.code)"
+            )
         }
 
         @MainActor
