@@ -16,7 +16,7 @@
         <div class="cabinet-search-control">
           <span aria-hidden="true">{{ icons.icon("search") }}</span>
           <label class="sr-only" for="meeting-search">Поиск встреч</label>
-          <input id="meeting-search" name="q" type="search" value="{{ query_value }}" placeholder="Поиск встреч…" aria-label="Поиск встреч" autocomplete="off">
+          <input id="meeting-search" name="q" type="search" value="{{ query_value }}" placeholder="Поиск встреч…" aria-label="Поиск встреч" maxlength="120" autocomplete="off">
         </div>
 
         <details class="cabinet-control-disclosure{% if active_filter_count %} is-active{% endif %}" data-filter-disclosure>
@@ -54,6 +54,7 @@
               <option value="started_desc"{% if sort_value == "started_desc" %} selected{% endif %}>Сначала новые</option>
               <option value="started_asc"{% if sort_value == "started_asc" %} selected{% endif %}>Сначала старые</option>
               <option value="updated_desc"{% if sort_value == "updated_desc" %} selected{% endif %}>Недавно обновлённые</option>
+              <option value="updated_asc"{% if sort_value == "updated_asc" %} selected{% endif %}>Давно обновлённые</option>
               <option value="duration_asc"{% if sort_value == "duration_asc" %} selected{% endif %}>Сначала короткие</option>
               <option value="duration_desc"{% if sort_value == "duration_desc" %} selected{% endif %}>Сначала длинные</option>
               <option value="title_asc"{% if sort_value == "title_asc" %} selected{% endif %}>По названию</option>

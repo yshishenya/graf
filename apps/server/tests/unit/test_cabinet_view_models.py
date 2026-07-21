@@ -29,6 +29,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.domain.statuses import (
     MediaRevisionSourceKind,
+    MeetingStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     ProcessingStatus,
@@ -344,6 +345,23 @@ def test_meeting_list_query_presentation_is_immutable_and_normalizes_unknown_sor
         presentation.sort = "updated_desc"  # type: ignore[misc]
 
 
+def test_meeting_list_query_presentation_preserves_supported_oldest_update_sort() -> None:
+    presentation = view_models.meeting_list_query_presentation(
+        query=" \n ",
+        status=None,
+        access=None,
+        sort="updated_asc",
+        visible_total=0,
+    )
+
+    assert presentation.query == ""
+    assert presentation.sort == "updated_asc"
+    assert presentation.sort_label == "Давно обновлённые"
+    assert presentation.has_refinement is False
+    assert presentation.result_count_label is None
+    assert presentation.time_basis == "updated"
+
+
 def test_meeting_list_row_presentation_is_immutable_and_keeps_one_status_slot() -> None:
     item = _list_item(title="Запись")
     item.updated_at = datetime(2026, 6, 16, 11, 30, tzinfo=UTC)
@@ -363,10 +381,26 @@ def test_meeting_list_row_presentation_is_immutable_and_keeps_one_status_slot() 
     assert presentation.status_tone is None
     assert presentation.progress_percent is None
     assert presentation.open_accessible_name == "Открыть встречу Запись, 16 июн, 08:00"
-    assert presentation.accessible_description == "1 мин, 16 июн, 08:00"
     assert updated.time_label == "Обновлено 16 июн, 11:30"
     with pytest.raises(FrozenInstanceError):
         presentation.display_title = "Другое"  # type: ignore[misc]
+
+
+def test_meeting_list_row_presentation_never_relabels_meeting_time_as_update_time() -> None:
+    item = _list_item(title="Планирование")
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="updated")
+
+    assert presentation.time_label == "Без даты"
+
+
+def test_meeting_list_row_presentation_preserves_authoritative_generated_looking_title() -> None:
+    item = _list_item(title="Запись 21 июл, 19:22")
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert presentation.display_title == "Запись 21 июл, 19:22"
+    assert presentation.open_accessible_name == "Открыть встречу Запись 21 июл, 19:22"
 
 
 def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_source() -> None:
@@ -376,9 +410,13 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
     generated.recording_display_timezone_offset_minutes = 180
     upload = _meeting()
     upload.title = "manual-upload-mrc4escf-hbo5nhsk"
+    derived = _meeting()
+    derived.title = "Quarterly_sync.mp3"
+    derived.title_source = "file_name_derived"
 
     assert view_models.meeting_list_title(generated) == "Запись"
     assert view_models.meeting_list_title(upload, source="manual_upload") == "Загруженная запись"
+    assert view_models.meeting_list_title(derived, source="manual_upload") == "Quarterly sync"
     assert generated.title == "Current display system audio - 2026-07-13 12:14"
 
 
@@ -399,6 +437,23 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
                     state="ambiguous",
                     label="Нужно выбрать встречу",
                     needs_owner_action=True,
+                ),
+            ),
+            "failed",
+            "Не удалось обработать",
+            None,
+            None,
+        ),
+        (
+            _list_item(
+                status="submitted",
+                primary_action="wait",
+                upload=MeetingUploadProgressState(
+                    status="expired",
+                    label="Нужна помощь",
+                    uploaded_bytes=10,
+                    total_bytes=100,
+                    is_active=False,
                 ),
             ),
             "failed",
@@ -546,9 +601,6 @@ def test_meeting_list_status_projection_uses_one_total_precedence(
     assert presentation.progress_percent == progress
     assert presentation.secondary_action == action
     assert (presentation.status_tone is None) is (kind is None)
-    assert presentation.accessible_description.count(label or "__absent__") == int(
-        label is not None
-    )
 
 
 @pytest.mark.parametrize("calendar_state", ["matched_auto", "matched_user", "no_context", "cleared_by_user"])
@@ -572,8 +624,6 @@ def test_meeting_list_ready_state_suppresses_playback_and_calendar_normality(
     presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
 
     assert presentation.status_label is None
-    assert "Аудио готово" not in presentation.accessible_description
-    assert "календар" not in presentation.accessible_description.casefold()
 
 
 def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fallbacks() -> None:
@@ -772,6 +822,10 @@ def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
         )
         == "failed"
     )
+    for terminal_status in (MeetingStatus.ABORTED, MeetingStatus.EXPIRED):
+        terminal = _meeting(ProcessingStatus.NOT_SUBMITTED)
+        terminal.status = terminal_status.value
+        assert view_models.review_status(terminal, result=None, workflow=None) == "failed"
 
 
 def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() -> None:

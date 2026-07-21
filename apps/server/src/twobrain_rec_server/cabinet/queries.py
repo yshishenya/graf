@@ -332,7 +332,13 @@ async def list_cabinet_meetings(
         if sort != "title_asc" and len(items) >= limit:
             break
     if sort == "title_asc":
-        items.sort(key=lambda item: item.title.casefold())
+        items.sort(
+            key=lambda item: (
+                getattr(item, "_list_display_title", item.title)
+                if visible_title_search
+                else item.title
+            ).casefold()
+        )
         items = items[:limit]
     return MeetingListResponse(
         items=items,
@@ -863,8 +869,8 @@ async def _calendar_roster_state(
 
 def _apply_sort(query: Select[tuple[Meeting]], sort: str) -> Select[tuple[Meeting]]:
     sorters = {
-        "updated_desc": desc(Meeting.updated_at),
-        "updated_asc": asc(Meeting.updated_at),
+        "updated_desc": nullslast(desc(Meeting.updated_at)),
+        "updated_asc": nullslast(asc(Meeting.updated_at)),
         "started_desc": nullslast(desc(Meeting.started_at)),
         "started_asc": nullslast(asc(Meeting.started_at)),
         "duration_desc": desc(Meeting.duration_seconds),

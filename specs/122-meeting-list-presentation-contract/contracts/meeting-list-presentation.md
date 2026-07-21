@@ -47,6 +47,7 @@ Sort options:
 | `started_desc` | `Сначала новые` | meeting start |
 | `started_asc` | `Сначала старые` | meeting start |
 | `updated_desc` | `Недавно обновлённые` | explicit update time |
+| `updated_asc` | `Давно обновлённые` | explicit update time |
 | `duration_asc` | `Сначала короткие` | meeting start |
 | `duration_desc` | `Сначала длинные` | meeting start |
 | `title_asc` | `По названию` | meeting start |
@@ -103,7 +104,7 @@ The renderer calls one pure projection and renders zero or one compact status. F
 | Priority | User condition | Status | Separate action |
 |---:|---|---|---|
 | 1 | deletion in progress | `Удаляется` | none |
-| 2 | result preparation failed/blocked/unavailable | `Не удалось обработать` | existing recovery path when available |
+| 2 | upload is terminally failed/aborted/expired, or result preparation failed/blocked/unavailable | `Не удалось обработать` | existing recovery path when available |
 | 3 | ambiguous calendar context needs owner action | `Нужен выбор` | `Выбрать встречу` |
 | 4 | local copy not accepted by server | `Сохранено на Mac` | existing custody recovery when available |
 | 5 | active measured upload | `Отправляем N%` | none |

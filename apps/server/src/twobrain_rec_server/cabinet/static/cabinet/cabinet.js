@@ -89,6 +89,14 @@
     updateSelection({ syncStoredSelection: false });
   };
 
+  const scrubSessionMeetingMetadata = () => {
+    document.querySelector(".upcoming")?.remove();
+    document.querySelector("[data-upload-activity-list]")?.replaceChildren();
+    document.querySelector("#delete-feedback-region")?.replaceChildren();
+    const search = document.querySelector("#meeting-search");
+    if (search) search.value = "";
+  };
+
   const renderMeetingListRecovery = (kind) => {
     const target = document.querySelector("#meeting-list-region");
     if (!target) return;
@@ -135,6 +143,7 @@
       action.setAttribute("data-list-retry", "");
     }
     recovery.append(title, description, action);
+    if (kind === "session") scrubSessionMeetingMetadata();
     target.removeAttribute("aria-busy");
     target.replaceChildren(recovery);
     selectedMeetingIds.clear();
@@ -163,6 +172,11 @@
     list.replaceChildren(empty);
   };
 
+  const updateMeetingResultCount = () => {
+    const resultCount = document.querySelector(".meeting-result-count");
+    if (resultCount) resultCount.textContent = `Найдено: ${allRows().length}`;
+  };
+
   const showMeetingListLoading = () => {
     const target = document.querySelector("#meeting-list-region");
     const loading = target?.querySelector("[data-list-loading-state]");
@@ -185,6 +199,15 @@
   const handleMeetingListRequestError = (event) => {
     if (!requestTargetsMeetingList(event)) return;
     const status = Number(event.detail?.xhr?.status || 0);
+    if (status >= 400 && status < 500 && status !== 401 && status !== 403) {
+      const target = document.querySelector("#meeting-list-region");
+      target?.removeAttribute("aria-busy");
+      const loading = target?.querySelector("[data-list-loading-state]");
+      const current = target?.querySelector("[data-list-current-content]");
+      if (loading) loading.hidden = true;
+      if (current) current.hidden = false;
+      return;
+    }
     const kind = status === 401 || status === 403
       ? "session"
       : navigator.onLine ? "service" : "offline";
@@ -365,6 +388,7 @@
             failedRows.push(row);
           }
         }
+        updateMeetingResultCount();
         renderClientEmptyList();
         confirm.disabled = false;
         confirm.textContent = "Удалить";
@@ -381,7 +405,7 @@
         return;
       }
       const row = event.target.closest("[data-meeting-row]");
-      if (!row || event.target.closest("a,button,input")) return;
+      if (!row || event.target.closest("a,button,input,.row-select-hit")) return;
       const primaryLink = row.querySelector("[data-meeting-open]");
       primaryLink?.click();
     });

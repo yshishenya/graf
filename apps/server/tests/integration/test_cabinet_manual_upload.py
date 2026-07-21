@@ -93,6 +93,19 @@ def test_cabinet_manual_upload_uses_file_name_when_title_is_blank(client) -> Non
 
     assert response.status_code == 202
     assert response.json()["meeting"]["title"] == "Саша Трубишина CRM и т.д..m4a"
+    visible_title = "Саша Трубишина CRM и т.д."
+    listed = client.get(
+        "/api/v1/cabinet/meetings",
+        params={"q": visible_title},
+        headers=auth_headers(),
+    )
+    page = client.get("/meetings", params={"q": visible_title})
+
+    assert listed.status_code == 200
+    assert [item["title"] for item in listed.json()["items"]] == [visible_title]
+    assert page.status_code == 200
+    assert visible_title in page.text
+    assert "Загруженная запись" not in page.text
 
 
 def test_cabinet_manual_upload_requires_csrf_for_cookie_session(client) -> None:

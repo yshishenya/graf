@@ -415,8 +415,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-icon="sort"' in page
     assert 'data-icon="trash"' in page
     assert "data-meeting-select" in page
-    assert '<span class="row-select-hit">' in page
-    assert '<span class="row-select-hit" aria-hidden="true">' not in page
+    assert '<label class="row-select-hit">' in page
+    assert '<label class="row-select-hit" aria-hidden="true">' not in page
     assert "data-row-delete" in page
     assert "data-row-delete-form" in page
     assert 'data-hx-post="/meetings/' in page
@@ -442,6 +442,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
     assert "row.remove()" in script
     assert "row.dataset.deletionRequested" not in script
+    assert 'event.target.closest("a,button,input,.row-select-hit")' in script
 
 
 def test_meeting_list_rows_render_only_projected_exception_status_and_trusted_time() -> None:
@@ -499,7 +500,16 @@ def test_meeting_list_uses_ordered_rows_with_separate_open_select_and_delete_con
         can_play=True,
     )
     second = _item()
-    second.title = "Вторая синтетическая встреча"
+    second.title = "Запись"
+    second.status = "ready"
+    second.status_label = "Готово"
+    second.primary_action = "open"
+    second.playback = PlaybackPreparationState(
+        state="available",
+        reason_code="canonical_ready",
+        label="Аудио готово",
+        can_play=True,
+    )
     response = MeetingListResponse(
         items=[first, second],
         filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
@@ -514,13 +524,26 @@ def test_meeting_list_uses_ordered_rows_with_separate_open_select_and_delete_con
     assert '<ol class="meeting-list"' in list_region
     assert list_region.count('<li class="meeting-row cabinet-row') == 2
     assert "<article" not in list_region
-    assert list_region.count("data-open-href=") == 2
+    assert "data-open-href=" not in list_region
+    assert "data-meeting-title=" not in list_region
+    assert list_region.count('<label class="row-select-hit">') == 2
     assert list_region.count('class="meeting-title"') == 2
     assert list_region.count("aria-labelledby=") >= 2
     assert list_region.count("aria-describedby=") >= 2
     assert 'aria-label="Выбрать встречу Проектный синк"' in list_region
     assert 'aria-label="Удалить встречу Проектный синк"' in list_region
     assert 'aria-label="Встреча Проектный синк"' not in list_region
+    second_id = str(second.meeting_id)
+    assert (
+        f'aria-label="Открыть встречу Запись, 16 июн, 08:00" '
+        f'aria-describedby="meeting-{second_id}-duration"'
+        in list_region
+    )
+    assert (
+        f'aria-labelledby="meeting-{second_id}-title" '
+        f'aria-describedby="meeting-{second_id}-duration meeting-{second_id}-time"'
+        in list_region
+    )
 
 
 def test_meeting_list_css_reserves_context_columns_and_exposes_non_hover_access() -> None:
@@ -698,12 +721,27 @@ def test_meeting_list_renders_exact_waiting_progress_action_and_empty_states() -
             generated_at=datetime.now(UTC),
         )
     )
+    whitespace_empty = render_meeting_list_page(
+        MeetingListResponse(
+            items=[],
+            filters=MeetingFilterState(
+                q="   ",
+                status=None,
+                access=None,
+                sort="started_desc",
+            ),
+            generated_at=datetime.now(UTC),
+        )
+    )
 
     assert "Пока нет встреч" in first_empty
     assert "Начните запись или загрузите готовый файл." in first_empty
     assert "Ничего не найдено" in refined_empty
     assert "Измените запрос или сбросьте фильтры." in refined_empty
     assert 'aria-label="Сбросить поиск и фильтры"' in refined_empty
+    assert "Пока нет встреч" in whitespace_empty
+    assert "Ничего не найдено" not in whitespace_empty
+    assert "Найдено:" not in whitespace_empty
 
 
 def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_deterministic() -> None:
@@ -727,6 +765,8 @@ def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_determinis
         'confirm.textContent = "Повторить"',
         "pendingDeleteRows = failedRows",
         "renderClientEmptyList",
+        "updateMeetingResultCount",
+        'resultCount.textContent = `Найдено: ${allRows().length}`',
         'emptyTitle.textContent = refined ? "Ничего не найдено" : "Пока нет встреч"',
         "list.replaceChildren(empty)",
         'event.target.closest("[data-delete-cancel]")',
@@ -1230,6 +1270,23 @@ def test_list_shell_polls_processing_recordings_until_review_ready() -> None:
     assert "Проектный синк" in page
     assert 'hx-trigger="every 1s"' in page
     assert 'hx-get="/meetings"' in page
+
+
+def test_list_shell_polls_submitted_recordings_until_processing_starts() -> None:
+    item = _item()
+    item.status = "submitted"
+    item.status_label = "Submitted"
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[item],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        poll_url="/meetings",
+    )
+
+    assert "Обрабатывается" in page
+    assert 'hx-trigger="every 1s"' in page
 
 
 def test_desktop_empty_list_polls_for_new_local_uploads() -> None:

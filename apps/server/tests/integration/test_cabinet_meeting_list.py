@@ -55,6 +55,11 @@ def test_browser_and_embedded_lists_default_to_started_desc_and_normalize_unknow
             params={"sort": "updated_desc"},
             headers=auth_headers(),
         )
+        oldest_updated_page = client.get(
+            route,
+            params={"sort": "updated_asc"},
+            headers=auth_headers(),
+        )
 
         assert default_page.status_code == 200
         assert 'aria-label="Сортировка: Сначала новые"' in default_page.text
@@ -65,6 +70,9 @@ def test_browser_and_embedded_lists_default_to_started_desc_and_normalize_unknow
         assert updated_page.status_code == 200
         assert 'aria-label="Сортировка: Недавно обновлённые"' in updated_page.text
         assert 'value="updated_desc" selected' in updated_page.text
+        assert oldest_updated_page.status_code == 200
+        assert 'aria-label="Сортировка: Давно обновлённые"' in oldest_updated_page.text
+        assert 'value="updated_asc" selected' in oldest_updated_page.text
 
 
 def test_meeting_list_toolbar_has_one_clear_hierarchy_and_contextual_result_count(client) -> None:
@@ -80,6 +88,8 @@ def test_meeting_list_toolbar_has_one_clear_hierarchy_and_contextual_result_coun
         assert page.status_code == 200
         assert page.text.count('<h1 data-list-title tabindex="-1">Мои встречи</h1>') == 1
         assert page.text.count('id="meeting-search"') == 1
+        assert 'id="meeting-search" name="q" type="search"' in page.text
+        assert 'maxlength="120"' in page.text
         assert page.text.count("data-filter-disclosure") == 1
         assert page.text.count("data-sort-disclosure") == 1
         assert page.text.count("data-manual-upload-open") == 1
@@ -92,11 +102,13 @@ def test_meeting_list_toolbar_has_one_clear_hierarchy_and_contextual_result_coun
 
 def test_public_status_filters_remain_exact_while_web_labels_group_related_states(client) -> None:
     status_rows = (
-        ("submitted", ProcessingStatus.NOT_SUBMITTED),
-        ("processing", ProcessingStatus.POLLING),
-        ("blocked", ProcessingStatus.BLOCKED),
-        ("failed", ProcessingStatus.FAILED_TERMINAL),
-        ("unavailable", ProcessingStatus.CANCELED),
+        ("submitted", ProcessingStatus.NOT_SUBMITTED, MeetingStatus.INGESTED_PENDING_PROCESSING),
+        ("processing", ProcessingStatus.POLLING, MeetingStatus.INGESTED_PENDING_PROCESSING),
+        ("blocked", ProcessingStatus.BLOCKED, MeetingStatus.INGESTED_PENDING_PROCESSING),
+        ("failed", ProcessingStatus.FAILED_TERMINAL, MeetingStatus.INGESTED_PENDING_PROCESSING),
+        ("unavailable", ProcessingStatus.CANCELED, MeetingStatus.INGESTED_PENDING_PROCESSING),
+        ("aborted", ProcessingStatus.NOT_SUBMITTED, MeetingStatus.ABORTED),
+        ("expired", ProcessingStatus.NOT_SUBMITTED, MeetingStatus.EXPIRED),
     )
 
     async def seed_status_rows() -> None:
@@ -112,10 +124,10 @@ def test_public_status_filters_remain_exact_while_web_labels_group_related_state
                         title=f"Status group {status}",
                         started_at=datetime(2026, 7, 14, 8, 0, tzinfo=UTC),
                         duration_seconds=60,
-                        status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
+                        status=meeting_status.value,
                         processing_status=processing_status.value,
                     )
-                    for status, processing_status in status_rows
+                    for status, processing_status, meeting_status in status_rows
                 ]
             )
             await db.commit()
@@ -153,6 +165,8 @@ def test_public_status_filters_remain_exact_while_web_labels_group_related_state
     assert "Status group blocked" in web_needs_help.text
     assert "Status group failed" in web_needs_help.text
     assert "Status group unavailable" in web_needs_help.text
+    assert "Status group aborted" in web_needs_help.text
+    assert "Status group expired" in web_needs_help.text
     assert "Status group processing" not in web_needs_help.text
 
 
@@ -367,6 +381,54 @@ def test_cabinet_list_search_filter_sort_and_limit(client) -> None:
     assert "aaa-visible-fallback" not in titles
     assert "Запись 26 июн, 08:00" in titles
     assert "bbb-visible-title" in titles
+
+
+def test_web_title_sort_uses_projected_visible_titles_without_changing_api_sort(client) -> None:
+    fallback_id = uuid4()
+    named_id = uuid4()
+
+    async def seed_projected_title_rows() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    Meeting(
+                        id=fallback_id,
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id="projected-title-fallback",
+                        title=None,
+                        title_source="generic",
+                        duration_seconds=60,
+                        status=MeetingStatus.DRAFT.value,
+                        processing_status=ProcessingStatus.NOT_SUBMITTED.value,
+                    ),
+                    Meeting(
+                        id=named_id,
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id="projected-title-named",
+                        title="Запись А",
+                        title_source="user_confirmed",
+                        duration_seconds=60,
+                        status=MeetingStatus.DRAFT.value,
+                        processing_status=ProcessingStatus.NOT_SUBMITTED.value,
+                    ),
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_projected_title_rows)
+
+    api = client.get("/api/v1/cabinet/meetings?sort=title_asc", headers=auth_headers())
+    page = client.get("/meetings?sort=title_asc", headers=auth_headers())
+
+    assert api.status_code == 200
+    assert page.status_code == 200
+    api_ids = [item["meeting_id"] for item in api.json()["items"]]
+    assert api_ids.index(str(named_id)) < api_ids.index(str(fallback_id))
+    assert page.text.index(f"/meetings/{fallback_id}") < page.text.index(f"/meetings/{named_id}")
 
 
 def test_web_meeting_filters_accept_empty_neighbor_controls(client) -> None:

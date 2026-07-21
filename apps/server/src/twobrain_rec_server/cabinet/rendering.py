@@ -348,7 +348,7 @@ def _render_meeting_list_region(
     if rows:
         list_content = f'<ol class="meeting-list" aria-label="Встречи">{rows}</ol>'
     else:
-        if response.filters.q or response.filters.status or response.filters.access:
+        if query_presentation.has_refinement:
             list_content = (
                 '<div class="empty-state"><strong>Ничего не найдено</strong>'
                 "<span>Измените запрос или сбросьте фильтры.</span></div>"
@@ -422,7 +422,7 @@ def _meeting_list_should_poll(response: MeetingListResponse, *, poll_empty: bool
         return poll_empty
     return any(
         (item.upload is not None and item.upload.is_active)
-        or item.status in {"uploading", "processing"}
+        or item.status in {"uploading", "submitted", "processing"}
         or item.playback.state == "preparing"
         for item in response.items
     )
@@ -782,7 +782,8 @@ def _render_meeting_row(
         row_state_classes += " has-status"
     if selected:
         row_state_classes += " is-selected"
-    source_icon, source_label = _meeting_media_icon(item)
+    source_icon = _ui_icon(presentation.media_kind)
+    source_label = presentation.media_label
     title = escape(presentation.display_title)
     id_base = f"meeting-{item.meeting_id}"
     title_id = f"{id_base}-title"
@@ -794,6 +795,11 @@ def _render_meeting_row(
         described_by.append(status_id)
     described_by.append(time_id)
     described_by_value = " ".join(described_by)
+    link_described_by_value = " ".join(
+        described_by[:-1]
+        if presentation.display_title in {"Запись", "Загруженная запись"}
+        else described_by
+    )
     row_meta = _render_meeting_row_meta(
         presentation,
         meeting_path=meeting_path,
@@ -806,12 +812,12 @@ def _render_meeting_row(
         else ""
     )
     return f"""
-      <li class="meeting-row cabinet-row{row_state_classes}" tabindex="0" aria-labelledby="{title_id}" aria-describedby="{described_by_value}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}" data-open-href="{href}">
-        <span class="row-select-hit"><input class="row-check" type="checkbox" tabindex="-1" aria-hidden="true" data-row-contextual data-meeting-select aria-label="Выбрать встречу {title}"></span>
+      <li class="meeting-row cabinet-row{row_state_classes}" tabindex="0" aria-labelledby="{title_id}" aria-describedby="{described_by_value}" data-meeting-row data-meeting-id="{item.meeting_id}">
+        <label class="row-select-hit"><input class="row-check" type="checkbox" tabindex="-1" aria-hidden="true" data-row-contextual data-meeting-select aria-label="Выбрать встречу {title}"></label>
         <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
         <div class="meeting-content">
           <span class="meeting-heading">
-            <a class="meeting-title" data-meeting-open href="{href}" aria-label="{escape(presentation.open_accessible_name)}" aria-describedby="{described_by_value}"><span class="row-title" id="{title_id}">{title}</span></a>
+            <a class="meeting-title" data-meeting-open href="{href}" aria-label="{escape(presentation.open_accessible_name)}" aria-describedby="{link_described_by_value}"><span class="row-title" id="{title_id}">{title}</span></a>
             <span class="meeting-duration muted" id="{duration_id}">{escape(presentation.duration_label)}</span>
           </span>
           {meta_html}
@@ -1164,11 +1170,6 @@ def _calendar_participant_label(kind: str) -> str:
     }.get(kind, "Участник")
 
 
-def _meeting_media_icon(item: MeetingListItem) -> tuple[str, str]:
-    kind = cabinet_view_models.meeting_media_kind(item)
-    return _ui_icon(kind), cabinet_view_models.meeting_media_label(item)
-
-
 def _render_list_delete_dialog() -> str:
     bounded_copy = "Запись будет удалена везде, где ее контролирует GRAF. Уже скачанные или экспортированные копии могут оставаться вне контроля GRAF."
     return f"""
@@ -1504,11 +1505,3 @@ def _timecode(seconds: int) -> str:
 
 def _duration(seconds: int) -> str:
     return cabinet_view_models.format_duration(seconds)
-
-
-def _date_label(item: MeetingListItem) -> str:
-    return cabinet_view_models.date_label(item)
-
-
-def _sort_label(sort: str) -> str:
-    return cabinet_view_models.sort_label(sort)

@@ -23,7 +23,7 @@ Validation:
 - Search/filter changes preserve the selected sort and other current allowlisted values.
 - Reset returns to the unrefined `started_desc` route in one action.
 - Unknown sort input falls back to `started_desc` presentation and ordering.
-- `updated` time labels always start with `Обновлено`; meeting-time labels never do.
+- Dated `updated` time labels always start with `Обновлено`; a missing real update is `Без даты` and never falls back to meeting time.
 
 ## MeetingListRowPresentation
 
@@ -43,7 +43,6 @@ A frozen value object derived from one existing `MeetingListItem` and `time_basi
 | `secondary_action` | action enum or null | Only a separately rendered applicable action, currently calendar choice or existing recovery. |
 | `secondary_action_label` | string or null | Exact action copy, such as `Выбрать встречу`. |
 | `open_accessible_name` | non-empty string | Includes visible title and trusted time for neutral generated titles; begins `Открыть встречу`. |
-| `accessible_description` | non-empty string | Includes duration, optional compact status, and time exactly once. |
 
 ### Compact status enum and total precedence
 
@@ -52,7 +51,7 @@ The first matching condition wins. Lower rows remain available in source/detail 
 | Priority | `status_kind` | Predicate | Label | Progress |
 |---:|---|---|---|---|
 | 1 | `deleting` | overall status is `deleted_future` | `Удаляется` | none |
-| 2 | `failed` | overall status is `blocked`, `failed`, or `unavailable` and the result is not merely a known ready playback limitation | `Не удалось обработать` | none |
+| 2 | `failed` | upload is terminally `failed`, `aborted`, or `expired`, or overall status is `blocked`, `failed`, or `unavailable` and the result is not merely a known ready playback limitation | `Не удалось обработать` | none |
 | 3 | `calendar_choice` | calendar context requires owner choice | `Нужен выбор` | none |
 | 4 | `saved_local` | overall status is `local_only` | `Сохранено на Mac` | none |
 | 5 | `uploading_measured` | upload is active and has a trustworthy total/percentage below terminal | `Отправляем N%` | `N` |
@@ -89,7 +88,7 @@ Validation invariants:
 | `meeting` | trusted `started_at` with recorded display offset | `21 июл, 19:22` |
 | `meeting` with no start | none | `Без даты` |
 | `updated` | trusted `updated_at` | `Обновлено 21 июл, 19:22` |
-| `updated` with no update | fallback to trusted meeting time | `Обновлено 21 июл, 19:22` only when source is truly update time; otherwise `Без даты` |
+| `updated` with no update | none | `Без даты`; meeting time is never relabeled as update time |
 
 The same normalized time is used in the visible label and accessible name. No hidden alternative name may replace the visible duration/status/time content.
 

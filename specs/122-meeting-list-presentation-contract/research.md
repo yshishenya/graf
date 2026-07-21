@@ -17,7 +17,7 @@ Current external guidance consulted:
 
 ## Decision 1: Derive one compact presentation value object
 
-**Decision**: Add one immutable meeting-list presentation projection in the existing cabinet view-model boundary. It derives the display title, duration, time label, one compact status, optional measured progress, optional explicit action, and a complete accessible description from the existing `MeetingListItem` plus the selected sort.
+**Decision**: Add one immutable meeting-list presentation projection in the existing cabinet view-model boundary. It derives the display title, duration, time label, one compact status, optional measured progress, optional explicit action, and open-action name from the existing `MeetingListItem` plus the selected sort; the renderer associates the same visible values through native ARIA references.
 
 **Rationale**: Today `rendering.py` concatenates overall processing, playback, and calendar labels independently. Scattered template guards would make precedence incomplete and hard to test. A small pure projection makes the total state order reviewable without changing the public list schema or source records.
 
@@ -29,7 +29,7 @@ Current external guidance consulted:
 
 ## Decision 2: Ready is silent; the first true exception wins
 
-**Decision**: Use this total compact priority: deleting → failed result → ambiguous calendar choice → local-only custody → active upload → processing → playback preparing → playback unavailable limitation → other partial limitation → ready with no status. Normal playback availability and ordinary calendar provenance never become list status.
+**Decision**: Use this total compact priority: deleting → terminal upload/failed result → ambiguous calendar choice → local-only custody → active upload → processing → playback preparing → playback unavailable limitation → other partial limitation → ready with no status. Normal playback availability and ordinary calendar provenance never become list status.
 
 **Rationale**: A compact list should answer whether the result is available, waiting, limited, or actionable. Repeating `Готово`, `Аудио готово`, and `Без календарного контекста` makes normal rows look like monitoring output and makes real exceptions less salient.
 

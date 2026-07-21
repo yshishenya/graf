@@ -184,7 +184,6 @@ class MeetingListRowPresentation:
     secondary_action: str | None
     secondary_action_label: str | None
     open_accessible_name: str
-    accessible_description: str
 
 CALENDAR_CONTEXT_OWNER_REASON_LABELS: dict[str, str] = {
     "private_free_busy_skipped": "Приватное событие пропущено",
@@ -328,9 +327,6 @@ GENERATED_CAPTURE_TITLE_RE = re.compile(
     r"^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)"
     r"\s*-\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$",
     re.IGNORECASE,
-)
-GENERATED_LIST_TITLE_RE = re.compile(
-    r"^Запись \d{1,2} (?:янв|фев|мар|апр|май|июн|июл|авг|сен|окт|ноя|дек), \d{2}:\d{2}$"
 )
 AUTHORITATIVE_TITLE_SOURCES = frozenset({"user_confirmed", "calendar", "upload_provided"})
 CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
@@ -1320,7 +1316,9 @@ def date_label(item: MeetingListItem) -> str:
 
 
 def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasis) -> str:
-    if time_basis == "updated" and item.updated_at is not None:
+    if time_basis == "updated":
+        if item.updated_at is None:
+            return "Без даты"
         return "Обновлено " + full_date_time_label(
             item.updated_at,
             timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
@@ -1429,21 +1427,11 @@ def meeting_list_row_presentation(
     status_kind, status_copy, tone, progress, action, action_label = (
         _meeting_list_compact_status(item)
     )
-    source_title = item.title.strip()
-    title = (
-        "Запись"
-        if not source_title
-        or source_title == "Запись без названия"
-        or GENERATED_LIST_TITLE_RE.fullmatch(source_title)
-        else source_title
-    )
+    source_title = getattr(item, "_list_display_title", item.title).strip()
+    title = "Запись" if not source_title or source_title == "Запись без названия" else source_title
     open_name = f"Открыть встречу {title}"
     if title in {"Запись", "Загруженная запись"}:
         open_name = f"{open_name}, {time}"
-    description_parts = [format_duration(item.duration_seconds)]
-    if status_copy:
-        description_parts.append(status_copy)
-    description_parts.append(time)
     return MeetingListRowPresentation(
         display_title=title,
         duration_label=format_duration(item.duration_seconds),
@@ -1457,7 +1445,6 @@ def meeting_list_row_presentation(
         secondary_action=action,
         secondary_action_label=action_label,
         open_accessible_name=open_name,
-        accessible_description=", ".join(description_parts),
     )
 
 
@@ -1475,6 +1462,9 @@ def _meeting_list_compact_status(
         return "deleting", "Удаляется", "warning", None, None, None
     if item.status in {"blocked", "failed", "unavailable"}:
         return "failed", "Не удалось обработать", "danger", None, None, None
+    upload = item.upload
+    if upload is not None and upload.status in {"failed", "aborted", "expired"}:
+        return "failed", "Не удалось обработать", "danger", None, None, None
     if item.calendar_context is not None and item.calendar_context.needs_owner_action:
         return (
             "calendar_choice",
@@ -1487,7 +1477,6 @@ def _meeting_list_compact_status(
     if item.status == "local_only":
         return "saved_local", "Сохранено на Mac", "neutral", None, None, None
 
-    upload = item.upload
     if upload is not None and upload.is_active:
         progress = upload.progress_percent
         trustworthy = (
@@ -1552,14 +1541,18 @@ def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
     title = safe_title_candidate(meeting.title)
     if title and meeting.title_source in AUTHORITATIVE_TITLE_SOURCES:
         return _authoritative_title(title)
-    if source == "manual_upload" or (
-        title is not None and GENERATED_MANUAL_UPLOAD_RE.fullmatch(title)
-    ) or GENERATED_MANUAL_UPLOAD_RE.fullmatch(meeting.local_recording_id or ""):
+    if title is not None:
+        if GENERATED_MANUAL_UPLOAD_RE.fullmatch(title):
+            return "Загруженная запись"
+        if GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
+            return "Запись"
+        projected = safe_title(meeting, source=source)
+        return "Запись" if projected == "Запись без названия" else projected
+    if source == "manual_upload" or GENERATED_MANUAL_UPLOAD_RE.fullmatch(
+        meeting.local_recording_id or ""
+    ):
         return "Загруженная запись"
-    if title is None or GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
-        return "Запись"
-    projected = safe_title(meeting, source=source)
-    return "Запись" if projected == "Запись без названия" else projected
+    return "Запись"
 
 
 def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
@@ -1692,7 +1685,12 @@ def review_status(
         return "local_only"
     if meeting.status == MeetingStatus.UPLOADING.value:
         return "uploading"
-    if meeting.status in {MeetingStatus.FAILED.value, MeetingStatus.DEGRADED.value}:
+    if meeting.status in {
+        MeetingStatus.FAILED.value,
+        MeetingStatus.DEGRADED.value,
+        MeetingStatus.ABORTED.value,
+        MeetingStatus.EXPIRED.value,
+    }:
         return "failed"
 
     lifecycle_status = workflow.status if workflow is not None else meeting.processing_status
@@ -1804,7 +1802,7 @@ def build_list_item(
     notes_truth = notes_action_truth_state(
         status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
     )
-    return MeetingListItem(
+    item = MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting, source=source),
         started_at=meeting.started_at,
@@ -1839,6 +1837,8 @@ def build_list_item(
         previous_recurring_meeting=previous_recurring_meeting,
         playback=playback or PlaybackPreparationState(),
     )
+    item._list_display_title = meeting_list_title(meeting, source=source)
+    return item
 
 
 def calendar_context_summary(

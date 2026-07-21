@@ -191,12 +191,17 @@ def test_manual_upload_surface_and_error_copy_are_metadata_safe(client) -> None:
 def test_meeting_list_recovery_replaces_cached_rows_without_echoing_metadata() -> None:
     script = (SERVER_ROOT / "cabinet" / "static" / "cabinet" / "cabinet.js").read_text()
     recovery = script[
-        script.index("const renderMeetingListRecovery") : script.index(
+        script.index("const scrubSessionMeetingMetadata") : script.index(
             "const showMeetingListLoading"
         )
     ]
 
     assert "target.replaceChildren(recovery)" in recovery
+    assert "scrubSessionMeetingMetadata" in recovery
+    assert 'document.querySelector(".upcoming")?.remove()' in recovery
+    assert 'document.querySelector("[data-upload-activity-list]")?.replaceChildren()' in recovery
+    assert 'document.querySelector("#delete-feedback-region")?.replaceChildren()' in recovery
+    assert 'document.querySelector("#meeting-search")' in recovery
     assert "dataset.meetingTitle" not in recovery
     assert "textContent" in recovery
     for marker in {
