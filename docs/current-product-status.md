@@ -862,10 +862,12 @@ metadata-only evidence остаются подробной историей ре
   lifecycle are now configured at the 90-day baseline; the session-replay
   bucket was empty and provider delivery remains fail-closed. The root-owned
   guard/timer and reviewed automatic rollback override now have a production
-  receipt. A pending second-operator admin invitation exists, but the active
-  membership count is still one because PostHog email delivery is unavailable
-  and the invite has not been accepted. T104 remains open until that dependency is
-  complete and the tracker/spec reconciliation is truthful; Issue #3860 was
+  receipt. PostHog invitation mail now uses the same owner-controlled Postal
+  contour as GRAF; the email for the existing second-operator invitation was
+  accepted by the worker and Postal, but the invitation has not been accepted
+  by the invitee, so the active membership count is still one. T104 remains
+  open until that dependency is complete and the tracker/spec reconciliation is
+  truthful; Issue #3860 was
   reopened on 2026-07-20 after its premature closure. The exact receipts and
   remaining boundaries are in
   `specs/096-product-analytics-provider-rollout/validation/current-master-integration.md`.

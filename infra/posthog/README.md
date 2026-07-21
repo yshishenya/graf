@@ -93,3 +93,18 @@ dashboard is present, but its refresh timestamp remains unset until provider
 delivery is separately approved. T101 therefore remains open for independent
 RBAC/audit, deletion-enforcement, dashboard-freshness, and persistent
 restore/alert evidence.
+
+PostHog invitation-mail receipt recorded on 2026-07-21: PostHog's dynamic email
+settings use the same owner-controlled Postal installation as GRAF, through
+the internal `postal-smtp:25` service and a dedicated SMTP credential. The
+credential value is stored out of git and is never included in logs or
+evidence. The sender uses the Postal-owned `tutor.2brain.pro` domain. The
+email for the existing pending invitation was accepted by PostHog's worker,
+and Postal accepted the message data; GRAF and PostHog health both returned
+HTTP `200`.
+The invitation remains pending until the invitee accepts it and enables MFA.
+
+The SMTP container was connected to the PostHog Docker network at runtime. If
+Postal is recreated, verify or reattach that network before relying on
+invitation mail; declaring the shared network in the reviewed Compose handoff
+is a separate hardening change.

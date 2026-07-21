@@ -356,6 +356,27 @@ required; provider delivery therefore remains disabled/fail-closed.
 The detailed metadata-only receipt is
 [`t101-access-review-receipt-20260721.md`](t101-access-review-receipt-20260721.md).
 
+## T101 SMTP delivery follow-up: 2026-07-21
+
+PostHog SMTP is now configured against the same owner-controlled Postal
+installation used by GRAF. PostHog uses the internal `postal-smtp:25` route
+with a dedicated Postal SMTP credential and the Postal-owned
+`tutor.2brain.pro` sender domain. The credential value, recipient address,
+invite URL, and message content remain outside git, logs, and evidence.
+
+The existing invitation was resent without creating a duplicate. PostHog
+recorded the delivery, and redacted Postal logs showed accepted SMTP
+authentication, sender/recipient acceptance, and `250` message-data
+acceptance. GRAF and PostHog health both returned HTTP `200`. The invitation
+is still pending until the invitee accepts it, sets a personal password, and
+enables MFA. Product analytics flags remain disabled/fail-closed; this change
+does not enable an all-events rollout.
+
+The detailed metadata-only receipt is
+[`t101-smtp-receipt-20260721.md`](t101-smtp-receipt-20260721.md). The runtime
+network attachment must be preserved if Postal is later recreated; a durable
+Compose-network change remains a separate reviewed follow-up.
+
 ## T102 live-safe Yandex upload receipt: 2026-07-20
 
 - A separate Yandex OAuth application was created with the minimal
