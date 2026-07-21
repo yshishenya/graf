@@ -171,7 +171,7 @@ bypass current server policy or mix revisions.
 - [X] T054 Run all focused commands and cross-format fixture comparisons from `specs/120-transcript-export/quickstart.md`
 - [X] T055 Run Ruff and `git diff --check` from the repository root and fix only feature-owned findings
 - [X] T056 Run `infra/scripts/ci-local.sh` and record metadata-safe validation evidence in `specs/120-transcript-export/tasks.md`
-- [ ] T057 Reconcile every completed task with focused evidence, GitHub issue status/comments, and exact PR links in `specs/120-transcript-export/tasks.md` and `specs/120-transcript-export/issues.md`
+- [X] T057 Reconcile every completed task with focused evidence, GitHub issue status/comments, and exact PR links in `specs/120-transcript-export/tasks.md` and `specs/120-transcript-export/issues.md`
 - [X] T058 Run `@ponytail-review` on the implementation diff and remove unjustified abstraction/dependency/persistence while preserving security, accessibility, lifecycle, and revision truth
 - [ ] T059 Before general release, conduct and document the representative-reviewer usability study required by SC-014; do not substitute synthetic browser QA for the 90% product outcome
 
@@ -195,9 +195,11 @@ bypass current server policy or mix revisions.
   replaced a hand-rolled XLSX column helper with the dependency's native
   utility (`net: -7 lines`). No new database table, generated-artifact
   persistence, background workflow, or storage owner was added.
-- T057 remains open intentionally: issues `#4010`–`#4067` stay open and exact
-  PR links/closure comments do not exist until the explicit implementation
-  commit, push, and PR approval gate is crossed.
+- T057 is complete: ready PR [#4084](https://github.com/yshishenya/crisp/pull/4084)
+  explicitly closes completed task issues after merge, and each closing issue
+  has a Russian closure comment with its Spec task, exact PR link, validation
+  evidence, and out-of-scope boundary. T053 / `#4062` remains open for the
+  post-merge current-product-status update.
 - T059 is tracked by `#4083` and remains open as a representative-reviewer
   pre-release gate; synthetic browser QA is not counted as SC-014 evidence.
 
