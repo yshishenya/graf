@@ -203,7 +203,8 @@ bypass current server policy or mix revisions.
   the backend, web-cabinet UI, six formats, merge SHA, validation, native-app
   boundary, and the still-open T059 release gate. The Spec Kit inventory was
   refreshed from 94/88 to 97/91 spec/task artifacts after Features 114, 119,
-  and 120 entered `master`.
+  and 120 entered `master`; exact closeout is
+  [PR #4085](https://github.com/yshishenya/crisp/pull/4085).
 - The current-head quickstart rerun passed `74` unit/contract and `49`
   focused PostgreSQL/RLS tests; Ruff and merged-diff checks also passed.
 - T059 is tracked by `#4083` and remains open as a representative-reviewer
