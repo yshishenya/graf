@@ -138,6 +138,39 @@ Forbidden evidence:
 - screenshots with account or visitor data;
 - event/autocapture/replay exports.
 
+## Invitation SMTP Through Postal
+
+GRAF already sends transactional mail through the owner-controlled Postal
+installation. PostHog invitation mail follows the same contour, but uses SMTP
+because PostHog owns the email task: configure its dynamic instance settings
+to use the internal `postal-smtp:25` service, a dedicated Postal SMTP
+credential, and a sender in the Postal-owned `tutor.2brain.pro` domain. Do not
+reuse the GRAF Postal HTTP API key as an SMTP password, and do not use a sender
+domain that Postal does not own.
+
+The current production hop is inside the private Docker network, so
+`EMAIL_USE_TLS=false` and `EMAIL_USE_SSL=false` are intentional. This does not
+make the public Postal SMTP endpoint an unauthenticated relay. Keep the
+credential only in PostHog's instance settings database and never print it or
+commit it. After changing settings, restart the PostHog worker so its cached
+email configuration is refreshed, then resend the existing invitation rather
+than creating another one.
+
+Verify all of the following without recording recipient data or message
+content:
+
+- PostHog reports email available and its web/worker health endpoints return
+  HTTP `200`;
+- the worker records a sent timestamp for the invitation message;
+- Postal logs show accepted SMTP authentication, sender/recipient acceptance,
+  and `250` message-data acceptance.
+
+The SMTP container currently joins the PostHog Docker network through a runtime
+attachment. If Postal is recreated, reattach that network (or first introduce
+and review a declarative shared Compose network) before relying on invitation
+delivery. If the worker cannot connect, keep product analytics fail-closed;
+this mail path must never block normal GRAF workflows.
+
 ## Image Pinning
 
 Committed Compose files must not default to the mutable `latest` PostHog image.
@@ -358,11 +391,17 @@ Audit expectations:
 - retention changes are reviewed;
 - provider configuration changes are reviewed.
 
-Access review receipt (2026-07-21): a pending `ADMIN` invitation exists for a
-second trusted operator, but the active membership count is still one because
-email delivery is not configured and the invitation has not been accepted.
+Access review receipt (initial state, 2026-07-21): a pending `ADMIN`
+invitation exists for a second trusted operator, but the active membership
+count is still one because the invitation had not been accepted. The initial
+receipt was recorded before the SMTP follow-up below.
 The invitee must set their own password and enable MFA. Until then, the
 owner-only access boundary remains open and provider delivery stays fail-closed.
+
+SMTP follow-up (2026-07-21): the existing invitation was resent through the
+shared Postal contour and PostHog recorded successful message delivery. The
+invite remains pending until the invitee accepts it and enables MFA; this does
+not by itself close the independent RBAC/audit gate.
 
 ## Backup And Restore
 
