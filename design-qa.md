@@ -45,6 +45,7 @@ final result: passed
 
 **Source Visual Truth**
 - User-supplied playback and speaker-assignment references in the current chat: `CleanShot 2026-07-21 at 02.07.39@2x.png`, `CleanShot 2026-07-21 at 02.11.32@2x.png`, `CleanShot 2026-07-21 at 02.11.41@2x.png`, `CleanShot 2026-07-21 at 02.11.48@2x.png`, `CleanShot 2026-07-21 at 02.12.16@2x.png`, and `CleanShot 2026-07-21 at 02.12.26@2x.png`.
+- Production follow-up references: `CleanShot 2026-07-21 at 09.53.57@2x.png` exposed the remaining scale offset and missing inline rename control; `CleanShot 2026-07-21 at 10.02.40@2x.png` and `CleanShot 2026-07-21 at 10.02.52@2x.png` establish that the speaker caption belongs above the lane rather than inside a narrow left column.
 - The references define interaction behavior, density, aligned playhead semantics, active-speaker state, and manual naming. GRAF keeps its existing clean-room visual system instead of copying Krisp styling.
 
 **Implementation Evidence**
@@ -71,9 +72,14 @@ final result: passed
 - No P0, P1, or P2 visual or interaction findings remain.
 
 **Patches Made During QA**
-- Replaced browser-dependent range geometry with explicit 8 px track and 16 px thumb dimensions.
-- Preserved a single responsive grid for current time, progress, duration, lane label, lane track, and share.
-- Kept the rename editor in the existing speaker summary instead of adding a new toolbar or modal.
+- Replaced browser-dependent range geometry with one explicit inner scale shared by the custom 16 px visual thumb and every lane playhead.
+- Preserved one responsive three-column grid for current time, progress, duration, lane marker, lane track, and share while moving each caption above its lane in the full-width track column.
+- Made the caption itself the inline rename control and placed its authorized form directly beneath the matching lane; the existing summary editor remains only as a non-playable fallback.
 - Confirmed the synthetic QA server supports byte-range audio so browser seek evidence measures the implementation rather than a fixture limitation.
+
+**Production Follow-up Validation**
+- A long synthetic caption is rendered in the full-width track column and covered by a server-rendering regression test.
+- Focused cabinet, playback-contract, and PostgreSQL speaker-name persistence checks pass; the complete server suite passed with 1954 normal and 34 strict-RLS tests in the memory-safe one-worker lane.
+- Local in-app browser inspection was blocked by the browser URL security policy; no alternate browser or debugging bypass was used. Installed-app production inspection remains the release closeout evidence boundary.
 
 final result: passed

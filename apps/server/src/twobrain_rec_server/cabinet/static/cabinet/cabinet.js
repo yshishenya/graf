@@ -1262,6 +1262,29 @@
   };
 
   const initSpeakerNameForms = () => {
+    document.querySelectorAll("[data-speaker-name-open]").forEach((button) => {
+      if (button.dataset.speakerNameOpenReady === "true") return;
+      button.dataset.speakerNameOpenReady = "true";
+      button.addEventListener("click", () => {
+        const form = document.getElementById(button.getAttribute("aria-controls") || "");
+        if (!form) return;
+        form.hidden = false;
+        button.setAttribute("aria-expanded", "true");
+        form.querySelector("input[name='display_name']")?.focus({ preventScroll: true });
+      });
+    });
+    document.querySelectorAll("[data-speaker-name-cancel]").forEach((button) => {
+      if (button.dataset.speakerNameCancelReady === "true") return;
+      button.dataset.speakerNameCancelReady = "true";
+      button.addEventListener("click", () => {
+        const form = button.closest("[data-speaker-name-form]");
+        if (!form) return;
+        form.hidden = true;
+        const opener = document.querySelector(`[aria-controls="${form.id}"]`);
+        opener?.setAttribute("aria-expanded", "false");
+        opener?.focus({ preventScroll: true });
+      });
+    });
     document.querySelectorAll("[data-speaker-name-form]").forEach((form) => {
       if (form.dataset.speakerNameReady === "true") return;
       form.dataset.speakerNameReady = "true";

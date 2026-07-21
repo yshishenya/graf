@@ -1265,12 +1265,13 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
         "grid-template-columns: var(--timeline-label-width) minmax(0, 1fr) var(--timeline-value-width)"
         in css
     )
-    assert ".playback-progress::-webkit-slider-thumb" in css
+    assert ".playback-range-thumb" in css
     assert "width: 16px" in css
     assert ".timeline-lane.is-active" in css
     assert ".segment.is-current" in css
-    assert ".timeline-lane:nth-child(6n+1) .timeline-segment" in css
-    assert ".timeline-lane:nth-child(6n+6) .timeline-segment" in css
+    assert ".timeline-lane:nth-child(6n+1)" in css
+    assert "background: currentColor" in css
+    assert ".timeline-lane:nth-child(6n+6)" in css
     assert "left:0.00%" in page
     assert "width:10.00%" in page
     assert "left:25.00%" in page
@@ -1311,6 +1312,53 @@ def test_detail_shell_renders_speaker_name_editor_only_for_authorized_review() -
     assert "initSpeakerNameForms" in _cabinet_js()
     assert "data-speaker-name-form" not in readonly
     assert "Мария" in readonly
+
+
+def test_playback_timeline_owns_one_visual_scale_and_inline_speaker_editor() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        can_play=True,
+        state="available",
+        duration_seconds=40,
+        speed_options=[1.0],
+        playback_path="/synthetic.wav",
+        policy_label="Аудио доступно",
+        source_mode="stored_review_m4a",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="available",
+        can_rename=True,
+        speakers=[
+            SpeakerLane(
+                speaker_key="speaker_00",
+                label="Очень длинное имя спикера для проверки подписи",
+                talk_time_percent=100,
+                segments=[SpeakerLaneSegment(start_seconds=0, end_seconds=40)],
+            )
+        ],
+    )
+
+    page = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
+    css = _cabinet_css()
+    script = _cabinet_js()
+
+    assert 'class="timeline-scale playback-scale"' in page
+    assert 'class="timeline-scale lane-scale"' in page
+    assert "data-speaker-name-open" in page
+    assert "Очень длинное имя спикера для проверки подписи" in page
+    assert 'aria-controls="timeline-speaker-name-form-speaker_00"' in page
+    assert 'id="timeline-speaker-name-form-speaker_00"' in page
+    assert page.count("data-speaker-name-form") == 1
+    assert ".timeline-scale" in css
+    assert ".playback-scale .playback-progress" in css
+    assert ".playback-range-thumb" in css
+    assert "grid-column: 2;" in css
+    assert ".lane-scale" in css
+    assert "data-speaker-name-open" in script
+    assert "data-speaker-name-cancel" in script
 
 
 def test_detail_shell_renders_unavailable_playback_without_audio_element() -> None:

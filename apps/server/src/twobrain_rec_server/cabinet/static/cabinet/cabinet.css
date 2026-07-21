@@ -524,40 +524,51 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .playback-time:last-child { text-align: right; }
 .playback-progress {
-  width: 100%;
+  width: calc(100% + (var(--timeline-thumb-radius) * 2));
   margin: 0;
+  padding: 0;
   appearance: none;
   background: transparent;
   accent-color: var(--accent);
   cursor: pointer;
 }
-.playback-progress::-webkit-slider-runnable-track {
+.timeline-scale {
+  position: relative;
+  min-width: 0;
+  margin-inline: var(--timeline-thumb-radius);
+}
+.playback-scale {
+  display: grid;
+  align-items: center;
+  height: 24px;
+}
+.playback-scale .playback-progress {
+  position: absolute;
+  z-index: 2;
+  inset-inline: calc(var(--timeline-thumb-radius) * -1);
+  height: 24px;
+  opacity: 0;
+}
+.playback-range-track {
+  position: relative;
+  display: block;
   height: 8px;
   border-radius: 999px;
   background: #353940;
+  pointer-events: none;
 }
-.playback-progress::-webkit-slider-thumb {
-  width: 16px;
-  height: 16px;
-  margin-top: -4px;
-  appearance: none;
-  border: 2px solid #f6f7f9;
-  border-radius: 50%;
-  background: var(--accent);
-}
-.playback-progress::-moz-range-track {
-  height: 8px;
-  border-radius: 999px;
-  background: #353940;
-}
-.playback-progress::-moz-range-thumb {
+.playback-range-thumb {
+  position: absolute;
+  top: 50%;
+  left: var(--playback-position);
   width: 16px;
   height: 16px;
   border: 2px solid #f6f7f9;
   border-radius: 50%;
   background: var(--accent);
+  transform: translate(-50%, -50%);
 }
-.playback-progress:focus-visible {
+.playback-scale:focus-within .playback-range-track {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
 }
@@ -574,23 +585,54 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .timeline-lane {
   display: grid;
   grid-template-columns: var(--timeline-label-width) minmax(0, 1fr) var(--timeline-value-width);
-  gap: 10px;
+  column-gap: 10px;
+  row-gap: 4px;
   align-items: center;
 }
+.timeline-lane:nth-child(6n+1) { color: #ffd24a; }
+.timeline-lane:nth-child(6n+2) { color: #ff6b6b; }
+.timeline-lane:nth-child(6n+3) { color: #2fc9c0; }
+.timeline-lane:nth-child(6n+4) { color: #7a65ff; }
+.timeline-lane:nth-child(6n+5) { color: #aaa49a; }
+.timeline-lane:nth-child(6n+6) { color: #d96aa6; }
 .timeline-label {
+  display: block;
   color: #d9dde4;
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.timeline-speaker {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+.timeline-speaker-name {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.timeline-speaker-name:hover .timeline-label,
+.timeline-speaker-name:focus-visible .timeline-label { text-decoration: underline; }
+.timeline-speaker-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.lane-scale {
+  grid-column: 2;
+  grid-row: 2;
+}
 .timeline-track {
   position: relative;
+  display: block;
   height: 8px;
   border-radius: 999px;
   background: #353940;
   overflow: hidden;
-  margin-inline: var(--timeline-thumb-radius);
   cursor: pointer;
 }
 .timeline-track:focus-visible {
@@ -603,15 +645,11 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   bottom: 0;
   min-width: 2px;
   border-radius: 999px;
-  background: var(--accent);
+  background: currentColor;
 }
-.timeline-lane:nth-child(6n+1) .timeline-segment { background: #ffd24a; }
-.timeline-lane:nth-child(6n+2) .timeline-segment { background: #ff6b6b; }
-.timeline-lane:nth-child(6n+3) .timeline-segment { background: #2fc9c0; }
-.timeline-lane:nth-child(6n+4) .timeline-segment { background: #7a65ff; }
-.timeline-lane:nth-child(6n+5) .timeline-segment { background: #aaa49a; }
-.timeline-lane:nth-child(6n+6) .timeline-segment { background: #d96aa6; }
 .timeline-share {
+  grid-column: 3;
+  grid-row: 1 / span 2;
   text-align: right;
   color: var(--muted);
   font-size: 12px;
@@ -634,6 +672,12 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .timeline-lane.is-active .timeline-track {
   box-shadow: 0 0 0 2px #f6f7f9;
+}
+.timeline-speaker-editor {
+  grid-column: 2 / -1;
+  grid-row: 3;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  margin-top: 2px;
 }
 .segment.is-current {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
