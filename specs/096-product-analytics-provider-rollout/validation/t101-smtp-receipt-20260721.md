@@ -43,11 +43,11 @@ Product analytics provider flags remain disabled and fail-closed. This SMTP
 change only enables PostHog account-invitation mail; it does not enable
 autocapture, replay, Yandex delivery, or an “all events” rollout.
 
-The Postal SMTP container was connected to the PostHog Docker network at
-runtime. A future Postal container recreation must preserve that connection (or
-declare the shared network in the reviewed Compose handoff) before PostHog mail
-is retried. Until that durable Compose change is separately reviewed, the
-runbook treats network reattachment as an explicit post-recreate check.
+The production Postal Compose handoff now declares the external
+`graf-posthog_default` network for `postal-smtp` alongside the Postal network.
+The SMTP container was recreated from that configuration; PostHog resolved
+`postal-smtp:25` afterward and both health checks remained HTTP `200`. Repeat
+the Compose config and TCP checks after future Postal updates.
 
 T101 remains open for invitation acceptance/MFA, independent RBAC and audit
 review, dashboard freshness, deletion-enforcement evidence, and persistent

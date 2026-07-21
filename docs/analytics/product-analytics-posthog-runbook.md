@@ -165,11 +165,12 @@ content:
 - Postal logs show accepted SMTP authentication, sender/recipient acceptance,
   and `250` message-data acceptance.
 
-The SMTP container currently joins the PostHog Docker network through a runtime
-attachment. If Postal is recreated, reattach that network (or first introduce
-and review a declarative shared Compose network) before relying on invitation
-delivery. If the worker cannot connect, keep product analytics fail-closed;
-this mail path must never block normal GRAF workflows.
+The production Postal Compose handoff now declares `graf-posthog_default` as
+an external shared network and attaches `postal-smtp` to it alongside the
+Postal network. After a Postal update or recreation, rerun the Compose config
+check and verify that PostHog resolves `postal-smtp:25` before relying on
+invitation delivery. If the worker cannot connect, keep product analytics
+fail-closed; this mail path must never block normal GRAF workflows.
 
 ## Image Pinning
 
