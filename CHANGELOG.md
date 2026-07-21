@@ -26,6 +26,32 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.07.21.3] - 2026-07-21
+
+### Добавлено
+- Feature 109: owner-only выпуск обновления `v2026.07.21.3` с безопасным
+  metadata-only Keychain receipt и сохранённым предыдущим архивом для отката.
+
+### Изменено
+- Текущий приватный release lane теперь документирован как закрытый degraded
+  процесс: exact tag/provenance, явное owner approval и archive-before-appcast.
+
+### Исправлено
+- Проверка публичной публикации сверяет zip, pkg, checksum и appcast после
+  выкладки; appcast заменяется только после versioned artifacts.
+
+### Безопасность
+- Приватный ключ, Bitwarden recovery copy и secret-bearing данные не читаются
+  workflow, приложением или public host и не попадают в Git или evidence.
+
+### Документы
+- T037 / [issue #3911](https://github.com/yshishenya/crisp/issues/3911)
+  закрыты metadata-only receipt, GitHub Release и публичной повторной проверкой.
+
+### Операции
+- Полный локальный CI и strict Sparkle/Keychain проверки пройдены; текущая
+  self-signed owner-only подпись не является Developer ID/notarization.
+
 ## [2026.07.21.1] - 2026-07-21
 
 
