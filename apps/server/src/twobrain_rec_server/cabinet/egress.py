@@ -5,10 +5,11 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from hashlib import sha256
 from uuid import UUID
 
 from anyio import to_thread
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,14 +17,27 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     ArtifactClass,
     ArtifactEgressState,
+    ContentExportCapabilityResponse,
+    ContentExportDefaults,
+    ContentExportReadiness,
     ExportPackageExclusion,
     ExportPackageResponse,
     MeetingActivityItem,
     MeetingActivityResponse,
     PlaybackPreparationState,
 )
-from twobrain_rec_server.cabinet.access import AccessDecision
+from twobrain_rec_server.cabinet.access import AccessDecision, decide_meeting_access
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
+from twobrain_rec_server.cabinet.exports import (
+    FORMAT_COMPATIBILITY,
+    RENDERER_VERSION,
+    SCHEMA_VERSION,
+    TURN_POLICY_VERSION,
+    ExportSelection,
+    GeneratedContentExport,
+    build_export_snapshot,
+    render_content_export,
+)
 from twobrain_rec_server.cabinet.view_models import (
     format_timestamp,
     playback_reason_copy,
@@ -35,6 +49,7 @@ from twobrain_rec_server.db.models import (
     Meeting,
     MeetingArtifactPolicy,
     MeetingEgressAuditEvent,
+    MeetingOutcomeSet,
     PlaybackNormalizationJob,
     ProcessingResult,
     TrackArtifact,
@@ -43,6 +58,7 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionStatus,
+    OutcomeSetStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     SummaryStatus,
@@ -69,6 +85,15 @@ ALLOWED_AUDIT_KEYS = {
     "range_end",
     "range_start",
     "stream_state",
+    "content_scope",
+    "format",
+    "processing_result_id",
+    "outcome_set_id",
+    "revision_token",
+    "revision_fingerprint",
+    "schema_version",
+    "renderer_version",
+    "turn_policy_version",
 }
 
 
@@ -98,6 +123,397 @@ class ReviewAudioBuildError(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+async def content_export_capabilities(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    access: AccessDecision,
+    result: ProcessingResult | None,
+) -> ContentExportCapabilityResponse:
+    unavailable = ContentExportReadiness(state="missing", reason="transcript_unavailable")
+    if meeting_deletion_active(meeting):
+        deleted = ContentExportReadiness(
+            state="deletion_in_progress", reason="meeting_deletion_active"
+        )
+        return ContentExportCapabilityResponse(
+            processing_result_id=result.id if result else None,
+            transcript=deleted,
+            summary=deleted,
+            combined=deleted,
+            formats={scope: list(formats) for scope, formats in FORMAT_COMPATIBILITY.items()},
+            defaults=ContentExportDefaults(),
+            language=result.language if result else None,
+            duration_seconds=max(meeting.duration_seconds, 0),
+        )
+
+    policy = await resolve_artifact_policy(
+        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+    )
+    transcript_blocked = _policy_blocked_state("transcript", policy.transcript_download, access)
+    transcript = unavailable
+    if transcript_blocked is not None:
+        transcript = ContentExportReadiness(state="denied", reason=transcript_blocked.reason)
+    elif (
+        result is not None
+        and result.status == ProcessingResultStatus.IMPORTED.value
+        and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and result.segment_count > 0
+    ):
+        transcript = ContentExportReadiness(state="available")
+    elif result is not None and result.status in {
+        ProcessingResultStatus.IMPORTING.value,
+        ProcessingResultStatus.PARTIAL.value,
+    }:
+        transcript = ContentExportReadiness(
+            state="partial" if result.status == ProcessingResultStatus.PARTIAL.value else "processing",
+            reason="transcript_not_terminal",
+        )
+
+    outcome_set = await current_outcome_set(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        processing_result_id=result.id if result is not None else None,
+    )
+    summary_blocked = _policy_blocked_state("summary", policy.summary_download, access)
+    if summary_blocked is not None:
+        summary = ContentExportReadiness(state="denied", reason=summary_blocked.reason)
+    elif outcome_set is None:
+        summary = ContentExportReadiness(state="missing", reason="stored_summary_missing")
+    elif outcome_set.status in {"available", "partial"} and not outcome_set.content_hash:
+        summary = ContentExportReadiness(
+            state="failed", reason="stored_summary_revision_unpinned"
+        )
+    elif outcome_set.status in {"available", "partial"}:
+        summary = ContentExportReadiness(
+            state="available" if outcome_set.status == "available" else "partial",
+            reason=None if outcome_set.status == "available" else "stored_summary_partial",
+        )
+    elif outcome_set.status in {
+        OutcomeSetStatus.QUEUED.value,
+        OutcomeSetStatus.GENERATING.value,
+    }:
+        summary = ContentExportReadiness(state="processing", reason="stored_summary_processing")
+    else:
+        summary = ContentExportReadiness(state="failed", reason="stored_summary_failed")
+
+    combined = (
+        ContentExportReadiness(state="available")
+        if transcript.state == "available" and summary.state in {"available", "partial"}
+        else ContentExportReadiness(state="missing", reason="combined_components_unavailable")
+    )
+    return ContentExportCapabilityResponse(
+        processing_result_id=result.id if result else None,
+        outcome_set_id=outcome_set.id if outcome_set else None,
+        transcript=transcript,
+        summary=summary,
+        combined=combined,
+        formats={scope: list(formats) for scope, formats in FORMAT_COMPATIBILITY.items()},
+        defaults=ContentExportDefaults(),
+        language=result.language if result else None,
+        duration_seconds=max(meeting.duration_seconds, 0),
+    )
+
+
+async def create_content_export(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    access: AccessDecision,
+    result: ProcessingResult | None,
+    selection: ExportSelection,
+    actor_user_id: UUID,
+    device_id: UUID,
+) -> GeneratedContentExport:
+    artifact_class: ArtifactClass = (
+        "transcript"
+        if selection.content_scope == "transcript"
+        else ("summary" if selection.content_scope == "summary" else "package")
+    )
+    audit_base = {
+        "content_scope": selection.content_scope,
+        "format": selection.format,
+        "processing_result_id": str(selection.processing_result_id),
+        "outcome_set_id": str(selection.outcome_set_id) if selection.outcome_set_id else None,
+        "schema_version": SCHEMA_VERSION,
+        "renderer_version": RENDERER_VERSION,
+        "turn_policy_version": TURN_POLICY_VERSION,
+    }
+    if meeting_deletion_active(meeting):
+        await _record_content_export_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            artifact_class=artifact_class,
+            reason="meeting_deletion_active",
+            metadata=audit_base,
+        )
+        await db.commit()
+        raise ProblemDetail(
+            status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
+        )
+    if result is None or result.id != selection.processing_result_id:
+        await _record_content_export_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            artifact_class=artifact_class,
+            reason="export_revision_stale",
+            metadata=audit_base,
+        )
+        await db.commit()
+        raise ProblemDetail(
+            status=409, code="export_revision_stale", title="Export revision is stale"
+        )
+
+    capabilities = await content_export_capabilities(
+        db, meeting=meeting, access=access, result=result
+    )
+    readiness = getattr(capabilities, selection.content_scope)
+    if not _content_export_readiness_allows(selection.content_scope, readiness.state):
+        await _record_content_export_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            artifact_class=artifact_class,
+            reason=readiness.reason or "export_unavailable",
+            metadata=audit_base,
+        )
+        await db.commit()
+        raise ProblemDetail(status=409, code="export_unavailable", title="Export unavailable")
+
+    await record_egress_audit_event(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        actor_user_id=actor_user_id,
+        device_id=device_id,
+        event_type="content_export_requested",
+        outcome="allowed",
+        artifact_class=artifact_class,
+        policy_reason="policy_allowed",
+        metadata={**audit_base, "request_class": "content_export"},
+    )
+    try:
+        snapshot = await build_export_snapshot(
+            db, meeting=meeting, result=result, selection=selection
+        )
+        generated = await to_thread.run_sync(render_content_export, snapshot)
+    except ProblemDetail as exc:
+        await record_egress_audit_event(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            event_type="content_export_failed",
+            outcome="failed",
+            artifact_class=artifact_class,
+            policy_reason=exc.code,
+            metadata={**audit_base, "outcome": "failed"},
+        )
+        await db.commit()
+        raise
+    except Exception as exc:
+        await record_egress_audit_event(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            event_type="content_export_failed",
+            outcome="failed",
+            artifact_class=artifact_class,
+            policy_reason="export_generation_failed",
+            metadata={**audit_base, "outcome": "failed"},
+        )
+        await db.commit()
+        raise ProblemDetail(
+            status=503,
+            code="export_generation_failed",
+            title="Export generation failed",
+        ) from exc
+
+    await db.refresh(meeting)
+    await db.refresh(result)
+    final_access = await decide_meeting_access(
+        db,
+        meeting,
+        workspace_id=meeting.workspace_id,
+        viewer_user_id=actor_user_id,
+    )
+    final_capabilities = await content_export_capabilities(
+        db, meeting=meeting, access=final_access, result=result
+    )
+    final_readiness = getattr(final_capabilities, selection.content_scope)
+    revision_current = await _processing_result_is_current(
+        db, meeting=meeting, result=result
+    )
+    selected_outcome_current = True
+    if selection.outcome_set_id is not None:
+        final_outcome = await current_outcome_set(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            processing_result_id=result.id,
+        )
+        selected_outcome_current = (
+            snapshot.summary is not None
+            and final_outcome is not None
+            and final_outcome.id == selection.outcome_set_id
+            and final_outcome.content_hash == snapshot.summary.content_hash
+            and final_outcome.generator_version == snapshot.summary.generator_version
+        )
+    denial: tuple[int, str, str] | None = None
+    if meeting_deletion_active(meeting):
+        denial = (409, "meeting_deletion_active", "Meeting deletion is in progress")
+    elif not final_access.can_view:
+        denial = (404, "meeting_not_found", "Meeting not found")
+    elif final_readiness.state == "denied":
+        denial = (403, "export_policy_denied", "Export policy denied")
+    elif not _content_export_readiness_allows(
+        selection.content_scope, final_readiness.state
+    ):
+        denial = (409, "export_unavailable", "Export unavailable")
+    elif not revision_current or not selected_outcome_current:
+        denial = (409, "export_revision_stale", "Export revision is stale")
+    if denial is not None:
+        status, code, title = denial
+        await _record_content_export_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            artifact_class=artifact_class,
+            reason=code,
+            metadata=audit_base,
+        )
+        await db.commit()
+        raise ProblemDetail(status=status, code=code, title=title)
+    await record_egress_audit_event(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        actor_user_id=actor_user_id,
+        device_id=device_id,
+        event_type="content_export_completed",
+        outcome="completed",
+        artifact_class=artifact_class,
+        policy_reason="policy_allowed",
+        metadata={
+            **audit_base,
+            "revision_fingerprint": (
+                sha256(snapshot.summary.revision_token.encode()).hexdigest()
+                if snapshot.summary
+                else None
+            ),
+            "outcome": "completed",
+            "byte_length": generated.byte_length,
+        },
+    )
+    return generated
+
+
+async def current_outcome_set(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    processing_result_id: UUID | None,
+) -> MeetingOutcomeSet | None:
+    if processing_result_id is None:
+        return None
+    return await db.scalar(
+        select(MeetingOutcomeSet)
+        .where(
+            MeetingOutcomeSet.workspace_id == workspace_id,
+            MeetingOutcomeSet.meeting_id == meeting_id,
+            MeetingOutcomeSet.processing_result_id == processing_result_id,
+            MeetingOutcomeSet.lifecycle_state == "active",
+        )
+        .order_by(
+            case(
+                (
+                    MeetingOutcomeSet.status.in_(
+                        {
+                            OutcomeSetStatus.AVAILABLE.value,
+                            OutcomeSetStatus.PARTIAL.value,
+                        }
+                    ),
+                    0,
+                ),
+                else_=1,
+            ),
+            MeetingOutcomeSet.generated_at.desc().nullslast(),
+            MeetingOutcomeSet.created_at.desc(),
+            MeetingOutcomeSet.id.desc(),
+        )
+        .execution_options(populate_existing=True)
+    )
+
+
+async def _processing_result_is_current(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    result: ProcessingResult,
+) -> bool:
+    latest_revision = await db.scalar(
+        select(MediaRevision)
+        .where(
+            MediaRevision.workspace_id == meeting.workspace_id,
+            MediaRevision.meeting_id == meeting.id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+        )
+        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
+        .execution_options(populate_existing=True)
+    )
+    if latest_revision is None or result.media_revision_id != latest_revision.id:
+        return False
+    latest_result = await db.scalar(
+        select(ProcessingResult)
+        .where(
+            ProcessingResult.workspace_id == meeting.workspace_id,
+            ProcessingResult.meeting_id == meeting.id,
+            ProcessingResult.media_revision_id == latest_revision.id,
+        )
+        .order_by(ProcessingResult.result_version.desc(), ProcessingResult.updated_at.desc())
+        .execution_options(populate_existing=True)
+    )
+    return latest_result is not None and latest_result.id == result.id
+
+
+async def _record_content_export_denied(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    actor_user_id: UUID,
+    device_id: UUID,
+    artifact_class: ArtifactClass,
+    reason: str,
+    metadata: Mapping[str, object],
+) -> None:
+    await record_egress_audit_event(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        actor_user_id=actor_user_id,
+        device_id=device_id,
+        event_type="content_export_denied",
+        outcome="denied",
+        artifact_class=artifact_class,
+        policy_reason=reason,
+        metadata={**metadata, "outcome": "denied"},
+    )
+
+
+def _content_export_readiness_allows(scope: str, state: str) -> bool:
+    return state == "available" or (scope == "summary" and state == "partial")
 
 
 def safe_audit_metadata(metadata: Mapping[str, object] | None) -> dict[str, object]:
@@ -182,10 +598,12 @@ async def resolve_artifact_policy(
     meeting_id: UUID,
 ) -> MeetingArtifactPolicy:
     policy = await db.scalar(
-        select(MeetingArtifactPolicy).where(
+        select(MeetingArtifactPolicy)
+        .where(
             MeetingArtifactPolicy.workspace_id == workspace_id,
             MeetingArtifactPolicy.meeting_id == meeting_id,
         )
+        .execution_options(populate_existing=True)
     )
     if policy is not None:
         return policy

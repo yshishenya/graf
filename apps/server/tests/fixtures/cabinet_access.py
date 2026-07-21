@@ -16,6 +16,7 @@ from twobrain_rec_server.db.models import (
     Meeting,
     MeetingArtifactPolicy,
     MeetingEgressAuditEvent,
+    MeetingShareGrant,
     PlaybackNormalizationJob,
     RegisteredDevice,
     TrackArtifact,
@@ -64,6 +65,38 @@ def add_workspace_user(
             display_name=display_name,
         )
     )
+
+
+def grant_meeting_to_user(
+    client: TestClient,
+    meeting_id: UUID,
+    *,
+    user_id: UUID = SHARED_USER_ID,
+) -> None:
+    asyncio.run(_grant_meeting_to_user(client, meeting_id, user_id=user_id))
+
+
+async def _grant_meeting_to_user(
+    client: TestClient,
+    meeting_id: UUID,
+    *,
+    user_id: UUID,
+) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        meeting = await db.get(Meeting, meeting_id)
+        assert meeting is not None
+        db.add(
+            MeetingShareGrant(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                grant_type="user",
+                grantee_user_id=user_id,
+                created_by_user_id=meeting.created_by_user_id,
+                status="active",
+                metadata_json={},
+            )
+        )
+        await db.commit()
 
 
 async def _add_workspace_user(

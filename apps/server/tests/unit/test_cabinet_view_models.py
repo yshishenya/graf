@@ -916,7 +916,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
     assert "UNKNOWN" not in {segment.speaker_label for segment in state.segments}
 
 
-def test_manual_upload_transcript_uses_speaker_zero_when_diarization_is_missing() -> None:
+def test_manual_upload_transcript_keeps_unknown_when_diarization_is_missing() -> None:
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -952,10 +952,12 @@ def test_manual_upload_transcript_uses_speaker_zero_when_diarization_is_missing(
         force_speaker_labels=True,
     )
 
-    assert [segment.speaker_label for segment in state.segments] == ["SPEAKER_00", "SPEAKER_00"]
+    assert [segment.speaker_label for segment in state.segments] == ["UNKNOWN", "UNKNOWN"]
+    assert [segment.attribution_state for segment in state.segments] == ["unknown", "unknown"]
+    assert len({segment.speaker_key for segment in state.segments}) == 2
 
 
-def test_manual_upload_review_response_falls_back_to_speaker_zero_without_diarization() -> None:
+def test_manual_upload_review_response_preserves_unknown_without_diarization() -> None:
     meeting = _meeting()
     result_id = uuid4()
     result = ProcessingResult(
@@ -1004,7 +1006,8 @@ def test_manual_upload_review_response_falls_back_to_speaker_zero_without_diariz
     )
 
     assert response.meeting.source == "manual_upload"
-    assert [segment.speaker_label for segment in response.transcript.segments] == ["SPEAKER_00"]
+    assert [segment.speaker_label for segment in response.transcript.segments] == ["UNKNOWN"]
+    assert [segment.attribution_state for segment in response.transcript.segments] == ["unknown"]
 
 
 def test_manual_upload_review_response_uses_diarization_as_transcript_source() -> None:
@@ -1378,7 +1381,7 @@ def test_manual_upload_speaker_mapping_hides_unknown_when_speaker_labels_are_pre
     assert {speaker.label for speaker in state.speakers} == {"SPEAKER_00", "SPEAKER_01"}
 
 
-def test_manual_upload_speaker_mapping_uses_speaker_zero_when_only_unknown_rows_exist() -> None:
+def test_manual_upload_speaker_mapping_preserves_unknown_rows() -> None:
     result_id = uuid4()
     meeting_id = uuid4()
     workspace_id = uuid4()
@@ -1399,7 +1402,7 @@ def test_manual_upload_speaker_mapping_uses_speaker_zero_when_only_unknown_rows_
 
     state = view_models.speaker_state(segments, force_speaker_labels=True)
 
-    assert [speaker.label for speaker in state.speakers] == ["SPEAKER_00"]
+    assert [speaker.label for speaker in state.speakers] == ["UNKNOWN"]
 
 
 def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -> None:
@@ -1868,6 +1871,10 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
     assert first.end_seconds == 4.0
     assert first.text == "synthetic fragment 0 synthetic fragment 1 synthetic fragment 2"
     assert first.source_segment_ids == [str(value) for value in segment_ids[:3]]
+    assert first.processing_result_id == result_id
+    assert first.turn_id == view_models.canonical_turn_id(
+        result_id, (str(value) for value in segment_ids[:3])
+    )
     assert first.seekable is True
     assert first.seek_seconds == 0.0
     assert second.start_seconds == 6.0
@@ -1891,7 +1898,7 @@ def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
             start_seconds=Decimal("1"),
             end_seconds=Decimal("3"),
             text="synthetic",
-            speaker_label="remote",
+            speaker_label="SPEAKER_00",
             source_role="incoming",
         )
     ]
@@ -2020,7 +2027,8 @@ def test_transcript_turns_do_not_merge_unconfirmed_mapping_or_incomplete_state()
         status="partial",
     )
 
-    assert state.speaker_turns == []
+    assert [turn.attribution_state for turn in state.speaker_turns] == ["unknown", "unknown"]
+    assert [turn.text for turn in state.speaker_turns] == ["unmapped 0", "unmapped 1"]
     assert len(state.segments) == 2
     assert processing_state.speaker_turns == []
     assert processing_state.available is False
@@ -2065,6 +2073,43 @@ def test_force_speaker_labels_turns_are_stable_across_rebuilds() -> None:
     assert first.speaker_turns == second.speaker_turns
     assert len(first.speaker_turns) == 1
     assert first.speaker_turns[0].source_segment_ids == [str(row.id) for row in diarization]
+
+
+def test_force_speaker_labels_preserves_unconfirmed_rows_as_singletons() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(index)),
+            end_seconds=Decimal(str(index + 0.9)),
+            text=f"unconfirmed {index}",
+            speaker_label="UNKNOWN",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=[],
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert [turn.attribution_state for turn in state.speaker_turns] == [
+        "unconfirmed",
+        "unconfirmed",
+    ]
+    assert [turn.text for turn in state.speaker_turns] == [
+        "unconfirmed 0",
+        "unconfirmed 1",
+    ]
 
 
 def test_normal_and_diarization_review_paths_share_turn_semantics() -> None:

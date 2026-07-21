@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Iterable
@@ -13,6 +14,7 @@ from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
     CalendarRosterParticipantView,
     CalendarRosterReviewState,
+    ContentExportCapabilityResponse,
     GovernanceActionState,
     GovernanceActionSummary,
     MeetingAccessState,
@@ -1821,12 +1823,28 @@ def transcript_state(
             playback_duration_seconds=playback_duration_seconds,
         )
         matching_diarization = matching_diarization_segment(segment, diarization_rows)
-        canonical_label = speaker_label_for_segment(
-            segment,
-            matching_diarization,
-            speaker_labels_by_key=speaker_labels_by_key,
+        confirmed = matching_diarization is not None and bool(
+            matching_diarization.speaker_label.strip()
         )
-        speaker_key = canonical_label.lower()
+        attribution_state = (
+            "confirmed"
+            if confirmed
+            else ("unconfirmed" if matching_diarization is not None else "unknown")
+        )
+        canonical_label = (
+            speaker_label_for_segment(
+                segment,
+                matching_diarization,
+                speaker_labels_by_key=speaker_labels_by_key,
+            )
+            if confirmed
+            else "UNKNOWN"
+        )
+        speaker_key = canonical_label.lower() if confirmed else (
+            f"unconfirmed:{matching_diarization.id}"
+            if matching_diarization is not None
+            else f"unknown:{segment.id}"
+        )
         view = TranscriptSegmentView(
             segment_id=str(segment.id),
             sequence=segment.sequence,
@@ -1835,7 +1853,10 @@ def transcript_state(
             timestamp_label=format_timestamp(segment.start_seconds),
             speaker_label=speaker_names.get(speaker_key, canonical_label),
             speaker_key=speaker_key,
+            attribution_state=attribution_state,
+            processing_result_id=segment.processing_result_id,
             source_role=source_role_label(segment.source_role),
+            source_role_original=segment.source_role_original,
             text=segment.text,
             confidence_label="unknown",
             seekable=seek_seconds is not None,
@@ -1845,8 +1866,7 @@ def transcript_state(
         mapped_rows.append(
             (
                 view,
-                matching_diarization is not None
-                and bool(matching_diarization.speaker_label.strip()),
+                confirmed,
             )
         )
     return TranscriptReviewState(
@@ -1855,7 +1875,7 @@ def transcript_state(
         degraded_reason=None if status == "ready" else "partial_transcript",
         search_enabled=True,
         segments=segments,
-        speaker_turns=_derive_speaker_turns(mapped_rows) if status == "ready" else [],
+        speaker_turns=derive_speaker_turns(mapped_rows) if status == "ready" else [],
     )
 
 
@@ -1876,7 +1896,8 @@ def diarization_transcript_state(
     speaker_names = speaker_names or {}
     segments = []
     for row, canonical_label in zip(diarization_rows, speaker_labels, strict=True):
-        speaker_key = canonical_label.lower()
+        confirmed = canonical_label != "UNKNOWN"
+        speaker_key = canonical_label.lower() if confirmed else f"unconfirmed:{row.id}"
         seek_seconds = _seek_seconds(
             row.start_seconds,
             playback_available=playback_available,
@@ -1891,7 +1912,10 @@ def diarization_transcript_state(
                 timestamp_label=format_timestamp(row.start_seconds),
                 speaker_label=speaker_names.get(speaker_key, canonical_label),
                 speaker_key=speaker_key,
+                attribution_state="confirmed" if confirmed else "unconfirmed",
+                processing_result_id=row.processing_result_id,
                 source_role=source_role_label(row.source_role),
+                source_role_original=row.source_role,
                 text=row.text,
                 confidence_label="unknown",
                 seekable=seek_seconds is not None,
@@ -1905,18 +1929,50 @@ def diarization_transcript_state(
         search_enabled=True,
         segments=segments,
         speaker_turns=(
-            _derive_speaker_turns([(view, bool(speaker_rows)) for view in segments])
+            derive_speaker_turns(
+                [(view, view.attribution_state == "confirmed") for view in segments]
+            )
             if status == "ready"
             else []
         ),
     )
 
 
-def _derive_speaker_turns(
+def canonical_turn_id(processing_result_id: UUID | None, segment_ids: Iterable[str]) -> str:
+    source_ids = tuple(segment_ids)
+    if processing_result_id is None:
+        return source_ids[0]
+    digest = hashlib.sha256(
+        f"{processing_result_id}:{','.join(source_ids)}".encode()
+    ).hexdigest()[:24]
+    return f"turn_{digest}"
+
+
+def derive_speaker_turns(
     rows: list[tuple[TranscriptSegmentView, bool]],
 ) -> list[TranscriptSpeakerTurnView]:
     turns: list[TranscriptSpeakerTurnView] = []
     current: list[TranscriptSegmentView] = []
+    valid_rows = [
+        row
+        for row, _ in rows
+        if row.start_seconds >= 0 and row.end_seconds >= row.start_seconds
+    ]
+    overlap_ids: set[str] = set()
+    timeline_rows = sorted(
+        valid_rows,
+        key=lambda row: (row.start_seconds, row.end_seconds, row.sequence, row.segment_id),
+    )
+    longest: TranscriptSegmentView | None = None
+    for row in timeline_rows:
+        if (
+            longest is not None
+            and row.start_seconds < longest.end_seconds
+            and longest.start_seconds < row.end_seconds
+        ):
+            overlap_ids.update((longest.segment_id, row.segment_id))
+        if longest is None or row.end_seconds > longest.end_seconds:
+            longest = row
 
     def flush() -> None:
         if not current or not any(row.text.strip() for row in current):
@@ -1926,16 +1982,22 @@ def _derive_speaker_turns(
         last = current[-1]
         turns.append(
             TranscriptSpeakerTurnView(
-                turn_id=first.segment_id,
+                turn_id=canonical_turn_id(
+                    first.processing_result_id,
+                    (row.segment_id for row in current),
+                ),
                 sequence=first.sequence,
                 start_seconds=first.start_seconds,
                 end_seconds=last.end_seconds,
                 timestamp_label=first.timestamp_label,
                 speaker_label=first.speaker_label,
                 speaker_key=first.speaker_key,
+                attribution_state=first.attribution_state,
+                processing_result_id=first.processing_result_id,
                 source_role=first.source_role,
                 text=" ".join(row.text.strip() for row in current if row.text.strip()),
                 source_segment_ids=[row.segment_id for row in current],
+                overlap=any(row.segment_id in overlap_ids for row in current),
                 confidence_label=first.confidence_label,
                 seekable=first.seekable,
                 seek_seconds=first.seek_seconds,
@@ -1944,9 +2006,11 @@ def _derive_speaker_turns(
         current.clear()
 
     for row, confirmed in rows:
-        if not confirmed or row.start_seconds < 0 or row.end_seconds < row.start_seconds:
+        if row.start_seconds < 0 or row.end_seconds < row.start_seconds:
             flush()
             continue
+        if confirmed and row.attribution_state == "unknown":
+            row = row.model_copy(update={"attribution_state": "confirmed"})
         if not current:
             current.append(row)
             continue
@@ -1954,7 +2018,13 @@ def _derive_speaker_turns(
         gap = Decimal(str(row.start_seconds)) - Decimal(str(previous.end_seconds))
         if (
             row.speaker_key == previous.speaker_key
-            and row.source_role == previous.source_role
+            and row.attribution_state == "confirmed"
+            and previous.attribution_state == "confirmed"
+            and (row.source_role_original or row.source_role)
+            == (previous.source_role_original or previous.source_role)
+            and row.processing_result_id == previous.processing_result_id
+            and row.segment_id not in overlap_ids
+            and previous.segment_id not in overlap_ids
             and Decimal("0") <= gap <= Decimal("1")
         ):
             current.append(row)
@@ -2076,8 +2146,8 @@ def mediascribe_speaker_labels_by_time(
     speaker_rows: list[DiarizationSegment],
 ) -> list[str]:
     if not speaker_rows:
-        return ["SPEAKER_00"] * len(segments)
-    labels = ["SPEAKER_00"] * len(segments)
+        return ["UNKNOWN"] * len(segments)
+    labels = ["UNKNOWN"] * len(segments)
     cursor = 0
     for index, segment in sorted(enumerate(segments), key=lambda item: segment_time_key(item[1])):
         own_label = mediascribe_speaker_label(getattr(segment, "speaker_label", None))
@@ -2116,7 +2186,7 @@ def nearest_speaker_label_at_midpoint(
         return (gap, abs(segment_midpoint(row) - midpoint), row.sequence, index)
 
     label = mediascribe_speaker_label(speaker_rows[min(candidate_indexes, key=rank)].speaker_label)
-    return label or "SPEAKER_00"
+    return label or "UNKNOWN"
 
 
 def segment_time_key(segment: TranscriptSegment | DiarizationSegment) -> tuple[float, float, int]:
@@ -2596,6 +2666,7 @@ def build_review_response(
     access: MeetingAccessState | None = None,
     share: SharePanelState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
+    content_exports: ContentExportCapabilityResponse | None = None,
     review_playback: PlaybackPreparationState | None = None,
     calendar_roster: CalendarRosterReviewState | None = None,
     calendar_context: RecordingCalendarContextLink | None = None,
@@ -2674,6 +2745,7 @@ def build_review_response(
         access=access_state,
         share=share,
         artifacts=artifact_states,
+        content_exports=content_exports,
         activity=activity,
         deletion_truth_copy=DELETION_TRUTH_COPY,
         assistant=slot_state("Assistant"),

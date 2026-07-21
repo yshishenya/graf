@@ -25,6 +25,8 @@ from twobrain_rec_server.cabinet.access import decide_meeting_access, share_pane
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
     artifact_egress_states,
+    content_export_capabilities,
+    current_outcome_set,
     review_playback_state,
 )
 from twobrain_rec_server.cabinet.view_models import (
@@ -612,6 +614,9 @@ async def get_cabinet_meeting_review(
         access=decision.to_schema(),
         share=await share_panel_state(db, meeting, decision),
         artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
+        content_exports=await content_export_capabilities(
+            db, meeting=meeting, access=decision, result=result
+        ),
         review_playback=await review_playback_state(
             db,
             meeting=meeting,
@@ -918,17 +923,11 @@ async def _latest_outcome_set(
     meeting_id: UUID,
     processing_result_id: UUID | None,
 ) -> MeetingOutcomeSet | None:
-    if processing_result_id is None:
-        return None
-    return await db.scalar(
-        select(MeetingOutcomeSet)
-        .where(
-            MeetingOutcomeSet.workspace_id == workspace_id,
-            MeetingOutcomeSet.meeting_id == meeting_id,
-            MeetingOutcomeSet.processing_result_id == processing_result_id,
-            MeetingOutcomeSet.lifecycle_state == "active",
-        )
-        .order_by(MeetingOutcomeSet.generated_at.desc(), MeetingOutcomeSet.created_at.desc())
+    return await current_outcome_set(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        processing_result_id=processing_result_id,
     )
 
 

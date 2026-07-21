@@ -134,13 +134,26 @@ def _render_governance(review: MeetingReviewResponse) -> str:
 
 
 def _render_top_actions(review: MeetingReviewResponse, *, embedded: bool) -> str:
+    content_export_available = review.content_exports is not None and (
+        review.content_exports.transcript.state == "available"
+        or review.content_exports.summary.state in {"available", "partial"}
+        or review.content_exports.combined.state == "available"
+    )
+    export_disabled = "" if content_export_available else "disabled"
+    export_button = (
+        f'<button type="button" {export_disabled} data-export-dialog-open '
+        f'aria-haspopup="dialog" aria-controls="content-export-dialog">'
+        f'{escape(_ui_text("Export"))}</button>'
+    )
     if embedded:
-        return f'<button type="button" disabled>{escape(_ui_text("Open in browser"))}</button>'
-    export_disabled = "disabled" if review.governance.export.state != "available" else ""
+        return (
+            f'<button type="button" disabled>{escape(_ui_text("Open in browser"))}</button>'
+            + export_button
+        )
     share_disabled = "disabled" if review.governance.share.state != "available" else ""
     return f"""
       <button type="button" disabled>{escape(_ui_text(review.template.label))}</button>
-      <button type="button" {export_disabled}>{escape(_ui_text(review.governance.export.label))}</button>
+      {export_button}
       <button type="button" {share_disabled}>{escape(_ui_text(review.governance.share.label))}</button>
       <button type="button" disabled>{escape(_ui_text("More"))}</button>
     """

@@ -446,6 +446,196 @@ async def _seed_probe_rows(engine: AsyncEngine) -> dict[str, UUID | str]:
     return ids
 
 
+async def _seed_content_export_rows(
+    engine: AsyncEngine,
+    ids: dict[str, UUID | str],
+) -> None:
+    async with engine.begin() as conn:
+        await apply_tenant_context_to_connection(
+            conn,
+            MaintenanceTenantContext(
+                operation_name="migration_verification",
+                actor_id="test_rls_postgres_policies",
+                reason_category="content_export_rls_seed",
+                feature_area="security",
+            ),
+        )
+        for label in ("a", "b"):
+            workflow_id = uuid4()
+            job_id = uuid4()
+            result_id = uuid4()
+            segment_id = uuid4()
+            outcome_set_id = uuid4()
+            ids[f"result_{label}"] = result_id
+            await conn.execute(
+                text(
+                    """
+                    insert into processing_workflows
+                        (id, meeting_id, workspace_id, workflow_id, status, attempt_count)
+                    values (:id, :meeting_id, :workspace_id, :workflow_id, 'completed', 1)
+                    """
+                ),
+                {
+                    "id": workflow_id,
+                    "meeting_id": ids[f"meeting_{label}"],
+                    "workspace_id": ids[f"workspace_{label}"],
+                    "workflow_id": f"rls-export-workflow-{label}-{ids['slug']}",
+                },
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into mediascribe_jobs
+                        (id, meeting_id, workspace_id, processing_workflow_id, status,
+                         request_mode, diarize, summarize)
+                    values
+                        (:id, :meeting_id, :workspace_id, :workflow_id, 'ready',
+                         'mixed', true, false)
+                    """
+                ),
+                {
+                    "id": job_id,
+                    "meeting_id": ids[f"meeting_{label}"],
+                    "workspace_id": ids[f"workspace_{label}"],
+                    "workflow_id": workflow_id,
+                },
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into processing_results
+                        (id, meeting_id, workspace_id, mediascribe_job_id, result_version,
+                         status, transcript_status, diarization_status, summary_status,
+                         language, segment_count, diarization_segment_count)
+                    values
+                        (:id, :meeting_id, :workspace_id, :job_id, 1, 'imported',
+                         'available', 'available', 'available', 'ru', 1, 1)
+                    """
+                ),
+                {
+                    "id": result_id,
+                    "meeting_id": ids[f"meeting_{label}"],
+                    "workspace_id": ids[f"workspace_{label}"],
+                    "job_id": job_id,
+                },
+            )
+            common = {
+                "workspace_id": ids[f"workspace_{label}"],
+                "meeting_id": ids[f"meeting_{label}"],
+                "result_id": result_id,
+            }
+            await conn.execute(
+                text(
+                    """
+                    insert into transcript_segments
+                        (id, processing_result_id, meeting_id, workspace_id, sequence,
+                         start_seconds, end_seconds, text, source_role)
+                    values
+                        (:id, :result_id, :meeting_id, :workspace_id, 0, 0, 1,
+                         'synthetic export rls text', 'incoming')
+                    """
+                ),
+                {**common, "id": segment_id},
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into diarization_segments
+                        (id, processing_result_id, meeting_id, workspace_id, sequence,
+                         start_seconds, end_seconds, speaker_label, text, source_role)
+                    values
+                        (:id, :result_id, :meeting_id, :workspace_id, 0, 0, 1,
+                         'speaker-a', 'synthetic export rls text', 'incoming')
+                    """
+                ),
+                {**common, "id": uuid4()},
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into meeting_speaker_names
+                        (id, workspace_id, meeting_id, speaker_key, display_name,
+                         updated_by_user_id)
+                    values
+                        (:id, :workspace_id, :meeting_id, 'speaker_00', 'Synthetic', :user_id)
+                    """
+                ),
+                {
+                    **common,
+                    "id": uuid4(),
+                    "user_id": ids[f"user_{label}"],
+                },
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into meeting_outcome_sets
+                        (id, workspace_id, meeting_id, processing_result_id, status,
+                         summary_state, key_points_state, decisions_state,
+                         action_items_state, followups_state, risks_state,
+                         questions_state, evidence_state, source_kind, generator_kind,
+                         generator_version, lifecycle_state)
+                    values
+                        (:id, :workspace_id, :meeting_id, :result_id, 'available',
+                         'available', 'not_found', 'not_found', 'not_found', 'not_found',
+                         'not_found', 'not_found', 'available', 'stored_output',
+                         'deterministic_extractive', 'rls-fixture-v1', 'active')
+                    """
+                ),
+                {**common, "id": outcome_set_id},
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into meeting_outcome_items
+                        (id, workspace_id, meeting_id, outcome_set_id, category,
+                         sequence, state, text, truth_label, source_refs_json)
+                    values
+                        (:id, :workspace_id, :meeting_id, :outcome_set_id, 'summary',
+                         0, 'available', 'synthetic summary', 'supported', '[]'::json)
+                    """
+                ),
+                {
+                    **common,
+                    "id": uuid4(),
+                    "outcome_set_id": outcome_set_id,
+                },
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into meeting_artifact_policies
+                        (id, workspace_id, meeting_id, audio_download,
+                         transcript_download, summary_download, package_export,
+                         policy_source)
+                    values
+                        (:id, :workspace_id, :meeting_id, 'disabled', 'allowed',
+                         'allowed', 'disabled', 'rls_fixture')
+                    """
+                ),
+                {**common, "id": uuid4()},
+            )
+            await conn.execute(
+                text(
+                    """
+                    insert into meeting_egress_audit_events
+                        (id, workspace_id, meeting_id, actor_user_id, device_id,
+                         event_type, artifact_class, policy_reason, outcome, metadata_json)
+                    values
+                        (:id, :workspace_id, :meeting_id, :user_id, :device_id,
+                         'content_export_completed', 'transcript', 'policy_allowed',
+                         'completed', '{}'::json)
+                    """
+                ),
+                {
+                    **common,
+                    "id": uuid4(),
+                    "user_id": ids[f"user_{label}"],
+                    "device_id": ids[f"device_{label}"],
+                },
+            )
+
+
 async def _seed_normalization_rows(
     migration_url: str,
     ids: dict[str, UUID | str],
@@ -572,6 +762,84 @@ async def test_same_tenant_and_cross_tenant_reads_follow_workspace_context(
 
     assert visible_count == 1
     assert foreign_count == 0
+
+
+@pytest.mark.asyncio
+async def test_content_export_sources_and_audit_sink_are_tenant_isolated(
+    rls_engine: AsyncEngine,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    await _seed_content_export_rows(rls_engine, ids)
+    export_tables = (
+        "transcript_segments",
+        "diarization_segments",
+        "meeting_speaker_names",
+        "meeting_outcome_sets",
+        "meeting_outcome_items",
+        "meeting_artifact_policies",
+        "meeting_egress_audit_events",
+    )
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        visible_counts = {
+            table_name: await conn.scalar(text(f"select count(*) from {table_name}"))
+            for table_name in export_tables
+        }
+        foreign_counts = {
+            table_name: await conn.scalar(
+                text(f"select count(*) from {table_name} where workspace_id=:workspace_id"),
+                {"workspace_id": ids["workspace_b"]},
+            )
+            for table_name in export_tables
+        }
+        await conn.execute(
+            text(
+                """
+                insert into meeting_egress_audit_events
+                    (id, workspace_id, meeting_id, actor_user_id, device_id,
+                     event_type, artifact_class, policy_reason, outcome, metadata_json)
+                values
+                    (:id, :workspace_id, :meeting_id, :user_id, :device_id,
+                     'content_export_requested', 'transcript', 'policy_allowed',
+                     'allowed', '{}'::json)
+                """
+            ),
+            {
+                "id": uuid4(),
+                "workspace_id": ids["workspace_a"],
+                "meeting_id": ids["meeting_a"],
+                "user_id": ids["user_a"],
+                "device_id": ids["device_a"],
+            },
+        )
+
+    assert visible_counts == {table_name: 1 for table_name in export_tables}
+    assert foreign_counts == {table_name: 0 for table_name in export_tables}
+
+    async with rls_engine.begin() as conn:
+        await apply_tenant_context_to_connection(conn, _request_context(ids, "a"))
+        with pytest.raises(DBAPIError, match="row-level security|violates"):
+            await conn.execute(
+                text(
+                    """
+                    insert into meeting_egress_audit_events
+                        (id, workspace_id, meeting_id, actor_user_id, device_id,
+                         event_type, artifact_class, policy_reason, outcome, metadata_json)
+                    values
+                        (:id, :workspace_id, :meeting_id, :user_id, :device_id,
+                         'content_export_requested', 'transcript', 'policy_allowed',
+                         'allowed', '{}'::json)
+                    """
+                ),
+                {
+                    "id": uuid4(),
+                    "workspace_id": ids["workspace_b"],
+                    "meeting_id": ids["meeting_b"],
+                    "user_id": ids["user_b"],
+                    "device_id": ids["device_b"],
+                },
+            )
 
 
 @pytest.mark.asyncio

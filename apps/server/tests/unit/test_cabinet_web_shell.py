@@ -6,6 +6,9 @@ from twobrain_rec_server.api.schemas import (
     ArtifactDeletionState,
     ArtifactEgressState,
     CalendarContextCandidateView,
+    ContentExportCapabilityResponse,
+    ContentExportDefaults,
+    ContentExportReadiness,
     DeletionVerificationReport,
     GovernanceActionState,
     GovernanceActionSummary,
@@ -1960,6 +1963,62 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
     assert 'data-playback-skip="15"' in page
     assert 'data-seek-seconds="12.5"' in page
     assert "seekTo(seekSeconds, { autoplay: true })" in _cabinet_js()
+
+
+def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog() -> None:
+    review = _review()
+    result_id = uuid4()
+    review.content_exports = ContentExportCapabilityResponse(
+        processing_result_id=result_id,
+        outcome_set_id=None,
+        transcript=ContentExportReadiness(state="available"),
+        summary=ContentExportReadiness(state="missing", reason="stored_summary_missing"),
+        combined=ContentExportReadiness(
+            state="missing", reason="combined_components_unavailable"
+        ),
+        formats={
+            "transcript": ["txt", "md", "csv", "xlsx", "json", "srt"],
+            "summary": ["txt", "md", "xlsx", "json"],
+            "combined": ["txt", "md", "xlsx", "json"],
+        },
+        defaults=ContentExportDefaults(),
+        language="ru",
+        duration_seconds=3661,
+    )
+
+    page = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
+
+    assert page.count("data-export-dialog-open") == 1
+    assert 'aria-controls="content-export-dialog"' in page
+    assert 'aria-labelledby="content-export-title"' in page
+    assert 'id="content-export-title" tabindex="-1" data-export-dialog-title' in page
+    assert 'data-export-formats-transcript="txt,md,csv,xlsx,json,srt"' in page
+    assert f'data-processing-result-id="{result_id}"' in page
+    assert "01:01" in page
+    assert "Саммари · недоступно" in page
+    assert "· partial" not in page
+    assert "только на время ответа" in page
+    assert "Уже скачанная копия" in page
+    assert "SAFE_TRANSCRIPT_TEXT" not in page
+    assert "data-export-status" in page
+    assert "aria-live=\"polite\"" in page
+    assert page.count("<optgroup") == 4
+    assert "data-export-preview-format" in page
+    assert "data-export-preview-readiness" in page
+    assert "data-export-preview-summary-revision" in page
+    assert "data-export-preview-purpose" in page
+    assert "data-export-preview-evidence" in page
+    assert "data-export-copy" in page
+    assert "setBusy(true)" in _cabinet_js()
+    assert 'requestExport("txt")' in _cabinet_js()
+    assert "navigator.clipboard.writeText" in _cabinet_js()
+    assert "export_generation_failed" in _cabinet_js()
+    assert "audit_unavailable" in _cabinet_js()
+    assert 'document.createElement("optgroup")' in _cabinet_js()
+    assert "URL.createObjectURL(blob)" in _cabinet_js()
+    assert "returnFocus?.isConnected" in _cabinet_js()
+    assert "@media (prefers-reduced-motion: reduce)" in _cabinet_css()
+    assert "@media (forced-colors: active)" in _cabinet_css()
 
 
 def test_deletion_report_shell_renders_metadata_only_lifecycle_truth() -> None:

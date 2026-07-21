@@ -89,6 +89,41 @@ def test_safe_audit_metadata_for_stream_prepared_keeps_bounded_range_fields() ->
     }
 
 
+def test_safe_audit_metadata_for_content_export_keeps_revision_tokens_not_content() -> None:
+    metadata = safe_audit_metadata(
+        {
+            "content_scope": "combined",
+            "format": "json",
+            "processing_result_id": "safe-result-id",
+            "outcome_set_id": "safe-outcome-id",
+            "revision_token": "safe-revision-token",
+            "revision_fingerprint": "a" * 64,
+            "schema_version": "graf.transcript-export.v1",
+            "renderer_version": "export-v1",
+            "turn_policy_version": "canonical-turns-v2",
+            "byte_length": 2048,
+            "transcript_text": "private transcript",
+            "summary_text": "private summary",
+            "speaker_label": "private person",
+            "source_references": ["private-id"],
+            "storage_object_key": "private/path",
+        }
+    )
+
+    assert metadata == {
+        "content_scope": "combined",
+        "format": "json",
+        "processing_result_id": "safe-result-id",
+        "outcome_set_id": "safe-outcome-id",
+        "revision_token": "[REDACTED]",
+        "revision_fingerprint": "a" * 64,
+        "schema_version": "graf.transcript-export.v1",
+        "renderer_version": "export-v1",
+        "turn_policy_version": "canonical-turns-v2",
+        "byte_length": 2048,
+    }
+
+
 def test_transcript_download_state_requires_available_status_and_segments() -> None:
     access = AccessDecision(
         state="owner",

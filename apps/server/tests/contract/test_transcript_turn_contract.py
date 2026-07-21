@@ -45,6 +45,8 @@ def test_transcript_contract_keeps_raw_segments_and_adds_speaker_turns() -> None
     assert payload["segments"][0]["text"] == "synthetic raw text"
     assert payload["speaker_turns"][0]["turn_id"] == "raw-segment-1"
     assert payload["speaker_turns"][0]["speaker_key"] == "speaker_00"
+    assert payload["speaker_turns"][0]["attribution_state"] == "unknown"
+    assert payload["speaker_turns"][0]["overlap"] is False
     assert payload["speaker_turns"][0]["source_segment_ids"] == [
         "raw-segment-1",
         "raw-segment-2",

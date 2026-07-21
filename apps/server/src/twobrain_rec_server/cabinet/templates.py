@@ -38,6 +38,7 @@ TRUSTED_HTML_SOURCES = frozenset(
         "meeting_detail.calendar_context",
         "meeting_detail.calendar_context_chooser",
         "meeting_detail.content",
+        "meeting_detail.content_export_dialog",
         "meeting_detail.delete_confirmation",
         "meeting_detail.empty_transcript",
         "meeting_detail.governance",

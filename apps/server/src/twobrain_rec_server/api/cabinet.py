@@ -20,6 +20,8 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     AccessState,
     ArtifactClass,
+    ContentExportCapabilityResponse,
+    ContentExportSelectionRequest,
     CreateDeletionRequest,
     CreateExportPackageRequest,
     CreateShareGrantRequest,
@@ -64,11 +66,14 @@ from twobrain_rec_server.cabinet.deletion_rendering import render_deletion_feedb
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
     artifact_egress_states,
+    content_export_capabilities,
+    create_content_export,
     create_export_package,
     download_artifact,
     export_package_bytes,
     playback_artifact,
 )
+from twobrain_rec_server.cabinet.exports import MEDIA_TYPES, ExportSelection
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
     latest_processing_result,
@@ -671,6 +676,105 @@ async def download_meeting_artifact_route(
     )
 
 
+@router.get(
+    "/cabinet/meetings/{meeting_id}/content-exports",
+    response_model=ContentExportCapabilityResponse,
+    operation_id="getMeetingContentExportCapabilities",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_meeting_content_export_capabilities_route(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> ContentExportCapabilityResponse:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    meeting, decision = await _authorized_content_export_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    result = await latest_processing_result(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id
+    )
+    return await content_export_capabilities(
+        db, meeting=meeting, access=decision, result=result
+    )
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/content-exports",
+    operation_id="createMeetingContentExport",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "Revision-pinned content export",
+            "content": {
+                media_type: {"schema": {"type": "string", "format": "binary"}}
+                for media_type in dict.fromkeys(
+                    value.partition(";")[0] for value in MEDIA_TYPES.values()
+                )
+            },
+        }
+    },
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def create_meeting_content_export_route(
+    meeting_id: UUID,
+    payload: ContentExportSelectionRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    meeting, decision = await _authorized_content_export_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    result = await latest_processing_result(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id
+    )
+    generated = await create_content_export(
+        db,
+        meeting=meeting,
+        access=decision,
+        result=result,
+        selection=ExportSelection(
+            content_scope=payload.content_scope,
+            format=payload.format,
+            processing_result_id=payload.processing_result_id,
+            outcome_set_id=payload.outcome_set_id,
+            include_speaker_labels=payload.include_speaker_labels,
+            include_timestamps=payload.include_timestamps,
+            include_evidence=payload.include_evidence,
+        ),
+        actor_user_id=principal.user_id,
+        device_id=device.device_id,
+    )
+    await db.commit()
+    filename = generated.filename
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}'
+        ),
+        "Content-Length": str(generated.byte_length),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store",
+        "Pragma": "no-cache",
+    }
+    return Response(content=generated.body, media_type=generated.media_type, headers=headers)
+
+
 @router.post(
     "/cabinet/meetings/{meeting_id}/exports",
     response_model=ExportPackageResponse,
@@ -856,6 +960,40 @@ async def _authorized_meeting(
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
     )
+    if not decision.can_view:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return meeting, decision
+
+
+async def _authorized_content_export_meeting(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    viewer_user_id: UUID,
+):
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == meeting_id,
+        )
+    )
+    if meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    decision = await decide_meeting_access(
+        db,
+        meeting,
+        workspace_id=workspace_id,
+        viewer_user_id=viewer_user_id,
+    )
+    if decision.state == "deleted":
+        await _authorized_lifecycle_meeting(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            viewer_user_id=viewer_user_id,
+        )
+        return meeting, decision
     if not decision.can_view:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return meeting, decision

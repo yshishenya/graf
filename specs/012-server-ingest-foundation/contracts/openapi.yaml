@@ -2500,8 +2500,8 @@ paths:
           description: Validation error
           content:
             application/json:
-                schema:
-                  $ref: '#/components/schemas/Problem'
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/product-analytics/posthog-web-capture:
     post:
       tags:
@@ -2522,8 +2522,8 @@ paths:
               schema:
                 additionalProperties: true
                 type: object
-                title: Response Product Analytics Posthog Web Capture Api V1 Product Analytics
-                  Posthog Web Capture Post
+                title: Response Product Analytics Posthog Web Capture Api V1 Product
+                  Analytics Posthog Web Capture Post
         '400':
           description: Bad request
           content:
@@ -6740,6 +6740,166 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/content-exports:
+    get:
+      tags:
+      - cabinet
+      summary: Get Meeting Content Export Capabilities Route
+      operationId: getMeetingContentExportCapabilities
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentExportCapabilityResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cabinet
+      summary: Create Meeting Content Export Route
+      operationId: createMeetingContentExport
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentExportSelectionRequest'
+      responses:
+        '200':
+          description: Revision-pinned content export
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: binary
+            text/markdown:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                type: string
+                format: binary
+            application/x-subrip:
+              schema:
+                type: string
+                format: binary
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}/exports:
     post:
       tags:
@@ -8003,6 +8163,150 @@ components:
       - provider_family
       - auth_mode
       title: ConnectCalendarSourceRequest
+    ContentExportCapabilityResponse:
+      properties:
+        processing_result_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Processing Result Id
+        outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Outcome Set Id
+        transcript:
+          $ref: '#/components/schemas/ContentExportReadiness'
+        summary:
+          $ref: '#/components/schemas/ContentExportReadiness'
+        combined:
+          $ref: '#/components/schemas/ContentExportReadiness'
+        formats:
+          additionalProperties:
+            items:
+              type: string
+              enum:
+              - txt
+              - md
+              - csv
+              - xlsx
+              - json
+              - srt
+            type: array
+          propertyNames:
+            enum:
+            - transcript
+            - summary
+            - combined
+          type: object
+          title: Formats
+        defaults:
+          $ref: '#/components/schemas/ContentExportDefaults'
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        duration_seconds:
+          type: integer
+          title: Duration Seconds
+      type: object
+      required:
+      - transcript
+      - summary
+      - combined
+      - formats
+      - duration_seconds
+      title: ContentExportCapabilityResponse
+    ContentExportDefaults:
+      properties:
+        include_speaker_labels:
+          type: boolean
+          title: Include Speaker Labels
+          default: true
+        include_timestamps:
+          type: boolean
+          title: Include Timestamps
+          default: true
+        include_evidence:
+          type: boolean
+          title: Include Evidence
+          default: true
+      type: object
+      title: ContentExportDefaults
+    ContentExportReadiness:
+      properties:
+        state:
+          type: string
+          enum:
+          - available
+          - processing
+          - partial
+          - missing
+          - denied
+          - deletion_in_progress
+          - failed
+          - audit_unavailable
+          title: State
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      required:
+      - state
+      title: ContentExportReadiness
+    ContentExportSelectionRequest:
+      properties:
+        content_scope:
+          type: string
+          enum:
+          - transcript
+          - summary
+          - combined
+          title: Content Scope
+        format:
+          type: string
+          enum:
+          - txt
+          - md
+          - csv
+          - xlsx
+          - json
+          - srt
+          title: Format
+        processing_result_id:
+          type: string
+          format: uuid
+          title: Processing Result Id
+        outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Outcome Set Id
+        include_speaker_labels:
+          type: boolean
+          title: Include Speaker Labels
+          default: true
+        include_timestamps:
+          type: boolean
+          title: Include Timestamps
+          default: true
+        include_evidence:
+          type: boolean
+          title: Include Evidence
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - content_scope
+      - format
+      - processing_result_id
+      title: ContentExportSelectionRequest
     CreateDeletionRequest:
       properties:
         confirmation_boundary:
@@ -10474,6 +10778,10 @@ components:
             $ref: '#/components/schemas/ArtifactEgressState'
           type: array
           title: Artifacts
+        content_exports:
+          anyOf:
+          - $ref: '#/components/schemas/ContentExportCapabilityResponse'
+          - type: 'null'
         activity:
           anyOf:
           - $ref: '#/components/schemas/MeetingActivityResponse'
@@ -11184,6 +11492,124 @@ components:
           title: Included Sources
       type: object
       title: PlaybackReviewState
+    PostHogAutocaptureEventRequest:
+      properties:
+        distinct_id:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Distinct Id
+        event_type:
+          type: string
+          enum:
+          - ready
+          - pageview
+          - click
+          title: Event Type
+          default: pageview
+        page_class:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Page Class
+        path_class:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Path Class
+        tag_name:
+          anyOf:
+          - type: string
+            maxLength: 24
+          - type: 'null'
+          title: Tag Name
+        role:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Role
+        analytics_action:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Analytics Action
+        analytics_target:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Analytics Target
+        identity_state:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Identity State
+        workspace_pseudonym:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Workspace Pseudonym
+        device_class:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Device Class
+        sensitivity:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Sensitivity
+        source:
+          type: string
+          maxLength: 80
+          title: Source
+          default: browser_autocapture
+      type: object
+      required:
+      - page_class
+      title: PostHogAutocaptureEventRequest
+    PostHogDesktopCaptureRequest:
+      properties:
+        event:
+          type: string
+          minLength: 1
+          title: Event
+        distinct_id:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Distinct Id
+        timestamp:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Timestamp
+        telemetry_gate_state:
+          type: string
+          title: Telemetry Gate State
+          default: accepted
+        properties:
+          additionalProperties: true
+          type: object
+          title: Properties
+        api_key_state:
+          type: string
+          title: Api Key State
+          default: server_injected_redacted
+      type: object
+      required:
+      - event
+      - distinct_id
+      title: PostHogDesktopCaptureRequest
     PreviousRecurringMeetingReadiness:
       type: string
       enum:
@@ -12112,6 +12538,20 @@ components:
           type: string
           title: Speaker Key
           default: ''
+        attribution_state:
+          type: string
+          enum:
+          - confirmed
+          - unconfirmed
+          - unknown
+          title: Attribution State
+          default: unknown
+        processing_result_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Processing Result Id
         confidence_label:
           anyOf:
           - type: string
@@ -12173,11 +12613,29 @@ components:
           type: string
           title: Speaker Key
           default: ''
+        attribution_state:
+          type: string
+          enum:
+          - confirmed
+          - unconfirmed
+          - unknown
+          title: Attribution State
+          default: unknown
+        processing_result_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Processing Result Id
         source_segment_ids:
           items:
             type: string
           type: array
           title: Source Segment Ids
+        overlap:
+          type: boolean
+          title: Overlap
+          default: false
         confidence_label:
           anyOf:
           - type: string
@@ -12425,121 +12883,3 @@ components:
       - require_ru_local
       - residency_region_tag
       title: _ResidencyState
-    PostHogAutocaptureEventRequest:
-      properties:
-        distinct_id:
-          anyOf:
-          - type: string
-            maxLength: 120
-          - type: 'null'
-          title: Distinct Id
-        event_type:
-          type: string
-          enum:
-          - ready
-          - pageview
-          - click
-          title: Event Type
-          default: pageview
-        page_class:
-          type: string
-          maxLength: 80
-          minLength: 1
-          title: Page Class
-        path_class:
-          anyOf:
-          - type: string
-            maxLength: 80
-          - type: 'null'
-          title: Path Class
-        tag_name:
-          anyOf:
-          - type: string
-            maxLength: 24
-          - type: 'null'
-          title: Tag Name
-        role:
-          anyOf:
-          - type: string
-            maxLength: 80
-          - type: 'null'
-          title: Role
-        analytics_action:
-          anyOf:
-          - type: string
-            maxLength: 80
-          - type: 'null'
-          title: Analytics Action
-        analytics_target:
-          anyOf:
-          - type: string
-            maxLength: 80
-          - type: 'null'
-          title: Analytics Target
-        identity_state:
-          anyOf:
-          - type: string
-            maxLength: 80
-          - type: 'null'
-          title: Identity State
-        workspace_pseudonym:
-          anyOf:
-          - type: string
-            maxLength: 120
-          - type: 'null'
-          title: Workspace Pseudonym
-        device_class:
-          anyOf:
-          - type: string
-            maxLength: 80
-          - type: 'null'
-          title: Device Class
-        sensitivity:
-          anyOf:
-          - type: string
-            maxLength: 40
-          - type: 'null'
-          title: Sensitivity
-        source:
-          type: string
-          maxLength: 80
-          title: Source
-          default: browser_autocapture
-      type: object
-      required:
-      - page_class
-      title: PostHogAutocaptureEventRequest
-    PostHogDesktopCaptureRequest:
-      properties:
-        event:
-          type: string
-          minLength: 1
-          title: Event
-        distinct_id:
-          type: string
-          maxLength: 120
-          minLength: 1
-          title: Distinct Id
-        timestamp:
-          anyOf:
-          - type: string
-            format: date-time
-          - type: 'null'
-          title: Timestamp
-        telemetry_gate_state:
-          type: string
-          title: Telemetry Gate State
-          default: accepted
-        properties:
-          additionalProperties: true
-          type: object
-          title: Properties
-        api_key_state:
-          type: string
-          title: Api Key State
-          default: server_injected_redacted
-      type: object
-      required:
-      - event
-      - distinct_id
-      title: PostHogDesktopCaptureRequest
