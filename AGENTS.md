@@ -132,7 +132,7 @@ Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/119-expand-meeting-app-registry/plan.md
+at specs/121-recording-workflows/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking And GitHub Issues
@@ -181,7 +181,13 @@ Non-negotiable reminders:
   one-action stop is always available.
 - Desktop app never sends audio directly to MediaScribe and never stores
   MediaScribe credentials.
-- Langfuse traces are metadata-only by default.
+- Langfuse and the retained Generation Call ledger intentionally retain the
+  complete plaintext transcript and model request/response/result, while
+  Temporal History intentionally retains the complete plaintext transcript for
+  internal-MVP observability. Do not add transcript encryption, redaction,
+  masking, truncation, or GRAF-managed trace/history deletion unless a later
+  approved feature changes this policy. Committed evidence and screenshots still
+  exclude meeting content.
 - Deletion copy must not promise universal erasure outside `GRAF` control.
 - UI must be clean-room and pass brand-distance review.
 
