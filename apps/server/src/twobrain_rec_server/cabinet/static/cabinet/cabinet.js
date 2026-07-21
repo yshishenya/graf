@@ -200,7 +200,7 @@
             await submitDeletionForm(form);
             const checkbox = row.querySelector("[data-meeting-select]");
             if (checkbox) checkbox.checked = false;
-            row.dataset.deletionRequested = "true";
+            row.remove();
           } catch (_err) {
             failedRows.push(row);
           }

@@ -45,11 +45,8 @@ def render_deletion_report_fragment(
     )
 
 
-def render_deletion_feedback_fragment(*, report_url: str) -> str:
-    return render_template(
-        "cabinet/fragments/deletion_feedback.html",
-        report_url=report_url,
-    )
+def render_deletion_feedback_fragment() -> str:
+    return render_template("cabinet/fragments/deletion_feedback.html")
 
 
 def _render_deletion_report_content(

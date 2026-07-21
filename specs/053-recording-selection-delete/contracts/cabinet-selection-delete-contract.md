@@ -30,7 +30,11 @@ Expected successful response:
 
 - HTTP `202`
 - Existing deletion lifecycle response
-- Meeting leaves the active owner list after refresh or client removal
+- The owner web flow stays on the meeting list and removes the accepted meeting from the active list without opening a deletion report.
+- The short user-facing feedback contains: `Запись удалена из списка.` and `Очистка данных GRAF продолжается.`
+- The user-facing feedback contains no report URL or report link.
+
+The detailed deletion report and API `report_url` remain available only through their existing direct diagnostic/operator paths; they are not part of the owner list confirmation flow.
 
 Expected failure behavior:
 
@@ -48,3 +52,4 @@ Required visible Russian copy:
 - Bounded deletion sentence includes: `2brain Rec`
 - Cancel button: `Отмена`
 - Confirm button: `Удалить`
+- Accepted request status: `Запись удалена из списка.` and `Очистка данных GRAF продолжается.`

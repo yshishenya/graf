@@ -24,3 +24,5 @@
 - [x] CHK008 Are keyboard and screen-reader requirements specified for selection and delete controls? [Coverage, Spec §FR-012]
 - [x] CHK009 Are disappearing rows and partial batch failure addressed as edge cases? [Edge Case, Spec §Edge Cases]
 - [x] CHK010 Are metadata-only evidence boundaries specified for runtime proof? [Security/Privacy, Spec §SC-007]
+- [x] CHK011 Is the distinction between concise owner feedback and the separate lifecycle report explicit? [Scope, Spec §FR-016-017]
+- [x] CHK012 Is the accepted-delete outcome measurable as list retention plus row removal without a report hand-off? [Measurability, Spec §SC-008]
