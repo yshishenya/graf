@@ -140,8 +140,9 @@ archive-before-appcast publication.  Bitwarden is not an automated signer and
 is never read by CI or the application.
 
 **Consequence**: T034 is superseded as an unavailable cloud setup task.  T037
-tracks the remaining owner-only release proof; a later plan upgrade can reopen
-the protected two-channel path without rotating the active public key.
+closes the owner-only release proof for the current lane; a later plan upgrade
+can reopen the protected two-channel path without rotating the active public
+key.
 
 ## Sources
 

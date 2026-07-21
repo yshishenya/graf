@@ -32,8 +32,9 @@ This lane is explicitly degraded.  It requires exact tag/provenance, a fresh
 metadata-only Keychain attestation, explicit owner approval, unchanged public
 manifest/app/feed identity, and archive-before-appcast publication.  T034 is
 therefore a completed scope decision rather than a claim that the unavailable
-reviewer gate was configured.  T037 owns the remaining owner-only release
-evidence; the protected cloud path remains a future reactivation option.
+reviewer gate was configured.  T037 closes the owner-only release evidence for
+the current lane; the protected cloud path remains a future reactivation
+option.
 
 ## Technical Context
 

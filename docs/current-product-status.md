@@ -1,6 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-07-20
+Date: 2026-07-21
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
@@ -56,6 +56,15 @@ metadata-only evidence остаются подробной историей ре
   bootstrap. This owner-only self-signed channel is not public Developer ID
   distribution; notarization, stapling, public Gatekeeper proof, and signing-
   identity migration remain deferred until Apple Developer access is available.
+- Feature `109-release-signing-key-custody` is closed for the current private
+  repository lane through [T037 / issue #3911](https://github.com/yshishenya/crisp/issues/3911)
+  and [release `v2026.07.21.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.3).
+  The immutable tag is pinned to exact `origin/master` commit
+  `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`; fresh Keychain evidence is
+  metadata-only and explicitly degraded. Versioned ZIP/pkg/checksum were
+  verified and published before the signed appcast, then the public files were
+  fetched and checked again. The protected reviewer and Developer ID/notarized
+  paths remain future migration work, and Bitwarden is recovery-only.
 - Feature `095-macos-permission-retention` is implemented for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted

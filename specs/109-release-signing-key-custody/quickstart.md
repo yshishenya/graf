@@ -165,7 +165,8 @@ clean detached release worktree. The metadata-only receipt is:
 No tag, package, active-key enrollment, protected environment, public appcast,
 or remote release asset was created or changed. T034 is now the recorded scope
 decision; T035 is closed by the physical receipt below, T036 is closed by the
-normal-update receipt, and T037 remains a separate release gate.
+normal-update receipt, and T037 is closed by the owner-only publication receipt
+at the end of this document.
 
 ## Решение для приватного репозитория без платного GitHub — 2026-07-20
 
@@ -193,8 +194,8 @@ HTTP 422, потому что текущий тариф не поддержив�
 
 Решение закрывает исходный T034 как superseded: полноценный protected reviewer
 gate недоступен на текущем тарифе и не объявляется настроенным. T035 и T036
-закрыты отдельными receipts ниже; T037 не объявляется выполненным по этому
-решению. Текущий release lane использует
+закрыты отдельными receipts ниже, а T037 закрыт отдельным owner-only
+publication receipt. Текущий release lane использует
 только named Keychain signer с явным degraded approval; копия в Bitwarden
 остаётся ручным recovery backup и не читается автоматически. Если позже
 появится поддержка reviewer approval, cloud-путь можно вернуть без изменения
@@ -209,7 +210,7 @@ gate недоступен на текущем тарифе и не объявл�
   metadata-only `keyId`;
 - T034 переведён в завершённое состояние решения и superseded закрытие issue;
   bootstrap proof закрыт отдельным T035 receipt, а owner-only release/update
-  proof остаётся в T037;
+  proof подтверждён в T037;
 - в Git, issue и evidence нет приватного ключа, секрета или локального пути.
 
 ## T035 physical bootstrap + normal updater receipt — 2026-07-21
@@ -230,8 +231,9 @@ gate недоступен на текущем тарифе и не объявл�
   Sparkle UI: `manual_check_requested`, `user_choice_install`, download,
   `install_requested` и новый `app_update.started`; далее в app log есть
   штатные старты `2026.07.20.2`–`2026.07.20.9` с сохранёнными разрешениями;
-- текущий публичный appcast содержит только `2026.07.20.1`, а установленное
-  приложение — `2026.07.20.2`; поэтому повторная проверка через «Проверить
+- на момент этого T035 receipt публичный appcast содержал только
+  `2026.07.20.1`, а установленное приложение — `2026.07.20.2`; поэтому
+  повторная проверка через «Проверить
   обновления…» дала `app_update.manual_check_requested` → `app_update.current`,
   корректно не предложила downgrade и новый пакет не ставился;
 - текущий bundle `pro.2brain.graf` сохраняет активный public-key id и прежний
@@ -241,7 +243,7 @@ gate недоступен на текущем тарифе и не объявл�
 Таким образом, первый переход на новый trust anchor подтверждён единственным
 ручным bootstrap, а обычные последующие обновления — штатным Sparkle updater.
 T035 закрыт. Публикация двух новых versioned assets подтверждена в T036, а
-отдельное owner-only release-attestation остаётся в T037.
+отдельное owner-only release-attestation подтверждено в T037.
 
 ## T036 two normal update receipt — 2026-07-21
 
@@ -257,7 +259,7 @@ transcript data не сохраняются.
   appcast, checksum и metadata-only attestation;
 - [release `v2026.07.21.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.1)
   содержит `GRAF-2026.07.21.1.zip`, `graf-appcast.xml` и checksum assets;
-  публичный appcast сейчас предлагает `2026.07.21.1`;
+  на момент T036 receipt публичный appcast предлагал `2026.07.21.1`;
 - первая штатная установка: `2026.07.18.3 → 2026.07.20.1`, события
   `user_choice_install`, download, `install_requested` и
   `app_update.started`, после relaunch — `microphone=granted
@@ -266,7 +268,7 @@ transcript data не сохраняются.
   `user_choice_install` в `23:14:24Z`, `download_finished`,
   `install_requested` и `app_update.started` в `23:14:34Z`, после relaunch —
   тот же permission state;
-- текущая установка подтверждена bundle `pro.2brain.graf`, версией
+- вторая установка завершилась на bundle `pro.2brain.graf`, версии
   `2026.07.21.1`, сохранённым designated requirement и активным Sparkle
   public key. После установки один follow-up download check записал
   `SUDownloadError=2001`, затем ручная проверка вернула
@@ -274,31 +276,57 @@ transcript data не сохраняются.
 
 T036 закрыт: две строго возрастающие normal updates прошли через Sparkle,
 release assets опубликованы после подготовки архива/appcast, а metadata-only
-proof сохранён. Owner-only release attestation остаётся отдельным T037.
+proof сохранён. Owner-only release attestation подтверждён отдельным T037.
 
-## T037 owner-only staging receipt — 2026-07-21
+## T037 owner-only publication receipt — 2026-07-21
 
-Это частичный receipt локального degraded lane. Он не объявляет T037
-выполненным и не содержит приватного ключа, секрета, живого пути, raw audio или
-transcript data.
+Это полный metadata-only receipt текущего degraded owner-only lane. Он не
+содержит приватного ключа, секрета, живого пути, raw audio или transcript data.
 
+- exact release tag `v2026.07.21.3` имеет remote peeled commit
+  `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`, совпадающий с `origin/master` на
+  момент staging; GitHub Release опубликован по адресу
+  [v2026.07.21.3](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.3);
+- во время подготовки `origin/master` получил docs-only merge-коммиты. Тег
+  `v2026.07.21.2` не переписывался, а его release/public assets не
+  публиковались, поэтому для фактической
+  выкладки выбран следующий свободный higher-CalVer `v2026.07.21.3`;
 - active manifest и именованный Keychain `graf-release-signing` совпали по
   `keyId=sha256:63c373b20f82851a6b4443bad2100eede5d50d897ed2aaf9fa8c94db56e4ecce`;
-- свежая Keychain attestation для `v2026.07.21.1` прошла локальный verifier:
-  `channel=macos-keychain`, `state=ready`, `trustGeneration=1`, commit
-  `5a53cbb29377a62b99ef5e9e79a0f873fb2d1403`;
-- `prepare-app-update.sh` с `GRAF_RELEASE_SIGNING_MODE=keychain`, безопасным
-  degraded approval identifier и теми же candidate/previous apps прошёл обе
-  проверки `archive=no appcast=no` → `archive=yes appcast=yes`; результат
-  `signer=keychain`, `published=no`;
-- exact tag и его remote peeled commit проверены отдельно; строгий режим
-  `GRAF_REQUIRE_RELEASE_PROVENANCE=1` намеренно отказался от staging, потому
-  что после публикации `v2026.07.21.1` в `master` вошли последующие receipt-only
-  commits и tag больше не равен изменяемому `origin/master`.
+- свежая Keychain attestation прошла локальный verifier с полями
+  `checkedAt=2026-07-20T23:54:19Z`, `releaseRef=v2026.07.21.3`,
+  `channel=macos-keychain`, `state=ready`, `trustGeneration=1`,
+  `workflow=verify-release-signing-custody-local` и тем же commit;
+- staging запускался с `GRAF_RELEASE_SIGNING_MODE=keychain`,
+  `GRAF_REQUIRE_RELEASE_PROVENANCE=1`,
+  `GRAF_RELEASE_SIGNING_APPROVED_DEGRADED_FALLBACK=1` и безопасным approval
+  identifier `t037-owner-20260721-3`. Результат helper:
+  `signer=keychain`, `custody=degraded`, `published=no`;
+- полный `infra/scripts/ci-local.sh` на release train прошёл: 583 macOS-теста,
+  1 945 серверных тестов и 34 строгих PostgreSQL-проверки; по одному тесту в
+  каждом наборе были штатно пропущены;
+- локальные artifacts прошли Sparkle signature verification, owner-only
+  update validator, ZIP integrity и package expansion без установки. Версии
+  distribution/component/bundle совпали с `2026.07.21.3`, bundle identity
+  осталась `pro.2brain.graf`;
+- локальный receipt зафиксировал: ZIP `3 669 703` bytes,
+  SHA-256 `4aad5495b079f8b075981c8e654820133b315aad417496f143d51e4d15c82a77`;
+  pkg `3 464 655` bytes, SHA-256
+  `1e27c0ee6b090ac67f53bacb67b97d243b341cfd9d99f7aed67ea71d47cb1c6b`;
+  appcast `6 819` bytes, SHA-256
+  `6d0dbadeceb066756521b00f80cfc5175e6d7b903445da294bb85ff22d5e2cd0`;
+- на public host сначала были загружены versioned ZIP, pkg и checksum, затем
+  проверены их remote SHA-256 и ZIP integrity. Предыдущий appcast сохранён как
+  recoverable backup, после чего новый `graf-appcast.xml` заменён атомарно;
+- повторное публичное чтение всех четырёх файлов прошло: checksum, ZIP,
+  appcast signature и archive signature совпали; appcast содержит два item,
+  предлагает `2026.07.21.3`, а enclosure length `3 669 703` совпадает с
+  публичным ZIP;
+- Bitwarden остаётся только offline recovery backup; workflow, приложение и
+  public host не читают его и не получают приватный ключ.
 
-Публичные assets `v2026.07.21.1` уже проверены в T036, но они были опубликованы
-CI-путём, а не этим Keychain staging. Поэтому T037 остаётся открытым: для его
-закрытия нужен отдельный owner-approved новый higher-CalVer release, его
-Keychain-подписанные archive/package, публикация archive/package до appcast и
-повторная проверка public result. Существующий `v2026.07.21.1` переиспользовать
-для этого нельзя.
+T037 закрыт: текущий owner-only release lane доказан реальным подписанным
+релизом, публикацией в правильном порядке и повторной публичной проверкой.
+Ограничение сохраняется: self-signed owner-only выпуск не является Developer ID
+или notarized public distribution; protected reviewer path остаётся будущей
+отдельной миграцией.
