@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-21
 
-**Status**: Planned; awaiting requirement-quality checklist and task breakdown
+**Status**: Planned and requirement-quality checked; awaiting task breakdown
 
 **Input**: User description: "Тщательно упростить экран «Мои встречи» GRAF по реальному текущему интерфейсу и clean-room наблюдениям Krisp: продумать все элементы строки, бейджи, подписи, действия и пользовательские состояния, сделать список понятным, спокойным и удобным, но не добавлять неподтвержденные функции и не использовать Figma."
 
