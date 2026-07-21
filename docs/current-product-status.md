@@ -133,7 +133,7 @@ receipt не заявляются; они остаются отдельными 
   dialog, metadata-only preview, progress/failure states, copy/download and
   keyboard/focus/zoom accessibility behavior. Focused closeout passes 74
   unit/contract and 49 PostgreSQL/RLS tests; the full repository gate passed
-  592 macOS, 2013 server, and 35 strict PostgreSQL/RLS tests with
+  594 macOS, 2013 server, and 35 strict PostgreSQL/RLS tests with
   `ci_local_result=pass`. The server/web-cabinet slice is released as
   [`v2026.07.21.13`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.13)
   through [PR #4086](https://github.com/yshishenya/crisp/pull/4086) and deployed
@@ -143,12 +143,20 @@ receipt не заявляются; они остаются отдельными 
   egress to `owner_only` for the existing owner-preview corpus while leaving
   audio and legacy package export disabled; installed GRAF read-back then
   showed the enabled content-export entry point on a ready owner meeting.
-  There is still no `apps/macos` diff or installed-binary update. New meetings
-  remain fail-closed until they receive an explicit accepted artifact-policy
-  snapshot. T059 / issue #4083 remains the required representative-reviewer
-  study before general release; synthetic or single-owner preview QA does not
-  satisfy that product outcome. Metadata-only production evidence is recorded
-  in `specs/120-transcript-export/validation/production-preview-2026-07-21.md`.
+  Production hotfix [PR #4217](https://github.com/yshishenya/crisp/pull/4217)
+  then added the bounded native WebKit download handoff after the installed
+  client exposed a `blob:` attachment as an unsupported cabinet route. It is
+  released through [`v2026.07.22.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.1)
+  at exact runtime SHA `43f7b09e988621be608049931a048faba1e6a119`.
+  Public owner-only ZIP/PKG/appcast hashes, server deploy gates, installed GRAF
+  `2026.07.22.1`, and a real TXT download that retained the meeting detail and
+  playback timeline all passed. New meetings remain fail-closed until they
+  receive an explicit accepted artifact-policy snapshot. T059 / issue #4083
+  remains the required representative-reviewer study before general release;
+  synthetic or single-owner preview QA does not satisfy that product outcome.
+  Metadata-only evidence is recorded in
+  `specs/120-transcript-export/validation/production-preview-2026-07-21.md` and
+  `specs/120-transcript-export/validation/production-embedded-download-hotfix-2026-07-22.md`.
 - Feature `095-macos-permission-retention` is implemented for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted
