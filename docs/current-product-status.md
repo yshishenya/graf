@@ -23,22 +23,24 @@ metadata-only evidence остаются подробной историей ре
 
 Полный inventory и reconciliation для feature specs находится в
 [`docs/spec-kit-feature-index.md`](spec-kit-feature-index.md). На текущем
-`master` проверены 94 spec-каталога, 94 `spec.md` и 88 `tasks.md`.
+`master` проверены 97 spec-каталогов, 97 `spec.md` и 91 `tasks.md`.
 Requirements-only остаются `011`, `026–029` и `101`; для них не создаются
-искусственные plan/tasks. В implementation/release slice 096–118 статусы
+искусственные plan/tasks. В implementation/release slice 096–120 статусы
 сверены с task receipts и release boundaries: открыты только явно отмеченные
-гейты, включая 096/T101/T104, 106/T049/T063/T064 и 109/T022. Feature 118
-имеет полный Spec Kit package и release receipt. Эта сверка не
-закрывает production, security, installed-app или approval gates.
+гейты, включая 096/T101/T104, 106/T049/T063/T064, 109/T022, 119/T008 и
+120/T059. Feature 118 имеет полный Spec Kit package и release receipt, а
+Feature 120 — merged implementation receipt без release/deploy claim. Эта
+сверка не закрывает production, security, installed-app или approval gates.
 
-Feature `114-support-incident-diagnostics` находится в implementation lane от
-свежего `master`: v2 metadata-only report уже связывает client/server
-correlation, canonical stage/problem, bounded retry/timeline и truthful
+Feature `114-support-incident-diagnostics` реализована и merged через
+[PR #4068](https://github.com/yshishenya/crisp/pull/4068): v2 metadata-only
+report связывает client/server correlation, canonical stage/problem, bounded
+retry/timeline и truthful
 deletion/access state, а clipboard fallback использует тот же report builder.
 Private Issue canon синхронизирован с задачами T001–T026 (Issues #3953–#3978),
 а полный `infra/scripts/ci-local.sh` прошёл: 587 Swift-тестов, 1960 server
-тестов и strict-проверка. Это не claim о merge, production deploy или
-установленной сборке; остаются отдельные approval/release gates.
+тестов и strict-проверка. Production deploy и установленная сборка этим
+receipt не заявляются; они остаются отдельными release gates.
 
 ## Accepted Now
 
@@ -116,6 +118,25 @@ Private Issue canon синхронизирован с задачами T001–T0
   hashes match the exact `origin/master` sources. The installed GRAF binary
   remains `.3` because this slice changes the server WebView only; it already
   points to the same production cabinet and needs no binary update.
+- Feature `120-transcript-export` is implemented and merged through
+  [PR #4084](https://github.com/yshishenya/crisp/pull/4084) at exact merge SHA
+  `7ea8afc517b79fa943ec1ef99d047027234e3c35`. The server builds one
+  provider-neutral snapshot pinned to the selected transcript and stored
+  summary revisions, then exports TXT, MD, CSV, XLSX, versioned JSON, or SRT
+  without provider calls or summary regeneration. Raw segments remain the
+  source of truth; CSV/XLSX/JSON/SRT use server canonical turns, preserve
+  unknown/source/result/overlap boundaries, and never fabricate pause text.
+  Transcript, summary, and combined egress keep separate readiness, policy,
+  audit, access, revision, and deletion truth, with a final fail-closed recheck
+  before bytes leave GRAF. The web cabinet includes the scope-first export
+  dialog, metadata-only preview, progress/failure states, copy/download and
+  keyboard/focus/zoom accessibility behavior. Focused closeout passes 74
+  unit/contract and 49 PostgreSQL/RLS tests; the full repository gate passed
+  592 macOS, 2013 server, and 35 strict PostgreSQL/RLS tests with
+  `ci_local_result=pass`. This server/web-cabinet slice has no `apps/macos`
+  diff, release, deploy, or installed-app claim. T059 / issue #4083 remains a
+  required representative-reviewer study before general release; synthetic QA
+  does not satisfy that product outcome.
 - Feature `095-macos-permission-retention` is implemented for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted

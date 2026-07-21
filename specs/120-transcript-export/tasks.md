@@ -167,7 +167,7 @@ bypass current server policy or mix revisions.
 ## Phase 9: Polish And Cross-Cutting Validation
 
 - [X] T052 [P] Document behavior, compatibility/migration impact, validation expectations, and known limitations in `CHANGELOG.md`
-- [ ] T053 [P] Update merged/current product truth only after validated implementation evidence exists in `docs/current-product-status.md`
+- [X] T053 [P] Update merged/current product truth only after validated implementation evidence exists in `docs/current-product-status.md`
 - [X] T054 Run all focused commands and cross-format fixture comparisons from `specs/120-transcript-export/quickstart.md`
 - [X] T055 Run Ruff and `git diff --check` from the repository root and fix only feature-owned findings
 - [X] T056 Run `infra/scripts/ci-local.sh` and record metadata-safe validation evidence in `specs/120-transcript-export/tasks.md`
@@ -195,11 +195,17 @@ bypass current server policy or mix revisions.
   replaced a hand-rolled XLSX column helper with the dependency's native
   utility (`net: -7 lines`). No new database table, generated-artifact
   persistence, background workflow, or storage owner was added.
-- T057 is complete: ready PR [#4084](https://github.com/yshishenya/crisp/pull/4084)
-  explicitly closes completed task issues after merge, and each closing issue
-  has a Russian closure comment with its Spec task, exact PR link, validation
-  evidence, and out-of-scope boundary. T053 / `#4062` remains open for the
-  post-merge current-product-status update.
+- T057 is complete: [PR #4084](https://github.com/yshishenya/crisp/pull/4084)
+  merged as `7ea8afc517b79fa943ec1ef99d047027234e3c35`; completed task issues
+  are closed, and each has a Russian closure comment with its Spec task, PR,
+  validation evidence, and out-of-scope boundary.
+- T053 is complete in the post-merge closeout: current product truth records
+  the backend, web-cabinet UI, six formats, merge SHA, validation, native-app
+  boundary, and the still-open T059 release gate. The Spec Kit inventory was
+  refreshed from 94/88 to 97/91 spec/task artifacts after Features 114, 119,
+  and 120 entered `master`.
+- The current-head quickstart rerun passed `74` unit/contract and `49`
+  focused PostgreSQL/RLS tests; Ruff and merged-diff checks also passed.
 - T059 is tracked by `#4083` and remains open as a representative-reviewer
   pre-release gate; synthetic browser QA is not counted as SC-014 evidence.
 
