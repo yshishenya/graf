@@ -119,3 +119,17 @@ private path, credential, signed URL or provider payload to this file.
   is additional evidence for `rollback=fail/open`, not a rollback pass; T064
   remains open until a pre-v5 baseline can produce an accepted subsequent
   recording on the current Mac.
+
+## 2026-07-21 — current recording metadata receipt
+
+- The latest local v5 recording completed with `status=saved`,
+  `failureReason=none`, `transcriptionReadiness=ready` and
+  `mediaScribeSourceMode=single_wav_v1`.
+- The package contains exactly the canonical WAV and playback M4A; both are
+  `timelineAligned=true`, start at `0 ms`, have equal logical duration
+  `876719 ms`, and report `durationDifferenceSeconds=0`. The upload queue marks
+  this recording `uploaded` with no retry or failure category.
+- This receipt confirms the current recording's local package and queue path
+  only. It does not claim a 60-minute incoming-level measurement, transcript
+  result, deletion receipt or rollback pass; those gates remain open and no
+  private audio or transcript content is recorded here.

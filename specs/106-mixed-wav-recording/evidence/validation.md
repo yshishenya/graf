@@ -48,6 +48,21 @@ installed-app UX. All results below are local and content-free.
 The installed-app hardware, exact-baseline rollback and release/deploy gates are
 intentionally still open and are documented in `hardware-acceptance.md`.
 
+## 2026-07-21 — final local closeout rerun
+
+- Focused macOS v5/capture/upload/UI group: `222` tests passed, `0` failures.
+- Full `infra/scripts/ci-local.sh`: macOS `573` tests passed, server PostgreSQL
+  phase `1836` passed with `1` expected skip, strict phase `34` passed with `1`
+  expected skip, Ruff passed, Python compile passed, production Compose config
+  passed and deployment evidence scan passed.
+- `swift run --package-path apps/macos ContractValidation`, recording artifact
+  validator, shell syntax checks and `git diff --check` passed.
+- The local RLS production probe stayed correctly blocked because no disposable
+  production database was supplied; no production or deployment claim is made.
+- The current local recording receipt is metadata-only and is appended to
+  `hardware-acceptance.md`; it does not close the separate installed-app
+  incoming-signal gate.
+
 ## 2026-07-18
 
 - Focused macOS v5/capture/upload/UI group: `219` tests passed, `0` failures.

@@ -32,6 +32,10 @@ release surface.
   documented. Do not substitute the user-confirmed, still-in-progress parallel
   `v2026.07.16.7` work or an unverified nearby tag. Resolving and installing
   the baseline is deferred while the v5 quality gates pass.
+- [ ] The selected contingency reference is the exact `v2026.07.17.6` tag at
+  `4be444e82ec449a3bb5312920fb0cd6008072c56`; the parallel `v2026.07.16.7`
+  line is recorded only as a non-interchangeable reference and is not a
+  runtime switch.
 - [ ] Candidate commit/release, date, package schema, route verdict, incoming
   level delta, timeline verdict, artifact hashes/counts/durations, processing
   status and operator decision are recorded as metadata only.

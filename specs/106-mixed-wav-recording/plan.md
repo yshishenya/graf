@@ -42,6 +42,9 @@ The server will register the immutable v5 package as a distinct `initial_mixed_r
 **Constraints**:
 
 - manual Start/Stop, persistent visible capture and one-action Stop remain;
+- recording start is not gated by the output route; the app leaves the selected
+  route and volume untouched, and speaker-to-microphone acoustic bleed is an
+  explicit limitation reserved for a separate future feature;
 - desktop sends audio only to GRAF and never has MediaScribe credentials;
 - no AEC, Apple voice processing, WebRTC AEC, VAD trimming, amplitude presence gate, raw dual capture retention, dual ASR/merge or hidden text dedupe in the v5 path;
 - diagnostics/evidence contain metadata, hashes, counts, durations and safe reason codes only—never audio, transcript text, credentials or local paths;
