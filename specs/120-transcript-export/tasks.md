@@ -209,6 +209,12 @@ bypass current server policy or mix revisions.
   focused PostgreSQL/RLS tests; Ruff and merged-diff checks also passed.
 - T059 is tracked by `#4083` and remains open as a representative-reviewer
   pre-release gate; synthetic browser QA is not counted as SC-014 evidence.
+- Controlled production preview is live in release `v2026.07.21.13` at runtime
+  SHA `0b923f7e4c1198c39ba17951bd0ced7f2d7bcc3f`. Deploy, backup, restore
+  rehearsal, RLS, smoke, cleanup, public health/readiness, bounded owner-only
+  policy seed, and installed-GRAF read-back are documented in
+  `specs/120-transcript-export/validation/production-preview-2026-07-21.md`.
+  This receipt does not close T059 or claim general release.
 
 ---
 

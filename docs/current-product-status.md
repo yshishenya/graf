@@ -29,8 +29,9 @@ Requirements-only остаются `011`, `026–029` и `101`; для них н
 сверены с task receipts и release boundaries: открыты только явно отмеченные
 гейты, включая 096/T101/T104, 106/T049/T063/T064, 109/T022, 119/T008 и
 120/T059. Feature 118 имеет полный Spec Kit package и release receipt, а
-Feature 120 — merged implementation receipt без release/deploy claim. Эта
-сверка не закрывает production, security, installed-app или approval gates.
+Feature 120 — merged implementation plus controlled production-preview receipt.
+Эта сверка не закрывает general-release, security или representative-reviewer
+gates.
 
 Feature `114-support-incident-diagnostics` реализована и merged через
 [PR #4068](https://github.com/yshishenya/crisp/pull/4068): v2 metadata-only
@@ -133,10 +134,21 @@ receipt не заявляются; они остаются отдельными 
   keyboard/focus/zoom accessibility behavior. Focused closeout passes 74
   unit/contract and 49 PostgreSQL/RLS tests; the full repository gate passed
   592 macOS, 2013 server, and 35 strict PostgreSQL/RLS tests with
-  `ci_local_result=pass`. This server/web-cabinet slice has no `apps/macos`
-  diff, release, deploy, or installed-app claim. T059 / issue #4083 remains a
-  required representative-reviewer study before general release; synthetic QA
-  does not satisfy that product outcome.
+  `ci_local_result=pass`. The server/web-cabinet slice is released as
+  [`v2026.07.21.13`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.13)
+  through [PR #4086](https://github.com/yshishenya/crisp/pull/4086) and deployed
+  at exact runtime SHA `0b923f7e4c1198c39ba17951bd0ced7f2d7bcc3f`.
+  Backup, restore rehearsal, RLS, metadata-only smoke, cleanup, public health,
+  and readiness passed. A bounded production seed set transcript and summary
+  egress to `owner_only` for the existing owner-preview corpus while leaving
+  audio and legacy package export disabled; installed GRAF read-back then
+  showed the enabled content-export entry point on a ready owner meeting.
+  There is still no `apps/macos` diff or installed-binary update. New meetings
+  remain fail-closed until they receive an explicit accepted artifact-policy
+  snapshot. T059 / issue #4083 remains the required representative-reviewer
+  study before general release; synthetic or single-owner preview QA does not
+  satisfy that product outcome. Metadata-only production evidence is recorded
+  in `specs/120-transcript-export/validation/production-preview-2026-07-21.md`.
 - Feature `095-macos-permission-retention` is implemented for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted
