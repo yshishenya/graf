@@ -318,6 +318,23 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertFalse(label.localizedCaseInsensitiveContains("@"))
     }
 
+    func testMeetingDetectionSettingsExposeOneScrollableSelectableAppList() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(
+                    "apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift"
+                ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("ScrollView"))
+        XCTAssertTrue(source.contains("ForEach(promptCapableTargets"))
+        XCTAssertTrue(source.contains(".toggleStyle(.checkbox)"))
+        XCTAssertTrue(source.contains("Список появится после загрузки реестра."))
+        XCTAssertTrue(source.contains("Set(promptCapableTargets.map(\\.id))"))
+        XCTAssertFalse(source.localizedCaseInsensitiveContains("diagnostic"))
+    }
+
     func testDesktopAppInstallsStandardEditMenuCommandsForEmbeddedCabinetFields() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()

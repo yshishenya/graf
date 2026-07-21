@@ -474,6 +474,22 @@ Private Issue canon синхронизирован с задачами T001–T0
   10-minute resource gate, explicitly keeps Microsoft Teams diagnostic-only
   until installed runtime validation is available, and documents Firefox/
   non-Chromium browser metadata as manual-only when no safe adapter exists.
+- Feature `119-expand-meeting-app-registry` is implemented locally as the
+  breadth-first expansion of feature 092. Registry baseline `2026.07.21.1`
+  contains 85 targets, including 79 prompt-enabled native target families and
+  87 case-insensitively unique macOS bundle IDs. The common macOS settings list
+  now includes Telegram for macOS/Telegram Lite, Telegram Desktop with Forkgram
+  and 64Gram aliases, Telegram A, AyuGram, Kotatogram, and a broad global,
+  enterprise, and Russian calling-app set, including DION, IVA Connect, and
+  VideoMost. All verified native rows use the
+  existing Zoom/Telemost prompt and user-selected auto-record flow; “Выбрать
+  все” opts into the complete set. Capture prerequisites, workspace policy,
+  visible recording state, manual controls, and one-action Stop remain
+  unchanged. Matching and registry validation are case-insensitive, duplicate
+  bundle ownership is rejected, and the large settings list scrolls. Browser
+  providers without safe active-tab evidence remain manual-only. Live app
+  receipts are post-enable QA and are not yet claimed; production release and
+  deploy evidence are still open.
 - Feature `012-server-ingest-foundation` is implemented as the first backend
   foundation slice in this repository: FastAPI ingest service scaffold,
   local/prod Docker Compose stacks, Postgres/Alembic schema models, MinIO

@@ -5,6 +5,7 @@ public enum MeetingTargetRegistryError: Error, Equatable, CustomStringConvertibl
     case invalidRegistryVersion
     case emptyTargets
     case duplicateTarget(String)
+    case duplicateBundleID(String)
     case invalidTarget(String)
     case unsafePromptTarget(String)
     case unsafeBrowserTarget(String)
@@ -22,6 +23,8 @@ public enum MeetingTargetRegistryError: Error, Equatable, CustomStringConvertibl
             "empty_targets"
         case .duplicateTarget(let id):
             "duplicate_target:\(id)"
+        case .duplicateBundleID(let id):
+            "duplicate_bundle_id:\(id)"
         case .invalidTarget(let id):
             "invalid_target:\(id)"
         case .unsafePromptTarget(let id):
@@ -95,15 +98,21 @@ public enum MeetingTargetRegistryValidator {
             throw MeetingTargetRegistryError.emptyTargets
         }
         var seenTargets = Set<String>()
+        var seenBundleIDs = Set<String>()
         for target in document.targets {
-            try validate(target: target, seenTargets: &seenTargets)
+            try validate(
+                target: target,
+                seenTargets: &seenTargets,
+                seenBundleIDs: &seenBundleIDs
+            )
         }
         try document.nonTargetRules.forEach(validate(rule:))
     }
 
     private static func validate(
         target: MeetingTargetRegistryTarget,
-        seenTargets: inout Set<String>
+        seenTargets: inout Set<String>,
+        seenBundleIDs: inout Set<String>
     ) throws {
         guard target.id.range(
             of: #"^[a-z0-9][a-z0-9_-]{2,80}$"#,
@@ -115,6 +124,12 @@ public enum MeetingTargetRegistryValidator {
             throw MeetingTargetRegistryError.duplicateTarget(target.id)
         }
         seenTargets.insert(target.id)
+        for bundleID in target.nativeBundleIds {
+            let normalizedBundleID = bundleID.lowercased()
+            guard seenBundleIDs.insert(normalizedBundleID).inserted else {
+                throw MeetingTargetRegistryError.duplicateBundleID(bundleID)
+            }
+        }
         guard !target.requiredSignals.isEmpty else {
             throw MeetingTargetRegistryError.invalidTarget(target.id)
         }
@@ -122,7 +137,8 @@ public enum MeetingTargetRegistryValidator {
            target.targetFamily == .nativeApp,
            target.mode == .promptEnabled {
             guard !target.nativeBundleIds.isEmpty,
-                  target.evidence == .runtimeVerified
+                  target.evidence != .verifyRequired,
+                  target.evidence != .futureWindows
             else {
                 throw MeetingTargetRegistryError.unsafePromptTarget(target.id)
             }

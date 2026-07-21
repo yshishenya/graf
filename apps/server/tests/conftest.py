@@ -37,7 +37,7 @@ pytest_plugins = (
 
 REGISTRY_DATA = (
     Path(__file__).resolve().parents[1]
-    / "src/twobrain_rec_server/db/migrations/data/0019_meeting_target_registry.json"
+    / "src/twobrain_rec_server/db/migrations/data/0030_meeting_target_registry.json"
 )
 REGISTRY_DOCUMENT = json.loads(REGISTRY_DATA.read_text(encoding="utf-8"))
 

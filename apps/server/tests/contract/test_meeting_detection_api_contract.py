@@ -119,7 +119,7 @@ def test_meeting_detection_registry_contract_returns_metadata_only_registry(clie
     assert response.status_code == 200
     body = response.json()
     assert body["schemaVersion"] == 1
-    assert body["registryVersion"] == "2026.07.09.4"
+    assert body["registryVersion"] == "2026.07.21.1"
     assert body["etag"] == response.headers["etag"].strip('"')
     assert body["nonTargetRules"] == []
     assert any(target["id"] == "yandex_telemost" for target in body["targets"])

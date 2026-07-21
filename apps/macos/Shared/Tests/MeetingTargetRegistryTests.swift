@@ -60,6 +60,76 @@ final class MeetingTargetRegistryTests: XCTestCase {
         }
     }
 
+    func testBundleResolutionIsCaseInsensitive() throws {
+        let document = try MeetingDetectionCoding.decoder().decode(
+            MeetingTargetRegistryDocument.self,
+            from: Self.seedRegistryData()
+        )
+
+        XCTAssertEqual(document.target(forBundleID: "US.ZOOM.XOS")?.id, "zoom")
+    }
+
+    func testRegistryRejectsCaseInsensitiveDuplicateBundleIDs() throws {
+        let document = MeetingTargetRegistryDocument(
+            registryVersion: "2026.07.21.1",
+            generatedAt: Date(timeIntervalSince1970: 1_779_887_120),
+            targets: [
+                MeetingTargetRegistryTarget(
+                    id: "telegram_desktop",
+                    displayName: "Telegram Desktop",
+                    market: .global,
+                    platform: .macos,
+                    targetFamily: .nativeApp,
+                    mode: .promptEnabled,
+                    evidence: .packageVerified,
+                    requiredSignals: [.macOSAudioHALAssertion],
+                    nativeBundleIds: ["com.tdesktop.Telegram"]
+                ),
+                MeetingTargetRegistryTarget(
+                    id: "telegram_duplicate",
+                    displayName: "Telegram duplicate",
+                    market: .global,
+                    platform: .macos,
+                    targetFamily: .nativeApp,
+                    mode: .promptEnabled,
+                    evidence: .packageVerified,
+                    requiredSignals: [.macOSAudioHALAssertion],
+                    nativeBundleIds: ["COM.TDESKTOP.TELEGRAM"]
+                )
+            ]
+        )
+
+        XCTAssertThrowsError(try MeetingTargetRegistryValidator.validate(document)) { error in
+            XCTAssertEqual(
+                error as? MeetingTargetRegistryError,
+                .duplicateBundleID("COM.TDESKTOP.TELEGRAM")
+            )
+        }
+    }
+
+    func testExpandedRegistryEnablesEveryVerifiedNativeTarget() throws {
+        let data = try Data(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(
+                    "apps/server/src/twobrain_rec_server/db/migrations/data/0030_meeting_target_registry.json"
+                )
+        )
+        let document = try MeetingDetectionCoding.decoder().decode(
+            MeetingTargetRegistryDocument.self,
+            from: data
+        )
+        try MeetingTargetRegistryValidator.validate(document)
+        let nativeTargets = document.targets.filter {
+            $0.platform == .macos && $0.targetFamily == .nativeApp && !$0.nativeBundleIds.isEmpty
+        }
+        let bundleIDs = nativeTargets.flatMap(\.nativeBundleIds)
+
+        XCTAssertEqual(nativeTargets.count, 79)
+        XCTAssertTrue(nativeTargets.allSatisfy { $0.mode == .promptEnabled })
+        XCTAssertEqual(Set(bundleIDs.map { $0.lowercased() }).count, 87)
+        XCTAssertEqual(document.target(forBundleID: "COM.TDESKTOP.TELEGRAM")?.id, "telegram_desktop")
+    }
+
     func testUnsafeBrowserTargetWithoutJoinIntentFailsClosed() throws {
         let document = MeetingTargetRegistryDocument(
             registryVersion: "2026.07.08.1",
