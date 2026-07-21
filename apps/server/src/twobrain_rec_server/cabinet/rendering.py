@@ -447,8 +447,9 @@ def _render_meeting_detail_content(
     poll_url: str | None = None,
 ) -> str:
     transcript_rows = review.transcript.speaker_turns or review.transcript.segments
+    speaker_palette = _speaker_palette(review)
     transcript = trusted_component_html(
-        _render_transcript(transcript_rows), source="meeting_detail.transcript"
+        _render_transcript(transcript_rows, speaker_palette), source="meeting_detail.transcript"
     )
     if not review.transcript.available:
         transcript = trusted_component_html(
@@ -543,6 +544,13 @@ def _speaker_display_label(label: str) -> str:
         suffix = label.removeprefix("Speaker ").strip()
         return f"Спикер {suffix}" if suffix else "Спикер"
     return _ui_text(label)
+
+
+def _speaker_palette(review: MeetingReviewResponse) -> dict[str, int]:
+    return {
+        speaker.speaker_key: index % 6 + 1
+        for index, speaker in enumerate(review.speakers.speakers)
+    }
 
 
 def _notes_source_label(source_basis: str) -> str:
@@ -991,12 +999,13 @@ def _render_list_delete_dialog() -> str:
 
 def _render_transcript(
     segments: list[TranscriptSegmentView | TranscriptSpeakerTurnView],
+    speaker_palette: dict[str, int],
 ) -> str:
     return "\n".join(
         f"""
-          <article class="segment" data-transcript-turn data-speaker-key="{escape(segment.speaker_key)}" data-start-seconds="{escape(str(segment.start_seconds))}" data-end-seconds="{escape(str(segment.end_seconds))}" tabindex="-1">
+          <article class="segment speaker-color-{speaker_palette.get(segment.speaker_key, 0)}" data-transcript-turn data-speaker-key="{escape(segment.speaker_key)}" data-start-seconds="{escape(str(segment.start_seconds))}" data-end-seconds="{escape(str(segment.end_seconds))}" tabindex="-1">
             {_render_timestamp(segment)}
-            <div class="speaker"><span class="dot"></span>{escape(_speaker_display_label(segment.speaker_label))}</div>
+            <div class="speaker"><span class="dot" aria-hidden="true"></span>{escape(_speaker_display_label(segment.speaker_label))}</div>
             <div class="text">{escape(segment.text)}</div>
           </article>
         """
@@ -1021,14 +1030,18 @@ def _render_playback(
 ) -> str:
     if review.playback.can_play and review.playback.playback_path:
         speed_options = ",".join(f"{speed:g}" for speed in review.playback.speed_options)
+        speaker_palette = _speaker_palette(review)
         return f"""
           <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-describedby="playback-live-status">
             <audio class="playback-audio" data-playback-player preload="metadata" src="{escape(review.playback.playback_path)}"></audio>
-            <div class="playback-controls" aria-label="Управление воспроизведением">
-              <button type="button" class="playback-round" data-playback-skip="-15" aria-label="Назад на 15 секунд">15</button>
-              <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести">▶</button>
-              <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд">15</button>
-              <button type="button" class="playback-speed" data-playback-speed-toggle data-speed-options="{escape(speed_options)}">1x</button>
+            <div class="playback-toolbar">
+              {_render_speaker_manager(review, embedded=embedded, csrf_token=csrf_token, speaker_palette=speaker_palette)}
+              <div class="playback-controls" aria-label="Управление воспроизведением">
+                <button type="button" class="playback-round" data-playback-skip="-15" aria-label="Назад на 15 секунд">15</button>
+                <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести">▶</button>
+                <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд">15</button>
+                <button type="button" class="playback-speed" data-playback-speed-toggle data-speed-options="{escape(speed_options)}">1x</button>
+              </div>
             </div>
             <p class="playback-error" data-playback-error role="status" aria-live="polite" hidden>Воспроизведение временно недоступно.</p>
             <div class="playback-progress-row">
@@ -1039,7 +1052,7 @@ def _render_playback(
               </span>
               <span class="playback-time" data-playback-duration>{_timecode(review.playback.duration_seconds)}</span>
             </div>
-            {_render_playback_speaker_timeline(review, embedded=embedded, csrf_token=csrf_token)}
+            {_render_playback_speaker_timeline(review, speaker_palette=speaker_palette)}
           </section>
         """
     focus_attribute = (
@@ -1061,8 +1074,7 @@ def _render_playback(
 def _render_playback_speaker_timeline(
     review: MeetingReviewResponse,
     *,
-    embedded: bool,
-    csrf_token: str | None,
+    speaker_palette: dict[str, int],
 ) -> str:
     if not review.speakers.available:
         return '<div class="speaker-timeline" data-speaker-timeline></div>'
@@ -1070,25 +1082,7 @@ def _render_playback_speaker_timeline(
     lanes = []
     for speaker in review.speakers.speakers:
         speaker_label = _speaker_display_label(speaker.label)
-        speaker_control = f'<span class="timeline-label">{escape(speaker_label)}</span>'
-        editor = ""
-        if review.speakers.can_rename:
-            form_id = f"timeline-speaker-name-form-{speaker.speaker_key}"
-            speaker_control = f"""
-              <button class="timeline-speaker-name" type="button" data-speaker-name-open aria-expanded="false" aria-controls="{escape(form_id)}" title="Переименовать {escape(speaker_label)}">
-                <span class="timeline-label">{escape(speaker_label)}</span>
-                <span class="sr-only">Переименовать</span>
-              </button>
-            """
-            editor = _render_speaker_name_form(
-                review,
-                speaker,
-                embedded=embedded,
-                csrf_token=csrf_token,
-                form_id=form_id,
-                extra_class="timeline-speaker-editor",
-                hidden=True,
-            )
+        color_class = f"speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}"
         segments = []
         for segment in speaker.segments:
             start = max(0.0, float(segment.start_seconds))
@@ -1102,15 +1096,64 @@ def _render_playback_speaker_timeline(
             )
         lanes.append(
             f"""
-            <div class="timeline-lane" data-speaker-lane="{escape(speaker.speaker_key)}">
-              <span class="timeline-speaker">{speaker_control}</span>
+            <div class="timeline-lane {color_class}" data-speaker-lane="{escape(speaker.speaker_key)}">
+              <span class="timeline-speaker" title="{escape(speaker_label)}"><span class="speaker-dot" aria-hidden="true"></span><span class="timeline-label">{escape(speaker_label)}</span></span>
               <span class="timeline-scale lane-scale"><span class="timeline-track" data-timeline-track role="button" tabindex="0" aria-label="Перейти по дорожке {escape(speaker_label)}">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span></span>
               <span class="timeline-share">{speaker.talk_time_percent}%</span>
-              {editor}
             </div>
             """
         )
     return f'<div class="speaker-timeline" data-speaker-timeline>{"".join(lanes)}</div>'
+
+
+def _render_speaker_manager(
+    review: MeetingReviewResponse,
+    *,
+    embedded: bool,
+    csrf_token: str | None,
+    speaker_palette: dict[str, int],
+) -> str:
+    if not review.speakers.available:
+        return ""
+    markers = "".join(
+        f'<span class="speaker-manager-marker speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}"></span>'
+        for speaker in review.speakers.speakers[:4]
+    )
+    rows = []
+    for speaker in review.speakers.speakers:
+        speaker_label = _speaker_display_label(speaker.label)
+        color_class = f"speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}"
+        editor = ""
+        action = ""
+        if review.speakers.can_rename:
+            form_id = f"speaker-manager-form-{speaker.speaker_key}"
+            action = f'<button class="speaker-manager-edit" type="button" data-speaker-name-open aria-expanded="false" aria-controls="{escape(form_id)}">Изменить</button>'
+            editor = _render_speaker_name_form(
+                review,
+                speaker,
+                embedded=embedded,
+                csrf_token=csrf_token,
+                form_id=form_id,
+                extra_class="speaker-manager-form",
+                hidden=True,
+            )
+        rows.append(
+            f"""
+              <div class="speaker-manager-row {color_class}">
+                <span class="speaker-manager-dot" aria-hidden="true"></span>
+                <span class="speaker-manager-name" title="{escape(speaker_label)}">{escape(speaker_label)}</span>
+                <span class="speaker-manager-share">{speaker.talk_time_percent}%</span>
+                {action}
+                {editor}
+              </div>
+            """
+        )
+    return f"""
+      <details class="speaker-manager" data-speaker-manager>
+        <summary><span>Спикеры · {len(review.speakers.speakers)}</span><span class="speaker-manager-markers" aria-hidden="true">{markers}</span></summary>
+        <div class="speaker-manager-popover">{"".join(rows)}</div>
+      </details>
+    """
 
 
 def _render_speaker_lanes(

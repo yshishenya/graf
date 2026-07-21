@@ -77,6 +77,15 @@
 
 Follow-up evidence: 62 focused cabinet tests and 10 focused PostgreSQL playback/name tests passed; the full server gate passed with 1954 tests and 34 strict-RLS tests after limiting the disposable PostgreSQL run to one worker to stay within Docker memory. The macOS suite passed 583 tests, and Ruff, JavaScript syntax, contract validation, and `git diff --check` passed. Installed-app production inspection remains part of release closeout rather than implementation validation.
 
+## Phase 6: Krisp-density playback follow-up
+
+- [X] T019 [US1] Keep every speaker name above its full-width lane, reduce the lane rhythm to a compact fixed dock, and bind the dock edge to the browser/embedded content boundary in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and `apps/server/tests/unit/test_cabinet_web_shell.py` ([#3981](https://github.com/yshishenya/crisp/issues/3981)).
+- [X] T020 [US2] Project one stable speaker color into lane segments, transcript dots, and transcript turn borders while retaining a non-color active outline in `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, and `apps/server/tests/unit/test_cabinet_web_shell.py` ([#3982](https://github.com/yshishenya/crisp/issues/3982)).
+- [X] T021 [US3] Move authorized rename forms into one native top-left speaker manager, preserve the existing endpoint/CSRF behavior, and add keyboard cancel coverage in `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, and `apps/server/tests/unit/test_cabinet_web_shell.py` ([#3983](https://github.com/yshishenya/crisp/issues/3983)).
+- [ ] T022 Re-run rendered source-versus-implementation QA, the repository gate, and release closeout after explicit commit/deploy approval; record the final production evidence in `design-qa.md` ([#3984](https://github.com/yshishenya/crisp/issues/3984)).
+
+Phase 6 evidence: the exact quickstart selection passed 149 PostgreSQL-backed tests after rebasing onto `v2026.07.21.7`; the earlier complete repository gate passed with 583 macOS tests, 1954 server tests plus 34 strict-RLS tests, Ruff, JavaScript syntax, Python compilation, compose validation, deployment-evidence scan, and `git diff --check`. Rendered and production evidence remains open under T022.
+
 ## Dependencies & Execution Order
 
 - US1 is the MVP and has no dependency on rename persistence.

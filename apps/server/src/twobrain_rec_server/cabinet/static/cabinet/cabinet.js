@@ -1288,6 +1288,11 @@
     document.querySelectorAll("[data-speaker-name-form]").forEach((form) => {
       if (form.dataset.speakerNameReady === "true") return;
       form.dataset.speakerNameReady = "true";
+      form.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        form.querySelector("[data-speaker-name-cancel]")?.click();
+      });
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const error = form.querySelector("[data-speaker-name-error]");
