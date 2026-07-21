@@ -34,6 +34,8 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   uvicorn
 cryptography==49.0.0
     # via twobrain-rec-server
+et-xmlfile==2.0.0
+    # via openpyxl
 fastapi==0.138.1
     # via twobrain-rec-server
 greenlet==3.5.3
@@ -64,6 +66,8 @@ minio==7.2.20
     # via twobrain-rec-server
 nexus-rpc==1.4.0
     # via temporalio
+openpyxl==3.1.5
+    # via twobrain-rec-server
 protobuf==6.33.6
     # via temporalio
 pycparser==3.0 ; implementation_name != 'PyPy'

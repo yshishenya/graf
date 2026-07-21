@@ -12,6 +12,7 @@ from pydantic import (
     model_validator,
 )
 
+from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.domain.statuses import (
     CustodyMetadataSafety,
     CustodyNormalUserAction,
@@ -1183,6 +1184,30 @@ ArtifactEgressStateValue = Literal[
     "audit_unavailable",
 ]
 ArtifactAction = Literal["download", "export", "disabled"]
+ContentExportScope = Literal["transcript", "summary", "combined"]
+ContentExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt"]
+CONTENT_EXPORT_FORMATS_BY_SCOPE: dict[
+    ContentExportScope, tuple[ContentExportFormat, ...]
+] = {
+    "transcript": ("txt", "md", "csv", "xlsx", "json", "srt"),
+    "summary": ("txt", "md", "xlsx", "json"),
+    "combined": ("txt", "md", "xlsx", "json"),
+}
+CONTENT_EXPORT_FORMATS = frozenset(
+    format_name
+    for formats in CONTENT_EXPORT_FORMATS_BY_SCOPE.values()
+    for format_name in formats
+)
+ContentExportReadinessState = Literal[
+    "available",
+    "processing",
+    "partial",
+    "missing",
+    "denied",
+    "deletion_in_progress",
+    "failed",
+    "audit_unavailable",
+]
 TeamVisibilityState = Literal["enabled", "disabled", "policy_blocked"]
 CopyLinkState = Literal["available", "auth_required", "disabled"]
 PublicLinkState = Literal["disabled_by_default", "policy_blocked"]
@@ -1272,6 +1297,71 @@ class ExportPackageResponse(BaseModel):
     status: ExportPackageStatus
     included_artifacts: list[ArtifactClass] = Field(default_factory=list)
     excluded_artifacts: list[ExportPackageExclusion] = Field(default_factory=list)
+
+
+class ContentExportSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content_scope: ContentExportScope
+    format: ContentExportFormat
+    processing_result_id: UUID
+    outcome_set_id: UUID | None = None
+    include_speaker_labels: bool = True
+    include_timestamps: bool = True
+    include_evidence: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_unknown_export_format(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            format_name = value.get("format")
+            if format_name not in CONTENT_EXPORT_FORMATS:
+                raise ProblemDetail(
+                    status=422,
+                    code="unsupported_export_format",
+                    title="Unsupported export format",
+                )
+        return value
+
+    @model_validator(mode="after")
+    def validate_scope_format_compatibility(self) -> Self:
+        if self.format not in CONTENT_EXPORT_FORMATS_BY_SCOPE[self.content_scope]:
+            raise ProblemDetail(
+                status=422,
+                code="unsupported_export_combination",
+                title="Unsupported export combination",
+            )
+        summary_requested = self.content_scope in {"summary", "combined"}
+        if summary_requested != (self.outcome_set_id is not None):
+            raise ProblemDetail(
+                status=422,
+                code="invalid_export_selection",
+                title="Invalid export selection",
+            )
+        return self
+
+
+class ContentExportReadiness(BaseModel):
+    state: ContentExportReadinessState
+    reason: str | None = None
+
+
+class ContentExportDefaults(BaseModel):
+    include_speaker_labels: bool = True
+    include_timestamps: bool = True
+    include_evidence: bool = True
+
+
+class ContentExportCapabilityResponse(BaseModel):
+    processing_result_id: UUID | None = None
+    outcome_set_id: UUID | None = None
+    transcript: ContentExportReadiness
+    summary: ContentExportReadiness
+    combined: ContentExportReadiness
+    formats: dict[ContentExportScope, list[ContentExportFormat]]
+    defaults: ContentExportDefaults = Field(default_factory=ContentExportDefaults)
+    language: str | None = None
+    duration_seconds: int
 
 
 class GovernanceActionState(BaseModel):
@@ -1482,6 +1572,9 @@ class TranscriptSegmentView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown"] = "unknown"
+    processing_result_id: UUID | None = None
+    source_role_original: str | None = Field(default=None, exclude=True)
     confidence_label: str | None = None
     seekable: bool = False
     seek_seconds: float | None = None
@@ -1497,7 +1590,10 @@ class TranscriptSpeakerTurnView(BaseModel):
     source_role: SourceRoleView
     text: str
     speaker_key: str = ""
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown"] = "unknown"
+    processing_result_id: UUID | None = None
     source_segment_ids: list[str] = Field(default_factory=list)
+    overlap: bool = False
     confidence_label: str | None = None
     seekable: bool = False
     seek_seconds: float | None = None
@@ -1603,6 +1699,7 @@ class MeetingReviewResponse(BaseModel):
     access: MeetingAccessState | None = None
     share: SharePanelState | None = None
     artifacts: list[ArtifactEgressState] = Field(default_factory=list)
+    content_exports: ContentExportCapabilityResponse | None = None
     activity: MeetingActivityResponse | None = None
     deletion_truth_copy: str | None = None
     assistant: SlotState

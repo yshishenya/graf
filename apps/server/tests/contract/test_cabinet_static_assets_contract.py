@@ -118,7 +118,7 @@ def test_cabinet_js_owns_component_dom_behavior() -> None:
         'deleteDialog?.addEventListener("cancel"',
         'source.matches("[data-upload-progress-poll]")',
         "listInteractionIsActive()",
-        'document.querySelector("[data-delete-dialog][open], [data-manual-upload-dialog][open]")',
+        'document.querySelector("[data-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open]")',
         "deleteReturnMeetingId",
         "isUsableFocusTarget(deleteReturnFocus)",
         "target.closest(\"[hidden], [aria-hidden='true']\") === null",

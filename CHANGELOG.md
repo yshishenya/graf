@@ -9,21 +9,39 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature 120: экспорт сохранённого транскрипта в TXT, MD, CSV, XLSX, JSON и
+  SRT, а также сохранённого саммари отдельно или вместе с транскриптом в TXT,
+  MD, XLSX и JSON.
+- В карточке встречи появился один доступный диалог экспорта с выбором состава
+  и совместимого формата, metadata-only preview, прогрессом и безопасными
+  состояниями ошибки.
 
 ### Изменено
-- _Пока нет записей._
+- Канонические реплики теперь явно сохраняют stable speaker key, attribution
+  state, source/result boundary и overlap; неподтверждённый `UNKNOWN` больше не
+  маскируется как подтверждённый `SPEAKER_00`.
+- Экспорт привязан к выбранным processing-result и summary revisions и строится
+  on demand без новой таблицы, фонового задания, повторной транскрибации или
+  генерации саммари.
 
 ### Исправлено
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- Transcript, summary и combined export проходят отдельные readiness/policy
+  проверки, повторную проверку доступа и удаления перед выдачей байтов и
+  metadata-only requested/completed/denied/failed audit.
+- CSV/XLSX нейтрализуют формулы, Markdown экранирует разметку, ответы запрещают
+  кеширование и MIME sniffing; audit и ошибки не содержат текст встречи,
+  provider/storage identifiers или credentials.
 
 ### Документы
 - Feature `090-manual-media-upload-ui`: добавлен metadata-only production
   owner-upload и cleanup receipt для закрытия T072/#3050 и release closeout
   T085/#3049.
+- Добавлен полный Spec Kit package Feature 120: research первичных источников,
+  data model, API/format contracts, quickstart, checklist, tasks, issue mapping
+  и browser/performance QA evidence.
 
 ### Операции
 - _Пока нет записей._

@@ -31,6 +31,7 @@ from twobrain_rec_server.main import create_app
 from twobrain_rec_server.meeting_detection.registry import registry_entries, registry_etag
 
 pytest_plugins = (
+    "tests.fixtures.cabinet_exports",
     "tests.fixtures.postgres_test_database",
     "tests.fixtures.postgres_rls",
 )

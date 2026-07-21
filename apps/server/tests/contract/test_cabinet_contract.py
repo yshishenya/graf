@@ -81,6 +81,7 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
         "access",
         "share",
         "artifacts",
+        "content_exports",
         "activity",
         "deletion_truth_copy",
         "calendar_context",

@@ -462,7 +462,9 @@ def test_098_ambiguous_owner_detail_renders_safe_chooser_with_web_embedded_parit
         assert (
             response.text.count("Несколько встреч подходят по времени. GRAF ничего не выбрал.") == 1
         )
-        assert response.text.count("<fieldset") == 1
+        assert response.text.count(
+            '<fieldset aria-describedby="calendar-context-choice-help">'
+        ) == 1
         assert response.text.count("<legend>Выберите встречу</legend>") == 1
         assert response.text.count('type="radio"') == 2
         assert response.text.count('name="event_id"') == 2
@@ -524,7 +526,7 @@ def test_098_ambiguous_non_owner_detail_is_generic_without_candidates_or_actions
         assert "Synthetic Work Calendar" not in response.text
         assert "Сохранить выбор" not in response.text
         assert "Продолжить без календаря" not in response.text
-        assert "<fieldset" not in response.text
+        assert '<fieldset aria-describedby="calendar-context-choice-help">' not in response.text
         assert "ambiguous" not in response.text
         assert "multiple_time_candidates" not in response.text
 
@@ -556,7 +558,7 @@ def test_098_owner_chooser_htmx_select_and_clear_keep_web_embedded_review_parity
     assert 'data-calendar-context-state="cleared_by_user"' in cleared.text
     assert 'id="calendar-context-heading" tabindex="-1" autofocus' in cleared.text
     assert "Контекст убран вами" in cleared.text
-    assert "<fieldset" not in cleared.text
+    assert '<fieldset aria-describedby="calendar-context-choice-help">' not in cleared.text
 
 
 def test_098_owner_can_reopen_safe_correction_chooser_in_web_and_embedded_review(client) -> None:

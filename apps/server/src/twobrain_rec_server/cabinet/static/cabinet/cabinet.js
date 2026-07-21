@@ -24,7 +24,7 @@
   const listInteractionIsActive = () => {
     const region = document.querySelector("#meeting-list-region");
     if (!region) return false;
-    const modalIsOpen = document.querySelector("[data-delete-dialog][open], [data-manual-upload-dialog][open]");
+    const modalIsOpen = document.querySelector("[data-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open]");
     return Boolean(modalIsOpen) || region.contains(document.activeElement) || region.matches(":hover") || selectedRows().length > 0;
   };
 
@@ -1342,6 +1342,277 @@
     });
   };
 
+  const initContentExport = () => {
+    const dialog = document.querySelector("[data-content-export-dialog]");
+    const form = dialog?.querySelector("[data-content-export-form]");
+    if (!dialog || !form || dialog.dataset.contentExportReady === "true") return;
+    dialog.dataset.contentExportReady = "true";
+    const scope = form.querySelector("[data-export-scope]");
+    const format = form.querySelector("[data-export-format]");
+    const title = dialog.querySelector("[data-export-dialog-title]");
+    const status = form.querySelector("[data-export-status]");
+    const submit = form.querySelector("[data-export-submit]");
+    const copy = form.querySelector("[data-export-copy]");
+    const speakers = form.querySelector("input[name='include_speaker_labels']");
+    const timestamps = form.querySelector("input[name='include_timestamps']");
+    const evidence = form.querySelector("input[name='include_evidence']");
+    const previewScope = form.querySelector("[data-export-preview-scope]");
+    const previewReadiness = form.querySelector("[data-export-preview-readiness]");
+    const previewSummaryRevision = form.querySelector("[data-export-preview-summary-revision]");
+    const previewFormat = form.querySelector("[data-export-preview-format]");
+    const previewPurpose = form.querySelector("[data-export-preview-purpose]");
+    const previewSpeakers = form.querySelector("[data-export-preview-speakers]");
+    const previewTimestamps = form.querySelector("[data-export-preview-timestamps]");
+    const previewEvidence = form.querySelector("[data-export-preview-evidence]");
+    const formatGroups = [
+      ["Читаемый текст", ["txt", "md"]],
+      ["Таблицы", ["csv", "xlsx"]],
+      ["Структурированные данные", ["json"]],
+      ["Субтитры", ["srt"]]
+    ];
+    const scopeLabels = {
+      transcript: "Транскрипт",
+      summary: "Саммари",
+      combined: "Транскрипт и саммари"
+    };
+    const formatPurposes = {
+      txt: "читаемый текст",
+      md: "заметки и knowledge-base",
+      csv: "одна каноническая реплика на строку",
+      xlsx: "рабочая книга с отдельными листами",
+      json: "versioned provider-neutral snapshot",
+      srt: "субтитры: одна реплика на cue"
+    };
+    let returnFocus = null;
+    let submitting = false;
+
+    const setStatus = (message, state = "") => {
+      if (!status) return;
+      status.textContent = message;
+      status.dataset.state = state;
+    };
+    const updatePreview = () => {
+      if (!scope || !format) return;
+      if (previewScope) previewScope.textContent = scopeLabels[scope.value] || scope.value;
+      if (previewReadiness) {
+        const key = "exportState" + scope.value.charAt(0).toUpperCase() + scope.value.slice(1);
+        previewReadiness.textContent = form.dataset[key] || "недоступно";
+      }
+      if (previewSummaryRevision) {
+        previewSummaryRevision.textContent = scope.value === "transcript"
+          ? "не выбрано"
+          : (form.dataset.outcomeSetId?.slice(0, 8) || "недоступна");
+      }
+      if (previewFormat) previewFormat.textContent = format.value.toUpperCase();
+      if (previewPurpose) previewPurpose.textContent = formatPurposes[format.value] || "файл встречи";
+      if (previewSpeakers) {
+        previewSpeakers.textContent = speakers?.disabled
+          ? "заданы структурой формата"
+          : (speakers?.checked ? "включены" : "скрыты");
+      }
+      if (previewTimestamps) {
+        previewTimestamps.textContent = timestamps?.disabled
+          ? (format.value === "srt" ? "обязательны для субтитров" : "заданы структурой формата")
+          : (timestamps?.checked ? "включены" : "скрыты");
+      }
+      if (previewEvidence) {
+        previewEvidence.textContent = evidence?.disabled
+          ? "не применимо"
+          : (evidence?.checked ? "включены" : "скрыты");
+      }
+    };
+    const updateOptions = () => {
+      if (!scope || !format) return;
+      const machineFormat = ["csv", "xlsx", "json"].includes(format.value);
+      if (speakers) {
+        if (machineFormat) speakers.checked = true;
+        speakers.disabled = machineFormat;
+      }
+      if (timestamps) {
+        if (machineFormat || format.value === "srt") timestamps.checked = true;
+        timestamps.disabled = machineFormat || format.value === "srt";
+      }
+      if (evidence) evidence.disabled = scope.value === "transcript";
+      updatePreview();
+    };
+    const updateFormats = () => {
+      if (!scope || !format) return;
+      const key = "exportFormats" + scope.value.charAt(0).toUpperCase() + scope.value.slice(1);
+      const values = (form.dataset[key] || "").split(",").filter(Boolean);
+      const previous = format.value;
+      const groups = formatGroups.map(([label, groupValues]) => {
+        const available = groupValues.filter((value) => values.includes(value));
+        if (!available.length) return null;
+        const group = document.createElement("optgroup");
+        group.label = label;
+        group.append(...available.map((value) => {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = value.toUpperCase();
+          return option;
+        }));
+        return group;
+      }).filter(Boolean);
+      format.replaceChildren(...groups);
+      if (values.includes(previous)) format.value = previous;
+      setStatus("");
+      updateOptions();
+    };
+    const close = () => {
+      if (submitting) return;
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+      returnFocus = null;
+    };
+    const open = (trigger) => {
+      returnFocus = trigger;
+      setStatus("");
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+      title?.focus({ preventScroll: true });
+    };
+    const focusable = () => Array.from(dialog.querySelectorAll(
+      "button:not([disabled]), select:not([disabled]), input:not([disabled])"
+    )).filter((element) => !element.closest("[hidden]"));
+
+    document.querySelectorAll("[data-export-dialog-open]").forEach((button) => {
+      button.addEventListener("click", () => open(button));
+    });
+    dialog.querySelectorAll("[data-export-dialog-close], [data-export-dialog-cancel]").forEach(
+      (button) => button.addEventListener("click", (event) => {
+        event.preventDefault();
+        close();
+      })
+    );
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      close();
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) close();
+    });
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab") return;
+      const elements = focusable();
+      if (!elements.length) return;
+      const current = elements.indexOf(document.activeElement);
+      const next = event.shiftKey
+        ? (current <= 0 ? elements.length - 1 : current - 1)
+        : (current < 0 || current === elements.length - 1 ? 0 : current + 1);
+      if (
+        (event.shiftKey && current <= 0) ||
+        (!event.shiftKey && (current < 0 || current === elements.length - 1))
+      ) {
+        event.preventDefault();
+        elements[next].focus({ preventScroll: true });
+      }
+    });
+    scope?.addEventListener("change", updateFormats);
+    format?.addEventListener("change", updateOptions);
+    [speakers, timestamps, evidence].forEach((control) => {
+      control?.addEventListener("change", updatePreview);
+    });
+    updateFormats();
+
+    const include = (name) => form.querySelector("input[name='" + name + "']")?.checked === true;
+    const buildPayload = (requestedFormat = format?.value) => {
+      const selectedScope = scope?.value || "transcript";
+      return {
+        content_scope: selectedScope,
+        format: requestedFormat,
+        processing_result_id: form.dataset.processingResultId,
+        outcome_set_id: selectedScope === "transcript" ? null : (form.dataset.outcomeSetId || null),
+        include_speaker_labels: include("include_speaker_labels"),
+        include_timestamps: include("include_timestamps"),
+        include_evidence: selectedScope !== "transcript" && include("include_evidence")
+      };
+    };
+    const requestExport = async (requestedFormat = format?.value) => {
+      const token = form.dataset.csrfToken || csrfToken;
+      const response = await fetch(form.dataset.endpoint, {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "X-CSRF-Token": token } : {})
+        },
+        body: JSON.stringify(buildPayload(requestedFormat))
+      });
+      if (!response.ok) {
+        const problem = await response.json().catch(() => ({}));
+        throw new Error(problem.code || "export_failed");
+      }
+      return response;
+    };
+    const setBusy = (busy) => {
+      submitting = busy;
+      if (submit) submit.disabled = busy;
+      if (copy) copy.disabled = busy;
+      if (busy) dialog.setAttribute("aria-busy", "true");
+      else dialog.removeAttribute("aria-busy");
+    };
+    const errorMessage = (code) => ({
+      export_revision_stale: "Данные изменились. Закройте окно, обновите встречу и повторите.",
+      meeting_deletion_active: "Экспорт недоступен: встреча удаляется.",
+      meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
+      export_policy_denied: "Политика доступа к этому составу изменилась.",
+      export_unavailable: "Этот состав сейчас недоступен по готовности или политике.",
+      export_generation_failed: "Не удалось собрать файл. Повторите экспорт.",
+      audit_unavailable: "Экспорт остановлен: не удалось сохранить обязательную запись аудита. Повторите позже.",
+      unsupported_export_combination: "Выберите совместимый формат.",
+      clipboard_unavailable: "Не удалось скопировать текст. Используйте скачивание TXT."
+    }[code] || "Не удалось подготовить файл. Попробуйте ещё раз.");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (submitting || !scope || !format || !submit) return;
+      setBusy(true);
+      setStatus("Готовим файл…", "progress");
+      try {
+        const response = await requestExport();
+        const blob = await response.blob();
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "graf-export." + format.value;
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = filename;
+        link.hidden = true;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(href), 60000);
+        setStatus("Скачивание началось.", "success");
+        setBusy(false);
+        close();
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "export_failed";
+        setStatus(errorMessage(code), "error");
+        setBusy(false);
+        submit.focus({ preventScroll: true });
+      }
+    });
+    copy?.addEventListener("click", async () => {
+      if (submitting) return;
+      setBusy(true);
+      setStatus("Готовим текст для копирования…", "progress");
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error("clipboard_unavailable");
+        const response = await requestExport("txt");
+        await navigator.clipboard.writeText(await response.text());
+        setStatus("Текст скопирован.", "success");
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "export_failed";
+        setStatus(errorMessage(code), "error");
+      } finally {
+        setBusy(false);
+        copy.focus({ preventScroll: true });
+      }
+    });
+  };
+
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
@@ -1353,6 +1624,7 @@
     initPlayback();
     initPlaybackRecoveryPolling();
     initSpeakerNameForms();
+    initContentExport();
     initCalendarSettings();
   };
 

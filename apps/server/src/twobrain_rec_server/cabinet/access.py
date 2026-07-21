@@ -104,7 +104,7 @@ async def decide_meeting_access(
                 WorkspaceMembership.user_id == viewer_user_id,
                 WorkspaceMembership.status == "active",
             )
-        )
+        ).execution_options(populate_existing=True)
     )
     role = membership.role if membership is not None else None
     privileged = role in PRIVILEGED_ROLES
@@ -171,7 +171,7 @@ async def active_user_grant(
             MeetingShareGrant.grantee_user_id == grantee_user_id,
             MeetingShareGrant.grant_type == "user",
             MeetingShareGrant.status == "active",
-        )
+        ).execution_options(populate_existing=True)
     )
 
 

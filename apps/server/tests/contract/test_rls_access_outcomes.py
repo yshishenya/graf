@@ -6,6 +6,7 @@ from twobrain_rec_server.api.problems import (
     tenant_resource_not_found,
     tenant_scope_denied,
 )
+from twobrain_rec_server.db.rls_validation import RLS_COVERED_TABLES
 from twobrain_rec_server.ingest.audit import denied_access_metadata
 from twobrain_rec_server.processing.audit import safe_denied_access_metadata
 
@@ -72,3 +73,15 @@ def test_processing_denied_access_metadata_is_content_safe() -> None:
         "reason_category": "missing_context",
         "validation_outcome": "blocked",
     }
+
+
+def test_feature_120_export_sources_and_audit_sink_remain_in_rls_inventory() -> None:
+    assert {
+        "transcript_segments",
+        "diarization_segments",
+        "meeting_speaker_names",
+        "meeting_outcome_sets",
+        "meeting_outcome_items",
+        "meeting_artifact_policies",
+        "meeting_egress_audit_events",
+    } <= set(RLS_COVERED_TABLES)
