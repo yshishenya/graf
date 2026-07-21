@@ -28,6 +28,7 @@ from twobrain_rec_server.api.schemas import (
     NotesReviewState,
     OutcomeItemView,
     OutcomeSourceReferenceView,
+    PlaybackPreparationState,
     PlaybackReviewState,
     ProcessingReviewState,
     SharePanelState,
@@ -327,11 +328,11 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Пробный период" not in page
     assert "Пригласить" not in page
     assert 'data-playback-status-surface="list"' in page
-    assert 'data-playback-state="unavailable"' in page
-    assert 'data-playback-reason="no_audio"' in page
+    assert 'data-playback-state="unavailable"' not in page
+    assert 'data-playback-reason="no_audio"' not in page
     assert "Командный синк" not in page
-    assert "Записи встреч" in page
-    assert "<span>Загрузить</span>" in page
+    assert "Записи встреч" not in page
+    assert "<span>Загрузить запись</span>" in page
     assert "Загрузить медиа" not in page
     assert page.count('id="meeting-search"') == 1
     assert 'aria-label="Поиск встреч"' in page
@@ -384,8 +385,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'data-hx-select="#meeting-list-region"' in page
     assert "data-clear-selection" in page
     assert "data-list-title" in page
-    assert "Выбрано 0 / 1" in page
-    assert "Выбрать все видимые записи" in page
+    assert "Выбрано: 0" in page
+    assert "Выбрать все видимые встречи" in page
     assert "Скачивание появится позже" not in page
     assert "data-download-disabled" not in page
     assert 'aria-label="Сохраненные"' not in page
@@ -443,6 +444,297 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "row.dataset.deletionRequested" not in script
 
 
+def test_meeting_list_rows_render_only_projected_exception_status_and_trusted_time() -> None:
+    ready = _item()
+    ready.status = "ready"
+    ready.status_label = "Готово"
+    ready.primary_action = "open"
+    ready.playback = PlaybackPreparationState(
+        state="available",
+        reason_code="canonical_ready",
+        label="Аудио готово",
+        can_play=True,
+    )
+    failed = _item()
+    failed.title = "Синтетическая ошибка"
+    failed.status = "failed"
+    failed.status_label = "Нужна помощь"
+    failed.primary_action = "retry_future"
+    failed.playback = PlaybackPreparationState(
+        state="unavailable",
+        reason_code="no_audio",
+        label="Аудио недоступно",
+    )
+    response = MeetingListResponse(
+        items=[ready, failed],
+        filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+        generated_at=datetime.now(UTC),
+    )
+
+    for embedded in (False, True):
+        page = render_meeting_list_page(response, embedded=embedded, csrf_token="synthetic")
+        list_region = page[
+            page.index('id="meeting-list-region"') : page.index('<dialog class="delete-dialog"')
+        ]
+
+        assert "Готово" not in list_region
+        assert "Аудио готово" not in list_region
+        assert "Без календарного контекста" not in list_region
+        assert list_region.count("Не удалось обработать") == 1
+        assert list_region.count('data-status-kind="failed"') == 1
+        assert 'aria-label="Выбрать встречу Проектный синк"' in list_region
+        assert "16 июн, 08:00" in list_region
+        assert "Открыть встречу Проектный синк" in list_region
+
+
+def test_meeting_list_uses_ordered_rows_with_separate_open_select_and_delete_controls() -> None:
+    first = _item()
+    first.status = "ready"
+    first.status_label = "Готово"
+    first.primary_action = "open"
+    first.playback = PlaybackPreparationState(
+        state="available",
+        reason_code="canonical_ready",
+        label="Аудио готово",
+        can_play=True,
+    )
+    second = _item()
+    second.title = "Вторая синтетическая встреча"
+    response = MeetingListResponse(
+        items=[first, second],
+        filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+        generated_at=datetime.now(UTC),
+    )
+
+    page = render_meeting_list_page(response, csrf_token="synthetic")
+    list_region = page[
+        page.index('id="meeting-list-region"') : page.index('<dialog class="delete-dialog"')
+    ]
+
+    assert '<ol class="meeting-list"' in list_region
+    assert list_region.count('<li class="meeting-row cabinet-row') == 2
+    assert "<article" not in list_region
+    assert list_region.count("data-open-href=") == 2
+    assert list_region.count('class="meeting-title"') == 2
+    assert list_region.count("aria-labelledby=") >= 2
+    assert list_region.count("aria-describedby=") >= 2
+    assert 'aria-label="Выбрать встречу Проектный синк"' in list_region
+    assert 'aria-label="Удалить встречу Проектный синк"' in list_region
+    assert 'aria-label="Встреча Проектный синк"' not in list_region
+
+
+def test_meeting_list_css_reserves_context_columns_and_exposes_non_hover_access() -> None:
+    css = _cabinet_css()
+
+    assert (
+        ".meeting-row.cabinet-row {\n"
+        "  grid-template-columns: 32px 20px minmax(0, 1fr) 32px minmax(84px, auto);"
+        in css
+    )
+    assert ".row-select-hit,\n.row-delete-form {\n  width: 32px;\n  height: 32px;" in css
+    assert ".meeting-row.is-selected::before" in css
+    assert ".meeting-row.cabinet-row:focus-visible {\n  outline: 2px solid" in css
+    assert "@media (hover: none), (pointer: coarse)" in css
+    assert ".meeting-row:hover { transform: translateX(2px); }" not in css
+
+
+def test_meeting_list_marks_exceptional_rows_and_keeps_full_safe_accessible_description() -> None:
+    ready = _item()
+    ready.status = "ready"
+    ready.status_label = "Готово"
+    ready.primary_action = "open"
+    ready.playback = PlaybackPreparationState(
+        state="available",
+        reason_code="canonical_ready",
+        label="Аудио готово",
+        can_play=True,
+    )
+    exceptional = _item()
+    exceptional.title = (
+        "Очень длинное синтетическое название встречи для проверки сжатия строки "
+        "без раскрытия данных"
+    )
+    exceptional.status = "failed"
+    exceptional.status_label = "Нужна помощь"
+    exceptional.primary_action = "retry_future"
+    exceptional.started_at = None
+    response = MeetingListResponse(
+        items=[ready, exceptional],
+        filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+        generated_at=datetime.now(UTC),
+    )
+
+    page = render_meeting_list_page(response, csrf_token="synthetic")
+    ready_id = str(ready.meeting_id)
+    exceptional_id = str(exceptional.meeting_id)
+
+    assert f'class="meeting-row cabinet-row" tabindex="0" aria-labelledby="meeting-{ready_id}-title"' in page
+    assert (
+        f'class="meeting-row cabinet-row has-status" tabindex="0" '
+        f'aria-labelledby="meeting-{exceptional_id}-title" '
+        f'aria-describedby="meeting-{exceptional_id}-duration '
+        f'meeting-{exceptional_id}-status meeting-{exceptional_id}-time"'
+        in page
+    )
+    assert (
+        'aria-label="Открыть встречу Очень длинное синтетическое название встречи '
+        'для проверки сжатия строки без раскрытия данных"'
+        in page
+    )
+    assert f'id="meeting-{exceptional_id}-time">Без даты</span>' in page
+
+
+def test_meeting_list_renders_exact_waiting_progress_action_and_empty_states() -> None:
+    measured = _item()
+    measured.title = "Измеряемая отправка"
+    measured.status = "uploading"
+    measured.primary_action = "wait"
+    measured.upload = MeetingUploadProgressState(
+        status="uploading",
+        label="Отправляем",
+        uploaded_bytes=40,
+        total_bytes=100,
+        progress_percent=40,
+        is_active=True,
+    )
+    unmeasured = _item()
+    unmeasured.title = "Отправка без процента"
+    unmeasured.status = "uploading"
+    unmeasured.primary_action = "wait"
+    unmeasured.upload = MeetingUploadProgressState(
+        status="uploading",
+        label="Отправляем",
+        uploaded_bytes=100,
+        total_bytes=100,
+        progress_percent=100,
+        is_active=True,
+    )
+    terminal = _item()
+    terminal.title = "Завершённая отправка"
+    terminal.status = "ready"
+    terminal.status_label = "Готово"
+    terminal.primary_action = "open"
+    terminal.upload = MeetingUploadProgressState(
+        status="complete",
+        label="Отправлено",
+        uploaded_bytes=100,
+        total_bytes=100,
+        progress_percent=100,
+        is_active=False,
+    )
+    terminal.playback = PlaybackPreparationState(
+        state="available",
+        reason_code="canonical_ready",
+        label="Аудио готово",
+        can_play=True,
+    )
+    choice = _item(
+        calendar_context=MeetingCalendarContextSummary(
+            state="ambiguous",
+            label="Нужно выбрать встречу",
+            needs_owner_action=True,
+        )
+    )
+    choice.title = "Календарный выбор"
+    preparing = _item()
+    preparing.title = "Подготовка аудио"
+    preparing.status = "ready"
+    preparing.status_label = "Готово"
+    preparing.primary_action = "open"
+    preparing.playback = PlaybackPreparationState(
+        state="preparing",
+        reason_code="normalization_running",
+        label="Аудио готовится автоматически",
+    )
+    without_audio = _item()
+    without_audio.title = "Нет аудио"
+    without_audio.status = "ready"
+    without_audio.status_label = "Готово"
+    without_audio.primary_action = "open"
+    failed = _item()
+    failed.title = "Ошибка обработки"
+    failed.status = "failed"
+    failed.status_label = "Нужна помощь"
+    failed.primary_action = "retry_future"
+
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[measured, unmeasured, terminal, choice, preparing, without_audio, failed],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+
+    assert page.count("Отправляем 40%") == 1
+    assert page.count('role="progressbar"') == 1
+    assert 'aria-valuenow="40"' in page
+    assert "Отправляем 100%" not in page
+    assert page.count(">Отправляем</span>") == 1
+    assert "Отправлено" not in page
+    assert page.count(">Нужен выбор</span>") == 1
+    assert page.count(">Выбрать встречу</a>") == 1
+    assert page.count(">Аудио готовится</span>") == 1
+    assert page.count(">Без аудио</span>") == 1
+    assert page.count(">Не удалось обработать</span>") == 1
+    assert "data-list-loading-state" in page
+    assert "Загружаем встречи…" in page
+
+    first_empty = render_meeting_list_page(
+        MeetingListResponse(
+            items=[],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+            generated_at=datetime.now(UTC),
+        )
+    )
+    refined_empty = render_meeting_list_page(
+        MeetingListResponse(
+            items=[],
+            filters=MeetingFilterState(
+                q="несуществующая встреча",
+                status=None,
+                access=None,
+                sort="started_desc",
+            ),
+            generated_at=datetime.now(UTC),
+        )
+    )
+
+    assert "Пока нет встреч" in first_empty
+    assert "Начните запись или загрузите готовый файл." in first_empty
+    assert "Ничего не найдено" in refined_empty
+    assert "Измените запрос или сбросьте фильтры." in refined_empty
+    assert 'aria-label="Сбросить поиск и фильтры"' in refined_empty
+
+
+def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_deterministic() -> None:
+    page = render_meeting_list_page(
+        MeetingListResponse(
+            items=[_item()],
+            filters=MeetingFilterState(q=None, status=None, access=None, sort="started_desc"),
+            generated_at=datetime.now(UTC),
+        ),
+        csrf_token="synthetic",
+    )
+    script = _cabinet_js()
+
+    assert page.index('id="delete-feedback-region"') < page.index('id="meeting-list-region"')
+    for marker in [
+        "deleteFocusFallbackIds",
+        "captureDeletionFocusFallback",
+        "nextRow",
+        "previousRow",
+        'error.textContent = `Не удалось удалить ${failures}',
+        'confirm.textContent = "Повторить"',
+        "pendingDeleteRows = failedRows",
+        "renderClientEmptyList",
+        'emptyTitle.textContent = refined ? "Ничего не найдено" : "Пока нет встреч"',
+        "list.replaceChildren(empty)",
+        'event.target.closest("[data-delete-cancel]")',
+    ]:
+        assert marker in script
+    assert 'row.setAttribute("aria-selected"' not in script
+
+
 def test_feature_104_removed_main_window_fragments_have_no_current_entry_point() -> None:
     sections = (
         SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
@@ -495,8 +787,8 @@ def test_empty_meeting_list_reuses_toolbar_upload_and_native_recording() -> None
         )
     )
 
-    assert "Пока нет записей" in page
-    assert "Начните запись в приложении или загрузите файл кнопкой выше." in page
+    assert "Пока нет встреч" in page
+    assert "Начните запись или загрузите готовый файл." in page
     assert "Первый запуск" not in page
     assert "Установите GRAF" not in page
     assert 'href="/download"' not in page
@@ -533,7 +825,7 @@ def test_active_list_filters_expose_one_reset_without_extra_request_control() ->
     assert page.count("data-filter-reset") == 1
     assert 'href="/meetings"' in page
     assert 'aria-label="Сбросить поиск и фильтры"' in page
-    assert 'aria-label="Активных фильтров: 1"' in page
+    assert 'aria-label="Фильтры: 1"' in page
     assert 'aria-label="Применить фильтры"' not in page
     assert (
         'data-hx-trigger="input changed delay:150ms from:#meeting-search, change from:select, submit"'
@@ -638,8 +930,9 @@ def test_meeting_unavailable_page_uses_safe_shell_and_matching_list_link() -> No
 
         assert page.count("data-cabinet-shell") == 1
         assert '<main id="cabinet-main" class="cabinet-main" tabindex="-1">' in page
-        assert "Страница недоступна" in page
-        assert "Эта страница больше недоступна или у вас нет доступа к ней." in page
+        assert "Встреча больше недоступна" in page
+        assert "Страница недоступна" not in page
+        assert "у вас нет доступа" not in page
         assert f'href="{list_path}"' in page
         assert "meeting_not_found" not in page
         assert "11111111-1111-1111-1111-111111111111" not in page
@@ -950,7 +1243,7 @@ def test_desktop_empty_list_polls_for_new_local_uploads() -> None:
         poll_url="/desktop/meetings",
     )
 
-    assert "Пока нет записей" in page
+    assert "Пока нет встреч" in page
     assert 'hx-trigger="every 1s"' in page
     assert 'hx-get="/desktop/meetings"' in page
 
@@ -1776,8 +2069,11 @@ def test_098_auto_calendar_context_renders_once_in_web_and_embedded_list_and_det
         "embedded-detail": render_meeting_detail_page(review, embedded=True),
     }
 
-    for surface, page in pages.items():
-        assert page.count("Из календаря") == 1, surface
+    assert pages["web-list"].count("Из календаря") == 0
+    assert pages["embedded-list"].count("Из календаря") == 0
+    assert pages["web-detail"].count("Из календаря") == 1
+    assert pages["embedded-detail"].count("Из календаря") == 1
+    for page in pages.values():
         assert "calendar context title" not in page.lower()
         assert "attendee@example.test" not in page
 

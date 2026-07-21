@@ -35,6 +35,8 @@ from twobrain_rec_server.cabinet.view_models import (
     ProviderLinkStartOption,
     build_list_item,
     build_review_response,
+    meeting_list_title,
+    normalize_meeting_list_sort,
     previous_recurring_meeting_readiness,
     provider_link_settings_surface,
     safe_title,
@@ -224,9 +226,10 @@ async def list_cabinet_meetings(
     group_status_filter: bool = False,
     visible_title_search: bool = False,
     access: AccessState | None = None,
-    sort: str = "updated_desc",
+    sort: str = "started_desc",
     limit: int = 50,
 ) -> MeetingListResponse:
+    sort = normalize_meeting_list_sort(sort)
     query = select(Meeting).where(
         Meeting.workspace_id == workspace_id,
         or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == DeletionState.NONE.value),
@@ -348,7 +351,11 @@ def _meeting_matches_query(
     normalized_query = " ".join(query.casefold().split())
     if not normalized_query:
         return True
-    visible_title = safe_title(meeting, source=source)
+    visible_title = (
+        meeting_list_title(meeting, source=source)
+        if visible_title_only
+        else safe_title(meeting, source=source)
+    )
     candidates = (
         (visible_title,)
         if visible_title_only
@@ -862,8 +869,12 @@ def _apply_sort(query: Select[tuple[Meeting]], sort: str) -> Select[tuple[Meetin
         "started_asc": nullslast(asc(Meeting.started_at)),
         "duration_desc": desc(Meeting.duration_seconds),
         "duration_asc": asc(Meeting.duration_seconds),
+        "title_asc": nullslast(asc(Meeting.title)),
     }
-    return query.order_by(sorters.get(sort, desc(Meeting.updated_at)), desc(Meeting.created_at))
+    return query.order_by(
+        sorters.get(sort, nullslast(desc(Meeting.started_at))),
+        desc(Meeting.created_at),
+    )
 
 
 async def _latest_workflow(

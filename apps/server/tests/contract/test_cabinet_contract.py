@@ -40,6 +40,13 @@ def test_cabinet_list_contract_shape_and_future_slots(client) -> None:
     payload = response.json()
     assert set(payload) == {"items", "filters", "generated_at"}
     assert payload["filters"] == {"q": None, "status": None, "access": None, "sort": "updated_desc"}
+
+    explicit_updated = client.get(
+        "/api/v1/cabinet/meetings?sort=updated_desc",
+        headers=auth_headers(),
+    )
+    assert explicit_updated.status_code == 200
+    assert explicit_updated.json()["filters"]["sort"] == "updated_desc"
     assert len(payload["items"]) == 4
     first = payload["items"][0]
     assert {

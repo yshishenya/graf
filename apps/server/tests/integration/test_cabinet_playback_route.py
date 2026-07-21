@@ -408,6 +408,19 @@ def test_playback_route_requires_stored_review_m4a_artifact(client) -> None:
     assert [(event.event_type, event.outcome, event.policy_reason) for event in events] == [
         ("playback_denied", "denied", "normalization_queued")
     ]
+    detail = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}",
+        headers=auth_headers(),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["meeting"]["playback"] == {
+        "state": "preparing",
+        "reason_code": "normalization_queued",
+        "label": "Аудио готовится автоматически",
+        "automatic_recovery": True,
+        "can_play": False,
+        "action": "disabled",
+    }
 
 
 def test_playback_route_rejects_malformed_and_unsatisfiable_ranges_safely(client) -> None:

@@ -31,6 +31,9 @@ def test_hx_deletion_request_returns_bounded_feedback_fragment(client) -> None:
     assert response.headers["Vary"] == "HX-Request"
     assert response.headers["content-type"].startswith("text/html")
     assert 'data-cabinet-fragment="deletion-feedback"' in response.text
+    assert response.text.count("<p>") == 1
+    assert "<h2>" not in response.text
+    assert "Запись удалена из списка. Очистка данных GRAF продолжается." in response.text
     assert "Запись удалена из списка." in response.text
     assert "Очистка данных GRAF продолжается." in response.text
     assert "Отчет удаления" not in response.text
@@ -51,6 +54,9 @@ def test_hx_web_deletion_form_returns_bounded_feedback_fragment(client) -> None:
     assert response.headers["Vary"] == "HX-Request"
     assert response.headers["content-type"].startswith("text/html")
     assert 'data-cabinet-fragment="deletion-feedback"' in response.text
+    assert response.text.count("<p>") == 1
+    assert "<h2>" not in response.text
+    assert "Запись удалена из списка. Очистка данных GRAF продолжается." in response.text
     assert "Запись удалена из списка." in response.text
     assert "Очистка данных GRAF продолжается." in response.text
     assert "Отчет удаления" not in response.text

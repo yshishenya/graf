@@ -5,8 +5,11 @@
   let pendingDeleteRows = [];
   let deleteReturnFocus = null;
   let deleteReturnMeetingId = "";
+  let deleteFocusFallbackIds = [];
   let playbackRecoveryTimer = null;
   let playbackRecoveryRequest = null;
+  const selectedMeetingIds = new Set();
+  const contextualControlsAlwaysAvailable = window.matchMedia?.("(hover: none), (pointer: coarse)")?.matches === true;
 
   const plural = (value, one, few, many) => {
     const mod10 = value % 10;
@@ -39,30 +42,168 @@
     target.isConnected &&
     target.closest("[hidden], [aria-hidden='true']") === null;
 
-  const updateSelection = () => {
+  const updateSelection = ({ syncStoredSelection = true } = {}) => {
     const list = currentList();
     const toolbar = document.querySelector("[data-selection-toolbar]");
-    const listTitle = document.querySelector("[data-list-title]");
     const countLabel = document.querySelector("[data-selection-count]");
     const selectionToggle = document.querySelector("[data-selection-toggle]");
     if (!list || !toolbar || !countLabel) return;
     const rows = selectedRows();
     const total = allRows().length;
     const allSelected = total > 0 && rows.length === total;
-    countLabel.textContent = `Выбрано ${rows.length} / ${total}`;
+    if (syncStoredSelection) {
+      selectedMeetingIds.clear();
+      rows.forEach((row) => selectedMeetingIds.add(row.dataset.meetingId));
+    }
+    countLabel.textContent = `Выбрано: ${rows.length}`;
     toolbar.hidden = rows.length === 0;
     toolbar.dataset.selectionState = allSelected ? "all" : "partial";
     if (selectionToggle) {
       selectionToggle.checked = allSelected;
       selectionToggle.indeterminate = rows.length > 0 && !allSelected;
-      selectionToggle.setAttribute("aria-label", allSelected ? "Снять выбор" : "Выбрать все видимые записи");
+      selectionToggle.setAttribute(
+        "aria-label",
+        allSelected ? "Снять выбор со всех видимых встреч" : "Выбрать все видимые встречи",
+      );
     }
-    if (listTitle) listTitle.hidden = rows.length > 0;
     allRows().forEach((row) => {
       const selected = row.querySelector("[data-meeting-select]")?.checked === true;
       row.classList.toggle("is-selected", selected);
-      if (selected) setRowContextualAvailability(row, true);
+      if (selected || contextualControlsAlwaysAvailable) setRowContextualAvailability(row, true);
     });
+  };
+
+  const reconcileMeetingSelection = () => {
+    const visibleIds = new Set(allRows().map((row) => row.dataset.meetingId));
+    Array.from(selectedMeetingIds).forEach((meetingId) => {
+      if (!visibleIds.has(meetingId)) selectedMeetingIds.delete(meetingId);
+    });
+    allRows().forEach((row) => {
+      const checkbox = row.querySelector("[data-meeting-select]");
+      if (checkbox) checkbox.checked = selectedMeetingIds.has(row.dataset.meetingId);
+      setRowContextualAvailability(
+        row,
+        contextualControlsAlwaysAvailable || selectedMeetingIds.has(row.dataset.meetingId),
+      );
+    });
+    updateSelection({ syncStoredSelection: false });
+  };
+
+  const renderMeetingListRecovery = (kind) => {
+    const target = document.querySelector("#meeting-list-region");
+    if (!target) return;
+    const copy = {
+      offline: {
+        title: "Нет подключения",
+        description: "Запись на Mac продолжает работать.",
+        action: "Повторить",
+      },
+      service: {
+        title: "Не удалось загрузить встречи",
+        description: "Попробуйте ещё раз.",
+        action: "Повторить",
+      },
+      session: {
+        title: "Нужно войти снова",
+        description: "Сессия завершилась.",
+        action: "Войти",
+      },
+    }[kind] || {
+      title: "Не удалось загрузить встречи",
+      description: "Попробуйте ещё раз.",
+      action: "Повторить",
+    };
+    const recovery = document.createElement("section");
+    recovery.className = "list-recovery-state";
+    recovery.setAttribute("role", "status");
+    recovery.setAttribute("aria-live", "polite");
+    const title = document.createElement("strong");
+    title.textContent = copy.title;
+    const description = document.createElement("span");
+    description.textContent = copy.description;
+    const action = document.createElement(kind === "session" ? "a" : "button");
+    action.className = "button quiet list-recovery-action";
+    action.textContent = copy.action;
+    if (kind === "session") {
+      const returnPath = location.pathname.startsWith("/desktop/")
+        ? "/desktop/meetings"
+        : "/meetings";
+      action.href = `/login?next=${encodeURIComponent(returnPath)}`;
+      action.setAttribute("data-list-sign-in", "");
+    } else {
+      action.type = "button";
+      action.setAttribute("data-list-retry", "");
+    }
+    recovery.append(title, description, action);
+    target.removeAttribute("aria-busy");
+    target.replaceChildren(recovery);
+    selectedMeetingIds.clear();
+    const toolbar = document.querySelector("[data-selection-toolbar]");
+    if (toolbar) toolbar.hidden = true;
+  };
+
+  const renderClientEmptyList = () => {
+    const list = currentList();
+    if (!list || allRows().length > 0) return;
+    const controls = document.querySelector(".cabinet-list-controls");
+    const refined = Boolean(
+      controls?.querySelector("#meeting-search")?.value.trim()
+      || controls?.querySelector("#meeting-status")?.value
+      || controls?.querySelector("#meeting-access")?.value,
+    );
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    const emptyTitle = document.createElement("strong");
+    emptyTitle.textContent = refined ? "Ничего не найдено" : "Пока нет встреч";
+    const emptyBody = document.createElement("span");
+    emptyBody.textContent = refined
+      ? "Измените запрос или сбросьте фильтры."
+      : "Начните запись или загрузите готовый файл.";
+    empty.append(emptyTitle, emptyBody);
+    list.replaceChildren(empty);
+  };
+
+  const showMeetingListLoading = () => {
+    const target = document.querySelector("#meeting-list-region");
+    const loading = target?.querySelector("[data-list-loading-state]");
+    const current = target?.querySelector("[data-list-current-content]");
+    if (!target || !loading || !current) return;
+    target.setAttribute("aria-busy", "true");
+    loading.hidden = false;
+    current.hidden = true;
+    const toolbar = document.querySelector("[data-selection-toolbar]");
+    if (toolbar) toolbar.hidden = true;
+  };
+
+  const requestTargetsMeetingList = (event) => {
+    const source = event.detail?.elt || event.target;
+    const target = event.detail?.target;
+    return target?.id === "meeting-list-region" ||
+      (source instanceof Element && Boolean(source.closest(".cabinet-list-controls, [data-list-retry]")));
+  };
+
+  const handleMeetingListRequestError = (event) => {
+    if (!requestTargetsMeetingList(event)) return;
+    const status = Number(event.detail?.xhr?.status || 0);
+    const kind = status === 401 || status === 403
+      ? "session"
+      : navigator.onLine ? "service" : "offline";
+    renderMeetingListRecovery(kind);
+  };
+
+  const captureDeletionFocusFallback = (rows) => {
+    const orderedRows = allRows();
+    const deletingIds = new Set(rows.map((row) => row.dataset.meetingId));
+    const anchorRow = orderedRows.find((row) => row.dataset.meetingId === deleteReturnMeetingId)
+      || rows[0];
+    const anchorIndex = orderedRows.indexOf(anchorRow);
+    const nextRow = orderedRows.slice(anchorIndex + 1).find(
+      (row) => !deletingIds.has(row.dataset.meetingId),
+    );
+    const previousRow = orderedRows.slice(0, Math.max(anchorIndex, 0)).reverse().find(
+      (row) => !deletingIds.has(row.dataset.meetingId),
+    );
+    deleteFocusFallbackIds = [nextRow?.dataset.meetingId, previousRow?.dataset.meetingId].filter(Boolean);
   };
 
   const openDeleteDialog = (rows) => {
@@ -75,6 +216,7 @@
     deleteReturnMeetingId = deleteReturnFocus?.closest("[data-meeting-row]")?.dataset.meetingId || "";
     pendingDeleteRows = rows.filter(Boolean);
     if (!pendingDeleteRows.length) return;
+    captureDeletionFocusFallback(pendingDeleteRows);
     if (error) error.hidden = true;
     if (title) title.textContent = pendingDeleteRows.length === 1 ? dialog.dataset.titleOne : dialog.dataset.titleMany;
     if (count) count.textContent = deletingLabel(pendingDeleteRows.length);
@@ -91,17 +233,24 @@
     else dialog.removeAttribute("open");
     const currentReturnRow = allRows().find((row) => row.dataset.meetingId === deleteReturnMeetingId);
     const rowDeleteControl = currentReturnRow?.querySelector("[data-row-delete]");
+    const fallbackRow = deleteFocusFallbackIds
+      .map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))
+      .find(Boolean);
     const returnControl = isUsableFocusTarget(deleteReturnFocus)
       ? deleteReturnFocus
       : isUsableFocusTarget(rowDeleteControl) ? rowDeleteControl : null;
     if (restoreFocus && returnControl) {
       setRowContextualAvailability(currentReturnRow, true);
       returnControl.focus({ preventScroll: true });
+    } else if (restoreFocus && fallbackRow) {
+      setRowContextualAvailability(fallbackRow, true);
+      fallbackRow.focus({ preventScroll: true });
     } else if (restoreFocus) {
       document.querySelector("[data-list-title]")?.focus({ preventScroll: true });
     }
     deleteReturnFocus = null;
     deleteReturnMeetingId = "";
+    deleteFocusFallbackIds = [];
   };
 
   const submitDeletionForm = async (form) => {
@@ -139,12 +288,23 @@
       const source = event.detail?.elt || event.target;
       if (source instanceof Element && source.matches("[data-upload-progress-poll]") && listInteractionIsActive()) {
         event.preventDefault();
+        return;
+      }
+      if (requestTargetsMeetingList(event) && !(source instanceof Element && source.matches("[data-upload-progress-poll]"))) {
+        showMeetingListLoading();
       }
     });
+    document.body.addEventListener("htmx:sendError", handleMeetingListRequestError);
+    document.body.addEventListener("htmx:timeout", handleMeetingListRequestError);
+    document.body.addEventListener("htmx:responseError", handleMeetingListRequestError);
     document.body.addEventListener("change", (event) => {
       if (event.target.closest("[data-meeting-select]")) updateSelection();
     });
     document.body.addEventListener("click", async (event) => {
+      if (event.target.closest("[data-list-retry]")) {
+        document.querySelector(".cabinet-list-controls")?.requestSubmit();
+        return;
+      }
       const deleteButton = event.target.closest("[data-row-delete]");
       if (deleteButton) {
         openDeleteDialog([deleteButton.closest("[data-meeting-row]")]);
@@ -205,14 +365,16 @@
             failedRows.push(row);
           }
         }
+        renderClientEmptyList();
         confirm.disabled = false;
         confirm.textContent = "Удалить";
         updateSelection();
         if (failedRows.length && error) {
           const failures = failedRows.length;
-          error.textContent = failures === 1 ? "Не удалось удалить одну запись. Попробуйте ещё раз." : `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте ещё раз.`;
+          error.textContent = `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте ещё раз.`;
           error.hidden = false;
           pendingDeleteRows = failedRows;
+          confirm.textContent = "Повторить";
           return;
         }
         closeDeleteDialog();
@@ -220,10 +382,26 @@
       }
       const row = event.target.closest("[data-meeting-row]");
       if (!row || event.target.closest("a,button,input")) return;
-      const checkbox = row.querySelector("[data-meeting-select]");
-      if (!checkbox) return;
-      checkbox.checked = !checkbox.checked;
-      updateSelection();
+      const primaryLink = row.querySelector("[data-meeting-open]");
+      primaryLink?.click();
+    });
+    document.body.addEventListener("keydown", (event) => {
+      const row = event.target.closest?.("[data-meeting-row]");
+      if (!row || event.target !== row) return;
+      if (event.key === "Enter") {
+        const primaryLink = row.querySelector("[data-meeting-open]");
+        if (!primaryLink) return;
+        event.preventDefault();
+        primaryLink.click();
+        return;
+      }
+      if (event.key === " ") {
+        const checkbox = row.querySelector("[data-meeting-select]");
+        if (!checkbox) return;
+        event.preventDefault();
+        checkbox.checked = !checkbox.checked;
+        updateSelection();
+      }
     });
     document.body.addEventListener("pointerover", (event) => {
       const row = event.target.closest?.("[data-meeting-row]");
@@ -233,7 +411,9 @@
       const row = event.target.closest?.("[data-meeting-row]");
       if (!row || row.contains(event.relatedTarget)) return;
       const selected = row.querySelector("[data-meeting-select]")?.checked === true;
-      if (!selected && !row.contains(document.activeElement)) setRowContextualAvailability(row, false);
+      if (!contextualControlsAlwaysAvailable && !selected && !row.contains(document.activeElement)) {
+        setRowContextualAvailability(row, false);
+      }
     });
     document.body.addEventListener("focusin", (event) => {
       const row = event.target.closest?.("[data-meeting-row]");
@@ -244,11 +424,12 @@
       if (!row) return;
       window.setTimeout(() => {
         const selected = row.querySelector("[data-meeting-select]")?.checked === true;
-        if (!selected && !row.contains(document.activeElement)) setRowContextualAvailability(row, false);
+        if (!contextualControlsAlwaysAvailable && !selected && !row.contains(document.activeElement)) {
+          setRowContextualAvailability(row, false);
+        }
       }, 0);
     });
-    allRows().forEach((row) => setRowContextualAvailability(row, false));
-    updateSelection();
+    reconcileMeetingSelection();
   };
 
   const initListDisclosures = () => {
@@ -261,19 +442,20 @@
         const search = form.querySelector("#meeting-search");
         const sort = form.querySelector("#meeting-sort");
         const filterDisclosure = form.querySelector("[data-filter-disclosure]");
-        const filterCount = filterDisclosure?.querySelector(".cabinet-control-count");
         const reset = form.querySelector("[data-filter-reset]");
         const activeFilterCount = Number(Boolean(status?.value)) + Number(Boolean(access?.value));
         filterDisclosure?.classList.toggle("is-active", activeFilterCount > 0);
-        if (filterCount) {
-          filterCount.hidden = activeFilterCount === 0;
-          filterCount.textContent = String(activeFilterCount);
-          filterCount.setAttribute("aria-label", `Активных фильтров: ${activeFilterCount}`);
+        const filterSummary = filterDisclosure?.querySelector("summary");
+        const visibleFilterLabel = filterSummary?.querySelector(".cabinet-control-label");
+        const filterLabel = activeFilterCount > 0 ? `Фильтры: ${activeFilterCount}` : "Фильтры";
+        if (filterSummary) filterSummary.setAttribute("aria-label", filterLabel);
+        if (visibleFilterLabel) {
+          visibleFilterLabel.textContent = filterLabel;
         }
         if (reset) reset.hidden = !(search?.value.trim() || activeFilterCount > 0);
         const sortLabel = sort?.selectedOptions[0]?.textContent?.trim();
         if (sortLabel) {
-          const visibleSortLabel = document.querySelector("[data-current-sort-label]");
+          const visibleSortLabel = form.querySelector("[data-sort-disclosure] .cabinet-control-label");
           if (visibleSortLabel) visibleSortLabel.textContent = sortLabel;
           form.querySelector("[data-sort-disclosure] > summary")?.setAttribute("aria-label", `Сортировка: ${sortLabel}`);
         }
@@ -1631,13 +1813,13 @@
   document.body.addEventListener("htmx:afterSwap", (event) => {
     const target = event.detail?.target;
     if (target instanceof Element && (target.id === "meeting-list-region" || target.matches("[data-meeting-list]"))) {
-      target.querySelectorAll("[data-meeting-select]").forEach((input) => {
-        input.checked = false;
-      });
-      target.querySelectorAll("[data-meeting-row]").forEach((row) => setRowContextualAvailability(row, false));
-      updateSelection();
+      reconcileMeetingSelection();
     }
     initCabinet();
+  });
+
+  window.addEventListener("pageshow", () => {
+    if (currentList()) updateSelection();
   });
 
   initCabinet();

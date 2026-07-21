@@ -42,6 +42,54 @@ def test_cabinet_list_returns_only_authorized_workspace_meetings(client) -> None
     }
 
 
+def test_browser_and_embedded_lists_default_to_started_desc_and_normalize_unknown_sort(
+    client,
+) -> None:
+    seed_cabinet_meetings(client)
+
+    for route in ("/meetings", "/desktop/meetings"):
+        default_page = client.get(route, headers=auth_headers())
+        unknown_page = client.get(route, params={"sort": "unknown"}, headers=auth_headers())
+        updated_page = client.get(
+            route,
+            params={"sort": "updated_desc"},
+            headers=auth_headers(),
+        )
+
+        assert default_page.status_code == 200
+        assert 'aria-label="Сортировка: Сначала новые"' in default_page.text
+        assert 'value="started_desc" selected' in default_page.text
+        assert unknown_page.status_code == 200
+        assert 'aria-label="Сортировка: Сначала новые"' in unknown_page.text
+        assert 'value="started_desc" selected' in unknown_page.text
+        assert updated_page.status_code == 200
+        assert 'aria-label="Сортировка: Недавно обновлённые"' in updated_page.text
+        assert 'value="updated_desc" selected' in updated_page.text
+
+
+def test_meeting_list_toolbar_has_one_clear_hierarchy_and_contextual_result_count(client) -> None:
+    seed_cabinet_meetings(client)
+
+    for route in ("/meetings", "/desktop/meetings"):
+        page = client.get(
+            route,
+            params={"q": "Проектный", "status": "ready", "sort": "started_desc"},
+            headers=auth_headers(),
+        )
+
+        assert page.status_code == 200
+        assert page.text.count('<h1 data-list-title tabindex="-1">Мои встречи</h1>') == 1
+        assert page.text.count('id="meeting-search"') == 1
+        assert page.text.count("data-filter-disclosure") == 1
+        assert page.text.count("data-sort-disclosure") == 1
+        assert page.text.count("data-manual-upload-open") == 1
+        assert "Фильтры: 1" in page.text
+        assert "Найдено: 1" in page.text
+        assert "Загрузить запись" in page.text
+        assert "Записи встреч" not in page.text
+        assert "data-current-sort-label" not in page.text
+
+
 def test_public_status_filters_remain_exact_while_web_labels_group_related_states(client) -> None:
     status_rows = (
         ("submitted", ProcessingStatus.NOT_SUBMITTED),
@@ -166,7 +214,7 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
     )
     visible_title_page = client.get(
         "/desktop/meetings",
-        params={"q": "Запись без названия"},
+        params={"q": "Запись"},
         headers=auth_headers(),
     )
 
@@ -185,13 +233,13 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
     assert "Ничего не найдено" in hidden_identifier_page.text
     assert "data-meeting-row" not in hidden_identifier_page.text
     assert visible_title_page.status_code == 200
-    assert "Запись без названия" in visible_title_page.text
+    assert 'aria-label="Открыть встречу Запись, Без даты"' in visible_title_page.text
 
     page = client.get("/desktop/meetings", headers=auth_headers())
 
     assert page.status_code == 200
     assert "cabinet-upload-progress" not in page.text
-    assert "Запись без названия" in page.text
+    assert 'aria-label="Открыть встречу Запись, Без даты"' in page.text
     assert "Отправляем 40%" in page.text
     assert 'aria-label="Прогресс отправки записи"' in page.text
     assert 'hx-trigger="every 1s"' in page.text
@@ -363,7 +411,7 @@ def test_cabinet_list_and_detail_use_recording_date_with_legacy_fallback(client)
     assert legacy_item["started_at"] is None
     assert legacy_web.status_code == 200
     assert "legacy-no-recording-date" not in legacy_web.text
-    assert "Запись без названия" in legacy_web.text
+    assert 'aria-label="Открыть встречу Запись, Без даты"' in legacy_web.text
     assert "Без даты" in legacy_web.text
 
 
@@ -381,10 +429,11 @@ def test_cabinet_list_uses_recording_display_timezone_offset_for_date_label(clie
     )
     assert response.status_code == 200
 
-    page = client.get("/meetings", params={"q": "14"}, headers=auth_headers())
+    page = client.get("/meetings", headers=auth_headers())
 
     assert page.status_code == 200
-    assert "Запись 14 июл, 02:30" in page.text
+    assert 'aria-label="Открыть встречу Запись, 14 июл, 02:30"' in page.text
+    assert "14 июл, 02:30" in page.text
     assert "timezone-crossing-visible-day" not in page.text
 
 
@@ -449,7 +498,8 @@ def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(clien
     ]
     assert generated_title not in page.text
     assert manual_title not in page.text
-    assert "Запись 13 июл, 12:14" in page.text
+    assert 'aria-label="Открыть встречу Запись, 13 июл, 12:14"' in page.text
+    assert "13 июл, 12:14" in page.text
     assert "Загруженная запись" in page.text
     assert "27 с" in page.text
     assert "1 ч 14 мин" in page.text
@@ -467,8 +517,8 @@ def test_cabinet_list_web_shell_renders_reference_informed_controls(client) -> N
     assert "Пробный период" not in response.text
     assert "Пригласить" not in response.text
     assert "Командный синк" not in response.text
-    assert "Записи встреч" in response.text
-    assert "<span>Загрузить</span>" in response.text
+    assert "Записи встреч" not in response.text
+    assert "<span>Загрузить запись</span>" in response.text
     assert "Загрузить медиа" not in response.text
     assert "Фильтры" in response.text
     assert "Сортировка" in response.text
@@ -543,7 +593,7 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert 'href="/desktop/settings/integrations/calendar"' in response.text
     assert 'href="/meetings"' not in response.text
     assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in response.text
-    assert "Записи встреч" in response.text
+    assert "Записи встреч" not in response.text
     assert "Проектный синк" in response.text
     assert "<style>" not in response.text
     assert "Upload file" not in response.text
@@ -616,14 +666,15 @@ def test_098_ambiguous_owner_list_has_compact_choose_action_in_web_and_embedded(
 
     for surface, response in responses.items():
         assert response.status_code == 200, surface
-        assert response.text.count("Нужно выбрать встречу") == 1, surface
+        assert response.text.count("Нужен выбор") == 1, surface
         assert (
             response.text.count(
-                '<span class="mini-link calendar-context-list-action">Выбрать</span>'
+                'class="mini-link calendar-context-list-action"'
             )
             == 1
         ), surface
-        assert 'data-calendar-context-state="ambiguous"' in response.text, surface
+        assert '>Выбрать встречу</a>' in response.text, surface
+        assert 'data-status-kind="calendar_choice"' in response.text, surface
         assert "Synthetic hidden candidate A" not in response.text
         assert "Synthetic hidden candidate B" not in response.text
     assert f'href="/meetings/{meeting_id}#calendar-context-chooser"' in responses["web"].text
@@ -647,8 +698,8 @@ def test_098_ambiguous_non_owner_list_is_generic_and_has_no_choose_action(client
     ):
         response = client.get(path, headers=shared_auth_headers())
         assert response.status_code == 200, path
-        assert response.text.count("Без календарного контекста") == 1, path
-        assert "Нужно выбрать встречу" not in response.text
+        assert "Без календарного контекста" not in response.text
+        assert "Нужен выбор" not in response.text
         assert "calendar-context-list-action" not in response.text
         assert "ambiguous" not in response.text
         assert "multiple_time_candidates" not in response.text

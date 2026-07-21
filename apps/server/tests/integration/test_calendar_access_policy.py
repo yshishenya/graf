@@ -103,7 +103,7 @@ def test_098_auto_context_uses_immutable_roster_and_renders_web_embedded_parity(
     for surface, response in pages.items():
         assert response.status_code == 200, surface
         if surface.endswith("list"):
-            assert response.text.count("Из календаря") == 1, surface
+            assert response.text.count("Из календаря") == 0, surface
             assert "Подобрано автоматически" not in response.text
         else:
             assert response.text.count("Подобрано автоматически") == 1, surface

@@ -52,7 +52,7 @@ def test_cabinet_web_unavailable_meetings_render_safe_html_and_keep_hx_problem_d
 
             assert response.status_code == 404
             assert response.headers["content-type"].startswith("text/html")
-            assert "Страница недоступна" in response.text
+            assert "Встреча больше недоступна" in response.text
             assert f'href="{base_path}"' in response.text
             assert "meeting_not_found" not in response.text
             assert str(seeds.foreign_id) not in response.text

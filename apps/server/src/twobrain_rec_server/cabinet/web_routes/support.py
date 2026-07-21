@@ -33,7 +33,7 @@ PrincipalDependency = Depends(get_principal)
 WebCSRFDependency = Depends(require_web_csrf)
 StorageDependency = Depends(get_request_storage)
 CabinetSearchQuery = Query(default=None, max_length=120)
-CabinetSortQuery = Query(default="updated_desc")
+CabinetSortQuery = Query(default="started_desc")
 CabinetLimitQuery = Query(default=50, ge=1, le=100)
 CabinetStatusFilter = Annotated[
     MeetingReviewStatus | None,

@@ -79,6 +79,71 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "sessionStorage" not in script
 
 
+def test_meeting_list_js_separates_open_selection_and_fragment_reconciliation() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+
+    for marker in [
+        "const selectedMeetingIds = new Set()",
+        'row.querySelector("[data-meeting-open]")',
+        "primaryLink.click()",
+        'event.key === "Enter"',
+        'event.key === " "',
+        "event.preventDefault()",
+        "checkbox.checked = !checkbox.checked",
+        "Выбрано: ${rows.length}",
+        "reconcileMeetingSelection",
+        "selectedMeetingIds.has(row.dataset.meetingId)",
+    ]:
+        assert marker in script
+
+    assert "checkbox.checked = !checkbox.checked;\n      updateSelection();\n    });" not in script
+
+
+def test_meeting_list_js_owns_loading_and_metadata_safe_recovery_states() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+
+    for marker in [
+        '"htmx:beforeRequest"',
+        '"htmx:sendError"',
+        '"htmx:timeout"',
+        '"htmx:responseError"',
+        "showMeetingListLoading",
+        "renderMeetingListRecovery",
+        "target.replaceChildren(recovery)",
+        "navigator.onLine",
+        'status === 401 || status === 403',
+        'data-list-retry',
+        'data-list-sign-in',
+        "Нет подключения",
+        "Запись на Mac продолжает работать.",
+        "Не удалось загрузить встречи",
+        "Попробуйте ещё раз.",
+        "Нужно войти снова",
+        "Сессия завершилась.",
+        "Повторить",
+        "Войти",
+    ]:
+        assert marker in script
+
+    meeting_list_template = (
+        ROOT
+        / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_list.html"
+    ).read_text()
+    rendering = (
+        ROOT / "src/twobrain_rec_server/cabinet/rendering.py"
+    ).read_text()
+    assert "data-list-loading-state" in rendering
+    assert "Загружаем встречи…" in rendering
+    assert 'id="meeting-list-region"' in meeting_list_template
+
+    recovery_function = script[
+        script.index("const renderMeetingListRecovery") : script.index(
+            "const showMeetingListLoading"
+        )
+    ]
+    assert "innerHTML =" not in recovery_function
+
+
 def test_cabinet_js_uses_product_facing_ellipsis_in_async_states() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 
@@ -263,3 +328,33 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "  }"
     ) not in css
     assert 'aria-label="Сохраненные"' not in css
+
+
+def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() -> None:
+    css = (STATIC_DIR / "cabinet.css").read_text()
+
+    for marker in [
+        "--meeting-row-height: 48px;",
+        "--meeting-row-exception-height: 56px;",
+        ".meeting-row.has-status {\n  min-height: var(--meeting-row-exception-height);",
+        ".row-select-hit,\n.row-delete-form {\n  width: 32px;\n  height: 32px;",
+        ".meeting-title {",
+        "text-overflow: ellipsis;",
+        ".meeting-date {",
+        "white-space: nowrap;",
+        "@media (max-width: 1120px)",
+        "@media (max-width: 860px)",
+        "@media (hover: none), (pointer: coarse)",
+        "@media (prefers-reduced-motion: reduce)",
+        "transition-duration: .001ms !important;",
+        "@media (forced-colors: active)",
+        ".meeting-row.is-selected::before",
+        "background: Highlight;",
+        "@media (prefers-contrast: more)",
+    ]:
+        assert marker in css
+
+    assert "html, body { min-height: 100%; margin: 0;" in css
+    assert "overflow-x: hidden;" in css
+    assert "minmax(0, 1fr)" in css
+    assert ".meeting-row:hover { transform: translateX(2px); }" not in css

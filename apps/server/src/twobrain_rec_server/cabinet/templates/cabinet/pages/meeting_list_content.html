@@ -4,8 +4,7 @@
   <div class="cabinet-workspace">
     <header class="cabinet-topbar">
       <div class="cabinet-titleline">
-        <h1>Мои встречи</h1>
-        <span data-current-sort-label>{{ sort_label }}</span>
+        <h1 data-list-title tabindex="-1">Мои встречи</h1>
       </div>
       <form class="cabinet-list-controls" method="get" action="{{ filter_action }}"
         data-hx-get="{{ filter_action }}"
@@ -21,19 +20,18 @@
         </div>
 
         <details class="cabinet-control-disclosure{% if active_filter_count %} is-active{% endif %}" data-filter-disclosure>
-          <summary class="icon-control" aria-label="Фильтры">
+          <summary class="icon-control" aria-label="{{ filter_label }}">
             {{ icons.icon("filter") }}
-            <span class="cabinet-control-label">Фильтры</span>
-            <span class="cabinet-control-count" aria-label="Активных фильтров: {{ active_filter_count }}"{% if not active_filter_count %} hidden{% endif %}>{{ active_filter_count }}</span>
+            <span class="cabinet-control-label">{{ filter_label }}</span>
           </summary>
           <div class="cabinet-control-popover" role="group" aria-label="Параметры фильтрации">
             <label for="meeting-status">Статус</label>
             <select id="meeting-status" name="status">
-              <option value=""{% if not status_value %} selected{% endif %}>Все статусы</option>
-              <option value="ready"{% if status_value == "ready" %} selected{% endif %}>Готово</option>
+              <option value=""{% if not status_value %} selected{% endif %}>Все состояния</option>
+              <option value="ready"{% if status_value == "ready" %} selected{% endif %}>Готовые</option>
               <option value="processing"{% if status_value == "processing" %} selected{% endif %}>В обработке</option>
-              <option value="partial"{% if status_value == "partial" %} selected{% endif %}>С замечаниями</option>
-              <option value="failed"{% if status_value == "failed" %} selected{% endif %}>Нужна помощь</option>
+              <option value="partial"{% if status_value == "partial" %} selected{% endif %}>С ограничениями</option>
+              <option value="failed"{% if status_value == "failed" %} selected{% endif %}>Требуют внимания</option>
             </select>
             <label for="meeting-access">Доступ</label>
             <select id="meeting-access" name="access">
@@ -48,7 +46,7 @@
         <details class="cabinet-control-disclosure" data-sort-disclosure>
           <summary class="icon-control" aria-label="Сортировка: {{ sort_label }}">
             {{ icons.icon("sort") }}
-            <span class="cabinet-control-label">Сортировка</span>
+            <span class="cabinet-control-label">{{ sort_label }}</span>
           </summary>
           <div class="cabinet-control-popover cabinet-control-popover--sort">
             <label for="meeting-sort">Сортировка</label>
@@ -65,7 +63,7 @@
 
         <a class="icon-control cabinet-filter-reset" href="{{ filter_action }}" data-filter-reset aria-label="Сбросить поиск и фильтры"{% if not filters_active %} hidden{% endif %}>{{ icons.icon("x") }}<span class="cabinet-control-label">Сбросить</span></a>
         <button class="new-button manual-upload-trigger" type="button" data-manual-upload-open aria-label="Загрузить запись">
-          {{ icons.icon("upload") }}<span>Загрузить</span>
+          {{ icons.icon("upload") }}<span>Загрузить запись</span>
         </button>
       </form>
     </header>
@@ -76,17 +74,19 @@
     </section>
     {% endif %}
     <div class="meeting-toolbar">
-      <div class="section-title" data-list-title tabindex="-1">Записи встреч</div>
-      <div class="selection-toolbar" role="toolbar" aria-label="Действия с выбранными записями" data-selection-toolbar hidden data-visible-total="{{ visible_total }}">
-        <input class="row-check selection-toggle" type="checkbox" data-selection-toggle aria-label="Выбрать все видимые записи">
-        <div class="selection-count" data-selection-count>Выбрано 0 / {{ visible_total }}</div>
+      <div class="selection-toolbar" role="toolbar" aria-label="Действия с выбранными встречами" data-selection-toolbar hidden data-visible-total="{{ visible_total }}">
+        <label class="selection-toggle-label">
+          <input class="row-check selection-toggle" type="checkbox" data-selection-toggle aria-label="Выбрать все видимые встречи">
+          <span>Выбрать все</span>
+        </label>
+        <div class="selection-count" data-selection-count>Выбрано: 0</div>
         <button class="quiet selection-clear" type="button" data-clear-selection>Снять выбор</button>
-        <button class="icon-control danger-button" type="button" aria-label="Удалить выбранные записи" data-selection-delete>{{ icons.icon("trash") }}</button>
+        <button class="icon-control danger-button selection-delete" type="button" aria-label="Удалить выбранные встречи" data-selection-delete>{{ icons.icon("trash") }}<span>Удалить</span></button>
       </div>
     </div>
     <div class="upload-activity-list" data-upload-activity-list aria-live="polite"></div>
-    {{ list_region }}
     <div id="delete-feedback-region" class="delete-feedback-region" aria-live="polite"></div>
+    {{ list_region }}
     {{ delete_dialog }}
     {{ manual_upload }}
   </div>

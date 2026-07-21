@@ -68,6 +68,13 @@ def render_meeting_list_page(
     poll_url: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
+    query_presentation = cabinet_view_models.meeting_list_query_presentation(
+        query=response.filters.q,
+        status=response.filters.status,
+        access=response.filters.access,
+        sort=response.filters.sort,
+        visible_total=len(response.items),
+    )
     return _page_shell(
         "Мои встречи",
         embedded=embedded,
@@ -92,18 +99,19 @@ def render_meeting_list_page(
             ),
             source="meeting_list.manual_upload",
         ),
-        sort_label=_sort_label(response.filters.sort),
-        query_value=response.filters.q or "",
-        status_value=response.filters.status or "",
-        access_value=response.filters.access or "",
-        sort_value=response.filters.sort,
-        filters_active=bool(
-            response.filters.q or response.filters.status or response.filters.access
+        sort_label=query_presentation.sort_label,
+        query_value=query_presentation.query,
+        status_value=query_presentation.status or "",
+        access_value=query_presentation.access or "",
+        sort_value=query_presentation.sort,
+        filters_active=query_presentation.has_refinement,
+        active_filter_count=query_presentation.active_filter_count,
+        filter_label=(
+            f"Фильтры: {query_presentation.active_filter_count}"
+            if query_presentation.active_filter_count
+            else "Фильтры"
         ),
-        active_filter_count=sum(
-            value is not None and value != ""
-            for value in (response.filters.status, response.filters.access)
-        ),
+        result_count_label=query_presentation.result_count_label,
         upcoming_content=trusted_component_html(
             _render_upcoming_recurring(response, embedded=embedded),
             source="meeting_list.upcoming_recurring",
@@ -119,7 +127,7 @@ def render_meeting_unavailable_page(
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     return _page_shell(
-        "Страница недоступна",
+        "Встреча больше недоступна",
         embedded=embedded,
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
@@ -321,26 +329,55 @@ def _render_meeting_list_region(
     csrf_token: str | None = None,
     poll_url: str | None = None,
 ) -> str:
+    query_presentation = cabinet_view_models.meeting_list_query_presentation(
+        query=response.filters.q,
+        status=response.filters.status,
+        access=response.filters.access,
+        sort=response.filters.sort,
+        visible_total=len(response.items),
+    )
     rows = "\n".join(
-        _render_meeting_row(item, embedded=embedded, csrf_token=csrf_token)
+        _render_meeting_row(
+            item,
+            embedded=embedded,
+            csrf_token=csrf_token,
+            time_basis=query_presentation.time_basis,
+        )
         for item in response.items
     )
-    if not rows:
+    if rows:
+        list_content = f'<ol class="meeting-list" aria-label="Встречи">{rows}</ol>'
+    else:
         if response.filters.q or response.filters.status or response.filters.access:
-            rows = (
+            list_content = (
                 '<div class="empty-state"><strong>Ничего не найдено</strong>'
                 "<span>Измените запрос или сбросьте фильтры.</span></div>"
             )
         else:
-            rows = (
-                '<div class="empty-state"><strong>Пока нет записей</strong>'
-                "<span>Начните запись в приложении или загрузите файл кнопкой выше.</span></div>"
+            list_content = (
+                '<div class="empty-state"><strong>Пока нет встреч</strong>'
+                "<span>Начните запись или загрузите готовый файл.</span></div>"
             )
     poll_attrs = _meeting_list_poll_attrs(response, poll_url=poll_url, poll_empty=embedded)
+    result_count = (
+        f'<div class="meeting-result-count" role="status" aria-live="polite">'
+        f"{escape(query_presentation.result_count_label)}</div>"
+        if query_presentation.result_count_label
+        else ""
+    )
     content = f"""
-      <section class="list-card cabinet-card" aria-label="Записи встреч" data-meeting-list{poll_attrs}>
-        {rows}
-      </section>
+      <div class="list-loading-state" data-list-loading-state role="status" aria-live="polite" hidden>
+        <span>Загружаем встречи…</span>
+        <div class="list-loading-skeleton" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+      <div data-list-current-content>
+        {result_count}
+        <section class="list-card cabinet-card" aria-label="Встречи" data-meeting-list{poll_attrs}>
+          {list_content}
+        </section>
+      </div>
     """
     return render_template(
         "cabinet/fragments/meeting_list.html",
@@ -731,28 +768,54 @@ def _render_meeting_row(
     embedded: bool,
     selected: bool = False,
     csrf_token: str | None = None,
+    time_basis: cabinet_view_models.MeetingListTimeBasis = "meeting",
 ) -> str:
+    presentation = cabinet_view_models.meeting_list_row_presentation(
+        item,
+        time_basis=time_basis,
+    )
     meeting_path = f"{_base_path(embedded)}/{item.meeting_id}"
-    needs_context_choice = bool(item.calendar_context and item.calendar_context.needs_owner_action)
-    href = f"{meeting_path}#calendar-context-chooser" if needs_context_choice else meeting_path
+    href = meeting_path
     delete_action = f"{meeting_path}/deletion-requests"
-    selected_class = " is-selected" if selected else ""
+    row_state_classes = ""
+    if presentation.status_label is not None:
+        row_state_classes += " has-status"
+    if selected:
+        row_state_classes += " is-selected"
     source_icon, source_label = _meeting_media_icon(item)
-    title = escape(item.title)
-    row_meta = _render_meeting_row_meta(item)
+    title = escape(presentation.display_title)
+    id_base = f"meeting-{item.meeting_id}"
+    title_id = f"{id_base}-title"
+    duration_id = f"{id_base}-duration"
+    status_id = f"{id_base}-status"
+    time_id = f"{id_base}-time"
+    described_by = [duration_id]
+    if presentation.status_label is not None:
+        described_by.append(status_id)
+    described_by.append(time_id)
+    described_by_value = " ".join(described_by)
+    row_meta = _render_meeting_row_meta(
+        presentation,
+        meeting_path=meeting_path,
+        status_id=status_id,
+    )
+    meta_html = f'<span class="row-meta">{row_meta}</span>' if row_meta else ""
     csrf_field = (
         f'<input type="hidden" name="csrf_token" value="{escape(csrf_token)}">'
         if csrf_token
         else ""
     )
     return f"""
-      <article class="meeting-row cabinet-row{selected_class}" tabindex="0" aria-label="Встреча {title}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}">
-        <span class="row-select-hit"><input class="row-check" type="checkbox" tabindex="-1" aria-hidden="true" data-row-contextual data-meeting-select aria-label="Выбрать запись {title}"></span>
+      <li class="meeting-row cabinet-row{row_state_classes}" tabindex="0" aria-labelledby="{title_id}" aria-describedby="{described_by_value}" data-meeting-row data-meeting-id="{item.meeting_id}" data-meeting-title="{title}" data-open-href="{href}">
+        <span class="row-select-hit"><input class="row-check" type="checkbox" tabindex="-1" aria-hidden="true" data-row-contextual data-meeting-select aria-label="Выбрать встречу {title}"></span>
         <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
-        <a class="meeting-title" href="{href}" aria-label="Открыть встречу {title}">
-          <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
-          <span class="row-meta">{row_meta}</span>
-        </a>
+        <div class="meeting-content">
+          <span class="meeting-heading">
+            <a class="meeting-title" data-meeting-open href="{href}" aria-label="{escape(presentation.open_accessible_name)}" aria-describedby="{described_by_value}"><span class="row-title" id="{title_id}">{title}</span></a>
+            <span class="meeting-duration muted" id="{duration_id}">{escape(presentation.duration_label)}</span>
+          </span>
+          {meta_html}
+        </div>
         <form class="row-delete-form" method="post" action="{delete_action}" data-row-delete-form
           data-hx-post="{delete_action}"
           data-hx-target="#delete-feedback-region"
@@ -760,50 +823,44 @@ def _render_meeting_row(
           data-hx-swap="innerHTML">
           {csrf_field}
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
-          <button class="row-delete icon-button" type="button" tabindex="-1" aria-hidden="true" data-row-contextual data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>
+          <button class="row-delete icon-button" type="button" tabindex="-1" aria-hidden="true" data-row-contextual data-row-delete aria-label="Удалить встречу {title}" title="Удалить">{_ui_icon("trash")}</button>
           <noscript><button class="row-delete-noscript" type="submit">Удалить</button></noscript>
         </form>
-        <span class="meeting-date">{_date_label(item)}</span>
-      </article>
+        <span class="meeting-date" id="{time_id}">{escape(presentation.time_label)}</span>
+      </li>
     """
 
 
-def _render_meeting_row_meta(item: MeetingListItem) -> str:
-    calendar_context = _render_list_calendar_context(item)
-    playback = _render_list_playback_state(item)
-    if item.upload is None:
-        return f"<span>{escape(_ui_text(item.status_label))}</span>{playback}{calendar_context}"
-    label = escape(item.upload.label)
-    if not item.upload.is_active or item.upload.progress_percent is None:
-        return f'<span class="upload-progress-label">{label}</span>{playback}{calendar_context}'
-    percent = max(0, min(100, item.upload.progress_percent))
-    active_attr = " data-upload-progress-active" if item.upload.is_active else ""
-    return f"""
-      <span class="upload-progress-label"{active_attr}>{label} {percent}%</span>
-      <span class="upload-progress-meter" role="progressbar" aria-label="Прогресс отправки записи" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{percent}">
-        <span class="upload-progress-meter__bar" style="width: {percent}%"></span>
-      </span>
-      {playback}
-      {calendar_context}
-    """
-
-
-def _render_list_playback_state(item: MeetingListItem) -> str:
-    state = item.playback.state
-    compact_label = {
-        "preparing": "Аудио готовится",
-        "available": "Аудио готово",
-        "unavailable": "Аудио недоступно",
-        "deleting": "Аудио удаляется",
-        "deleted": "Аудио удалено",
-    }[state]
-    return (
-        f'<span class="playback-state-token is-{escape(state)}" '
-        f'data-playback-state="{escape(state)}" '
-        f'data-playback-reason="{escape(item.playback.reason_code)}" '
-        f'aria-label="Статус аудио: {escape(item.playback.label)}">'
-        f"{escape(compact_label)}</span>"
-    )
+def _render_meeting_row_meta(
+    presentation: cabinet_view_models.MeetingListRowPresentation,
+    *,
+    meeting_path: str,
+    status_id: str,
+) -> str:
+    status = ""
+    if presentation.status_label is not None:
+        status = (
+            f'<span class="meeting-status is-{escape(presentation.status_tone or "neutral")}" '
+            f'id="{status_id}" data-status-kind="{escape(presentation.status_kind or "")}"'
+            f'{" data-upload-progress-active" if presentation.progress_percent is not None else ""}>'
+            f"{escape(presentation.status_label)}</span>"
+        )
+    progress = ""
+    if presentation.progress_percent is not None:
+        percent = presentation.progress_percent
+        progress = f"""
+          <span class="upload-progress-meter" role="progressbar" aria-label="Прогресс отправки записи" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{percent}">
+            <span class="upload-progress-meter__bar" style="width: {percent}%"></span>
+          </span>
+        """
+    action = ""
+    if presentation.secondary_action == "calendar_choice":
+        action = (
+            f'<a class="mini-link calendar-context-list-action" '
+            f'href="{meeting_path}#calendar-context-chooser">'
+            f"{escape(presentation.secondary_action_label or 'Выбрать встречу')}</a>"
+        )
+    return status + progress + action
 
 
 def _render_upcoming_recurring(response: MeetingListResponse, *, embedded: bool) -> str:
@@ -887,20 +944,6 @@ def _render_previous_recurring_pointer(
         {readiness_copy}
       </div>
     """
-
-
-def _render_list_calendar_context(item: MeetingListItem) -> str:
-    context = item.calendar_context
-    if context is None:
-        return ""
-    label = (
-        f'<span class="calendar-context-label" '
-        f'data-calendar-context-state="{escape(context.state)}">'
-        f"{escape(context.label)}</span>"
-    )
-    if not context.needs_owner_action:
-        return label
-    return f'{label}<span class="mini-link calendar-context-list-action">Выбрать</span>'
 
 
 def _render_calendar_context_chooser(

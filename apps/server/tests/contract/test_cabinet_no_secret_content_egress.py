@@ -188,6 +188,29 @@ def test_manual_upload_surface_and_error_copy_are_metadata_safe(client) -> None:
     assert "mediascribe_job" not in script
 
 
+def test_meeting_list_recovery_replaces_cached_rows_without_echoing_metadata() -> None:
+    script = (SERVER_ROOT / "cabinet" / "static" / "cabinet" / "cabinet.js").read_text()
+    recovery = script[
+        script.index("const renderMeetingListRecovery") : script.index(
+            "const showMeetingListLoading"
+        )
+    ]
+
+    assert "target.replaceChildren(recovery)" in recovery
+    assert "dataset.meetingTitle" not in recovery
+    assert "textContent" in recovery
+    for marker in {
+        "local_recording_id",
+        "status_reason",
+        "storage_object_key",
+        "signed_url",
+        "raw_transcript",
+        "raw_audio",
+        "/Users/",
+    }:
+        assert marker not in recovery
+
+
 def test_cabinet_ready_detail_keeps_dependency_and_storage_identifiers_private(client) -> None:
     seeds = seed_cabinet_meetings(client)
 

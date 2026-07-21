@@ -56,10 +56,10 @@ def test_feature_104_main_window_has_responsive_accessible_dom_contract() -> Non
     for marker in [
         'aria-label="Поиск встреч"',
         'placeholder="Поиск встреч…"',
-        'aria-label="Фильтры"',
+        'aria-label="{{ filter_label }}"',
         'aria-label="Сортировка: {{ sort_label }}"',
         'aria-label="Загрузить запись"',
-        "<span>Загрузить</span>",
-        'aria-label="Действия с выбранными записями"',
+        "<span>Загрузить запись</span>",
+        'aria-label="Действия с выбранными встречами"',
     ]:
         assert marker in meeting_list
