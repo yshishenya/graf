@@ -112,7 +112,9 @@ Using synthetic content in the in-app browser and embedded-width surface:
 2. Confirm scope-first selection and only compatible grouped formats.
 3. Confirm revision/readiness/language/duration/options and structural preview.
 4. Submit each format and observe immediate announced preparing state, duplicate
-   submit prevention, correct filename/MIME/length, and focus return.
+   submit prevention, correct filename/MIME/length, and focus return. In the
+   embedded macOS client, confirm that the file reaches Downloads while the
+   meeting detail remains visible.
 5. Trigger partial, missing summary, denied, deletion, generation failure, and
    audit-unavailable states; confirm safe distinct reasons and retry behavior.
 6. Complete the dialog using keyboard only; test Escape/close, focus trap and

@@ -174,6 +174,7 @@ bypass current server policy or mix revisions.
 - [X] T057 Reconcile every completed task with focused evidence, GitHub issue status/comments, and exact PR links in `specs/120-transcript-export/tasks.md` and `specs/120-transcript-export/issues.md`
 - [X] T058 Run `@ponytail-review` on the implementation diff and remove unjustified abstraction/dependency/persistence while preserving security, accessibility, lifecycle, and revision truth
 - [ ] T059 Before general release, conduct and document the representative-reviewer usability study required by SC-014; do not substitute synthetic browser QA for the 90% product outcome
+- [X] T060 [US5] Keep the embedded macOS meeting detail visible while a generated `blob:` attachment is saved through WebKit, and add route/source/filename regression coverage in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` and `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift` (FR-039)
 
 ---
 
@@ -187,7 +188,12 @@ bypass current server policy or mix revisions.
   dynamic metadata/revision preview, keyboard focus/return, copy, safe failure,
   download, zero-console-error, 390 px overflow, and 200% zoom checks recorded
   in `design-qa.md`.
-- The final repository gate passed `592` macOS tests, `2013` parallel server
+- The embedded-download hotfix focused lane passed `12` route/source/filename
+  tests plus a standalone real-WebKit `Blob` to `WKDownload` smoke. A locally
+  signed GRAF build then saved one production TXT artifact to Downloads while
+  retaining the meeting detail and playback timeline; diagnostics contained
+  only download start/finish metadata.
+- The final repository gate passed `594` macOS tests, `2013` parallel server
   tests with `1` skipped, and `35` strict PostgreSQL/RLS tests with `1` skipped,
   followed by Ruff, Python compile, Compose validation,
   deployment-evidence scan, and `ci_local_result=pass`.
@@ -231,6 +237,7 @@ Setup T001-T003
           -> US6 T045-T051
               -> Polish T052-T058
                   -> Pre-release product outcome T059
+                  -> Embedded download regression T060
 ```
 
 - T004-T013 block every story: serializers must not invent their own snapshot,
