@@ -699,6 +699,7 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
 
     assert (
         ".app-shell {\n"
+        "  --playback-inline-start: var(--app-sidebar-width);\n"
         "  height: 100vh;\n"
         "  min-height: 0;\n"
         "  overflow: hidden;\n"
@@ -730,6 +731,7 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert (
         "@media (max-width: 980px) {\n"
         "  .app-shell { grid-template-columns: 1fr; }\n"
+        "  .app-shell:not(.desktop-embedded) { --playback-inline-start: 0px; }\n"
         "  .app-shell.desktop-embedded { grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr); }"
     ) in css
     assert "  .desktop-embedded .sidebar { display: flex; }" in css
@@ -741,6 +743,9 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert "    width: var(--app-rail-width);" in css
     assert "  .desktop-embedded .sidebar:hover," not in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
+    assert "--playback-inline-start: var(--app-rail-width);" in css
+    assert "--playback-inline-start: var(--app-sidebar-width);" in css
+    assert "left: var(--playback-inline-start);" in css
     assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
 
 
@@ -1247,6 +1252,26 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
             ),
         ],
     )
+    review.transcript = TranscriptReviewState(
+        available=True,
+        language="ru",
+        search_enabled=True,
+        speaker_turns=[
+            TranscriptSpeakerTurnView(
+                turn_id="synthetic-turn",
+                sequence=0,
+                start_seconds=0,
+                end_seconds=40,
+                timestamp_label="00:00",
+                speaker_key="speaker_00",
+                speaker_label="Очень длинное имя спикера для проверки подписи",
+                source_role="local_microphone",
+                text="Безопасный синтетический текст.",
+                seekable=True,
+                seek_seconds=0,
+            )
+        ],
+    )
 
     page = render_meeting_detail_page(review)
 
@@ -1269,9 +1294,13 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert "width: 16px" in css
     assert ".timeline-lane.is-active" in css
     assert ".segment.is-current" in css
-    assert ".timeline-lane:nth-child(6n+1)" in css
-    assert "background: currentColor" in css
-    assert ".timeline-lane:nth-child(6n+6)" in css
+    assert ".speaker-color-1 { --speaker-color: #7a65ff; }" in css
+    assert "background: var(--speaker-color)" in css
+    assert ".speaker-color-6 { --speaker-color: #d96aa6; }" in css
+    assert 'class="timeline-lane speaker-color-1"' in page
+    assert 'class="timeline-lane speaker-color-2"' in page
+    assert page.count("speaker-color-1") >= 4
+    assert 'class="segment speaker-color-1"' in page
     assert "left:0.00%" in page
     assert "width:10.00%" in page
     assert "left:25.00%" in page
@@ -1314,7 +1343,7 @@ def test_detail_shell_renders_speaker_name_editor_only_for_authorized_review() -
     assert "Мария" in readonly
 
 
-def test_playback_timeline_owns_one_visual_scale_and_inline_speaker_editor() -> None:
+def test_playback_timeline_keeps_full_width_lanes_and_separate_speaker_manager() -> None:
     review = _review()
     review.playback = PlaybackReviewState(
         available=True,
@@ -1349,18 +1378,23 @@ def test_playback_timeline_owns_one_visual_scale_and_inline_speaker_editor() -> 
     assert 'class="timeline-scale lane-scale"' in page
     assert "data-speaker-name-open" in page
     assert "Очень длинное имя спикера для проверки подписи" in page
-    assert 'aria-controls="timeline-speaker-name-form-speaker_00"' in page
-    assert 'id="timeline-speaker-name-form-speaker_00"' in page
+    assert 'data-speaker-manager' in page
+    assert 'aria-controls="speaker-manager-form-speaker_00"' in page
+    assert 'id="speaker-manager-form-speaker_00"' in page
     assert page.count("data-speaker-name-form") == 1
     assert ".timeline-scale" in css
     assert ".playback-scale .playback-progress" in css
     assert ".playback-range-thumb" in css
     assert "grid-column: 2;" in css
     assert ".lane-scale" in css
-    assert ".timeline-speaker-name {" in css
-    assert "justify-content: flex-start;" in css
+    assert ".timeline-speaker-name {" not in css
+    assert ".speaker-manager-popover" in css
+    assert "row-gap: 1px;" in css
+    assert "max-height: 96px;" in css
+    assert "overflow-wrap: anywhere;" in css
     assert "data-speaker-name-open" in script
     assert "data-speaker-name-cancel" in script
+    assert 'event.key !== "Escape"' in script
 
 
 def test_detail_shell_renders_unavailable_playback_without_audio_element() -> None:
@@ -1645,7 +1679,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     assert "@media (max-width: 540px)" in css
     assert ".detail-page-main { padding-bottom: 172px; }" in css
     assert ".detail-playback { --timeline-label-width: 68px; --timeline-value-width: 34px; }" in css
-    assert ".timeline-lane { gap: 7px; }" in css
+    assert ".speaker-timeline { gap: 4px; }" in css
 
 
 def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separate() -> None:
