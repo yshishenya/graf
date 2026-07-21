@@ -9,6 +9,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingReviewResponse,
     NotesActionCategoryState,
     PreviousRecurringMeetingView,
+    SpeakerLane,
     TranscriptSegmentView,
     TranscriptSpeakerTurnView,
 )
@@ -528,7 +529,10 @@ def _render_meeting_detail_content(
         activity=trusted_component_html(_render_activity(review), source="meeting_detail.activity"),
         assistant_label=_ui_text(review.assistant.label),
         template_label=_ui_text(review.template.label),
-        playback=trusted_component_html(_render_playback(review), source="meeting_detail.playback"),
+        playback=trusted_component_html(
+            _render_playback(review, embedded=embedded, csrf_token=csrf_token),
+            source="meeting_detail.playback",
+        ),
     )
 
 
@@ -1009,7 +1013,12 @@ def _render_timestamp(segment: TranscriptSegmentView | TranscriptSpeakerTurnView
     return f'<div class="timestamp">{escape(segment.timestamp_label)}</div>'
 
 
-def _render_playback(review: MeetingReviewResponse) -> str:
+def _render_playback(
+    review: MeetingReviewResponse,
+    *,
+    embedded: bool,
+    csrf_token: str | None,
+) -> str:
     if review.playback.can_play and review.playback.playback_path:
         speed_options = ",".join(f"{speed:g}" for speed in review.playback.speed_options)
         return f"""
@@ -1024,10 +1033,13 @@ def _render_playback(review: MeetingReviewResponse) -> str:
             <p class="playback-error" data-playback-error role="status" aria-live="polite" hidden>Воспроизведение временно недоступно.</p>
             <div class="playback-progress-row">
               <span class="playback-time" data-playback-current>00:00</span>
-              <input class="playback-progress" data-playback-progress type="range" min="0" max="{review.playback.duration_seconds}" step="0.1" value="0" aria-label="Позиция записи">
+              <span class="timeline-scale playback-scale">
+                <input class="playback-progress" data-playback-progress type="range" min="0" max="{review.playback.duration_seconds}" step="0.1" value="0" aria-label="Позиция записи">
+                <span class="playback-range-track" aria-hidden="true"><span class="playback-range-thumb"></span></span>
+              </span>
               <span class="playback-time" data-playback-duration>{_timecode(review.playback.duration_seconds)}</span>
             </div>
-            {_render_playback_speaker_timeline(review)}
+            {_render_playback_speaker_timeline(review, embedded=embedded, csrf_token=csrf_token)}
           </section>
         """
     focus_attribute = (
@@ -1046,13 +1058,37 @@ def _render_playback(review: MeetingReviewResponse) -> str:
     """
 
 
-def _render_playback_speaker_timeline(review: MeetingReviewResponse) -> str:
+def _render_playback_speaker_timeline(
+    review: MeetingReviewResponse,
+    *,
+    embedded: bool,
+    csrf_token: str | None,
+) -> str:
     if not review.speakers.available:
         return '<div class="speaker-timeline" data-speaker-timeline></div>'
     duration = max(1, review.playback.duration_seconds)
     lanes = []
     for speaker in review.speakers.speakers:
         speaker_label = _speaker_display_label(speaker.label)
+        speaker_control = f'<span class="timeline-label">{escape(speaker_label)}</span>'
+        editor = ""
+        if review.speakers.can_rename:
+            form_id = f"timeline-speaker-name-form-{speaker.speaker_key}"
+            speaker_control = f"""
+              <button class="timeline-speaker-name" type="button" data-speaker-name-open aria-expanded="false" aria-controls="{escape(form_id)}" title="Переименовать {escape(speaker_label)}">
+                <span class="timeline-label">{escape(speaker_label)}</span>
+                <span class="sr-only">Переименовать</span>
+              </button>
+            """
+            editor = _render_speaker_name_form(
+                review,
+                speaker,
+                embedded=embedded,
+                csrf_token=csrf_token,
+                form_id=form_id,
+                extra_class="timeline-speaker-editor",
+                hidden=True,
+            )
         segments = []
         for segment in speaker.segments:
             start = max(0.0, float(segment.start_seconds))
@@ -1067,9 +1103,10 @@ def _render_playback_speaker_timeline(review: MeetingReviewResponse) -> str:
         lanes.append(
             f"""
             <div class="timeline-lane" data-speaker-lane="{escape(speaker.speaker_key)}">
-              <span class="timeline-label">{escape(speaker_label)}</span>
-              <span class="timeline-track" data-timeline-track role="button" tabindex="0" aria-label="Перейти по дорожке {escape(speaker_label)}">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span>
+              <span class="timeline-speaker">{speaker_control}</span>
+              <span class="timeline-scale lane-scale"><span class="timeline-track" data-timeline-track role="button" tabindex="0" aria-label="Перейти по дорожке {escape(speaker_label)}">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span></span>
               <span class="timeline-share">{speaker.talk_time_percent}%</span>
+              {editor}
             </div>
             """
         )
@@ -1088,21 +1125,14 @@ def _render_speaker_lanes(
     for speaker in review.speakers.speakers:
         speaker_label = _speaker_display_label(speaker.label)
         editor = ""
-        if review.speakers.can_rename:
-            csrf = (
-                f'<input type="hidden" name="csrf_token" value="{escape(csrf_token)}">'
-                if csrf_token
-                else ""
+        if review.speakers.can_rename and not review.playback.can_play:
+            editor = _render_speaker_name_form(
+                review,
+                speaker,
+                embedded=embedded,
+                csrf_token=csrf_token,
+                form_id=f"speaker-name-form-{speaker.speaker_key}",
             )
-            editor = f"""
-              <form class="speaker-name-form" data-speaker-name-form method="post" action="{_base_path(embedded)}/{review.meeting.meeting_id}/speakers/{escape(speaker.speaker_key)}">
-                {csrf}
-                <label class="sr-only" for="speaker-name-{escape(speaker.speaker_key)}">Имя для {escape(speaker_label)}</label>
-                <input id="speaker-name-{escape(speaker.speaker_key)}" name="display_name" value="{escape(speaker.display_name or "")}" placeholder="Имя спикера" maxlength="80" autocomplete="off">
-                <button type="submit" class="quiet">Сохранить</button>
-                <span class="speaker-name-error" data-speaker-name-error role="status" aria-live="polite" hidden>Не удалось сохранить имя. Проверьте имя и попробуйте ещё раз.</span>
-              </form>
-            """
         lanes.append(
             f"""
         <div class="speaker-lane">
@@ -1113,6 +1143,39 @@ def _render_speaker_lanes(
         """
         )
     return "\n".join(lanes)
+
+
+def _render_speaker_name_form(
+    review: MeetingReviewResponse,
+    speaker: SpeakerLane,
+    *,
+    embedded: bool,
+    csrf_token: str | None,
+    form_id: str,
+    extra_class: str = "",
+    hidden: bool = False,
+) -> str:
+    speaker_label = _speaker_display_label(speaker.label)
+    csrf = (
+        f'<input type="hidden" name="csrf_token" value="{escape(csrf_token)}">'
+        if csrf_token
+        else ""
+    )
+    cancel = (
+        '<button type="button" class="quiet" data-speaker-name-cancel>Отмена</button>'
+        if hidden
+        else ""
+    )
+    return f"""
+      <form id="{escape(form_id)}" class="speaker-name-form {escape(extra_class)}" data-speaker-name-form method="post" action="{_base_path(embedded)}/{review.meeting.meeting_id}/speakers/{escape(speaker.speaker_key)}"{" hidden" if hidden else ""}>
+        {csrf}
+        <label class="sr-only" for="speaker-name-{escape(speaker.speaker_key)}">Имя для {escape(speaker_label)}</label>
+        <input id="speaker-name-{escape(speaker.speaker_key)}" name="display_name" value="{escape(speaker.display_name or "")}" placeholder="Имя спикера" maxlength="80" autocomplete="off">
+        <button type="submit" class="quiet">Сохранить</button>
+        {cancel}
+        <span class="speaker-name-error" data-speaker-name-error role="status" aria-live="polite" hidden>Не удалось сохранить имя. Проверьте имя и попробуйте ещё раз.</span>
+      </form>
+    """
 
 
 def _render_revision_status(review: MeetingReviewResponse) -> str:

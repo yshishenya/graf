@@ -70,6 +70,13 @@
 - Full repository gate: `git diff --check` and `infra/scripts/ci-local.sh` passed after synchronizing the OpenAPI contract, packaged migration head, and RLS inventories for migration `0029_speaker_names`.
 - GitHub issues #3922-#3937 received task-specific local validation comments; PR #3944 links the implementation and is merged. Tracker closure remains a separate issue-state operation.
 
+## Phase 5: Production visual follow-up
+
+- [X] T017 [US1] Add regression coverage for one explicit visual scale shared by the range thumb and every lane playhead in `apps/server/tests/unit/test_cabinet_web_shell.py`.
+- [X] T018 [US3] Move the authorized speaker-name editor into the playback timeline, preserve the non-playable fallback, and rerun focused, visual, and full validation in `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, `design-qa.md`, and `CHANGELOG.md`.
+
+Follow-up evidence: 62 focused cabinet tests and 10 focused PostgreSQL playback/name tests passed; the full server gate passed with 1954 tests and 34 strict-RLS tests after limiting the disposable PostgreSQL run to one worker to stay within Docker memory. The macOS suite passed 583 tests, and Ruff, JavaScript syntax, contract validation, and `git diff --check` passed. Installed-app production inspection remains part of release closeout rather than implementation validation.
+
 ## Dependencies & Execution Order
 
 - US1 is the MVP and has no dependency on rename persistence.
