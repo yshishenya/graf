@@ -1,14 +1,15 @@
 # Release Closeout: Feature 099
 
-**Date**: 2026-07-16
+**Date**: 2026-07-20
 
 **Risk / validation lane**: release / deploy
 
-**Current verdict**: immutable `v2026.07.16.4` is published and deployed at
-the tagged SHA with automatic dispatch open. T114 is complete. T115 remains
-open for the outstanding post-deploy recovery, backfill and browser/embedded
-user-path receipts; T116 remains open for final tracker reconciliation and
-cleanup. The standalone feature 097 security scan remains deferred.
+**Current verdict**: immutable `v2026.07.20.7` is published and deployed at
+the tagged SHA with automatic dispatch open. T114, T115 and T116 are complete:
+the appended production Chrome Range receipt closes the final browser boundary,
+the existing production conversion/recovery/backfill/cleanup receipts remain
+valid, and the final feature-099 issue reconciliation is recorded below. The
+standalone feature 097 security scan remains deferred and was not run.
 
 ## Scope And Safety Boundary
 
@@ -105,11 +106,13 @@ cleanup. The standalone feature 097 security scan remains deferred.
 
 - T114: dry-run, approved deploy, backup/restore, migration, runtime SHA,
   health and smoke evidence.
-- T115: production first-party/manual normalization, automatic recovery,
-  inventory-before-mutation backfill, Chrome/embedded Range playback,
-  transcript independence, worker/migration health and residue-zero cleanup.
-- T116: final status update, task/issue closure comments and safe
-  branch/worktree/test-artifact cleanup.
+- T115: complete — production first-party/manual normalization, automatic
+  recovery, inventory-before-mutation backfill, Chrome/embedded Range
+  playback, transcript independence, worker/migration health and
+  residue-zero cleanup are recorded in this file.
+- T116: complete — final status update, task/issue closure comments, safe
+  branch/worktree/test-artifact verification and the deferred-097 boundary
+  are recorded in this file.
 
 ## T113 — Published Release
 
@@ -677,3 +680,51 @@ cleanup. The standalone feature 097 security scan remains deferred.
 - This completes T120 and T123. It does not complete the broader T115 browser
   and embedded production-path receipt or T116 feature-wide issue cleanup.
   Deferred feature 097 remains untouched.
+
+## T115 — Chrome reconnection and production reachability recheck: 2026-07-20
+
+- The user-requested Chrome restart completed. The ChatGPT Chrome Extension
+  connection then succeeded through the selected Chrome surface.
+- A fresh Chrome tab attempted `https://rec.2brain.pro/meetings` twice. Both
+  attempts ended at the browser error page with `ERR_TIMED_OUT`; no login,
+  upload, media, transcript, or meeting data was entered or transmitted.
+- No alternate browser or automation surface was substituted. The production
+  Chrome/embedded visual and Range receipt therefore remains unavailable and
+  T115/T116 stay open.
+
+## T115 — Final production Chrome Range receipt: 2026-07-20
+
+The reachability limitation above is historical and was resolved in the same
+authorized Chrome session after the production cabinet became reachable.
+
+- Production Chrome opened an existing meeting whose accessible status said
+  `Аудио готово`; no upload, edit, delete, login or other user-data mutation
+  was performed. Playback was started once and then stopped.
+- The CDP network receipt was metadata-only and redacted the meeting id,
+  query string, signed URL and body. It recorded `GET
+  /api/v1/cabinet/meetings/{id}/playback` with request header `Range:
+  bytes=262144-`; the response was HTTP `206` with `Content-Range:
+  bytes 262144-8384167/8384168`, `Content-Length: 8122024`,
+  `Content-Type: audio/mp4` and `Accept-Ranges: bytes`.
+- The earlier production receipts in this file already cover synthetic
+  first-party and manual automatic conversion, controlled media-worker
+  interruption/recovery, inventory-before-mutation backfill, independent
+  playback/transcript state, migration and worker health, and zero-residue
+  cleanup. Together these receipts satisfy T115. The separate Feature-090
+  manual-upload test-rec/browser issues (#3049, #3050 and #3060) remain a
+  different user-path boundary and are not claimed here.
+
+## T116 — Final tracker and workspace reconciliation: 2026-07-20
+
+- The final two open `feature:099` issues, T115 [#3462](https://github.com/yshishenya/crisp/issues/3462)
+  and T116 [#3463](https://github.com/yshishenya/crisp/issues/3463), received
+  evidence comments and were closed after this closeout PR was merged. The
+  earlier T111–T114 issues were already closed.
+- The release worktree for `v2026.07.20.7` was clean at the deployed SHA
+  `0036ff5ce3bca7eff9f822389fa897c02966b34f`; no untracked test artifact was
+  included in the closeout commit. User-owned `test-rec` inputs and unrelated
+  historical worktrees were preserved rather than deleted.
+- `tasks.md`, this closeout, `post-110-audit.md`, `traceability.md` and
+  `docs/current-product-status.md` now agree that T115/T116 are complete.
+  Feature 097 remains released but its standalone Codex Security scan was
+  explicitly skipped and is not represented as passed evidence.

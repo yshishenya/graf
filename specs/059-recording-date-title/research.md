@@ -88,7 +88,7 @@
   - `https://help.krisp.ai/hc/en-us/articles/8326933081116-AI-Meeting-Assistant-FAQ`
   - `https://help.krisp.ai/hc/en-us/articles/18514860919196-Krisp-s-Calendar-Integration`
   - `https://help.krisp.ai/hc/en-us/articles/21499932153244-AI-Meeting-Notes`
-- Local KRISP clean-room check on this machine confirmed installed app metadata only: `/Users/yshishenya/Applications/krisp.app`, bundle id `ai.krisp.krispMac`, version `3.12.5`, audio-capture usage copy for transcription/meeting notes. No proprietary source or private meeting content was inspected.
+- Local KRISP clean-room check on this machine confirmed installed app metadata only: `<installed-krisp-app>`, bundle id `ai.krisp.krispMac`, version `3.12.5`, audio-capture usage copy for transcription/meeting notes. No proprietary source or private meeting content was inspected.
 - Apple public docs checked on 2026-06-26:
   - `https://developer.apple.com/documentation/eventkit/ekevent`
   - `https://developer.apple.com/documentation/screencapturekit/scwindow`

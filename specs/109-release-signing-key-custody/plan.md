@@ -20,6 +20,22 @@ subsequent update is then signed through the new custody path and delivered by
 ordinary Sparkle.  This is an intentional trust migration, never a silent
 key/feed change in an ordinary appcast.
 
+## Current operating decision — 2026-07-21
+
+The two-channel GitHub-environment design below remains the future normal path,
+but the current private repository cannot create the required reviewer
+protection rule on its GitHub plan.  The accepted current lane is the existing
+owner-only macOS Keychain signer with an offline owner backup in Bitwarden.
+Bitwarden is recovery-only and is never read by CI, the app or the public host.
+
+This lane is explicitly degraded.  It requires exact tag/provenance, a fresh
+metadata-only Keychain attestation, explicit owner approval, unchanged public
+manifest/app/feed identity, and archive-before-appcast publication.  T034 is
+therefore a completed scope decision rather than a claim that the unavailable
+reviewer gate was configured.  T037 closes the owner-only release evidence for
+the current lane; the protected cloud path remains a future reactivation
+option.
+
 ## Technical Context
 
 **Language/Version**: POSIX shell for installer/release tools; Swift 5.10

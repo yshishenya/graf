@@ -41,6 +41,12 @@ class PlaybackStreamingOnlyStorage:
     async def get_bytes_async(self, _object_key: str) -> bytes:
         raise AssertionError("playback route must not load full audio objects into memory")
 
+    def stat_object(self, object_key: str):
+        return self.delegate.stat_object(object_key)
+
+    async def stat_object_async(self, object_key: str):
+        return await self.delegate.stat_object_async(object_key)
+
     def iter_object(self, object_key: str, *, offset: int = 0, length: int | None = None):
         return self.delegate.iter_object(object_key, offset=offset, length=length)
 
@@ -56,6 +62,11 @@ class PlaybackLoopCheckingStorage(PlaybackStreamingOnlyStorage):
                 "playback route must not initialize sync storage streams on the event loop"
             )
         return self.delegate.iter_object(object_key, offset=offset, length=length)
+
+
+class PlaybackReaderFailingStorage(PlaybackStreamingOnlyStorage):
+    def iter_object(self, _object_key: str, *, offset: int = 0, length: int | None = None):
+        raise RuntimeError("storage backend unavailable")
 
 
 def _samples(body: bytes) -> list[int]:
@@ -127,6 +138,24 @@ def test_owner_playback_route_reports_storage_unavailable_when_stored_m4a_object
     ]
 
 
+def test_owner_playback_route_rejects_stale_storage_size_before_serving_headers(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    m4a_body = add_retained_playback_m4a(client, seeds.ready_id, b"0123456789abcdef")
+    object_key = f"tests/cabinet/{seeds.ready_id}/meeting-review.m4a"
+    client.app_state["storage"].objects[object_key] = m4a_body[:-1]
+
+    response = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers()
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "review_audio_unavailable"
+    events = audit_events(client, seeds.ready_id)
+    assert [(event.event_type, event.outcome, event.policy_reason) for event in events] == [
+        ("playback_denied", "denied", "storage_object_size_mismatch")
+    ]
+
+
 def test_owner_playback_route_requires_m4a_playback_metadata(client) -> None:
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
@@ -180,15 +209,11 @@ def test_owner_playback_route_reports_storage_unavailable_when_reader_is_missing
 
 
 def test_owner_playback_route_audits_storage_reader_failure(client) -> None:
-    class FailingStorage:
-        def iter_object(self, _object_key: str, *, offset: int = 0, length: int | None = None):
-            raise RuntimeError("storage backend unavailable")
-
     seeds = seed_cabinet_meetings(client)
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
     add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A storage")
     original_storage = client.app.state.storage
-    client.app.state.storage = FailingStorage()
+    client.app.state.storage = PlaybackReaderFailingStorage(client.app_state["storage"])
     try:
         response = client.get(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/playback", headers=auth_headers()

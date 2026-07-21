@@ -17,6 +17,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.domain.statuses import MeetingStatus, UploadSessionStatus
 from twobrain_rec_server.ingest import store as store_module
+from twobrain_rec_server.ingest.media_revisions import ensure_media_revision_acceptance_is_safe
 
 
 class FinalizeStreamingOnlyStorage:
@@ -369,6 +370,129 @@ def test_finalize_rejects_immutable_media_revision_fingerprint_change(client: Te
     assert response.status_code == 409
     assert response.json()["code"] == "media_revision_fingerprint_conflict"
     assert _track_artifacts_for_meeting(client, meeting["meeting_id"]) == before_artifacts
+
+
+def test_media_revision_acceptance_lock_serializes_concurrent_checks(client: TestClient) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "finalize-fingerprint-lock", "duration_seconds": 60},
+    ).json()
+    media_revision_id = UUID(meeting["media_revision"]["media_revision_id"])
+
+    async def exercise_lock() -> None:
+        first = client.app_state["sessionmaker"]()
+        second = client.app_state["sessionmaker"]()
+        try:
+            await first.begin()
+            await ensure_media_revision_acceptance_is_safe(
+                first,
+                media_revision_id=media_revision_id,
+                manifest_sha256="m" * 64,
+                tracks=[
+                    {"track_role": "microphone", "sha256": "u" * 64},
+                    {"track_role": "system", "sha256": "s" * 64},
+                ],
+            )
+
+            second_started = asyncio.Event()
+
+            async def blocked_check() -> None:
+                await second.begin()
+                second_started.set()
+                await ensure_media_revision_acceptance_is_safe(
+                    second,
+                    media_revision_id=media_revision_id,
+                    manifest_sha256="m" * 64,
+                    tracks=[
+                        {"track_role": "microphone", "sha256": "u" * 64},
+                        {"track_role": "system", "sha256": "s" * 64},
+                    ],
+                )
+                await second.commit()
+
+            waiter = asyncio.create_task(blocked_check())
+            await asyncio.wait_for(second_started.wait(), timeout=1)
+            await asyncio.sleep(0.1)
+            assert not waiter.done(), "the second acceptance check must wait for the row lock"
+
+            await first.commit()
+            await asyncio.wait_for(waiter, timeout=2)
+        finally:
+            if first.in_transaction():
+                await first.rollback()
+            if second.in_transaction():
+                await second.rollback()
+            await first.close()
+            await second.close()
+
+    asyncio.run(exercise_lock())
+
+
+def test_finalize_fingerprint_conflict_preserves_existing_multipart_objects(client: TestClient) -> None:
+    meeting = client.post(
+        "/api/v1/meetings",
+        headers=auth_headers(),
+        json={"local_recording_id": "finalize-preserve-multipart-conflict", "duration_seconds": 60},
+    ).json()
+
+    def upload_multipart(session_id: str, *, prefix: bytes) -> list[dict[str, object]]:
+        manifest = prefix + b"manifest"
+        microphone = prefix + b"microphone"
+        system_head = prefix + b"system-head"
+        system_tail = b"-tail"
+        parts = [
+            ("manifest", 0, 0, manifest),
+            ("microphone", 0, 0, microphone),
+            ("system", 0, 0, system_head),
+            ("system", 1, len(system_head), system_tail),
+        ]
+        for role, part_number, offset, data in parts:
+            response = client.put(
+                f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/{part_number}",
+                headers=auth_headers()
+                | {"X-Byte-Offset": str(offset), "X-Content-SHA256": sha256(data).hexdigest()},
+                content=data,
+            )
+            assert response.status_code == 200, response.text
+        tracks = []
+        for role, data in [("manifest", manifest), ("microphone", microphone), ("system", system_head + system_tail)]:
+            tracks.append(
+                track_descriptor(role, len(data))
+                | {"sha256": sha256(data).hexdigest(), "byte_length": len(data)}
+            )
+        return tracks
+
+    first_session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"manifest": 14, "microphone": 16, "system": 22}},
+    ).json()["session_id"]
+    first_tracks = upload_multipart(first_session, prefix=b"first-")
+    first_finalize = _finalize(client, first_session, first_tracks, str(first_tracks[0]["sha256"]))
+    assert first_finalize.status_code == 200
+    before_materialized_objects = {
+        key: value
+        for key, value in client.app_state["storage"].objects.items()
+        if "/media-revisions/" in key
+    }
+
+    second_session = client.post(
+        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
+        headers=auth_headers(),
+        json={"expected_track_sizes": {"manifest": 15, "microphone": 17, "system": 23}},
+    ).json()["session_id"]
+    second_tracks = upload_multipart(second_session, prefix=b"second-")
+    response = _finalize(client, second_session, second_tracks, str(second_tracks[0]["sha256"]))
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "media_revision_fingerprint_conflict"
+    after_materialized_objects = {
+        key: value
+        for key, value in client.app_state["storage"].objects.items()
+        if "/media-revisions/" in key
+    }
+    assert after_materialized_objects == before_materialized_objects
 
 
 def test_finalize_cleans_materialized_track_after_immutable_conflict(client: TestClient) -> None:

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-18
 
-**Status**: Draft
+**Status**: Archived microphone-sample spike; not current recording acceptance
 
 **Input**: User description: "Take backlog features 037-041 into implementation, starting from the audio-capture backlog for clean recording so speaker audio does not enter the microphone track."
 

@@ -429,6 +429,8 @@
       const progress = shell.querySelector("[data-playback-progress]");
       const speedToggle = shell.querySelector("[data-playback-speed-toggle]");
       const playbackError = shell.querySelector("[data-playback-error]");
+      const lanes = Array.from(shell.querySelectorAll("[data-speaker-lane]"));
+      const transcriptTurns = Array.from(document.querySelectorAll("[data-transcript-turn]"));
       const setToggleState = (playing) => {
         if (!toggle) return;
         toggle.textContent = playing ? "Ⅱ" : "▶";
@@ -442,10 +444,51 @@
         if (playbackError) playbackError.hidden = true;
         return player.play().catch(reportPlaybackFailure);
       };
+      const playbackDuration = () => {
+        if (Number.isFinite(player.duration) && player.duration > 0) return player.duration;
+        const fallback = Number.parseFloat(progress?.max || "0");
+        return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+      };
+      const currentTranscriptTurn = (seconds) => {
+        if (!transcriptTurns.length) return null;
+        return transcriptTurns.reduce((match, turn) => {
+          const start = Number.parseFloat(turn.dataset.startSeconds || "0");
+          return Number.isFinite(start) && start <= seconds ? turn : match;
+        }, transcriptTurns[0]);
+      };
+      const followTranscript = (seconds) => {
+        const turn = currentTranscriptTurn(seconds);
+        if (!turn) return;
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        turn.scrollIntoView({ block: "center", behavior: reducedMotion ? "auto" : "smooth" });
+      };
       const syncTime = () => {
         if (current) current.textContent = formatTime(player.currentTime);
         if (progress) progress.value = String(player.currentTime || 0);
         if (duration && Number.isFinite(player.duration)) duration.textContent = formatTime(player.duration);
+        const max = playbackDuration();
+        const position = max > 0 ? Math.max(0, Math.min(100, player.currentTime / max * 100)) : 0;
+        shell.style.setProperty("--playback-position", `${position}%`);
+        lanes.forEach((lane) => {
+          const active = Array.from(lane.querySelectorAll("[data-lane-segment]")).some((segment) => {
+            const start = Number.parseFloat(segment.dataset.startSeconds || "0");
+            const end = Number.parseFloat(segment.dataset.endSeconds || "0");
+            return start <= player.currentTime && player.currentTime < end;
+          });
+          lane.classList.toggle("is-active", active);
+          if (active) lane.setAttribute("aria-current", "true");
+          else lane.removeAttribute("aria-current");
+        });
+        const activeTurn = currentTranscriptTurn(player.currentTime);
+        transcriptTurns.forEach((turn) => turn.classList.toggle("is-current", turn === activeTurn));
+      };
+      const seekTo = (seconds, { follow = true, autoplay = false } = {}) => {
+        if (!Number.isFinite(seconds)) return;
+        const max = playbackDuration();
+        player.currentTime = Math.max(0, Math.min(max || Number.POSITIVE_INFINITY, seconds));
+        syncTime();
+        if (follow) followTranscript(player.currentTime);
+        if (autoplay) play();
       };
       player.addEventListener("loadedmetadata", () => {
         if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration);
@@ -468,17 +511,24 @@
         button.addEventListener("click", () => {
           const delta = Number.parseFloat(button.dataset.playbackSkip || "0");
           if (!Number.isFinite(delta)) return;
-          const max = Number.isFinite(player.duration) ? player.duration : Number.POSITIVE_INFINITY;
-          player.currentTime = Math.max(0, Math.min(max, player.currentTime + delta));
-          syncTime();
+          seekTo(player.currentTime + delta);
         });
       });
       progress?.addEventListener("input", () => {
         const next = Number.parseFloat(progress.value || "0");
         if (Number.isFinite(next)) {
-          player.currentTime = next;
-          syncTime();
+          seekTo(next);
         }
+      });
+      lanes.forEach((lane) => {
+        const track = lane.querySelector("[data-timeline-track]");
+        if (!track) return;
+        track.addEventListener("click", (event) => {
+          const rect = track.getBoundingClientRect();
+          const clientX = event.detail === 0 ? rect.left + rect.width / 2 : event.clientX;
+          const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
+          seekTo(playbackDuration() * ratio);
+        });
       });
       document.querySelectorAll("[data-seek-seconds]").forEach((button) => {
         if (button.dataset.seekReady === "true") return;
@@ -486,9 +536,7 @@
         button.addEventListener("click", () => {
           const seekSeconds = Number.parseFloat(button.dataset.seekSeconds || "0");
           if (!Number.isFinite(seekSeconds)) return;
-          player.currentTime = seekSeconds;
-          syncTime();
-          play();
+          seekTo(seekSeconds, { autoplay: true });
         });
       });
       if (speedToggle) {
@@ -563,10 +611,24 @@
     unsafe_meeting_title: "Название содержит небезопасные данные. Измените его или оставьте поле пустым.",
     media_revision_not_accepting_uploads: "Эта загрузка уже принята. Откройте встречу в списке.",
     meeting_not_accepting_uploads: "Эта загрузка уже принята. Откройте встречу в списке.",
-    idempotency_conflict: "Эта попытка отличается от уже начатой загрузки. Выберите файл заново."
+    idempotency_conflict: "Эта попытка отличается от уже начатой загрузки. Выберите файл заново.",
+    media_revision_fingerprint_conflict: "Эта встреча уже приняла другой файл. Выберите файл заново."
   };
 
   const safeUploadMessage = (code) => uploadMessages[code] || "Не удалось загрузить файл. Попробуйте ещё раз.";
+  const authUploadFailure = (code) => [
+    "csrf_token_missing",
+    "csrf_token_invalid",
+    "auth_session_required_for_manual_upload",
+    "auth_session_invalid",
+    "auth_session_expired"
+  ].includes(code);
+  const conflictUploadFailure = (code) => [
+    "media_revision_fingerprint_conflict",
+    "media_revision_not_accepting_uploads",
+    "meeting_not_accepting_uploads",
+    "idempotency_conflict"
+  ].includes(code);
 
   const formatBytes = (value) => {
     if (!Number.isFinite(value) || value <= 0) return "";
@@ -689,7 +751,14 @@
     const updateActivityControls = (activity) => {
       const state = activity.state;
       if (activity.cancelButton) activity.cancelButton.hidden = state !== "uploading";
-      if (activity.retryButton) activity.retryButton.hidden = state !== "failed";
+      if (activity.retryButton) {
+        activity.retryButton.hidden = state !== "failed" || activity.recoveryMode !== null;
+      }
+      if (activity.recoverButton) {
+        activity.recoverButton.hidden = state !== "failed" || activity.recoveryMode === null;
+        if (activity.recoveryMode === "auth") activity.recoverButton.textContent = "Обновить страницу";
+        if (activity.recoveryMode === "conflict") activity.recoverButton.textContent = "Выбрать другой файл";
+      }
       if (activity.resumeButton) activity.resumeButton.hidden = state !== "canceled";
       if (activity.detailLink) activity.detailLink.hidden = !activity.detailHref;
     };
@@ -745,6 +814,7 @@
         <div class="upload-activity-actions" aria-label="Управление загрузкой">
           <button class="upload-activity-action" type="button" data-upload-activity-cancel>Отменить</button>
           <button class="upload-activity-action" type="button" data-upload-activity-retry hidden>Повторить</button>
+          <button class="upload-activity-action" type="button" data-upload-activity-recover hidden>Восстановить</button>
           <button class="upload-activity-action" type="button" data-upload-activity-resume hidden>Продолжить</button>
           <a class="upload-activity-action" href="#" data-upload-activity-detail hidden>Открыть</a>
         </div>
@@ -761,6 +831,7 @@
         state: "queued",
         xhr: null,
         accepted: false,
+        recoveryMode: null,
         detailHref: "",
         titleLabel: row.querySelector("[data-upload-activity-title]"),
         meta: row.querySelector("[data-upload-activity-meta]"),
@@ -770,6 +841,7 @@
         percentLabel: row.querySelector("[data-upload-activity-percent]"),
         cancelButton: row.querySelector("[data-upload-activity-cancel]"),
         retryButton: row.querySelector("[data-upload-activity-retry]"),
+        recoverButton: row.querySelector("[data-upload-activity-recover]"),
         resumeButton: row.querySelector("[data-upload-activity-resume]"),
         detailLink: row.querySelector("[data-upload-activity-detail]")
       };
@@ -785,6 +857,15 @@
         }
         if (event.target.closest("[data-upload-activity-retry]")) {
           startActivityUpload(activity, { continued: false });
+          return;
+        }
+        if (event.target.closest("[data-upload-activity-recover]")) {
+          if (activity.recoveryMode === "auth") {
+            window.location.reload();
+          } else if (activity.recoveryMode === "conflict") {
+            resetDraft();
+            openDialog(lastTrigger);
+          }
           return;
         }
         if (event.target.closest("[data-upload-activity-resume]")) {
@@ -805,6 +886,7 @@
       const xhr = new XMLHttpRequest();
       activity.xhr = xhr;
       activity.accepted = false;
+      activity.recoveryMode = null;
       setActivityProgress(activity, 0, true);
       setActivityState(activity, "uploading", continued ? "Продолжаем загрузку…" : "Загружаем файл…");
 
@@ -833,10 +915,22 @@
             activity.detailHref = `${dialog.dataset.uploadDetailBase || "/meetings"}/${meetingId}`;
             if (activity.detailLink) activity.detailLink.href = activity.detailHref;
           }
-          setActivityState(activity, "accepted", "Файл принят. Обработка началась.", "success");
+          const workflowStarted = payload.workflow_started === true;
+          setActivityState(
+            activity,
+            "accepted",
+            workflowStarted
+              ? "Файл принят. Обработка началась."
+              : "Файл принят. Обработка ещё не запущена. Проверьте статус встречи.",
+            workflowStarted ? "success" : "warning"
+          );
           await refreshMeetingList(dialog.dataset.uploadRefreshUrl);
           return;
         }
+        const failureCode = typeof payload.code === "string" ? payload.code : "";
+        activity.recoveryMode = authUploadFailure(failureCode)
+          ? "auth"
+          : conflictUploadFailure(failureCode) ? "conflict" : null;
         setActivityState(activity, "failed", safeUploadMessage(payload.code), "error");
       };
       xhr.onerror = () => {
@@ -888,6 +982,24 @@
       syncReady();
     };
 
+    const focusDialogElement = (element) => element?.focus({ preventScroll: true });
+
+    const focusableDialogElements = () => Array.from(dialog.querySelectorAll(
+      "a[href], button:not([disabled]), input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+    )).filter((element) => !element.hidden && !element.matches(":disabled") && element.getAttribute("aria-hidden") !== "true");
+
+    const trapDialogFocus = (event) => {
+      if (event.key !== "Tab" || (!dialog.open && !dialog.hasAttribute("open"))) return;
+      const focusable = focusableDialogElements();
+      if (!focusable.length) return;
+      const currentIndex = focusable.indexOf(document.activeElement);
+      const nextIndex = event.shiftKey
+        ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
+        : (currentIndex < 0 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
+      event.preventDefault();
+      focusDialogElement(focusable[nextIndex]);
+    };
+
     const openDialog = (trigger) => {
       lastTrigger = trigger;
       if (dialog.dataset.uploadAvailable !== "true" || !csrfToken) {
@@ -896,14 +1008,16 @@
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
       const focusTarget = fileInput || dialog.querySelector("a,button,input");
-      focusTarget?.focus({ preventScroll: true });
+      focusDialogElement(focusTarget);
     };
 
     const closeDialog = () => {
       if (typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
-      lastTrigger?.focus({ preventScroll: true });
+      focusDialogElement(lastTrigger);
     };
+
+    dialog.addEventListener("keydown", trapDialogFocus);
 
     document.body.addEventListener("click", (event) => {
       if (!(event.target instanceof Element)) return;
@@ -1147,6 +1261,56 @@
     }
   };
 
+  const initSpeakerNameForms = () => {
+    document.querySelectorAll("[data-speaker-name-open]").forEach((button) => {
+      if (button.dataset.speakerNameOpenReady === "true") return;
+      button.dataset.speakerNameOpenReady = "true";
+      button.addEventListener("click", () => {
+        const form = document.getElementById(button.getAttribute("aria-controls") || "");
+        if (!form) return;
+        form.hidden = false;
+        button.setAttribute("aria-expanded", "true");
+        form.querySelector("input[name='display_name']")?.focus({ preventScroll: true });
+      });
+    });
+    document.querySelectorAll("[data-speaker-name-cancel]").forEach((button) => {
+      if (button.dataset.speakerNameCancelReady === "true") return;
+      button.dataset.speakerNameCancelReady = "true";
+      button.addEventListener("click", () => {
+        const form = button.closest("[data-speaker-name-form]");
+        if (!form) return;
+        form.hidden = true;
+        const opener = document.querySelector(`[aria-controls="${form.id}"]`);
+        opener?.setAttribute("aria-expanded", "false");
+        opener?.focus({ preventScroll: true });
+      });
+    });
+    document.querySelectorAll("[data-speaker-name-form]").forEach((form) => {
+      if (form.dataset.speakerNameReady === "true") return;
+      form.dataset.speakerNameReady = "true";
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const error = form.querySelector("[data-speaker-name-error]");
+        const submit = form.querySelector("button[type='submit']");
+        if (error) error.hidden = true;
+        if (submit) submit.disabled = true;
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: new FormData(form),
+            credentials: "same-origin",
+            headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {}
+          });
+          if (!response.ok) throw new Error("speaker_name_save_failed");
+          window.location.reload();
+        } catch {
+          if (error) error.hidden = false;
+          if (submit) submit.disabled = false;
+        }
+      });
+    });
+  };
+
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
@@ -1157,6 +1321,7 @@
     initDetailTabs();
     initPlayback();
     initPlaybackRecoveryPolling();
+    initSpeakerNameForms();
     initCalendarSettings();
   };
 

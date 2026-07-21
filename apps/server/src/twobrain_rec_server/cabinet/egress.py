@@ -456,6 +456,31 @@ async def _canonical_object_exists(
         return None
 
 
+async def _ensure_review_audio_storage_size(
+    storage: object,
+    *,
+    object_key: str,
+    expected_size: int,
+) -> None:
+    """Fail closed before exposing headers or bytes for a stale object."""
+    stat_async = getattr(storage, "stat_object_async", None)
+    stat_sync = getattr(storage, "stat_object", None)
+    try:
+        if callable(stat_async):
+            result = await stat_async(object_key)
+        elif callable(stat_sync):
+            result = await to_thread.run_sync(stat_sync, object_key)
+        else:
+            raise ReviewAudioBuildError("storage_unavailable")
+        actual_size = result if isinstance(result, int) else getattr(result, "size", None)
+        if not isinstance(actual_size, int) or actual_size != expected_size:
+            raise ReviewAudioBuildError("storage_object_size_mismatch")
+    except ReviewAudioBuildError:
+        raise
+    except Exception as exc:
+        raise ReviewAudioBuildError("storage_unavailable") from exc
+
+
 async def download_artifact(
     db: AsyncSession,
     *,
@@ -524,6 +549,11 @@ async def download_artifact(
     if artifact_class == "audio":
         try:
             playback = await _stored_review_m4a_artifact(db, meeting=meeting)
+            await _ensure_review_audio_storage_size(
+                storage,
+                object_key=playback.storage_object_key,
+                expected_size=playback.byte_length,
+            )
             body = await _stream_storage_object(
                 storage,
                 playback.storage_object_key,
@@ -633,6 +663,11 @@ async def playback_artifact(
 
     try:
         playback = await _stored_review_m4a_artifact(db, meeting=meeting)
+        await _ensure_review_audio_storage_size(
+            storage,
+            object_key=playback.storage_object_key,
+            expected_size=playback.byte_length,
+        )
     except ReviewAudioBuildError as exc:
         reason = exc.reason if isinstance(exc, ReviewAudioBuildError) else "storage_unavailable"
         status = 503 if reason == "storage_unavailable" else 409

@@ -4,7 +4,24 @@
 
 **Created**: 2026-07-17
 
-**Status**: Draft
+**Status**: Owner-only release evidence complete; protected two-channel path remains future scope
+
+## Current operating decision — 2026-07-21
+
+The protected GitHub reviewer path remains the target design, but it is not
+available for this private repository on the current GitHub plan.  The current
+release lane therefore uses the already implemented named macOS Keychain
+signer, with the private key kept as an offline owner backup in the password
+manager.  The backup is recovery-only: no workflow, app or public host reads
+it automatically.
+
+This is an explicitly degraded owner-only mode, not proof that the protected
+two-channel design is complete.  It still requires exact CalVer provenance,
+fresh metadata-only Keychain attestation, explicit owner approval, unchanged
+manifest/app/feed identity, and archive-before-appcast publication.  T034 is
+closed as superseded by this decision; T037 closes the owner-only release
+evidence for the current lane.  The protected cloud path can be reopened later
+without rotating the active public key.
 
 **Input**: User description: "Исправить всё и сделать безопасное, всегда доступное хранение ключа подписи обновлений."
 

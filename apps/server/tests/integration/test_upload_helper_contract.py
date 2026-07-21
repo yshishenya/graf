@@ -10,11 +10,13 @@ def test_upload_helper_requires_separate_identity_headers() -> None:
     assert 'parser.add_argument("--workspace", required=True)' in script
     assert 'parser.add_argument("--user", required=True)' in script
     assert 'parser.add_argument("--device", required=True)' in script
-    assert 'parser.add_argument("--token")' in script
+    assert 'parser.add_argument("--token", help=argparse.SUPPRESS)' in script
     assert 'parser.add_argument("--token-file", type=Path)' in script
+    assert 'parser.add_argument("--run-id")' in script
     assert "if args.token and args.token_file:" in script
-    assert "bearer_token = args.token" in script
-    assert "bearer_token = args.token_file.read_text" in script
+    assert 'parser.error("--token is not supported; use --token-file")' in script
+    assert "read_private_auth_material(args.token_file, expected_run_id=args.run_id)" in script
+    assert "validate_origin(args.api)" in script
     assert '"X-Organization-Id": args.organization' in script
     assert '"X-Workspace-Id": args.workspace' in script
     assert '"X-User-Id": args.user' in script

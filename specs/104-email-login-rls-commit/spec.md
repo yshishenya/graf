@@ -1,5 +1,7 @@
 # Feature 104: RLS-safe email login completion
 
+**Status**: Implemented and deployed; RLS production proof recorded
+
 **Risk / validation lane**: high-risk auth
 
 ## User story

@@ -3,7 +3,7 @@
 Run from repository root:
 
 ```sh
-cd /Users/yshishenya/.codex/worktrees/fd8e/crisp
+cd <repo-root>
 ```
 
 ## 1. Verify macOS recording artifacts

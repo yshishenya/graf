@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-16
 
-**Status**: Draft
+**Status**: Implemented as the server-owned meeting review cabinet
 
 **Input**: User description: "Start 016. Inspect final mockups, but do not treat them as absolute truth. Study how this is implemented in the Crisp/Krisp app and web page. Think through the logic and begin implementation. Understand what is ready, what is not ready, and what must be reserved in the interface for future implementation so it will not need to be redesigned later. Click every button in web and app, save screenshots as reference. Prioritize quality over speed. Keep the system multiplatform: move product UI that can live in web into the web cabinet and render it in the desktop app."
 

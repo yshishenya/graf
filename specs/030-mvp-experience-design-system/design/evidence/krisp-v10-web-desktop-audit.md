@@ -10,8 +10,7 @@ brand, private content, exact UI, icons, screenshots, or proprietary copy.
 
 - `System Events` can read the active process, but `click at` is still blocked
   for `osascript` with macOS Accessibility error `-25211`.
-- Computer Use re-check: `/Users/yshishenya/.codex/computer-use/Codex Computer
-  Use.app` is installed, signed by OpenAI, notarized, and `SkyComputerUseService`
+- Computer Use re-check: `<computer-use-app>` is installed, signed by OpenAI, notarized, and `SkyComputerUseService`
   starts successfully. However, no callable Computer Use tool is exposed in this
   session, `SkyComputerUseClient` does not stay running as a usable control
   process, and the user TCC database shows no Accessibility/Screen Capture/Post

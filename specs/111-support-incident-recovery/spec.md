@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-17
 
-**Status**: Draft
+**Status**: Implemented, merged, and released; production receipt recorded
 
 **Input**: User description: "Исправить отправку отчётов в поддержку: подробный безопасный отчёт должен попасть на сервер и создать понятный private Issue, а не оставлять пользователя с общим сообщением об ошибке."
 

@@ -47,18 +47,30 @@ services:
       TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_ENABLED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_HOST: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_HOST:-}
       TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_PROJECT_KEY_FILE: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_PROJECT_KEY_FILE:-}
+      TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_AUTOCAPTURE_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_AUTOCAPTURE_ENABLED:-true}
+      TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_CREDENTIAL_SUPPRESSION_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_CREDENTIAL_SUPPRESSION_ENABLED:-true}
+      TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_WEB_DIRECT_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_WEB_DIRECT_ENABLED:-true}
+      TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_DESKTOP_DIRECT_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_DESKTOP_DIRECT_ENABLED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_ALL_PAGES_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_ALL_PAGES_ENABLED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OFFLINE_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OFFLINE_ENABLED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_COUNTER_ID: ${TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_COUNTER_ID:-}
       TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OAUTH_TOKEN_FILE: ${TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OAUTH_TOKEN_FILE:-}
+      TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_INVENTORY_VERSION: ${TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_INVENTORY_VERSION:-096.2026-07-09.1}
+      TWOBRAIN_PRODUCT_ANALYTICS_ROLLBACK_MODE: ${TWOBRAIN_PRODUCT_ANALYTICS_ROLLBACK_MODE:-none}
       TWOBRAIN_PRODUCT_ANALYTICS_REPLAY_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_REPLAY_ENABLED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_RETENTION_MIN_DAYS: ${TWOBRAIN_PRODUCT_ANALYTICS_RETENTION_MIN_DAYS:-90}
       TWOBRAIN_PRODUCT_ANALYTICS_CONSENT_COPY_VERSION: ${TWOBRAIN_PRODUCT_ANALYTICS_CONSENT_COPY_VERSION:-2026-07-09.1}
       TWOBRAIN_PRODUCT_ANALYTICS_DIRECT_DESKTOP_EGRESS_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_DIRECT_DESKTOP_EGRESS_ENABLED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_DIRECT_DESKTOP_EGRESS_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_DIRECT_DESKTOP_EGRESS_APPROVED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_LEGAL_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_LEGAL_APPROVED:-false}
+      TWOBRAIN_PRODUCT_ANALYTICS_PRIVACY_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_PRIVACY_APPROVED:-false}
+      TWOBRAIN_PRODUCT_ANALYTICS_SECURITY_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_SECURITY_APPROVED:-false}
+      TWOBRAIN_PRODUCT_ANALYTICS_QA_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_QA_APPROVED:-false}
+      TWOBRAIN_PRODUCT_ANALYTICS_DISCLOSURE_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_DISCLOSURE_APPROVED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_DASHBOARD_READY: ${TWOBRAIN_PRODUCT_ANALYTICS_DASHBOARD_READY:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_SMOKE_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_SMOKE_APPROVED:-false}
+      TWOBRAIN_PRODUCT_ANALYTICS_ROLLBACK_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_ROLLBACK_APPROVED:-false}
+      TWOBRAIN_PRODUCT_ANALYTICS_LIVE_PROVIDER_DELIVERY_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_LIVE_PROVIDER_DELIVERY_APPROVED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_CAMPAIGN_READINESS_APPROVED: ${TWOBRAIN_PRODUCT_ANALYTICS_CAMPAIGN_READINESS_APPROVED:-false}
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
@@ -93,6 +105,16 @@ services:
         mode: 0440
       - source: twobrain_support_incident_github_token
         target: twobrain_support_incident_github_token
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: graf_posthog_project_key
+        target: graf_posthog_project_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: graf_yandex_offline_oauth_token
+        target: graf_yandex_offline_oauth_token
         uid: "100"
         gid: "101"
         mode: 0440
@@ -667,7 +689,7 @@ services:
         mc admin policy attach rec twobrain-rec-api --user "$$TWOBRAIN_MINIO_API_ACCESS_KEY"
         mc admin user add rec "$$TWOBRAIN_MINIO_MEDIA_ACCESS_KEY" "$$TWOBRAIN_MINIO_MEDIA_SECRET_KEY" || true
         cat >/tmp/rec-media-policy.json <<'JSON'
-        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/_system/readiness/ready","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/media/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/microphone/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/system/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/playback/parts/*"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/playback-normalization/revisions/*/attempts/*/meeting-review.m4a"]}]}
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/_system/readiness/ready","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/media/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/microphone/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/system/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/playback/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/media","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/microphone","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/system","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/playback"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/playback-normalization/revisions/*/attempts/*/meeting-review.m4a"]}]}
         JSON
         mc admin policy rm rec twobrain-rec-media || true
         mc admin policy create rec twobrain-rec-media /tmp/rec-media-policy.json
@@ -740,3 +762,7 @@ secrets:
     file: ${TWOBRAIN_VK_CLIENT_SECRET_FILE:-./secrets/twobrain_vk_client_secret}
   twobrain_support_incident_github_token:
     file: ${TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE:-./secrets/twobrain_support_incident_github_token}
+  graf_posthog_project_key:
+    file: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_PROJECT_KEY_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}
+  graf_yandex_offline_oauth_token:
+    file: ${TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OAUTH_TOKEN_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}

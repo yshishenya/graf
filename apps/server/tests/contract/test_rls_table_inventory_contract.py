@@ -56,6 +56,10 @@ PLAYBACK_NORMALIZATION_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0022_playback_normalization.py"
 )
+MEETING_SPEAKER_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0029_meeting_speaker_names.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -119,6 +123,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         PLAYBACK_NORMALIZATION_MIGRATION,
         "playback_normalization_migration",
     )
+    meeting_speaker_migration = _load_migration_module(
+        MEETING_SPEAKER_MIGRATION,
+        "meeting_speaker_names_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -136,6 +144,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(meeting_detection_migration.MEETING_DETECTION_TABLES)
         | set(calendar_auto_context_migration.CONTENT_WORKSPACE_POLICIES)
         | set(playback_normalization_migration.PLAYBACK_NORMALIZATION_TABLES)
+        | set(meeting_speaker_migration.MEETING_SPEAKER_TABLES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

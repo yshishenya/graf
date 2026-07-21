@@ -121,7 +121,7 @@ write_keychain_attestation() {
   "evidenceId": "$evidence_id"
 }
 EOF
-  /usr/bin/plutil -lint "$temporary_attestation" >/dev/null ||
+  /usr/bin/plutil -convert xml1 -o /dev/null "$temporary_attestation" >/dev/null ||
     fail "could not validate a safe Keychain attestation"
   chmod 600 "$temporary_attestation"
   mv "$temporary_attestation" "$destination" ||

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-15
 
-**Status**: Draft
+**Status**: Implemented as the production RLS enforcement correction
 
 **Input**: User description: "Start work on 032. Check everything, prepare it,
 and follow the full SDD Spec Kit cycle."

@@ -81,7 +81,7 @@ release surface.
 
 ## In-App Update Gates
 
-- [ ] Exactly one release lane is declared: owner-only self-signed for
+- [x] Exactly one release lane is declared: owner-only self-signed for
   controlled Macs, or public Developer ID/notarized distribution.
 - [ ] `Sparkle` is locked to `2.9.4`, embedded at
   `Contents/Frameworks/Sparkle.framework`, and reports current version `2.9.4`.
@@ -99,6 +99,10 @@ release surface.
   more than 90 calendar days after the prior drill and immediately after any
   control-plane change; its retained evidence contains only timestamp,
   generation, key ID and channel states.
+- [x] If this private-repository release uses the current owner-only fallback,
+  the receipt explicitly records degraded approval, exact tag/provenance,
+  fresh Keychain attestation and archive-before-appcast ordering; Bitwarden is
+  recovery-only and no workflow or public host reads it automatically.
 - [ ] The protected signing environments require independent reviewer approval,
   permit the protected master branch only, and have no public-host write path.
   Every external workflow action is pinned to a full immutable SHA.
@@ -111,7 +115,7 @@ release surface.
   `macos-keychain` attestation for the same generation/tag/commit. The signing
   workflow rejects its absence, mismatch, non-ready state or age over 24 hours
   before generating a signed appcast.
-- [ ] A one-channel Keychain recovery release, if unavoidable, has a recorded
+- [x] A one-channel Keychain recovery release, if unavoidable, has a recorded
   owner approval identifier and explicit degraded-fallback flag; it still
   passes manifest/app/signer/Keychain-attestation/tag checks. A malformed cloud
   attestation is never silently treated as a fallback.
@@ -133,10 +137,10 @@ release surface.
   GRAF identity and permission continuity, changes only the permitted signing
   generation, and produces no appcast. It is followed by two strictly higher
   ordinary in-app updates with the same new public key.
-- [ ] Production update artifacts were staged from a clean commit published at the exact release tag
+- [x] Production update artifacts were staged from a clean commit published at the exact release tag
   and matching `origin/master`, with
   `GRAF_REQUIRE_RELEASE_PROVENANCE=1` enabled.
-- [ ] ZIP, package, checksums, and Russian notes are present as GitHub Release
+- [x] ZIP, package, checksums, and Russian notes are present as GitHub Release
   assets; the archive/package were published before the appcast, and every
   public SHA-256 matches the reviewed local release artifact.
 - [ ] The private EdDSA key, Developer ID material, notarization credentials,
@@ -161,9 +165,38 @@ release surface.
   manual `.pkg` bootstrap install.
 - [ ] The archive/package contains no privileged audio component and no Core
   Audio service mutation.
-- [ ] Public appcast/archive publication has explicit release approval and a
+- [x] Public appcast/archive publication has explicit release approval and a
   documented stop-rollout feed restore plus higher-CalVer forward rollback for
   Macs that already updated.
+
+## T037 owner-only release closeout receipt — 2026-07-21
+
+The following checks are the completed receipt for the current private-repository
+owner-only lane. They do not claim that the future protected reviewer or
+Developer ID/notarization lane is configured.
+
+- [x] `v2026.07.21.3` is an immutable exact tag at the staged `origin/master`
+  commit `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`.
+- [x] Fresh metadata-only Keychain evidence matches the active manifest:
+  `channel=macos-keychain`, `state=ready`, `trustGeneration=1`,
+  `keyId=sha256:63c373b20f82851a6b4443bad2100eede5d50d897ed2aaf9fa8c94db56e4ecce`.
+- [x] The degraded fallback is explicit: approval id
+  `t037-owner-20260721-3` and
+  `GRAF_RELEASE_SIGNING_APPROVED_DEGRADED_FALLBACK=1`; the helper reported
+  `signer=keychain`, `custody=degraded`, `published=no` before publication.
+- [x] The owner-only app, Sparkle archive and appcast passed the strict
+  owner-only validator, signature checks, ZIP integrity and package expansion;
+  no package installation was used as a substitute for these checks.
+- [x] Public publication order is proven: ZIP, pkg and checksum were copied and
+  SHA-256 checked before `graf-appcast.xml`; the prior appcast was retained as
+  a recoverable backup, and the final public fetch rechecked version, length,
+  checksums and signatures.
+- [x] GitHub Release `v2026.07.21.3` retains the Russian notes and safe
+  Keychain attestation. The private key, Bitwarden recovery copy and any
+  secret-bearing material remain outside Git, issues and the public host.
+
+The remaining unchecked protected-cloud and Developer ID items are future
+migration gates, not blockers for this explicitly approved owner-only receipt.
 
 ## Manual Gates
 

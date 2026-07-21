@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-26
 
-**Status**: Ready for Tasks
+**Status**: Implemented and deployed; production secret wiring is recorded
 
 **Input**: User description: "When local recordings cannot be sent automatically,
 replace the raw copy-report UX with a safe, metadata-only support incident flow:

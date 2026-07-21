@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-28
 
-**Status**: Draft
+**Status**: Implemented locally; production deploy and account retest remain separate
 
 **Input**: User description: "070 - make the login window narrower and provider tiles more elegant; align code confirmation width between web and app; auto-submit after the last digit or pasted code; fix provider login errors in the app while web works."
 

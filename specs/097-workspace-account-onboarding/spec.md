@@ -2,21 +2,20 @@
 
 **Feature Branch**: `097-workspace-account-onboarding`
 **Created**: 2026-07-09
-**Status**: Draft
+**Status**: Implemented, released, and production-smoke validated
 **Input**: User description: "Продумать B2C/B2B модель workspace: простая регистрация должна остаться простой, а присоединение к корпоративному workspace должно быть отдельным управляемым действием."
 
-## Implementation Note
+## Historical implementation note — before the feature merge
 
 The 090 security closeout added a narrow fail-safe for the current browser
 email signup flow: signup start and verify both respect the existing workspace
 enrollment policy instead of silently creating access when self-enrollment is
 closed.
 
-That hotfix does not complete 097. The product still needs the full personal
-space / corporate workspace onboarding model described here, including
-idempotent personal-space creation, explicit corporate join offers, active-space
-selection, migration planning for legacy default-workspace users and admin
-workspace enrollment management.
+At that checkpoint the hotfix did not complete 097. The full personal-space /
+corporate-workspace model was subsequently implemented and is recorded in
+[release-closeout.md](./validation/release-closeout.md). This historical note
+must not be read as the current implementation status.
 
 ## Clarifications
 

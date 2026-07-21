@@ -55,6 +55,10 @@ PLAYBACK_NORMALIZATION_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0022_playback_normalization.py"
 )
+MEETING_SPEAKER_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0029_meeting_speaker_names.py"
+)
 PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
@@ -76,6 +80,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + MEETING_DETECTION_MIGRATION.read_text(encoding="utf-8")
         + CALENDAR_AUTO_CONTEXT_MIGRATION.read_text(encoding="utf-8")
         + PLAYBACK_NORMALIZATION_MIGRATION.read_text(encoding="utf-8")
+        + MEETING_SPEAKER_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-24
 
-**Status**: Draft
+**Status**: Implemented, merged, released, and deployed
 
 **Input**: User description: "Finish the MVP carefully through Spec Kit, recheck the macOS app and web cabinet, and close the meeting review gap where retained audio playback must be linked to transcript timestamps."
 

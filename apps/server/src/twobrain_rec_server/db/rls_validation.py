@@ -39,6 +39,7 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "processing_results",
         "transcript_segments",
         "diarization_segments",
+        "meeting_speaker_names",
         "processing_audit_events",
         "processing_dependency_states",
         "meeting_share_grants",
@@ -153,7 +154,10 @@ class RLSValidationReport:
 
     @property
     def ready_for_production_truth(self) -> bool:
-        return self.environment in {"postgres_test", "production_like"} and self.validation_result == "pass"
+        return (
+            self.environment in {"postgres_test", "production_like"}
+            and self.validation_result == "pass"
+        )
 
     def evidence_lines(self) -> list[str]:
         lines = [
@@ -249,7 +253,9 @@ class RLSProductionStateReport:
         return "enabled" if self.production_rls_state_result == "pass" else "verification_blocked"
 
     def evidence_lines(self) -> list[str]:
-        failed_table_names = ",".join(self.failed_table_names) if self.failed_table_names else "none"
+        failed_table_names = (
+            ",".join(self.failed_table_names) if self.failed_table_names else "none"
+        )
         lines = [
             f"production_rls_state_result={self.production_rls_state_result}",
             f"environment={self.environment}",

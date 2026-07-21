@@ -80,7 +80,9 @@ def test_playback_read_model_is_independent_from_transcript_processing_state() -
         assert playback.playback_path is not None
 
 
-def test_v5_mixed_review_keeps_one_canonical_source_and_transcript_when_playback_is_unavailable() -> None:
+def test_v5_mixed_review_keeps_one_canonical_source_and_transcript_when_playback_is_unavailable() -> (
+    None
+):
     meeting = _meeting()
     revision = MediaRevision(
         id=uuid4(),
@@ -1811,3 +1813,307 @@ def test_processing_state_uses_safe_reason_and_next_action() -> None:
     assert state.reason_code == "mediascribe_validation_failed"
     assert state.next_action == "contact_operator"
     assert "private-workflow" not in state.model_dump_json()
+
+
+def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    segment_ids = [uuid4() for _ in range(4)]
+    spans = [(0, 1), (1.8, 2.5), (3.5, 4), (6, 7)]
+    transcript = [
+        TranscriptSegment(
+            id=segment_id,
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(start)),
+            end_seconds=Decimal(str(end)),
+            text=f"synthetic fragment {index}",
+            source_role="incoming",
+        )
+        for index, (segment_id, (start, end)) in enumerate(zip(segment_ids, spans, strict=True))
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(start)),
+            end_seconds=Decimal(str(end)),
+            text=f"synthetic fragment {index}",
+            speaker_label="remote-speaker",
+            source_role="incoming",
+        )
+        for index, (start, end) in enumerate(spans)
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+        playback_available=True,
+        playback_duration_seconds=60,
+    )
+
+    assert len(state.segments) == 4
+    assert len(state.speaker_turns) == 2
+    first, second = state.speaker_turns
+    assert first.speaker_key == "speaker_00"
+    assert second.speaker_key == "speaker_00"
+    assert first.start_seconds == 0.0
+    assert first.end_seconds == 4.0
+    assert first.text == "synthetic fragment 0 synthetic fragment 1 synthetic fragment 2"
+    assert first.source_segment_ids == [str(value) for value in segment_ids[:3]]
+    assert first.seekable is True
+    assert first.seek_seconds == 0.0
+    assert second.start_seconds == 6.0
+    assert second.end_seconds == 7.0
+    assert [segment.text for segment in state.segments] == [
+        f"synthetic fragment {index}" for index in range(4)
+    ]
+    assert {segment.speaker_key for segment in state.segments} == {"speaker_00"}
+
+
+def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("1"),
+            end_seconds=Decimal("3"),
+            text="synthetic",
+            speaker_label="remote",
+            source_role="incoming",
+        )
+    ]
+
+    transcript = view_models.diarization_transcript_state(
+        language="ru",
+        diarization_rows=diarization,
+        speaker_rows=diarization,
+        status="ready",
+        playback_available=True,
+        playback_duration_seconds=10,
+        speaker_names={"speaker_00": "Мария"},
+    )
+    speakers = view_models.speaker_state(
+        diarization,
+        speaker_names={"speaker_00": "Мария"},
+        can_rename=True,
+    )
+
+    assert transcript.segments[0].speaker_key == "speaker_00"
+    assert transcript.segments[0].speaker_label == "Мария"
+    assert transcript.speaker_turns[0].speaker_key == "speaker_00"
+    assert speakers.speakers[0].speaker_key == "speaker_00"
+    assert speakers.speakers[0].label == "Мария"
+    assert speakers.speakers[0].display_name == "Мария"
+    assert speakers.can_rename is True
+
+
+def test_transcript_turns_split_on_speaker_track_and_exact_threshold() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(start)),
+            end_seconds=Decimal(str(end)),
+            text=f"fragment {index}",
+            source_role=source_role,
+        )
+        for index, (start, end, source_role) in enumerate(
+            [(0, 1, "incoming"), (2, 3, "incoming"), (3.5, 4.5, "incoming"), (5, 6, "mic")]
+        )
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=segment.start_seconds,
+            end_seconds=segment.end_seconds,
+            text=segment.text,
+            speaker_label="remote" if index < 2 else ("other" if index == 2 else "local"),
+            source_role=segment.source_role,
+        )
+        for index, segment in enumerate(transcript)
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+    )
+
+    assert [turn.text for turn in state.speaker_turns] == [
+        "fragment 0 fragment 1",
+        "fragment 2",
+        "fragment 3",
+    ]
+
+
+def test_transcript_turns_do_not_merge_unconfirmed_mapping_or_incomplete_state() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(index)),
+            end_seconds=Decimal(str(index + 0.5)),
+            text=f"unmapped {index}",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[],
+        status="ready",
+    )
+    processing_state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[],
+        status="processing",
+    )
+    partial_state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[
+            DiarizationSegment(
+                id=uuid4(),
+                processing_result_id=result_id,
+                meeting_id=meeting.id,
+                workspace_id=meeting.workspace_id,
+                sequence=index,
+                start_seconds=row.start_seconds,
+                end_seconds=row.end_seconds,
+                text=row.text,
+                speaker_label="remote-speaker",
+                source_role="incoming",
+            )
+            for index, row in enumerate(transcript)
+        ],
+        status="partial",
+    )
+
+    assert state.speaker_turns == []
+    assert len(state.segments) == 2
+    assert processing_state.speaker_turns == []
+    assert processing_state.available is False
+    assert partial_state.speaker_turns == []
+    assert partial_state.degraded_reason == "partial_transcript"
+
+
+def test_force_speaker_labels_turns_are_stable_across_rebuilds() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(index * 1.5)),
+            end_seconds=Decimal(str(index * 1.5 + 1)),
+            text=f"manual fragment {index}",
+            speaker_label="SPEAKER_01",
+            source_role="incoming",
+        )
+        for index in range(3)
+    ]
+
+    first = view_models.transcript_state(
+        language="ru",
+        transcript_segments=[],
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+    second = view_models.transcript_state(
+        language="ru",
+        transcript_segments=[],
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert first.speaker_turns == second.speaker_turns
+    assert len(first.speaker_turns) == 1
+    assert first.speaker_turns[0].source_segment_ids == [str(row.id) for row in diarization]
+
+
+def test_normal_and_diarization_review_paths_share_turn_semantics() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(index * 1.5)),
+            end_seconds=Decimal(str(index * 1.5 + 1)),
+            text=f"shared fragment {index}",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=row.start_seconds,
+            end_seconds=row.end_seconds,
+            text=row.text,
+            speaker_label="SPEAKER_00",
+            source_role="incoming",
+        )
+        for index, row in enumerate(transcript)
+    ]
+
+    normal = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+    )
+    force_labels = view_models.transcript_state(
+        language="ru",
+        transcript_segments=[],
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert normal.speaker_turns[0].model_dump(
+        exclude={"turn_id", "source_segment_ids"}
+    ) == force_labels.speaker_turns[0].model_dump(exclude={"turn_id", "source_segment_ids"})

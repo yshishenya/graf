@@ -1,0 +1,15 @@
+[Unit]
+Description=GRAF PostHog resource and health guard
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/graf-posthog-runtime-guard.env
+ExecStart=/usr/local/libexec/graf-posthog-runtime-guard.sh
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/graf-posthog-runtime-guard /opt/projects/2brain-rec/.env /opt/projects/2brain-rec/.env.lock

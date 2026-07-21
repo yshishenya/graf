@@ -2500,6 +2500,86 @@ paths:
           description: Validation error
           content:
             application/json:
+                schema:
+                  $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/posthog-web-capture:
+    post:
+      tags:
+      - product-analytics
+      summary: Product Analytics Posthog Web Capture
+      operationId: product_analytics_posthog_web_capture_api_v1_product_analytics_posthog_web_capture_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostHogAutocaptureEventRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Posthog Web Capture Api V1 Product Analytics
+                  Posthog Web Capture Post
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/product-analytics/posthog-desktop-capture:
+    post:
+      tags:
+      - product-analytics
+      summary: Product Analytics Posthog Desktop Capture
+      operationId: product_analytics_posthog_desktop_capture_api_v1_product_analytics_posthog_desktop_capture_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostHogDesktopCaptureRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Posthog Desktop Capture Api V1 Product
+                  Analytics Posthog Desktop Capture Post
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
   /api/v1/calendar/providers:
@@ -11739,6 +11819,11 @@ components:
         label:
           type: string
           title: Label
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
         talk_time_percent:
           type: integer
           maximum: 100.0
@@ -11808,6 +11893,10 @@ components:
             $ref: '#/components/schemas/SpeakerLane'
           type: array
           title: Speakers
+        can_rename:
+          type: boolean
+          title: Can Rename
+          default: false
       type: object
       required:
       - available
@@ -11978,6 +12067,11 @@ components:
             $ref: '#/components/schemas/TranscriptSegmentView'
           type: array
           title: Segments
+        speaker_turns:
+          items:
+            $ref: '#/components/schemas/TranscriptSpeakerTurnView'
+          type: array
+          title: Speaker Turns
       type: object
       required:
       - available
@@ -12014,6 +12108,10 @@ components:
         text:
           type: string
           title: Text
+        speaker_key:
+          type: string
+          title: Speaker Key
+          default: ''
         confidence_label:
           anyOf:
           - type: string
@@ -12039,6 +12137,72 @@ components:
       - source_role
       - text
       title: TranscriptSegmentView
+    TranscriptSpeakerTurnView:
+      properties:
+        turn_id:
+          type: string
+          title: Turn Id
+        sequence:
+          type: integer
+          title: Sequence
+        start_seconds:
+          type: number
+          title: Start Seconds
+        end_seconds:
+          type: number
+          title: End Seconds
+        timestamp_label:
+          type: string
+          title: Timestamp Label
+        speaker_label:
+          type: string
+          title: Speaker Label
+        source_role:
+          type: string
+          enum:
+          - local_microphone
+          - incoming_system
+          - uploaded_media
+          - canonical_mixed
+          - unknown
+          title: Source Role
+        text:
+          type: string
+          title: Text
+        speaker_key:
+          type: string
+          title: Speaker Key
+          default: ''
+        source_segment_ids:
+          items:
+            type: string
+          type: array
+          title: Source Segment Ids
+        confidence_label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Confidence Label
+        seekable:
+          type: boolean
+          title: Seekable
+          default: false
+        seek_seconds:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Seek Seconds
+      type: object
+      required:
+      - turn_id
+      - sequence
+      - start_seconds
+      - end_seconds
+      - timestamp_label
+      - speaker_label
+      - source_role
+      - text
+      title: TranscriptSpeakerTurnView
     UpcomingCalendarEventsResponse:
       properties:
         events:
@@ -12261,3 +12425,121 @@ components:
       - require_ru_local
       - residency_region_tag
       title: _ResidencyState
+    PostHogAutocaptureEventRequest:
+      properties:
+        distinct_id:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Distinct Id
+        event_type:
+          type: string
+          enum:
+          - ready
+          - pageview
+          - click
+          title: Event Type
+          default: pageview
+        page_class:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Page Class
+        path_class:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Path Class
+        tag_name:
+          anyOf:
+          - type: string
+            maxLength: 24
+          - type: 'null'
+          title: Tag Name
+        role:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Role
+        analytics_action:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Analytics Action
+        analytics_target:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Analytics Target
+        identity_state:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Identity State
+        workspace_pseudonym:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Workspace Pseudonym
+        device_class:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Device Class
+        sensitivity:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Sensitivity
+        source:
+          type: string
+          maxLength: 80
+          title: Source
+          default: browser_autocapture
+      type: object
+      required:
+      - page_class
+      title: PostHogAutocaptureEventRequest
+    PostHogDesktopCaptureRequest:
+      properties:
+        event:
+          type: string
+          minLength: 1
+          title: Event
+        distinct_id:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Distinct Id
+        timestamp:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Timestamp
+        telemetry_gate_state:
+          type: string
+          title: Telemetry Gate State
+          default: accepted
+        properties:
+          additionalProperties: true
+          type: object
+          title: Properties
+        api_key_state:
+          type: string
+          title: Api Key State
+          default: server_injected_redacted
+      type: object
+      required:
+      - event
+      - distinct_id
+      title: PostHogDesktopCaptureRequest

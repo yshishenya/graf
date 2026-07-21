@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-01
 
-**Status**: Draft
+**Status**: Implemented route split; public behavior and deploy surface unchanged
 
 **Input**: User approved the next 072 roadmap step: carefully execute RB-072-01 as a product-improving, behavior-preserving split of the oversized server-rendered cabinet web router.
 

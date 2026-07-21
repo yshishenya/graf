@@ -34,6 +34,7 @@ from twobrain_rec_server.api.schemas import (
     SpeakerReviewState,
     TranscriptReviewState,
     TranscriptSegmentView,
+    TranscriptSpeakerTurnView,
 )
 from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 from twobrain_rec_server.cabinet.deletion_rendering import render_deletion_report_page
@@ -358,7 +359,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "data-manual-upload-file-card" in page
     assert "data-manual-upload-file-name" in page
     assert 'accept="audio/*' not in page
-    assert 'video/*' not in page
+    assert "video/*" not in page
     for extension in (".rf64", ".w64", ".adts", ".flac", ".mkv"):
         assert extension in page
     assert "data-upload-activity-list" in page
@@ -566,7 +567,7 @@ def test_web_shell_uses_base_template_and_static_assets() -> None:
     assert f'src="{CABINET_STATIC_URL}/graf-icon.png"' in page
     assert f'src="{CABINET_STATIC_URL}/graf-logo.svg"' not in page
     assert "Бесплатный" not in page
-    assert '<body data-surface-mode="standalone_browser">' in page
+    assert '<body data-surface-mode="standalone_browser"' in page
     assert 'data-icon="audio"' in page
     assert 'fill="none" stroke="currentColor" stroke-width="2"' in page
     assert "<style>" not in page
@@ -652,7 +653,7 @@ def test_legacy_render_helpers_keep_full_page_contract_after_template_refactor()
     for page in (list_page, detail_page, deletion_page):
         assert "<!doctype html>" in page
         assert '<html lang="ru">' in page
-        assert '<body data-surface-mode="standalone_browser">' in page
+        assert '<body data-surface-mode="standalone_browser"' in page
         assert 'class="app-shell" data-shell-scroll="contained" data-cabinet-shell' in page
         assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in page
         assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in page
@@ -676,7 +677,7 @@ def test_legacy_embedded_render_helpers_keep_webview_shell_contract() -> None:
             'class="app-shell desktop-embedded" data-shell-scroll="contained" data-cabinet-shell'
             in page
         )
-        assert '<body data-surface-mode="desktop_embedded">' in page
+        assert '<body data-surface-mode="desktop_embedded"' in page
         assert 'href="/desktop/meetings"' in page
 
     assert "data-manual-upload-open" in list_page
@@ -1099,10 +1100,12 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert 'data-seek-seconds="12.5"' in page
     assert 'class="timestamp timestamp-seek"' in page
     script = _cabinet_js()
-    assert "currentTime = seekSeconds" in script
+    assert "seekTo(seekSeconds, { autoplay: true })" in script
     assert "syncTime();" in script
-    assert 'toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести")' in script
-    assert "player.addEventListener(\"error\", reportPlaybackFailure)" in script
+    assert (
+        'toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести")' in script
+    )
+    assert 'player.addEventListener("error", reportPlaybackFailure)' in script
     assert "recoverySignature(currentPlayback) === recoverySignature(nextPlayback)" in script
     assert "currentPlayback.replaceWith(nextPlayback)" in script
     assert "currentTranscript.replaceWith(nextTranscript)" in script
@@ -1114,6 +1117,61 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert "Не удалось обновить статус. GRAF попробует снова автоматически." in script
     assert "dataset.playbackRecoveryCopy" in script
     assert "stopPlaybackRecoveryPolling()" in script
+
+
+def test_detail_shell_prefers_derived_turns_and_keeps_raw_fallback_safe() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        duration_seconds=120,
+        speed_options=[0.75, 1.0, 1.25, 1.5, 2.0],
+        unavailable_reason="none",
+        playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
+        policy_label="Аудио доступно для проверки",
+        source_mode="stored_review_m4a",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.transcript = TranscriptReviewState(
+        available=True,
+        language="ru",
+        search_enabled=True,
+        segments=[
+            TranscriptSegmentView(
+                segment_id="raw-only-id",
+                sequence=0,
+                start_seconds=10.0,
+                end_seconds=11.0,
+                timestamp_label="00:10",
+                speaker_label="SPEAKER_00",
+                source_role="incoming_system",
+                text="raw fragment must not be rendered when a turn exists",
+                seekable=True,
+                seek_seconds=10.0,
+            )
+        ],
+        speaker_turns=[
+            TranscriptSpeakerTurnView(
+                turn_id="turn-id",
+                sequence=0,
+                start_seconds=10.0,
+                end_seconds=12.0,
+                timestamp_label="00:10",
+                speaker_label="SPEAKER_00",
+                source_role="incoming_system",
+                text="<synthetic merged turn>",
+                source_segment_ids=["raw-only-id", "raw-second-id"],
+                seekable=True,
+                seek_seconds=10.0,
+            )
+        ],
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert "&lt;synthetic merged turn&gt;" in page
+    assert "raw fragment must not be rendered when a turn exists" not in page
+    assert 'data-seek-seconds="10.0"' in page
+    assert "data-playback-transcript" in page
 
 
 def test_cabinet_web_py_no_longer_owns_inline_page_scripts() -> None:
@@ -1195,16 +1253,114 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert "data-speaker-timeline" in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert 'data-speaker-lane="speaker_01"' in page
+    assert page.count('data-timeline-track role="button"') == 2
+    assert 'aria-label="Перейти по дорожке SPEAKER_00"' in page
+    assert page.count("data-timeline-playhead") == 2
     assert page.count("data-lane-segment") == 2
     assert 'title="SPEAKER_00 00:00-00:12"' in page
     assert 'aria-label="SPEAKER_01 00:30-01:30"' in page
     css = _cabinet_css()
-    assert ".timeline-lane:nth-child(6n+1) .timeline-segment" in css
-    assert ".timeline-lane:nth-child(6n+6) .timeline-segment" in css
+    assert "--timeline-label-width: 86px" in css
+    assert (
+        "grid-template-columns: var(--timeline-label-width) minmax(0, 1fr) var(--timeline-value-width)"
+        in css
+    )
+    assert ".playback-range-thumb" in css
+    assert "width: 16px" in css
+    assert ".timeline-lane.is-active" in css
+    assert ".segment.is-current" in css
+    assert ".timeline-lane:nth-child(6n+1)" in css
+    assert "background: currentColor" in css
+    assert ".timeline-lane:nth-child(6n+6)" in css
     assert "left:0.00%" in page
     assert "width:10.00%" in page
     assert "left:25.00%" in page
     assert "width:50.00%" in page
+    script = _cabinet_js()
+    assert "const seekTo = (seconds, { follow = true, autoplay = false } = {}) =>" in script
+    assert "const followTranscript = (seconds) =>" in script
+    assert 'track.addEventListener("click"' in script
+    assert 'lane.classList.toggle("is-active"' in script
+
+
+def test_detail_shell_renders_speaker_name_editor_only_for_authorized_review() -> None:
+    review = _review()
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="reserved",
+        can_rename=True,
+        speakers=[
+            SpeakerLane(
+                speaker_key="speaker_00",
+                label="Мария",
+                display_name="Мария",
+                talk_time_percent=100,
+                segments=[SpeakerLaneSegment(start_seconds=0, end_seconds=10)],
+            )
+        ],
+    )
+
+    editable = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
+    review.speakers.can_rename = False
+    readonly = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
+
+    assert "data-speaker-name-form" in editable
+    assert 'name="display_name" value="Мария"' in editable
+    assert 'name="csrf_token" value="synthetic-csrf"' in editable
+    assert f'action="/meetings/{review.meeting.meeting_id}/speakers/speaker_00"' in editable
+    assert "data-speaker-name-error" in editable
+    assert "initSpeakerNameForms" in _cabinet_js()
+    assert "data-speaker-name-form" not in readonly
+    assert "Мария" in readonly
+
+
+def test_playback_timeline_owns_one_visual_scale_and_inline_speaker_editor() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        can_play=True,
+        state="available",
+        duration_seconds=40,
+        speed_options=[1.0],
+        playback_path="/synthetic.wav",
+        policy_label="Аудио доступно",
+        source_mode="stored_review_m4a",
+        included_sources=["local_microphone", "incoming_system"],
+    )
+    review.speakers = SpeakerReviewState(
+        available=True,
+        assignment_state="available",
+        can_rename=True,
+        speakers=[
+            SpeakerLane(
+                speaker_key="speaker_00",
+                label="Очень длинное имя спикера для проверки подписи",
+                talk_time_percent=100,
+                segments=[SpeakerLaneSegment(start_seconds=0, end_seconds=40)],
+            )
+        ],
+    )
+
+    page = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
+    css = _cabinet_css()
+    script = _cabinet_js()
+
+    assert 'class="timeline-scale playback-scale"' in page
+    assert 'class="timeline-scale lane-scale"' in page
+    assert "data-speaker-name-open" in page
+    assert "Очень длинное имя спикера для проверки подписи" in page
+    assert 'aria-controls="timeline-speaker-name-form-speaker_00"' in page
+    assert 'id="timeline-speaker-name-form-speaker_00"' in page
+    assert page.count("data-speaker-name-form") == 1
+    assert ".timeline-scale" in css
+    assert ".playback-scale .playback-progress" in css
+    assert ".playback-range-thumb" in css
+    assert "grid-column: 2;" in css
+    assert ".lane-scale" in css
+    assert ".timeline-speaker-name {" in css
+    assert "justify-content: flex-start;" in css
+    assert "data-speaker-name-open" in script
+    assert "data-speaker-name-cancel" in script
 
 
 def test_detail_shell_renders_unavailable_playback_without_audio_element() -> None:
@@ -1488,7 +1644,8 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     assert "@media (max-width: 980px)" in css
     assert "@media (max-width: 540px)" in css
     assert ".detail-page-main { padding-bottom: 172px; }" in css
-    assert ".timeline-lane { grid-template-columns: 68px minmax(0, 1fr) 34px; gap: 7px; }" in css
+    assert ".detail-playback { --timeline-label-width: 68px; --timeline-value-width: 34px; }" in css
+    assert ".timeline-lane { gap: 7px; }" in css
 
 
 def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separate() -> None:
@@ -1760,7 +1917,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
     assert 'data-playback-skip="-15"' in page
     assert 'data-playback-skip="15"' in page
     assert 'data-seek-seconds="12.5"' in page
-    assert "currentTime = seekSeconds" in _cabinet_js()
+    assert "seekTo(seekSeconds, { autoplay: true })" in _cabinet_js()
 
 
 def test_deletion_report_shell_renders_metadata_only_lifecycle_truth() -> None:

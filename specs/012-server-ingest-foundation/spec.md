@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-04
 
-**Status**: Draft
+**Status**: Implemented foundation; final PR/closeout handoff remains open
 
 **Input**: User description: "Build the first self-hosted 2brain Rec backend foundation that accepts finalized local dual-track recording artifacts from the desktop app through authenticated resumable ingest, stores metadata in Postgres and audio in MinIO, keeps MediaScribe credentials server-side, exposes upload/session state to desktop, and prepares but does not yet ship full dashboard notes deletion or assisted auto-recording."
 

@@ -54,7 +54,7 @@
 - [X] T011 [US1] Create `apps/macos/Installer/Scripts/build-trust-bootstrap.sh` that calls `validate-manual-update-bootstrap.sh`, labels a one-time migration, preserves GRAF identity and never stages an appcast.
 - [X] T012 [US1] Update `apps/macos/Installer/README.md` with migration, failed-install recovery, old-client limitation and two sequential in-app proof steps without a secret or local secret path.
 - [X] T013 [US1] Update `qa/macos/release-candidate-checklist.md` with bootstrap identity/TCC continuity, manual-install boundary and the first/second normal update gates.
-- [ ] T014 [US1] Run `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Scripts/validate-macos-permission-retention.sh` identity checks on disposable artifacts; preserve only metadata-safe evidence.
+- [X] T014 [US1] Run `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Scripts/validate-macos-permission-retention.sh` identity checks on disposable artifacts; preserve only metadata-safe evidence in `quickstart.md`.
 
 **Checkpoint**: A bootstrap cannot masquerade as an ordinary update and normal validation cannot be weakened by migration.
 
@@ -92,14 +92,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T023 [P] [US3] Add stale/wrong-release attestation, draft-asset failure, concurrent-run and forward-rollback coverage to `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`.
+- [X] T023 [P] [US3] Add stale/wrong-release attestation, draft-asset failure, concurrent-run and forward-rollback coverage to `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift`; receipt recorded in `quickstart.md`.
 
 ### Implementation for User Story 3
 
 - [X] T024 [US3] Add release-attempt serialization, attestation binding and atomic draft/staging failure handling to `apps/macos/Installer/Scripts/prepare-app-update.sh` and `.github/workflows/sign-graf-app-update.yml`.
 - [X] T025 [US3] Add compromised-key, appcast-restore and forward-fix procedure to `apps/macos/Installer/README.md` and `qa/macos/release-candidate-checklist.md`, including the required new manual bootstrap after compromise.
 - [X] T026 [US3] Add a tracked-source/artifact secret-pattern guard to `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and document intentional false-positive handling in `apps/macos/Installer/README.md` without a real-secret exception.
-- [ ] T027 [US3] Run all US3 failure simulations with `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Installer/Scripts/prepare-app-update.sh`; verify the previous staged/public appcast digest is unchanged for every blocked path.
+- [X] T027 [US3] Run all US3 failure simulations with `apps/macos/Installer/Scripts/test-release-signing-custody.sh` and `apps/macos/Installer/Scripts/prepare-app-update.sh`; verify the previous staged/public appcast digest is unchanged for every blocked path; receipt recorded in `quickstart.md`.
 
 **Checkpoint**: Release errors are fail-closed, serialized, safely diagnosable and recover only through a known-good feed or higher signed forward fix.
 
@@ -112,12 +112,13 @@
 - [X] T028 [P] Update `CHANGELOG.md` under `[Unreleased]` with feature 109 custody, manual-bootstrap compatibility and no-secret release-note wording.
 - [X] T029 [P] Run `git diff --check`, shell syntax, workflow static checks, `swift test --package-path apps/macos --filter InstallerLifecycleEvidenceTests`, and `apps/macos/Installer/Scripts/test-release-signing-custody.sh`.
 - [X] T030 Run `infra/scripts/ci-local.sh`, triage every new failure, and preserve high-risk validation evidence without raw keys/audio/transcripts.
-- [ ] T031 Re-run Spec Kit analyze for `specs/109-release-signing-key-custody/`, reconcile feature-109 GitHub task issues, and obtain required code/release review before a production secret enrollment or tag.
-- [ ] T032 After `v2026.07.17.12` is merged, fetch and semantically merge the exact current `origin/master` into the feature/release branch; preserve the completed `.12` behavior, re-run focused tests, and do not create a tag or package during this sync.
-- [ ] T033 After feature merge and release approval, create a clean release worktree at exact refreshed `origin/master`, enumerate remote CalVer tags, choose the next free version strictly greater than `.12`, and verify the branch/tag provenance before any active-key enrollment.
-- [ ] T034 Configure GitHub environment `graf-release-signing` with independently revocable protected access, reviewer approval and no public-host signer access; enroll the active public manifest through `apps/macos/Installer/Scripts/provision-release-signing-custody.sh` and record only safe readiness results.
-- [ ] T035 Build/install the selected next-free CalVer manual bootstrap with `apps/macos/Installer/Scripts/build-trust-bootstrap.sh`; prove app identity and retained permissions without resetting/regranting TCC.
-- [ ] T036 Produce and verify two strictly greater normal updates through `.github/workflows/sign-graf-app-update.yml`, publish versioned assets before `graf-appcast.xml`, and capture metadata-only proof of the two in-app installations.
+- [X] T031 Re-run Spec Kit analyze for `specs/109-release-signing-key-custody/`, reconcile feature-109 GitHub task issues, and obtain required code/release review before a production secret enrollment or tag.
+- [X] T032 After `v2026.07.17.12` is merged, fetch and semantically merge the exact current `origin/master` into the feature/release branch; preserve the completed `.12` behavior, re-run focused tests, and do not create a tag or package during this sync.
+- [X] T033 After feature merge and release approval, create a clean release worktree at exact refreshed `origin/master`, enumerate remote CalVer tags, choose the next free version strictly greater than `.12`, and verify the branch/tag provenance before any active-key enrollment.
+- [X] T034 Record the changed private-repository operating decision in `specs/109-release-signing-key-custody/spec.md`, `plan.md`, `research.md`, `quickstart.md`, `apps/macos/Installer/README.md`, and `qa/macos/release-candidate-checklist.md`: the unavailable protected reviewer path is superseded by the explicitly degraded owner-only Keychain lane, with the offline password-manager copy used only for recovery.
+- [X] T035 Build/install the selected next-free CalVer manual bootstrap with `apps/macos/Installer/Scripts/build-trust-bootstrap.sh`; prove app identity and retained permissions without resetting/regranting TCC. Закрыто историческим системным receipt bootstrap `2026.07.18.3` и последующим штатным Sparkle-переходом; см. `quickstart.md`.
+- [X] T036 Produce and verify two strictly greater normal updates through `.github/workflows/sign-graf-app-update.yml`, publish versioned assets before `graf-appcast.xml`, and capture metadata-only proof of the two in-app installations. Закрыто receipt переходов `2026.07.18.3 → 2026.07.20.1` и `2026.07.20.2 → 2026.07.21.1`; см. `quickstart.md`.
+- [X] T037 [US2] Prove the current owner-only release lane in `apps/macos/Installer/README.md`, `specs/109-release-signing-key-custody/quickstart.md`, and `qa/macos/release-candidate-checklist.md`: exact tag/provenance, fresh Keychain attestation, explicit degraded approval, archive-before-appcast ordering, and no automated password-manager or public-host signer access. Закрыто receipt релиза `v2026.07.21.3`; публичные archive/pkg/checksum проверены до замены appcast, затем весь public result перепроверен.
 
 ---
 
@@ -130,7 +131,7 @@
 - **US1**: depends on Phase 2 and delivers the manual migration boundary.
 - **US2**: depends on Phase 2; disposable proof can run beside US1 documentation after shared scripts stabilize.
 - **US3**: depends on core US1/US2 controls because it hardens their state transitions.
-- **Phase 6**: depends on all code/tests. T032–T036 require explicit release approval and a green repository gate.
+- **Phase 6**: depends on all code/tests. T032–T037 require explicit release approval and a green repository gate; T035/T036/T037 are physical or release-lane proof, not documentation-only completion.
 
 ### User Story Dependencies
 
@@ -170,9 +171,9 @@ Task: "Add workflow policy checks in apps/macos/Installer/Scripts/test-release-s
 
 1. Shared manifest/guard → no new secret and no relaxed update trust.
 2. Bootstrap boundary → one honest migration path.
-3. Protected signer workflows → no single local signer.
+3. Protected signer workflows remain the future two-channel path; the current private-repository lane is the explicitly degraded owner-only Keychain path.
 4. State/rollback checks → release safety under failure.
-5. Green repository gate + refreshed master after `.12` + approved migration → bootstrap and two in-app proofs.
+5. Green repository gate + refreshed master after `.12` + approved migration → bootstrap, owner-only release proof, and two in-app proofs.
 
 ## Notes
 

@@ -345,6 +345,64 @@ a safe `GRAF_RELEASE_SIGNING_DEGRADED_APPROVAL_ID`. A present but malformed
 cloud attestation never falls back silently; it blocks the release. The cloud
 workflow itself always uses normal two-channel readiness.
 
+#### Current private-repository mode
+
+The current private repository does not have the GitHub plan capability needed
+for a required reviewer protection rule. Until that changes, the approved
+release lane is the named macOS Keychain signer in explicit degraded mode. The
+owner must provide exact tag/provenance, a fresh metadata-only Keychain
+attestation, the degraded-approval flag and identifier, and must copy/version
+check the archive or package before replacing `graf-appcast.xml`. Bitwarden is
+an offline recovery backup only; CI, the app and the public host never read it
+automatically. This mode does not claim that the protected cloud signer is
+ready; the manual bootstrap and two-update proofs remain separate receipts and
+are not replaced by this lane.
+
+### T037 closeout receipt — `v2026.07.21.3` (2026-07-21)
+
+The current owner-only lane is now proven by a real published release, not only
+by local staging. This is metadata-only release evidence; it contains no
+private key, secret, local secret path, meeting content, raw audio or transcript.
+
+- The immutable tag `v2026.07.21.3` is peeled to
+  `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`, the exact `origin/master` used
+  for staging. The [GitHub Release](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.3)
+  contains ZIP, pkg, checksums, appcast and the safe Keychain attestation.
+- `UpdateSigningKey.json`, the candidate app and the named Keychain account
+  `graf-release-signing` agree on key id
+  `sha256:63c373b20f82851a6b4443bad2100eede5d50d897ed2aaf9fa8c94db56e4ecce`.
+  The fresh attestation is `channel=macos-keychain`, `state=ready`,
+  `trustGeneration=1`, `checkedAt=2026-07-20T23:54:19Z` and
+  `releaseRef=v2026.07.21.3`.
+- Staging used `GRAF_REQUIRE_RELEASE_PROVENANCE=1`,
+  `GRAF_RELEASE_SIGNING_MODE=keychain`,
+  `GRAF_RELEASE_SIGNING_APPROVED_DEGRADED_FALLBACK=1` and the safe approval
+  id `t037-owner-20260721-3`. The helper reported
+  `signer=keychain`, `custody=degraded`, `published=no` before publication.
+- The full local CI passed on the release train: 583 macOS tests, 1,945 server
+  tests and 34 strict PostgreSQL checks, with one expected skip in each set.
+  Sparkle signatures, owner-only update validation, ZIP integrity and package
+  expansion also passed; the package version and bundle identity are
+  `2026.07.21.3` and `pro.2brain.graf`.
+- Local SHA-256 evidence is: ZIP
+  `4aad5495b079f8b075981c8e654820133b315aad417496f143d51e4d15c82a77`, pkg
+  `1e27c0ee6b090ac67f53bacb67b97d243b341cfd9d99f7aed67ea71d47cb1c6b`, and
+  appcast `6d0dbadeceb066756521b00f80cfc5175e6d7b903445da294bb85ff22d5e2cd0`.
+- On the download host, versioned ZIP, pkg and checksum were copied and
+  checked first. The previous appcast was retained as a recoverable backup;
+  only then was `graf-appcast.xml` replaced. A fresh public fetch confirmed
+  all checksums, ZIP integrity, appcast signature, archive signature, latest
+  version `2026.07.21.3`, and enclosure length `3,669,703` bytes.
+- Bitwarden remains an offline recovery backup only. CI, the app and the public
+  host never read it and never receive the private signing key.
+
+The unused `v2026.07.21.2` tag was not rewritten; its release/public assets
+were not published after `origin/master` moved during preparation. The next
+free higher CalVer `.3` was used instead. T037 is closed by this receipt. The
+remaining limitation is intentional: this is a self-signed owner-only release,
+not Developer ID/notarized public distribution; protected reviewer approval is
+still a future migration.
+
 For a normal cloud release, first attach the signed candidate-app ZIP,
 predecessor ZIP, and Russian notes to a draft GitHub Release. Dispatch
 `sign-graf-app-update.yml` manually from `master`; it only reads those

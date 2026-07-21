@@ -23,6 +23,7 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "processing_results",
     "transcript_segments",
     "diarization_segments",
+    "meeting_speaker_names",
     "processing_audit_events",
     "processing_dependency_states",
     "meeting_share_grants",

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-16
 
-**Status**: Draft
+**Status**: Implemented readiness gate; current claim remains pilot-blocked
 
 **Input**: User description: "Continue toward MVP through the full SDD Spec Kit cycle. After accepted meeting review, desktop embedding, access/sharing/downloads, and retention/deletion execution, verify and harden the complete MVP value loop across the macOS app, web cabinet, production deployment, and reference-aligned review surfaces. Keep comparing against the final mockups and Krisp desktop/web reference as clean-room information architecture guidance, without copying Krisp visuals, copy, assets, private data, or proprietary behavior."
 

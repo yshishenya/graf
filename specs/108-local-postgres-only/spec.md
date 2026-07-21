@@ -1,8 +1,9 @@
 # Feature Specification: Локальная разработка только с PostgreSQL
 
-**Feature Branch**: `codex/108-local-postgres-only`
-**Created**: 2026-07-17
-**Status**: Draft
+**Feature Branch**: `codex/108-local-postgres-only`  
+**Created**: 2026-07-17  
+**Status**: Implemented and validated
+**Validated**: 2026-07-20
 **Input**: User description: "Перейти с SQLite на локальный PostgreSQL и вычистить всё, что связано с SQLite."
 
 ## User Scenarios & Testing *(mandatory)*

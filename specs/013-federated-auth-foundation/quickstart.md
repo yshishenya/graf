@@ -5,7 +5,7 @@
 Run the existing server stack and ensure `012` baseline is healthy before starting `013`:
 
 ```sh
-cd /Users/yshishenya/.codex/worktrees/b395/019-live-route-stability
+cd <worktree-root>/b395/019-live-route-stability
 docker compose -f infra/docker-compose.dev.yml up --build
 ```
 
@@ -156,7 +156,7 @@ bash .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --inclu
 
 Observed:
 
-- `FEATURE_DIR=/Users/yshishenya/.codex/worktrees/b395/019-live-route-stability/specs/013-federated-auth-foundation`
+- `FEATURE_DIR=<worktree-root>/b395/019-live-route-stability/specs/013-federated-auth-foundation`
 - `AVAILABLE_DOCS=[research.md,data-model.md,contracts/,quickstart.md,tasks.md]`
 
 ```sh

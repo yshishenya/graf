@@ -14,7 +14,10 @@ public enum ProductActivationEventName: String, Codable, CaseIterable, Sendable 
             "attribution_reliability",
             "bridge_present",
             "elapsed_bucket",
-            "source_bucket"
+            "source_bucket",
+            "yandex_user_id_present",
+            "yandex_client_id_present",
+            "yclid_present"
         ]
         switch self {
         case .desktopFirstOpened:
@@ -35,6 +38,57 @@ public enum ProductActivationEventName: String, Codable, CaseIterable, Sendable 
                 "useful_result_type"
             ])
         }
+    }
+}
+
+public struct ProductAnalyticsDirectProviderConfig: Codable, Equatable, Sendable {
+    public let posthogHost: URL?
+    public let posthogCaptureEndpoint: URL?
+    public let posthogProjectKeyState: String
+    public let posthogDirectEnabled: Bool
+    public let yandexDirectEnabled: Bool
+    public let telemetryAccepted: Bool
+    public let legalApproved: Bool
+    public let securityApproved: Bool
+    public let qaApproved: Bool
+    public let directEgressDisclosed: Bool
+
+    public init(
+        posthogHost: URL?,
+        posthogCaptureEndpoint: URL? = nil,
+        posthogProjectKeyState: String = "server_injected_redacted",
+        posthogDirectEnabled: Bool,
+        yandexDirectEnabled: Bool,
+        telemetryAccepted: Bool,
+        legalApproved: Bool,
+        securityApproved: Bool,
+        qaApproved: Bool,
+        directEgressDisclosed: Bool
+    ) {
+        self.posthogHost = posthogHost
+        self.posthogCaptureEndpoint = posthogCaptureEndpoint
+        self.posthogProjectKeyState = posthogProjectKeyState
+        self.posthogDirectEnabled = posthogDirectEnabled
+        self.yandexDirectEnabled = yandexDirectEnabled
+        self.telemetryAccepted = telemetryAccepted
+        self.legalApproved = legalApproved
+        self.securityApproved = securityApproved
+        self.qaApproved = qaApproved
+        self.directEgressDisclosed = directEgressDisclosed
+    }
+
+    public var allowsPostHogDirectRoute: Bool {
+        posthogCaptureEndpoint != nil &&
+            posthogDirectEnabled &&
+            telemetryAccepted &&
+            legalApproved &&
+            securityApproved &&
+            qaApproved &&
+            directEgressDisclosed
+    }
+
+    public var allowsYandexDirectRoute: Bool {
+        false
     }
 }
 
@@ -107,7 +161,21 @@ public struct ProductActivationAnalyticsPayload: Codable, Equatable, Sendable {
     }
 
     public static func isSafePseudonymousIdentity(_ value: String) -> Bool {
-        value.hasPrefix("graf_pseudo_") && !value.contains("@") && !value.contains("/") && !value.contains("\\")
+        if value == "graf_pseudo_browser_anonymous" {
+            return true
+        }
+        let parts = value.split(separator: "_", omittingEmptySubsequences: false)
+        guard parts.count == 4,
+              parts[0] == "graf",
+              parts[1] == "pseudo",
+              ["user", "workspace", "account", "bridge"].contains(String(parts[2])),
+              (8...64).contains(parts[3].count)
+        else {
+            return false
+        }
+        return parts[3].unicodeScalars.allSatisfy { scalar in
+            (48...57).contains(scalar.value) || (97...102).contains(scalar.value)
+        }
     }
 
     public static func isForbiddenField(_ key: String) -> Bool {

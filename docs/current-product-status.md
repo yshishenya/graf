@@ -1,10 +1,22 @@
 # Текущий статус продукта
 
-Date: 2026-07-18
+Date: 2026-07-21
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Spec Kit documentation status
+
+Полный inventory и reconciliation для feature specs находится в
+[`docs/spec-kit-feature-index.md`](spec-kit-feature-index.md). На текущем
+`master` проверены 94 spec-каталога, 94 `spec.md` и 88 `tasks.md`.
+Requirements-only остаются `011`, `026–029` и `101`; для них не создаются
+искусственные plan/tasks. В implementation/release slice 096–118 статусы
+сверены с task receipts и release boundaries: открыты только явно отмеченные
+гейты, включая 096/T101/T104, 106/T049/T063/T064 и 109/T022. Feature 118
+имеет полный Spec Kit package и release receipt. Эта сверка не
+закрывает production, security, installed-app или approval gates.
 
 ## Accepted Now
 
@@ -56,6 +68,32 @@ metadata-only evidence остаются подробной историей ре
   bootstrap. This owner-only self-signed channel is not public Developer ID
   distribution; notarization, stapling, public Gatekeeper proof, and signing-
   identity migration remain deferred until Apple Developer access is available.
+- Feature `109-release-signing-key-custody` is closed for the current private
+  repository lane through [T037 / issue #3911](https://github.com/yshishenya/crisp/issues/3911)
+  and [release `v2026.07.21.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.3).
+  The immutable tag is pinned to exact `origin/master` commit
+  `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`; fresh Keychain evidence is
+  metadata-only and explicitly degraded. Versioned ZIP/pkg/checksum were
+  verified and published before the signed appcast, then the public files were
+  fetched and checked again. The protected reviewer and Developer ID/notarized
+  paths remain future migration work, and Bitwarden is recovery-only.
+- Feature `113-transcript-speaker-turns` is implemented, merged, and included
+  in release `v2026.07.21.1`. The server derives provider-neutral chronological
+  `speaker_turns` from canonical diarization boundaries, preserves raw ASR and
+  diarization segments, and merges only adjacent same-speaker fragments within
+  the bounded gap rule. The MinIO playback normalization fix is a separate
+  release boundary.
+- Feature `118-interactive-playback-timeline` is implemented, merged through
+  [PR #3948](https://github.com/yshishenya/crisp/pull/3948), and released as
+  [`v2026.07.21.5`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.5)
+  through [PR #3949](https://github.com/yshishenya/crisp/pull/3949). It aligns
+  playback and speaker lanes to one timeline, follows the active transcript
+  turn, and stores meeting-local display names with existing authorization,
+  CSRF, RLS, audit, and deletion boundaries. Production `/api/v1/health/live`
+  and `/ready` returned 200 after the release, and the public cabinet CSS/JS
+  hashes match the exact `origin/master` sources. The installed GRAF binary
+  remains `.3` because this slice changes the server WebView only; it already
+  points to the same production cabinet and needs no binary update.
 - Feature `095-macos-permission-retention` is implemented for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted
@@ -250,6 +288,22 @@ metadata-only evidence остаются подробной историей ре
   production receipts supersede the old `.3` candidate note. Only the
   T115 Chrome/embedded production receipt and the dependent T116 tracker
   cleanup remain open; the 097 security scan is still explicitly skipped.
+- **Feature 099 final closeout update (2026-07-20):** after `v2026.07.20.7`
+  deployment, an authorized production Chrome cabinet session opened an
+  existing meeting whose audio was marked ready, started and stopped playback,
+  and recorded only network metadata: `Range: bytes=262144-`, HTTP `206`,
+  `Content-Range: bytes 262144-8384167/8384168`, and
+  `Accept-Ranges: bytes`. No signed URL, media, transcript or user data was
+  retained. Combined with the preceding first-party/manual synthetic
+  conversion, worker-interruption recovery, inventory guard and zero-residue
+  cleanup receipts, this completes T115. T116 is complete after the final
+  feature-099 issues were reconciled and the clean release worktree was
+  verified; the user-owned/test-rec and unrelated historical worktrees were
+  preserved. The separate Feature-090 manual-upload browser receipt remains
+  open in #3049/#3050 and is not reclassified as a 099 failure; #3060 focus
+  evidence is closed separately.
+  Feature 097 remains released but its standalone Codex Security scan is still
+  explicitly skipped by user instruction.
 - The separate Feature 099 production evidence includes the `v2026.07.17.3`
   startup-recovery release and the `v2026.07.17.5` active-attempt cleanup
   fix; it does not alter Feature 106 acceptance or its rollback boundary.
@@ -332,12 +386,46 @@ metadata-only evidence остаются подробной историей ре
 - Feature `011-assisted-auto-recording` is specified but not planned or
   implemented. It records the future detect-and-ask rollout, automatic naming
   policy, and local-trust-shell/server-dashboard UI authority model.
-- Feature `090-manual-media-upload-ui` is merged and released as
-  [`v2026.07.11.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.11.1).
-  Its manual one-file upload surface, CSRF/tenant/storage boundaries, embedded
-  cabinet path, migration, release build, and production smoke were closed in
-  PR `#3040` and release PR `#3042`; the canonical evidence is recorded in
-  `specs/090-manual-media-upload-ui/tasks.md`.
+- Feature `090-manual-media-upload-ui` is merged through
+  [#3874](https://github.com/yshishenya/crisp/pull/3874) and follow-up review
+  fixes in [#3877](https://github.com/yshishenya/crisp/pull/3877). The final
+  no-follow artifact hardening is in [#3880](https://github.com/yshishenya/crisp/pull/3880),
+  released through [#3881](https://github.com/yshishenya/crisp/pull/3881) as
+  [`v2026.07.20.6`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.20.6),
+  and deployed at exact runtime SHA `bcfba51a212bf723ed9fa86f96bbe3dcd49282fb`.
+  The convergence fixes make accepted-without-dispatch UI state truthful,
+  preserve accepted multipart custody before conflict materialization, verify
+  stored M4A size before egress headers, restrict the embedded picker to the
+  same-origin meeting list, and bind metadata-only smoke auth files to an
+  approved origin and exact run id. The follow-up also makes default smoke run
+  IDs collision-resistant, limits artifact/token paths to direct `/tmp`
+  children without traversal or symlink parents, creates the in-container
+  artifact leaf atomically without following a pre-existing file or symlink,
+  requires container cleanup verification before `infra_smoke_ready`, and
+  proves row-lock serialization with two PostgreSQL transactions. Backup/restore, migration head
+  `0028_active_space_read`, disposable RLS probes, service readiness, public
+  health/readiness and metadata-only smoke/cleanup passed. Final local CI passed
+  with 582 macOS tests, PostgreSQL parallel 1936 passed plus one skip, strict
+  34 passed plus one skip, Ruff, compile, Compose and deployment evidence scan;
+  the local live-production RLS boundary remains intentionally unclaimed. The
+  remaining open boundary is the external `test-rec` manual-upload review with
+  non-empty transcript/speaker/summary and its zero-residue receipt; production
+  smoke is infrastructure proof, not that final user-path claim. Deferred
+  post-deploy checks remain explicitly marked `required_post_deploy`. Review and
+  cleanup/evidence receipts closed #3044–#3048, #3051, #3052, #3054–#3059 and
+  #3061; #3049 and #3050 remain open for external test-rec manual-upload
+  evidence, while #3060 is closed after the production focus-trap receipt.
+  Current-diff evidence is in
+  `specs/090-manual-media-upload-ui/validation/current-diff-closeout-2026-07-20.md`;
+  production evidence is in
+  `specs/090-manual-media-upload-ui/validation/production-closeout-2026-07-20.md`.
+- Feature `108-local-postgres-only` is merged through
+  [#3873](https://github.com/yshishenya/crisp/pull/3873). The local runner now
+  uses disposable PostgreSQL for the complete server suite and the active
+  server/deployment surface has zero SQLite/aiosqlite references. Its receipt
+  records 1918 parallel PostgreSQL tests plus one skip, strict 34 tests plus one
+  skip, and the expected local-only RLS limitation; it was a validation-only
+  convergence and did not require a separate runtime release.
 - Feature `091-mediascribe-result-contract` is implemented and released as
   `v2026.07.09.5` for the MediaScribe result-contract slice. The repository
   still does not contain a separate post-deploy receipt for the complete
@@ -363,7 +451,8 @@ metadata-only evidence остаются подробной историей ре
   until separate live validation promotes them. The repository does not yet
   contain a canonical post-deploy runtime receipt or seeded admin-browser
   receipt for 092, so target promotion and production telemetry rollout are
-  not claimed. Critical review remediation on
+  not claimed; the spec is marked as implemented foundation with that
+  production boundary intentionally open. Critical review remediation on
   2026-07-08 connected the native `AudioHAL` log stream to
   prompt/auto-record decisioning, moved the registry source to server publish
   plus last-good client cache,
@@ -616,6 +705,18 @@ metadata-only evidence остаются подробной историей ре
   CI passed `685 passed, 4 skipped, 94 warnings` with `ci_local_result=pass`.
   This slice has no database migration or machine-readable JSON contract
   change and is not released, deployed, or production-smoked yet.
+- The secondary slices `053` and `054` are implemented and merged with local
+  cabinet selection/delete and desktop layout-polish evidence; they do not make
+  a separate production rollout claim. Feature `061` is implemented and
+  deployed, including server-side metadata-only support incidents and Docker
+  secret wiring for the private issue action. Features `064`, `065`, and `066`
+  are implemented browser-owned admin/Yandex ID/VK ID slices; provider-click
+  acceptance remains a separate live proof boundary. Feature `070` is locally
+  validated and keeps production deploy/account retest separate. Features
+  `071–078` are completed cleanup/refactor batches with focused/full local
+  validation and no product-behavior or deploy claim. Feature `087` provides
+  the implemented one-file backend upload/processing path; user-facing upload
+  UI is owned by `090`.
 - Feature `059-recording-date-title` is merged into `origin/master` through PR
   `#2235` and included in release `v2026.06.27.1`. New recordings now carry
   persisted recording metadata from
@@ -790,18 +891,35 @@ metadata-only evidence остаются подробной историей ре
 
 ## Not Accepted Yet
 
-- Feature `096-product-analytics-provider-rollout` is not accepted on the
-  current master. Its historical branch `096-product-analytics-provider-rollout`
-  ends at `137565c0`; it is not merged or tagged and diverged by `272`
-  master-only versus `15` branch-only commits at the recorded comparison
-  snapshot. The branch proves only a PostHog live-safe technical
-  path. Yandex offline OAuth/live upload, full PostHog backup/restore,
-  executed rollback, current-page inventory, real dashboard/RBAC review, and
-  legal/product rollout approval remain unproven. The branch's checked tasks
-  and evidence contain contradictory "complete" versus "blocked" wording, so
-  the next integration must use the append-only worklist in
-  `docs/analytics/product-analytics-provider-rollout-096-integration-audit.md`
-  and must not cherry-pick the old branch wholesale.
+- Feature `096-product-analytics-provider-rollout` is integrated into the
+  current master through merged PR
+  [#3852](https://github.com/yshishenya/crisp/pull/3852) at merge SHA
+  `11b82f378c24007b40d90f4c08e9645ce617e91d`. The provider code and runtime
+  guard are released as part of `v2026.07.20.3`; the current production runtime
+  is later master `bcfba51a212bf723ed9fa86f96bbe3dcd49282fb` from
+  `v2026.07.20.6`. Provider flags remain disabled/fail-closed, so this is an
+  infrastructure integration receipt, not product-rollout or paid-campaign
+  approval. T097–T100, T102 and T103 have current-master evidence. T101 remains
+  open for independent RBAC/MFA/audit, future deletion-enforcement, dashboard
+  freshness and approved-goal review, and full persistent alert/restore
+  evidence. The self-hosted session-recording policy and replay-bucket
+  lifecycle are now configured at the 90-day baseline; the session-replay
+  bucket was empty and provider delivery remains fail-closed. The root-owned
+  guard/timer and reviewed automatic rollback override now have a production
+  receipt. PostHog invitation mail now uses the same owner-controlled Postal
+  contour as GRAF; the email for the existing second-operator invitation was
+  accepted by the worker and Postal, but the invitation has not been accepted
+  by the invitee, so the active membership count is still one. T104 remains
+  open until that dependency is complete and the tracker/spec reconciliation is
+  truthful; Issue #3860 was
+  reopened on 2026-07-20 after its premature closure. The exact receipts and
+  remaining boundaries are in
+  `specs/096-product-analytics-provider-rollout/validation/current-master-integration.md`.
+  A docs-only reconciliation checkpoint dated 2026-07-21 updates the historical
+  wording but does not close T104 while T101 remains open. The exact receipts
+  and remaining boundaries are in
+  `specs/096-product-analytics-provider-rollout/validation/current-master-integration.md`
+  and `specs/096-product-analytics-provider-rollout/validation/reconciliation-closeout-2026-07-21.md`.
 - Feature `106-mixed-wav-recording` is not yet accepted for an installed app
   or release. The open gate is one controlled 60-minute v5 run with route
   unchanged, incoming volume delta no greater than 1 dB, no unexplained

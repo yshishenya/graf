@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-09
 
-**Status**: Planned
+**Status**: Implemented for local owner-machine validation; public signing/notarization deferred
 
 **Input**: User direction: "095 - новая фича. Можно ли сделать так, что при
 переустановке приложения разрешения для него не слетали в macOS. Каждый раз

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-25
 
-**Status**: Draft
+**Status**: Implemented, merged, released, and deployed; rollout readiness remains separate
 
 **Input**: User description: "Continue toward full MVP through the full SDD/Spec Kit cycle, carefully rechecking the macOS app and web cabinet. The current MVP blocker is that notes/action output is truthful but not launchable. Make meeting outcomes real enough for MVP: stored summary, decisions, action items, follow-ups, risks, questions, and timestamped evidence in web and macOS embedded review, while preserving privacy, deletion, access, processing speed, and clean-room UX."
 

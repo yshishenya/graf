@@ -78,7 +78,9 @@ def test_replay_disabled_states_have_private_masking_attributes() -> None:
 
     assert decision.launch_state == "replay_unavailable"
     assert decision.replay_allowed is False
-    assert decision.attributes["data-ph-no-capture"] == "true"
+    assert decision.attributes["data-ph-mask"] == "true"
+    assert decision.attributes["data-graf-replay-disabled"] == "true"
+    assert "data-ph-no-capture" not in decision.attributes
     assert decision.attributes["data-ym-hide-content"] == "true"
     assert decision.attributes["data-ym-disable-keys"] == "true"
 

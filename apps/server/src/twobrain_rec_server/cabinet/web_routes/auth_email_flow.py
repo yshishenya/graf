@@ -33,6 +33,9 @@ from twobrain_rec_server.db.tenant_context import (
     WorkspaceAuthContext,
     apply_tenant_context,
 )
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
+)
 
 EMAIL_LOGIN_PROVIDER = "email"
 EMAIL_SIGNUP_PROVIDER = "email_signup"
@@ -127,6 +130,7 @@ async def _consume_email_login_code(
     flow = "signup" if allow_registration else "login"
     if state is None:
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -135,6 +139,7 @@ async def _consume_email_login_code(
         )
     if workspace_id is not None and state.workspace_id != workspace_id:
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -144,6 +149,7 @@ async def _consume_email_login_code(
     workspace_id = state.workspace_id
     if state.result != "pending":
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -166,6 +172,7 @@ async def _consume_email_login_code(
         )
         await db.commit()
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -185,6 +192,7 @@ async def _consume_email_login_code(
         )
         await db.commit()
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -212,6 +220,7 @@ async def _consume_email_login_code(
         )
         await db.commit()
         return _email_code_error_response(
+            request=request,
             email=email,
             state_nonce=state_nonce,
             next_path=next_path,
@@ -480,6 +489,7 @@ async def _resolve_email_browser_device(
 
 def _email_code_error_response(
     *,
+    request: Request,
     email: str,
     state_nonce: str,
     next_path: str,
@@ -493,6 +503,9 @@ def _email_code_error_response(
             next_path=next_path,
             error=error,
             flow=flow,
+            product_analytics_provider=build_request_browser_provider_context(
+                request, "login_signup"
+            ),
         ),
         status_code=400,
     )

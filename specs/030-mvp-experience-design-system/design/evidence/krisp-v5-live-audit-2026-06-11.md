@@ -7,7 +7,7 @@ Scope: Krisp desktop app, Krisp web meeting-notes page, local installed bundle, 
 
 - Desktop window: `design/reviews/v5-full-flow-critics-2026-06-11/screenshots/krisp-desktop-main.png`
 - Web meeting notes window: `design/reviews/v5-full-flow-critics-2026-06-11/screenshots/krisp-web-meeting-notes-with-browser-ui.png`
-- Installed app path: `/Users/yshishenya/Applications/krisp.app`
+- Installed app path: `<installed-krisp-app>`
 - Running app version observed in process annotations: `3.12.5`
 - Runtime windows observed: `MAIN`, `WEB`, `WEB_OVERLAY`, `DESKTOP_REPORT_WINDOW`, `CONFIRMATION_WINDOW`, `NOTIFICATION_INDICATOR`, `NOTIFICATION_REMINDER`
 - Bundle renderers found: `main_window`, `web_window`, `widget`, `notification_indicator`, `notification_reminder`, `companion`

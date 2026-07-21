@@ -47,19 +47,27 @@ class ProcessingWorkflow(Base):
 class MediaScribeJob(Base):
     __tablename__ = "mediascribe_jobs"
     __table_args__ = (
-        UniqueConstraint("workspace_id", "meeting_id", name="uq_mediascribe_jobs_workspace_meeting"),
-        UniqueConstraint("workspace_id", "external_job_id", name="uq_mediascribe_jobs_workspace_external_job"),
+        UniqueConstraint(
+            "workspace_id", "meeting_id", name="uq_mediascribe_jobs_workspace_meeting"
+        ),
+        UniqueConstraint(
+            "workspace_id", "external_job_id", name="uq_mediascribe_jobs_workspace_external_job"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    processing_workflow_id: Mapped[UUID] = mapped_column(ForeignKey("processing_workflows.id"), nullable=False)
+    processing_workflow_id: Mapped[UUID] = mapped_column(
+        ForeignKey("processing_workflows.id"), nullable=False
+    )
     external_job_id: Mapped[str | None] = mapped_column(String(240))
     status: Mapped[str] = mapped_column(String(64), default="not_submitted")
     mic_track_artifact_id: Mapped[UUID | None] = mapped_column(ForeignKey("track_artifacts.id"))
-    incoming_track_artifact_id: Mapped[UUID | None] = mapped_column(ForeignKey("track_artifacts.id"))
+    incoming_track_artifact_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("track_artifacts.id")
+    )
     source_track_artifact_id: Mapped[UUID | None] = mapped_column(ForeignKey("track_artifacts.id"))
     request_mode: Mapped[str] = mapped_column(String(64), default="dual_track")
     diarize: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -88,7 +96,9 @@ class ProcessingResult(Base):
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    mediascribe_job_id: Mapped[UUID] = mapped_column(ForeignKey("mediascribe_jobs.id"), nullable=False)
+    mediascribe_job_id: Mapped[UUID] = mapped_column(
+        ForeignKey("mediascribe_jobs.id"), nullable=False
+    )
     result_version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(64), default="importing")
     transcript_status: Mapped[str] = mapped_column(String(64), default="unavailable")
@@ -114,7 +124,9 @@ class TranscriptSegment(Base):
     __table_args__ = (UniqueConstraint("processing_result_id", "sequence"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    processing_result_id: Mapped[UUID] = mapped_column(ForeignKey("processing_results.id"), nullable=False)
+    processing_result_id: Mapped[UUID] = mapped_column(
+        ForeignKey("processing_results.id"), nullable=False
+    )
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -131,7 +143,9 @@ class DiarizationSegment(Base):
     __table_args__ = (UniqueConstraint("processing_result_id", "sequence"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    processing_result_id: Mapped[UUID] = mapped_column(ForeignKey("processing_results.id"), nullable=False)
+    processing_result_id: Mapped[UUID] = mapped_column(
+        ForeignKey("processing_results.id"), nullable=False
+    )
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -143,13 +157,40 @@ class DiarizationSegment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MeetingSpeakerName(Base):
+    __tablename__ = "meeting_speaker_names"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "meeting_id",
+            "speaker_key",
+            name="uq_meeting_speaker_names_workspace_meeting_key",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
+    speaker_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    updated_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_identities.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ProcessingAuditEvent(Base):
     __tablename__ = "processing_audit_events"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     meeting_id: Mapped[UUID | None] = mapped_column(ForeignKey("meetings.id"))
-    processing_workflow_id: Mapped[UUID | None] = mapped_column(ForeignKey("processing_workflows.id"))
+    processing_workflow_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("processing_workflows.id")
+    )
     mediascribe_job_id: Mapped[UUID | None] = mapped_column(ForeignKey("mediascribe_jobs.id"))
     actor_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
     event_type: Mapped[str] = mapped_column(String(120), nullable=False)
