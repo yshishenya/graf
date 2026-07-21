@@ -80,13 +80,13 @@ def test_registry_fetch_reads_published_registry_and_supports_etag_cache(client)
     }
 
     assert response.status_code == 200
-    assert body["registryVersion"] == "2026.07.09.4"
+    assert body["registryVersion"] == "2026.07.21.1"
     assert body["etag"] == etag.strip('"')
     assert body["nonTargetRules"] == []
     assert {"zoom", "yandex_telemost"}.issubset(target_ids)
     assert "macos_audio_hal_assertion" in required_signals
     assert response.headers["cache-control"] == "private, max-age=86400"
-    assert response.headers["x-graf-registry-version"] == "2026.07.09.4"
+    assert response.headers["x-graf-registry-version"] == "2026.07.21.1"
     assert "vary" not in response.headers
     assert registry_status == "published"
     assert entry_count == len(body["targets"])
@@ -283,5 +283,5 @@ def test_registry_and_candidate_queries_ignore_foreign_workspace_rows(client) ->
     assert review.status_code == 200
     assert "foreign_workspace_vks" not in target_ids
     assert "ru.foreign.vks" not in candidate_bundles
-    assert registry.json()["registryVersion"] == "2026.07.09.4"
+    assert registry.json()["registryVersion"] == "2026.07.21.1"
     assert WORKSPACE_ID != FOREIGN_WORKSPACE_ID

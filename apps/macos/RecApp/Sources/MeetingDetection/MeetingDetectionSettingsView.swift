@@ -92,84 +92,87 @@ public struct MeetingDetectionSettingsView: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            Label(Self.pageTitle, systemImage: "dot.radiowaves.left.and.right")
-                .font(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                Label(Self.pageTitle, systemImage: "dot.radiowaves.left.and.right")
+                    .font(.headline)
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(Self.promptToggleTitle)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        Text(Self.promptToggleDetail)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(Self.promptToggleTitle)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Text(Self.promptToggleDetail)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer()
+                        Toggle("", isOn: recordingPromptBinding)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .accessibilityLabel(Self.promptToggleTitle)
+                            .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle)
                     }
-                    Spacer()
-                    Toggle("", isOn: recordingPromptBinding)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .accessibilityLabel(Self.promptToggleTitle)
-                        .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle)
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(Self.autoRecordSectionTitle)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                        Text(Self.autoRecordSectionDetail)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button(Self.selectAllTitle, action: selectAllAutoRecordTargets)
-                        .disabled(promptCapableTargets.isEmpty)
-                    Button(Self.clearAllTitle, action: clearAutoRecordTargets)
-                        .disabled(settings.autoRecordTargetIds.isEmpty)
                 }
 
-                if promptCapableTargets.isEmpty {
-                    Text("Список появится после загрузки реестра.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(promptCapableTargets, id: \.id) { target in
-                            Toggle(isOn: autoRecordBinding(for: target.id)) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(target.displayName)
-                                        .font(.callout)
-                                    if let bundleID = target.nativeBundleIds.first {
-                                        Text(bundleID)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                Divider()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(Self.autoRecordSectionTitle)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Text(Self.autoRecordSectionDetail)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(Self.selectAllTitle, action: selectAllAutoRecordTargets)
+                            .disabled(promptCapableTargets.isEmpty)
+                        Button(Self.clearAllTitle, action: clearAutoRecordTargets)
+                            .disabled(settings.autoRecordTargetIds.isEmpty)
+                    }
+
+                    if promptCapableTargets.isEmpty {
+                        Text("Список появится после загрузки реестра.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(promptCapableTargets, id: \.id) { target in
+                                Toggle(isOn: autoRecordBinding(for: target.id)) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(target.displayName)
+                                            .font(.callout)
+                                        if let bundleID = target.nativeBundleIds.first {
+                                            Text(bundleID)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
                                 }
+                                .toggleStyle(.checkbox)
                             }
-                            .toggleStyle(.checkbox)
                         }
                     }
                 }
-            }
 
-            if let saveError {
-                Label(saveError, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+                if let saveError {
+                    Label(saveError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-            Spacer()
+                Spacer()
+            }
+            .padding(.horizontal, 34)
+            .padding(.vertical, 28)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 34)
-        .padding(.vertical, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 

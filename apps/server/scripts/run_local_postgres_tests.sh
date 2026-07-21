@@ -25,7 +25,7 @@ cleanup() {
     rm -rf "$metadata_directory"
   fi
   if [[ "$container_started" == true ]]; then
-    docker rm --force "$postgres_container" >/dev/null 2>&1 || true
+    docker rm --force --volumes "$postgres_container" >/dev/null 2>&1 || true
     printf 'postgres_test_cleanup=isolated_container_removed\n'
   else
     printf 'postgres_test_cleanup=container_not_started\n'
@@ -48,6 +48,7 @@ for start_attempt in 1 2; do
     --env POSTGRES_DB=postgres \
     --env POSTGRES_USER=twobrain_rec \
     --env POSTGRES_PASSWORD=twobrain_rec \
+    --tmpfs /var/lib/postgresql/data:rw \
     --publish 127.0.0.1::5432 \
     postgres:17-alpine >/dev/null; then
     container_started=true
@@ -71,7 +72,7 @@ for start_attempt in 1 2; do
     break
   fi
   if [[ "$container_started" == true ]]; then
-    docker rm --force "$postgres_container" >/dev/null 2>&1 || true
+    docker rm --force --volumes "$postgres_container" >/dev/null 2>&1 || true
     container_started=false
   fi
   if (( start_attempt < 2 )); then

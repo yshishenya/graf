@@ -52,7 +52,7 @@ from twobrain_rec_server.normalization.statuses import (
 
 REGISTRY_DATA = (
     Path(__file__).resolve().parents[2]
-    / "src/twobrain_rec_server/db/migrations/data/0019_meeting_target_registry.json"
+    / "src/twobrain_rec_server/db/migrations/data/0030_meeting_target_registry.json"
 )
 SYNTHETIC_DURATION_SECONDS = 40
 TEST_DATABASE_PREFIX = "twobrain_rec_test_"

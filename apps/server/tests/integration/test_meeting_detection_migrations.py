@@ -24,6 +24,10 @@ PUBLISH_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0019_publish_meeting_detection_registry.py"
 )
+EXPAND_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0030_expand_meeting_target_registry.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -70,7 +74,7 @@ async def _migration_summary(
                     await connection.execute(
                         text(
                             "select registry_version, status, source "
-                            "from meeting_target_registry_versions"
+                            "from meeting_target_registry_versions where status = 'published'"
                         )
                     )
                 ).one()
@@ -166,6 +170,11 @@ def test_meeting_detection_publish_migration_uses_explicit_registry_data() -> No
     assert migration.down_revision == "0018_mediascribe_result"
     assert migration.REGISTRY_DATA_PATH.exists()
 
+    expansion = _load_migration_module(EXPAND_MIGRATION, "meeting_detection_expand_registry_migration")
+    assert expansion.revision == "0030_expand_meeting_registry"
+    assert expansion.down_revision == "0029_speaker_names"
+    assert expansion.REGISTRY_DATA_PATH.exists()
+
 
 def test_clean_postgres_database_migrates_meeting_detection_tables(
     postgres_clean_database_url: str,
@@ -184,8 +193,8 @@ def test_clean_postgres_database_migrates_meeting_detection_tables(
     assert "meeting_detection_telemetry_rate_limit_buckets" in tables
     assert "uq_meeting_detection_candidates_workspace_bundle" in candidate_indexes
     assert "uq_meeting_detection_non_target_rules_workspace_rule" in non_target_indexes
-    assert registry_row == ("2026.07.09.4", "published", "migration")
-    assert entry_count >= 20
+    assert registry_row == ("2026.07.21.1", "published", "migration")
+    assert entry_count == 116
 
 
 def test_publish_registry_migration_downgrade_restores_previous_published_registry(
@@ -211,5 +220,6 @@ def test_publish_registry_migration_downgrade_restores_previous_published_regist
     get_settings.cache_clear()
 
     assert ("2026.07.08.99", "superseded", "admin") in upgraded_rows
-    assert ("2026.07.09.4", "published", "migration") in upgraded_rows
+    assert ("2026.07.09.4", "superseded", "migration") in upgraded_rows
+    assert ("2026.07.21.1", "published", "migration") in upgraded_rows
     assert downgraded_rows == [("2026.07.08.99", "published", "admin")]

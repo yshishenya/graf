@@ -13,7 +13,7 @@ from twobrain_rec_server.meeting_detection.registry import (
 REPO_ROOT = Path(__file__).resolve().parents[4]
 REGISTRY_DATA = (
     REPO_ROOT
-    / "apps/server/src/twobrain_rec_server/db/migrations/data/0019_meeting_target_registry.json"
+    / "apps/server/src/twobrain_rec_server/db/migrations/data/0030_meeting_target_registry.json"
 )
 
 
@@ -29,8 +29,28 @@ def test_migration_registry_is_valid_and_honest_about_prompt_targets() -> None:
         if target["mode"] == "prompt_enabled"
     }
 
-    assert prompt_targets == {"zoom", "yandex_telemost"}
-    assert len(document["targets"]) >= 20
+    native_targets = {
+        target["id"]
+        for target in document["targets"]
+        if target["platform"] == "macos"
+        and target["targetFamily"] == "native_app"
+        and target.get("nativeBundleIds")
+    }
+    bundle_ids = [
+        bundle_id.lower()
+        for target in document["targets"]
+        for bundle_id in target.get("nativeBundleIds", [])
+    ]
+
+    assert len(document["targets"]) == 85
+    assert len(native_targets) == 79
+    assert prompt_targets == native_targets
+    assert len(bundle_ids) == len(set(bundle_ids)) == 87
+    assert all(
+        target["mode"] == "manual_or_browser_only"
+        for target in document["targets"]
+        if target["targetFamily"] == "browser_meeting"
+    )
 
 
 def test_registry_etag_is_stable_for_canonical_json() -> None:
@@ -51,12 +71,11 @@ def test_registry_entries_normalize_target_fields() -> None:
     assert telemost["required_signals"] == ["macos_audio_hal_assertion"]
 
 
-def test_prompt_enabled_native_target_requires_runtime_verified_bundle() -> None:
+def test_prompt_enabled_native_target_requires_verified_bundle_identity() -> None:
     document = _seed_document()
     document["targets"][0] = {
         **document["targets"][0],
-        "nativeBundleIds": [],
-        "evidence": "package_verified",
+        "evidence": "verify_required",
     }
 
     with pytest.raises(MeetingTargetRegistryError):
@@ -113,6 +132,20 @@ def test_registry_rejects_duplicate_target_ids() -> None:
     document["targets"].append(document["targets"][0])
 
     with pytest.raises(MeetingTargetRegistryError):
+        validate_registry_document(document)
+
+
+def test_registry_rejects_case_insensitive_duplicate_bundle_ids() -> None:
+    document = _seed_document()
+    document["targets"].append(
+        {
+            **document["targets"][0],
+            "id": "duplicate_zoom_bundle",
+            "nativeBundleIds": ["US.ZOOM.XOS"],
+        }
+    )
+
+    with pytest.raises(MeetingTargetRegistryError, match="duplicate nativeBundleId"):
         validate_registry_document(document)
 
 

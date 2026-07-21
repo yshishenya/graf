@@ -438,8 +438,9 @@ public struct MeetingTargetRegistryDocument: Codable, Equatable, Sendable {
     }
 
     public func target(forBundleID bundleID: String) -> MeetingTargetRegistryTarget? {
-        targets.first { target in
-            target.nativeBundleIds.contains(bundleID)
+        let normalizedBundleID = bundleID.lowercased()
+        return targets.first { target in
+            target.nativeBundleIds.contains { $0.lowercased() == normalizedBundleID }
         }
     }
 }

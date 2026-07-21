@@ -78,7 +78,7 @@ ALLOWED_NON_TARGET_RULE_KINDS = {
     "browser_service_family",
 }
 ALLOWED_NON_TARGET_PLATFORMS = {"macos", "windows", "browser"}
-PROMPT_EVIDENCE = {"runtime_verified"}
+PROMPT_EVIDENCE = ALLOWED_EVIDENCE - {"verify_required", "future_windows"}
 CACHE_CONTROL = "private, max-age=86400"
 
 
@@ -92,8 +92,9 @@ def validate_registry_document(document: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(targets, list) or not targets:
         raise MeetingTargetRegistryError("registry requires at least one target")
     seen_ids: set[str] = set()
+    seen_bundle_ids: dict[str, str] = {}
     for target in targets:
-        _validate_target(target, seen_ids=seen_ids)
+        _validate_target(target, seen_ids=seen_ids, seen_bundle_ids=seen_bundle_ids)
     _validate_non_target_rules(document.get("nonTargetRules", []))
     return document
 
@@ -252,7 +253,12 @@ async def publish_registry_draft(
     return registry_version_summary(draft)
 
 
-def _validate_target(target: Any, *, seen_ids: set[str]) -> None:
+def _validate_target(
+    target: Any,
+    *,
+    seen_ids: set[str],
+    seen_bundle_ids: dict[str, str],
+) -> None:
     if not isinstance(target, dict):
         raise MeetingTargetRegistryError("target must be an object")
     required = ("id", "displayName", "market", "platform", "targetFamily", "mode", "evidence", "requiredSignals")
@@ -288,6 +294,14 @@ def _validate_target(target: Any, *, seen_ids: set[str]) -> None:
         not isinstance(native_bundle_ids, list) or any(not BUNDLE_ID_RE.match(str(bundle_id)) for bundle_id in native_bundle_ids)
     ):
         raise MeetingTargetRegistryError(f"invalid nativeBundleIds for {target_id}")
+    for bundle_id in native_bundle_ids:
+        normalized_bundle_id = str(bundle_id).lower()
+        owner = seen_bundle_ids.get(normalized_bundle_id)
+        if owner is not None:
+            raise MeetingTargetRegistryError(
+                f"duplicate nativeBundleId: {bundle_id} ({owner}, {target_id})"
+            )
+        seen_bundle_ids[normalized_bundle_id] = target_id
     if (
         target["platform"] == "macos"
         and target["targetFamily"] == "native_app"

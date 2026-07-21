@@ -113,6 +113,23 @@ final class BrowserTargetEvidenceTests: XCTestCase {
         )
     }
 
+    func testResearchedButUnimplementedBrowserProviderIsNotRuntimeSupport() {
+        let evaluation = BrowserMeetingServiceMatcher().evaluate(
+            evidence: browserMeetingEvidence(
+                serviceFamily: "whereby",
+                pageState: .joinedMeeting,
+                calendarOrJoinIntentPresent: true
+            ),
+            registry: Self.browserRegistry()
+        )
+
+        XCTAssertEqual(
+            evaluation.kind,
+            .manualOnly(targetID: nil, reason: "unsupported_browser_service")
+        )
+        XCTAssertEqual(evaluation.serviceFamily, "whereby")
+    }
+
     func testBrowserTargetEvidenceEncodesOnlyMetadata() throws {
         let evidence = browserMeetingEvidence(
             serviceFamily: "google_meet",
