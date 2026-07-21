@@ -466,7 +466,7 @@ def test_098_ambiguous_owner_detail_renders_safe_chooser_with_web_embedded_parit
             '<fieldset aria-describedby="calendar-context-choice-help">'
         ) == 1
         assert response.text.count("<legend>Выберите встречу</legend>") == 1
-        assert response.text.count('type="radio"') == 2
+        assert response.text.count('type="radio" name="event_id"') == 2
         assert response.text.count('name="event_id"') == 2
         assert response.text.count("Synthetic Design Review") == 1
         assert response.text.count("Synthetic Planning Review") == 1
@@ -602,7 +602,7 @@ def test_098_owner_can_reopen_safe_correction_chooser_in_web_and_embedded_review
         )
         assert correction.status_code == 200, surface
         assert 'data-calendar-context-mode="correction"' in correction.text
-        assert correction.text.count('type="radio"') == 2
+        assert correction.text.count('type="radio" name="event_id"') == 2
         assert correction.text.count('name="event_id"') == 2
         assert 'name="context_reason" value="correction"' in correction.text
         assert "Выберите правильную встречу" in correction.text

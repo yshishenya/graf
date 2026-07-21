@@ -200,26 +200,21 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         ))
     }
 
-    func testDownloadDestinationUsesAFlatUniqueFilename() throws {
-        let fileManager = FileManager.default
-        let directory = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: directory) }
-        try Data().write(to: directory.appendingPathComponent("meeting.txt"))
-
-        let destination = EmbeddedCabinetWebView.downloadDestination(
-            suggestedFilename: "../../meeting.txt",
-            directory: directory
+    func testNativeSaveUsesAFlatSuggestedFilenameAndTreatsCancelAsNoDestination() throws {
+        XCTAssertEqual(
+            EmbeddedCabinetWebView.safeDownloadFilename("../../meeting.txt"),
+            "meeting.txt"
         )
+        XCTAssertEqual(EmbeddedCabinetWebView.safeDownloadFilename("/"), "GRAF export")
 
-        XCTAssertEqual(destination, directory.appendingPathComponent("meeting 2.txt"))
-        XCTAssertFalse(fileManager.fileExists(atPath: destination.path))
-
-        let fallbackDestination = EmbeddedCabinetWebView.downloadDestination(
-            suggestedFilename: "/",
-            directory: directory
+        let selectedURL = try XCTUnwrap(URL(string: "file:///tmp/meeting.txt"))
+        XCTAssertEqual(
+            EmbeddedCabinetWebView.nativeSaveDestination(response: .OK, selectedURL: selectedURL),
+            selectedURL
         )
-        XCTAssertEqual(fallbackDestination, directory.appendingPathComponent("GRAF export"))
+        XCTAssertNil(
+            EmbeddedCabinetWebView.nativeSaveDestination(response: .cancel, selectedURL: selectedURL)
+        )
     }
 
     func testReviewRouteRequiresReviewAvailableServerMeeting() throws {

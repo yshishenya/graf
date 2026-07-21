@@ -137,15 +137,20 @@ credential, or signed URL is accepted by the audit metadata sanitizer.
   pattern; Files/governance shows availability but does not duplicate format
   actions.
 - Content scope is first. Compatible format groups and safe defaults follow.
-- The dialog displays selected revisions, readiness, language, duration, and
-  included options. Preview is structural/metadata-only unless file permission
-  has already been revalidated by the server.
+- The default dialog view displays scope, compatible format, included options,
+  and one concise structural outcome. Selected revisions, readiness, language,
+  duration, and response-only lifecycle truth remain available under one
+  collapsed `Технические детали` disclosure.
 - Submit enters a live announced preparing state and prevents duplicate submit.
   Success closes/returns focus after download begins. Failure retains selection,
   announces a safe reason, and offers retry when appropriate.
-- In the embedded macOS client, the generated attachment is downloaded through
-  the native WebKit download path; the meeting document remains visible and a
-  `blob:` artifact is never classified as a cabinet route.
+- In the embedded macOS client, the generated attachment enters the native
+  WebKit download path and opens `NSSavePanel` with the server-suggested
+  filename and extension. The reviewer may rename it, choose a writable
+  destination, accept normal overwrite confirmation, or cancel. Cancellation
+  writes no file, is not reported as generation/download failure, and preserves
+  the meeting document and current export selection. A `blob:` artifact is
+  never classified as a cabinet route.
 - Escape/close, focus containment/return, keyboard operation, visible focus,
   reduced motion, no color-only status, Russian localization, browser and
   embedded widths are mandatory.

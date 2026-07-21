@@ -1384,8 +1384,8 @@ def test_playback_timeline_keeps_full_width_lanes_and_separate_speaker_manager()
     assert 'class="timeline-scale lane-scale"' in page
     assert "data-speaker-name-open" in page
     assert "Очень длинное имя спикера для проверки подписи" in page
-    assert 'data-speaker-manager' in page
-    assert 'data-speaker-manager-toggle' in page
+    assert "data-speaker-manager" in page
+    assert "data-speaker-manager-toggle" in page
     assert 'aria-controls="speaker-manager-popover"' in page
     assert 'id="speaker-manager-popover"' in page
     assert 'aria-controls="speaker-manager-form-speaker_00"' in page
@@ -1973,9 +1973,7 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
         outcome_set_id=None,
         transcript=ContentExportReadiness(state="available"),
         summary=ContentExportReadiness(state="missing", reason="stored_summary_missing"),
-        combined=ContentExportReadiness(
-            state="missing", reason="combined_components_unavailable"
-        ),
+        combined=ContentExportReadiness(state="missing", reason="combined_components_unavailable"),
         formats={
             "transcript": ["txt", "md", "csv", "xlsx", "json", "srt"],
             "summary": ["txt", "md", "xlsx", "json"],
@@ -1987,22 +1985,37 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     )
 
     page = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
+    embedded_page = render_meeting_detail_page(
+        review,
+        csrf_token="synthetic-csrf",
+        embedded=True,
+    )
 
     assert page.count("data-export-dialog-open") == 1
     assert 'aria-controls="content-export-dialog"' in page
     assert 'aria-labelledby="content-export-title"' in page
     assert 'id="content-export-title" tabindex="-1" data-export-dialog-title' in page
-    assert 'data-export-formats-transcript="txt,md,csv,xlsx,json,srt"' in page
     assert f'data-processing-result-id="{result_id}"' in page
     assert "01:01" in page
-    assert "Саммари · недоступно" in page
+    assert 'data-state="missing"' in page
+    assert "Саммари" in page
+    assert "недоступно" in page
     assert "· partial" not in page
     assert "только на время ответа" in page
     assert "Уже скачанная копия" in page
     assert "SAFE_TRANSCRIPT_TEXT" not in page
     assert "data-export-status" in page
-    assert "aria-live=\"polite\"" in page
-    assert page.count("<optgroup") == 4
+    assert 'aria-live="polite"' in page
+    assert page.count('name="content_scope" type="radio"') == 3
+    assert page.count('name="format" type="radio"') == 6
+    assert page.count("data-export-format-group") == 4
+    assert "content-export-summary" in page
+    assert "data-export-options-details" in page
+    assert "data-export-technical-details" in page
+    assert "<summary>Технические детали</summary>" in page
+    assert "open data-export-technical-details" not in page
+    assert 'class="primary" data-export-submit>Скачать файл</button>' in page
+    assert 'class="primary" data-export-submit>Сохранить…</button>' in embedded_page
     assert "data-export-preview-format" in page
     assert "data-export-preview-readiness" in page
     assert "data-export-preview-summary-revision" in page
@@ -2014,7 +2027,8 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert "navigator.clipboard.writeText" in _cabinet_js()
     assert "export_generation_failed" in _cabinet_js()
     assert "audit_unavailable" in _cabinet_js()
-    assert 'document.createElement("optgroup")' in _cabinet_js()
+    assert "choice.hidden = !available" in _cabinet_js()
+    assert "summary:not([disabled])" in _cabinet_js()
     assert "URL.createObjectURL(blob)" in _cabinet_js()
     assert "returnFocus?.isConnected" in _cabinet_js()
     assert "@media (prefers-reduced-motion: reduce)" in _cabinet_css()

@@ -188,6 +188,27 @@ competitor wording, layout, colors, icons, or private screenshots are reused.
 - **Rejected**: Replacing `/downloads/transcript` output in place or repurposing
   the package manifest as a ZIP.
 
+## Decision 11: Progressive disclosure in the dialog; native save ownership on macOS
+
+- **Decision**: Keep the default export surface compact: scope and format are
+  direct choices, the file outcome is summarized in one line, presentation
+  options live in one lightweight section, and revision/lifecycle metadata is
+  collapsed under `Технические детали`. In the embedded macOS client, hand the
+  server-suggested filename to `NSSavePanel` and let the reviewer choose the
+  filename and destination before `WKDownload` writes bytes.
+- **Rationale**: Current production evidence shows that an always-visible
+  twelve-row metadata card pushes the primary action below the embedded
+  viewport and makes a common task read like diagnostics. The existing native
+  delegate also hard-codes Downloads, which removes normal macOS control over
+  destination and overwrite. Progressive disclosure preserves revision truth
+  without making it the primary job, while the platform save panel provides
+  location, rename, directory creation, overwrite confirmation, and keyboard /
+  assistive-technology behavior without a new dependency or custom file UI.
+- **Rejected**: Hiding revision truth completely; a multi-step wizard; a wide
+  split-pane preview; a custom folder browser; keeping automatic Downloads as
+  the only embedded behavior; persisting generated artifacts to support a
+  second download screen.
+
 ## UX and lifecycle conclusions
 
 - Export settings affect projections only; speaker/timestamp switches never
@@ -203,3 +224,6 @@ competitor wording, layout, colors, icons, or private screenshots are reused.
 - Accessibility is part of the contract: focus trap/return, keyboard operation,
   visible focus, screen-reader names/live status, reduced motion, and no
   color-only meaning.
+- Cancelling the native Save dialog is a user choice, not a generation failure;
+  it writes no file, preserves the meeting route, and requires no server-side
+  artifact or audit model change.

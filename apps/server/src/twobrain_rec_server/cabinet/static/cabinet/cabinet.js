@@ -1347,8 +1347,9 @@
     const form = dialog?.querySelector("[data-content-export-form]");
     if (!dialog || !form || dialog.dataset.contentExportReady === "true") return;
     dialog.dataset.contentExportReady = "true";
-    const scope = form.querySelector("[data-export-scope]");
-    const format = form.querySelector("[data-export-format]");
+    const scopeInputs = Array.from(form.querySelectorAll("[data-export-scope]"));
+    const formatInputs = Array.from(form.querySelectorAll("[data-export-format]"));
+    const formatChoices = Array.from(form.querySelectorAll("[data-export-format-choice]"));
     const title = dialog.querySelector("[data-export-dialog-title]");
     const status = form.querySelector("[data-export-status]");
     const submit = form.querySelector("[data-export-submit]");
@@ -1364,12 +1365,7 @@
     const previewSpeakers = form.querySelector("[data-export-preview-speakers]");
     const previewTimestamps = form.querySelector("[data-export-preview-timestamps]");
     const previewEvidence = form.querySelector("[data-export-preview-evidence]");
-    const formatGroups = [
-      ["Читаемый текст", ["txt", "md"]],
-      ["Таблицы", ["csv", "xlsx"]],
-      ["Структурированные данные", ["json"]],
-      ["Субтитры", ["srt"]]
-    ];
+    const optionsSummaries = form.querySelectorAll("[data-export-options-summary]");
     const scopeLabels = {
       transcript: "Транскрипт",
       summary: "Саммари",
@@ -1385,6 +1381,8 @@
     };
     let returnFocus = null;
     let submitting = false;
+    const selectedScopeInput = () => scopeInputs.find((input) => input.checked);
+    const selectedFormatInput = () => formatInputs.find((input) => input.checked);
 
     const setStatus = (message, state = "") => {
       if (!status) return;
@@ -1392,6 +1390,8 @@
       status.dataset.state = state;
     };
     const updatePreview = () => {
+      const scope = selectedScopeInput();
+      const format = selectedFormatInput();
       if (!scope || !format) return;
       if (previewScope) previewScope.textContent = scopeLabels[scope.value] || scope.value;
       if (previewReadiness) {
@@ -1420,8 +1420,19 @@
           ? "не применимо"
           : (evidence?.checked ? "включены" : "скрыты");
       }
+      const includedOptions = [
+        speakers?.checked ? "спикеры" : "",
+        timestamps?.checked ? "время" : "",
+        evidence?.checked && !evidence.disabled ? "основания" : ""
+      ].filter(Boolean);
+      const optionsText = includedOptions.length
+        ? includedOptions.join(", ").replace(/^./, (letter) => letter.toUpperCase()) + " включены"
+        : "Без дополнительных меток";
+      optionsSummaries.forEach((summary) => { summary.textContent = optionsText; });
     };
     const updateOptions = () => {
+      const scope = selectedScopeInput();
+      const format = selectedFormatInput();
       if (!scope || !format) return;
       const machineFormat = ["csv", "xlsx", "json"].includes(format.value);
       if (speakers) {
@@ -1436,25 +1447,21 @@
       updatePreview();
     };
     const updateFormats = () => {
-      if (!scope || !format) return;
-      const key = "exportFormats" + scope.value.charAt(0).toUpperCase() + scope.value.slice(1);
-      const values = (form.dataset[key] || "").split(",").filter(Boolean);
-      const previous = format.value;
-      const groups = formatGroups.map(([label, groupValues]) => {
-        const available = groupValues.filter((value) => values.includes(value));
-        if (!available.length) return null;
-        const group = document.createElement("optgroup");
-        group.label = label;
-        group.append(...available.map((value) => {
-          const option = document.createElement("option");
-          option.value = value;
-          option.textContent = value.toUpperCase();
-          return option;
-        }));
-        return group;
-      }).filter(Boolean);
-      format.replaceChildren(...groups);
-      if (values.includes(previous)) format.value = previous;
+      const scope = selectedScopeInput();
+      if (!scope) return;
+      formatChoices.forEach((choice) => {
+        const available = (choice.dataset.exportScopes || "").split(",").includes(scope.value);
+        const input = choice.querySelector("[data-export-format]");
+        choice.hidden = !available;
+        if (input) input.disabled = !available;
+      });
+      form.querySelectorAll("[data-export-format-group]").forEach((group) => {
+        group.hidden = !group.querySelector("[data-export-format-choice]:not([hidden])");
+      });
+      if (!selectedFormatInput() || selectedFormatInput()?.disabled) {
+        const firstAvailable = formatInputs.find((input) => !input.disabled);
+        if (firstAvailable) firstAvailable.checked = true;
+      }
       setStatus("");
       updateOptions();
     };
@@ -1473,7 +1480,7 @@
       title?.focus({ preventScroll: true });
     };
     const focusable = () => Array.from(dialog.querySelectorAll(
-      "button:not([disabled]), select:not([disabled]), input:not([disabled])"
+      "button:not([disabled]), summary:not([disabled]), input:not([disabled])"
     )).filter((element) => !element.closest("[hidden]"));
 
     document.querySelectorAll("[data-export-dialog-open]").forEach((button) => {
@@ -1508,16 +1515,16 @@
         elements[next].focus({ preventScroll: true });
       }
     });
-    scope?.addEventListener("change", updateFormats);
-    format?.addEventListener("change", updateOptions);
+    scopeInputs.forEach((input) => input.addEventListener("change", updateFormats));
+    formatInputs.forEach((input) => input.addEventListener("change", updateOptions));
     [speakers, timestamps, evidence].forEach((control) => {
       control?.addEventListener("change", updatePreview);
     });
     updateFormats();
 
     const include = (name) => form.querySelector("input[name='" + name + "']")?.checked === true;
-    const buildPayload = (requestedFormat = format?.value) => {
-      const selectedScope = scope?.value || "transcript";
+    const buildPayload = (requestedFormat = selectedFormatInput()?.value) => {
+      const selectedScope = selectedScopeInput()?.value || "transcript";
       return {
         content_scope: selectedScope,
         format: requestedFormat,
@@ -1528,7 +1535,7 @@
         include_evidence: selectedScope !== "transcript" && include("include_evidence")
       };
     };
-    const requestExport = async (requestedFormat = format?.value) => {
+    const requestExport = async (requestedFormat = selectedFormatInput()?.value) => {
       const token = form.dataset.csrfToken || csrfToken;
       const response = await fetch(form.dataset.endpoint, {
         method: "POST",
@@ -1567,6 +1574,8 @@
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const scope = selectedScopeInput();
+      const format = selectedFormatInput();
       if (submitting || !scope || !format || !submit) return;
       setBusy(true);
       setStatus("Готовим файл…", "progress");
@@ -1584,7 +1593,10 @@
         link.click();
         link.remove();
         window.setTimeout(() => URL.revokeObjectURL(href), 60000);
-        setStatus("Скачивание началось.", "success");
+        setStatus(
+          form.dataset.exportDelivery === "save" ? "Файл готов к сохранению." : "Скачивание началось.",
+          "success"
+        );
         setBusy(false);
         close();
       } catch (error) {

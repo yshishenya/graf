@@ -316,27 +316,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         return sourceDecision.decision == .allow && sourceDecision.route.kind == .meetingDetail
     }
 
-    public nonisolated static func downloadDestination(
-        suggestedFilename: String,
-        directory: URL
-    ) -> URL {
+    public nonisolated static func safeDownloadFilename(_ suggestedFilename: String) -> String {
         let filename = (suggestedFilename as NSString).lastPathComponent
-        let safeFilename = filename.isEmpty || filename == "." || filename == ".." || filename == "/"
+        return filename.isEmpty || filename == "." || filename == ".." || filename == "/"
             ? "GRAF export"
             : filename
-        let candidate = URL(fileURLWithPath: safeFilename)
-        let stem = candidate.deletingPathExtension().lastPathComponent
-        let pathExtension = candidate.pathExtension
-        var destination = directory.appendingPathComponent(safeFilename, isDirectory: false)
-        var suffix = 2
-        while FileManager.default.fileExists(atPath: destination.path) {
-            let nextFilename = pathExtension.isEmpty
-                ? "\(stem) \(suffix)"
-                : "\(stem) \(suffix).\(pathExtension)"
-            destination = directory.appendingPathComponent(nextFilename, isDirectory: false)
-            suffix += 1
-        }
-        return destination
+    }
+
+    public nonisolated static func nativeSaveDestination(
+        response: NSApplication.ModalResponse,
+        selectedURL: URL?
+    ) -> URL? {
+        response == .OK ? selectedURL : nil
     }
 
     private nonisolated static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
@@ -443,6 +434,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private var showsAppUpdateBadge: Bool
         private var onCheckForUpdates: CheckForUpdatesAction
         private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
+        private weak var downloadHostWindow: NSWindow?
         @Binding private var cabinetState: DesktopCabinetState
         @Binding private var currentRoute: URL?
 
@@ -572,34 +564,48 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
         @MainActor
         public func webView(
-            _: WKWebView,
+            _ webView: WKWebView,
             navigationAction _: WKNavigationAction,
             didBecome download: WKDownload
         ) {
+            downloadHostWindow = webView.window
             download.delegate = self
         }
 
         @MainActor
         public func download(
-            _: WKDownload,
+            _ download: WKDownload,
             decideDestinationUsing _: URLResponse,
             suggestedFilename: String,
             completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
         ) {
-            guard let directory = FileManager.default.urls(
-                for: .downloadsDirectory,
-                in: .userDomainMask
-            ).first else {
-                logNavigationEvent("cabinet_download_failed", detail: "reason=downloads_directory_unavailable")
-                completionHandler(nil)
-                return
-            }
-            let destination = EmbeddedCabinetWebView.downloadDestination(
-                suggestedFilename: suggestedFilename,
-                directory: directory
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = EmbeddedCabinetWebView.safeDownloadFilename(
+                suggestedFilename
             )
-            logNavigationEvent("cabinet_download_started", detail: "result=started")
-            completionHandler(destination)
+            panel.canCreateDirectories = true
+            panel.isExtensionHidden = false
+            let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+                let destination = EmbeddedCabinetWebView.nativeSaveDestination(
+                    response: response,
+                    selectedURL: panel.url
+                )
+                self?.downloadHostWindow = nil
+                if destination == nil {
+                    self?.logNavigationEvent(
+                        "cabinet_download_cancelled",
+                        detail: "result=cancelled"
+                    )
+                } else {
+                    self?.logNavigationEvent("cabinet_download_started", detail: "result=started")
+                }
+                completionHandler(destination)
+            }
+            if let window = downloadHostWindow {
+                panel.beginSheetModal(for: window, completionHandler: finish)
+            } else {
+                panel.begin(completionHandler: finish)
+            }
         }
 
         @MainActor
@@ -608,8 +614,15 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
 
         @MainActor
-        public func download(_: WKDownload, didFailWithError error: Error, resumeData _: Data?) {
+        public func download(
+            _: WKDownload,
+            didFailWithError error: Error,
+            resumeData _: Data?
+        ) {
             let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                return
+            }
             logNavigationEvent(
                 "cabinet_download_failed",
                 detail: "domain=\(sanitized(nsError.domain)) code=\(nsError.code)"

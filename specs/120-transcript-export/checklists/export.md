@@ -82,5 +82,14 @@ requirements before task generation and implementation
 
 ## Gate Result
 
-46/46 requirement-quality checks pass. No unresolved requirement ambiguity or
+## Export Dialog And Native Save Follow-up
+
+- [x] CHK047 Is the default-dialog hierarchy explicit about which choices and action remain visible, and which technical fields use progressive disclosure? [Clarity, Spec §US5.6/FR-033/FR-036]
+- [x] CHK048 Are compact embedded-width, 200% zoom, keyboard disclosure, and no-horizontal-overflow outcomes measurable without prescribing a competitor layout? [Measurability, Spec §SC-012a/FR-040]
+- [x] CHK049 Does the embedded-client requirement name the native Save dialog, suggested filename/extension, destination choice, overwrite behavior, and cancel outcome? [Completeness, Spec §US5.5/FR-039/SC-012b]
+- [x] CHK050 Is browser-owned attachment behavior kept distinct from embedded macOS save ownership so the web client does not invent a filesystem picker? [Consistency, API Contract §Browser meeting-detail contract]
+- [x] CHK051 Is Save-dialog cancellation defined as writing no file and preserving meeting/selection state without weakening server policy, audit, or revision truth? [Recovery, Spec §FR-039/SC-012b]
+- [x] CHK052 Is the native implementation boundary constrained to existing WebKit/AppKit primitives with no new persistence, service, or dependency? [Assumption, Plan §Architecture Decisions 6, Research §Decision 11]
+
+52/52 requirement-quality checks pass. No unresolved requirement ambiguity or
 constitution conflict remains before task generation.

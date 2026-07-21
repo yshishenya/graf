@@ -95,3 +95,24 @@ The corrected native flow was validated at three levels on 2026-07-22:
 No production meeting content, filename, identifier, or screenshot is stored in
 the repository evidence. This engineering hotfix does not replace the T059
 representative-reviewer study required before general release.
+
+## Compact dialog and native destination follow-up
+
+The 2026-07-22 follow-up reused the production template, stylesheet, and
+JavaScript with synthetic metadata in a real `WKWebView`. It also replaced the
+automatic Downloads destination with the existing WebKit coordinator plus the
+platform-native `NSSavePanel`; no new dependency, storage owner, or export
+endpoint was introduced.
+
+| Check | Evidence | Result |
+|---|---|---|
+| Normal embedded layout | A 940 by 720 point WebKit snapshot keeps the title, direct scope/format choices, concise outcome, collapsed details, and footer actions inside one dialog | PASS |
+| Narrow layout | A 390 by 720 point WebKit snapshot has no horizontal page overflow; the dialog body scrolls independently and the actions remain visible | PASS |
+| 200% zoom | A real WebKit `pageZoom` of 2 keeps the header and footer fixed while the selection body remains scrollable | PASS |
+| Progressive disclosure | File options and revision/readiness metadata are closed by default and remain keyboard-focusable through native `details` controls | PASS |
+| Destination seam | Focused Swift tests cover flat suggested filenames, confirmed destinations, and cancellation without a destination | PASS |
+| Regression boundary | The focused server meeting/export/RLS lane passes all 49 cases, including the calendar chooser after export radio controls were added | PASS |
+
+The synthetic screenshots contain no meeting content and remain transient local
+review artifacts rather than repository evidence. The signed-app save-to-folder
+and cancel smoke remains part of T066 and must be completed before release.

@@ -176,6 +176,26 @@ bypass current server policy or mix revisions.
 - [ ] T059 Before general release, conduct and document the representative-reviewer usability study required by SC-014; do not substitute synthetic browser QA for the 90% product outcome
 - [X] T060 [US5] Keep the embedded macOS meeting detail visible while a generated `blob:` attachment is saved through WebKit, and add route/source/filename regression coverage in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` and `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift` (FR-039)
 
+## Phase 10: User Story 5 Follow-up — Compact Dialog And Native Save (Priority: P1)
+
+**Goal**: Make the common export choice understandable at a glance and restore
+normal macOS control over filename and destination without changing the
+server-owned export snapshot or egress boundary.
+
+**Independent test**: At embedded width and 200% zoom, choose every available
+scope/format with keyboard-only navigation, inspect collapsed technical details,
+save one generated file to a non-Downloads folder through the native Save
+dialog, and cancel a second save without a file, failure state, or route change.
+
+- [X] T061 [P] [US5] Add failing compact-dialog rendering assertions for direct scope/format choices, concise outcome, collapsed technical details, sticky actions, and `Сохранить…` copy in `apps/server/tests/unit/test_cabinet_web_shell.py` (FR-033/FR-036/SC-012a)
+- [X] T062 [P] [US5] Replace automatic-download filename tests with failing safe suggested-filename and native-save cancellation/selection seam coverage in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift` (FR-039/SC-012b)
+- [X] T063 [US5] Restructure the export markup with existing GRAF dialog primitives and metadata-only progressive disclosure in `apps/server/src/twobrain_rec_server/cabinet/rendering.py` (FR-030–FR-040)
+- [X] T064 [US5] Implement compact responsive styles and minimal selection/preview/disclosure behavior while preserving focus, live status, retry, copy, and browser download in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` (FR-033–FR-040/SC-012a)
+- [X] T065 [US5] Present `NSSavePanel` from the existing WebKit download coordinator, use the sanitized server filename, and treat cancel as a non-failure in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` (FR-039/SC-012b)
+- [ ] T066 [US5] Re-run synthetic embedded-width/200%-zoom/keyboard/failure QA plus a real native save/cancel smoke and record metadata-safe results in `specs/120-transcript-export/design-qa.md` and `specs/120-transcript-export/quickstart.md` (SC-012/SC-012a/SC-012b)
+- [X] T067 [P] Document the export-dialog and native-save behavior, compatibility, and validation boundary in `CHANGELOG.md` (FR-039/FR-040)
+- [X] T068 Run focused server/macOS checks, feature quickstart, `@ponytail-review`, `git diff --check`, and `infra/scripts/ci-local.sh`; reconcile evidence in `specs/120-transcript-export/tasks.md` before requesting implementation commit approval
+
 ---
 
 ## Validation Evidence
@@ -201,6 +221,18 @@ bypass current server policy or mix revisions.
   replaced a hand-rolled XLSX column helper with the dependency's native
   utility (`net: -7 lines`). No new database table, generated-artifact
   persistence, background workflow, or storage owner was added.
+- The compact-dialog follow-up passed `63` cabinet shell/static-contract tests,
+  `74` export unit/contract checks, `49` focused PostgreSQL meeting/export/RLS
+  checks, and `81` focused macOS cabinet tests. The final repository gate again
+  passed `594` macOS tests, `2013` parallel server tests with `1` skipped, and
+  `35` strict PostgreSQL/RLS tests with `1` skipped; Ruff, JavaScript syntax,
+  Python compile, Compose validation, evidence scan, and `git diff --check`
+  were also clean.
+- The follow-up Ponytail review removed the now-redundant
+  `data-export-formats-*` payload after direct format choices became the single
+  UI source; the remaining helpers are required for native cancellation and
+  filename seams. No new dependency, service, table, or artifact persistence
+  was introduced.
 - T057 is complete: [PR #4084](https://github.com/yshishenya/crisp/pull/4084)
   merged as `7ea8afc517b79fa943ec1ef99d047027234e3c35`; completed task issues
   are closed, and each has a Russian closure comment with its Spec task, PR,
@@ -238,6 +270,7 @@ Setup T001-T003
               -> Polish T052-T058
                   -> Pre-release product outcome T059
                   -> Embedded download regression T060
+                      -> Compact dialog/native save T061-T068
 ```
 
 - T004-T013 block every story: serializers must not invent their own snapshot,
@@ -248,6 +281,8 @@ Setup T001-T003
 - US4 depends only on foundational snapshot/outcome support and can proceed in
   parallel with US1-US3 after T013.
 - US5 should consume stable capability/format contracts from US1-US4.
+- T061-T062 are the failing contract seams for the follow-up; T063-T065 depend
+  on them, T066 follows the implementation, and T068 closes the validation lane.
 - US6 may add tests in parallel, but final transaction/audit behavior must cover
   all serializers before polish.
 
@@ -299,7 +334,7 @@ T049 RLS tests
 
 ## Format Validation
 
-- 58 tasks use the required checkbox and sequential `T###` format.
+- 68 tasks use the required checkbox and sequential `T###` format.
 - Every story task has `[US#]`; setup/foundational/polish tasks do not.
 - `[P]` is used only for tasks on distinct files or independently writable test
   sections after their shared prerequisites.
