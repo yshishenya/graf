@@ -46,6 +46,7 @@ final result: passed
 **Source Visual Truth**
 - User-supplied playback and speaker-assignment references in the current chat: `CleanShot 2026-07-21 at 02.07.39@2x.png`, `CleanShot 2026-07-21 at 02.11.32@2x.png`, `CleanShot 2026-07-21 at 02.11.41@2x.png`, `CleanShot 2026-07-21 at 02.11.48@2x.png`, `CleanShot 2026-07-21 at 02.12.16@2x.png`, and `CleanShot 2026-07-21 at 02.12.26@2x.png`.
 - Production follow-up references: `CleanShot 2026-07-21 at 09.53.57@2x.png` exposed the remaining scale offset and missing inline rename control; `CleanShot 2026-07-21 at 10.02.40@2x.png` and `CleanShot 2026-07-21 at 10.02.52@2x.png` establish that the speaker caption belongs above the lane rather than inside a narrow left column.
+- Final density reference: `CleanShot 2026-07-21 at 13.56.58@2x.png` and the paired Krisp app screenshot establish the compact spacing between speaker lanes and the central-content width boundary.
 - The references define interaction behavior, density, aligned playhead semantics, active-speaker state, and manual naming. GRAF keeps its existing clean-room visual system instead of copying Krisp styling.
 
 **Implementation Evidence**
@@ -80,6 +81,11 @@ final result: passed
 **Production Follow-up Validation**
 - A long synthetic caption is rendered in the full-width track column and covered by a server-rendering regression test.
 - Focused cabinet, playback-contract, and PostgreSQL speaker-name persistence checks pass; the complete server suite passed with 1954 normal and 34 strict-RLS tests in the memory-safe one-worker lane.
-- Local in-app browser inspection was blocked by the browser URL security policy; no alternate browser or debugging bypass was used. Installed-app production inspection remains the release closeout evidence boundary.
+- Installed GRAF `2026.07.21.9` was inspected against the production meeting-detail route after an in-app Sparkle update from `2026.07.21.8`; private meeting screenshots remained temporary and were not committed.
+- The dock starts after the left navigation and ends before the native recording inspector. Three speaker lanes remain compact, keep labels above full-width tracks, and use the same speaker colors as transcript markers.
+- The manager is exposed as an ordinary accessible button rather than a browser disclosure. Opening it exposed three `Изменить` actions; opening one editor exposed the expected name field, `Сохранить`, and `Отмена`. The editor was cancelled without submitting or changing production data.
+- Pressing the `SPEAKER_02` lane changed the accessible playback position from `393.9` to `242.4` seconds, centered the matching transcript turn, and applied the non-color white outline to the active lane. Playback was paused after the check.
+- The public update feed, downloaded ZIP and pkg matched the reviewed local artifacts byte-for-byte. The installed bundle kept identifier `pro.2brain.graf`, the existing feed URL, the `GRAF Local Code Signing` identity, and granted microphone/system-audio permissions.
+- Final release boundary: [v2026.07.21.9](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.9), implementation [PR #4008](https://github.com/yshishenya/crisp/pull/4008), release [PR #4009](https://github.com/yshishenya/crisp/pull/4009). No P0, P1, or P2 finding remains.
 
 final result: passed
