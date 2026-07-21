@@ -1481,6 +1481,7 @@ class TranscriptSegmentView(BaseModel):
     speaker_label: str
     source_role: SourceRoleView
     text: str
+    speaker_key: str = ""
     confidence_label: str | None = None
     seekable: bool = False
     seek_seconds: float | None = None
@@ -1495,6 +1496,7 @@ class TranscriptSpeakerTurnView(BaseModel):
     speaker_label: str
     source_role: SourceRoleView
     text: str
+    speaker_key: str = ""
     source_segment_ids: list[str] = Field(default_factory=list)
     confidence_label: str | None = None
     seekable: bool = False
@@ -1518,6 +1520,7 @@ class SpeakerLaneSegment(BaseModel):
 class SpeakerLane(BaseModel):
     speaker_key: str
     label: str
+    display_name: str | None = None
     talk_time_percent: int = Field(ge=0, le=100)
     source_roles: list[SourceRoleView] = Field(default_factory=list)
     segments: list[SpeakerLaneSegment] = Field(default_factory=list)
@@ -1529,6 +1532,7 @@ class SpeakerReviewState(BaseModel):
     assignment_state: Literal["available", "reserved", "disabled", "conflict_future", "unavailable"]
     degraded_reason: str | None = None
     speakers: list[SpeakerLane] = Field(default_factory=list)
+    can_rename: bool = False
 
 
 class CalendarRosterParticipantView(CalendarRosterSnapshotItem):

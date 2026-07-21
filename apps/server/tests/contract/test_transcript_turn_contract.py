@@ -8,6 +8,7 @@ from twobrain_rec_server.api.schemas import (
 def test_transcript_contract_keeps_raw_segments_and_adds_speaker_turns() -> None:
     raw = TranscriptSegmentView(
         segment_id="raw-segment-1",
+        speaker_key="speaker_00",
         sequence=3,
         start_seconds=10.0,
         end_seconds=11.0,
@@ -18,6 +19,7 @@ def test_transcript_contract_keeps_raw_segments_and_adds_speaker_turns() -> None
     )
     turn = TranscriptSpeakerTurnView(
         turn_id="raw-segment-1",
+        speaker_key="speaker_00",
         sequence=3,
         start_seconds=10.0,
         end_seconds=12.0,
@@ -39,8 +41,10 @@ def test_transcript_contract_keeps_raw_segments_and_adds_speaker_turns() -> None
     payload = state.model_dump()
 
     assert payload["segments"][0]["segment_id"] == "raw-segment-1"
+    assert payload["segments"][0]["speaker_key"] == "speaker_00"
     assert payload["segments"][0]["text"] == "synthetic raw text"
     assert payload["speaker_turns"][0]["turn_id"] == "raw-segment-1"
+    assert payload["speaker_turns"][0]["speaker_key"] == "speaker_00"
     assert payload["speaker_turns"][0]["source_segment_ids"] == [
         "raw-segment-1",
         "raw-segment-2",

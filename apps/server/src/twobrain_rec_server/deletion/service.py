@@ -26,6 +26,7 @@ from twobrain_rec_server.db.models import (
     MeetingLifecycleAuditEvent,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingSpeakerName,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
     ProcessingResult,
@@ -198,9 +199,7 @@ async def request_meeting_deletion(
     )
     outcomes_materialized = await _mark_outcomes_deleting(db, meeting=meeting)
     post_egress_safe_reason = await _post_egress_safe_reason(db, meeting=meeting)
-    purge_result = await _purge_server_controlled_content(
-        db, meeting=meeting, storage=storage
-    )
+    purge_result = await _purge_server_controlled_content(db, meeting=meeting, storage=storage)
     artifact_states = _initial_artifact_states(
         meeting,
         deletion_request.id,
@@ -510,9 +509,7 @@ async def _purge_server_controlled_content(
             ensure_attempt_transition(current_attempt_state, AttemptState.PURGED)
             attempt.state = AttemptState.PURGED.value
             attempt.cleanup_reason = NormalizationReason.MEETING_DELETING.value
-            attempt.cleaned_at = (
-                None if missing_object_needs_recheck else attempt.cleaned_at or now
-            )
+            attempt.cleaned_at = None if missing_object_needs_recheck else attempt.cleaned_at or now
             add_normalization_audit_event(
                 db,
                 workspace_id=attempt.workspace_id,
@@ -558,6 +555,15 @@ async def _purge_server_controlled_content(
         .where(DiarizationSegment.meeting_id == meeting.id)
     )
     if diarization_delete.rowcount:
+        result.materialized_classes.add(DeletionArtifactClass.DIARIZATION)
+        result.purged_classes.add(DeletionArtifactClass.DIARIZATION)
+
+    speaker_name_delete = await db.execute(
+        delete(MeetingSpeakerName)
+        .where(MeetingSpeakerName.workspace_id == meeting.workspace_id)
+        .where(MeetingSpeakerName.meeting_id == meeting.id)
+    )
+    if speaker_name_delete.rowcount:
         result.materialized_classes.add(DeletionArtifactClass.DIARIZATION)
         result.purged_classes.add(DeletionArtifactClass.DIARIZATION)
 

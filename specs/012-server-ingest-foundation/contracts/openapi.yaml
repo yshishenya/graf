@@ -11819,6 +11819,11 @@ components:
         label:
           type: string
           title: Label
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
         talk_time_percent:
           type: integer
           maximum: 100.0
@@ -11888,6 +11893,10 @@ components:
             $ref: '#/components/schemas/SpeakerLane'
           type: array
           title: Speakers
+        can_rename:
+          type: boolean
+          title: Can Rename
+          default: false
       type: object
       required:
       - available
@@ -12099,6 +12108,10 @@ components:
         text:
           type: string
           title: Text
+        speaker_key:
+          type: string
+          title: Speaker Key
+          default: ''
         confidence_label:
           anyOf:
           - type: string
@@ -12156,6 +12169,10 @@ components:
         text:
           type: string
           title: Text
+        speaker_key:
+          type: string
+          title: Speaker Key
+          default: ''
         source_segment_ids:
           items:
             type: string

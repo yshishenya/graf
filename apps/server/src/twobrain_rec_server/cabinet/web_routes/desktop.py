@@ -196,6 +196,7 @@ async def embedded_meeting_detail_page(
             render_meeting_detail_fragment(
                 response,
                 embedded=True,
+                csrf_token=_csrf_token_for_principal(request, principal),
                 poll_url=_request_path_with_query(request),
             ),
             hx_request=True,

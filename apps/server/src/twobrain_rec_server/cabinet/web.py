@@ -10,6 +10,7 @@ from twobrain_rec_server.cabinet.web_routes import (
     desktop,
     provider_links,
     spaces,
+    speakers,
     static,
 )
 from twobrain_rec_server.product_analytics.events import build_activation_event
@@ -23,6 +24,7 @@ router.include_router(browser.router)
 router.include_router(calendar.router)
 router.include_router(provider_links.router)
 router.include_router(spaces.router)
+router.include_router(speakers.router)
 router.include_router(deletion.router)
 router.include_router(desktop.router)
 
@@ -78,5 +80,7 @@ def build_first_value_product_analytics_payload(
     return event.as_payload()
 
 
-def cabinet_product_telemetry_gate_context(*, direct_desktop_egress: bool = False) -> dict[str, object]:
+def cabinet_product_telemetry_gate_context(
+    *, direct_desktop_egress: bool = False
+) -> dict[str, object]:
     return build_required_disclosure(direct_desktop_egress=direct_desktop_egress)

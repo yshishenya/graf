@@ -123,6 +123,7 @@ def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> Provider
         can_confirm=link.status == "callback_verified",
     )
 
+
 STATUS_LABELS: dict[str, str] = {
     "local_only": "Сохранено на Mac",
     "uploading": "Отправляем",
@@ -1774,6 +1775,7 @@ def transcript_state(
     playback_available: bool = False,
     playback_duration_seconds: int | None = None,
     force_speaker_labels: bool = False,
+    speaker_names: dict[str, str] | None = None,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
     diarization_rows = sorted(
@@ -1791,6 +1793,7 @@ def transcript_state(
             segments=[],
         )
     speaker_labels_by_key = canonical_speaker_labels(diarization_rows)
+    speaker_names = speaker_names or {}
     if force_speaker_labels and diarization_display_rows:
         return diarization_transcript_state(
             language=language,
@@ -1799,6 +1802,7 @@ def transcript_state(
             status=status,
             playback_available=playback_available,
             playback_duration_seconds=playback_duration_seconds,
+            speaker_names=speaker_names,
         )
     if not transcripts:
         return TranscriptReviewState(
@@ -1817,17 +1821,20 @@ def transcript_state(
             playback_duration_seconds=playback_duration_seconds,
         )
         matching_diarization = matching_diarization_segment(segment, diarization_rows)
+        canonical_label = speaker_label_for_segment(
+            segment,
+            matching_diarization,
+            speaker_labels_by_key=speaker_labels_by_key,
+        )
+        speaker_key = canonical_label.lower()
         view = TranscriptSegmentView(
             segment_id=str(segment.id),
             sequence=segment.sequence,
             start_seconds=float(segment.start_seconds),
             end_seconds=float(segment.end_seconds),
             timestamp_label=format_timestamp(segment.start_seconds),
-            speaker_label=speaker_label_for_segment(
-                segment,
-                matching_diarization,
-                speaker_labels_by_key=speaker_labels_by_key,
-            ),
+            speaker_label=speaker_names.get(speaker_key, canonical_label),
+            speaker_key=speaker_key,
             source_role=source_role_label(segment.source_role),
             text=segment.text,
             confidence_label="unknown",
@@ -1836,7 +1843,11 @@ def transcript_state(
         )
         segments.append(view)
         mapped_rows.append(
-            (view, matching_diarization is not None and bool(matching_diarization.speaker_label.strip()))
+            (
+                view,
+                matching_diarization is not None
+                and bool(matching_diarization.speaker_label.strip()),
+            )
         )
     return TranscriptReviewState(
         available=True,
@@ -1856,13 +1867,16 @@ def diarization_transcript_state(
     status: MeetingReviewStatus,
     playback_available: bool,
     playback_duration_seconds: int | None,
+    speaker_names: dict[str, str] | None = None,
 ) -> TranscriptReviewState:
     speaker_labels = mediascribe_speaker_labels_by_time(
         diarization_rows,
         speaker_rows,
     )
+    speaker_names = speaker_names or {}
     segments = []
-    for row, speaker_label in zip(diarization_rows, speaker_labels, strict=True):
+    for row, canonical_label in zip(diarization_rows, speaker_labels, strict=True):
+        speaker_key = canonical_label.lower()
         seek_seconds = _seek_seconds(
             row.start_seconds,
             playback_available=playback_available,
@@ -1875,7 +1889,8 @@ def diarization_transcript_state(
                 start_seconds=float(row.start_seconds),
                 end_seconds=float(row.end_seconds),
                 timestamp_label=format_timestamp(row.start_seconds),
-                speaker_label=speaker_label,
+                speaker_label=speaker_names.get(speaker_key, canonical_label),
+                speaker_key=speaker_key,
                 source_role=source_role_label(row.source_role),
                 text=row.text,
                 confidence_label="unknown",
@@ -1917,6 +1932,7 @@ def _derive_speaker_turns(
                 end_seconds=last.end_seconds,
                 timestamp_label=first.timestamp_label,
                 speaker_label=first.speaker_label,
+                speaker_key=first.speaker_key,
                 source_role=first.source_role,
                 text=" ".join(row.text.strip() for row in current if row.text.strip()),
                 source_segment_ids=[row.segment_id for row in current],
@@ -1937,7 +1953,7 @@ def _derive_speaker_turns(
         previous = current[-1]
         gap = Decimal(str(row.start_seconds)) - Decimal(str(previous.end_seconds))
         if (
-            row.speaker_label == previous.speaker_label
+            row.speaker_key == previous.speaker_key
             and row.source_role == previous.source_role
             and Decimal("0") <= gap <= Decimal("1")
         ):
@@ -2123,7 +2139,10 @@ def speaker_state(
     diarization_segments: Iterable[DiarizationSegment],
     *,
     force_speaker_labels: bool = False,
+    speaker_names: dict[str, str] | None = None,
+    can_rename: bool = False,
 ) -> SpeakerReviewState:
+    speaker_names = speaker_names or {}
     rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
     if not rows:
         return SpeakerReviewState(
@@ -2131,28 +2150,37 @@ def speaker_state(
             assignment_state="reserved",
             degraded_reason="diarization_unavailable",
             speakers=[],
+            can_rename=False,
         )
 
     grouped: dict[str, list[DiarizationSegment]] = defaultdict(list)
+    labels_by_key: dict[str, str] = {}
     if force_speaker_labels:
         speaker_labels = mediascribe_speaker_labels_by_time(rows, mediascribe_speaker_rows(rows))
         for row, speaker_label in zip(rows, speaker_labels, strict=True):
-            grouped[speaker_label].append(row)
+            speaker_key = speaker_label.lower()
+            labels_by_key[speaker_key] = speaker_label
+            grouped[speaker_key].append(row)
     else:
         speaker_labels_by_key = canonical_speaker_labels(rows)
         for row in rows:
-            grouped[speaker_labels_by_key[_speaker_identity_key(row)]].append(row)
+            speaker_label = speaker_labels_by_key[_speaker_identity_key(row)]
+            speaker_key = speaker_label.lower()
+            labels_by_key[speaker_key] = speaker_label
+            grouped[speaker_key].append(row)
     total = sum(max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in rows) or 1.0
     speakers: list[SpeakerLane] = []
-    for speaker_label, speaker_rows in grouped.items():
+    for speaker_key, speaker_rows in grouped.items():
+        speaker_label = labels_by_key[speaker_key]
         duration = sum(
             max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in speaker_rows
         )
         source_roles = _unique(source_role_label(row.source_role) for row in speaker_rows)
         speakers.append(
             SpeakerLane(
-                speaker_key=speaker_label.lower(),
-                label=speaker_label,
+                speaker_key=speaker_key,
+                label=speaker_names.get(speaker_key, speaker_label),
+                display_name=speaker_names.get(speaker_key),
                 talk_time_percent=round(duration / total * 100),
                 source_roles=source_roles,
                 segments=[
@@ -2165,7 +2193,11 @@ def speaker_state(
             )
         )
     return SpeakerReviewState(
-        available=True, assignment_state="reserved", degraded_reason=None, speakers=speakers
+        available=True,
+        assignment_state="reserved",
+        degraded_reason=None,
+        speakers=speakers,
+        can_rename=can_rename,
     )
 
 
@@ -2522,8 +2554,7 @@ def playback_state(
             else ["canonical_mixed"]
             if durable.can_play
             and media_revision is not None
-            and media_revision.source_kind
-            == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value
+            and media_revision.source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value
             else ["local_microphone", "incoming_system"]
             if durable.can_play
             else []
@@ -2572,6 +2603,8 @@ def build_review_response(
     activity: MeetingActivityResponse | None = None,
     outcome_set: MeetingOutcomeSet | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
+    speaker_names: dict[str, str] | None = None,
+    can_rename_speakers: bool = False,
 ) -> MeetingReviewResponse:
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
@@ -2625,10 +2658,13 @@ def build_review_response(
             playback_available=playback.available,
             playback_duration_seconds=playback.duration_seconds,
             force_speaker_labels=force_speaker_labels,
+            speaker_names=speaker_names,
         ),
         speakers=speaker_state(
             diarization_segments,
             force_speaker_labels=force_speaker_labels,
+            speaker_names=speaker_names,
+            can_rename=can_rename_speakers,
         ),
         calendar_roster=calendar_roster,
         notes=notes_state(status),

@@ -80,7 +80,9 @@ def test_playback_read_model_is_independent_from_transcript_processing_state() -
         assert playback.playback_path is not None
 
 
-def test_v5_mixed_review_keeps_one_canonical_source_and_transcript_when_playback_is_unavailable() -> None:
+def test_v5_mixed_review_keeps_one_canonical_source_and_transcript_when_playback_is_unavailable() -> (
+    None
+):
     meeting = _meeting()
     revision = MediaRevision(
         id=uuid4(),
@@ -1860,6 +1862,8 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
     assert len(state.segments) == 4
     assert len(state.speaker_turns) == 2
     first, second = state.speaker_turns
+    assert first.speaker_key == "speaker_00"
+    assert second.speaker_key == "speaker_00"
     assert first.start_seconds == 0.0
     assert first.end_seconds == 4.0
     assert first.text == "synthetic fragment 0 synthetic fragment 1 synthetic fragment 2"
@@ -1871,6 +1875,49 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
     assert [segment.text for segment in state.segments] == [
         f"synthetic fragment {index}" for index in range(4)
     ]
+    assert {segment.speaker_key for segment in state.segments} == {"speaker_00"}
+
+
+def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("1"),
+            end_seconds=Decimal("3"),
+            text="synthetic",
+            speaker_label="remote",
+            source_role="incoming",
+        )
+    ]
+
+    transcript = view_models.diarization_transcript_state(
+        language="ru",
+        diarization_rows=diarization,
+        speaker_rows=diarization,
+        status="ready",
+        playback_available=True,
+        playback_duration_seconds=10,
+        speaker_names={"speaker_00": "Мария"},
+    )
+    speakers = view_models.speaker_state(
+        diarization,
+        speaker_names={"speaker_00": "Мария"},
+        can_rename=True,
+    )
+
+    assert transcript.segments[0].speaker_key == "speaker_00"
+    assert transcript.segments[0].speaker_label == "Мария"
+    assert transcript.speaker_turns[0].speaker_key == "speaker_00"
+    assert speakers.speakers[0].speaker_key == "speaker_00"
+    assert speakers.speakers[0].label == "Мария"
+    assert speakers.speakers[0].display_name == "Мария"
+    assert speakers.can_rename is True
 
 
 def test_transcript_turns_split_on_speaker_track_and_exact_threshold() -> None:
@@ -2069,6 +2116,4 @@ def test_normal_and_diarization_review_paths_share_turn_semantics() -> None:
 
     assert normal.speaker_turns[0].model_dump(
         exclude={"turn_id", "source_segment_ids"}
-    ) == force_labels.speaker_turns[0].model_dump(
-        exclude={"turn_id", "source_segment_ids"}
-    )
+    ) == force_labels.speaker_turns[0].model_dump(exclude={"turn_id", "source_segment_ids"})

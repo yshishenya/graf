@@ -56,6 +56,7 @@ from twobrain_rec_server.db.models import (
     MediaRevision,
     Meeting,
     MeetingOutcomeSet,
+    MeetingSpeakerName,
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
@@ -551,6 +552,17 @@ async def get_cabinet_meeting_review(
                 .order_by(DiarizationSegment.sequence.asc(), DiarizationSegment.start_seconds.asc())
             )
         ).all()
+    speaker_names = {
+        row.speaker_key: row.display_name
+        for row in (
+            await db.scalars(
+                select(MeetingSpeakerName).where(
+                    MeetingSpeakerName.workspace_id == workspace_id,
+                    MeetingSpeakerName.meeting_id == meeting_id,
+                )
+            )
+        ).all()
+    }
     outcome_set = await _latest_outcome_set(
         db,
         workspace_id=workspace_id,
@@ -622,6 +634,8 @@ async def get_cabinet_meeting_review(
         ),
         outcome_set=outcome_set,
         outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
+        speaker_names=speaker_names,
+        can_rename_speakers=decision.state == "owner" or decision.role in {"owner", "admin"},
     )
 
 

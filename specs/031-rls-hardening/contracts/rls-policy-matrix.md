@@ -90,6 +90,7 @@ Tables:
 - `playback_normalization_jobs`
 - `playback_normalization_attempts`
 - `playback_backfill_runs`
+- `meeting_speaker_names`
 
 `workspace_invitations` and `admin_audit_events` use the direct workspace policy
 for normal request and worker contexts, and additionally allow `auth_bootstrap` only when
