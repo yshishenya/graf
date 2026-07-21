@@ -19,5 +19,6 @@ recording, audio bytes or transcript content was used.
   synthetic result, and no second submission after an ambiguous outcome or
   worker restart.
 
-This is synthetic focused evidence. Installed-app duration/route/volume proof,
-rollback rehearsal against the exact baseline, and release remain open tasks.
+This is synthetic focused evidence. At this historical checkpoint,
+installed-app duration/route/volume proof, rollback rehearsal against the exact
+baseline, and release were still open tasks.

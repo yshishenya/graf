@@ -25,7 +25,7 @@ The server will register the immutable v5 package as a distinct `initial_mixed_r
 
 **Risk / Validation Lane**: High-risk feature. It changes macOS capture timing, private audio artifacts, upload contracts, MediaScribe egress, transcript generation, playback, deletion and an installed-app workflow.
 
-**Release Gate**: No deploy, public rollout, installer distribution, release tag or production data action during this implementation lane. A separately approved release gate will use the prepared canary/rollback evidence.
+**Release Gate**: No deploy, public rollout, installer distribution, release tag or production data action during this implementation lane. A separately approved release gate will use the v5 canary evidence; rollback rehearsal is a contingency action, not a prerequisite while v5 passes its quality gates.
 
 **Target Platform**: Apple Silicon macOS 14.5+ desktop client; existing Linux containerized GRAF server and MediaScribe integration.
 
@@ -42,6 +42,9 @@ The server will register the immutable v5 package as a distinct `initial_mixed_r
 **Constraints**:
 
 - manual Start/Stop, persistent visible capture and one-action Stop remain;
+- recording start is not gated by the output route; the app leaves the selected
+  route and volume untouched, and speaker-to-microphone acoustic bleed is an
+  explicit limitation reserved for a separate future feature;
 - desktop sends audio only to GRAF and never has MediaScribe credentials;
 - no AEC, Apple voice processing, WebRTC AEC, VAD trimming, amplitude presence gate, raw dual capture retention, dual ASR/merge or hidden text dedupe in the v5 path;
 - diagnostics/evidence contain metadata, hashes, counts, durations and safe reason codes only—never audio, transcript text, credentials or local paths;
@@ -104,7 +107,7 @@ For v5, `media` is only valid as WAV PCM s16le/16 kHz/mono and `playback` only a
 
 ### 5. Rollback and cleanup boundary
 
-The baseline is the last known-good pre-v5 desktop release/commit, recorded in the v5 release receipt before canary. The server is additive-first: it must read v3/v4/v5 before a v5 desktop is installed. If the controlled v5 gate fails, the operator rolls back only future capture by reinstalling the recorded pre-v5 baseline; the server keeps v5 reading/processing support for every accepted v5 revision. There is no per-user toggle, silent dual fallback, second ASR job, rewrite of accepted data or rollback below a server that has v5 data.
+The server is additive-first: it reads v3/v4/v5 while the v5 path is evaluated. No old baseline is installed or rehearsed while v5 passes its quality gates. If a controlled v5 gate actually fails, the operator selects and verifies a pre-v5 baseline, then rolls back only future capture; the server keeps v5 reading/processing support for every accepted v5 revision. There is no per-user toggle, silent dual fallback, second ASR job, rewrite of accepted data or rollback below a server that has v5 data.
 
 After v5 passes its agreed control period and all historical dual processing is drained or explicitly terminal, remove the active dual capture/upload/submission and merge/echo-cleanup paths. Compatibility decoding/read/display remains only for records within retention. The cleanup is verified by source scans and negative package tests, not by deleting unknown user data.
 
@@ -115,7 +118,7 @@ After v5 passes its agreed control period and all historical dual processing is 
 3. Run focused server pytest contracts after each server change: source-kind role validation at session and finalize, immutable fingerprint, single-track multipart filename/type, idempotency/unknown POST handling, M4A candidate reuse, transcript import and v5 deletion.
 4. Exercise a synthetic, non-private complete path locally: desktop package → upload → server finalize → fake MediaScribe single WAV result → ordered transcript status and playback status. No fixture stores spoken words or raw audio.
 5. Before closeout, build/install only under the normal local test procedure and perform the controlled owner hardware run: 60 minutes with safe generated markers, local/incoming speech, overlap, silence and music; verify route unchanged, volume delta ≤1 dB, no unexplained drift >100 ms, one submit and user-visible transcript. Record metadata-only evidence.
-6. Rehearse deletion and rollback using test data. Verify v5 artifacts are lifecycle-purged and installing the recorded baseline affects only a subsequent recording.
+6. Rehearse deletion using test data. Keep rollback as a documented contingency and run its install/recording rehearsal only if the v5 quality gate fails.
 7. Run `bash -n` for modified scripts, `docker compose -f infra/docker-compose.yml config`, relevant companion single-WAV contract tests when available, and `infra/scripts/ci-local.sh`. Do not deploy or publish without separate approval.
 
 ## Project Structure

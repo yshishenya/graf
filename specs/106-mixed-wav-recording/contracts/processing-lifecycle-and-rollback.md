@@ -39,11 +39,11 @@ When a meeting is deleted or reaches its accepted retention outcome, existing re
 
 ## Control Period and Rollback
 
-1. Record the known-good pre-v5 desktop baseline commit/release and its clean installation receipt before v5 canary.
+1. Keep the pre-v5 rollback procedure and candidate baseline reference documented; do not install or rehearse it before v5 has a quality failure.
 2. Make server support additive: historic dual and v5 readers/validators are available before v5 desktop capture is installed.
 3. Validate v5 on controlled synthetic and installed-app recordings. No personal meeting data is used as test evidence.
-4. On failure, return only future recording to the recorded pre-v5 desktop baseline. Do not alter accepted v5 revisions, create a dual fallback, replace their transcript or make a second external job.
+4. If the v5 quality gate fails, verify and return only future recording to the selected pre-v5 desktop baseline. Do not alter accepted v5 revisions, create a dual fallback, replace their transcript or make a second external job.
 5. Keep server v5 reader/processing support until every accepted v5 revision is processed or terminal/deleted under its lifecycle. Do not roll the server below that compatibility point.
 6. After v5 acceptance and historic dual drain/explicit retirement, remove active dual capture/upload/submission/merge/echo code. Preserve only bounded historical reader/display support until retention expires.
 
-No live user-facing switch exists. Rollback is an operator release decision and requires the separate release/deploy approval gate.
+No live user-facing switch exists. Rollback is a contingency operator decision and requires the separate release/deploy approval gate; it is not a current v5 closeout gate while the new path passes.

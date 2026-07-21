@@ -1,6 +1,6 @@
 # Tasks: Быстрый и достоверный PostgreSQL test pipeline
 
-**Input**: Design documents from `specs/110-postgres-test-acceleration/`  
+**Input**: Design documents from `specs/110-postgres-test-acceleration/`
 **Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`,
 `contracts/local-postgres-test-pipeline.md`, `quickstart.md`
 

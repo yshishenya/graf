@@ -1,8 +1,8 @@
 # Test-pipeline Requirements Checklist: Быстрый и достоверный PostgreSQL test pipeline
 
 **Purpose**: Проверить полноту, ясность и измеримость требований к ускорению
-локального PostgreSQL gate до начала реализации.  
-**Created**: 2026-07-17  
+локального PostgreSQL gate до начала реализации.
+**Created**: 2026-07-17
 **Feature**: [spec.md](../spec.md) · [plan.md](../plan.md) · [runner contract](../contracts/local-postgres-test-pipeline.md)
 
 ## Requirement Completeness

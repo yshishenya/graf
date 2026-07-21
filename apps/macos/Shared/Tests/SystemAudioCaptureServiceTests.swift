@@ -20,6 +20,7 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertTrue(source.contains("stream.addStreamOutput(self, type: .audio"))
         XCTAssertTrue(source.contains("stream.addStreamOutput(self, type: .screen"))
         XCTAssertTrue(source.contains("stream.removeStreamOutput(self, type: .screen"))
+        XCTAssertTrue(source.contains("outputQueue.sync {}"))
     }
 
     func testStartRequiresGrantedPermissionAndApprovedScope() async throws {

@@ -307,14 +307,17 @@ Requirements-only остаются `011`, `026–029` и `101`; для них н
 - The separate Feature 099 production evidence includes the `v2026.07.17.3`
   startup-recovery release and the `v2026.07.17.5` active-attempt cleanup
   fix; it does not alter Feature 106 acceptance or its rollback boundary.
-- Feature `106-mixed-wav-recording` is in active high-risk implementation and
-  is not released or deployed. Its local candidate changes **new** recordings
+- Feature `106-mixed-wav-recording` implementation is complete in the local
+  candidate but is not released or deployed. Its local candidate changes **new** recordings
   to one shared source timeline with exactly `meeting-transcription.wav` (PCM
   s16le mono 16 kHz, the only ASR source), `meeting-review.m4a` (AAC mono 48
   kHz, playback only), and `manifest.json`. The backend receives the WAV once
   through `initial_mixed_recording` / `single_wav_v1`; the M4A never enters a
   MediaScribe request. This is implementation status, not installed-app or
   production acceptance evidence.
+- Recording start remains independent of the selected output route. The app
+  does not change route or volume; removing speaker sound from the microphone
+  is intentionally a separate future feature and is not part of v5.
 - The macOS capture architecture remains app-owned: ScreenCaptureKit system
   audio and the app-owned microphone source are explicitly injected into the
   candidate `V5LocalRecordingWriter`, which writes the v5 package described

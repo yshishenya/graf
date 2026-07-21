@@ -1,6 +1,6 @@
 # Tasks: Локальная разработка только с PostgreSQL
 
-**Input**: Design documents from `specs/108-local-postgres-only/`  
+**Input**: Design documents from `specs/108-local-postgres-only/`
 **Prerequisites**: `plan.md`, `research.md`, `data-model.md`, `contracts/local-postgres-test-runner.md`, `quickstart.md`
 
 **Tests**: Required. This is a high-risk PostgreSQL/Docker/migration change.

@@ -10,7 +10,7 @@ change. Evidence proves behavior without retaining user content.
 - artifact member count/name class, format/rate/channel result, duration,
   marker-lag metric, gap/drop count and lifecycle status;
 - upload-progress state transitions, one-job count, deletion state and
-  rollback pass/fail verdict.
+  rollback pass/fail/deferred verdict.
 
 ## Never Record
 
@@ -27,8 +27,8 @@ with invented values.
 
 ```text
 date:
-baseline_ref: v2026.07.17.6
-baseline_sha: 4be444e82ec449a3bb5312920fb0cd6008072c56
+baseline_ref: optional contingency reference
+baseline_sha:
 candidate_sha:
 schema: local-recording-manifest.v5
 scope: synthetic | installed-app
@@ -38,11 +38,12 @@ timeline: pass|fail|open, lag-ms only
 route_and_volume: pass|fail|open, delta-db only
 upload_and_processing: pass|fail|open, job-count/status only
 deletion: pass|fail|open
-rollback: pass|fail|open
+rollback: pass|fail|deferred|open
 limitations:
 ```
 
 The user-confirmed, still-in-progress parallel `v2026.07.16.7` work is not an
-interchangeable rollback baseline. A rollback changes only the next controlled
-capture; it never
+interchangeable rollback baseline. While v5 passes its quality gates, rollback
+is recorded as `deferred`; if a quality failure triggers it, rollback changes
+only the next controlled capture. It never
 rewrites an accepted v5 revision or introduces a hidden dual-provider retry.

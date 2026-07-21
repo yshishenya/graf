@@ -1,7 +1,7 @@
 # Infrastructure Requirements Checklist: Local PostgreSQL Only
 
-**Purpose**: Validate that the PostgreSQL-only infrastructure requirements are complete, clear and safe before implementation.  
-**Created**: 2026-07-17  
+**Purpose**: Validate that the PostgreSQL-only infrastructure requirements are complete, clear and safe before implementation.
+**Created**: 2026-07-17
 **Feature**: [spec.md](../spec.md)
 
 ## Requirement Completeness
