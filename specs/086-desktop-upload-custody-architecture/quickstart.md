@@ -12,7 +12,7 @@ This quickstart validates the 086 read-only architecture package.
 ## Stage-One Validation Commands
 
 ```sh
-SPECIFY_FEATURE_DIRECTORY=/private/tmp/crisp-086-desktop-upload-custody-architecture/specs/086-desktop-upload-custody-architecture \
+SPECIFY_FEATURE_DIRECTORY=<repo-root>/specs/086-desktop-upload-custody-architecture \
   .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
 
 placeholder_pattern='[T]ODO|[T]KTK|\\?\\?\\?|<place''holder>|[I]NSERT|[T]BD|NEEDS[[:space:]]+CLARIFICATION'

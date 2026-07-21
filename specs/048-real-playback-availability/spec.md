@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-24
 
-**Status**: Draft
+**Status**: Implemented, merged, released, and deployed
 
 **Input**: User description: "Playback must be visible and useful in the real product, not only in fixtures. Use Krisp as a clean-room UX reference: transcript stays central, playback is a persistent bottom control, timestamps seek audio, speaker activity is visible on a timeline, and web plus macOS embedded review must match. Determine whether playback should stream or download and implement carefully through Spec Kit."
 

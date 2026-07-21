@@ -2,10 +2,10 @@
 
 **Feature Branch**: `100-provider-link-verified-callback`
 **Created**: 2026-07-09
-**Status**: Draft
+**Status**: Implemented, released, and production-smoke validated
 **Input**: User description: "Security finding: Provider link trusts caller subject. Нужно не чинить точечно, а сделать отдельную 100-фичу и продумать безопасный flow привязки внешнего провайдера к существующему аккаунту."
 
-## Implementation Note
+## Historical implementation note — before the feature merge
 
 The 090 security closeout changed the deprecated direct `/api/v1/auth/link`
 compatibility endpoint to fail safe: authenticated callers may no longer create
@@ -13,9 +13,10 @@ or verify an external identity from a request body containing
 `candidate_provider_subject`. The route records a metadata-only rejected audit
 event and returns `provider_link_requires_verified_callback`.
 
-That hotfix removes the immediate raw-subject trust boundary. It does not
-complete 100: the user-facing ability to add a new provider to an existing
-account still needs the verified callback/link-intent flow described below.
+At that checkpoint the hotfix removed only the immediate raw-subject trust
+boundary. The verified callback/link-intent flow was subsequently implemented
+and released; the current server-verified, explicit-confirmation boundary is
+recorded in [quickstart.md](./quickstart.md) and its production receipts.
 
 ## Clarifications
 

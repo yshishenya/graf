@@ -2,7 +2,7 @@
 
 **Feature Branch**: `113-transcript-speaker-turns`
 **Created**: 2026-07-20
-**Status**: Draft
+**Status**: Implemented, merged, and included in release `v2026.07.21.1`
 **Input**: User description: "Объединить последовательные фрагменты одного спикера в транскрибации, выбрать правильный этап для объединения и сохранить работоспособность системы при смене облачного сервиса транскрибации."
 
 ## User Scenarios & Testing

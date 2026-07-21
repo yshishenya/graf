@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-27
 
-**Status**: Draft
+**Status**: Implemented locally; moderated usability and rollout evidence remain open
 
 **Input**: User description: "Feature 063: Настройки календарных интеграций и UI подключения. Feature 060 already added the backend calendar layer: read-only source connection, provider presets, selected calendars, sync, upcoming events, and recording-to-calendar-event context. Feature 063 must specify the user-facing layer: where settings live, how a user connects a calendar, chooses calendars, sees sync state, and controls reminder/recording prompt behavior. Study the project code, better settings practices, and external references; make the specification maximally detailed."
 

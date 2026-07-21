@@ -137,10 +137,10 @@ Result: PASS. Fresh synthetic local artifact created and validated:
 
 ```text
 meeting-mute-truth runtime proof: OK
-directory=/Users/yshishenya/Library/Application Support/2brain Rec/Recordings/20260616-122636-meeting-mute-truth-runtime-proof-43DC20D6-7E16-4DD1-B16B-36E78589FBA9
+directory=<local-recordings-dir>/<session-id>
 decision=meeting_mute_unproven
 privacySegments=1
-meeting-mute-truth latest artifact: OK /Users/yshishenya/Library/Application Support/2brain Rec/Recordings/20260616-122636-meeting-mute-truth-runtime-proof-43DC20D6-7E16-4DD1-B16B-36E78589FBA9
+meeting-mute-truth latest artifact: OK <local-recordings-dir>/<session-id>
 ```
 
 Manifest spot-check:
@@ -170,7 +170,7 @@ open -n "apps/macos/RecApp/.build/2brain Rec.app"
 Result: PASS for build and launch. The repo-built app bundle launched as:
 
 ```text
-/Users/yshishenya/Documents/crisp/apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec
+<repo-root>/apps/macos/RecApp/.build/2brain Rec.app/Contents/MacOS/2brain Rec
 ```
 
 Saved runtime screenshots:
@@ -226,7 +226,7 @@ Saved screenshots:
 Artifact:
 
 ```text
-/Users/yshishenya/Library/Application Support/2brain Rec/Recordings/20260616-150112-097B4A11-3E1C-4693-9ECE-B8C08D2C7F80
+<local-recordings-dir>/<session-id>
 ```
 
 Manifest spot-check:
@@ -254,7 +254,7 @@ Result: PASS after manual `/Applications` desktop runtime.
 Observed output:
 
 ```text
-meeting-mute-truth latest artifact: OK /Users/yshishenya/Library/Application Support/2brain Rec/Recordings/20260616-150112-097B4A11-3E1C-4693-9ECE-B8C08D2C7F80
+meeting-mute-truth latest artifact: OK <local-recordings-dir>/<session-id>
 ```
 
 Interpretation: the default latest artifact is now a real desktop UI recording

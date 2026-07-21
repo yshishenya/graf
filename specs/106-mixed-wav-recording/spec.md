@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-17
 
-**Status**: Draft
+**Status**: Implemented in code; acceptance and release gates remain open
 
 **Input**: User description: "Создать новый Spec Kit для полной перестройки записи: один синхронный WAV для MediaScribe, M4A для прослушивания, без legacy dual-track pipeline, с понятным rollback."
 

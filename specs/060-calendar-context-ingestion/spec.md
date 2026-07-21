@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-26
 
-**Status**: Draft
+**Status**: Implemented, merged, released, and deployed; external distribution remains separate
 
 **Input**: User description: "Feature 060. First build calendar integration only: connect calendars, ingest as much event information as available, use it for meeting context, naming, participants, and future recipient candidates. Message sending, transcript/summary delivery, and report distribution will be a later layer. Research Russian providers, their APIs, and products that already integrate with calendar services."
 

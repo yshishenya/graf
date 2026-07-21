@@ -35,7 +35,7 @@ Use this template for each manual QA run.
 - App build: `/Applications/2brain Rec.app` (`pro.2brain.rec`, `0.1.0`)
 - macOS version: local QA machine, Europe/Moscow session
 - Target: unknown/no active meeting app audio source
-- Fixture or artifact directory: `/Users/yshishenya/Library/Application Support/2brain Rec/Recordings/20260616-150112-097B4A11-3E1C-4693-9ECE-B8C08D2C7F80`
+- Fixture or artifact directory: `<local-recordings-dir>/<session-id>`
 
 ## Steps
 

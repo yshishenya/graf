@@ -366,7 +366,7 @@ Phase 11 partial remediation evidence recorded on 2026-06-04:
   T149: server image packages Alembic artifacts, deterministic identity/device
   bootstrap exists, compose separates MinIO root/API credentials, MinIO bucket/API
   user provisioning runs in an init service, and readiness no longer mutates MinIO.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/pytest -q apps/server/tests/integration/test_postgres_migrations.py apps/server/tests/integration/test_compose_bootstrap.py apps/server/tests/integration/test_upload_helper_contract.py apps/server/tests/integration/test_health_readiness.py apps/server/tests/integration/test_minio_upload_storage.py` -> `10 passed`.
+- `PYTHONPATH=apps/server/src pytest -q apps/server/tests/integration/test_postgres_migrations.py apps/server/tests/integration/test_compose_bootstrap.py apps/server/tests/integration/test_upload_helper_contract.py apps/server/tests/integration/test_health_readiness.py apps/server/tests/integration/test_minio_upload_storage.py` -> `10 passed`.
 - `/usr/local/bin/docker compose -f infra/docker-compose.dev.yml config` -> pass.
 - `TWOBRAIN_POSTGRES_PASSWORD=dummy TWOBRAIN_MINIO_ROOT_USER=root TWOBRAIN_MINIO_ROOT_PASSWORD=rootsecret TWOBRAIN_MINIO_API_ACCESS_KEY=api TWOBRAIN_MINIO_API_SECRET_KEY=apisecret /usr/local/bin/docker compose -f infra/docker-compose.yml config` -> pass.
 - #120 remediation completed for Spec Kit tasks T155, T156, T157, and T171:
@@ -375,8 +375,8 @@ Phase 11 partial remediation evidence recorded on 2026-06-04:
   reads the global latest event, temporary/orphan object cleanup rows carry
   explicit role/reason/error accounting, and audit tests assert ordering, content,
   actor/device/tenant, and redaction.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/pytest -q apps/server/tests/integration/test_finalize_integrity.py apps/server/tests/integration/test_audit_persistence.py apps/server/tests/integration/test_minio_upload_storage.py` -> `11 passed`.
-- `cd apps/server && PYTHONPATH=src /Users/yshishenya/.pyenv/versions/3.12.0/bin/ruff check src/twobrain_rec_server/ingest/audit.py src/twobrain_rec_server/ingest/finalize.py src/twobrain_rec_server/ingest/meetings.py src/twobrain_rec_server/ingest/sessions.py src/twobrain_rec_server/ingest/parts.py src/twobrain_rec_server/ingest/lifecycle.py src/twobrain_rec_server/ingest/lifecycle_guards.py src/twobrain_rec_server/ingest/store.py src/twobrain_rec_server/db/models/ingest.py tests/integration/test_finalize_integrity.py tests/integration/test_audit_persistence.py tests/integration/test_minio_upload_storage.py` -> pass.
+- `PYTHONPATH=apps/server/src pytest -q apps/server/tests/integration/test_finalize_integrity.py apps/server/tests/integration/test_audit_persistence.py apps/server/tests/integration/test_minio_upload_storage.py` -> `11 passed`.
+- `cd apps/server && PYTHONPATH=src ruff check src/twobrain_rec_server/ingest/audit.py src/twobrain_rec_server/ingest/finalize.py src/twobrain_rec_server/ingest/meetings.py src/twobrain_rec_server/ingest/sessions.py src/twobrain_rec_server/ingest/parts.py src/twobrain_rec_server/ingest/lifecycle.py src/twobrain_rec_server/ingest/lifecycle_guards.py src/twobrain_rec_server/ingest/store.py src/twobrain_rec_server/db/models/ingest.py tests/integration/test_finalize_integrity.py tests/integration/test_audit_persistence.py tests/integration/test_minio_upload_storage.py` -> pass.
 - #121 remediation completed for Spec Kit tasks T158, T159, T160, T175, T176,
   and T177: processing placeholders can load from Postgres after process-store
   reset, placeholder snapshots include meeting lifecycle status, access policy
@@ -384,8 +384,8 @@ Phase 11 partial remediation evidence recorded on 2026-06-04:
   expected track roles and expected track sizes are split in runtime and DB
   models, meeting timestamps are returned and persisted, and ManifestSnapshot
   provenance is asserted for future processing/deletion use.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/pytest -q apps/server/tests/integration/test_persistent_ingest_storage.py apps/server/tests/integration/test_processing_placeholder.py apps/server/tests/integration/test_access_placeholders.py apps/server/tests/contract/test_openapi_contract_drift.py apps/server/tests/integration/test_postgres_migrations.py` -> `18 passed`.
-- `cd apps/server && PYTHONPATH=src /Users/yshishenya/.pyenv/versions/3.12.0/bin/ruff check src/twobrain_rec_server/api/schemas.py src/twobrain_rec_server/api/ingest.py src/twobrain_rec_server/ingest/store.py src/twobrain_rec_server/ingest/sessions.py src/twobrain_rec_server/ingest/finalize.py src/twobrain_rec_server/ingest/processing_placeholder.py src/twobrain_rec_server/ingest/access_policy.py src/twobrain_rec_server/db/models/ingest.py src/twobrain_rec_server/db/models/meeting.py tests/integration/test_persistent_ingest_storage.py tests/integration/test_processing_placeholder.py tests/integration/test_access_placeholders.py` -> pass.
+- `PYTHONPATH=apps/server/src pytest -q apps/server/tests/integration/test_persistent_ingest_storage.py apps/server/tests/integration/test_processing_placeholder.py apps/server/tests/integration/test_access_placeholders.py apps/server/tests/contract/test_openapi_contract_drift.py apps/server/tests/integration/test_postgres_migrations.py` -> `18 passed`.
+- `cd apps/server && PYTHONPATH=src ruff check src/twobrain_rec_server/api/schemas.py src/twobrain_rec_server/api/ingest.py src/twobrain_rec_server/ingest/store.py src/twobrain_rec_server/ingest/sessions.py src/twobrain_rec_server/ingest/finalize.py src/twobrain_rec_server/ingest/processing_placeholder.py src/twobrain_rec_server/ingest/access_policy.py src/twobrain_rec_server/db/models/ingest.py src/twobrain_rec_server/db/models/meeting.py tests/integration/test_persistent_ingest_storage.py tests/integration/test_processing_placeholder.py tests/integration/test_access_placeholders.py` -> pass.
 - #123 remediation completed for Spec Kit tasks T163, T164, T165, T166, T167,
   and T170: public readiness remains non-mutating and detail-free, internal
   readiness requires `X-Internal-Health-Check: true`, production disables
@@ -393,9 +393,9 @@ Phase 11 partial remediation evidence recorded on 2026-06-04:
   async threadpool wrappers for readiness/upload paths, and request logs emit
   structured JSON with request id, method, templated path, status, duration, and
   redacted safe headers.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/pytest -q apps/server/tests/integration/test_health_readiness.py apps/server/tests/integration/test_production_docs_exposure.py apps/server/tests/unit/test_structured_logging.py apps/server/tests/unit/test_redaction.py apps/server/tests/unit/test_minio_async_wrappers.py apps/server/tests/integration/test_minio_upload_storage.py` -> `11 passed`.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/pytest -q apps/server/tests/contract/test_openapi_contract_drift.py apps/server/tests/integration/test_health_readiness.py` -> `6 passed`.
-- `cd apps/server && PYTHONPATH=src /Users/yshishenya/.pyenv/versions/3.12.0/bin/ruff check src/twobrain_rec_server/main.py src/twobrain_rec_server/api/health.py src/twobrain_rec_server/observability/logging.py src/twobrain_rec_server/storage/minio_client.py src/twobrain_rec_server/ingest/parts.py tests/integration/test_health_readiness.py tests/integration/test_production_docs_exposure.py tests/unit/test_structured_logging.py tests/unit/test_minio_async_wrappers.py` -> pass.
+- `PYTHONPATH=apps/server/src pytest -q apps/server/tests/integration/test_health_readiness.py apps/server/tests/integration/test_production_docs_exposure.py apps/server/tests/unit/test_structured_logging.py apps/server/tests/unit/test_redaction.py apps/server/tests/unit/test_minio_async_wrappers.py apps/server/tests/integration/test_minio_upload_storage.py` -> `11 passed`.
+- `PYTHONPATH=apps/server/src pytest -q apps/server/tests/contract/test_openapi_contract_drift.py apps/server/tests/integration/test_health_readiness.py` -> `6 passed`.
+- `cd apps/server && PYTHONPATH=src ruff check src/twobrain_rec_server/main.py src/twobrain_rec_server/api/health.py src/twobrain_rec_server/observability/logging.py src/twobrain_rec_server/storage/minio_client.py src/twobrain_rec_server/ingest/parts.py tests/integration/test_health_readiness.py tests/integration/test_production_docs_exposure.py tests/unit/test_structured_logging.py tests/unit/test_minio_async_wrappers.py` -> pass.
 - #124 remediation completed for Spec Kit tasks T168, T172, T173, T178, T179,
   and T180: tenant auth tests now cover wrong organization, inactive membership,
   other-workspace device, other-user device, and revoked device branches; fake
@@ -405,9 +405,9 @@ Phase 11 partial remediation evidence recorded on 2026-06-04:
   bearer token behavior; production config validation rejects localhost/default/root
   MinIO assumptions; and compose lint covers API healthcheck, localhost-only bind,
   log rotation, resource limits, runtime-only dependency install, and constraints.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/pytest -q apps/server/tests/integration/test_tenant_authorization.py apps/server/tests/integration/test_persistent_ingest_storage.py apps/server/tests/unit/test_fake_minio_storage.py apps/server/tests/integration/test_upload_helper_contract.py apps/server/tests/unit/test_config_validation.py apps/server/tests/integration/test_compose_hardening.py` -> `33 passed`.
+- `PYTHONPATH=apps/server/src pytest -q apps/server/tests/integration/test_tenant_authorization.py apps/server/tests/integration/test_persistent_ingest_storage.py apps/server/tests/unit/test_fake_minio_storage.py apps/server/tests/integration/test_upload_helper_contract.py apps/server/tests/unit/test_config_validation.py apps/server/tests/integration/test_compose_hardening.py` -> `33 passed`.
 - `TWOBRAIN_POSTGRES_PASSWORD=dummy TWOBRAIN_MINIO_ROOT_USER=rootuser TWOBRAIN_MINIO_ROOT_PASSWORD=rootsecret TWOBRAIN_MINIO_API_ACCESS_KEY=twobrain_rec_api TWOBRAIN_MINIO_API_SECRET_KEY=apisecret /usr/local/bin/docker compose -f infra/docker-compose.yml config` -> pass.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/python -m compileall -q apps/server/src apps/server/tests apps/server/scripts` -> pass.
+- `PYTHONPATH=apps/server/src python -m compileall -q apps/server/src apps/server/tests apps/server/scripts` -> pass.
 - #117 remediation completed for Spec Kit tasks T151, T152, and T153: module
   import no longer constructs an app while the production Docker command uses
   uvicorn factory mode, FastAPI lifespan disposes the DB engine and closes runtime
@@ -415,9 +415,9 @@ Phase 11 partial remediation evidence recorded on 2026-06-04:
   `constraints.txt` instead of `.[dev]`, and production compose has localhost-only
   API binding, API healthcheck, resource limits, log rotation, required secret
   placeholders, and production fail-closed config validation.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/pytest -q apps/server/tests/unit/test_app_lifecycle.py apps/server/tests/unit/test_config_validation.py apps/server/tests/integration/test_compose_hardening.py apps/server/tests/integration/test_production_docs_exposure.py apps/server/tests/integration/test_health_readiness.py` -> `20 passed`.
+- `PYTHONPATH=apps/server/src pytest -q apps/server/tests/unit/test_app_lifecycle.py apps/server/tests/unit/test_config_validation.py apps/server/tests/integration/test_compose_hardening.py apps/server/tests/integration/test_production_docs_exposure.py apps/server/tests/integration/test_health_readiness.py` -> `20 passed`.
 - `TWOBRAIN_POSTGRES_PASSWORD=dummy TWOBRAIN_MINIO_ROOT_USER=rootuser TWOBRAIN_MINIO_ROOT_PASSWORD=rootsecret TWOBRAIN_MINIO_API_ACCESS_KEY=twobrain_rec_api TWOBRAIN_MINIO_API_SECRET_KEY=apisecret /usr/local/bin/docker compose -f infra/docker-compose.yml config` -> pass.
-- `cd apps/server && PYTHONPATH=src /Users/yshishenya/.pyenv/versions/3.12.0/bin/ruff check src/twobrain_rec_server/main.py tests/unit/test_app_lifecycle.py tests/integration/test_compose_hardening.py tests/integration/test_production_docs_exposure.py tests/unit/test_config_validation.py` -> pass.
+- `cd apps/server && PYTHONPATH=src ruff check src/twobrain_rec_server/main.py tests/unit/test_app_lifecycle.py tests/integration/test_compose_hardening.py tests/integration/test_production_docs_exposure.py tests/unit/test_config_validation.py` -> pass.
 - #118 remediation completed for Spec Kit tasks T148 and T154: the upload helper
   now requires separate organization, workspace, user, and device identifiers,
   keeps bearer token optional, creates upload sessions with explicit expected
@@ -427,6 +427,6 @@ Phase 11 partial remediation evidence recorded on 2026-06-04:
   docs and PRD now say Phase 11 issues #112-#124 / tasks T119-T180 are remediated
   locally, with final full sanity, dirty-worktree review, and commit/PR decision
   still remaining before handoff.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/pytest -q apps/server/tests/integration/test_upload_helper_contract.py apps/server/tests/integration/test_compose_bootstrap.py` -> `3 passed`.
-- `cd apps/server && PYTHONPATH=src /Users/yshishenya/.pyenv/versions/3.12.0/bin/ruff check scripts/upload_test_artifact.py scripts/seed_dev_identity.py tests/integration/test_upload_helper_contract.py` -> pass.
-- `PYTHONPATH=apps/server/src /Users/yshishenya/.pyenv/versions/3.12.0/bin/python -m compileall -q apps/server/scripts/upload_test_artifact.py apps/server/scripts/seed_dev_identity.py` -> pass.
+- `PYTHONPATH=apps/server/src pytest -q apps/server/tests/integration/test_upload_helper_contract.py apps/server/tests/integration/test_compose_bootstrap.py` -> `3 passed`.
+- `cd apps/server && PYTHONPATH=src ruff check scripts/upload_test_artifact.py scripts/seed_dev_identity.py tests/integration/test_upload_helper_contract.py` -> pass.
+- `PYTHONPATH=apps/server/src python -m compileall -q apps/server/scripts/upload_test_artifact.py apps/server/scripts/seed_dev_identity.py` -> pass.

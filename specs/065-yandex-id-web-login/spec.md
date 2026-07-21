@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-27
 
-**Status**: Draft
+**Status**: Implemented Yandex ID web login; live provider-click evidence remains separate
 
 **Input**: User description: "давай настроим авторизацию через yandex ID"; follow-up: "бери 065"
 

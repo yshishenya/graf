@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-04
 
-**Status**: Draft
+**Status**: Implemented as the remote-first deployment and rollback plan
 
 **Input**: User description: "Deployment plan for the 2brain Rec production rollout in 2brain.pro infrastructure with public rec.2brain.pro endpoint: Docker Compose layout, secrets and environment policy, volumes and backups, migration runbook, first production smoke, and rollback."
 

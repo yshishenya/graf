@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-01
 
-**Status**: Draft
+**Status**: Implemented import/dead-code cleanup; no deploy or product behavior change
 
 **Input**: Continue Ponytail cleanup after 074. Remove only Swift helpers with
 direct zero-reference evidence. Do not split files or introduce abstractions.

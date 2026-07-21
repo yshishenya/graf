@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-25
 
-**Status**: Draft
+**Status**: Implemented, merged, released, and deployed; final claim remains pilot-blocked
 
 **Input**: User description: "Составь пошаговый план и действуй внимательно по SDD Spec Kit, пока не будет реализован и перепроверен полноценный MVP. Перепроверь интерфейс приложения и веб кабинет. Очень аккуратно, ничего не сломай. Если нужно, используй Krisp как clean-room reference для веба и приложения."
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-11
 
-**Status**: Draft
+**Status**: Historical compatibility slice; v5 processing path is owned by feature 106
 
 **Input**: User description: "Start implementation of feature 015. Follow SDD / Spec Kit carefully, rerun checks after clarifications, fix every issue found, and use Product Design only if design work is needed."
 

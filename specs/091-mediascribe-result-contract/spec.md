@@ -2,7 +2,7 @@
 
 **Feature Branch**: `091-mediascribe-result-contract`
 **Created**: 2026-07-07
-**Status**: Draft
+**Status**: Implemented and released; complete post-deploy transcript-plus-summary receipt remains open
 **Input**: User description: "Update GRAF MediaScribe integration to use the new result contract: `transcript_status`, `transcript_reason`, `error_code`, and `error_origin` must distinguish usable transcripts, processed audio with no recognizable speech, input-audio problems, and MediaScribe service failures."
 
 ## User Scenarios & Testing

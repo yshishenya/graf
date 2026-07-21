@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-08
 
-**Status**: Clarified - ready for planning
+**Status**: Historical architecture pivot accepted; feature 106 owns new capture
 
 **Input**: User decision: "давай сделаем пивот" after repeated CoreAudio/HAL
 runaway during `019-live-route-stability` validation.

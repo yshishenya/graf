@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-18
 
-**Status**: Draft
+**Status**: Implemented on the macOS owner-review surface
 
 **Input**: User description: "Analyze whether Cmd plus and Cmd minus can increase and decrease application zoom on the current stack with an embedded web view page. If possible, plan it as a new feature and implement it through SDD Spec Kit."
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-15
 
-**Status**: Draft
+**Status**: Implemented and deployed as the tenant-isolation baseline
 
 **Input**: User description: "Implement the independent `031-rls-hardening`
 slice. Harden tenant isolation with PostgreSQL row-level security for 2brain

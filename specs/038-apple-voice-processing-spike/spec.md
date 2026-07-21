@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-22
 
-**Status**: Draft
+**Status**: Archived Apple voice-processing spike; not a current runtime candidate
 
 **Input**: User description: "Continue the clean-recording work after 037 and evaluate Apple voice processing before moving to WebRTC AEC3."
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-21
 
-**Status**: Draft
+**Status**: Implemented, merged through PR #3944, and released as `v2026.07.21.4`; separate production rollout proof is not claimed
 
 **Input**: User description: "Связать ползунок проигрывателя с таймлайном спикеров, сделать speaker timeline кликабельным, подсвечивать говорящего, переходить к нужному тексту и позволить вручную задавать имена спикеров."
 

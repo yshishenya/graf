@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-09
 
-**Status**: In progress — current-master integration and production evidence
+**Status**: Integrated and released; T101 operational acceptance and T104 final closeout remain open
 
 **Input**: User description: "Start feature 096-product-analytics-provider-rollout after 094. Set up a production-ready provider layer for product activation analytics: self-hosted PostHog as the primary workspace, Yandex Metrica as the parallel web/ad/Webvisor/offline-conversion surface, runtime secret/config wiring without live secrets in git, provider smoke, dashboard readiness, rollback, and legal/campaign blockers. Keep this separate from 094 implementation."
 

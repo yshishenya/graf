@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-01
 
-**Status**: Draft
+**Status**: Implemented cleanup batch; no deploy or product behavior change
 
 **Input**: User description: "Наша цель не просто порезать код. Главная цель -
 сделать его оптимальным, не раздуть, убрать мертвые функции и лишние строки,

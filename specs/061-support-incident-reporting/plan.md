@@ -1,8 +1,8 @@
 # Implementation Plan: Support Incident Reporting
 
-**Branch**: `codex/061-support-incident-reporting` | **Date**: 2026-06-26 | **Spec**: [spec.md](/Users/yshishenya/.codex/worktrees/503d/crisp/specs/061-support-incident-reporting/spec.md)
+**Branch**: `codex/061-support-incident-reporting` | **Date**: 2026-06-26 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/Users/yshishenya/.codex/worktrees/503d/crisp/specs/061-support-incident-reporting/spec.md`
+**Input**: Feature specification from `<repo-root>/specs/061-support-incident-reporting/spec.md`
 
 **Note**: This plan is produced by `$speckit-plan` for the high-risk privacy,
 diagnostics, backend, and native UX feature slice.
@@ -120,7 +120,7 @@ Focused implementation validation will cover:
 Required closeout commands for implementation:
 
 ```sh
-cd /Users/yshishenya/.codex/worktrees/503d/crisp
+cd <repo-root>
 uv --directory apps/server run pytest \
   tests/unit/test_support_incident_redaction.py \
   tests/contract/test_support_incident_contract.py \

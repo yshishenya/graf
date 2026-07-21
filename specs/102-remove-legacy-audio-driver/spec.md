@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-13
 
-**Status**: Merged
+**Status**: Implemented and merged; legacy boundary retired
 
 **Input**: User description: "Полностью и очень аккуратно вычистить из кода всё, что связано с отдельным audio driver: продукт уже перешёл на другой путь, а driver стал legacy."
 

@@ -413,7 +413,7 @@ thresholds) and their approvals are still required before Feature 096 can be
 accepted. The root guard production receipt is now recorded; the backup/restore
 subgate itself is also passed.
 
-## Tracker reconciliation after merge and release: 2026-07-20
+## Tracker reconciliation after merge and release: 2026-07-20 (historical checkpoint)
 
 - PR #3852 is merged into `master` at
   `11b82f378c24007b40d90f4c08e9645ce617e91d`.
@@ -426,6 +426,8 @@ subgate itself is also passed.
   dashboard freshness/approved goals, and alert/rollback approvals are not
   complete. The root-owned guard/timer and metadata-only pass receipt are now
   present.
-- T104 remains `[ ]` in `tasks.md`; Issue #3860 was reopened after its premature
-  closure so the tracker matches the dependency on T101. This correction does
-  not change production state.
+- At this checkpoint T104 remained `[ ]` in `tasks.md`; Issue #3860 was reopened
+  after its premature closure so the tracker matched the dependency on T101.
+  The later docs-only reconciliation is recorded in
+  `reconciliation-closeout-2026-07-21.md`; this correction does not change
+  production state.

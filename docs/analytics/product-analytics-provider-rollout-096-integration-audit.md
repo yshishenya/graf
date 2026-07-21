@@ -1,9 +1,9 @@
 # Feature 096 integration audit
 
 > The opening anchor is the pre-merge snapshot from 2026-07-18. The
-> post-merge reconciliation at the end of this document is the current source
-> for merge, release, and production status; the older wording is retained as
-> audit history.
+> post-merge section is retained as a dated historical checkpoint; the current
+> merge/release/status boundary is the linked 2026-07-21 reconciliation receipt
+> and the central Spec Kit index. Older wording is retained as audit history.
 
 Date: 2026-07-18
 
@@ -44,9 +44,10 @@ Date: 2026-07-18
   `desktop_account_connected` and `first_value_session_completed`. Production
   upload flags remain disabled.
   The token remains outside git and evidence.
-- T104: reviewer approval, merge, CalVer release/tag, production receipt and
-  final status reconciliation. PR #3852 is still draft; no release or execute
-  deploy is claimed.
+- T104: reviewer/merge, CalVer release/tag and production receipts are recorded;
+  the wording checkpoint is updated, but the task remains open until T101 and
+  final tracker closeout complete. No product-rollout or paid-campaign approval
+  is claimed.
 
 The ClientId/Yclid gap is now explicitly scoped: the proven slice accepts only
 an explicit runtime UserId and rejects unresolved attribution values. The
@@ -83,9 +84,9 @@ rewrite its checked task history.
   proven UserId path, execute the metadata-only rollback path, and verify
   ordinary product workflows remain intact in the current-master receipt.
 - [ ] T104 Reconcile `spec.md` status, evidence wording, tasks, tracker, release
-  notes, tag, and production receipt before claiming Feature 096 complete. The
-  current PR is #3852 (draft); convergence issues #3853–#3860 now mirror
-  T097–T104, with T101/T104 still open.
+  notes, tag, and production receipt after T101 is complete. The current
+  wording checkpoint and remaining dependency are recorded in
+  `specs/096-product-analytics-provider-rollout/validation/reconciliation-closeout-2026-07-21.md`.
 
 ## Safety boundary
 
@@ -95,7 +96,7 @@ approval. The T102 live-safe receipt proves provider acceptance only; do not
 enable long-running Yandex offline upload, change production approval flags, or
 claim paid-campaign readiness from smoke evidence alone.
 
-## Current-master post-merge reconciliation: 2026-07-20
+## Current-master post-merge reconciliation: 2026-07-20 (historical checkpoint)
 
 - PR #3852 is merged into `master` at `11b82f378c24007b40d90f4c08e9645ce617e91d`.
 - The integrated provider/runtime-guard scope is included in release
@@ -107,6 +108,16 @@ claim paid-campaign readiness from smoke evidence alone.
   the root-owned production guard/timer, independent RBAC/MFA/audit and
   lifecycle review, dashboard freshness/approved goals, and persistent
   alert/rollback evidence.
-- T104 remains `[ ]` in `tasks.md`; Issue #3860 was reopened on 2026-07-20
+- At this checkpoint T104 remained `[ ]` in `tasks.md`; Issue #3860 was reopened
   because release/deploy evidence alone cannot close a task that depends on the
-  still-open T101. This is tracker correction, not a new implementation claim.
+  still-open T101. The later docs-only reconciliation updated the wording
+  checkpoint and preserved both T101 and T104 as open; this is tracker
+  correction, not a new implementation claim.
+
+## Current documentation boundary: 2026-07-21
+
+The authoritative reconciliation is
+[`specs/096-product-analytics-provider-rollout/validation/reconciliation-closeout-2026-07-21.md`](../../specs/096-product-analytics-provider-rollout/validation/reconciliation-closeout-2026-07-21.md),
+with the cross-feature index in
+[`docs/spec-kit-feature-index.md`](../spec-kit-feature-index.md). T101 remains
+open; this document does not authorize provider enablement or campaign launch.

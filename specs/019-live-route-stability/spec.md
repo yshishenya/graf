@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-04
 
-**Status**: Draft - ready for planning
+**Status**: Superseded by feature 025; route-stability evidence remains historical
 
 **Input**: User description: "After a real meeting test, 2brain Rec audio periodically disappeared during the meeting. The user had to press Run Check repeatedly to hear remote participants again and to make the microphone work again. Create a detailed standalone Spec Kit feature for live route stability, separate from speaker-to-mic leakage, backend ingest, upload, and future product slices."
 
@@ -27,9 +27,11 @@
 
 This feature is a release-blocking stability slice for the macOS live audio route. It exists because a real meeting on 2026-06-04 showed that the already accepted short smoke behavior is not enough: during a long live meeting, routed audio periodically stopped, and manual `Run Check` was required to restore both remote audio playback and local microphone passthrough.
 
-The saved local recording package is:
+The saved local recording package is referenced only by its metadata-safe
+session identifier; the private local filesystem path is intentionally omitted
+from the repository.
 
-`/Users/yshishenya/Library/Application Support/2brain Rec/Recordings/20260604-091621-C705ED72-E352-4522-93F2-1219953177EE`
+`<local-recordings-dir>/<session-id>`
 
 Observed metadata from that package:
 

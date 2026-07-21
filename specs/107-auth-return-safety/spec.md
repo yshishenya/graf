@@ -4,9 +4,14 @@
 
 **Created**: 2026-07-17
 
-**Status**: Draft
+**Status**: Implemented, merged, and released; original closed release lane is historical
 
 **Input**: User description: "Fix the new-user Yandex login path that returns to an unavailable meeting, complete the related hardening, update from the mainline first, and do not release while parallel work is in progress."
+
+The initial implementation lane intentionally kept release/deploy closed. That
+gate was explicitly reopened after parallel work completed; the resulting
+production release is recorded in the feature release notes and does not erase
+the original no-release constraint for the implementation phase.
 
 ## User Scenarios & Testing *(mandatory)*
 

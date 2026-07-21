@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-16
 
-**Status**: Draft
+**Status**: Implemented owner-review polish; live rollout gates remain bounded
 
 **Input**: User description: "Continue toward MVP through the full SDD/Spec Kit cycle, carefully verifying against the reference desktop application and web product. Close the next plan item after 035: prove the live owner review route, decide notes/action truth, and move the installed desktop/web review surfaces toward the accepted clean-room V8 baseline without copying Krisp."
 

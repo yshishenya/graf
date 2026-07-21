@@ -2,7 +2,7 @@
 
 **Feature**: `096-product-analytics-provider-rollout`
 
-**Evidence status**: `historical_branch_reference_current_integration_unaccepted`
+**Evidence status**: `historical receipts refreshed; T101 and T104 remain open`
 
 This file records what has been completed for planning, implementation,
 convergence, and review remediation. Future live rollout evidence must follow
@@ -11,7 +11,7 @@ secrets, counter IDs, project keys, payloads, screenshots, visitor/account
 identifiers, content-bearing data, transcript artifacts, audio, signed URLs, local paths,
 cookies, or private provider exports.
 
-## Current-master boundary
+## Historical current-master boundary — checkpoint before reconciliation
 
 The implementation, production, and runtime rows below are retained historical
 receipts from the old 096 branch at `137565c0`; they are not evidence for
@@ -22,8 +22,9 @@ metadata-only smoke, rollback dry-run, ordinary-workflow regression, diff
 hygiene, and the 2026-07-18 remote PostHog backup/restore subgate receipt.
 T097–T100 and T103 are closed by the current-master receipts and tracker issues
 #3853–#3856/#3859. T101 (issue #3857) remains open for its other operational
-reviews, alongside T104 (issue #3860); T102 (issue #3858) is closed by the
-live-safe receipt below. No release,
+reviews; T104 (issue #3860) also remains open until that dependency and final
+tracker closeout are complete. T102 (issue #3858) is closed by the live-safe
+receipt below. No release,
 production enablement, or campaign launch may be inferred from the historical
 rows.
 
@@ -42,7 +43,7 @@ not for the historical runtime rows below.
 | PostHog RBAC/audit and retention read-only review | partial | One team reports `event_retention_months=84`; the session-recording policy string is `5y` while recording is opted out and the separate day field is null. One activity log has 4 rows; one organization/membership/project is present. Custom role/resource memberships are empty and `enforce_2fa` is not confirmed. Aggregate dashboard/event checks found one dashboard with eight items and only historical July 9 provider events; no offline conversion events. No payloads or user data were inspected. |
 | T101 remaining operations | open | The resource/runtime subgate is now verified, but an automated alert/rollback receipt, independent RBAC/MFA/audit review, complete retention/deletion lifecycle approval, and dashboard freshness/goal review remain open. |
 | T102 | complete | Out-of-git Yandex OAuth secret-file setup is present with mode `600`; a disposable current-candidate smoke accepted exactly `desktop_account_connected` and `first_value_session_completed` with `live_safe_uploaded`. No credential, counter ID, CSV row, or response body was printed or committed; production flags remain disabled. |
-| T104 | open | PR #3852 is still draft; reviewer approval, merge, release and production closeout remain open. GitHub tracker issues #3857, #3858 and #3860 are synchronized. |
+| T104 | open | The merge/release wording is reconciled in `validation/reconciliation-closeout-2026-07-21.md`, but the task remains open until T101 and the final tracker closeout are complete. |
 | T101 metadata-only continuation | partial | Additional aggregate review found zero session recordings, zero exported assets/recordings/batch exports, zero deletion requests, four audit-category records, unset organization `enforce_2fa`, JSON log rotation `50m`/`3`, and the configured session policy string `5y`. Dashboard freshness and independent approval remain open; the earlier no-limits snapshot is superseded by the 2026-07-20 runtime receipt. |
 
 ## T101 production resource and health receipt: 2026-07-20

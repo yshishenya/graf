@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-01
 
-**Status**: Draft
+**Status**: Historical passthrough hardening; retained as validation evidence only
 
 **Input**: User description: "After accepting real bidirectional passthrough, harden the macOS audio layer before adding recording. Keep the current non-recording passthrough behavior, but prioritize automated and low-manual validation now: CPU/no-hang behavior, device-change recovery, `coreaudiod` restart recovery, sleep/wake behavior, installer repair/update/uninstall regression, diagnostics redaction, and UX clarity that passthrough is active while recording is not. Defer full long-duration/manual call acceptance until recording exists, so the team can verify the audio path from recorded evidence. Recording, transcription, upload, MediaScribe, Langfuse, and new server workflows remain out of scope for this slice."
 

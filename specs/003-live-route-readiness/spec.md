@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-31
 
-**Status**: Draft
+**Status**: Historical route-readiness slice; superseded by later capture architecture
 
 **Input**: User description: "Implement real macOS bidirectional audio route readiness for 2brain Rec: prove physical microphone audio reaches 2brain Rec Microphone, prove 2brain Rec Speaker reaches the selected physical output, keep app not ready until both paths pass, preserve private app I/O fail-closed behavior, measure built-in/wired added latency <=30 ms, enforce remote-to-mic leakage <= -45 dB, and produce browser-call evidence for Chrome, Opera, Yandex Browser, and Yandex Telemost without starting hidden recording."
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-04
 
-**Status**: Clarified - ready for planning
+**Status**: Implemented product-owned mute truth; third-party mute adapters remain unproven
 
 **Input**: User asked to preserve the context from the old
 `009-respect-meeting-mute` branch and then move the slice into implementation as

@@ -7,7 +7,7 @@
 
 ## Verified Anchor
 
-- Worktree: `/Users/yshishenya/.codex/worktrees/098-calendar-auto-context-match`
+- Worktree: `<worktree-root>/098-calendar-auto-context-match`
 - Branch: `codex/098-calendar-auto-context-match`
 - Pre-implementation `HEAD`: `d912a21c68c5ff0823bb89abd4d045bb873723cf`
 - Validated base `origin/master`: `d912a21c68c5ff0823bb89abd4d045bb873723cf`
@@ -29,9 +29,9 @@ Before implementation code began, this worktree contained only the expected
 
 No source, test, migration, release or runtime file was dirty at this anchor.
 The unrelated detached worktree at
-`/Users/yshishenya/.codex/worktrees/30ac/crisp` remains outside this feature
+`<repo-root>` remains outside this feature
 worktree and must not be reset, cleaned, staged or included in 098 commits.
-The canonical checkout `/Users/yshishenya/Documents/crisp` is also preserved;
+The canonical checkout `<repo-root>` is also preserved;
 implementation is isolated here.
 
 ## Spec Kit And Tracker Baseline
@@ -40,7 +40,7 @@ Commands and results:
 
 ```text
 .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
-PASS: FEATURE_DIR=/Users/yshishenya/.codex/worktrees/098-calendar-auto-context-match/specs/098-calendar-auto-context-match
+PASS: FEATURE_DIR=<worktree-root>/098-calendar-auto-context-match/specs/098-calendar-auto-context-match
 
 checklist scan
 PASS: requirements.md 16/16

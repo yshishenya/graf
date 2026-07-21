@@ -20,7 +20,7 @@ Turn the existing fixed meeting player and speaker lanes into one time-aligned r
 
 **Risk / Validation Lane**: `high-risk-feature`. The slice changes shared transcript/playback UX and adds an authorized, audited meeting-content mutation, so the full Spec Kit sequence and repository gate apply.
 
-**Release Gate**: No deploy. Deployment, release notes publication, production smoke, and rollback remain a separate explicitly approved lane.
+**Release Gate**: This implementation lane excluded CD and production data mutation. The validated implementation was later merged through PR #3944 and released as `v2026.07.21.4`; this spec does not claim a separate production rollout proof.
 
 **Target Platform**: GRAF server-rendered browser cabinet and the same cabinet embedded in the macOS app.
 
@@ -129,3 +129,13 @@ See [data-model.md](./data-model.md), [contracts/playback-speaker-review.md](./c
 | Spec-driven delivery | PASS | Contracts and validation map directly to FR-001 through FR-020. |
 
 No unresolved critical design decision remains.
+
+## Post-implementation reconciliation
+
+- The three user stories and all 16 tasks are complete; focused validation,
+  browser/embedded design QA, and the repository gate are recorded in
+  `tasks.md`.
+- The implementation is merged in PR #3944 and included in release
+  `v2026.07.21.4`.
+- No separate production deploy, rollout, or rollback claim is added by this
+  documentation update; those remain an explicitly separate release boundary.

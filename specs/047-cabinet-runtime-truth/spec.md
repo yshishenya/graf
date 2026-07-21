@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-24
 
-**Status**: Draft
+**Status**: Implemented, merged, released, and deployed
 
 **Input**: User description: "After a server restart the macOS app looked like everything was OK, then later said I was not logged into the cabinet; pressing login showed the server was down. This must not happen. Make the app and web cabinet truthful, recheck both surfaces carefully, and preserve MVP readiness."
 

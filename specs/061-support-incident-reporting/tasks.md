@@ -1,6 +1,6 @@
 # Tasks: Support Incident Reporting
 
-**Input**: Design documents from `/Users/yshishenya/.codex/worktrees/503d/crisp/specs/061-support-incident-reporting/`
+**Input**: Design documents from `<repo-root>/specs/061-support-incident-reporting/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/support-incident-contract.md](contracts/support-incident-contract.md), [quickstart.md](quickstart.md)
 

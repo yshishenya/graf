@@ -7,7 +7,7 @@ paths, audio, transcript text, or signed URLs as evidence.
 ## 1. Confirm Scope
 
 ```sh
-cd /Users/yshishenya/.codex/worktrees/503d/crisp
+cd <repo-root>
 SPECIFY_FEATURE_DIRECTORY=specs/061-support-incident-reporting \
   .specify/scripts/bash/check-prerequisites.sh --json --paths-only
 ```
@@ -21,7 +21,7 @@ Expected:
 ## 2. Server Focused Tests
 
 ```sh
-cd /Users/yshishenya/.codex/worktrees/503d/crisp
+cd <repo-root>
 uv --directory apps/server run pytest \
   tests/unit/test_support_incident_redaction.py \
   tests/contract/test_support_incident_contract.py \
@@ -50,7 +50,7 @@ Required scenarios:
 ## 3. macOS Focused Tests
 
 ```sh
-cd /Users/yshishenya/.codex/worktrees/503d/crisp
+cd <repo-root>
 swift test --package-path apps/macos
 ```
 
@@ -87,7 +87,7 @@ Use focused tests or review evidence to confirm:
 ## 5. Repository Gate
 
 ```sh
-cd /Users/yshishenya/.codex/worktrees/503d/crisp
+cd <repo-root>
 infra/scripts/ci-local.sh
 ```
 

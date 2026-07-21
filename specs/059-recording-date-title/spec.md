@@ -4,8 +4,7 @@
 
 **Created**: 2026-06-26
 
-**Status**: Implemented locally with full CI pass; pending PR review, release,
-deploy, and app bundle evidence
+**Status**: Implemented, merged, and released; production receipt recorded
 
 **Input**: User description: "берем номер 059 для фичи. Пока только планируем ее детально. Так-как у нас щас идет процес рефакторинга фронта. Нужно проставлять дату записи, когда она сделана. Нужно проставлять имя файла и продумать откуда его брать: KRISP берет из приложения плюс дату; для браузера - название окна, из которого писали звук; если есть календарное мероприятие на эту дату/время - название из встречи в календаре. Посмотреть KRISP, интернет, полный анализ."
 
@@ -139,9 +138,10 @@ As a privacy-conscious owner or admin, I want title source and policy behavior t
 
 ## Assumptions
 
-- Feature `059` is implemented locally after the post-057/058 merge basis and
-  has passed full local CI; PR, release, deployment, and app bundle evidence
-  remain separate closeout gates.
+- Feature `059` was implemented after the post-057/058 merge basis, passed full
+  local CI, and was later merged through PR `#2235` and included in release
+  `v2026.06.27.1`; the current product receipt is maintained in
+  `docs/current-product-status.md`.
 - Selected lane is `high-risk-feature` because the feature touches user-facing workflow, local recording metadata, server review surfaces, and explicit deferral of privacy-sensitive calendar/window metadata.
 - The current frontend refactor should consume existing meeting fields where possible; this feature should not introduce a new frontend architecture or design system.
 - Feature 059 does not implement a new rename UI/API, download/export feature, calendar connector, window observer, or app-observer permission flow.

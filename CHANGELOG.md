@@ -21,7 +21,11 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Добавлен единый реестр Spec Kit: статусы feature slices, artifact matrix,
+  receipts и открытые задачи сверены с текущим продуктовым статусом.
+- Исторические локальные build/recording/worktree paths в evidence заменены
+  на metadata-safe placeholders; requirements-only slices явно отмечены без
+  искусственных plan/tasks.
 
 ### Операции
 - _Пока нет записей._
@@ -48,7 +52,9 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Spec Kit-пакет Feature 118 сверён с merged PR #3944 и выпуском
+  `v2026.07.21.4`; старый `Draft`-статус заменён на фактическую release
+  boundary без дополнительного production claim.
 
 ### Операции
 - _Пока нет записей._
