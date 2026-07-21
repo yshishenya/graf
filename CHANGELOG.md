@@ -21,7 +21,9 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Feature `090-manual-media-upload-ui`: добавлен metadata-only production
+  owner-upload и cleanup receipt для закрытия T072/#3050 и release closeout
+  T085/#3049.
 
 ### Операции
 - _Пока нет записей._
