@@ -71,6 +71,7 @@ struct DesktopSupportIncidentActionStrip: View {
     var leadingPadding: CGFloat = 0
     let onSubmit: ([String]) async throws -> DesktopSupportIncidentResponse
     let onSync: ([String]) async throws -> DesktopSupportIncidentResponse
+    let onCopyReport: ([String]) throws -> String?
     let onOpenSignIn: () -> Void
 
     @State private var submissionOverride: DesktopSupportIncidentSubmissionState?
@@ -82,12 +83,14 @@ struct DesktopSupportIncidentActionStrip: View {
         onSync: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
             throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
         },
+        onCopyReport: @escaping ([String]) throws -> String? = { _ in nil },
         onOpenSignIn: @escaping () -> Void = {}
     ) {
         self.summary = summary
         self.leadingPadding = leadingPadding
         self.onSubmit = onSubmit
         self.onSync = onSync
+        self.onCopyReport = onCopyReport
         self.onOpenSignIn = onOpenSignIn
     }
 
@@ -303,7 +306,13 @@ struct DesktopSupportIncidentActionStrip: View {
     }
 
     private func copySafeReport() {
-        guard let text = summary.safeReport?.clipboardText else { return }
+        let text: String
+        do {
+            guard let value = try onCopyReport(supportIncidentItemIDs), !value.isEmpty else { return }
+            text = value
+        } catch {
+            return
+        }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)

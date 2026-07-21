@@ -5,7 +5,7 @@ import XCTest
 #endif
 
 struct DesktopSupportIncidentFixture {
-    static let schemaVersion = "desktop-support-incident.v1"
+    static let schemaVersion = "desktop-support-incident.v2"
     static let successMessage = "Запрос принят и передан в поддержку. Номер: CUST-123"
     static let failureMessage = "Запрос не принят. Проверьте подключение или скопируйте безопасную сводку."
     static let supportTitle = "Связаться с поддержкой"
@@ -50,7 +50,27 @@ struct DesktopSupportIncidentFixture {
                 "total_size_bucket": "100mb_1gb",
                 "duration_bucket": "30m_2h"
             ],
-            "redaction_state": "metadata_only"
+            "redaction_state": "metadata_only",
+            "client_report_fingerprint": "report_fpr_18ce",
+            "client_dedupe_key": "support_dedupe_18ce",
+            "canonical_stage": "retention",
+            "custody_owner": "policy_lifecycle",
+            "upload_state": "terminal",
+            "deletion_state": "retention_expired",
+            "local_copy_state": "retained",
+            "server_copy_state": "unknown",
+            "server_deletion_state": "none",
+            "server_access_state": "owner",
+            "server_status": "unknown",
+            "server_upload_status": "unknown",
+            "server_processing_status": "not_submitted",
+            "server_review_available": false,
+            "server_review_status": "unavailable",
+            "last_reconciled_at": "unknown",
+            "server_conflict_reason": "unknown",
+            "server_next_action": "send_support_report",
+            "timeline": [["event": "created", "at": "2026-06-26T10:00:00Z", "source": "local_queue"]],
+            "retry_history": []
         ]
     }
 

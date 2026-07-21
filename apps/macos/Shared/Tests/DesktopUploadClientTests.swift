@@ -72,6 +72,82 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertNotEqual(item.progressFraction, 0.5)
     }
 
+    func testReconcileDecodesSafeDeletionAccessProcessingAndReviewTruth() async throws {
+        let responseObject: [String: Any] = [
+            "local_recording_id": "reconcile-fixture",
+            "local_media_revision_id": "reconcile-fixture--initial",
+            "meeting": [
+                "meeting_id": "meeting-reconcile",
+                "status": "uploaded",
+                "processing_status": "failed_terminal",
+                "deletion_state": "complete",
+                "access_state": "owner",
+            ],
+            "media_revision": [
+                "media_revision_id": "media-reconcile",
+                "local_media_revision_id": "reconcile-fixture--initial",
+                "track_sha256_by_role": [:],
+            ],
+            "upload_session": [
+                "session_id": "session-reconcile",
+                "status": "finalized",
+                "expected_tracks": ["manifest", "media"],
+                "accepted_bytes_by_track": ["manifest": 10],
+                "missing_ranges_by_track": [:],
+                "desktop_truth_rule": "server_ranges_authoritative",
+            ],
+            "processing": [
+                "status": "failed_terminal",
+                "workflow_id": "workflow-id-must-not-leave-client",
+                "reason_code": "provider_timeout",
+            ],
+            "review": [
+                "available": false,
+                "status": "unavailable",
+                "media_revision_id": "media-reconcile",
+                "transcript_available": false,
+                "diarization_available": false,
+                "content_available": false,
+                "web_url": "/meetings/private",
+                "desktop_url": "/desktop/meetings/private",
+            ],
+            "conflict": [
+                "state": "server_meeting_deleted",
+                "reason": "server_meeting_deleted",
+                "next_action": "send_support_report",
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: responseObject)
+        let client = DesktopUploadClient(
+            baseURL: try XCTUnwrap(URL(string: "https://sync.invalid")),
+            headers: [:],
+            partSizeBytes: 64 * 1024,
+            cookieHeaderProvider: { _ in nil },
+            requestExecutor: { _ in
+                (
+                    data,
+                    try XCTUnwrap(HTTPURLResponse(
+                        url: try XCTUnwrap(URL(string: "https://sync.invalid")),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    ))
+                )
+            }
+        )
+
+        let reconciliation = try await client.reconcile(makeQueueItem())
+
+        XCTAssertEqual(reconciliation?.serverTruth.deletionState, "complete")
+        XCTAssertEqual(reconciliation?.serverTruth.accessState, "owner")
+        XCTAssertEqual(reconciliation?.serverTruth.processingReasonCode, "provider_timeout")
+        XCTAssertEqual(reconciliation?.serverTruth.reviewAvailable, false)
+        XCTAssertEqual(reconciliation?.serverTruth.reviewStatus, "unavailable")
+        XCTAssertEqual(reconciliation?.serverTruth.conflictReason, "server_meeting_deleted")
+        XCTAssertEqual(reconciliation?.serverTruth.nextAction, "send_support_report")
+        XCTAssertEqual(reconciliation?.conflictState, .serverMeetingDeleted)
+    }
+
     func testNewUploadSessionCanTruthfullyRestartConfirmedProgress() {
         let completedOldSession = ServerTruthFingerprint(
             uploadSessionId: "old-session",

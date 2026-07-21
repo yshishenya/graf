@@ -622,7 +622,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             requiredTrackSha256: requiredTrackSha256,
             expectedTrackRoles: descriptors.map(\.transportRole.rawValue),
             finalizedAt: Date(),
-            desktopTruthRule: finalSession.desktop_truth_rule
+            desktopTruthRule: finalSession.desktop_truth_rule,
+            uploadStatus: finalSession.status
         )
         return DesktopUploadResult(state: .uploaded, serverTruth: serverTruth)
     }
@@ -645,7 +646,15 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 acceptedBytesByTrack: response.upload_session.accepted_bytes_by_track,
                 requiredTrackSha256: response.media_revision.track_sha256_by_role,
                 expectedTrackRoles: response.upload_session.expected_tracks,
-                desktopTruthRule: response.upload_session.desktop_truth_rule
+                desktopTruthRule: response.upload_session.desktop_truth_rule,
+                deletionState: response.meeting.deletion_state,
+                accessState: response.meeting.access_state,
+                uploadStatus: response.upload_session.status,
+                processingReasonCode: response.processing.reason_code,
+                reviewAvailable: response.review?.available,
+                reviewStatus: response.review?.status,
+                conflictReason: response.conflict.reason,
+                nextAction: response.conflict.next_action
             )
             return DesktopUploadReconciliation(
                 serverTruth: serverTruth,
@@ -1339,12 +1348,16 @@ private struct DesktopRecordingSyncStateResponse: Decodable {
     let media_revision: DesktopSyncMediaRevisionState
     let upload_session: DesktopSyncUploadSessionState
     let processing: DesktopSyncProcessingState
+    let review: DesktopSyncReviewState?
     let conflict: DesktopSyncConflict
 }
 
 private struct DesktopSyncMeetingState: Decodable {
     let meeting_id: String
     let status: String
+    let processing_status: String?
+    let deletion_state: String?
+    let access_state: String?
 }
 
 private struct DesktopSyncMediaRevisionState: Decodable {
@@ -1364,6 +1377,19 @@ private struct DesktopSyncUploadSessionState: Decodable {
 
 private struct DesktopSyncProcessingState: Decodable {
     let status: String
+    let workflow_id: String?
+    let reason_code: String?
+}
+
+private struct DesktopSyncReviewState: Decodable {
+    let available: Bool
+    let status: String
+    let media_revision_id: String?
+    let transcript_available: Bool
+    let diarization_available: Bool
+    let content_available: Bool
+    let web_url: String?
+    let desktop_url: String?
 }
 
 private struct DesktopSyncConflict: Decodable {

@@ -27,6 +27,40 @@ def test_support_incident_contract_creates_private_issue_server_side(client: Tes
     assert "github_token" not in response.text
 
 
+def test_support_incident_contract_v2_issue_exposes_searchable_safe_metadata(client: TestClient) -> None:
+    fake_github = FakeGitHubIssueClient()
+    client.app.state.support_incident_github_client = fake_github
+    payload = safe_report_payload() | {
+        "schema_version": "desktop-support-incident.v2",
+        "client_report_fingerprint": "report_fpr_1234abcd",
+        "client_dedupe_key": "support_dedupe_1234abcd",
+        "canonical_stage": "server_deletion",
+        "server_copy_state": "deleted",
+        "server_deletion_state": "complete",
+        "server_access_state": "owner",
+        "server_next_action": "send_support_report",
+        "timeline": [
+            {"event": "reconciled", "at": "2026-06-26T10:06:00Z", "source": "server_truth"}
+        ],
+    }
+
+    response = client.post(
+        "/api/v1/desktop/support-incidents",
+        headers=auth_headers() | {"Idempotency-Key": "support-incident:v2-contract"},
+        json=payload,
+    )
+
+    assert response.status_code == 201
+    assert len(fake_github.created_issues) == 1
+    issue = fake_github.created_issues[0]
+    assert issue["title"].startswith("[114][P0][support/custody] T000:")
+    assert "feature:114" in issue["labels"]
+    assert "Канонический этап: `server_deletion`" in issue["body"]
+    assert "report_fpr_1234abcd" in issue["body"]
+    assert "/Users/" not in issue["body"]
+    assert "token=redacted" not in issue["body"]
+
+
 def test_support_incident_contract_rejects_unsafe_payload_with_copy_fallback(client: TestClient) -> None:
     client.app.state.support_incident_github_client = FakeGitHubIssueClient()
     payload = safe_report_payload()

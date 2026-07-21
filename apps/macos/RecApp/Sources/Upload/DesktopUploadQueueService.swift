@@ -391,6 +391,30 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    /// Builds the same bounded v2 metadata-only report used for submission.
+    /// The queue core returns text only; AppKit owns clipboard side effects.
+    public func supportIncidentReportText(itemIds: [String]) throws -> String? {
+        let context = client?.supportIncidentContext() ?? .unknown
+        return try queue.sync {
+            let document = try loadDocumentOnQueue()
+            guard let primaryID = itemIds.first,
+                  let primary = document.items.first(where: { $0.id == primaryID })
+            else {
+                throw DesktopUploadQueueServiceError.packageNotFound(itemIds.first ?? "unknown")
+            }
+            let projection = DesktopUploadCustodyProjection(item: primary, now: clock())
+            let affectedItems = itemIds.compactMap { itemID in
+                document.items.first(where: { $0.id == itemID })
+            }
+            return DesktopSupportIncidentReport(
+                item: primary,
+                projection: projection,
+                context: context,
+                affectedItems: affectedItems
+            )?.clipboardText
+        }
+    }
+
     @discardableResult
     public func syncSupportIncident(
         itemId: String,

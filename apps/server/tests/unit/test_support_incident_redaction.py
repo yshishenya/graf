@@ -139,10 +139,13 @@ def test_rejects_unknown_forbidden_content_before_redaction() -> None:
 def test_missing_safe_values_stay_present_as_unknown() -> None:
     payload = safe_report_payload()
     del payload["architecture"]
+    payload["schema_version"] = "desktop-support-incident.v1"
 
     report = build_server_redacted_report(payload)
 
     assert report["architecture"] == "unknown"
+    assert report["client_report_fingerprint"] == "unknown"
+    assert report["client_dedupe_key"] == "unknown"
     assert "architecture" in report
 
 
@@ -239,3 +242,84 @@ def test_rejects_non_metadata_only_or_unsupported_schema() -> None:
     payload["schema_version"] = "desktop-support-incident.v0"
     with pytest.raises(SupportIncidentRedactionError, match="support_incident.unsupported_schema"):
         build_server_redacted_report(payload)
+
+
+def test_v2_report_keeps_canonical_state_correlations_and_bounded_history() -> None:
+    payload = safe_report_payload()
+    payload.update(
+        {
+            "schema_version": "desktop-support-incident.v2",
+            "client_report_fingerprint": "report_fpr_1234abcd",
+            "client_dedupe_key": "support_dedupe_1234abcd",
+            "canonical_stage": "server_deletion",
+            "custody_owner": "workspace_admin",
+            "upload_state": "finalized",
+            "deletion_state": "server_deleted",
+            "local_copy_state": "retained",
+            "server_copy_state": "deleted",
+            "server_deletion_state": "complete",
+            "server_access_state": "owner",
+            "server_status": "uploaded",
+            "server_upload_status": "finalized",
+            "server_processing_status": "processed",
+            "server_review_available": False,
+            "server_review_status": "unavailable",
+            "last_reconciled_at": "2026-06-26T10:06:00Z",
+            "server_conflict_reason": "server_meeting_deleted",
+            "server_next_action": "send_support_report",
+            "timeline": [
+                {"event": "created", "at": "2026-06-26T10:00:00Z", "source": "local_queue"},
+                {"event": "reconciled", "at": "2026-06-26T10:06:00Z", "source": "server_truth"},
+            ] * 4,
+            "retry_history": [
+                {
+                    "attempt_number": 3,
+                    "started_at": "2026-06-26T10:02:00Z",
+                    "finished_at": "2026-06-26T10:03:00Z",
+                    "state_before": "uploading",
+                    "state_after": "blocked",
+                    "failure_category": "network",
+                    "problem_code": "support_incident.github_unavailable",
+                    "http_status": "503",
+                    "next_retry_at": "not_applicable",
+                }
+            ] * 6,
+        }
+    )
+
+    report = build_server_redacted_report(payload)
+
+    assert report["schema_version"] == "desktop-support-incident.v2"
+    assert report["canonical_stage"] == "server_deletion"
+    assert report["server_copy_state"] == "deleted"
+    assert report["client_report_fingerprint"] == "report_fpr_1234abcd"
+    assert len(report["timeline"]) == 5
+    assert len(report["retry_history"]) == 5
+    assert report["retry_history"][0]["http_status"] == "503"
+
+
+def test_v2_history_redacts_unknown_content_without_serializing_it() -> None:
+    payload = safe_report_payload()
+    payload["schema_version"] = "desktop-support-incident.v2"
+    payload["timeline"] = [{"event": "created", "at": "meeting content: private", "source": "local_queue"}]
+    payload["retry_history"] = [{"problem_code": "token=private", "http_status": "not-a-status"}]
+
+    report = build_server_redacted_report(payload)
+    encoded = canonical_report_json(report)
+
+    assert report["timeline"][0]["at"] == REDACTED_METADATA
+    assert report["retry_history"][0]["problem_code"] == REDACTED_METADATA
+    assert report["retry_history"][0]["http_status"] == REDACTED_METADATA
+    assert "private" not in encoded
+
+
+def test_dedupe_key_separates_independent_local_recordings() -> None:
+    first_payload = safe_report_payload()
+    second_payload = safe_report_payload()
+    second_payload["local_recording_id_fingerprint"] = "rec_fpr_different"
+    second_payload["safe_recording_identity"] = "local:rec_fpr_different"
+
+    first = build_server_redacted_report(first_payload)
+    second = build_server_redacted_report(second_payload)
+
+    assert first["dedupe_key"] != second["dedupe_key"]

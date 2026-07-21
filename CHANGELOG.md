@@ -9,16 +9,23 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature 114: v2 metadata-only отчёт поддержки с версией приложения и сборки,
+  корреляционными fingerprints, каноническим этапом/problem code, bounded
+  timeline/retry history и явной локальной/серверной истиной.
 
 ### Изменено
-- _Пока нет записей._
+- Feature 114: private GitHub Issue получает русскую state matrix, next action,
+  CUST/correlation metadata и обновляется идемпотентно по одной записи.
 
 ### Исправлено
-- _Пока нет записей._
+- Feature 114: server deletion/access block больше не маскируются устаревшими
+  `uploaded`/`finalized` флагами; clipboard fallback копирует тот же подробный
+  bounded отчёт, который отправляется на сервер.
 
 ### Безопасность
-- _Пока нет записей._
+- Feature 114: сервер принимает только v1/v2 metadata-only allowlist, ограничивает
+  timeline/retry/affected identities пятью элементами и исключает audio,
+  transcript/content, paths, secrets, tokens и signed URLs.
 
 ### Документы
 - _Пока нет записей._

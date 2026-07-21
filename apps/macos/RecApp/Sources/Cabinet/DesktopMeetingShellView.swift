@@ -114,6 +114,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let onCheckForUpdates: () -> Void
     private let onSupportIncidentReport: ([String]) async throws -> DesktopSupportIncidentResponse
     private let onSupportIncidentSync: ([String]) async throws -> DesktopSupportIncidentResponse
+    private let onCopySupportIncidentReport: ([String]) throws -> String?
     private let onOpenSupportSignIn: () -> Void
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
@@ -143,6 +144,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         onSupportIncidentSync: @escaping ([String]) async throws -> DesktopSupportIncidentResponse = { _ in
             throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
         },
+        onCopySupportIncidentReport: @escaping ([String]) throws -> String? = { _ in nil },
         onOpenSupportSignIn: @escaping () -> Void = {},
         @ViewBuilder captureControls: () -> CaptureControls,
         @ViewBuilder meetingsWorkspace: () -> MeetingsWorkspace
@@ -163,6 +165,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.onCheckForUpdates = onCheckForUpdates
         self.onSupportIncidentReport = onSupportIncidentReport
         self.onSupportIncidentSync = onSupportIncidentSync
+        self.onCopySupportIncidentReport = onCopySupportIncidentReport
         self.onOpenSupportSignIn = onOpenSupportSignIn
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
@@ -790,6 +793,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 leadingPadding: 22,
                 onSubmit: onSupportIncidentReport,
                 onSync: onSupportIncidentSync,
+                onCopyReport: onCopySupportIncidentReport,
                 onOpenSignIn: onOpenSupportSignIn
             )
         }

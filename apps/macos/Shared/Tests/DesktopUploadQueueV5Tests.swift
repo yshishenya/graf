@@ -1972,6 +1972,35 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertTrue(saved.supportIncidentSubmission?.copyFallbackAvailable == true)
     }
 
+    func testSupportIncidentClipboardUsesTheSameDetailedV2ReportBuilder() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let item = makeSupportIncidentItem(id: "support-detailed-copy")
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+
+        let client = SupportIncidentOnlyClient()
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        let text = try XCTUnwrap(service.supportIncidentReportText(itemIds: [item.id]))
+
+        XCTAssertTrue(text.contains("desktop-support-incident.v2"))
+        XCTAssertTrue(text.contains("canonical_stage"))
+        XCTAssertTrue(text.contains("retry_history"))
+        XCTAssertTrue(text.contains("timeline"))
+        XCTAssertFalse(text.contains("/Users/test"))
+        XCTAssertFalse(text.localizedCaseInsensitiveContains("Bearer"))
+        XCTAssertFalse(text.localizedCaseInsensitiveContains("transcript text"))
+    }
+
     func testInterruptedSupportIncidentSubmissionRecoversCopyFallbackOnRestart() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

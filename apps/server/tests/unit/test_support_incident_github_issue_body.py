@@ -58,9 +58,43 @@ def test_issue_draft_uses_private_support_canon_and_full_safe_json() -> None:
     assert "```json" in draft.body
     assert '"redaction_state": "metadata_only"' in draft.body
     assert "retained indefinitely in this private GitHub issue" in draft.body
+    assert "specs/061-support-incident-reporting/spec.md" in draft.body
     assert "extra" not in draft.body
     assert "/Users/" not in draft.body
     assert "token=redacted" not in draft.body
+
+
+def test_v2_issue_draft_has_feature_114_runtime_canon_and_state_matrix() -> None:
+    payload = safe_report_payload()
+    payload.update(
+        {
+            "schema_version": "desktop-support-incident.v2",
+            "client_report_fingerprint": "report_fpr_1234abcd",
+            "client_dedupe_key": "support_dedupe_1234abcd",
+            "canonical_stage": "server_deletion",
+            "server_copy_state": "deleted",
+            "local_copy_state": "retained",
+            "server_deletion_state": "complete",
+            "server_access_state": "owner",
+            "server_next_action": "send_support_report",
+            "timeline": [
+                {"event": "reconciled", "at": "2026-06-26T10:06:00Z", "source": "server_truth"}
+            ],
+            "retry_history": [],
+        }
+    )
+    report = build_server_redacted_report(payload)
+    draft = build_github_issue_draft(report, incident_number="CUST-114-1")
+
+    assert draft.title.startswith("[114][P0][support/custody] T000:")
+    assert "feature:114" in draft.labels
+    assert "Канонический этап: `server_deletion`" in draft.body
+    assert "Матрица состояния:" in draft.body
+    assert "Timeline (max 5):" in draft.body
+    assert "Retry history (max 5):" in draft.body
+    assert "Client report fingerprint: `report_fpr_1234abcd`" in draft.body
+    assert "specs/114-support-incident-diagnostics/spec.md" in draft.body
+    assert "CUST-114-1" in draft.body
 
 
 def test_metadata_block_replacement_preserves_human_sections() -> None:

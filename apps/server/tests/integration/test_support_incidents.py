@@ -72,6 +72,36 @@ def test_support_incident_duplicate_updates_existing_issue_and_aggregate(client)
     assert "Affected count: `2`" in fake_github.updated_issues[0]["body"]
 
 
+def test_support_incident_v2_duplicate_updates_one_issue_with_latest_safe_report(client) -> None:
+    fake_github = FakeGitHubIssueClient()
+    client.app.state.support_incident_github_client = fake_github
+    payload = safe_report_payload() | {
+        "schema_version": "desktop-support-incident.v2",
+        "client_report_fingerprint": "report_fpr_1234abcd",
+        "client_dedupe_key": "support_dedupe_1234abcd",
+        "canonical_stage": "server_access",
+        "server_copy_state": "blocked",
+        "server_access_state": "revoked",
+        "server_next_action": "send_support_report",
+    }
+
+    first = client.post(
+        "/api/v1/desktop/support-incidents", headers=auth_headers(), json=payload
+    )
+    second = client.post(
+        "/api/v1/desktop/support-incidents", headers=auth_headers(), json=payload
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json()["incident_id"] == first.json()["incident_id"]
+    assert second.json()["dedupe_status"] == "updated"
+    assert len(fake_github.created_issues) == 1
+    assert len(fake_github.updated_issues) == 1
+    assert "server_access" in fake_github.updated_issues[0]["body"]
+    assert '"schema_version": "desktop-support-incident.v2"' in fake_github.updated_issues[0]["body"]
+
+
 def test_support_incident_server_scope_overrides_payload_fingerprints_for_dedupe(client) -> None:
     fake_github = FakeGitHubIssueClient()
     client.app.state.support_incident_github_client = fake_github

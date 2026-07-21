@@ -94,6 +94,64 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.normalUserAction, .sendSupportReport)
     }
 
+    func testServerDeletionWinsOverStaleUploadedAndFinalizedFlags() throws {
+        let item = custodyFixtureQueueItem(
+            id: "stale-uploaded-server-deleted",
+            state: .uploaded,
+            retryMode: .terminal,
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "server-meeting-stale-deleted",
+                finalizedAt: Date(timeIntervalSince1970: 200),
+                deletionState: "complete",
+                accessState: "owner",
+                reviewAvailable: true,
+                reviewStatus: "available"
+            )
+        )
+
+        let projection = DesktopUploadCustodyProjection(item: item)
+        let report = try XCTUnwrap(DesktopSupportIncidentReport(item: item, projection: projection))
+
+        XCTAssertEqual(projection.copyKey, "custody.needs_admin")
+        XCTAssertEqual(projection.deletionState, .serverDeleted)
+        XCTAssertFalse(projection.reviewAvailable)
+        XCTAssertEqual(report.canonicalStage, "server_deletion")
+        XCTAssertEqual(report.problemCode, "custody.server_meeting_deleted")
+        XCTAssertEqual(report.serverCopyState, "deleted")
+        XCTAssertFalse(report.serverCopyKnown)
+        XCTAssertEqual(report.dataLossRisk, "possible")
+        XCTAssertEqual(report.serverDeletionState, "complete")
+        XCTAssertTrue(report.localMediaRetained)
+    }
+
+    func testServerAccessBlockWinsOverStaleFinalizedFlags() throws {
+        let item = custodyFixtureQueueItem(
+            id: "stale-uploaded-access-blocked",
+            state: .uploaded,
+            retryMode: .terminal,
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "server-meeting-access-blocked",
+                finalizedAt: Date(timeIntervalSince1970: 200),
+                deletionState: "none",
+                accessState: "revoked",
+                reviewAvailable: true,
+                reviewStatus: "available"
+            )
+        )
+
+        let projection = DesktopUploadCustodyProjection(item: item)
+        let report = try XCTUnwrap(DesktopSupportIncidentReport(item: item, projection: projection))
+
+        XCTAssertEqual(projection.copyKey, "custody.needs_admin")
+        XCTAssertEqual(projection.deletionState, .accessBlocked)
+        XCTAssertEqual(report.canonicalStage, "server_access")
+        XCTAssertEqual(report.problemCode, "custody.server_access_blocked")
+        XCTAssertEqual(report.serverCopyState, "blocked")
+        XCTAssertFalse(report.serverCopyKnown)
+        XCTAssertEqual(report.dataLossRisk, "possible")
+        XCTAssertEqual(report.serverAccessState, "revoked")
+    }
+
     func testVerifiedTerminalLocalPurgeDoesNotOverclaimUploadDelivery() {
         var item = custodyFixtureQueueItem(
             id: "terminal-purged",
@@ -489,6 +547,7 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
                 failureReason: "http_status_503:support_incident.github_unavailable"
             )
         ]
+        item.nextRetryAt = Date(timeIntervalSince1970: 21)
         let projection = DesktopUploadCustodyProjection(item: item, now: Date(timeIntervalSince1970: 20))
         let context = DesktopSupportIncidentReportContext(
             appVersion: "2026.06.27",
@@ -531,6 +590,13 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertFalse(json.contains("recording.wav"))
         XCTAssertFalse(json.contains("mic.wav"))
         XCTAssertFalse(json.contains("incoming.wav"))
+        XCTAssertEqual(report.schemaVersion, "desktop-support-incident.v2")
+        XCTAssertEqual(report.clientReportFingerprint, report.safeReportFingerprint)
+        XCTAssertEqual(report.clientDedupeKey, report.dedupeKey)
+        XCTAssertLessThanOrEqual(report.timeline.count, 5)
+        XCTAssertLessThanOrEqual(report.retryHistory.count, 5)
+        XCTAssertTrue(report.timeline.contains { $0.event == "next_retry" } == (item.nextRetryAt != nil))
+        XCTAssertTrue(report.clipboardText.contains("canonical_stage"))
     }
 
     func testAutomaticCustodyDoesNotCreateIncidentReport() {
