@@ -373,9 +373,12 @@ enables MFA. Product analytics flags remain disabled/fail-closed; this change
 does not enable an all-events rollout.
 
 The detailed metadata-only receipt is
-[`t101-smtp-receipt-20260721.md`](t101-smtp-receipt-20260721.md). The runtime
-network attachment must be preserved if Postal is later recreated; a durable
-Compose-network change remains a separate reviewed follow-up.
+[`t101-smtp-receipt-20260721.md`](t101-smtp-receipt-20260721.md). The
+production Postal Compose handoff now declares the external shared
+`graf-posthog_default` network for `postal-smtp`; after the SMTP container was
+recreated, PostHog resolved `postal-smtp:25` and both health checks remained
+HTTP `200`. Repeat the Compose config and TCP checks after future Postal
+updates.
 
 ## T102 live-safe Yandex upload receipt: 2026-07-20
 

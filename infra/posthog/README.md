@@ -104,7 +104,8 @@ and Postal accepted the message data; GRAF and PostHog health both returned
 HTTP `200`.
 The invitation remains pending until the invitee accepts it and enables MFA.
 
-The SMTP container was connected to the PostHog Docker network at runtime. If
-Postal is recreated, verify or reattach that network before relying on
-invitation mail; declaring the shared network in the reviewed Compose handoff
-is a separate hardening change.
+The production Postal Compose handoff now declares `graf-posthog_default` as
+an external shared network and attaches `postal-smtp` to it alongside the
+Postal network. The container was recreated from that configuration and
+PostHog resolved `postal-smtp:25` afterward. Repeat the Compose config and TCP
+checks after future Postal updates.
