@@ -86,6 +86,8 @@ Follow-up evidence: 62 focused cabinet tests and 10 focused PostgreSQL playback/
 
 Phase 6 evidence: the exact quickstart selection passed 149 PostgreSQL-backed tests after rebasing onto `v2026.07.21.7`; the earlier complete repository gate passed with 583 macOS tests, 1954 server tests plus 34 strict-RLS tests, Ruff, JavaScript syntax, Python compilation, compose validation, deployment-evidence scan, and `git diff --check`. Rendered and production evidence remains open under T022.
 
+Installed-app follow-up: the compact timeline and central-column dock rendered correctly in `v2026.07.21.8`, but the native disclosure element used by the speaker manager did not respond reliably in the macOS WebView accessibility path. T021 was hardened with an explicit button, `aria-expanded` state, outside-click close, and separate Escape behavior for rename cancellation before final T022 closeout.
+
 ## Dependencies & Execution Order
 
 - US1 is the MVP and has no dependency on rename persistence.

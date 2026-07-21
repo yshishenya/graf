@@ -1149,10 +1149,12 @@ def _render_speaker_manager(
             """
         )
     return f"""
-      <details class="speaker-manager" data-speaker-manager>
-        <summary><span>Спикеры · {len(review.speakers.speakers)}</span><span class="speaker-manager-markers" aria-hidden="true">{markers}</span></summary>
-        <div class="speaker-manager-popover">{"".join(rows)}</div>
-      </details>
+      <div class="speaker-manager" data-speaker-manager>
+        <button class="speaker-manager-trigger" type="button" data-speaker-manager-toggle aria-expanded="false" aria-controls="speaker-manager-popover">
+          <span>Спикеры · {len(review.speakers.speakers)}</span><span class="speaker-manager-markers" aria-hidden="true">{markers}</span>
+        </button>
+        <div id="speaker-manager-popover" class="speaker-manager-popover" hidden>{"".join(rows)}</div>
+      </div>
     """
 
 
