@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-26
 
-**Status**: Draft
+**Status**: Implemented locally; release and production rollout remain separate
 
 **Input**: User description: "Причешем интерфейс 2brain Rec по присланному KRISP reference и текущему appshot: обратить внимание на масштаб записей, заполнение экрана, боковое меню, его верстку и наполнение. 053 уже занят, беру 054."
 

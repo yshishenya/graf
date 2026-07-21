@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-26
 
-**Status**: Draft
+**Status**: Implemented and merged; deletion lifecycle remains server-owned
 
 **Input**: User description: "Fix the recordings list so records can be selected and deleted. Match the KRISP interaction expectation where selecting one or more records shows a top selection menu. Add a download icon but keep it disabled with Russian copy that download will be implemented later. Implement deletion now. On row hover, do not add the KRISP three-dot menu or unread action; show a direct delete icon instead. Pressing delete opens a Russian confirmation dialog. All dialogs and menu elements must be in Russian."
 

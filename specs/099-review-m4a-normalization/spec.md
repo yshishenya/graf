@@ -2,7 +2,7 @@
 
 **Feature Branch**: `099-review-m4a-normalization`
 **Created**: 2026-07-09
-**Status**: Clarified
+**Status**: Implemented, merged, released, and production-validated
 **Input**: User description: "Давай вариант 3. У нас всегда в записи должен быть m4a. Для загруженных записей будем транскодировать. Запиши это как отдельную будущую фичу 099 с подробным контекстом."
 
 ## Product Context

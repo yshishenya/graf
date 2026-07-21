@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-08
 
-**Status**: Ready for planning
+**Status**: Implemented, released, and live on the public production scope; campaign launch remains gated
 
 **Input**: User direction: add very detailed product analytics to the public
 landing and advertising conversion path. The first implementation should use
@@ -475,5 +475,7 @@ payloads.
   cookies, and visitor identifiers are not committed to the repository.
 - Existing server-rendered public templates and static assets remain the
   implementation surface for Phase 1.
-- Production deploy and campaign launch are not part of this specification
-  unless a later release/deploy lane is explicitly approved.
+- Production deploy and paid campaign launch are separate release-lane
+  decisions. The implementation is live on the approved public scope, while
+  campaign launch remains blocked until the legal, consent, conversion, and
+  provider-readiness gates are approved.

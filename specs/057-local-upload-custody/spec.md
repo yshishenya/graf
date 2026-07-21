@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-26
 
-**Status**: Draft
+**Status**: Implemented, merged, and released as the product-owned custody layer
 
 **Input**: User description: "Work through local file queue behavior as a
 product problem. Local recordings must be sent to the server automatically. The

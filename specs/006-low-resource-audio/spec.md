@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-01
 
-**Status**: Draft
+**Status**: Historical low-resource routing slice; retained as validation evidence only
 
 **Input**: User description: "Minimize macOS audio resource usage while preserving reliable virtual microphone and speaker passthrough. The solution must avoid Core Audio hangs, avoid blocking the UI, avoid always holding physical microphone/speaker when idle, recover safely after coreaudiod restart, and provide validation gates before replacing the currently working app-launch passthrough behavior."
 

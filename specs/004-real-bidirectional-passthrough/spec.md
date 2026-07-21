@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-31
 
-**Status**: Draft - stabilization/refactor required before live acceptance
+**Status**: Historical bidirectional passthrough slice; not an active product path
 
 **Input**: User description: "Implement real macOS bidirectional passthrough: selected physical microphone audio must feed 2brain Rec Microphone, audio sent to 2brain Rec Speaker must play through the selected physical output with minimal added latency, browser calls must remain usable through the virtual devices, no hidden recording may start, visible readiness and stop controls must remain, diagnostics must be metadata-only, private app I/O fail-closed behavior must remain, and implementation must preserve the KRISP-like driver-first routing model already documented."
 

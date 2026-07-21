@@ -8,7 +8,7 @@ Use this prompt when starting a fresh Codex session for
 
 Работай из canonical checkout:
 
-- `/Users/yshishenya/Documents/crisp`
+- `<repo-root>`
 
 Сначала прочитай:
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-25
 
-**Status**: Draft
+**Status**: Implemented and merged; live rollout proof gates remain open
 
 **Input**: User description: "Продолжай по Spec Kit/SDD, действуй внимательно, перепроверяй каждый шаг, ничего не ломай. Дойди до полноценного MVP, перепроверь интерфейс приложения и веб кабинет. Если нужно, используй Krisp как reference для веба и приложения."
 

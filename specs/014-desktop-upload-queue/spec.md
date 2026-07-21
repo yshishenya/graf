@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-11
 
-**Status**: Draft
+**Status**: Historical desktop upload queue; custody behavior is superseded by 042/057
 
 **Input**: User description: "Implement desktop upload queue and resilient upload behavior for local recordings"
 

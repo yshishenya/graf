@@ -6,14 +6,14 @@
 `origin/master`, not from the stale canonical checkout branch.
 
 **Rationale**: The canonical checkout exists at
-`/Users/yshishenya/Documents/crisp`, but its active branch has no live upstream.
+`<repo-root>`, but its active branch has no live upstream.
 The user allowed either the canonical checkout or a clean worktree from fresh
 `origin/master`. A clean worktree avoids stale branch state and prevents 071 or
 other local work from bleeding into 072.
 
 **Alternatives considered**:
 
-- Use `/Users/yshishenya/Documents/crisp` directly: rejected because its current
+- Use `<repo-root>` directly: rejected because its current
   branch is stale even though the worktree is clean.
 - Use the starting Codex worktree: rejected because the request explicitly
   required canonical checkout or clean fresh worktree.

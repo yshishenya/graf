@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-28
 
-**Status**: Draft
+**Status**: Implemented and merged as the shared web/desktop cabinet sidebar
 
 **Input**: User description: "Use feature 069 for a single reusable left sidebar so cabinet pages are laid out correctly and the same sidebar is reused in the web version and desktop embedded app. Remove the native app product sidebar and do not use it."
 

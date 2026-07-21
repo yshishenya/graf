@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-17
 
-**Status**: Draft
+**Status**: Implemented and released in the owner-only update channel; public signing deferred
 
 **Input**: User description: "Implement a best-practice macOS application update system that preserves permissions, checks periodically, offers available updates, provides a Check for Updates menu item, and shows an availability badge in the left sidebar."
 

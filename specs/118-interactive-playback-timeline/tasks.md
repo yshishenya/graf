@@ -58,7 +58,7 @@
 - [X] T013 [P] Update `[Unreleased]` behavior notes and feature references in `CHANGELOG.md`.
 - [X] T014 Run the focused scenarios from `specs/118-interactive-playback-timeline/quickstart.md`, fix failures, and record only synthetic metadata-safe outcomes in `specs/118-interactive-playback-timeline/tasks.md`.
 - [X] T015 Perform in-app browser interaction/design QA against the supplied behavior references at browser and embedded widths, resolve P0-P2 findings, and write `design-qa.md` with `final result: passed`.
-- [X] T016 Run `git diff --check` and `infra/scripts/ci-local.sh`, then reconcile every completed task with its GitHub issue and leave implementation uncommitted pending explicit user approval in `specs/118-interactive-playback-timeline/tasks.md`.
+- [X] T016 Run `git diff --check` and `infra/scripts/ci-local.sh`, then reconcile every completed task with its GitHub issue and record the merged implementation/release boundary in `specs/118-interactive-playback-timeline/tasks.md`.
 
 ### Synthetic validation evidence
 
@@ -68,7 +68,7 @@
 - Geometry: desktop range-to-lane inset was 8 px per edge; embedded 900 px mode was 10 px per edge with no horizontal overflow.
 - Rename/reload, reduced motion, browser/embedded parity, visible focus, and zero browser console warnings/errors were verified with synthetic data. The source-versus-implementation review is recorded in repository-root `design-qa.md` with `final result: passed`.
 - Full repository gate: `git diff --check` and `infra/scripts/ci-local.sh` passed after synchronizing the OpenAPI contract, packaged migration head, and RLS inventories for migration `0029_speaker_names`.
-- GitHub issues #3922-#3937 received task-specific local validation comments and remain open until an approved commit/PR links the implementation.
+- GitHub issues #3922-#3937 received task-specific local validation comments; PR #3944 links the implementation and is merged. Tracker closure remains a separate issue-state operation.
 
 ## Dependencies & Execution Order
 

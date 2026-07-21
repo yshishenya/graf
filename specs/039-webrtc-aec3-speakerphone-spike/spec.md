@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-22
 
-**Status**: Draft
+**Status**: Archived WebRTC AEC3 speakerphone spike; not a current runtime candidate
 
 **Input**: User description: "Continue the clean-recording plan after 038. Evaluate WebRTC AEC3 as the next candidate for preventing speaker audio from leaking into the microphone track."
 

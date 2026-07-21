@@ -5,12 +5,12 @@
 Status: current default implementation at `/`.
 
 Source visual truth:
-`/Users/yshishenya/.codex/attachments/deb7c7bc-fc30-481e-b1a7-9758e121c2e5/image-1.png`
+`<attachment>/deb7c7bc-fc30-481e-b1a7-9758e121c2e5/image-1.png`
 
 Implementation evidence:
-`/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/target-match-1536-final-v2.png`
-`/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/target-match-mobile-final-v2.png`
-`/Users/yshishenya/.codex/worktrees/c6ae/crisp/output/playwright/public-landing/reference-vs-target-match-final-v2.png`
+`<repo-root>/output/playwright/public-landing/target-match-1536-final-v2.png`
+`<repo-root>/output/playwright/public-landing/target-match-mobile-final-v2.png`
+`<repo-root>/output/playwright/public-landing/reference-vs-target-match-final-v2.png`
 
 Design qualities:
 

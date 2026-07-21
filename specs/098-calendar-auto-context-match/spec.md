@@ -2,21 +2,20 @@
 
 **Feature Branch**: `098-calendar-auto-context-match`
 **Created**: 2026-07-09
-**Status**: Draft
+**Status**: Implemented, released, and production-smoke validated
 **Input**: User description: "После подключения календаря GRAF должен сам матчить запись с календарной встречей по времени записи и брать оттуда название, roster участников и полезный recurring context. Ручная привязка event_id не должна быть основным сценарием."
 
-## Implementation Note
+## Historical implementation note — before the feature merge
 
 The 090 security closeout tightened the existing manual calendar-context
 link/unlink endpoints so a user can only link their own recording to a calendar
 event from their own selected calendar source in the same space, and cannot
 unlink another user's recording context.
 
-That hotfix only closes the immediate authorization gap. It does not implement
-098's intended product behavior: automatic time-based matching for normal
-first-party recordings, ambiguity handling, private/all-day exclusions,
-recurring context and the rule that manual uploads/offline recovery are not
-calendar-matched.
+At that checkpoint the hotfix only closed the immediate authorization gap. The
+full time-based matcher, ambiguity/private/all-day exclusions, recurring
+context, and manual-upload/offline boundary were subsequently implemented and
+released; see [quickstart.md](./quickstart.md) and the validation receipts.
 
 ## Product Context
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-04
 
-**Status**: Draft
+**Status**: Archived v3 leakage finalization; not used by the v5 path
 
 **Input**: User observed during a live meeting that sound from the speakers gets
 captured by the microphone. Evidence recording directory id:

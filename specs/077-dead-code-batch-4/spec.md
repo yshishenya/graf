@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-01
 
-**Status**: Draft
+**Status**: Implemented import/dead-code cleanup; no deploy or product behavior change
 
 **Input**: Continue the Ponytail cleanup program after 076 by removing only
 compile-proven unused Swift `Foundation` imports from macOS audio, capture, and

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-07
 
-**Status**: Ready for planning
+**Status**: Implemented, merged, released, and production-validated; external test-rec evidence remains open
 
 **Input**: User direction: continue by Spec Kit and think through all details
 carefully. Implement the web and embedded desktop app surface for uploading a

@@ -2,7 +2,7 @@
 
 Feature: `014-desktop-upload-queue`
 Date: 2026-06-11
-Workspace: `/Users/yshishenya/.codex/worktrees/66ad/019-live-route-stability`
+Workspace: `<worktree-root>/66ad/019-live-route-stability`
 
 ## Final Validation Pass
 

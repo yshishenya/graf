@@ -15,7 +15,7 @@
 
 - Evidence log created with sections for tests, provider fixtures, privacy scan, RLS proof, desktop proof, and known limitations.
 - Active feature anchor checked with `SPECIFY_FEATURE_DIRECTORY=specs/060-calendar-context-ingestion .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks`.
-- Result: `FEATURE_DIR=/Users/yshishenya/.codex/worktrees/5362/crisp/specs/060-calendar-context-ingestion`; available docs include `research.md`, `data-model.md`, `contracts/`, `quickstart.md`, and `tasks.md`.
+- Result: `FEATURE_DIR=<repo-root>/specs/060-calendar-context-ingestion`; available docs include `research.md`, `data-model.md`, `contracts/`, `quickstart.md`, and `tasks.md`.
 
 ## T002 Checklist Recheck
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-23
 
-**Status**: Draft
+**Status**: Implemented, merged, released, and deployed
 
 **Input**: User description: "Finish the product pipeline for transcription and result delivery in the app. After a local recording is accepted and uploaded, the product should send it through server-owned transcription and diarization, then show processing status and final transcript results in web and desktop review. Do not block upload or transcription because a local audio quality, echo, leakage, silence, or transcription-readiness gate thinks the recording is imperfect. Keep server-side package integrity checks for required files, role mapping, size, and checksums."
 
