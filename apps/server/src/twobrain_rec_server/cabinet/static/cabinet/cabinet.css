@@ -706,7 +706,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   justify-self: start;
   min-width: 0;
 }
-.speaker-manager > summary {
+.speaker-manager-trigger {
   min-height: 30px;
   width: max-content;
   max-width: 100%;
@@ -717,14 +717,13 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border: 1px solid transparent;
   border-radius: 7px;
   color: #d9dde4;
+  background: transparent;
   cursor: pointer;
-  list-style: none;
   font-size: 12px;
   font-weight: 750;
 }
-.speaker-manager > summary::-webkit-details-marker { display: none; }
-.speaker-manager > summary:hover,
-.speaker-manager[open] > summary {
+.speaker-manager-trigger:hover,
+.speaker-manager-trigger[aria-expanded="true"] {
   border-color: var(--line);
   background: #2d3035;
 }
@@ -752,6 +751,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   background: #24272b;
   box-shadow: 0 18px 46px rgba(0,0,0,.45);
 }
+.speaker-manager-popover[hidden] { display: none; }
 .speaker-manager-row {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) auto auto;

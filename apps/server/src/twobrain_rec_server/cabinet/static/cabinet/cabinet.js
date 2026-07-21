@@ -1262,6 +1262,31 @@
   };
 
   const initSpeakerNameForms = () => {
+    document.querySelectorAll("[data-speaker-manager]").forEach((manager) => {
+      if (manager.dataset.speakerManagerReady === "true") return;
+      manager.dataset.speakerManagerReady = "true";
+      const toggle = manager.querySelector("[data-speaker-manager-toggle]");
+      const popover = document.getElementById(toggle?.getAttribute("aria-controls") || "");
+      if (!toggle || !popover) return;
+      const close = () => {
+        popover.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+      };
+      toggle.addEventListener("click", () => {
+        const opening = popover.hidden;
+        popover.hidden = !opening;
+        toggle.setAttribute("aria-expanded", String(opening));
+      });
+      manager.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || popover.hidden) return;
+        event.preventDefault();
+        close();
+        toggle.focus({ preventScroll: true });
+      });
+      document.addEventListener("click", (event) => {
+        if (!popover.hidden && !manager.contains(event.target)) close();
+      });
+    });
     document.querySelectorAll("[data-speaker-name-open]").forEach((button) => {
       if (button.dataset.speakerNameOpenReady === "true") return;
       button.dataset.speakerNameOpenReady = "true";
@@ -1291,6 +1316,7 @@
       form.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") return;
         event.preventDefault();
+        event.stopPropagation();
         form.querySelector("[data-speaker-name-cancel]")?.click();
       });
       form.addEventListener("submit", async (event) => {
