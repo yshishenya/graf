@@ -613,6 +613,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   padding: 0;
   border: 0;
   background: transparent;
+  justify-content: flex-start;
   text-align: left;
   cursor: pointer;
 }
