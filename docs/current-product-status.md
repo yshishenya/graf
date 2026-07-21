@@ -84,12 +84,16 @@ Requirements-only остаются `011`, `026–029` и `101`; для них н
   the bounded gap rule. The MinIO playback normalization fix is a separate
   release boundary.
 - Feature `118-interactive-playback-timeline` is implemented, merged through
-  [PR #3944](https://github.com/yshishenya/crisp/pull/3944), and included in
-  release [`v2026.07.21.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.4).
-  It aligns playback and speaker lanes to one timeline, follows the active
-  transcript turn, and stores meeting-local display names with existing
-  authorization, CSRF, RLS, audit, and deletion boundaries. This status records
-  the release receipt; it does not claim a separate production rollout proof.
+  [PR #3948](https://github.com/yshishenya/crisp/pull/3948), and released as
+  [`v2026.07.21.5`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.5)
+  through [PR #3949](https://github.com/yshishenya/crisp/pull/3949). It aligns
+  playback and speaker lanes to one timeline, follows the active transcript
+  turn, and stores meeting-local display names with existing authorization,
+  CSRF, RLS, audit, and deletion boundaries. Production `/api/v1/health/live`
+  and `/ready` returned 200 after the release, and the public cabinet CSS/JS
+  hashes match the exact `origin/master` sources. The installed GRAF binary
+  remains `.3` because this slice changes the server WebView only; it already
+  points to the same production cabinet and needs no binary update.
 - Feature `095-macos-permission-retention` is implemented for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted
