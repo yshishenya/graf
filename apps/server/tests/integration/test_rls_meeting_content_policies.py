@@ -6,8 +6,7 @@ from tests.fixtures.rls import RLS_DIRECT_WORKSPACE_TABLES, RLS_INHERITED_WORKSP
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MIGRATION = (
-    REPO_ROOT
-    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py"
+    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py"
 )
 MEETING_OUTCOMES_MIGRATION = (
     REPO_ROOT
@@ -33,6 +32,7 @@ MEETING_CONTENT_TABLES = {
     "meeting_outcome_sets",
     "meeting_outcome_items",
     "meeting_outcome_generation_attempts",
+    "meeting_speaker_names",
 }
 
 
@@ -48,4 +48,12 @@ def test_meeting_content_migration_enables_and_forces_rls() -> None:
     assert "enable row level security" in migration_text
     assert "force row level security" in migration_text
     for table_name in sorted(MEETING_CONTENT_TABLES):
-        assert table_name in migration_text or table_name in MEETING_OUTCOMES_MIGRATION.read_text(encoding="utf-8")
+        assert (
+            table_name in migration_text
+            or table_name in MEETING_OUTCOMES_MIGRATION.read_text(encoding="utf-8")
+            or table_name
+            in (
+                REPO_ROOT
+                / "apps/server/src/twobrain_rec_server/db/migrations/versions/0029_meeting_speaker_names.py"
+            ).read_text(encoding="utf-8")
+        )

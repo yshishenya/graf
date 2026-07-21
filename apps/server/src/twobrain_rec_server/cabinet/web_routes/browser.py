@@ -150,6 +150,7 @@ async def meeting_detail_page(
         return cabinet_html_response(
             render_meeting_detail_fragment(
                 response,
+                csrf_token=_csrf_token_for_principal(request, principal),
                 poll_url=_request_path_with_query(request),
             ),
             hx_request=True,

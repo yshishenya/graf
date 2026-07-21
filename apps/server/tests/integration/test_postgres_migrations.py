@@ -28,10 +28,16 @@ WORKSPACE_ID = UUID("20000000-0000-0000-0000-000000000001")
 USER_ID = UUID("30000000-0000-0000-0000-000000000001")
 DEVICE_ID = UUID("40000000-0000-0000-0000-000000000001")
 USER_SCOPED_RECORDING_MIGRATION = (
-    ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0020_user_scoped_recording_ids.py"
+    ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0020_user_scoped_recording_ids.py"
 )
 WORKSPACE_ONBOARDING_MIGRATION = (
-    ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0027_workspace_account_onboarding.py"
+    ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0027_workspace_account_onboarding.py"
+)
+SPEAKER_NAMES_MIGRATION = (
+    ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0029_meeting_speaker_names.py"
 )
 
 
@@ -56,8 +62,12 @@ class _FakePostgresBind:
 
     def execute(self, _statement, params) -> _ScalarResult:
         if "constraint_name" in params:
-            return _ScalarResult(1 if params["constraint_name"] in self.existing_constraints else None)
-        constraint_name = self.constraints_by_columns.get((params["table_name"], params["columns_key"]))
+            return _ScalarResult(
+                1 if params["constraint_name"] in self.existing_constraints else None
+            )
+        constraint_name = self.constraints_by_columns.get(
+            (params["table_name"], params["columns_key"])
+        )
         return _ScalarResult(constraint_name)
 
 
@@ -96,14 +106,26 @@ async def _seed_identity(sessionmaker) -> None:
         await db.flush()
         db.add_all(
             [
-                Workspace(id=WORKSPACE_ID, organization_id=ORG_ID, slug="local-workspace", name="Local Workspace"),
-                UserIdentity(id=USER_ID, organization_id=ORG_ID, external_subject=str(USER_ID), display_name="Local User"),
+                Workspace(
+                    id=WORKSPACE_ID,
+                    organization_id=ORG_ID,
+                    slug="local-workspace",
+                    name="Local Workspace",
+                ),
+                UserIdentity(
+                    id=USER_ID,
+                    organization_id=ORG_ID,
+                    external_subject=str(USER_ID),
+                    display_name="Local User",
+                ),
             ]
         )
         await db.flush()
         db.add_all(
             [
-                WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=USER_ID, role="owner", status="active"),
+                WorkspaceMembership(
+                    workspace_id=WORKSPACE_ID, user_id=USER_ID, role="owner", status="active"
+                ),
                 RegisteredDevice(
                     id=DEVICE_ID,
                     workspace_id=WORKSPACE_ID,
@@ -130,6 +152,18 @@ def test_alembic_migration_files_exist_for_clean_database_path() -> None:
     assert (versions / "0002_access_placeholders.py").exists()
     assert (versions / "0004_mediascribe_processing_pipeline.py").exists()
     assert (versions / "0006_access_sharing_downloads.py").exists()
+    assert SPEAKER_NAMES_MIGRATION.exists()
+
+
+def test_speaker_name_migration_is_tenant_scoped_and_unique() -> None:
+    migration = SPEAKER_NAMES_MIGRATION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "0029_speaker_names"' in migration
+    assert 'down_revision: str | None = "0028_active_space_read"' in migration
+    assert '"meeting_speaker_names"' in migration
+    assert all(name in migration for name in ('"workspace_id"', '"meeting_id"', '"speaker_key"'))
+    assert "enable row level security" in migration
+    assert "force row level security" in migration
 
 
 def test_mediascribe_migration_names_workspace_unique_constraints_distinctly() -> None:
@@ -171,7 +205,9 @@ def test_workspace_onboarding_migration_downgrades_cleanly(
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
     get_settings.cache_clear()
     alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
-    alembic_config.set_main_option("script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations"))
+    alembic_config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
 
     command.upgrade(alembic_config, "head")
     command.downgrade(alembic_config, "0026_active_cleanup")
@@ -210,7 +246,9 @@ def test_workspace_onboarding_migration_downgrades_cleanly(
 
 
 def test_user_scoped_recording_migration_drops_both_postgres_legacy_constraint_names() -> None:
-    migration = _load_migration_module(USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration")
+    migration = _load_migration_module(
+        USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration"
+    )
 
     for legacy_name in (
         "uq_meetings_workspace_id",
@@ -237,12 +275,17 @@ def test_user_scoped_recording_migration_drops_both_postgres_legacy_constraint_n
 
 
 def test_user_scoped_recording_migration_falls_back_to_postgres_constraint_columns() -> None:
-    migration = _load_migration_module(USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration_columns")
+    migration = _load_migration_module(
+        USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration_columns"
+    )
     fake_op = _FakeMigrationOp(
         set(),
         {
             ("meetings", "workspace_id,local_recording_id"): "custom_meetings_recording_unique",
-            ("media_revisions", "workspace_id,local_media_revision_id"): "custom_media_revision_unique",
+            (
+                "media_revisions",
+                "workspace_id,local_media_revision_id",
+            ): "custom_media_revision_unique",
         },
     )
     migration.op = fake_op
@@ -257,11 +300,16 @@ def test_user_scoped_recording_migration_falls_back_to_postgres_constraint_colum
 
 
 def test_user_scoped_recording_migration_skips_existing_postgres_target_constraints() -> None:
-    migration = _load_migration_module(USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration_existing")
+    migration = _load_migration_module(
+        USER_SCOPED_RECORDING_MIGRATION, "user_scoped_recording_migration_existing"
+    )
     fake_op = _FakeMigrationOp(
         set(),
         {
-            ("meetings", "workspace_id,created_by_user_id,local_recording_id"): migration.NEW_CONSTRAINT,
+            (
+                "meetings",
+                "workspace_id,created_by_user_id,local_recording_id",
+            ): migration.NEW_CONSTRAINT,
             (
                 "media_revisions",
                 "workspace_id,meeting_id,local_media_revision_id",
@@ -284,11 +332,18 @@ def test_clean_database_migrates_and_accepts_seeded_identity_request(
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", database_url)
     get_settings.cache_clear()
     alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
-    alembic_config.set_main_option("script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations"))
+    alembic_config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
 
     command.upgrade(alembic_config, "head")
 
-    settings = Settings(database_url=database_url, minio_access_key="test", minio_secret_key="test", minio_bucket="test-bucket")
+    settings = Settings(
+        database_url=database_url,
+        minio_access_key="test",
+        minio_secret_key="test",
+        minio_bucket="test-bucket",
+    )
     import asyncio
 
     seed_engine = create_async_engine(database_url)

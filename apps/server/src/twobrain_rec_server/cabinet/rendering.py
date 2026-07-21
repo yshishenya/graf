@@ -519,7 +519,8 @@ def _render_meeting_detail_content(
             source="meeting_detail.delete_confirmation",
         ),
         speaker_lanes=trusted_component_html(
-            _render_speaker_lanes(review), source="meeting_detail.speaker_lanes"
+            _render_speaker_lanes(review, embedded=embedded, csrf_token=csrf_token),
+            source="meeting_detail.speaker_lanes",
         ),
         governance=trusted_component_html(
             _render_governance(review), source="meeting_detail.governance"
@@ -989,7 +990,7 @@ def _render_transcript(
 ) -> str:
     return "\n".join(
         f"""
-          <article class="segment">
+          <article class="segment" data-transcript-turn data-speaker-key="{escape(segment.speaker_key)}" data-start-seconds="{escape(str(segment.start_seconds))}" data-end-seconds="{escape(str(segment.end_seconds))}" tabindex="-1">
             {_render_timestamp(segment)}
             <div class="speaker"><span class="dot"></span>{escape(_speaker_display_label(segment.speaker_label))}</div>
             <div class="text">{escape(segment.text)}</div>
@@ -1060,14 +1061,14 @@ def _render_playback_speaker_timeline(review: MeetingReviewResponse) -> str:
             width = min(100.0 - left, max(0.2, (end - start) / duration * 100))
             segment_label = f"{speaker_label} {_timecode(int(start))}-{_timecode(int(end))}"
             segments.append(
-                f'<span class="timeline-segment" data-lane-segment title="{escape(segment_label)}" '
+                f'<span class="timeline-segment" data-lane-segment data-start-seconds="{start:.3f}" data-end-seconds="{end:.3f}" title="{escape(segment_label)}" '
                 f'aria-label="{escape(segment_label)}" style="left:{left:.2f}%;width:{width:.2f}%"></span>'
             )
         lanes.append(
             f"""
             <div class="timeline-lane" data-speaker-lane="{escape(speaker.speaker_key)}">
               <span class="timeline-label">{escape(speaker_label)}</span>
-              <span class="timeline-track">{"".join(segments)}</span>
+              <span class="timeline-track" data-timeline-track role="button" tabindex="0" aria-label="Перейти по дорожке {escape(speaker_label)}">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span>
               <span class="timeline-share">{speaker.talk_time_percent}%</span>
             </div>
             """
@@ -1075,18 +1076,43 @@ def _render_playback_speaker_timeline(review: MeetingReviewResponse) -> str:
     return f'<div class="speaker-timeline" data-speaker-timeline>{"".join(lanes)}</div>'
 
 
-def _render_speaker_lanes(review: MeetingReviewResponse) -> str:
+def _render_speaker_lanes(
+    review: MeetingReviewResponse,
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+) -> str:
     if not review.speakers.available:
         return f'<div class="muted">{escape(_ui_text("Speaker lanes are reserved until diarization is available."))}</div>'
-    return "\n".join(
-        f"""
+    lanes = []
+    for speaker in review.speakers.speakers:
+        speaker_label = _speaker_display_label(speaker.label)
+        editor = ""
+        if review.speakers.can_rename:
+            csrf = (
+                f'<input type="hidden" name="csrf_token" value="{escape(csrf_token)}">'
+                if csrf_token
+                else ""
+            )
+            editor = f"""
+              <form class="speaker-name-form" data-speaker-name-form method="post" action="{_base_path(embedded)}/{review.meeting.meeting_id}/speakers/{escape(speaker.speaker_key)}">
+                {csrf}
+                <label class="sr-only" for="speaker-name-{escape(speaker.speaker_key)}">Имя для {escape(speaker_label)}</label>
+                <input id="speaker-name-{escape(speaker.speaker_key)}" name="display_name" value="{escape(speaker.display_name or "")}" placeholder="Имя спикера" maxlength="80" autocomplete="off">
+                <button type="submit" class="quiet">Сохранить</button>
+                <span class="speaker-name-error" data-speaker-name-error role="status" aria-live="polite" hidden>Не удалось сохранить имя. Проверьте имя и попробуйте ещё раз.</span>
+              </form>
+            """
+        lanes.append(
+            f"""
         <div class="speaker-lane">
-          <div class="row-meta"><strong>{escape(_speaker_display_label(speaker.label))}</strong><span>{speaker.talk_time_percent}%</span></div>
+          <div class="row-meta" data-speaker-key="{escape(speaker.speaker_key)}"><strong>{escape(speaker_label)}</strong><span>{speaker.talk_time_percent}%</span></div>
           <div class="lane-track"><div class="lane-fill" style="width:{speaker.talk_time_percent}%"></div></div>
+          {editor}
         </div>
         """
-        for speaker in review.speakers.speakers
-    )
+        )
+    return "\n".join(lanes)
 
 
 def _render_revision_status(review: MeetingReviewResponse) -> str:

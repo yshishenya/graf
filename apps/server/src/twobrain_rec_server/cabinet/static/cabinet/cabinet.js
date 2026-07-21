@@ -429,6 +429,8 @@
       const progress = shell.querySelector("[data-playback-progress]");
       const speedToggle = shell.querySelector("[data-playback-speed-toggle]");
       const playbackError = shell.querySelector("[data-playback-error]");
+      const lanes = Array.from(shell.querySelectorAll("[data-speaker-lane]"));
+      const transcriptTurns = Array.from(document.querySelectorAll("[data-transcript-turn]"));
       const setToggleState = (playing) => {
         if (!toggle) return;
         toggle.textContent = playing ? "Ⅱ" : "▶";
@@ -442,10 +444,51 @@
         if (playbackError) playbackError.hidden = true;
         return player.play().catch(reportPlaybackFailure);
       };
+      const playbackDuration = () => {
+        if (Number.isFinite(player.duration) && player.duration > 0) return player.duration;
+        const fallback = Number.parseFloat(progress?.max || "0");
+        return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+      };
+      const currentTranscriptTurn = (seconds) => {
+        if (!transcriptTurns.length) return null;
+        return transcriptTurns.reduce((match, turn) => {
+          const start = Number.parseFloat(turn.dataset.startSeconds || "0");
+          return Number.isFinite(start) && start <= seconds ? turn : match;
+        }, transcriptTurns[0]);
+      };
+      const followTranscript = (seconds) => {
+        const turn = currentTranscriptTurn(seconds);
+        if (!turn) return;
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        turn.scrollIntoView({ block: "center", behavior: reducedMotion ? "auto" : "smooth" });
+      };
       const syncTime = () => {
         if (current) current.textContent = formatTime(player.currentTime);
         if (progress) progress.value = String(player.currentTime || 0);
         if (duration && Number.isFinite(player.duration)) duration.textContent = formatTime(player.duration);
+        const max = playbackDuration();
+        const position = max > 0 ? Math.max(0, Math.min(100, player.currentTime / max * 100)) : 0;
+        shell.style.setProperty("--playback-position", `${position}%`);
+        lanes.forEach((lane) => {
+          const active = Array.from(lane.querySelectorAll("[data-lane-segment]")).some((segment) => {
+            const start = Number.parseFloat(segment.dataset.startSeconds || "0");
+            const end = Number.parseFloat(segment.dataset.endSeconds || "0");
+            return start <= player.currentTime && player.currentTime < end;
+          });
+          lane.classList.toggle("is-active", active);
+          if (active) lane.setAttribute("aria-current", "true");
+          else lane.removeAttribute("aria-current");
+        });
+        const activeTurn = currentTranscriptTurn(player.currentTime);
+        transcriptTurns.forEach((turn) => turn.classList.toggle("is-current", turn === activeTurn));
+      };
+      const seekTo = (seconds, { follow = true, autoplay = false } = {}) => {
+        if (!Number.isFinite(seconds)) return;
+        const max = playbackDuration();
+        player.currentTime = Math.max(0, Math.min(max || Number.POSITIVE_INFINITY, seconds));
+        syncTime();
+        if (follow) followTranscript(player.currentTime);
+        if (autoplay) play();
       };
       player.addEventListener("loadedmetadata", () => {
         if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration);
@@ -468,17 +511,24 @@
         button.addEventListener("click", () => {
           const delta = Number.parseFloat(button.dataset.playbackSkip || "0");
           if (!Number.isFinite(delta)) return;
-          const max = Number.isFinite(player.duration) ? player.duration : Number.POSITIVE_INFINITY;
-          player.currentTime = Math.max(0, Math.min(max, player.currentTime + delta));
-          syncTime();
+          seekTo(player.currentTime + delta);
         });
       });
       progress?.addEventListener("input", () => {
         const next = Number.parseFloat(progress.value || "0");
         if (Number.isFinite(next)) {
-          player.currentTime = next;
-          syncTime();
+          seekTo(next);
         }
+      });
+      lanes.forEach((lane) => {
+        const track = lane.querySelector("[data-timeline-track]");
+        if (!track) return;
+        track.addEventListener("click", (event) => {
+          const rect = track.getBoundingClientRect();
+          const clientX = event.detail === 0 ? rect.left + rect.width / 2 : event.clientX;
+          const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
+          seekTo(playbackDuration() * ratio);
+        });
       });
       document.querySelectorAll("[data-seek-seconds]").forEach((button) => {
         if (button.dataset.seekReady === "true") return;
@@ -486,9 +536,7 @@
         button.addEventListener("click", () => {
           const seekSeconds = Number.parseFloat(button.dataset.seekSeconds || "0");
           if (!Number.isFinite(seekSeconds)) return;
-          player.currentTime = seekSeconds;
-          syncTime();
-          play();
+          seekTo(seekSeconds, { autoplay: true });
         });
       });
       if (speedToggle) {
@@ -1213,6 +1261,33 @@
     }
   };
 
+  const initSpeakerNameForms = () => {
+    document.querySelectorAll("[data-speaker-name-form]").forEach((form) => {
+      if (form.dataset.speakerNameReady === "true") return;
+      form.dataset.speakerNameReady = "true";
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const error = form.querySelector("[data-speaker-name-error]");
+        const submit = form.querySelector("button[type='submit']");
+        if (error) error.hidden = true;
+        if (submit) submit.disabled = true;
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: new FormData(form),
+            credentials: "same-origin",
+            headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {}
+          });
+          if (!response.ok) throw new Error("speaker_name_save_failed");
+          window.location.reload();
+        } catch {
+          if (error) error.hidden = false;
+          if (submit) submit.disabled = false;
+        }
+      });
+    });
+  };
+
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
@@ -1223,6 +1298,7 @@
     initDetailTabs();
     initPlayback();
     initPlaybackRecoveryPolling();
+    initSpeakerNameForms();
     initCalendarSettings();
   };
 

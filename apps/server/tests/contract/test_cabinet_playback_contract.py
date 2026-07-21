@@ -88,4 +88,6 @@ def test_desktop_embedded_detail_uses_same_playback_contract(client) -> None:
     assert 'data-source-mode="stored_review_m4a"' in html
     assert 'data-seek-seconds="0.0"' in html
     assert 'data-seek-seconds="12.5"' in html
+    assert "data-timeline-track" in html
+    assert "data-timeline-playhead" in html
     assert "desktop-embedded" in html
