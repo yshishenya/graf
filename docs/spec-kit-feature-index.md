@@ -1,8 +1,7 @@
 # Реестр Spec Kit и сверка документации
 
 **Дата сверки**: 2026-07-21
-**Проверяемая база**: `origin/master` (`1c99c40d`); release baseline tag
-`v2026.07.21.4` points to the same merge
+**Проверяемая база**: `origin/master` (`7ea8afc5`)
 **Lane**: docs-only reconciliation; код, production и tracker не изменялись.
 
 ## Как читать этот реестр
@@ -21,18 +20,18 @@
 
 ## Инвентаризация
 
-На текущем `master` найдено **94 spec-каталога**, **94 `spec.md`** и **88
-`tasks.md`**. Для 88 implementation slices есть `plan.md`, `tasks.md` и
+На текущем `master` найдено **97 spec-каталогов**, **97 `spec.md`** и **91
+`tasks.md`**. Для 91 implementation slices есть `plan.md`, `tasks.md` и
 `quickstart.md`. Полный artifact matrix такой:
 
 | Артефакт | Найдено | Исключения |
 | --- | ---: | --- |
-| `spec.md` | 94 | нет |
-| `plan.md` | 88 | six requirements-only specs below |
-| `tasks.md` | 88 | six requirements-only specs below |
-| `quickstart.md` | 88 | six requirements-only specs below |
-| `research.md` | 87 | requirements-only specs и механический dead-code batch `075` |
-| `data-model.md` | 84 | requirements-only specs и механические dead-code batches `075–078` |
+| `spec.md` | 97 | нет |
+| `plan.md` | 91 | six requirements-only specs below |
+| `tasks.md` | 91 | six requirements-only specs below |
+| `quickstart.md` | 91 | six requirements-only specs below |
+| `research.md` | 90 | requirements-only specs и механический dead-code batch `075` |
+| `data-model.md` | 87 | requirements-only specs и механические dead-code batches `075–078` |
 
 Для `075` отсутствие `research.md`, а для `075–078` отсутствие `data-model.md`
 намеренно: это delete/import-only cleanup без новых решений, сущностей,
@@ -72,9 +71,9 @@ runtime/release выводов используем current-product-status и fe
 receipts; для следующего изменения сначала обновляем status этого spec, его
 receipt и current-product-status одним change set.
 
-## Текущий срез 096–118
+## Текущий срез 096–120
 
-В этом диапазоне нет каталогов `103`, `112` и `114–117` на проверяемом
+В этом диапазоне нет каталогов `103`, `112` и `115–117` на проверяемом
 `master`: это незаведённые номера, а не незаполненные feature specs. Новые
 номера не стоит создавать задним числом без отдельного продуктового решения.
 
@@ -97,7 +96,10 @@ receipt и current-product-status одним change set.
 | [110](../specs/110-postgres-test-acceleration/spec.md) | Реализована; validation evidence записан | Новый полный прогон после финального startup guard намеренно не повторялся. |
 | [111](../specs/111-support-incident-recovery/spec.md) | Реализована, merged и released | PR #3843 и follow-up #3867 merged; release `v2026.07.18.2`; старый deploy receipt переименован в historical checkpoint. |
 | [113](../specs/113-transcript-speaker-turns/spec.md) | Реализована, merged и включена в `v2026.07.21.1` | Canonical speaker-turn boundary provider-neutral; MinIO playback hotfix остаётся отдельным slice. |
+| [114](../specs/114-support-incident-diagnostics/spec.md) | Реализована и merged через PR #4068 | Metadata-only support report, correlation, bounded timeline и dedupe закрыты; production deploy и installed-app receipt не заявляются. |
 | [118](../specs/118-interactive-playback-timeline/spec.md) | Реализована, merged через PR #3944 и выпущена в `v2026.07.21.4` | Общая шкала playback/speaker lanes, transcript-follow и meeting-local имена спикеров; отдельный production rollout proof не заявляется. |
+| [119](../specs/119-expand-meeting-app-registry/spec.md) | Реализована и merged через PR #4079 | T008 остаётся открытым: live post-deploy receipt требуется после enablement. |
+| [120](../specs/120-transcript-export/spec.md) | Реализована и merged через PR #4084 | Все шесть форматов, backend и web-cabinet UI валидированы; T059 / #4083 остаётся representative-reviewer gate перед general release. |
 
 ## Реальные открытые задачи во всём архиве
 
@@ -117,6 +119,10 @@ receipt и current-product-status одним change set.
   installed-app hardware и synthetic end-to-end package proof.
 - `109-release-signing-key-custody`: T022 — disposable-key workflow; owner-only
   release evidence T037 закрыт в `v2026.07.21.3`.
+- `119-expand-meeting-app-registry`: T008 — live post-deploy receipt после
+  enablement.
+- `120-transcript-export`: T059 — representative-reviewer usability study до
+  general release; synthetic QA не заменяет SC-014.
 
 Правило для следующих feature slices: сначала определить, является ли каталог
 requirements-only, implementation slice или release/production closeout; затем

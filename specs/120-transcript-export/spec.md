@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-21
 
-**Status**: Implementation validated; representative pre-release study pending
+**Status**: Implementation merged; representative pre-release study pending
 
 **Input**: User request: "Сформировать полноценную функцию экспорта транскрипта и саммари. Поддержать TXT, хорошо сверстанный MD, CSV, XLSX, JSON и SRT; PDF и DOCX пока не делать. Продумать, как хранить и обрабатывать экспорт, а также UI, UX, IA, permissions, lifecycle, provider-neutral contract, best practices and analogous products."
 
