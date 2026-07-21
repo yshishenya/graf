@@ -11,6 +11,10 @@ T053 / #4062 is implemented in post-merge closeout
 [PR #4085](https://github.com/yshishenya/crisp/pull/4085) with its required
 closure comment. T059 / #4083 remains open as the representative-reviewer
 pre-release gate; synthetic browser QA is not counted as SC-014 evidence.
+Controlled owner preview is deployed through release `v2026.07.21.13` at
+runtime SHA `0b923f7e4c1198c39ba17951bd0ced7f2d7bcc3f`; metadata-only deployment,
+bounded policy-seed, and installed-app read-back evidence is recorded in
+`validation/production-preview-2026-07-21.md`. This does not close T059.
 
 | Task | GitHub issue | Status |
 |---|---|---|
