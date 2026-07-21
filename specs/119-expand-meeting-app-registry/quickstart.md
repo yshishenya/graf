@@ -70,8 +70,8 @@ Expected: local CI passes before rollout.
 - Server registry unit tests: `10 passed`.
 - Focused Postgres contract/integration/migration tests: `15 passed`.
 - Focused macOS registry/policy/settings tests: `51 passed`.
-- Full macOS suite through local CI: `588 passed`.
-- Full server collection: `1991` tests. Parallel phase: `1955 passed, 1
+- Full macOS suite through local CI after rebase: `592 passed`.
+- Full server collection after rebase: `1997` tests. Parallel phase: `1961 passed, 1
   skipped`; strict-RLS phase: `34 passed, 1 skipped`; server lint and compile
   passed.
 - Full `infra/scripts/ci-local.sh`: `ci_local_result=pass`.
