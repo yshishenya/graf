@@ -6,6 +6,19 @@ Date: 2026-07-21
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
+## Validation update (2026-07-21)
+
+- Feature `090-manual-media-upload-ui` получила production owner-upload
+  receipt: accepted media, обработка `Готово`, 8 transcript segments, 2 speaker
+  tracks, сохранённые GRAF итоги и готовая media revision. Свежий acceptance
+  artifact затем удалён через разрешённый GRAF cleanup path; detail и точный
+  поиск в списке встреч больше его не показывают. Подробный metadata-only
+  receipt находится в
+  `specs/090-manual-media-upload-ui/validation/production-user-path-2026-07-21.md`.
+  Резервные копии, локальные буферы и внешние копии остаются отдельной
+  границей и не заявляются удалёнными. Issues #3049 и #3050 закрыты после
+  этой проверки.
+
 ## Spec Kit documentation status
 
 Полный inventory и reconciliation для feature specs находится в
@@ -309,8 +322,8 @@ Private Issue canon синхронизирован с задачами T001–T0
   feature-099 issues were reconciled and the clean release worktree was
   verified; the user-owned/test-rec and unrelated historical worktrees were
   preserved. The separate Feature-090 manual-upload browser receipt remains
-  open in #3049/#3050 and is not reclassified as a 099 failure; #3060 focus
-  evidence is closed separately.
+  closed in #3049/#3050 after the metadata-only receipt and is not
+  reclassified as a 099 failure; #3060 focus evidence is closed separately.
   Feature 097 remains released but its standalone Codex Security scan is still
   explicitly skipped by user instruction.
 - The separate Feature 099 production evidence includes the `v2026.07.17.3`
@@ -422,8 +435,8 @@ Private Issue canon синхронизирован с задачами T001–T0
   smoke is infrastructure proof, not that final user-path claim. Deferred
   post-deploy checks remain explicitly marked `required_post_deploy`. Review and
   cleanup/evidence receipts closed #3044–#3048, #3051, #3052, #3054–#3059 and
-  #3061; #3049 and #3050 remain open for external test-rec manual-upload
-  evidence, while #3060 is closed after the production focus-trap receipt.
+  #3061; #3049 and #3050 are closed after the external test-rec manual-upload
+  receipt, while #3060 is closed after the production focus-trap receipt.
   Current-diff evidence is in
   `specs/090-manual-media-upload-ui/validation/current-diff-closeout-2026-07-20.md`;
   production evidence is in

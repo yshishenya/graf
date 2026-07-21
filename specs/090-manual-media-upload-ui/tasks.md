@@ -419,11 +419,12 @@ macOS application, and publish a release from the merged `master` SHA.
 
 Эта append-only фаза закрывает только проверенные расхождения текущего diff.
 Старые релизные receipts выше не переиспользуются как доказательство новых
-границ. Внешний production Chrome/E2E путь остаётся отдельным gate.
+границ. Внешний production Chrome/E2E путь закрыт отдельным receipt ниже.
 
-- [ ] T072 [P0] Доказать полный результат ручной загрузки на реальной записи
+- [X] T072 [P0] Доказать полный результат ручной загрузки на реальной записи
   (transcript, speaker truth, сохранённый summary и cleanup) без публикации
-  содержимого в evidence; зависит от внешнего MediaScribe/Chrome пути (#3050).
+  содержимого в evidence; production owner-upload и cleanup read-back
+  зафиксированы в `validation/production-user-path-2026-07-21.md` (#3050).
 - [X] T073 [P1] Показать в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
   честный accepted-without-dispatch статус и recovery для auth/session failure;
   покрыто static asset contract (#3047).
@@ -449,7 +450,7 @@ macOS application, and publish a release from the merged `master` SHA.
   (#3057, canonical T094).
 - [X] T085 [P0] Повторить release/deploy gate для текущего runtime diff после
   merge; `v2026.07.20.6` и production SHA `bcfba51a` подтверждены, а полный
-  external user-path E2E остаётся отдельным T072/#3050 gate (#3049).
+  external user-path E2E закрыт отдельным T072/#3050 receipt (#3049).
 - [X] T095 [P0] Ограничить smoke helpers exact production HTTPS/loopback origin,
   mode-0600/O_NOFOLLOW auth material и exact `run_id` binding в
   `apps/server/scripts/smoke_target.py` (#3058).
@@ -461,8 +462,8 @@ macOS application, and publish a release from the merged `master` SHA.
 - [X] T098 [P0] Провести текущий-diff closeout checks и закрыть связанные
   GitHub issues только после receipts (#3061); доказанные review/cleanup/evidence
   issues #3044–#3048, #3051, #3052, #3054, #3055–#3059 и #3061 закрыты;
-  внешний manual-upload user-path остаётся в #3049/#3050; #3060 закрыт после
-  отдельного production Chrome focus-trap receipt.
+  внешний manual-upload user-path закрыт в #3049/#3050 после receipt; #3060
+  закрыт после отдельного production Chrome focus-trap receipt.
 - [X] T092 [P0] Получить независимый review receipt после исправлений и
   зафиксировать остаточные ограничения без заявления production Chrome proof
   (#3055, canonical T092).
@@ -485,7 +486,7 @@ macOS application, and publish a release from the merged `master` SHA.
 
 - [X] V004 Close only issues whose acceptance is proven by the receipt;
   #3044–#3048, #3051, #3052, #3054–#3059 и #3061 закрыты после receipts;
-  #3049 и #3050 остаются открытыми для внешней manual-upload E2E границы;
+  #3049 и #3050 закрыты после внешней manual-upload E2E границы;
   #3060 закрыт после доказательства T097.
 - [X] V005 Prepare and deploy CalVer `v2026.07.20.6` only after runtime code
   from Phase 12 was merged and the production gate was green; the release and
