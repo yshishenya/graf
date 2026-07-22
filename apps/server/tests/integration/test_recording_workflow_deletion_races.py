@@ -26,7 +26,10 @@ from twobrain_rec_server.db.models import (
     MeetingShareInvitation,
     ProcessingResult,
 )
-from twobrain_rec_server.outcomes.ai_service import publish_generation_call
+from twobrain_rec_server.outcomes.ai_service import (
+    publish_candidate_generation_calls,
+    publish_generation_call,
+)
 from twobrain_rec_server.outcomes.prompts import (
     canonical_json,
     outcome_config,
@@ -127,6 +130,45 @@ def test_deletion_wins_pending_egress_and_preserves_completed_observability_deli
 
     assert published == [PLAINTEXT_MARKER]
     assert asyncio.run(_generation_call_export_status(client, seeded.call_id)) == "confirmed"
+
+
+def test_retryable_response_is_published_from_retained_failed_call(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "retryable-response-observability")
+    seeded = asyncio.run(_seed_race_rows(client, meeting_id))
+    second_call_id = asyncio.run(_seed_retryable_then_success(client, seeded.call_id))
+
+    published: list[tuple[int, str]] = []
+    with (
+        patch(
+            "twobrain_rec_server.outcomes.ai_service.create_langfuse_client",
+            return_value=_LangfuseClient(),
+        ),
+        patch(
+            "twobrain_rec_server.outcomes.ai_service.publish_completed_generation",
+            side_effect=lambda _client, *, call, **_kwargs: published.append(
+                (call.provider_attempt, call.call_state)
+            ),
+        ),
+        patch("twobrain_rec_server.outcomes.ai_service.shutdown_langfuse"),
+    ):
+        result = asyncio.run(
+            publish_candidate_generation_calls(
+                client.app_state["sessionmaker"],
+                workspace_id=WORKSPACE_ID,
+                candidate_id=UUID(seeded.workflow_id.rsplit("/", 1)[1]),
+                settings=client.app.state.settings,
+                activity_attempt=6,
+            )
+        )
+
+    assert result == {
+        "candidate_terminal": True,
+        "pending_count": 0,
+        "published_count": 2,
+    }
+    assert published == [(1, "failed"), (2, "completed")]
+    assert asyncio.run(_generation_call_export_status(client, seeded.call_id)) == "confirmed"
+    assert asyncio.run(_generation_call_export_status(client, second_call_id)) == "confirmed"
 
 
 @dataclass(frozen=True)
@@ -265,6 +307,44 @@ async def _race_state(client, seeded: _SeededRows) -> dict[str, object]:
             "invitation_purged": invitation is None,
             "export_purged": export is None,
         }
+
+
+async def _seed_retryable_then_success(client, call_id: UUID) -> UUID:
+    async with client.app_state["sessionmaker"]() as db:
+        call = await db.get(GenerationCall, call_id)
+        assert call is not None
+        call.call_state = "failed"
+        attempt = await db.scalar(
+            select(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.candidate_id == call.candidate_id
+            )
+        )
+        assert attempt is not None
+        attempt.status = "candidate"
+        second = GenerationCall(
+            workspace_id=call.workspace_id,
+            meeting_id=call.meeting_id,
+            candidate_id=call.candidate_id,
+            provider_attempt=2,
+            call_sequence=1,
+            trace_id=call.trace_id,
+            observation_id="d" * 32,
+            call_state="completed",
+            started_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+            request_json=call.request_json,
+            transcript_text=call.transcript_text,
+            raw_response_json=call.raw_response_json,
+            validated_result_json=call.validated_result_json,
+            request_hash=call.request_hash,
+            transcript_hash=call.transcript_hash,
+            raw_response_hash=call.raw_response_hash,
+            validated_result_hash=call.validated_result_hash,
+            export_status="pending",
+        )
+        db.add(second)
+        await db.commit()
+        return second.id
 
 
 async def _generation_call_export_status(client, call_id: UUID) -> str:

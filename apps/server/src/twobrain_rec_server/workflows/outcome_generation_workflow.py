@@ -197,6 +197,7 @@ def outcome_observability_retry_policy():
 
 try:
     from temporalio import workflow
+    from temporalio.workflow import ParentClosePolicy
 except Exception:  # pragma: no cover - narrow docs/unit environment
     workflow = None
 
@@ -204,9 +205,41 @@ except Exception:  # pragma: no cover - narrow docs/unit environment
 if workflow is not None:
 
     @workflow.defn
+    class OutcomeObservabilityReconcilerWorkflow:
+        @workflow.run
+        async def run(self, payload: dict[str, str]) -> dict[str, object]:
+            cycles = 0
+            while True:
+                state = await workflow.execute_activity(
+                    "publish_outcome_observability_activity",
+                    payload,
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=outcome_observability_retry_policy(),
+                )
+                if state["candidate_terminal"] and int(state["pending_count"]) == 0:
+                    return state
+                cycles += 1
+                if cycles >= 1_000:
+                    workflow.continue_as_new(payload)
+                await workflow.sleep(timedelta(seconds=15))
+
+    @workflow.defn
     class OutcomeGenerationWorkflow:
         @workflow.run
         async def run(self, payload: dict[str, str]) -> dict[str, object]:
+            reconciler_enabled = workflow.patched("outcome-observability-reconciler-v1")
+            if reconciler_enabled:
+                info = workflow.info()
+                await workflow.start_child_workflow(
+                    OutcomeObservabilityReconcilerWorkflow.run,
+                    {
+                        **payload,
+                        "generation_workflow_id": info.workflow_id,
+                        "generation_workflow_run_id": info.run_id,
+                    },
+                    id=f"outcome-observability/{payload['candidate_id']}",
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                )
             try:
                 resolved = await workflow.execute_activity(
                     "resolve_outcome_prompt_config_activity",
@@ -249,16 +282,21 @@ if workflow is not None:
                     retry_policy=outcome_generation_retry_policy(),
                 )
                 raise
-            await workflow.execute_activity(
-                "publish_outcome_observability_activity",
-                {**payload, "generation_call_id": generated["generation_call_id"]},
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=outcome_observability_retry_policy(),
-            )
+            if not reconciler_enabled:
+                await workflow.execute_activity(
+                    "publish_outcome_observability_activity",
+                    {**payload, "generation_call_id": generated["generation_call_id"]},
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=outcome_observability_retry_policy(),
+                )
             return generated
 
 else:
 
     class OutcomeGenerationWorkflow:
+        async def run(self, payload: dict[str, str]) -> dict[str, object]:
+            return payload
+
+    class OutcomeObservabilityReconcilerWorkflow:
         async def run(self, payload: dict[str, str]) -> dict[str, object]:
             return payload

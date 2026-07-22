@@ -18,7 +18,7 @@ from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScrib
 from twobrain_rec_server.outcomes.ai_service import (
     execute_candidate_generation,
     finalize_candidate_generation_failure,
-    publish_generation_call,
+    publish_candidate_generation_calls,
     resolve_candidate_prompt,
     snapshot_candidate_transcript,
 )
@@ -42,7 +42,10 @@ from twobrain_rec_server.processing.submit import (
 )
 from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.invitation_delivery_workflow import InvitationDeliveryWorkflow
-from twobrain_rec_server.workflows.outcome_generation_workflow import OutcomeGenerationWorkflow
+from twobrain_rec_server.workflows.outcome_generation_workflow import (
+    OutcomeGenerationWorkflow,
+    OutcomeObservabilityReconcilerWorkflow,
+)
 from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
 from twobrain_rec_server.workflows.prompt_optimization_workflow import (
     PromptOptimizationWorkflow,
@@ -232,7 +235,7 @@ async def finalize_outcome_generation_failure_activity(
         await engine.dispose()
 
 
-async def publish_outcome_observability_activity(payload: dict[str, Any]) -> dict[str, str]:
+async def publish_outcome_observability_activity(payload: dict[str, Any]) -> dict[str, object]:
     from temporalio import activity
 
     settings = get_settings()
@@ -240,17 +243,21 @@ async def publish_outcome_observability_activity(payload: dict[str, Any]) -> dic
     sessionmaker = create_sessionmaker(engine)
     try:
         info = activity.info()
-        await publish_generation_call(
+        result = await publish_candidate_generation_calls(
             sessionmaker,
             workspace_id=UUID(str(payload["workspace_id"])),
-            call_id=UUID(str(payload["generation_call_id"])),
+            candidate_id=UUID(str(payload["candidate_id"])),
             settings=settings,
             activity_attempt=info.attempt,
-            temporal_workflow_id=info.workflow_id,
-            temporal_run_id=info.workflow_run_id,
+            temporal_workflow_id=str(
+                payload.get("generation_workflow_id") or info.workflow_id
+            ),
+            temporal_run_id=str(
+                payload.get("generation_workflow_run_id") or info.workflow_run_id
+            ),
             temporal_activity_id=info.activity_id,
         )
-        return {"generation_call_id": str(payload["generation_call_id"]), "status": "confirmed"}
+        return {"candidate_id": str(payload["candidate_id"]), **result}
     finally:
         await engine.dispose()
 
@@ -597,7 +604,10 @@ async def run_worker() -> None:
                 Worker(
                     traced_client,
                     task_queue=outcome_generation_task_queue(settings),
-                    workflows=[OutcomeGenerationWorkflow],
+                    workflows=[
+                        OutcomeGenerationWorkflow,
+                        OutcomeObservabilityReconcilerWorkflow,
+                    ],
                     activities=outcome_activities,
                     identity=f"{processing_worker_identity()}:outcomes",
                 )

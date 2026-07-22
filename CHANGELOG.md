@@ -21,6 +21,10 @@
 - Temporal SDK 1.30 корректно декодирует смешанные AI payload через `Any`, а
   run ID нового workflow берётся из `result_run_id`, поэтому plaintext-
   snapshot и Langfuse correlation не застревают на первой activity.
+- Отдельный Temporal reconciler теперь публикует в Langfuse каждый сохранённый
+  response-bearing LiteLLM attempt, включая retryable `429/5xx`, переживает
+  отмену родительской генерации и не повторяет inference; вызовы без ответа не
+  создают выдуманную generation.
 
 ### Безопасность
 - _Пока нет записей._

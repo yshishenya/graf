@@ -341,8 +341,7 @@ async def execute_candidate_generation(
                     "reused": True,
                 }
             if existing.call_state == "reserved":
-                existing.call_state = "ambiguous"
-                existing.completed_at = datetime.now(UTC)
+                _complete_generation_call_without_response(existing, call_state="ambiguous")
                 attempt.status = "failed"
                 attempt.failure_code = "summary_provider_outcome_ambiguous"
                 await db.commit()
@@ -410,8 +409,7 @@ async def execute_candidate_generation(
         )
         if call is None or meeting is None or meeting.deletion_state not in {None, "none"}:
             if call is not None:
-                call.call_state = "failed"
-                call.completed_at = datetime.now(UTC)
+                _complete_generation_call_without_response(call, call_state="failed")
             attempt.status = "cancelled"
             attempt.failure_code = "meeting_deleted"
             await db.commit()
@@ -440,6 +438,7 @@ async def execute_candidate_generation(
                 call.call_state = "ambiguous"
                 call.validated_result_json = None
                 call.validated_result_hash = None
+                call.export_status = "not_required"
                 attempt.status = "failed"
                 attempt.failure_code = "summary_provider_outcome_ambiguous"
                 attempt.ended_at = completed_at
@@ -449,6 +448,8 @@ async def execute_candidate_generation(
                 ) from exc
             call.validated_result_json = validation_result
             call.validated_result_hash = _content_hash(validation_result)
+            if exc.raw_response is None:
+                call.export_status = "not_required"
             if exc.retryable:
                 call.call_state = "failed"
                 attempt.status = "generating"
@@ -576,7 +577,7 @@ async def publish_generation_call(
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
         call = await db.get(GenerationCall, call_id)
-        if call is None or call.call_state != "completed":
+        if call is None or not _generation_call_is_publishable(call):
             raise OutcomeGenerationTerminalError("generation_call_not_completed")
         if call.export_status == "confirmed":
             return
@@ -643,6 +644,90 @@ async def publish_generation_call(
             current.next_export_attempt_at = None
             current.last_export_error_code = None
             await db.commit()
+
+
+async def publish_candidate_generation_calls(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    *,
+    workspace_id: UUID,
+    candidate_id: UUID,
+    settings: Settings,
+    activity_attempt: int,
+    temporal_workflow_id: str | None = None,
+    temporal_run_id: str | None = None,
+    temporal_activity_id: str | None = None,
+) -> dict[str, object]:
+    """Publish every durable response for one candidate in provider-attempt order."""
+    async with sessionmaker() as db:
+        await _apply_worker_workspace(db, workspace_id)
+        calls = (
+            await db.scalars(
+                select(GenerationCall)
+                .where(
+                    GenerationCall.workspace_id == workspace_id,
+                    GenerationCall.candidate_id == candidate_id,
+                    GenerationCall.export_status != "confirmed",
+                )
+                .order_by(
+                    GenerationCall.provider_attempt,
+                    GenerationCall.call_sequence,
+                )
+            )
+        ).all()
+        call_ids = [call.id for call in calls if _generation_call_is_publishable(call)]
+    for call_id in call_ids:
+        await publish_generation_call(
+            sessionmaker,
+            workspace_id=workspace_id,
+            call_id=call_id,
+            settings=settings,
+            activity_attempt=activity_attempt,
+            temporal_workflow_id=temporal_workflow_id,
+            temporal_run_id=temporal_run_id,
+            temporal_activity_id=temporal_activity_id,
+        )
+    async with sessionmaker() as db:
+        await _apply_worker_workspace(db, workspace_id)
+        attempt = await db.scalar(
+            select(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
+                MeetingOutcomeGenerationAttempt.candidate_id == candidate_id,
+            )
+        )
+        calls = (
+            await db.scalars(
+                select(GenerationCall).where(
+                    GenerationCall.workspace_id == workspace_id,
+                    GenerationCall.candidate_id == candidate_id,
+                    GenerationCall.export_status != "confirmed",
+                )
+            )
+        ).all()
+        pending_count = sum(_generation_call_is_publishable(call) for call in calls)
+    return {
+        "candidate_terminal": attempt is None
+        or attempt.status not in {"queued", "generating", "blocked_dependency"},
+        "pending_count": pending_count,
+        "published_count": len(call_ids),
+    }
+
+
+def _generation_call_is_publishable(call: GenerationCall) -> bool:
+    if (
+        call.completed_at is None
+        or call.raw_response_json is None
+        or call.validated_result_json is None
+    ):
+        return False
+    return call.call_state in {"completed", "failed"}
+
+
+def _complete_generation_call_without_response(
+    call: GenerationCall, *, call_state: str
+) -> None:
+    call.call_state = call_state
+    call.completed_at = datetime.now(UTC)
+    call.export_status = "not_required"
 
 
 async def finalize_candidate_generation_failure(

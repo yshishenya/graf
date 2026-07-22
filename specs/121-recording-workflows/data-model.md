@@ -161,15 +161,17 @@ generation without replaying inference:
 | `raw_response_json` | bounded JSON/text | Exact provider response available to GRAF. |
 | `validated_result_json` | bounded JSON | Exact locally validated structured result. |
 | `request_hash`, `transcript_hash`, `raw_response_hash`, `validated_result_hash` | fixed hashes | Equality and tamper evidence across GRAF, Temporal, and Langfuse. |
-| `export_status` | enum | `pending` or `confirmed`; a delivery failure stays pending and does not gate candidate readiness. |
+| `export_status` | enum | `pending`, `confirmed`, or `not_required`; a response-bearing delivery failure stays pending and does not gate candidate readiness, while a no-response/ambiguous call is explicitly not published as a fabricated generation. |
 | `export_attempt_count` | non-negative integer | Delivery attempts only; never provider/model attempts. |
 | `last_export_attempt_at`, `next_export_attempt_at`, `export_confirmed_at` | optional timestamp | Durable background-delivery scheduling and evidence. |
 | `last_export_error_code` | optional bounded enum/string | Content-free operational reason; never clears retained content. |
 
 The sole publisher reads this retained row, verifies hashes, and reuses the same
 observation ID. Confirmation updates delivery status but does not clear content;
-every delivery error leaves the row pending for durable retry. Meeting deletion
-does not cascade to this table and cannot cancel its delivery. RLS/policy allows
+every response-bearing delivery error leaves the row pending for durable retry.
+A no-response or ambiguous call stays retained with `not_required` delivery
+state and never fabricates a Langfuse generation. Meeting deletion does not
+cascade to this table and cannot cancel response delivery. RLS/policy allows
 only the outcome worker and least-privilege deployment operator to query retained
 rows by `workspace_id` or stable opaque IDs; normal cabinet meeting routes never
 read them. An `ambiguous` call never fabricates missing raw output or claims
