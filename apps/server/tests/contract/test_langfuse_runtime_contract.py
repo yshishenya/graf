@@ -8,6 +8,11 @@ from twobrain_rec_server.observability.langfuse import (
     _should_export_langfuse_span,
     create_langfuse_client,
 )
+from twobrain_rec_server.outcomes.prompts import (
+    langfuse_prompt_payload,
+    outcome_config,
+    validate_prompt_snapshot,
+)
 
 
 def test_langfuse_runtime_is_private_full_content_and_secret_file_backed(
@@ -69,6 +74,38 @@ def test_langfuse_span_filter_keeps_trace_tree_and_drops_unrelated_io() -> None:
         _should_export_langfuse_span(span("opentelemetry.instrumentation.fastapi", gen_ai=True))
         is False
     )
+
+
+def test_langfuse_v4_chat_wire_type_round_trips_to_stable_prompt_contract() -> None:
+    from langfuse.api.prompts.types.create_chat_prompt_request import CreateChatPromptRequest
+    from langfuse.api.prompts.types.create_chat_prompt_type import CreateChatPromptType
+
+    stable_prompt = [
+        {"type": "message", "role": "system", "content": "Use {{transcript_json}}."},
+        {
+            "type": "message",
+            "role": "user",
+            "content": "{{output_language}} {{detail_level}} {{template_sections_json}}",
+        },
+    ]
+    config = outcome_config(schema_name="test")
+    wire_prompt = langfuse_prompt_payload(stable_prompt)
+    request = CreateChatPromptRequest(
+        name="graf/meeting-outcome/test",
+        prompt=wire_prompt,
+        type=CreateChatPromptType.CHAT,
+        config=config,
+    )
+    assert [message.type.value for message in request.prompt] == ["chatmessage", "chatmessage"]
+
+    snapshot = validate_prompt_snapshot(
+        name="graf/meeting-outcome/test",
+        version=2,
+        prompt_type="chat",
+        prompt=wire_prompt,
+        config=config,
+    )
+    assert snapshot.prompt == stable_prompt
 
 
 def test_full_content_publisher_has_one_explicit_generation_owner() -> None:

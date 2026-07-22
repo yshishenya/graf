@@ -110,6 +110,7 @@ def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_
             selected_model="selected-route",
             prompt_name="graf/meeting-outcome/auto",
             prompt_version=4,
+            prompt_hash="a" * 64,
             user_id="user",
             session_id="meeting",
             activity_attempt=2,
@@ -141,6 +142,8 @@ def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_
     assert generation["metadata"]["temporal_workflow_id"] == "outcome-generation/candidate"
     assert generation["metadata"]["temporal_run_id"] == "run"
     assert generation["metadata"]["temporal_activity_id"] == "publish-observability"
+    assert generation["metadata"]["activity_attempt"] == 2
+    assert generation["metadata"]["prompt_hash"] == "a" * 64
     assert client.flush_count == 1
 
 

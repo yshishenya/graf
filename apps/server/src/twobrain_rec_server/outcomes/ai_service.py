@@ -612,6 +612,7 @@ async def publish_generation_call(
                 selected_model=selected_model,
                 prompt_name=prompt_name,
                 prompt_version=prompt_version,
+                prompt_hash=attempt.prompt_hash,
                 user_id=str(requested_by) if requested_by else None,
                 session_id=str(call.meeting_id),
                 activity_attempt=activity_attempt,
