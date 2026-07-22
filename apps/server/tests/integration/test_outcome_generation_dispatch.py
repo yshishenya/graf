@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -16,7 +17,8 @@ class _AlreadyStartedError(RuntimeError):
 
 
 class _Handle:
-    run_id = "run-1"
+    run_id = None
+    result_run_id = "run-1"
 
 
 class _TemporalClient:
@@ -78,3 +80,27 @@ async def test_duplicate_candidate_dispatch_reuses_existing_workflow() -> None:
     assert started.workflow_id == f"outcome-generation/{candidate_id}"
     assert started.reused is True
     assert started.run_id is None
+
+
+@pytest.mark.anyio
+async def test_temporal_converter_accepts_mixed_payload_with_any_type_hint() -> None:
+    from typing import Any
+
+    from temporalio.converter import DataConverter
+
+    payload = {"candidate_id": "candidate", "chunk_index": 0, "enabled": True}
+    encoded = await DataConverter.default.encode([payload])
+
+    assert await DataConverter.default.decode(encoded, [dict[str, Any]]) == [payload]
+
+
+def test_ai_temporal_boundaries_never_annotate_mixed_payload_as_object() -> None:
+    paths = (
+        Path("src/twobrain_rec_server/workflows/worker.py"),
+        Path("src/twobrain_rec_server/workflows/prompt_optimization_workflow.py"),
+        Path("src/twobrain_rec_server/workflows/prompt_rollback_workflow.py"),
+        Path("src/twobrain_rec_server/outcomes/prompt_optimization.py"),
+    )
+
+    for path in paths:
+        assert "payload: dict[str, object]" not in path.read_text(encoding="utf-8")

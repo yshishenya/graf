@@ -2295,7 +2295,7 @@ def _calibrations_from_resolved(
 
 
 async def resolve_prompt_optimization_contract_activity(
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> dict[str, object]:
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
@@ -2386,7 +2386,7 @@ async def resolve_prompt_optimization_contract_activity(
 
 
 async def snapshot_prompt_optimization_history_chunk_activity(
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> dict[str, object]:
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.storage.minio_client import get_storage
@@ -2439,7 +2439,7 @@ async def snapshot_prompt_optimization_history_chunk_activity(
 
 
 async def finalize_prompt_optimization_history_materialization_activity(
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> dict[str, object]:
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
@@ -2490,7 +2490,7 @@ async def finalize_prompt_optimization_history_materialization_activity(
 
 
 async def run_gepa_prompt_optimization_activity(
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> dict[str, object]:
     from temporalio import activity
 
@@ -2709,7 +2709,7 @@ async def run_gepa_prompt_optimization_activity(
 
 
 async def validate_heldout_prompt_candidate_activity(
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> dict[str, object]:
     from temporalio import activity
 
@@ -2840,7 +2840,7 @@ async def validate_heldout_prompt_candidate_activity(
     }
 
 
-async def publish_prompt_candidate_activity(payload: dict[str, object]) -> dict[str, object]:
+async def publish_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str, object]:
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
     from twobrain_rec_server.db.session import create_engine, create_sessionmaker
@@ -2984,7 +2984,7 @@ async def authorize_prompt_optimization_action_activity(
         await engine.dispose()
 
 
-async def promote_prompt_candidate_activity(payload: dict[str, object]) -> dict[str, object]:
+async def promote_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str, object]:
     from sqlalchemy import select, text
 
     from twobrain_rec_server.config import get_settings
@@ -3071,7 +3071,7 @@ async def promote_prompt_candidate_activity(payload: dict[str, object]) -> dict[
         )
 
 
-async def finalize_prompt_optimization_activity(payload: dict[str, object]) -> dict[str, object]:
+async def finalize_prompt_optimization_activity(payload: dict[str, Any]) -> dict[str, object]:
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
     from twobrain_rec_server.db.session import create_engine, create_sessionmaker
@@ -3124,7 +3124,7 @@ async def finalize_prompt_optimization_activity(payload: dict[str, object]) -> d
     return {"run_id": str(run_id), "status": terminal["status"]}
 
 
-async def authorize_prompt_rollback_action_activity(payload: dict[str, object]) -> dict[str, str]:
+async def authorize_prompt_rollback_action_activity(payload: dict[str, Any]) -> dict[str, str]:
     from sqlalchemy import select
 
     from twobrain_rec_server.config import get_settings
@@ -3163,7 +3163,7 @@ async def authorize_prompt_rollback_action_activity(payload: dict[str, object]) 
 
 
 async def rollback_prompt_production_label_activity(
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> dict[str, object]:
     from sqlalchemy import select, text
 

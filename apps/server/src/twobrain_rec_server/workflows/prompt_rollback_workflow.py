@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from typing import Any
 
 try:
     from temporalio import workflow
@@ -16,7 +17,7 @@ if workflow is not None:
     @workflow.defn
     class PromptRollbackWorkflow:
         @workflow.run
-        async def run(self, payload: dict[str, object]) -> dict[str, object]:
+        async def run(self, payload: dict[str, Any]) -> dict[str, object]:
             authorized = await workflow.execute_activity(
                 "authorize_prompt_rollback_action_activity",
                 payload,
@@ -62,5 +63,5 @@ if workflow is not None:
 else:
 
     class PromptRollbackWorkflow:
-        async def run(self, payload: dict[str, object]) -> dict[str, object]:
+        async def run(self, payload: dict[str, Any]) -> dict[str, object]:
             return payload

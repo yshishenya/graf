@@ -18,6 +18,9 @@
 - Публикация chat-prompt'ов использует wire enum Langfuse v4 `chatmessage`,
   сохраняя стабильный внутренний контракт GRAF и совместимость уже созданных
   версий с типом `message`.
+- Temporal SDK 1.30 корректно декодирует смешанные AI payload через `Any`, а
+  run ID нового workflow берётся из `result_run_id`, поэтому plaintext-
+  snapshot и Langfuse correlation не застревают на первой activity.
 
 ### Безопасность
 - _Пока нет записей._

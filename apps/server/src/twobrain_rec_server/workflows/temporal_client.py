@@ -5,6 +5,7 @@ import re
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 from twobrain_rec_server.auth.context import TenantScope
@@ -72,6 +73,15 @@ class PromptRollbackWorkflowStart:
     workflow_id: str
     run_id: str | None = None
     reused: bool = False
+
+
+def _started_workflow_run_id(handle: object) -> str | None:
+    """Read the run ID from both real Temporal 1.30 handles and test doubles."""
+    if isinstance(handle, dict):
+        value = handle.get("result_run_id") or handle.get("run_id")
+    else:
+        value = getattr(handle, "result_run_id", None) or getattr(handle, "run_id", None)
+    return value if isinstance(value, str) and value else None
 
 
 def prompt_optimization_task_queue(settings: Settings) -> str:
@@ -304,7 +314,7 @@ async def start_prompt_optimization_workflow(
     temporal_client: object,
     settings: Settings,
     workflow_id: str,
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> PromptOptimizationWorkflowStart:
     from twobrain_rec_server.workflows.prompt_optimization_workflow import (
         PromptOptimizationWorkflow,
@@ -331,9 +341,7 @@ async def start_prompt_optimization_workflow(
         if "already" not in exc_name and "workflowalready" not in exc_name:
             raise
         return PromptOptimizationWorkflowStart(workflow_id=workflow_id, reused=True)
-    run_id = getattr(handle, "run_id", None)
-    if isinstance(handle, dict):
-        run_id = handle.get("run_id")
+    run_id = _started_workflow_run_id(handle)
     return PromptOptimizationWorkflowStart(workflow_id=workflow_id, run_id=run_id)
 
 
@@ -342,7 +350,7 @@ async def start_prompt_rollback_workflow(
     temporal_client: object,
     settings: Settings,
     workflow_id: str,
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> PromptRollbackWorkflowStart:
     from twobrain_rec_server.workflows.prompt_rollback_workflow import PromptRollbackWorkflow
 
@@ -368,9 +376,7 @@ async def start_prompt_rollback_workflow(
         if "already" not in exc_name and "workflowalready" not in exc_name:
             raise
         return PromptRollbackWorkflowStart(workflow_id=workflow_id, reused=True)
-    run_id = getattr(handle, "run_id", None)
-    if isinstance(handle, dict):
-        run_id = handle.get("run_id")
+    run_id = _started_workflow_run_id(handle)
     return PromptRollbackWorkflowStart(workflow_id=workflow_id, run_id=run_id)
 
 
@@ -427,9 +433,7 @@ async def start_outcome_generation_workflow(
         if "already" not in exc_name and "workflowalready" not in exc_name:
             raise
         return OutcomeGenerationWorkflowStart(workflow_id=workflow_id, reused=True)
-    run_id = getattr(handle, "run_id", None)
-    if isinstance(handle, dict):
-        run_id = handle.get("run_id")
+    run_id = _started_workflow_run_id(handle)
     return OutcomeGenerationWorkflowStart(workflow_id=workflow_id, run_id=run_id)
 
 
@@ -459,9 +463,7 @@ async def start_invitation_delivery_workflow(
         if "already" not in exc_name and "workflowalready" not in exc_name:
             raise
         return InvitationDeliveryWorkflowStart(workflow_id=workflow_id, reused=True)
-    run_id = getattr(handle, "run_id", None)
-    if isinstance(handle, dict):
-        run_id = handle.get("run_id")
+    run_id = _started_workflow_run_id(handle)
     return InvitationDeliveryWorkflowStart(workflow_id=workflow_id, run_id=run_id)
 
 
@@ -526,9 +528,7 @@ async def start_processing_workflow(
         if "already" not in exc_name and "workflowalready" not in exc_name:
             raise
         return ProcessingWorkflowStart(workflow_id=workflow_id, reused=True)
-    run_id = getattr(handle, "run_id", None)
-    if isinstance(handle, dict):
-        run_id = handle.get("run_id")
+    run_id = _started_workflow_run_id(handle)
     return ProcessingWorkflowStart(workflow_id=workflow_id, run_id=run_id, reused=False)
 
 
@@ -581,9 +581,7 @@ async def start_playback_normalization_workflow(
         if "already" not in exc_name and "workflowalready" not in exc_name:
             raise
         return PlaybackNormalizationWorkflowStart(workflow_id=workflow_id, reused=True)
-    run_id = getattr(handle, "run_id", None)
-    if isinstance(handle, dict):
-        run_id = handle.get("run_id")
+    run_id = _started_workflow_run_id(handle)
     return PlaybackNormalizationWorkflowStart(
         workflow_id=workflow_id,
         run_id=run_id,
