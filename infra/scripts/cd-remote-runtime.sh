@@ -513,6 +513,8 @@ for runtime_service_secret in \
   "${TWOBRAIN_YANDEX_CLIENT_SECRET_FILE:-./secrets/twobrain_yandex_client_secret}" \
   "${TWOBRAIN_VK_CLIENT_SECRET_FILE:-./secrets/twobrain_vk_client_secret}" \
   "${TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE:-./secrets/twobrain_support_incident_github_token}" \
+  "${TWOBRAIN_LANGFUSE_PUBLIC_KEY_SECRET_FILE:-./secrets/twobrain_langfuse_public_key}" \
+  "${TWOBRAIN_LANGFUSE_SECRET_KEY_SECRET_FILE:-./secrets/twobrain_langfuse_secret_key}" \
   "${TWOBRAIN_MEDIASCRIBE_API_KEY_FILE:-./secrets/twobrain_mediascribe_api_key}" \
   "${TWOBRAIN_MINIO_API_ACCESS_KEY_FILE:-./secrets/twobrain_minio_api_access_key}" \
   "${TWOBRAIN_MINIO_API_SECRET_KEY_FILE:-./secrets/twobrain_minio_api_secret_key}" \
