@@ -187,7 +187,7 @@ metadata_directory="$(mktemp -d "${TMPDIR:-/tmp}/graf-postgres-test.XXXXXX")"
 collect_node_ids() {
   local destination="$1"
   shift
-  PYTHONPATH=src uv run --extra dev pytest --collect-only "$@" \
+  PYTHONPATH=src uv run --extra dev --extra evaluation pytest --collect-only "$@" \
     | awk '/^tests\// { print }' \
     | LC_ALL=C sort -u > "$destination"
 }
@@ -224,7 +224,7 @@ export PYTHONPATH=src
 
 if [[ "$mode" == "focused" ]]; then
   printf 'postgres_test_mode=focused worker_count=1\n'
-  if run_phase focused uv run --extra dev pytest "${timing_args[@]}" "${pytest_args[@]}"; then
+  if run_phase focused uv run --extra dev --extra evaluation pytest "${timing_args[@]}" "${pytest_args[@]}"; then
     :
   else
     exit 1
@@ -258,14 +258,14 @@ if [[ "$collect_only" == true ]]; then
 fi
 
 if run_phase parallel \
-  uv run --extra dev pytest -n "$workers" --dist=loadfile -m "not strict_rls" \
+  uv run --extra dev --extra evaluation pytest -n "$workers" --dist=loadfile -m "not strict_rls" \
   "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
   exit 1
 fi
 if run_phase strict \
-  uv run --extra dev pytest -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
+  uv run --extra dev --extra evaluation pytest -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
   exit 1

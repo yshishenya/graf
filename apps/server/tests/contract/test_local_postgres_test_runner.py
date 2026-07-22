@@ -75,6 +75,7 @@ def test_worker_and_clean_database_names_are_bounded_and_run_scoped(monkeypatch)
 def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -> None:
     script = RUNNER.read_text(encoding="utf-8")
 
+    assert script.count("--extra dev --extra evaluation") == 4
     assert "GRAF_TEST_WORKERS" in script
     assert 'workers="${GRAF_TEST_WORKERS:-8}"' in script
     assert "GRAF_TEST_WORKERS must be an integer from 1 through 8." in script
