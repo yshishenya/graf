@@ -999,7 +999,8 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 200) }
         )
-        let reloaded = try XCTUnwrap(restartedService.loadItems().first)
+        let recoveredItems = try restartedService.scanAndEnqueueCompletedRecordings()
+        let reloaded = try XCTUnwrap(recoveredItems.first)
         let documentData = try Data(contentsOf: queueURL)
         let document = try JSONDecoder.uploadQueueTestDecoder.decode(DesktopUploadQueueDocument.self, from: documentData)
 
@@ -1011,6 +1012,13 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertNil(reloaded.meetingId)
         XCTAssertNil(reloaded.mediaRevisionId)
         XCTAssertNil(reloaded.serverTruth.meetingId)
+        XCTAssertEqual(recoveredItems.count, 1)
+        let custody = DesktopUploadCustodyProjection(
+            item: reloaded,
+            now: Date(timeIntervalSince1970: 200)
+        )
+        XCTAssertEqual(custody.custodyState, .serverUnknownLocalSaved)
+        XCTAssertEqual(custody.retryClass, .automatic)
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.manifestURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.transcriptionURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: package.reviewURL.path))

@@ -5908,6 +5908,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/shared-summary:
+    get:
+      tags:
+      - cabinet
+      summary: Get Shared Meeting Summary Route
+      operationId: getSharedMeetingSummary
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicShareSummaryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}/access:
     get:
       tags:
@@ -6316,6 +6383,773 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/summary-templates:
+    get:
+      tags:
+      - cabinet
+      summary: List Summary Templates Route
+      operationId: listSummaryTemplates
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTemplateListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cabinet
+      summary: Create Summary Template Route
+      operationId: createSummaryTemplate
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSummaryTemplateRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTemplateView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/summary-templates/default:
+    put:
+      tags:
+      - cabinet
+      summary: Update Default Summary Template Route
+      operationId: updateDefaultSummaryTemplate
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDefaultSummaryTemplateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTemplateView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/summary-templates/{template_id}:
+    patch:
+      tags:
+      - cabinet
+      summary: Update Summary Template Route
+      operationId: updateSummaryTemplate
+      parameters:
+      - name: template_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Template Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSummaryTemplateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTemplateView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - cabinet
+      summary: Delete Summary Template Route
+      operationId: deleteSummaryTemplate
+      parameters:
+      - name: template_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Template Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/summary-templates/{template_id}/duplicate:
+    post:
+      tags:
+      - cabinet
+      summary: Duplicate Summary Template Route
+      operationId: duplicateSummaryTemplate
+      parameters:
+      - name: template_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Template Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTemplateView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/summary-templates/{template_id}/archive:
+    post:
+      tags:
+      - cabinet
+      summary: Archive Summary Template Route
+      operationId: archiveSummaryTemplate
+      parameters:
+      - name: template_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Template Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryTemplateView'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summary-candidates:
+    post:
+      tags:
+      - cabinet
+      summary: Create Summary Candidate Route
+      operationId: createSummaryCandidate
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSummaryCandidateRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryCandidateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}:
+    get:
+      tags:
+      - cabinet
+      summary: Get Summary Candidate Route
+      operationId: getSummaryCandidate
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Candidate Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryCandidateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/accept:
+    post:
+      tags:
+      - cabinet
+      summary: Accept Summary Candidate Route
+      operationId: acceptSummaryCandidate
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Candidate Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveSummaryCandidateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryCandidateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/reject:
+    post:
+      tags:
+      - cabinet
+      summary: Reject Summary Candidate Route
+      operationId: rejectSummaryCandidate
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Candidate Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveSummaryCandidateRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryCandidateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}/shares:
     post:
       tags:
@@ -6383,6 +7217,291 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShareGrantResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/share-recipients:
+    get:
+      tags:
+      - cabinet
+      summary: Search Meeting Share Recipients Route
+      operationId: searchMeetingShareRecipients
+      parameters:
+      - name: query
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 0
+          maxLength: 80
+          title: Query
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareRecipientListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/shares/{grant_id}/rotate:
+    post:
+      tags:
+      - cabinet
+      summary: Rotate Meeting Share Link Route
+      operationId: rotateMeetingShareLink
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: grant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Grant Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareGrantResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/share-invitations:
+    post:
+      tags:
+      - cabinet
+      summary: Create Meeting Share Invitation Route
+      operationId: createMeetingShareInvitation
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMeetingShareInvitationRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingShareInvitationResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/share-invitations/{invitation_id}:
+    delete:
+      tags:
+      - cabinet
+      summary: Revoke Meeting Share Invitation Route
+      operationId: revokeMeetingShareInvitation
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: invitation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Invitation Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '204':
+          description: Successful Response
         '422':
           description: Validation Error
           content:
@@ -6472,6 +7591,13 @@ paths:
         schema:
           type: string
           title: Share Token
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
       - name: X-User-Id
         in: header
         required: false
@@ -6518,6 +7644,112 @@ paths:
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/public-shares/{share_token}:
+    get:
+      tags:
+      - cabinet
+      summary: Resolve Public Meeting Share Route
+      operationId: resolvePublicMeetingShare
+      parameters:
+      - name: share_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Share Token
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicShareSummaryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/share-invitations/{share_token}/accept:
+    post:
+      tags:
+      - cabinet
+      summary: Accept Meeting Share Invitation Route
+      operationId: acceptMeetingShareInvitation
+      parameters:
+      - name: share_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Share Token
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareGrantResponse'
         '422':
           description: Validation Error
           content:
@@ -8410,16 +9642,161 @@ components:
       - local_recording_id
       - duration_seconds
       title: CreateMeetingRequest
+    CreateMeetingShareInvitationRequest:
+      properties:
+        address:
+          type: string
+          maxLength: 320
+          minLength: 3
+          title: Address
+        content_scope:
+          type: string
+          enum:
+          - summary_only
+          - full_meeting
+          title: Content Scope
+          default: summary_only
+        can_download:
+          type: boolean
+          title: Can Download
+          default: false
+        can_export:
+          type: boolean
+          title: Can Export
+          default: false
+      additionalProperties: false
+      type: object
+      required:
+      - address
+      title: CreateMeetingShareInvitationRequest
     CreateShareGrantRequest:
       properties:
         grantee_user_id:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Grantee User Id
+        audience_type:
+          type: string
+          enum:
+          - user
+          - workspace
+          - team
+          - link
+          title: Audience Type
+          default: user
+        audience_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Audience Id
+        content_scope:
+          type: string
+          enum:
+          - summary_only
+          - full_meeting
+          title: Content Scope
+          default: summary_only
+        can_download:
+          type: boolean
+          title: Can Download
+          default: false
+        can_export:
+          type: boolean
+          title: Can Export
+          default: false
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+      additionalProperties: false
+      type: object
+      title: CreateShareGrantRequest
+    CreateSummaryCandidateRequest:
+      properties:
+        template_key:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Template Key
+        template_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Template Id
+        template_version:
+          type: integer
+          minimum: 1.0
+          title: Template Version
+        expected_current_outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Expected Current Outcome Set Id
+      additionalProperties: false
       type: object
       required:
-      - grantee_user_id
-      title: CreateShareGrantRequest
+      - template_key
+      - template_version
+      title: CreateSummaryCandidateRequest
+    CreateSummaryTemplateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Name
+        purpose:
+          type: string
+          maxLength: 240
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Purpose
+        sections:
+          items:
+            type: string
+            enum:
+            - summary
+            - key_points
+            - decisions
+            - action_items
+            - followups
+            - risks
+            - questions
+            - evidence
+          type: array
+          maxItems: 8
+          minItems: 1
+          title: Sections
+        output_language:
+          type: string
+          enum:
+          - ru
+          - en
+          title: Output Language
+        detail_level:
+          type: string
+          enum:
+          - brief
+          - standard
+          - detailed
+          title: Detail Level
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - purpose
+      - sections
+      - output_language
+      - detail_level
+      title: CreateSummaryTemplateRequest
     CreateUploadSessionRequest:
       properties:
         expected_tracks:
@@ -8638,6 +10015,7 @@ components:
       - purge_requested
       - purged
       - metadata_retained
+      - observability_retained
       - pending_expiry
       - delete_requested
       - delete_confirmed
@@ -9649,6 +11027,17 @@ components:
         can_export:
           type: boolean
           title: Can Export
+        content_scope:
+          type: string
+          enum:
+          - summary_only
+          - full_meeting
+          title: Content Scope
+          default: full_meeting
+        can_view_full_meeting:
+          type: boolean
+          title: Can View Full Meeting
+          default: true
       type: object
       required:
       - state
@@ -10808,6 +12197,34 @@ components:
       - assistant
       - template
       title: MeetingReviewResponse
+    MeetingShareInvitationResponse:
+      properties:
+        invitation_id:
+          type: string
+          format: uuid
+          title: Invitation Id
+        status:
+          type: string
+          enum:
+          - pending
+          - sending
+          - sent
+          - accepted
+          - expired
+          - revoked
+          - failed
+          - deleted
+          title: Status
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+      type: object
+      required:
+      - invitation_id
+      - status
+      - expires_at
+      title: MeetingShareInvitationResponse
     MeetingStatus:
       type: string
       enum:
@@ -11971,6 +13388,32 @@ components:
       - provider
       - link_state_id
       title: ProviderLinkStartResponse
+    PublicShareSummaryResponse:
+      properties:
+        meeting_label:
+          type: string
+          title: Meeting Label
+        occurred_at:
+          type: string
+          format: date-time
+          title: Occurred At
+        duration_seconds:
+          type: integer
+          minimum: 0.0
+          title: Duration Seconds
+        summary_sections:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          maxItems: 100
+          title: Summary Sections
+      type: object
+      required:
+      - meeting_label
+      - occurred_at
+      - duration_seconds
+      title: PublicShareSummaryResponse
     PutMeetingCalendarContextRequest:
       properties:
         event_id:
@@ -12078,6 +13521,17 @@ components:
       - matcher_version
       - expires_at
       title: ResolveRecordingCalendarContextResponse
+    ResolveSummaryCandidateRequest:
+      properties:
+        expected_current_outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Expected Current Outcome Set Id
+      additionalProperties: false
+      type: object
+      title: ResolveSummaryCandidateRequest
     RetentionRunRequest:
       properties:
         limit:
@@ -12213,6 +13667,30 @@ components:
       - copy_link_state
       - public_link_state
       title: SharePanelState
+    ShareRecipientListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ShareRecipientView'
+          type: array
+          maxItems: 20
+          title: Items
+      type: object
+      title: ShareRecipientListResponse
+    ShareRecipientView:
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        display_label:
+          type: string
+          title: Display Label
+      type: object
+      required:
+      - user_id
+      - display_label
+      title: ShareRecipientView
     SlotState:
       properties:
         state:
@@ -12328,6 +13806,142 @@ components:
       - available
       - assignment_state
       title: SpeakerReviewState
+    SummaryCandidateResponse:
+      properties:
+        candidate_id:
+          type: string
+          format: uuid
+          title: Candidate Id
+        state:
+          type: string
+          enum:
+          - generating
+          - ready
+          - accepted
+          - closed
+          - failed
+          title: State
+        current_outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Current Outcome Set Id
+        poll_url:
+          type: string
+          title: Poll Url
+      type: object
+      required:
+      - candidate_id
+      - state
+      - poll_url
+      title: SummaryCandidateResponse
+    SummaryTemplateListResponse:
+      properties:
+        default_template_key:
+          type: string
+          title: Default Template Key
+        can_manage_default:
+          type: boolean
+          title: Can Manage Default
+          default: false
+        recommended:
+          items:
+            $ref: '#/components/schemas/SummaryTemplateView'
+          type: array
+          maxItems: 4
+          title: Recommended
+        personal:
+          items:
+            $ref: '#/components/schemas/SummaryTemplateView'
+          type: array
+          maxItems: 100
+          title: Personal
+      type: object
+      required:
+      - default_template_key
+      title: SummaryTemplateListResponse
+    SummaryTemplateView:
+      properties:
+        template_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Template Id
+        template_key:
+          type: string
+          title: Template Key
+        kind:
+          type: string
+          enum:
+          - builtin
+          - personal
+          title: Kind
+        name:
+          type: string
+          title: Name
+        purpose:
+          type: string
+          title: Purpose
+        sections:
+          items:
+            type: string
+            enum:
+            - summary
+            - key_points
+            - decisions
+            - action_items
+            - followups
+            - risks
+            - questions
+            - evidence
+          type: array
+          title: Sections
+        output_language:
+          type: string
+          enum:
+          - ru
+          - en
+          title: Output Language
+        detail_level:
+          type: string
+          enum:
+          - brief
+          - standard
+          - detailed
+          title: Detail Level
+        version:
+          type: integer
+          minimum: 1.0
+          title: Version
+        status:
+          type: string
+          enum:
+          - active
+          - archived
+          - deleted
+          title: Status
+        can_edit:
+          type: boolean
+          title: Can Edit
+          default: false
+        can_duplicate:
+          type: boolean
+          title: Can Duplicate
+          default: true
+      type: object
+      required:
+      - template_key
+      - kind
+      - name
+      - purpose
+      - sections
+      - output_language
+      - detail_level
+      - version
+      - status
+      title: SummaryTemplateView
     SupportIncidentReportRequest:
       properties:
         schema_version:
@@ -12674,6 +14288,86 @@ components:
           default: false
       type: object
       title: UpcomingCalendarEventsResponse
+    UpdateDefaultSummaryTemplateRequest:
+      properties:
+        template_key:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Template Key
+        template_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Template Id
+        template_version:
+          type: integer
+          minimum: 1.0
+          title: Template Version
+      additionalProperties: false
+      type: object
+      required:
+      - template_key
+      - template_version
+      title: UpdateDefaultSummaryTemplateRequest
+    UpdateSummaryTemplateRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Name
+        purpose:
+          type: string
+          maxLength: 240
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Purpose
+        sections:
+          items:
+            type: string
+            enum:
+            - summary
+            - key_points
+            - decisions
+            - action_items
+            - followups
+            - risks
+            - questions
+            - evidence
+          type: array
+          maxItems: 8
+          minItems: 1
+          title: Sections
+        output_language:
+          type: string
+          enum:
+          - ru
+          - en
+          title: Output Language
+        detail_level:
+          type: string
+          enum:
+          - brief
+          - standard
+          - detailed
+          title: Detail Level
+        expected_version:
+          type: integer
+          minimum: 1.0
+          title: Expected Version
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - purpose
+      - sections
+      - output_language
+      - detail_level
+      - expected_version
+      title: UpdateSummaryTemplateRequest
     UploadPartResponse:
       properties:
         session_id:

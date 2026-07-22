@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Form, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -190,6 +190,11 @@ async def embedded_meeting_detail_page(
         return _meeting_unavailable_response(
             request,
             csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    if response.access is not None and not response.access.can_view_full_meeting:
+        return RedirectResponse(
+            url=f"/api/v1/cabinet/meetings/{parsed_meeting_id}/shared-summary",
+            status_code=302,
         )
     if _is_hx_request(request):
         return cabinet_html_response(

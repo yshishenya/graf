@@ -1,7 +1,16 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -38,6 +47,15 @@ class Workspace(Base):
     name: Mapped[str] = mapped_column(String(240))
     kind: Mapped[str] = mapped_column(String(32), nullable=False, default="corporate")
     owner_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    default_summary_template_key: Mapped[str] = mapped_column(
+        String(120), nullable=False, default="graf-auto-v1"
+    )
+    default_summary_template_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("summary_templates.id")
+    )
+    default_summary_template_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

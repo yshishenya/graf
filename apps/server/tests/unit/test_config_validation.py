@@ -58,6 +58,43 @@ def test_database_url_accepts_postgresql_async_driver() -> None:
     assert settings.database_url.startswith("postgresql+asyncpg://")
 
 
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({}, "temporal_address"),
+        ({"temporal_address": "temporal:7233"}, "LiteLLM"),
+    ],
+)
+def test_prompt_optimization_requires_ai_runtime_independently_of_outcomes(
+    overrides: dict[str, object],
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        Settings(prompt_optimization_enabled=True, **overrides)
+
+
+def test_prompt_optimization_accepts_complete_ai_runtime_without_outcomes(tmp_path) -> None:
+    lite_key = tmp_path / "litellm-key"
+    public_key = tmp_path / "langfuse-public-key"
+    secret_key = tmp_path / "langfuse-secret-key"
+    for path in (lite_key, public_key, secret_key):
+        path.write_text("test", encoding="utf-8")
+
+    settings = Settings(
+        prompt_optimization_enabled=True,
+        outcome_generation_enabled=False,
+        temporal_address="temporal:7233",
+        litellm_base_url="https://litellm.example.test",
+        litellm_api_key_file=lite_key,
+        langfuse_base_url="https://langfuse.example.test",
+        langfuse_public_key_file=public_key,
+        langfuse_secret_key_file=secret_key,
+    )
+
+    assert settings.prompt_optimization_enabled is True
+    assert settings.outcome_generation_enabled is False
+
+
 def test_playback_normalization_defaults_are_bounded_and_isolated() -> None:
     settings = Settings(playback_normalization_enabled=True)
 

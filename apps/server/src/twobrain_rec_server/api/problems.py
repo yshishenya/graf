@@ -166,7 +166,9 @@ def _custody_default(
 def _is_browser_cabinet_path(path: str) -> bool:
     return (
         path in {"/meetings", "/desktop/meetings"}
-        or path.startswith(("/meetings/", "/desktop/meetings/"))
+        or path.startswith(
+            ("/meetings/", "/desktop/meetings/", "/share-invitations/")
+        )
     )
 
 

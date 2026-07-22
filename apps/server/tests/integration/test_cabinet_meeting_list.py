@@ -519,7 +519,9 @@ def test_cabinet_list_api_exposes_governance_future_slots_and_artifact_truth(cli
     item = next(row for row in response.json()["items"] if row["title"] == "Проектный синк")
     assert item["access"]["state"] == "owner"
     assert item["governance"]["share"]["state"] == "available"
-    assert item["governance"]["delete"]["state"] == "planned"
+    # Destructive deletion is deliberately exposed only from the authorized
+    # meeting detail, never as an eager list-level action.
+    assert item["governance"]["delete"]["state"] == "disabled"
     assert {slot["label"] for slot in item["future_slots"]} >= {"Star", "Tag", "Access", "More"}
     assert item["notes_available"] is False
     assert "storage_object_key" not in response.text

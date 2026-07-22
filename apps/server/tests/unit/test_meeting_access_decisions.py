@@ -55,7 +55,10 @@ def test_user_share_grant_makes_meeting_available_as_shared(client) -> None:
     share = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
         headers=auth_headers(),
-        json={"grantee_user_id": str(SHARED_USER_ID)},
+        json={
+            "grantee_user_id": str(SHARED_USER_ID),
+            "content_scope": "full_meeting",
+        },
     )
     detail = client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}",

@@ -45,6 +45,22 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(CaptureStatusItem.shouldEnableStopButton(for: starting, stopDisabled: true))
     }
 
+    func testRepeatedStartReusesTheSameStartingSession() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 11) },
+            idFactory: { "capture-idempotent-start-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        let first = try controller.start()
+        let repeated = try controller.start()
+
+        XCTAssertEqual(repeated.id, first.id)
+        XCTAssertEqual(repeated.state, .starting)
+    }
+
     func testManualStopMovesActiveSessionToStoppedWithReason() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 20) },
@@ -91,6 +107,32 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(CaptureStatusItem.shouldEnableResumeButton(for: paused, pauseDisabled: false))
         XCTAssertEqual(resumed.state, .active)
         XCTAssertTrue(CaptureStatusItem.showsPauseButton(for: resumed))
+    }
+
+    func testDegradedCaptureCarriesBoundedSourceRecoveryWithoutChangingIdentity() throws {
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 23) },
+            idFactory: { "capture-degraded-id" },
+            policySnapshotProvider: { "policy-test" }
+        )
+
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        _ = try controller.start()
+        let active = try controller.markCapturing()
+        let degraded = try controller.markDegraded(
+            source: "system_audio",
+            recoveryAction: "Проверьте доступ к системному звуку или остановите запись."
+        )
+
+        XCTAssertEqual(degraded.id, active.id)
+        XCTAssertEqual(degraded.state, .degraded)
+        XCTAssertTrue(degraded.stopActionAvailable)
+        XCTAssertEqual(degraded.triggerEvidence["degradedSource"], "system_audio")
+        XCTAssertEqual(
+            CaptureControlView.degradedSourceRecovery(for: degraded),
+            "Системный звук недоступен. Проверьте доступ к системному звуку или остановите запись."
+        )
     }
 
     func testStopFailureMovesSessionOutOfStoppingState() throws {
@@ -299,6 +341,20 @@ final class CaptureControlTests: XCTestCase {
             "Сохранено на Mac"
         )
         XCTAssertEqual(
+            CaptureControlView.readinessSummary(
+                for: DesktopPermissionOnboardingStatus(microphone: .granted, systemAudio: .granted)
+            ),
+            "Микрофон и системный звук готовы"
+        )
+        XCTAssertEqual(
+            CaptureControlView.readinessSummary(
+                for: DesktopPermissionOnboardingStatus(microphone: .granted, systemAudio: .denied)
+            ),
+            "Нужен доступ к системному звуку"
+        )
+        XCTAssertEqual(SystemAudioStatusLabels.meterState(isLive: false), "Тихо")
+        XCTAssertNotEqual(SystemAudioStatusLabels.meterState(isLive: false), "Недоступно")
+        XCTAssertEqual(
             CaptureControlView.primaryStatus(
                 for: makePresentationSession(state: .stopped, indicator: .hidden, canStop: false),
                 blockedReason: nil,
@@ -387,13 +443,11 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("MeetingDetectionSettingsView"))
         XCTAssertTrue(settingsSource.contains("promptToggleTitle = \"Запрашивать запись\""))
         XCTAssertTrue(settingsSource.contains("Toggle(\"\", isOn: recordingPromptBinding)"))
-        XCTAssertTrue(settingsSource.contains("ForEach(promptCapableTargets"))
         XCTAssertTrue(settingsSource.contains("ScrollView"))
-        XCTAssertTrue(settingsSource.contains("selectAllAutoRecordTargets"))
-        XCTAssertTrue(settingsSource.contains("Set(promptCapableTargets.map(\\.id))"))
-        XCTAssertTrue(settingsSource.contains("clearAutoRecordTargets"))
+        XCTAssertFalse(settingsSource.contains("ForEach(promptCapableTargets"))
+        XCTAssertFalse(settingsSource.contains("selectAllAutoRecordTargets"))
+        XCTAssertFalse(settingsSource.contains("Всегда писать"))
         XCTAssertTrue(settingsSource.contains("SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle"))
-        XCTAssertTrue(settingsSource.contains(".twoBrainRecMeetingTargetRegistryDidChange"))
 
         let controlsSource = try String(
             contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift"),
@@ -427,7 +481,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(source.contains("indicatorAvailable: meetingDetectionOneActionStopAvailable"))
     }
 
-    func testMeetingDetectionPromptUsesFloatingCountdownInsteadOfMainSheet() throws {
+    func testMeetingDetectionPromptAsksWithoutCountdownOrAutoStart() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
                 .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
@@ -450,14 +504,18 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("Task { @MainActor [weak window]"))
         XCTAssertTrue(source.contains("meeting_detection.prompt_presented"))
         XCTAssertTrue(source.contains("meeting_detection.prompt_accepted"))
-        XCTAssertTrue(source.contains("TimelineView(.periodic"))
-        XCTAssertTrue(source.contains("Запись стартует автоматически"))
+        XCTAssertTrue(source.contains("Начать запись?"))
         XCTAssertTrue(source.contains("Режим: аудиозапись встречи"))
         XCTAssertTrue(source.contains("Источники: системный звук и микрофон"))
         XCTAssertTrue(source.contains("Политика: запись разрешена"))
         XCTAssertTrue(source.contains("Сигнал: приложение использует аудио встречи"))
-        XCTAssertTrue(source.contains("Всегда писать это приложение"))
-        XCTAssertTrue(source.contains("Пропустить"))
+        XCTAssertTrue(source.contains("Начать"))
+        XCTAssertTrue(source.contains("Не сейчас"))
+        XCTAssertFalse(source.contains("countdownSeconds"))
+        XCTAssertFalse(source.contains("autoStartTask"))
+        XCTAssertFalse(source.contains("Запись стартует автоматически"))
+        XCTAssertFalse(source.contains("Всегда писать это приложение"))
+        XCTAssertFalse(source.contains("autoRecordEligible"))
         XCTAssertFalse(source.contains(".sheet(item: $meetingDetectionPrompt)"))
     }
 

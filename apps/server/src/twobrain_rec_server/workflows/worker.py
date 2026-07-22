@@ -1,24 +1,57 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import select
+
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.auth.email_delivery import EmailLoginDeliveryError, PostalEmailLoginClient
 from twobrain_rec_server.config import get_settings
+from twobrain_rec_server.db.models import MeetingShareInvitation
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
+from twobrain_rec_server.outcomes.ai_service import (
+    execute_candidate_generation,
+    finalize_candidate_generation_failure,
+    publish_generation_call,
+    resolve_candidate_prompt,
+    snapshot_candidate_transcript,
+)
+from twobrain_rec_server.outcomes.prompt_optimization import (
+    authorize_prompt_optimization_action_activity,
+    authorize_prompt_rollback_action_activity,
+    finalize_prompt_optimization_activity,
+    finalize_prompt_optimization_history_materialization_activity,
+    promote_prompt_candidate_activity,
+    publish_prompt_candidate_activity,
+    resolve_prompt_optimization_contract_activity,
+    rollback_prompt_production_label_activity,
+    run_gepa_prompt_optimization_activity,
+    snapshot_prompt_optimization_history_chunk_activity,
+    validate_heldout_prompt_candidate_activity,
+)
 from twobrain_rec_server.processing import reasons, store
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
     submit_to_mediascribe,
 )
 from twobrain_rec_server.storage.minio_client import get_storage
+from twobrain_rec_server.workflows.invitation_delivery_workflow import InvitationDeliveryWorkflow
+from twobrain_rec_server.workflows.outcome_generation_workflow import OutcomeGenerationWorkflow
 from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
+from twobrain_rec_server.workflows.prompt_optimization_workflow import (
+    PromptOptimizationWorkflow,
+)
+from twobrain_rec_server.workflows.prompt_rollback_workflow import PromptRollbackWorkflow
 from twobrain_rec_server.workflows.temporal_client import (
     connect_temporal_client,
+    outcome_generation_task_queue,
     processing_worker_identity,
+    prompt_optimization_task_queue,
 )
 
 
@@ -111,6 +144,310 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
         await engine.dispose()
 
 
+async def resolve_outcome_prompt_config_activity(payload: dict[str, str]) -> dict[str, object]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        return await resolve_candidate_prompt(
+            sessionmaker,
+            settings=settings,
+            workspace_id=UUID(payload["workspace_id"]),
+            candidate_id=UUID(payload["candidate_id"]),
+        )
+    finally:
+        await engine.dispose()
+
+
+async def snapshot_outcome_transcript_metadata_activity(
+    payload: dict[str, str],
+) -> dict[str, object]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        metadata, _ = await snapshot_candidate_transcript(
+            sessionmaker,
+            workspace_id=UUID(payload["workspace_id"]),
+            candidate_id=UUID(payload["candidate_id"]),
+            settings=settings,
+        )
+        return metadata
+    finally:
+        await engine.dispose()
+
+
+async def snapshot_outcome_transcript_chunk_activity(
+    payload: dict[str, object],
+) -> dict[str, object]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        _, chunks = await snapshot_candidate_transcript(
+            sessionmaker,
+            workspace_id=UUID(str(payload["workspace_id"])),
+            candidate_id=UUID(str(payload["candidate_id"])),
+            settings=settings,
+        )
+        index = int(payload["chunk_index"])
+        if index < 0 or index >= len(chunks):
+            raise ValueError("outcome transcript chunk index is invalid")
+        return chunks[index]
+    finally:
+        await engine.dispose()
+
+
+async def execute_outcome_generation_activity(payload: dict[str, object]) -> dict[str, object]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        return await execute_candidate_generation(
+            sessionmaker,
+            workspace_id=UUID(str(payload["workspace_id"])),
+            candidate_id=UUID(str(payload["candidate_id"])),
+            expected_snapshot_hash=str(payload["snapshot_hash"]),
+            settings=settings,
+        )
+    finally:
+        await engine.dispose()
+
+
+async def finalize_outcome_generation_failure_activity(
+    payload: dict[str, object],
+) -> dict[str, str]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        await finalize_candidate_generation_failure(
+            sessionmaker,
+            workspace_id=UUID(str(payload["workspace_id"])),
+            candidate_id=UUID(str(payload["candidate_id"])),
+        )
+        return {"candidate_id": str(payload["candidate_id"]), "status": "failed"}
+    finally:
+        await engine.dispose()
+
+
+async def publish_outcome_observability_activity(payload: dict[str, object]) -> dict[str, str]:
+    from temporalio import activity
+
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        info = activity.info()
+        await publish_generation_call(
+            sessionmaker,
+            workspace_id=UUID(str(payload["workspace_id"])),
+            call_id=UUID(str(payload["generation_call_id"])),
+            settings=settings,
+            activity_attempt=info.attempt,
+            temporal_workflow_id=info.workflow_id,
+            temporal_run_id=info.workflow_run_id,
+            temporal_activity_id=info.activity_id,
+        )
+        return {"generation_call_id": str(payload["generation_call_id"]), "status": "confirmed"}
+    finally:
+        await engine.dispose()
+
+
+async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[str, str]:
+    from temporalio.exceptions import ApplicationError
+
+    from twobrain_rec_server.api.problems import ProblemDetail
+    from twobrain_rec_server.cabinet.access import (
+        lock_shareable_meeting,
+        open_invitation_delivery,
+    )
+    from twobrain_rec_server.cabinet.egress import record_egress_audit_event
+    from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
+
+    settings = get_settings()
+    invitation_id = UUID(payload["invitation_id"])
+    workspace_id = UUID(payload["workspace_id"])
+    if settings.credential_encryption_key_file is None:
+        raise ApplicationError("invitation_key_unavailable", non_retryable=True)
+    key = settings.credential_encryption_key_file.read_bytes().strip()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    tenant_context = TenantDatabaseContext(
+        organization_id=UUID(int=0),
+        workspace_id=workspace_id,
+        user_id=UUID(int=0),
+        context_kind="worker",
+    )
+    try:
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, tenant_context)
+            invitation = await db.get(MeetingShareInvitation, invitation_id)
+            if invitation is None:
+                raise ApplicationError("invitation_not_committed", non_retryable=False)
+            if invitation.workspace_id != workspace_id:
+                return {"invitation_id": str(invitation_id), "status": "not_found"}
+            if invitation.status == "sending":
+                # Join the canonical meeting -> invitation lock order and
+                # re-read the state. A late Temporal attempt must never replace
+                # a newer sent, accepted, or revoked state with `failed`.
+                try:
+                    await lock_shareable_meeting(
+                        db,
+                        workspace_id=workspace_id,
+                        meeting_id=invitation.meeting_id,
+                    )
+                except ProblemDetail:
+                    return {
+                        "invitation_id": str(invitation_id),
+                        "status": "meeting_unavailable",
+                    }
+                invitation = await db.scalar(
+                    select(MeetingShareInvitation)
+                    .where(
+                        MeetingShareInvitation.id == invitation_id,
+                        MeetingShareInvitation.workspace_id == workspace_id,
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                if invitation is None:
+                    return {"invitation_id": str(invitation_id), "status": "not_found"}
+                if invitation.status != "sending":
+                    return {
+                        "invitation_id": str(invitation_id),
+                        "status": invitation.status,
+                    }
+                invitation.status = "failed"
+                invitation.failure_code = "postal_delivery_outcome_unknown"
+                invitation.encrypted_delivery_address = ""
+                await record_egress_audit_event(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=invitation.meeting_id,
+                    actor_user_id=invitation.invited_by_user_id,
+                    device_id=None,
+                    event_type="share_invitation_failed",
+                    outcome="failed",
+                    policy_reason="postal_delivery_outcome_unknown",
+                )
+                await db.commit()
+                return {"invitation_id": str(invitation_id), "status": "failed"}
+            if invitation.status != "pending":
+                return {"invitation_id": str(invitation_id), "status": invitation.status}
+            try:
+                await lock_shareable_meeting(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=invitation.meeting_id,
+                )
+            except ProblemDetail:
+                return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
+            invitation = await db.scalar(
+                select(MeetingShareInvitation)
+                .where(
+                    MeetingShareInvitation.id == invitation_id,
+                    MeetingShareInvitation.workspace_id == workspace_id,
+                    MeetingShareInvitation.status == "pending",
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if invitation is None:
+                return {"invitation_id": str(invitation_id), "status": "cancelled"}
+            if invitation.expires_at <= datetime.now(UTC):
+                invitation.status = "expired"
+                invitation.encrypted_delivery_address = ""
+                await db.commit()
+                return {"invitation_id": str(invitation_id), "status": "expired"}
+            address, raw_token = open_invitation_delivery(
+                invitation.encrypted_delivery_address,
+                key=key,
+            )
+            acceptance_url = (
+                f"{str(settings.public_base_url).rstrip('/')}/share-invitations/{raw_token}"
+                f"?workspace_id={workspace_id}"
+            )
+            invitation.status = "sending"
+            invitation.failure_code = None
+            await record_egress_audit_event(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=invitation.meeting_id,
+                actor_user_id=invitation.invited_by_user_id,
+                device_id=None,
+                event_type="share_invitation_delivery_started",
+                outcome="prepared",
+                policy_reason="postal_delivery_attempt_reserved",
+            )
+            await db.commit()
+
+            # A committed `sending` state is the at-most-once fence. Reacquire the
+            # canonical meeting -> invitation locks before network egress so a
+            # concurrent revoke either wins before send or waits for its outcome.
+            await apply_tenant_context(db, tenant_context)
+            try:
+                await lock_shareable_meeting(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=invitation.meeting_id,
+                )
+            except ProblemDetail:
+                return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
+            invitation = await db.scalar(
+                select(MeetingShareInvitation)
+                .where(
+                    MeetingShareInvitation.id == invitation_id,
+                    MeetingShareInvitation.workspace_id == workspace_id,
+                    MeetingShareInvitation.status == "sending",
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if invitation is None:
+                return {"invitation_id": str(invitation_id), "status": "cancelled"}
+            try:
+                await PostalEmailLoginClient.from_settings(settings).send_meeting_invitation(
+                    recipient_email=address,
+                    acceptance_url=acceptance_url,
+                    delivery_key=str(invitation.id),
+                )
+            except EmailLoginDeliveryError as exc:
+                invitation.failure_code = exc.reason_code
+                invitation.status = "failed"
+                invitation.encrypted_delivery_address = ""
+                await record_egress_audit_event(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=invitation.meeting_id,
+                    actor_user_id=invitation.invited_by_user_id,
+                    device_id=None,
+                    event_type="share_invitation_failed",
+                    outcome="failed",
+                    policy_reason=exc.reason_code,
+                )
+                await db.commit()
+                raise ApplicationError(exc.reason_code, non_retryable=True) from exc
+            invitation.status = "sent"
+            invitation.sent_at = datetime.now(UTC)
+            invitation.failure_code = None
+            invitation.encrypted_delivery_address = ""
+            await record_egress_audit_event(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=invitation.meeting_id,
+                actor_user_id=invitation.invited_by_user_id,
+                device_id=None,
+                event_type="share_invitation_sent",
+                outcome="allowed",
+                policy_reason="postal_delivery_accepted",
+            )
+            await db.commit()
+            return {"invitation_id": str(invitation_id), "status": "sent"}
+    finally:
+        await engine.dispose()
+
+
 def _processing_status_for_client_error(exc: MediaScribeClientError) -> ProcessingStatus:
     if exc.reason_code in {
         reasons.BLOCKED_CONFIG,
@@ -194,18 +531,88 @@ async def run_worker() -> None:
     from temporalio.worker import Worker
 
     settings = get_settings()
-    client = await connect_temporal_client(settings)
+    processing_client = await connect_temporal_client(settings)
     processing_activity = activity.defn(name="run_processing_pipeline_activity")(
         run_processing_pipeline_activity
     )
-    worker = Worker(
-        client,
+    outcome_activities = [
+        activity.defn(name="resolve_outcome_prompt_config_activity")(
+            resolve_outcome_prompt_config_activity
+        ),
+        activity.defn(name="snapshot_outcome_transcript_metadata_activity")(
+            snapshot_outcome_transcript_metadata_activity
+        ),
+        activity.defn(name="snapshot_outcome_transcript_chunk_activity")(
+            snapshot_outcome_transcript_chunk_activity
+        ),
+        activity.defn(name="execute_outcome_generation_activity")(
+            execute_outcome_generation_activity
+        ),
+        activity.defn(name="finalize_outcome_generation_failure_activity")(
+            finalize_outcome_generation_failure_activity
+        ),
+        activity.defn(name="publish_outcome_observability_activity")(
+            publish_outcome_observability_activity
+        ),
+    ]
+    invitation_activity = activity.defn(name="deliver_meeting_invitation_activity")(
+        deliver_meeting_invitation_activity
+    )
+    processing_worker = Worker(
+        processing_client,
         task_queue=settings.temporal_task_queue,
-        workflows=[MediaScribeProcessingWorkflow],
-        activities=[processing_activity],
+        workflows=[
+            MediaScribeProcessingWorkflow,
+            InvitationDeliveryWorkflow,
+        ],
+        activities=[processing_activity, invitation_activity],
         identity=processing_worker_identity(),
     )
-    await worker.run()
+    optimizer_activities = [
+        activity.defn(name=callable_.__name__)(callable_)
+        for callable_ in (
+            resolve_prompt_optimization_contract_activity,
+            run_gepa_prompt_optimization_activity,
+            snapshot_prompt_optimization_history_chunk_activity,
+            finalize_prompt_optimization_history_materialization_activity,
+            validate_heldout_prompt_candidate_activity,
+            publish_prompt_candidate_activity,
+            authorize_prompt_optimization_action_activity,
+            promote_prompt_candidate_activity,
+            finalize_prompt_optimization_activity,
+            authorize_prompt_rollback_action_activity,
+            rollback_prompt_production_label_activity,
+        )
+    ]
+    workers = [processing_worker]
+    if settings.outcome_generation_enabled or settings.prompt_optimization_enabled:
+        traced_client = await connect_temporal_client(
+            settings,
+            identity=f"{processing_worker_identity()}:ai",
+            outcome_tracing=True,
+        )
+        if settings.outcome_generation_enabled:
+            workers.append(
+                Worker(
+                    traced_client,
+                    task_queue=outcome_generation_task_queue(settings),
+                    workflows=[OutcomeGenerationWorkflow],
+                    activities=outcome_activities,
+                    identity=f"{processing_worker_identity()}:outcomes",
+                )
+            )
+        if settings.prompt_optimization_enabled:
+            workers.append(
+                Worker(
+                    traced_client,
+                    task_queue=prompt_optimization_task_queue(settings),
+                    workflows=[PromptOptimizationWorkflow, PromptRollbackWorkflow],
+                    activities=optimizer_activities,
+                    identity=f"{processing_worker_identity()}:prompt-optimization",
+                    max_concurrent_activities=1,
+                )
+            )
+    await asyncio.gather(*(worker.run() for worker in workers))
 
 
 def main() -> None:

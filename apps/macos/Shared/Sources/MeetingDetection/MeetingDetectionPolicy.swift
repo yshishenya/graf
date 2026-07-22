@@ -4,7 +4,6 @@ public enum MeetingDetectionPolicyAction: Equatable, Sendable {
     case suppress(reason: String)
     case detectOnly(targetID: String?)
     case prompt(targetID: String)
-    case autoRecord(targetID: String)
 }
 
 public struct MeetingDetectionCapturePrerequisites: Equatable, Sendable {
@@ -78,10 +77,6 @@ public struct MeetingDetectionPolicy: Sendable {
             }
             guard prerequisites.allowsRecordingStart else {
                 return .suppress(reason: prerequisites.blockedReasonCode)
-            }
-            if settings.targetScopedAutoRecordEnabled,
-               settings.autoRecordTargetIds.contains(targetID) {
-                return .autoRecord(targetID: targetID)
             }
             return .prompt(targetID: targetID)
         }

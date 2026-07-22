@@ -58,6 +58,29 @@ final class CaptureIndicatorTests: XCTestCase {
         XCTAssertFalse(CaptureStatusItem.showsPauseButton(for: session))
     }
 
+    func testDegradedSourceKeepsTruthfulStatusRecoveryAndStop() {
+        var session = makeSession(state: .degraded, indicator: .degraded, stopAvailable: true)
+        session.triggerEvidence["degradedSource"] = "microphone"
+        session.triggerEvidence["recoveryAction"] = "Подключите микрофон или остановите запись."
+
+        XCTAssertEqual(CaptureStatusItem.statusLabel(for: session), "Запись с ограничением")
+        XCTAssertEqual(
+            CaptureControlView.degradedSourceRecovery(for: session),
+            "Микрофон недоступен. Подключите микрофон или остановите запись."
+        )
+        XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: false))
+    }
+
+    func testDegradedSessionWithoutSourceEvidenceStillOffersBoundedRecovery() {
+        let session = makeSession(state: .degraded, indicator: .degraded, stopAvailable: true)
+
+        XCTAssertEqual(
+            CaptureControlView.degradedSourceRecovery(for: session),
+            "Один из источников недоступен. Остановите запись и проверьте источник."
+        )
+        XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: false))
+    }
+
     func testRecordButtonCanBeDisabledWhileStartIsInFlight() {
         XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: nil))
         XCTAssertTrue(CaptureControlView.shouldEnableRecordButton(for: nil, recordDisabled: false))

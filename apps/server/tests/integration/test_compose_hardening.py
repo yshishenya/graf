@@ -103,7 +103,7 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     constraints = CONSTRAINTS_PATH.read_text()
 
     assert "constraints.txt" in dockerfile
-    assert 'pip install --constraint constraints.txt "."' in dockerfile
+    assert 'pip install --constraint constraints.txt ".[evaluation]"' in dockerfile
     assert '".[dev]"' not in dockerfile
     assert "pytest" not in constraints
     assert "ruff" not in constraints

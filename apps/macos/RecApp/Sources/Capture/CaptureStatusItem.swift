@@ -93,7 +93,6 @@ public struct CaptureStatusItem: View {
                     .controlSize(.small)
                     .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
                     .disabled(!canStop || stopDisabled)
-                    .keyboardShortcut(.escape, modifiers: [])
                     .accessibilityLabel(SystemAudioStatusLabels.stopButtonAccessibilityLabel)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.stopButton)
                     .help(SystemAudioStatusLabels.stopButtonAccessibilityLabel)

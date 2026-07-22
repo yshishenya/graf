@@ -320,7 +320,17 @@ def run_checks() -> dict[str, Any]:
     _add_check(checks, "hx_vary_header", hx_response.headers.get("Vary") == "HX-Request", "HTMX responses declare Vary: HX-Request")
     _add_check(checks, "responsive_contract", "@media (max-width: 980px)" in css and "@media (max-width: 540px)" in css, "desktop and mobile-width breakpoints exist")
     _add_check(checks, "focus_contract", ":focus-visible" in css and "min-height: 46px;" in css, "focus visibility and target sizing are styled")
-    _add_check(checks, "ephemeral_js", "localStorage" not in js and "sessionStorage" not in js and "htmx:afterSwap" in js, "fragment state is not persisted client-side")
+    _add_check(
+        checks,
+        "ephemeral_js",
+        "localStorage" not in js
+        and js.count("sessionStorage") == 3
+        and "sessionStorage.setItem(candidateStorageKey, JSON.stringify({" in js
+        and "poll_url: candidate.poll_url" in js
+        and "template: activeTemplate" in js
+        and "htmx:afterSwap" in js,
+        "only the metadata-only pending candidate poll URL and template key survive a same-tab refresh",
+    )
     _add_check(checks, "no_frontend_toolchain_markers", not _forbidden_found(css + "\n" + js, FORBIDDEN_FRONTEND_MARKERS), "static cabinet assets avoid excluded frontend stacks")
     _add_check(checks, "metadata_safe_html", not _forbidden_found(all_html, FORBIDDEN_EVIDENCE_MARKERS), "rendered synthetic evidence omits private markers")
 

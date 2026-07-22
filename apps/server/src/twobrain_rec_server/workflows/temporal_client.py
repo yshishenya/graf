@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID
@@ -13,6 +14,18 @@ WORKFLOW_ID_PATTERN = re.compile(
 )
 PLAYBACK_NORMALIZATION_WORKFLOW_ID_PATTERN = re.compile(
     r"^playback-normalization/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/v1$"
+)
+OUTCOME_GENERATION_WORKFLOW_ID_PATTERN = re.compile(
+    r"^outcome-generation/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+INVITATION_DELIVERY_WORKFLOW_ID_PATTERN = re.compile(
+    r"^share-invitation/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+PROMPT_OPTIMIZATION_WORKFLOW_ID_PATTERN = re.compile(
+    r"^prompt-optimization/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+PROMPT_ROLLBACK_WORKFLOW_ID_PATTERN = re.compile(
+    r"^prompt-rollback/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[1-9][0-9]*$"
 )
 SAFE_WORKER_HOSTNAME = re.compile(r"[^a-zA-Z0-9._-]+")
 PROCESSING_WORKER_IDENTITY_PREFIX = "graf-processing:"
@@ -30,6 +43,111 @@ class PlaybackNormalizationWorkflowStart:
     workflow_id: str
     run_id: str | None = None
     reused: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class OutcomeGenerationWorkflowStart:
+    workflow_id: str
+    run_id: str | None = None
+    reused: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class InvitationDeliveryWorkflowStart:
+    workflow_id: str
+    run_id: str | None = None
+    reused: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PromptOptimizationWorkflowStart:
+    workflow_id: str
+    run_id: str | None = None
+    reused: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PromptRollbackWorkflowStart:
+    workflow_id: str
+    run_id: str | None = None
+    reused: bool = False
+
+
+def prompt_optimization_task_queue(settings: Settings) -> str:
+    return f"{settings.temporal_task_queue}-prompt-optimization"
+
+
+def outcome_generation_task_queue(settings: Settings) -> str:
+    return f"{settings.temporal_task_queue}-outcomes"
+
+
+def prompt_optimization_workflow_id(run_id: str) -> str:
+    workflow_id = f"prompt-optimization/{run_id}"
+    validate_prompt_optimization_workflow_id(workflow_id)
+    return workflow_id
+
+
+def prompt_rollback_workflow_id(run_id: str, rollback_version: int) -> str:
+    workflow_id = f"prompt-rollback/{run_id}/{rollback_version}"
+    validate_prompt_rollback_workflow_id(workflow_id)
+    return workflow_id
+
+
+def validate_prompt_optimization_workflow_id(workflow_id: str) -> None:
+    if not PROMPT_OPTIMIZATION_WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+        raise ValueError("prompt optimization workflow id is invalid")
+
+
+def validate_prompt_rollback_workflow_id(workflow_id: str) -> None:
+    if not PROMPT_ROLLBACK_WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+        raise ValueError("prompt rollback workflow id is invalid")
+
+
+def invitation_delivery_workflow_id(invitation_id: UUID) -> str:
+    return f"share-invitation/{invitation_id}"
+
+
+def validate_invitation_delivery_workflow_id(workflow_id: str) -> None:
+    if not INVITATION_DELIVERY_WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+        raise ValueError("invitation workflow id must contain only the fixed prefix and UUID")
+
+
+def outcome_generation_workflow_id(candidate_id: UUID) -> str:
+    return f"outcome-generation/{candidate_id}"
+
+
+def validate_outcome_generation_workflow_id(workflow_id: str) -> None:
+    if not OUTCOME_GENERATION_WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+        raise ValueError(
+            "outcome workflow id must contain only the fixed prefix and candidate UUID"
+        )
+
+
+def outcome_tracing_interceptor(tracer=None):
+    from opentelemetry.propagate import get_global_textmap
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+    from temporalio.contrib.opentelemetry import (
+        TracingInterceptor,
+        TracingWorkflowInboundInterceptor,
+    )
+
+    class GrafWorkflowTracingInterceptor(TracingWorkflowInboundInterceptor):
+        def __init__(self, next) -> None:
+            super().__init__(next)
+            self.text_map_propagator = TraceContextTextMapPropagator()
+
+    class GrafTracingInterceptor(TracingInterceptor):
+        def __init__(self) -> None:
+            super().__init__(tracer=tracer)
+            self.text_map_propagator = TraceContextTextMapPropagator()
+
+        def workflow_interceptor_class(self, input):
+            super().workflow_interceptor_class(input)
+            return GrafWorkflowTracingInterceptor
+
+    # Do not mutate the process-global propagator or add W3C baggage.
+    assert get_global_textmap() is not None
+    return GrafTracingInterceptor()
 
 
 def processing_worker_identity(hostname: str | None = None) -> str:
@@ -69,16 +187,244 @@ async def connect_temporal_client(
     settings: Settings,
     *,
     identity: str | None = None,
+    outcome_tracing: bool = False,
 ) -> object:
     if not settings.temporal_address:
         raise RuntimeError("temporal_address is not configured")
     from temporalio.client import Client
+    from temporalio.service import RetryConfig
 
-    return await Client.connect(
+    langfuse_client = None
+    interceptors = []
+    if outcome_tracing:
+        from twobrain_rec_server.observability.langfuse import (
+            create_langfuse_client,
+            langfuse_otel_tracer,
+        )
+
+        langfuse_client = create_langfuse_client(settings)
+        interceptors = [outcome_tracing_interceptor(langfuse_otel_tracer(langfuse_client))]
+    client = await Client.connect(
         settings.temporal_address,
         namespace=settings.temporal_namespace,
         identity=identity,
+        retry_config=RetryConfig(max_retries=0),
+        interceptors=interceptors,
     )
+    if langfuse_client is not None:
+        client._graf_langfuse_client = langfuse_client
+    return client
+
+
+def _traced_workflow_dispatch(
+    temporal_client: object,
+    *,
+    settings: Settings,
+    seed: str,
+    trace_name: str,
+    input_value: dict[str, object],
+    user_id: str | None = None,
+    session_id: str | None = None,
+):
+    langfuse_client = getattr(temporal_client, "_graf_langfuse_client", None)
+    if langfuse_client is None:
+        return nullcontext()
+    from twobrain_rec_server.observability.langfuse import workflow_dispatch_observation
+
+    return workflow_dispatch_observation(
+        langfuse_client,
+        seed=seed,
+        trace_name=trace_name,
+        input_value=input_value,
+        environment=settings.langfuse_environment,
+        user_id=user_id,
+        session_id=session_id,
+        tags=["feature:recording-workflows", f"operation:{trace_name}"],
+    )
+
+
+async def start_prompt_optimization_workflow(
+    *,
+    temporal_client: object,
+    settings: Settings,
+    workflow_id: str,
+    payload: dict[str, object],
+) -> PromptOptimizationWorkflowStart:
+    from twobrain_rec_server.workflows.prompt_optimization_workflow import (
+        PromptOptimizationWorkflow,
+    )
+
+    validate_prompt_optimization_workflow_id(workflow_id)
+    try:
+        with _traced_workflow_dispatch(
+            temporal_client,
+            settings=settings,
+            seed=workflow_id,
+            trace_name="optimize-meeting-prompt",
+            input_value={"run_id": str(payload.get("run_id", "")), "workflow_id": workflow_id},
+            session_id=str(payload.get("run_id", "")) or None,
+        ):
+            handle = await temporal_client.start_workflow(
+                PromptOptimizationWorkflow.run,
+                payload,
+                id=workflow_id,
+                task_queue=prompt_optimization_task_queue(settings),
+            )
+    except Exception as exc:
+        exc_name = exc.__class__.__name__.lower()
+        if "already" not in exc_name and "workflowalready" not in exc_name:
+            raise
+        return PromptOptimizationWorkflowStart(workflow_id=workflow_id, reused=True)
+    run_id = getattr(handle, "run_id", None)
+    if isinstance(handle, dict):
+        run_id = handle.get("run_id")
+    return PromptOptimizationWorkflowStart(workflow_id=workflow_id, run_id=run_id)
+
+
+async def start_prompt_rollback_workflow(
+    *,
+    temporal_client: object,
+    settings: Settings,
+    workflow_id: str,
+    payload: dict[str, object],
+) -> PromptRollbackWorkflowStart:
+    from twobrain_rec_server.workflows.prompt_rollback_workflow import PromptRollbackWorkflow
+
+    validate_prompt_rollback_workflow_id(workflow_id)
+    try:
+        with _traced_workflow_dispatch(
+            temporal_client,
+            settings=settings,
+            seed=workflow_id,
+            trace_name="rollback-meeting-prompt",
+            input_value={"run_id": str(payload.get("run_id", "")), "workflow_id": workflow_id},
+            session_id=str(payload.get("run_id", "")) or None,
+        ):
+            handle = await temporal_client.start_workflow(
+                PromptRollbackWorkflow.run,
+                payload,
+                id=workflow_id,
+                task_queue=prompt_optimization_task_queue(settings),
+                execution_timeout=timedelta(hours=1),
+            )
+    except Exception as exc:
+        exc_name = exc.__class__.__name__.lower()
+        if "already" not in exc_name and "workflowalready" not in exc_name:
+            raise
+        return PromptRollbackWorkflowStart(workflow_id=workflow_id, reused=True)
+    run_id = getattr(handle, "run_id", None)
+    if isinstance(handle, dict):
+        run_id = handle.get("run_id")
+    return PromptRollbackWorkflowStart(workflow_id=workflow_id, run_id=run_id)
+
+
+async def start_outcome_generation_workflow(
+    *,
+    temporal_client: object,
+    settings: Settings,
+    candidate_id: UUID,
+    meeting_id: UUID,
+    workspace_id: UUID,
+    source_result_id: UUID,
+    template_key: str,
+    template_version: int,
+    prompt_name: str,
+    requested_by_user_id: UUID | None = None,
+) -> OutcomeGenerationWorkflowStart:
+    from twobrain_rec_server.workflows.outcome_generation_workflow import (
+        OutcomeGenerationWorkflow,
+    )
+
+    workflow_id = outcome_generation_workflow_id(candidate_id)
+    validate_outcome_generation_workflow_id(workflow_id)
+    payload = {
+        "candidate_id": str(candidate_id),
+        "meeting_id": str(meeting_id),
+        "workspace_id": str(workspace_id),
+        "source_result_id": str(source_result_id),
+        "template_key": template_key,
+        "template_version": str(template_version),
+        "prompt_name": prompt_name,
+    }
+    try:
+        with _traced_workflow_dispatch(
+            temporal_client,
+            settings=settings,
+            seed=workflow_id,
+            trace_name="generate-meeting-outcome",
+            input_value={
+                "candidate_id": str(candidate_id),
+                "meeting_id": str(meeting_id),
+                "workspace_id": str(workspace_id),
+            },
+            user_id=(str(requested_by_user_id) if requested_by_user_id is not None else None),
+            session_id=str(meeting_id),
+        ):
+            handle = await temporal_client.start_workflow(
+                OutcomeGenerationWorkflow.run,
+                payload,
+                id=workflow_id,
+                task_queue=outcome_generation_task_queue(settings),
+            )
+    except Exception as exc:
+        exc_name = exc.__class__.__name__.lower()
+        if "already" not in exc_name and "workflowalready" not in exc_name:
+            raise
+        return OutcomeGenerationWorkflowStart(workflow_id=workflow_id, reused=True)
+    run_id = getattr(handle, "run_id", None)
+    if isinstance(handle, dict):
+        run_id = handle.get("run_id")
+    return OutcomeGenerationWorkflowStart(workflow_id=workflow_id, run_id=run_id)
+
+
+async def start_invitation_delivery_workflow(
+    *,
+    temporal_client: object,
+    settings: Settings,
+    invitation_id: UUID,
+    workspace_id: UUID,
+) -> InvitationDeliveryWorkflowStart:
+    from twobrain_rec_server.workflows.invitation_delivery_workflow import (
+        InvitationDeliveryWorkflow,
+    )
+
+    workflow_id = invitation_delivery_workflow_id(invitation_id)
+    validate_invitation_delivery_workflow_id(workflow_id)
+    try:
+        handle = await temporal_client.start_workflow(
+            InvitationDeliveryWorkflow.run,
+            {"invitation_id": str(invitation_id), "workspace_id": str(workspace_id)},
+            id=workflow_id,
+            task_queue=settings.temporal_task_queue,
+            execution_timeout=timedelta(hours=1),
+        )
+    except Exception as exc:
+        exc_name = exc.__class__.__name__.lower()
+        if "already" not in exc_name and "workflowalready" not in exc_name:
+            raise
+        return InvitationDeliveryWorkflowStart(workflow_id=workflow_id, reused=True)
+    run_id = getattr(handle, "run_id", None)
+    if isinstance(handle, dict):
+        run_id = handle.get("run_id")
+    return InvitationDeliveryWorkflowStart(workflow_id=workflow_id, run_id=run_id)
+
+
+async def cancel_invitation_delivery_workflow(
+    *,
+    temporal_client: object,
+    invitation_id: UUID,
+) -> bool:
+    """Request deterministic cancellation; the revoked DB state remains authoritative."""
+    workflow_id = invitation_delivery_workflow_id(invitation_id)
+    validate_invitation_delivery_workflow_id(workflow_id)
+    try:
+        handle = temporal_client.get_workflow_handle(workflow_id)
+        await handle.cancel()
+    except Exception:
+        # A completed/unreachable workflow cannot re-enable a revoked invitation;
+        # the activity rechecks the durable status before delivery.
+        return False
+    return True
 
 
 async def start_processing_workflow(

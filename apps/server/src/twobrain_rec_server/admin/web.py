@@ -731,6 +731,7 @@ async def admin_delete_file_form(
         request_source=DeletionRequestSource.ADMIN,
         reason_code=reason_code,
         storage=storage,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await session.commit()
     return RedirectResponse(f"/admin/files/{meeting_id}", status_code=303)

@@ -1,10 +1,35 @@
 # Текущий статус продукта
 
-Date: 2026-07-21
+Date: 2026-07-22
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Validation update (2026-07-22)
+
+- Feature `121-recording-workflows` реализует единый спокойный recording flow:
+  раздельное восстановление разрешений, ручной idempotent Start,
+  detect-and-ask без countdown/autostart, Pause/Resume/Stop, понятную custody и
+  processing truth, две вкладки встречи с постоянным плеером, девять форматов
+  итогов, личные шаблоны, internal sharing, приглашения, gated links и
+  контекстные export/download/delete actions. Модель и параметры приходят из
+  versioned Langfuse Prompt Config; inference изолирован за owner-controlled
+  LiteLLM; Temporal владеет durable work. По решению владельца полный
+  транскрипт/модельный контент сохраняется без masking/encryption в Langfuse,
+  retained Generation Call и Temporal History, тогда как обычные audit/logs и
+  evidence остаются metadata-only.
+- Канонический локальный gate после повторных correctness/security/Ponytail
+  review прошёл: 604 macOS tests, ContractValidation PASS, 2176 server tests
+  passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1 skipped, Ruff,
+  compile, Compose и evidence scan PASS. Десять outcome prompts verified в
+  private production Langfuse v1; четыре control prompts остаются без
+  production promotion до calibration gate.
+- Runtime rollout остаётся fail-closed: outcome generation, prompt
+  optimization, public/team links и external invitations выключены. T050,
+  T057 и T089 требуют будущие LiteLLM URL/key, immutable synthetic manifests и
+  live three-store/two-worker evidence; код, schema и disabled infrastructure
+  могут быть выпущены без заявления этого evidence.
 
 ## Validation update (2026-07-21)
 

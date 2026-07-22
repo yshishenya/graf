@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, Query, Request, status
-from fastapi.responses import RedirectResponse, Response, StreamingResponse
+from fastapi.responses import (
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +30,10 @@ from twobrain_rec_server.api.schemas import (
     ContentExportSelectionRequest,
     CreateDeletionRequest,
     CreateExportPackageRequest,
+    CreateMeetingShareInvitationRequest,
     CreateShareGrantRequest,
+    CreateSummaryCandidateRequest,
+    CreateSummaryTemplateRequest,
     DeletionLifecycleState,
     DeletionRequestResponse,
     DeletionVerificationReport,
@@ -38,9 +47,19 @@ from twobrain_rec_server.api.schemas import (
     MeetingListResponse,
     MeetingReviewResponse,
     MeetingReviewStatus,
+    MeetingShareInvitationResponse,
+    PublicShareSummaryResponse,
+    ResolveSummaryCandidateRequest,
     RetentionRunRequest,
     RetentionRunResponse,
     ShareGrantResponse,
+    ShareRecipientListResponse,
+    ShareRecipientView,
+    SummaryCandidateResponse,
+    SummaryTemplateListResponse,
+    SummaryTemplateView,
+    UpdateDefaultSummaryTemplateRequest,
+    UpdateSummaryTemplateRequest,
 )
 from twobrain_rec_server.api.upload_stream import (
     MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA,
@@ -54,11 +73,20 @@ from twobrain_rec_server.auth.dependencies import (
     require_web_csrf,
 )
 from twobrain_rec_server.cabinet.access import (
-    create_share_grant,
+    accept_share_invitation,
+    create_scoped_share_grant,
+    create_share_invitation,
     decide_meeting_access,
     grant_view,
+    hash_share_token,
+    lock_shareable_meeting,
+    narrow_summary_projection,
+    normalize_invitation_address,
     resolve_share_token,
     revoke_share_grant,
+    revoke_share_invitation,
+    rotate_share_link,
+    search_share_recipients,
     share_panel_state,
 )
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
@@ -80,7 +108,17 @@ from twobrain_rec_server.cabinet.queries import (
     list_cabinet_meetings,
 )
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
-from twobrain_rec_server.db.models import Meeting, WorkspaceMembership
+from twobrain_rec_server.db.models import (
+    ExternalIdentity,
+    Meeting,
+    MeetingOutcomeGenerationAttempt,
+    MeetingOutcomeItem,
+    MeetingShareGrant,
+    SummaryTemplate,
+    Workspace,
+    WorkspaceMembership,
+)
+from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.deletion.local_purge import (
     acknowledge_local_purge_task,
     list_local_purge_tasks,
@@ -94,6 +132,18 @@ from twobrain_rec_server.deletion.service import (
     request_meeting_deletion,
 )
 from twobrain_rec_server.ingest.manual_media_upload import accept_manual_media_upload
+from twobrain_rec_server.outcomes.ai_service import (
+    OutcomeGenerationTerminalError,
+    create_summary_candidate,
+    resolve_summary_candidate,
+)
+from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY, BUILT_IN_TEMPLATES
+from twobrain_rec_server.workflows.temporal_client import (
+    cancel_invitation_delivery_workflow,
+    connect_temporal_client,
+    start_invitation_delivery_workflow,
+    start_outcome_generation_workflow,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["cabinet"])
 
@@ -102,6 +152,69 @@ PrincipalDependency = Depends(get_principal)
 DeviceDependency = Depends(get_device_context)
 WebCSRFDependency = Depends(require_web_csrf)
 DbDependency = Depends(get_request_db_session)
+async def get_public_share_db_session(
+    request: Request,
+    workspace_id: Annotated[UUID, Query()],
+):
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        yield None
+        return
+    async with sessionmaker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=UUID(int=0),
+                workspace_id=workspace_id,
+                user_id=UUID(int=0),
+                context_kind="request",
+            ),
+        )
+        yield session
+
+
+async def _verified_invitation_address_hashes(
+    request: Request,
+    *,
+    recipient_scope: TenantScope,
+) -> set[str]:
+    """Read verified identities under the recipient's own validated RLS context."""
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_context_unavailable",
+            title="Authentication context unavailable",
+        )
+    async with sessionmaker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=recipient_scope.organization_id,
+                workspace_id=recipient_scope.workspace_id,
+                user_id=recipient_scope.user_id,
+                device_id=recipient_scope.device_id,
+                auth_session_id=recipient_scope.auth_session_id,
+                context_kind="request",
+            ),
+        )
+        emails = (
+            await session.scalars(
+                select(ExternalIdentity.email).where(
+                    ExternalIdentity.user_id == recipient_scope.user_id,
+                    ExternalIdentity.is_verified.is_(True),
+                    ExternalIdentity.email.is_not(None),
+                )
+            )
+        ).all()
+    return {
+        hash_share_token(normalize_invitation_address(email))
+        for email in emails
+        if email
+    }
+
+
+PublicShareDbDependency = Depends(get_public_share_db_session)
 StorageDependency = Depends(get_request_storage)
 CabinetSearchQuery = Query(default=None, max_length=120)
 CabinetStatusQuery = Query(default=None)
@@ -270,7 +383,54 @@ async def get_cabinet_meeting_review_route(
     )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    if response.access is not None and not response.access.can_view_full_meeting:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return response
+
+
+@router.get(
+    "/cabinet/meetings/{meeting_id}/shared-summary",
+    response_model=PublicShareSummaryResponse,
+    operation_id="getSharedMeetingSummary",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_shared_meeting_summary_route(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> PublicShareSummaryResponse:
+    if db is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    meeting, decision = await _authorized_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    items = []
+    if meeting.current_outcome_set_id is not None:
+        items = (
+            await db.scalars(
+                select(MeetingOutcomeItem)
+                .where(
+                    MeetingOutcomeItem.workspace_id == tenant_scope.workspace_id,
+                    MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
+                    MeetingOutcomeItem.state == "available",
+                )
+                .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+            )
+        ).all()
+    if not decision.can_view:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return PublicShareSummaryResponse.model_validate(
+        narrow_summary_projection(
+            meeting_label=meeting.title or "Встреча",
+            occurred_at=meeting.started_at or meeting.created_at,
+            duration_seconds=meeting.duration_seconds,
+            summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+        )
+    )
 
 
 @router.get(
@@ -343,6 +503,7 @@ async def create_meeting_deletion_request_route(
         confirmation_boundary=payload.confirmation_boundary,
         reason_code=payload.reason_code,
         storage=storage,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await db.commit()
     if _is_hx_request(request):
@@ -452,18 +613,535 @@ async def list_meeting_activity_route(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    await _authorized_meeting(
+    _meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
+    if not decision.can_share:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return await activity_response(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
+
+
+@router.get(
+    "/cabinet/summary-templates",
+    response_model=SummaryTemplateListResponse,
+    operation_id="listSummaryTemplates",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def list_summary_templates_route(
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryTemplateListResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    personal = (
+        await db.scalars(
+            select(SummaryTemplate)
+            .where(
+                SummaryTemplate.workspace_id == tenant_scope.workspace_id,
+                SummaryTemplate.owner_user_id == principal.user_id,
+                SummaryTemplate.status == "active",
+            )
+            .order_by(SummaryTemplate.updated_at.desc())
+            .limit(100)
+        )
+    ).all()
+    workspace = await db.scalar(
+        select(Workspace).where(Workspace.id == tenant_scope.workspace_id)
+    )
+    membership = await db.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
+            WorkspaceMembership.user_id == principal.user_id,
+            WorkspaceMembership.status == "active",
+        )
+    )
+    default_template_key = "graf-auto-v1"
+    if workspace is not None:
+        definition = BUILT_IN_BY_KEY.get(workspace.default_summary_template_key)
+        if (
+            workspace.default_summary_template_id is None
+            and definition is not None
+            and definition.version == workspace.default_summary_template_version
+        ):
+            default_template_key = definition.key
+        elif workspace.default_summary_template_id is not None:
+            personal_default = next(
+                (
+                    template
+                    for template in personal
+                    if template.id == workspace.default_summary_template_id
+                    and template.template_key == workspace.default_summary_template_key
+                    and template.version == workspace.default_summary_template_version
+                ),
+                None,
+            )
+            if personal_default is not None:
+                default_template_key = personal_default.template_key
+    built_ins = [_built_in_template_view(definition) for definition in BUILT_IN_TEMPLATES]
+    return SummaryTemplateListResponse(
+        default_template_key=default_template_key,
+        can_manage_default=membership is not None and membership.role == "owner",
+        recommended=built_ins[:4],
+        personal=[_personal_template_view(template) for template in personal],
+    )
+
+
+@router.put(
+    "/cabinet/summary-templates/default",
+    response_model=SummaryTemplateView,
+    operation_id="updateDefaultSummaryTemplate",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def update_default_summary_template_route(
+    payload: UpdateDefaultSummaryTemplateRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryTemplateView:
+    if db is None:
+        raise ProblemDetail(
+            status=503,
+            code="cabinet_store_unavailable",
+            title="Cabinet store unavailable",
+        )
+    membership = await db.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
+            WorkspaceMembership.user_id == principal.user_id,
+            WorkspaceMembership.status == "active",
+        )
+    )
+    if membership is None or membership.role != "owner":
+        raise ProblemDetail(
+            status=403,
+            code="summary_default_forbidden",
+            title="Default summary format can only be changed by the workspace owner",
+        )
+    workspace = await db.scalar(
+        select(Workspace)
+        .where(Workspace.id == tenant_scope.workspace_id)
+        .with_for_update()
+    )
+    if workspace is None:
+        raise ProblemDetail(status=404, code="workspace_not_found", title="Workspace not found")
+    if payload.template_id is not None:
+        raise ProblemDetail(
+            status=422,
+            code="summary_default_requires_builtin",
+            title="Workspace default must be a built-in format",
+        )
+    definition = BUILT_IN_BY_KEY.get(payload.template_key)
+    if definition is None or definition.version != payload.template_version:
+        raise ProblemDetail(
+            status=404,
+            code="summary_template_not_found",
+            title="Template not found",
+        )
+    selected = _built_in_template_view(definition)
+    workspace.default_summary_template_key = selected.template_key
+    workspace.default_summary_template_id = selected.template_id
+    workspace.default_summary_template_version = selected.version
+    await db.commit()
+    return selected
+
+
+@router.post(
+    "/cabinet/summary-templates",
+    response_model=SummaryTemplateView,
+    status_code=201,
+    operation_id="createSummaryTemplate",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def create_summary_template_route(
+    payload: CreateSummaryTemplateRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryTemplateView:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    active_count = len(
+        (
+            await db.scalars(
+                select(SummaryTemplate.id).where(
+                    SummaryTemplate.workspace_id == tenant_scope.workspace_id,
+                    SummaryTemplate.owner_user_id == principal.user_id,
+                    SummaryTemplate.status == "active",
+                )
+            )
+        ).all()
+    )
+    if active_count >= 100:
+        raise ProblemDetail(status=409, code="summary_template_limit", title="Template limit reached")
+    template = SummaryTemplate(
+        workspace_id=tenant_scope.workspace_id,
+        owner_user_id=principal.user_id,
+        template_key=f"personal-{uuid4()}",
+        kind="personal",
+        name=payload.name,
+        purpose=payload.purpose,
+        sections_json=list(payload.sections),
+        output_language=payload.output_language,
+        detail_level=payload.detail_level,
+        version=1,
+        status="active",
+    )
+    db.add(template)
+    await db.commit()
+    return _personal_template_view(template)
+
+
+@router.patch(
+    "/cabinet/summary-templates/{template_id}",
+    response_model=SummaryTemplateView,
+    operation_id="updateSummaryTemplate",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def update_summary_template_route(
+    template_id: UUID,
+    payload: UpdateSummaryTemplateRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryTemplateView:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    current = await _owned_personal_template(
+        db, workspace_id=tenant_scope.workspace_id, owner_user_id=principal.user_id, template_id=template_id
+    )
+    if current.version != payload.expected_version or current.status != "active":
+        raise ProblemDetail(status=409, code="summary_template_conflict", title="Template changed")
+    current.status = "archived"
+    revised = SummaryTemplate(
+        workspace_id=current.workspace_id,
+        owner_user_id=current.owner_user_id,
+        template_key=current.template_key,
+        kind="personal",
+        name=payload.name,
+        purpose=payload.purpose,
+        sections_json=list(payload.sections),
+        output_language=payload.output_language,
+        detail_level=payload.detail_level,
+        version=current.version + 1,
+        status="active",
+    )
+    db.add(revised)
+    await db.flush()
+    default_workspace = await _workspace_defaulting_to_template(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        template_id=current.id,
+    )
+    if default_workspace is not None:
+        default_workspace.default_summary_template_key = revised.template_key
+        default_workspace.default_summary_template_id = revised.id
+        default_workspace.default_summary_template_version = revised.version
+    await db.commit()
+    return _personal_template_view(revised)
+
+
+@router.post(
+    "/cabinet/summary-templates/{template_id}/duplicate",
+    response_model=SummaryTemplateView,
+    status_code=201,
+    operation_id="duplicateSummaryTemplate",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def duplicate_summary_template_route(
+    template_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryTemplateView:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    source = await _owned_personal_template(
+        db, workspace_id=tenant_scope.workspace_id, owner_user_id=principal.user_id, template_id=template_id
+    )
+    duplicate = SummaryTemplate(
+        workspace_id=source.workspace_id,
+        owner_user_id=source.owner_user_id,
+        template_key=f"personal-{uuid4()}",
+        kind="personal",
+        name=f"{source.name} — копия"[:80],
+        purpose=source.purpose,
+        sections_json=list(source.sections_json),
+        output_language=source.output_language,
+        detail_level=source.detail_level,
+        version=1,
+        status="active",
+    )
+    db.add(duplicate)
+    await db.commit()
+    return _personal_template_view(duplicate)
+
+
+@router.post(
+    "/cabinet/summary-templates/{template_id}/archive",
+    response_model=SummaryTemplateView,
+    operation_id="archiveSummaryTemplate",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def archive_summary_template_route(
+    template_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryTemplateView:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    template = await _owned_personal_template(
+        db, workspace_id=tenant_scope.workspace_id, owner_user_id=principal.user_id, template_id=template_id
+    )
+    template.status = "archived"
+    default_workspace = await _workspace_defaulting_to_template(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        template_id=template.id,
+    )
+    if default_workspace is not None:
+        _reset_default_summary_template(default_workspace)
+    await db.commit()
+    return _personal_template_view(template)
+
+
+@router.delete(
+    "/cabinet/summary-templates/{template_id}",
+    status_code=204,
+    operation_id="deleteSummaryTemplate",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def delete_summary_template_route(
+    template_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    template = await _owned_personal_template(
+        db, workspace_id=tenant_scope.workspace_id, owner_user_id=principal.user_id, template_id=template_id
+    )
+    template.status = "deleted"
+    default_workspace = await _workspace_defaulting_to_template(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        template_id=template.id,
+    )
+    if default_workspace is not None:
+        _reset_default_summary_template(default_workspace)
+    await db.commit()
+    return Response(status_code=204)
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/summary-candidates",
+    response_model=SummaryCandidateResponse,
+    status_code=202,
+    operation_id="createSummaryCandidate",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def create_summary_candidate_route(
+    request: Request,
+    meeting_id: UUID,
+    payload: CreateSummaryCandidateRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryCandidateResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, decision = await _authorized_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
+        raise ProblemDetail(status=403, code="summary_generation_forbidden", title="Summary generation is not available")
+    settings = request.app.state.settings
+    if not settings.outcome_generation_enabled:
+        raise ProblemDetail(status=503, code="summary_generation_unavailable", title="Summary generation is temporarily unavailable")
+    try:
+        attempt = await create_summary_candidate(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            meeting_id=meeting_id,
+            requested_by_user_id=principal.user_id,
+            template_key=payload.template_key,
+            template_id=payload.template_id,
+            template_version=payload.template_version,
+            expected_current_outcome_set_id=payload.expected_current_outcome_set_id,
+        )
+    except OutcomeGenerationTerminalError as exc:
+        _raise_summary_problem(exc)
+    await db.commit()
+    if (
+        attempt.candidate_id is None
+        or attempt.source_result_id is None
+        or attempt.template_key is None
+        or attempt.template_version is None
+        or attempt.prompt_name is None
+    ):
+        raise ProblemDetail(
+            status=500,
+            code="summary_dispatch_state_invalid",
+            title="Summary generation could not be started",
+        )
+    temporal_client = getattr(request.app.state, "outcome_temporal_client", None)
+    if temporal_client is None:
+        temporal_client = await connect_temporal_client(settings, outcome_tracing=True)
+        request.app.state.outcome_temporal_client = temporal_client
+    started = await start_outcome_generation_workflow(
+        temporal_client=temporal_client,
+        settings=settings,
+        candidate_id=attempt.candidate_id,
+        meeting_id=meeting_id,
+        workspace_id=tenant_scope.workspace_id,
+        source_result_id=attempt.source_result_id,
+        template_key=attempt.template_key,
+        template_version=attempt.template_version,
+        prompt_name=attempt.prompt_name,
+        requested_by_user_id=principal.user_id,
+    )
+    attempt.workflow_run_id = started.run_id
+    await db.commit()
+    return _summary_candidate_response(attempt, meeting.current_outcome_set_id)
+
+
+@router.get(
+    "/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}",
+    response_model=SummaryCandidateResponse,
+    operation_id="getSummaryCandidate",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_summary_candidate_route(
+    meeting_id: UUID,
+    candidate_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryCandidateResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, decision = await _authorized_meeting(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id, viewer_user_id=principal.user_id
+    )
+    if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
+        raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
+    attempt = await db.scalar(
+        select(MeetingOutcomeGenerationAttempt).where(
+            MeetingOutcomeGenerationAttempt.workspace_id == tenant_scope.workspace_id,
+            MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            MeetingOutcomeGenerationAttempt.candidate_id == candidate_id,
+        )
+    )
+    if attempt is None:
+        raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
+    return _summary_candidate_response(attempt, meeting.current_outcome_set_id)
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/accept",
+    response_model=SummaryCandidateResponse,
+    operation_id="acceptSummaryCandidate",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def accept_summary_candidate_route(
+    meeting_id: UUID,
+    candidate_id: UUID,
+    payload: ResolveSummaryCandidateRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryCandidateResponse:
+    return await _resolve_summary_candidate_route(
+        meeting_id=meeting_id,
+        candidate_id=candidate_id,
+        accept=True,
+        payload=payload,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+    )
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/reject",
+    response_model=SummaryCandidateResponse,
+    operation_id="rejectSummaryCandidate",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def reject_summary_candidate_route(
+    meeting_id: UUID,
+    candidate_id: UUID,
+    payload: ResolveSummaryCandidateRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryCandidateResponse:
+    return await _resolve_summary_candidate_route(
+        meeting_id=meeting_id,
+        candidate_id=candidate_id,
+        accept=False,
+        payload=payload,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+    )
+
+
+async def _resolve_summary_candidate_route(
+    *,
+    meeting_id: UUID,
+    candidate_id: UUID,
+    accept: bool,
+    payload: ResolveSummaryCandidateRequest,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+    db: AsyncSession | None,
+) -> SummaryCandidateResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, decision = await _authorized_meeting(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id, viewer_user_id=principal.user_id
+    )
+    if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
+        raise ProblemDetail(status=403, code="summary_resolution_forbidden", title="Summary action is not available")
+    try:
+        await resolve_summary_candidate(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            meeting_id=meeting_id,
+            candidate_id=candidate_id,
+            requested_by_user_id=principal.user_id,
+            accept=accept,
+            expected_current_outcome_set_id=payload.expected_current_outcome_set_id,
+        )
+    except OutcomeGenerationTerminalError as exc:
+        _raise_summary_problem(exc)
+    await db.commit()
+    attempt = await db.scalar(
+        select(MeetingOutcomeGenerationAttempt).where(
+            MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
+        )
+    )
+    if attempt is None:
+        raise ProblemDetail(
+            status=404,
+            code="summary_candidate_not_found",
+            title="Summary candidate not found",
+        )
+    return _summary_candidate_response(attempt, meeting.current_outcome_set_id)
 
 
 @router.post(
@@ -474,6 +1152,7 @@ async def list_meeting_activity_route(
     dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def create_meeting_share_grant_route(
+    request: Request,
     meeting_id: UUID,
     payload: CreateShareGrantRequest,
     tenant_scope: TenantScope = TenantDependency,
@@ -491,19 +1170,204 @@ async def create_meeting_share_grant_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    grant, raw_token = await create_share_grant(
+    settings = request.app.state.settings
+    broader_audience_enabled = {
+        "workspace": settings.share_workspace_audience_enabled,
+        "team": settings.share_team_audience_enabled,
+        "link": settings.share_public_links_enabled,
+    }.get(payload.audience_type, True)
+    grant, raw_token = await create_scoped_share_grant(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting=meeting,
         actor_user_id=principal.user_id,
         device_id=device.device_id,
-        grantee_user_id=payload.grantee_user_id,
+        audience_type=payload.audience_type,
+        audience_id=payload.audience_id,
+        content_scope=payload.content_scope,
+        can_download=payload.can_download,
+        can_export=payload.can_export,
+        expires_at=payload.expires_at,
+        broader_audience_enabled=broader_audience_enabled,
     )
     await db.commit()
     return ShareGrantResponse(
         grant=grant_view(grant, display_name="Authenticated user"),
-        share_url=f"/cabinet/share/{raw_token}",
+        share_url=(
+            f"/api/v1/cabinet/public-shares/{raw_token}"
+            f"?workspace_id={tenant_scope.workspace_id}"
+            if payload.audience_type == "link"
+            else (
+                f"/meetings/{meeting_id}"
+                if payload.audience_type == "workspace"
+                else (
+                    f"/api/v1/cabinet/share/{raw_token}"
+                    f"?workspace_id={tenant_scope.workspace_id}"
+                )
+            )
+        ),
     )
+
+
+@router.get(
+    "/cabinet/share-recipients",
+    response_model=ShareRecipientListResponse,
+    operation_id="searchMeetingShareRecipients",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def search_meeting_share_recipients_route(
+    query: str = Query(min_length=0, max_length=80),
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> ShareRecipientListResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    rows = await search_share_recipients(db, workspace_id=tenant_scope.workspace_id, query=query)
+    return ShareRecipientListResponse(
+        items=[ShareRecipientView(user_id=user_id, display_label=label) for user_id, label in rows]
+    )
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/shares/{grant_id}/rotate",
+    response_model=ShareGrantResponse,
+    operation_id="rotateMeetingShareLink",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def rotate_meeting_share_link_route(
+    meeting_id: UUID,
+    grant_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+) -> ShareGrantResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, _ = await _authorized_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    grant, raw_token = await rotate_share_link(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting=meeting,
+        actor_user_id=principal.user_id,
+        device_id=device.device_id,
+        grant_id=grant_id,
+    )
+    await db.commit()
+    return ShareGrantResponse(
+        grant=grant_view(grant, display_name="Ссылка"),
+        share_url=(
+            f"/api/v1/cabinet/public-shares/{raw_token}"
+            f"?workspace_id={tenant_scope.workspace_id}"
+        ),
+    )
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/share-invitations",
+    response_model=MeetingShareInvitationResponse,
+    status_code=202,
+    operation_id="createMeetingShareInvitation",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def create_meeting_share_invitation_route(
+    request: Request,
+    meeting_id: UUID,
+    payload: CreateMeetingShareInvitationRequest,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+) -> MeetingShareInvitationResponse:
+    settings = request.app.state.settings
+    if not settings.share_external_invitations_enabled:
+        raise ProblemDetail(status=503, code="share_invitations_disabled", title="Invitations unavailable")
+    if db is None or settings.credential_encryption_key_file is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, _ = await _authorized_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    invitation = await create_share_invitation(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting=meeting,
+        actor_user_id=principal.user_id,
+        device_id=device.device_id,
+        address=payload.address,
+        content_scope=payload.content_scope,
+        can_download=payload.can_download,
+        can_export=payload.can_export,
+        encryption_key=settings.credential_encryption_key_file.read_bytes().strip(),
+        ttl_seconds=settings.share_invitation_ttl_seconds,
+    )
+    temporal_client = getattr(request.app.state, "temporal_client", None)
+    if temporal_client is None:
+        temporal_client = await connect_temporal_client(settings)
+    try:
+        await start_invitation_delivery_workflow(
+            temporal_client=temporal_client,
+            settings=settings,
+            invitation_id=invitation.id,
+            workspace_id=tenant_scope.workspace_id,
+        )
+    except Exception:
+        await db.rollback()
+        raise
+    await db.commit()
+    return MeetingShareInvitationResponse(
+        invitation_id=invitation.id,
+        status=invitation.status,
+        expires_at=invitation.expires_at,
+    )
+
+
+@router.delete(
+    "/cabinet/meetings/{meeting_id}/share-invitations/{invitation_id}",
+    status_code=204,
+    operation_id="revokeMeetingShareInvitation",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def revoke_meeting_share_invitation_route(
+    request: Request,
+    meeting_id: UUID,
+    invitation_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, _ = await _authorized_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    await revoke_share_invitation(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting=meeting,
+        actor_user_id=principal.user_id,
+        device_id=device.device_id,
+        invitation_id=invitation_id,
+    )
+    await db.commit()
+    temporal_client = getattr(request.app.state, "temporal_client", None)
+    if temporal_client is not None:
+        await cancel_invitation_delivery_workflow(
+            temporal_client=temporal_client,
+            invitation_id=invitation_id,
+        )
+    return Response(status_code=204)
 
 
 @router.delete(
@@ -549,26 +1413,179 @@ async def revoke_meeting_share_grant_route(
 )
 async def resolve_login_required_share_link_route(
     share_token: str,
-    tenant_scope: TenantScope = TenantDependency,
+    workspace_id: Annotated[UUID, Query()],
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
-    db: AsyncSession | None = DbDependency,
-) -> RedirectResponse:
+    db: AsyncSession | None = PublicShareDbDependency,
+) -> Response:
     if db is None:
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
     meeting = await resolve_share_token(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=workspace_id,
         viewer_user_id=principal.user_id,
         device_id=device.device_id,
         share_token=share_token,
     )
     if meeting is None:
         raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
+    decision = await decide_meeting_access(
+        db,
+        meeting,
+        workspace_id=workspace_id,
+        viewer_user_id=principal.user_id,
+    )
+    if not decision.can_view_full_meeting:
+        items = []
+        if meeting.current_outcome_set_id is not None:
+            items = (
+                await db.scalars(
+                    select(MeetingOutcomeItem)
+                    .where(
+                        MeetingOutcomeItem.workspace_id == workspace_id,
+                        MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
+                        MeetingOutcomeItem.state == "available",
+                    )
+                    .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+                )
+            ).all()
+        response = JSONResponse(
+            PublicShareSummaryResponse.model_validate(
+                narrow_summary_projection(
+                    meeting_label=meeting.title or "Встреча",
+                    occurred_at=meeting.started_at or meeting.created_at,
+                    duration_seconds=meeting.duration_seconds,
+                    summary_sections=[
+                        {"category": item.category, "text": item.text or ""} for item in items
+                    ],
+                )
+            ).model_dump(mode="json")
+        )
+        await db.commit()
+        return response
     await db.commit()
     return RedirectResponse(url=f"/meetings/{meeting.id}", status_code=302)
+
+
+@router.get(
+    "/cabinet/public-shares/{share_token}",
+    response_model=PublicShareSummaryResponse,
+    operation_id="resolvePublicMeetingShare",
+)
+async def resolve_public_meeting_share_route(
+    request: Request,
+    share_token: str,
+    workspace_id: Annotated[UUID, Query()],
+    db: AsyncSession | None = PublicShareDbDependency,
+) -> PublicShareSummaryResponse:
+    settings = request.app.state.settings
+    if not settings.share_public_links_enabled or db is None:
+        raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
+    grant = await db.scalar(
+        select(MeetingShareGrant).where(
+            MeetingShareGrant.workspace_id == workspace_id,
+            MeetingShareGrant.audience_type == "link",
+            MeetingShareGrant.share_token_hash == hash_share_token(share_token),
+            MeetingShareGrant.status == "active",
+            MeetingShareGrant.content_scope == "summary_only",
+            (MeetingShareGrant.expires_at.is_(None) | (MeetingShareGrant.expires_at > datetime.now(UTC))),
+        )
+    )
+    if grant is None:
+        raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
+    try:
+        meeting = await lock_shareable_meeting(
+            db, workspace_id=workspace_id, meeting_id=grant.meeting_id
+        )
+    except ProblemDetail:
+        raise ProblemDetail(status=404, code="share_not_found", title="Share not found") from None
+    grant = await db.scalar(
+        select(MeetingShareGrant)
+        .where(
+            MeetingShareGrant.id == grant.id,
+            MeetingShareGrant.workspace_id == workspace_id,
+            MeetingShareGrant.audience_type == "link",
+            MeetingShareGrant.share_token_hash == hash_share_token(share_token),
+            MeetingShareGrant.status == "active",
+            MeetingShareGrant.content_scope == "summary_only",
+            (
+                MeetingShareGrant.expires_at.is_(None)
+                | (MeetingShareGrant.expires_at > datetime.now(UTC))
+            ),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if grant is None:
+        raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
+    items = []
+    if meeting.current_outcome_set_id is not None:
+        items = (
+            await db.scalars(
+                select(MeetingOutcomeItem)
+                .where(
+                    MeetingOutcomeItem.workspace_id == workspace_id,
+                    MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
+                    MeetingOutcomeItem.state == "available",
+                )
+                .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+            )
+        ).all()
+    projection = narrow_summary_projection(
+        meeting_label=meeting.title or "Встреча",
+        occurred_at=meeting.started_at or meeting.created_at,
+        duration_seconds=meeting.duration_seconds,
+        summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+    )
+    grant.last_used_at = datetime.now(UTC)
+    await db.commit()
+    return PublicShareSummaryResponse.model_validate(projection)
+
+
+@router.post(
+    "/cabinet/share-invitations/{share_token}/accept",
+    response_model=ShareGrantResponse,
+    operation_id="acceptMeetingShareInvitation",
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def accept_meeting_share_invitation_route(
+    request: Request,
+    share_token: str,
+    workspace_id: Annotated[UUID, Query()],
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    recipient_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = PublicShareDbDependency,
+) -> Response | ShareGrantResponse:
+    if db is None:
+        raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+    verified_address_hashes = await _verified_invitation_address_hashes(
+        request,
+        recipient_scope=recipient_scope,
+    )
+    grant = await accept_share_invitation(
+        db,
+        workspace_id=workspace_id,
+        user_id=principal.user_id,
+        device_id=device.device_id,
+        raw_token=share_token,
+        verified_address_hashes=verified_address_hashes,
+    )
+    if grant is None:
+        raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+    await db.commit()
+    response = ShareGrantResponse(
+        grant=grant_view(grant, display_name="Authenticated user"),
+        share_url=(
+            f"/api/v1/cabinet/share/{share_token}"
+            f"?workspace_id={workspace_id}"
+        ),
+    )
+    if request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
+        return RedirectResponse(url=response.share_url, status_code=303)
+    return response
 
 
 @router.get(
@@ -603,6 +1620,8 @@ async def play_cabinet_meeting_audio_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
+    if not decision.can_view_full_meeting:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     playback = await playback_artifact(
         db,
         storage=storage,
@@ -645,6 +1664,8 @@ async def download_meeting_artifact_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
+    if not decision.can_view_full_meeting and artifact_class != "summary":
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     result = await latest_processing_result(
         db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id
     )
@@ -741,6 +1762,12 @@ async def create_meeting_content_export_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
+    if (
+        decision.state != "deleted"
+        and not decision.can_view_full_meeting
+        and payload.content_scope != "summary"
+    ):
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     result = await latest_processing_result(
         db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id
     )
@@ -800,6 +1827,10 @@ async def create_meeting_export_package_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
+    if not decision.can_view_full_meeting and any(
+        artifact != "summary" for artifact in payload.artifact_classes
+    ):
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     result = await latest_processing_result(
         db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id
     )
@@ -883,6 +1914,7 @@ async def run_retention_scan_route(
         limit=retention_payload.limit,
         dry_run=retention_payload.dry_run,
         storage=storage,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await db.commit()
     return response
@@ -937,6 +1969,127 @@ async def acknowledge_desktop_local_purge_task_route(
     )
     await db.commit()
     return task
+
+
+def _built_in_template_view(definition) -> SummaryTemplateView:
+    return SummaryTemplateView(
+        template_id=None,
+        template_key=definition.key,
+        kind="builtin",
+        name=definition.name,
+        purpose=definition.purpose,
+        sections=list(definition.sections),
+        output_language="ru",
+        detail_level="standard",
+        version=definition.version,
+        status="active",
+        can_edit=False,
+        can_duplicate=True,
+    )
+
+
+def _personal_template_view(template: SummaryTemplate) -> SummaryTemplateView:
+    return SummaryTemplateView(
+        template_id=template.id,
+        template_key=template.template_key,
+        kind="personal",
+        name=template.name,
+        purpose=template.purpose,
+        sections=list(template.sections_json),
+        output_language=template.output_language,
+        detail_level=template.detail_level,
+        version=template.version,
+        status=template.status,
+        can_edit=template.status == "active",
+        can_duplicate=template.status != "deleted",
+    )
+
+
+async def _owned_personal_template(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    owner_user_id: UUID,
+    template_id: UUID,
+) -> SummaryTemplate:
+    template = await db.scalar(
+        select(SummaryTemplate).where(
+            SummaryTemplate.id == template_id,
+            SummaryTemplate.workspace_id == workspace_id,
+            SummaryTemplate.owner_user_id == owner_user_id,
+            SummaryTemplate.kind == "personal",
+        )
+    )
+    if template is None:
+        raise ProblemDetail(status=404, code="summary_template_not_found", title="Template not found")
+    return template
+
+
+async def _workspace_defaulting_to_template(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    template_id: UUID,
+) -> Workspace | None:
+    return await db.scalar(
+        select(Workspace)
+        .where(
+            Workspace.id == workspace_id,
+            Workspace.default_summary_template_id == template_id,
+        )
+        .with_for_update()
+    )
+
+
+def _reset_default_summary_template(workspace: Workspace) -> None:
+    workspace.default_summary_template_key = "graf-auto-v1"
+    workspace.default_summary_template_id = None
+    workspace.default_summary_template_version = 1
+
+
+def _summary_candidate_response(
+    attempt: MeetingOutcomeGenerationAttempt,
+    current_outcome_set_id: UUID | None,
+) -> SummaryCandidateResponse:
+    if attempt.candidate_id is None:
+        raise ProblemDetail(
+            status=500,
+            code="summary_candidate_state_invalid",
+            title="Summary candidate is invalid",
+        )
+    state = {
+        "queued": "generating",
+        "generating": "generating",
+        "blocked_dependency": "generating",
+        "candidate": "ready",
+        "accepted": "accepted",
+        "rejected": "closed",
+        "failed": "failed",
+        "cancelled": "failed",
+    }.get(attempt.status, "failed")
+    return SummaryCandidateResponse(
+        candidate_id=attempt.candidate_id,
+        state=state,
+        current_outcome_set_id=current_outcome_set_id,
+        poll_url=(
+            f"/api/v1/cabinet/meetings/{attempt.meeting_id}/summary-candidates/"
+            f"{attempt.candidate_id}"
+        ),
+    )
+
+
+def _raise_summary_problem(exc: OutcomeGenerationTerminalError) -> None:
+    code = str(exc)
+    status_code = 409
+    if code in {"meeting_not_found", "summary_candidate_unavailable"}:
+        status_code = 404
+    elif code.endswith("forbidden"):
+        status_code = 403
+    raise ProblemDetail(
+        status=status_code,
+        code=code,
+        title="Summary request could not be completed",
+    )
 
 
 async def _authorized_meeting(

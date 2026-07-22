@@ -220,11 +220,11 @@ private struct ContentView: View {
             startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton(
                 for: captureSession,
                 calendarPrompt: desktopCalendarPrompt
-            ) && !recordingStartInProgress && !recordingStopInProgress,
+            ) && permissionOnboardingStatus.isReady && !recordingStartInProgress && !recordingStopInProgress,
             recordingTransitionInProgress: recordingStartInProgress || recordingStopInProgress,
             hasActionableCaptureProblem: CaptureControlView.hasActionableProblem(
                 blockedReason: recordingBlocker
-            ) || desktopCalendarPrompt?.kind == .record,
+            ) || !permissionOnboardingStatus.isReady || desktopCalendarPrompt?.kind == .record,
             showsAppUpdateBadge: appUpdateController.presentation.showsSidebarBadge,
             onStartRecording: {
                 Task { await startManualRecording() }
@@ -267,8 +267,9 @@ private struct ContentView: View {
                 selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
                 calendarPrompt: desktopCalendarPrompt,
                 meetingDetectionStatus: meetingDetectionStatus,
+                readinessStatus: permissionOnboardingStatus,
                 recordingLevels: liveRecordingLevels,
-                recordDisabled: recordingStartInProgress || recordingStopInProgress,
+                recordDisabled: !permissionOnboardingStatus.isReady || recordingStartInProgress || recordingStopInProgress,
                 stopDisabled: recordingStartInProgress || recordingStopInProgress,
                 pauseDisabled: recordingStartInProgress || recordingStopInProgress,
                 onRecord: {
@@ -297,6 +298,10 @@ private struct ContentView: View {
                 },
                 onMeetingDetectionSettings: {
                     (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
+                },
+                onPermissionRecovery: {
+                    refreshPermissionOnboarding(reason: "capture_permission_recovery", presentIfNeeded: false)
+                    permissionOnboardingPresented = true
                 }
             )
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)
@@ -766,20 +771,6 @@ private struct ContentView: View {
                 meetingDetectionPrompt = prompt
                 presentMeetingDetectionPrompt(prompt)
                 meetingDetectionStatus = "Найдена встреча: \(displayName)"
-            case .autoRecordEligible(let targetID, let bundleID):
-                guard !calendarPromptRecordingIsActive else { continue }
-                let displayName = registry.targets.first { $0.id == targetID }?.displayName ?? bundleID
-                dismissMeetingDetectionPrompt()
-                Task {
-                    await startManualRecording(
-                        meetingDetectionTarget: MeetingDetectionRecordingTarget(
-                            targetID: targetID,
-                            bundleID: bundleID,
-                            displayName: displayName
-                        )
-                    )
-                }
-                meetingDetectionStatus = "Автозапись: \(displayName)"
             case .candidateObserved(
                 bundleID: _,
                 score: _,
@@ -947,8 +938,8 @@ private struct ContentView: View {
             rootView: MeetingDetectionPromptView(
                 prompt: prompt,
                 isStartDisabled: recordingStartInProgress || recordingStopInProgress || calendarPromptRecordingIsActive,
-                onStart: { autoRecordOptIn in
-                    acceptMeetingDetectionPrompt(prompt, autoRecordOptIn: autoRecordOptIn)
+                onStart: {
+                    acceptMeetingDetectionPrompt(prompt)
                 },
                 onDismiss: {
                     dismissMeetingDetectionPrompt()
@@ -1045,19 +1036,11 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func acceptMeetingDetectionPrompt(
-        _ prompt: MeetingDetectionPrompt,
-        autoRecordOptIn: Bool
-    ) {
+    private func acceptMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
         AppLog.writeRaw(
             event: "meeting_detection.prompt_accepted",
-            detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID) autoRecordOptIn=\(autoRecordOptIn)"
+            detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID)"
         )
-        if autoRecordOptIn {
-            meetingDetectionSettings.targetScopedAutoRecordEnabled = true
-            meetingDetectionSettings.autoRecordTargetIds.insert(prompt.targetID)
-            saveMeetingDetectionSettings()
-        }
         dismissMeetingDetectionPrompt()
         Task {
             await startManualRecording(
@@ -1067,16 +1050,6 @@ private struct ContentView: View {
                     displayName: prompt.displayName
                 )
             )
-        }
-    }
-
-    @MainActor
-    private func saveMeetingDetectionSettings() {
-        do {
-            try meetingDetectionSettingsStore.save(meetingDetectionSettings)
-            NotificationCenter.default.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
-        } catch {
-            AppLog.writeRaw(event: "meeting_detection.settings_save_failed", detail: "error=settings_unavailable")
         }
     }
 
@@ -2020,17 +1993,12 @@ private struct MeetingDetectionPrompt: Identifiable, Equatable {
 }
 
 private struct MeetingDetectionPromptView: View {
-    private static let countdownSeconds: TimeInterval = 8
-
     let prompt: MeetingDetectionPrompt
     let isStartDisabled: Bool
-    let onStart: (Bool) -> Void
+    let onStart: () -> Void
     let onDismiss: () -> Void
 
-    @State private var autoRecordOptIn = false
-    @State private var appearedAt = Date()
     @State private var didResolve = false
-    @State private var autoStartTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2044,7 +2012,7 @@ private struct MeetingDetectionPromptView: View {
                         .font(.headline)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Началась встреча. Запись стартует автоматически.")
+                    Text("Начать запись?")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -2062,15 +2030,16 @@ private struct MeetingDetectionPromptView: View {
                 }
             }
 
-            Toggle("Всегда писать это приложение", isOn: $autoRecordOptIn)
-                .toggleStyle(.checkbox)
-
             VStack(spacing: 8) {
-                TimelineView(.periodic(from: appearedAt, by: 0.05)) { context in
-                    countdownButton(progress: progress(at: context.date))
+                Button("Начать") {
+                    resolveStart()
                 }
+                .buttonStyle(.borderedProminent)
+                .disabled(isStartDisabled)
+                .keyboardShortcut(.defaultAction)
+                .frame(maxWidth: .infinity)
 
-                Button("Пропустить") {
+                Button("Не сейчас") {
                     resolveDismiss()
                 }
                 .buttonStyle(.plain)
@@ -2086,65 +2055,17 @@ private struct MeetingDetectionPromptView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(.quaternary, lineWidth: 1)
         )
-        .onAppear {
-            appearedAt = Date()
-            autoStartTask?.cancel()
-            autoStartTask = Task {
-                try? await Task.sleep(nanoseconds: UInt64(Self.countdownSeconds * 1_000_000_000))
-                await MainActor.run {
-                    resolveStart()
-                }
-            }
-        }
-        .onDisappear {
-            autoStartTask?.cancel()
-            autoStartTask = nil
-        }
-    }
-
-    private func countdownButton(progress: CGFloat) -> some View {
-        Button {
-            resolveStart()
-        } label: {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(isStartDisabled ? Color.secondary.opacity(0.28) : Color.blue)
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.white.opacity(0.22))
-                        .frame(width: proxy.size.width * progress)
-                    Text(isStartDisabled ? "Запись пока недоступна" : "Записать сейчас")
-                        .font(.callout)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(height: 34)
-        }
-        .buttonStyle(.plain)
-        .disabled(isStartDisabled)
-        .keyboardShortcut(.defaultAction)
-    }
-
-    private func progress(at date: Date) -> CGFloat {
-        guard !isStartDisabled else { return 0 }
-        return min(max(CGFloat(date.timeIntervalSince(appearedAt) / Self.countdownSeconds), 0), 1)
     }
 
     private func resolveStart() {
         guard !didResolve, !isStartDisabled else { return }
         didResolve = true
-        autoStartTask?.cancel()
-        onStart(autoRecordOptIn)
+        onStart()
     }
 
     private func resolveDismiss() {
         guard !didResolve else { return }
         didResolve = true
-        autoStartTask?.cancel()
         onDismiss()
     }
 }

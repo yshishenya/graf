@@ -1151,7 +1151,7 @@ private struct RecordingTitlebarHUD: View {
                     Image(systemName: "waveform")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.green)
-                    Text(DesktopMeetingShellChrome.recordingTitle(for: session.mode))
+                    Text(CaptureStatusItem.statusLabel(for: session))
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                 }
@@ -1194,7 +1194,7 @@ private struct RecordingTitlebarHUD: View {
             Divider()
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Идет запись. \(CaptureStatusItem.statusLabel(for: session)).")
+        .accessibilityLabel("\(CaptureStatusItem.statusLabel(for: session)). Остановить запись можно в любой момент.")
         .accessibilityIdentifier("systemAudio.titlebarRecordingHUD")
     }
 

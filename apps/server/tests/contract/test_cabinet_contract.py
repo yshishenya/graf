@@ -102,7 +102,8 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
         "unavailable_reason": "generation_future",
     }
     assert payload["governance"]["delete"]["destructive"] is True
-    assert "GRAF" in payload["governance"]["delete"]["label"]
+    assert payload["governance"]["delete"]["label"] == "Удалить встречу…"
+    assert "GRAF" in payload["governance"]["delete"]["reason"]
     assert payload["access"]["state"] == "owner"
     assert payload["share"]["public_link_state"] == "disabled_by_default"
     assert payload["activity"]["redaction_state"] == "metadata_only"
@@ -170,7 +171,8 @@ def test_cabinet_review_html_has_localized_accessible_compact_revision_status(cl
     assert 'data-media-revision-id="' in html
     assert 'data-local-media-revision-id="' in html
     assert "Медиа-ревизия" in html
-    assert "detail-layout" in html
+    assert html.count('role="tab"') == 2
+    assert '<aside class="right-panel">' not in html
     assert "detail-playback" in html
 
 

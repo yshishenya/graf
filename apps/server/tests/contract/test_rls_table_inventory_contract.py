@@ -60,6 +60,10 @@ MEETING_SPEAKER_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0029_meeting_speaker_names.py"
 )
+RECORDING_WORKFLOW_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0031_recording_workflow_templates_sharing.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -127,6 +131,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         MEETING_SPEAKER_MIGRATION,
         "meeting_speaker_names_migration",
     )
+    recording_workflow_migration = _load_migration_module(
+        RECORDING_WORKFLOW_MIGRATION,
+        "recording_workflow_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -145,6 +153,8 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(calendar_auto_context_migration.CONTENT_WORKSPACE_POLICIES)
         | set(playback_normalization_migration.PLAYBACK_NORMALIZATION_TABLES)
         | set(meeting_speaker_migration.MEETING_SPEAKER_TABLES)
+        | set(recording_workflow_migration.TENANT_TABLE_POLICIES)
+        | set(recording_workflow_migration.GLOBAL_OPERATOR_TABLES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

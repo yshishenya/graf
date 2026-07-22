@@ -1026,7 +1026,7 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     page = render_meeting_detail_page(_review())
 
     assert "Итоги" in page
-    assert "Запись и расшифровка" in page
+    assert "Расшифровка" in page
     assert 'role="tablist" aria-label="Содержимое встречи"' in page
     assert 'data-detail-tab="recording"' in page
     assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
@@ -1034,13 +1034,16 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert 'data-detail-panel="recording"' in page
     assert "const activateDetailTab = (name)" in _cabinet_js()
     assert "Транскрипт готовится" in page
-    assert "Видимость для команды" in page
-    assert "Публичные ссылки" in page
-    assert "Уже скачанные или экспортированные файлы" in page
+    assert "Поделиться" in page
+    assert 'data-share-dialog-open' in page
+    assert "Ещё" in page
+    assert 'data-meeting-panel-open="more"' in page
+    assert "Видимость для команды" not in page
+    assert "Публичные ссылки" not in page
     assert 'data-boundary-copy="Files already downloaded' in page
-    assert "Удалить встречу в системах GRAF" in page
+    assert "Удалить встречу…" not in page
     assert "Request deletion" not in page
-    assert "Запросить удаление" in page
+    assert "Удалить встречу?" not in page
 
 
 def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
@@ -1513,7 +1516,7 @@ def test_terminal_playback_copy_renders_as_plain_status_without_user_work() -> N
     assert not any(marker in page.casefold() for marker in forbidden)
 
 
-def test_detail_shell_reserves_notes_assistant_template_without_internal_feature_labels() -> None:
+def test_detail_shell_keeps_simple_outcomes_copy_without_internal_feature_labels() -> None:
     review = _review()
     review.notes = NotesReviewState(
         available=False, sections=[], unavailable_reason="generation_future"
@@ -1528,9 +1531,9 @@ def test_detail_shell_reserves_notes_assistant_template_without_internal_feature
     assert "Итоги готовятся" in page
     assert "AI notes are reserved for a later feature" not in page
     assert "No generated summary is shown yet" not in page
-    assert "<h3>Ассистент</h3>" in page
-    assert '<button type="button" disabled>Ассистент</button>' in page
-    assert "<h3>Шаблон</h3>" in page
+    assert "Итоги встречи" in page
+    assert "<h3>Ассистент</h3>" not in page
+    assert '<button type="button" disabled>Ассистент</button>' not in page
     assert "feature 016" not in page.lower()
     assert "feature:016" not in page.lower()
     assert "016-meeting-detail" not in page
@@ -1740,10 +1743,10 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
 
     page = render_meeting_detail_page(review)
 
-    assert 'class="tab active" role="tab" id="detail-tab-recording"' in page
-    assert 'id="detail-tab-outcomes" aria-selected="false"' in page
-    assert 'data-detail-panel="outcomes" hidden' in page
-    assert 'data-detail-panel="recording"' in page
+    assert 'class="tab active" role="tab" id="detail-tab-outcomes"' in page
+    assert 'id="detail-tab-outcomes" aria-selected="true"' in page
+    assert 'data-detail-panel="outcomes"' in page
+    assert 'data-detail-panel="recording" hidden' in page
     assert "data-playback-shell" in page
     assert 'data-source-mode="stored_review_m4a"' in page
     assert "data-speaker-timeline" in page

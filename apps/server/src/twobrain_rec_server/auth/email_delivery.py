@@ -76,6 +76,31 @@ class PostalEmailLoginClient:
         }
         await self._post_message(payload)
 
+    async def send_meeting_invitation(
+        self,
+        *,
+        recipient_email: str,
+        acceptance_url: str,
+        delivery_key: str,
+    ) -> None:
+        safe_url = escape(acceptance_url, quote=True)
+        payload = {
+            "to": [recipient_email],
+            "from": formataddr((self.from_name, self.from_address)),
+            "subject": "Вам открыли итоги встречи в GRAF",
+            "plain_body": f"Откройте приглашение: {acceptance_url}\n",
+            "html_body": (
+                '<p>Вам открыли итоги встречи в GRAF.</p>'
+                f'<p><a href="{safe_url}">Открыть приглашение</a></p>'
+            ),
+            "tag": "meeting-share-invitation",
+            "headers": {
+                "X-2brain-Email-Purpose": "meeting-share-invitation",
+                "X-2brain-Delivery-Key": delivery_key,
+            },
+        }
+        await self._post_message(payload)
+
     async def _post_message(self, payload: dict[str, Any]) -> None:
         timeout = httpx.Timeout(self.timeout_seconds)
         headers = {"X-Server-API-Key": self.api_key, "Content-Type": "application/json"}

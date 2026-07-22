@@ -55,6 +55,9 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "meeting_outcome_sets",
         "meeting_outcome_items",
         "meeting_outcome_generation_attempts",
+        "summary_templates",
+        "generation_calls",
+        "meeting_share_invitations",
         "calendar_sources",
         "calendar_credential_envelopes",
         "external_calendars",
@@ -102,8 +105,20 @@ RLS_ORGANIZATION_TABLES = frozenset(
     }
 )
 
+RLS_OPERATOR_TABLES = frozenset(
+    {
+        "prompt_optimization_runs",
+        "prompt_optimization_call_ledger",
+    }
+)
+
 RLS_COVERED_TABLES = tuple(
-    sorted(RLS_DIRECT_WORKSPACE_TABLES | RLS_INHERITED_WORKSPACE_TABLES | RLS_ORGANIZATION_TABLES)
+    sorted(
+        RLS_DIRECT_WORKSPACE_TABLES
+        | RLS_INHERITED_WORKSPACE_TABLES
+        | RLS_ORGANIZATION_TABLES
+        | RLS_OPERATOR_TABLES
+    )
 )
 
 REQUIRED_RLS_PROBES = (
