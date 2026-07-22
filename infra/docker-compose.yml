@@ -85,6 +85,7 @@ services:
       TWOBRAIN_LANGFUSE_PUBLIC_KEY_FILE: /run/secrets/twobrain_langfuse_public_key
       TWOBRAIN_LANGFUSE_SECRET_KEY_FILE: /run/secrets/twobrain_langfuse_secret_key
       TWOBRAIN_LANGFUSE_ENVIRONMENT: production
+      TWOBRAIN_LANGFUSE_RELEASE: ${TWOBRAIN_LANGFUSE_RELEASE:-}
     secrets:
       - source: twobrain_postgres_app_password
         target: twobrain_postgres_password
@@ -208,6 +209,7 @@ services:
       TWOBRAIN_LANGFUSE_PUBLIC_KEY_FILE: /run/secrets/twobrain_langfuse_public_key
       TWOBRAIN_LANGFUSE_SECRET_KEY_FILE: /run/secrets/twobrain_langfuse_secret_key
       TWOBRAIN_LANGFUSE_ENVIRONMENT: production
+      TWOBRAIN_LANGFUSE_RELEASE: ${TWOBRAIN_LANGFUSE_RELEASE:-}
     secrets:
       - source: twobrain_postgres_app_password
         target: twobrain_postgres_password

@@ -107,7 +107,7 @@ def test_reflection_and_judges_have_separate_closed_contracts() -> None:
         config={
             "config_contract_version": 1,
             "model": "gpt-5.6-luna",
-            "temperature": 0.2,
+            "temperature": 1,
             "max_completion_tokens": 4096,
         },
     )
@@ -124,6 +124,24 @@ def test_reflection_and_judges_have_separate_closed_contracts() -> None:
         ],
         config=judge_config(schema_name="graf_meeting_outcome_faithfulness_judge_v1"),
     )
+
+    retained_v1_config = judge_config(schema_name="graf_meeting_outcome_faithfulness_judge_v1")
+    retained_v1_config["config_contract_version"] = 1
+    retained_v1_config["temperature"] = 0
+    retained = validate_prompt_snapshot(
+        name="graf/evaluation/meeting-outcome-faithfulness",
+        version=1,
+        prompt_type="chat",
+        prompt=[
+            {
+                "role": "user",
+                "content": "{{source_segments_json}} {{candidate_outcome_json}}",
+            }
+        ],
+        config=retained_v1_config,
+    )
+    assert retained.config["temperature"] == 0
+    assert retained.config["config_contract_version"] == 1
 
 
 def test_outcome_validation_preserves_category_truth_and_source_ownership() -> None:
@@ -150,11 +168,14 @@ def test_outcome_validation_preserves_category_truth_and_source_ownership() -> N
             }
         ],
     }
-    assert validate_outcome_result(
-        result,
-        allowed_categories=["summary", "action_items"],
-        allowed_segment_ids={"seg-1"},
-    ) == result
+    assert (
+        validate_outcome_result(
+            result,
+            allowed_categories=["summary", "action_items"],
+            allowed_segment_ids={"seg-1"},
+        )
+        == result
+    )
     inconsistent = deepcopy(result)
     inconsistent["category_states"]["summary"] = "not_found"
     with pytest.raises(ValueError, match="disagree"):

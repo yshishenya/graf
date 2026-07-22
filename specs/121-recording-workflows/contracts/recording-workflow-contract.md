@@ -196,7 +196,7 @@ Required top-level keys are exactly `config_contract_version`, `model`,
 {
   "config_contract_version": 1,
   "model": "gpt-5.6-luna",
-  "temperature": 0.2,
+  "temperature": 1,
   "max_completion_tokens": 4096,
   "response_format": {
     "type": "json_schema",
@@ -278,7 +278,7 @@ using GEPA's supported reflection template and native proposal delimiter. Its
 config has exactly four keys:
 
 ```json
-{"config_contract_version":1,"model":"gpt-5.6-luna","temperature":0.2,"max_completion_tokens":4096}
+{"config_contract_version":1,"model":"gpt-5.6-luna","temperature":1,"max_completion_tokens":4096}
 ```
 
 The text body must contain GEPA 0.1.4 tokens `<curr_param>` and `<side_info>`
@@ -296,15 +296,15 @@ GEPA's native parser.
 The three chat prompts are `graf/evaluation/meeting-outcome-faithfulness`,
 `graf/evaluation/meeting-outcome-action-items`, and
 `graf/evaluation/meeting-outcome-completeness`. Each has exactly the outcome
-profile's five top-level keys, uses `temperature: 0` and
-`max_completion_tokens: 2048` (within the v1 `1..8192` range). This is the full
+profile's five top-level keys, uses `temperature: 1` and
+`max_completion_tokens: 2048` under config contract v2. This is the full
 canonical faithfulness config; the other two change only schema `name`:
 
 ```json
 {
-  "config_contract_version": 1,
+  "config_contract_version": 2,
   "model": "gpt-5.6-luna",
-  "temperature": 0,
+  "temperature": 1,
   "max_completion_tokens": 2048,
   "response_format": {
     "type": "json_schema",
@@ -357,7 +357,9 @@ GRAF sends only the validated `model`, `temperature`,
 smoke must prove the selected LiteLLM route supports the exact parameters and
 strict schema. No hidden request setting comes from code. Adding `top_p`,
 reasoning/verbosity, penalties, seed, stop sequences, tools, or vendor-specific
-parameters requires config contract v2 and a new reviewed capability test.
+parameters requires a new reviewed profile contract (v2 after the current
+outcome/reflection v1, or v3 after the current judge v2) and a new capability
+test.
 
 Base URL, credentials, headers, provider/upstream routing, retry/fallback,
 timeout, tracing policy, optimizer budget/concurrency, promotion thresholds,
@@ -457,11 +459,24 @@ code-owned model default.
 
 The Temporal client registers the stable official
 `temporalio.contrib.opentelemetry.TracingInterceptor` once through a minimal
-subclass that injects/extracts `TraceContextTextMapPropagator` only. W3C baggage
-is not written to Temporal headers. Temporal and Langfuse use the same provider;
+subclass with a client-local composite propagator containing
+`TraceContextTextMapPropagator` and `W3CBaggagePropagator`. The baggage carries
+only the approved Langfuse correlation attributes (`environment`, `user_id`,
+`session_id`, the fixed bounded trace name, and bounded tags); it never carries
+transcript/model content,
+credentials, or arbitrary request metadata. The process-global propagator is
+not changed. These dispatch headers are immutable workflow input, so replay
+extracts the same values and never performs new propagation side effects.
+Temporal and Langfuse use the same provider;
 Langfuse exports the explicit outcome/optimization workflow tree plus its
 Langfuse observations. Global HTTP,
 FastAPI, SQL, object-store, and unrelated workflow spans are not exported.
+
+Outcome and reflection prompts retain config contract v1. Existing judge
+snapshots remain readable as contract v1 with temperature `0`; every newly
+created judge candidate uses config contract v2 with the gateway-compatible
+temperature `1`. The validator does not allow either temperature under the
+other contract version.
 
 One deterministic trace ID derived from
 `outcome-generation/<candidate_id>` is reused by every Temporal delivery. Each
@@ -509,7 +524,7 @@ Generation content uses canonical UTF-8 JSON with stable key ordering:
         {"role": "system", "content": "<compiled instructions>"},
         {"role": "user", "content": "<canonical transcript appears here once>"}
       ],
-      "temperature": 0.2,
+      "temperature": 1,
       "max_completion_tokens": 4096,
       "response_format": {"type": "json_schema", "json_schema": {}}
     }
