@@ -434,13 +434,20 @@ The workflow executes five externally meaningful activity classes:
    response. That row contains the exact logical request, complete transcript,
    raw response, and validated output. A crash after possible egress but
    before response persistence records `ambiguous` and never fabricates output.
-5. `publish-observability` is the sole Langfuse `generation` owner. It loads the
-   retained Generation Call row, verifies
+5. Before provider work, the parent starts a deterministic
+   `outcome-observability/<candidate_id>` reconciler child with abandon-on-parent-
+   close semantics. Its `publish-observability` activity is the sole Langfuse
+   `generation` owner. It loads every response-bearing retained Generation Call
+   row, verifies
    source/snapshot/request transcript-hash equality, and publishes the Langfuse
    generation using the original call timestamps. Retry reuses the same
    trace/observation ID and never repeats the model call. Success updates export
    status but does not clear or delete the plaintext row; failure leaves delivery
    durably pending until confirmation and does not change candidate readiness.
+   Retryable provider responses therefore receive their own observations even
+   when a later attempt succeeds or meeting deletion cancels the parent. Calls
+   with no received response are retained as `not_required` and never fabricate
+   a generation.
 
 LiteLLM URL/key, upstream route/provider secrets, network headers, retry policy,
 and security/budget ceilings are deployment/application policy and are never

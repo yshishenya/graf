@@ -121,6 +121,9 @@ def test_full_content_publisher_has_one_explicit_generation_owner() -> None:
     assert '"validated_result": call.validated_result_json' in source
     assert "mask=None" in source
     assert '"publish_outcome_observability_activity"' in workflow_source
+    assert "OutcomeObservabilityReconcilerWorkflow" in workflow_source
+    assert "ParentClosePolicy.ABANDON" in workflow_source
+    assert 'workflow.patched("outcome-observability-reconciler-v1")' in workflow_source
     assert workflow_source.count('"execute_outcome_generation_activity"') == 1
 
 
@@ -134,5 +137,6 @@ def test_temporal_topology_uses_dedicated_traced_ai_workers() -> None:
     assert "langfuse_otel_tracer(langfuse_client)" in temporal_source
     assert "TraceContextTextMapPropagator()" in temporal_source
     assert "W3CBaggagePropagator()" in temporal_source
-    assert "workflows=[OutcomeGenerationWorkflow]" in worker_source
+    assert "OutcomeGenerationWorkflow," in worker_source
+    assert "OutcomeObservabilityReconcilerWorkflow," in worker_source
     assert "task_queue=outcome_generation_task_queue(settings)" in worker_source

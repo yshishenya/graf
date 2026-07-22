@@ -271,9 +271,11 @@ and validates it against that plaintext History snapshot, compiles the prompt,
 calls the allowlisted LiteLLM
 gateway, validates the response, and atomically stores the candidate plus a
 retained plaintext Generation Call row. Exactly one Langfuse generation records
-the call's complete request/transcript/raw response/validated result. The sole
-publication activity keeps Langfuse export durably pending until confirmation;
-candidate readiness remains fail-open and retry never repeats the model call.
+each response-bearing call's complete request/transcript/raw response/validated
+result. A dedicated Temporal reconciler child starts before provider work,
+survives parent cancellation, and keeps the sole publication activity durably
+retrying until confirmation; candidate readiness remains fail-open and export
+retry never repeats the model call.
 Accept/reject remains a direct atomic database transaction.
 
 **Rationale**:
@@ -472,7 +474,8 @@ auto-instrumentation.
 
 The deterministic root trace ID is derived from
 `outcome-generation/<candidate_id>`. The execution activity persists a retained
-plaintext Generation Call row; the publication activity owns the Langfuse
+plaintext Generation Call row; a pre-started cancellation-independent
+reconciler invokes the sole publication activity, which owns the Langfuse
 generation and uses the original call timestamps:
 
 ```text
@@ -486,7 +489,10 @@ generate-meeting-outcome
         ├── call-outcome-model          # provider egress; no generation owner
         ├── validate-outcome
         └── persist-candidate
-    └── publish-observability           # sole generation owner; retry only
+    └── start observability-reconciler  # survives parent cancellation
+
+outcome-observability/<candidate_id>
+└── publish-observability[*]            # sole generation owner; retry only
 ```
 
 Every real activity retry records `activity.info().attempt`, and every completed

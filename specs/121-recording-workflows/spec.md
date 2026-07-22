@@ -413,7 +413,7 @@ technology in desktop, browser, and embedded layouts.
 - **Deletion Request**: The whole-meeting lifecycle operation that wins races and records controlled versus external limits.
 - **Metadata Audit Event**: Content-free evidence of sensitive state transitions and access/egress outcomes.
 - **Generation Attempt**: One durable, idempotent attempt to create a candidate from pinned source, template, prompt-recipe, and schema versions with bounded model retry, a complete plaintext Temporal transcript snapshot, and a deterministically delivered Langfuse generation observation.
-- **Generation Call**: One retained plaintext provider-call ledger row with deterministic call/observation identity, original timestamps, exact logical request, complete transcript, raw response, validated result, and confirmed/ambiguous export state.
+- **Generation Call**: One retained plaintext provider-call ledger row with deterministic call/observation identity, original timestamps, exact logical request, complete transcript, available raw response/validated result, and pending/confirmed/not-required delivery state.
 - **Temporal Workflow Run**: Temporal's workflow/run identity used to correlate, cancel, and inspect outcome execution; its History is retained under operator-managed retention without a separate deletion ledger.
 - **Prompt Config Snapshot**: The immutable validated prompt, model settings,
   response schema, schema/adapter versions, and hash resolved from one promoted

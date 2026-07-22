@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID
 
 from twobrain_rec_server.observability.langfuse import (
@@ -12,6 +13,10 @@ from twobrain_rec_server.observability.langfuse import (
     deterministic_trace_id,
     publish_completed_generation,
     workflow_dispatch_observation,
+)
+from twobrain_rec_server.outcomes.ai_service import (
+    _complete_generation_call_without_response,
+    _generation_call_is_publishable,
 )
 from twobrain_rec_server.workflows.temporal_client import outcome_tracing_interceptor
 
@@ -69,6 +74,48 @@ class _Client:
 
     def flush(self):
         self.flush_count += 1
+
+
+def test_only_response_bearing_generation_calls_are_publishable() -> None:
+    completed_at = datetime.now(UTC)
+    assert _generation_call_is_publishable(
+        SimpleNamespace(
+            call_state="failed",
+            completed_at=completed_at,
+            raw_response_json={"error": "rate_limited"},
+            validated_result_json={"generation_error": {"code": "rate_limited"}},
+        )
+    )
+    assert not _generation_call_is_publishable(
+        SimpleNamespace(
+            call_state="failed",
+            completed_at=completed_at,
+            raw_response_json=None,
+            validated_result_json={"generation_error": {"code": "connect_failed"}},
+        )
+    )
+    assert not _generation_call_is_publishable(
+        SimpleNamespace(
+            call_state="ambiguous",
+            completed_at=completed_at,
+            raw_response_json=None,
+            validated_result_json=None,
+        )
+    )
+
+
+def test_terminal_no_response_call_closes_langfuse_export_backlog() -> None:
+    call = SimpleNamespace(
+        call_state="reserved",
+        completed_at=None,
+        export_status="pending",
+    )
+
+    _complete_generation_call_without_response(call, call_state="ambiguous")
+
+    assert call.call_state == "ambiguous"
+    assert call.completed_at is not None
+    assert call.export_status == "not_required"
 
 
 def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_usage() -> None:
