@@ -81,3 +81,16 @@ Neither receipt closes T059.
 | T058 | [#4067](https://github.com/yshishenya/crisp/issues/4067) | closed via [PR #4084](https://github.com/yshishenya/crisp/pull/4084) |
 | T059 | [#4083](https://github.com/yshishenya/crisp/issues/4083) | open — pre-release gate |
 | T060 | [#4216](https://github.com/yshishenya/crisp/issues/4216) | closed via [PR #4217](https://github.com/yshishenya/crisp/pull/4217), released in `v2026.07.22.1` |
+| T061 | [#4220](https://github.com/yshishenya/crisp/issues/4220) | implemented in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T062 | [#4221](https://github.com/yshishenya/crisp/issues/4221) | implemented in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T063 | [#4222](https://github.com/yshishenya/crisp/issues/4222) | implemented in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T064 | [#4223](https://github.com/yshishenya/crisp/issues/4223) | implemented in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T065 | [#4224](https://github.com/yshishenya/crisp/issues/4224) | implemented in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T066 | [#4225](https://github.com/yshishenya/crisp/issues/4225) | validated in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T067 | [#4226](https://github.com/yshishenya/crisp/issues/4226) | implemented in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T068 | [#4227](https://github.com/yshishenya/crisp/issues/4227) | validated in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T069 | [#4230](https://github.com/yshishenya/crisp/issues/4230) | implemented in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T070 | [#4231](https://github.com/yshishenya/crisp/issues/4231) | implemented in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T071 | [#4232](https://github.com/yshishenya/crisp/issues/4232) | implemented in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T072 | [#4233](https://github.com/yshishenya/crisp/issues/4233) | validated in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |
+| T073 | [#4234](https://github.com/yshishenya/crisp/issues/4234) | validated in [PR #4228](https://github.com/yshishenya/crisp/pull/4228) |

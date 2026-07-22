@@ -8,6 +8,14 @@
 
 **Input**: User request: "Сформировать полноценную функцию экспорта транскрипта и саммари. Поддержать TXT, хорошо сверстанный MD, CSV, XLSX, JSON и SRT; PDF и DOCX пока не делать. Продумать, как хранить и обрабатывать экспорт, а также UI, UX, IA, permissions, lifecycle, provider-neutral contract, best practices and analogous products."
 
+## Clarifications
+
+### Session 2026-07-22
+
+- Q: How should the export dialog balance everyday choices with revision and lifecycle truth? → A: Keep scope, format, concise outcome, and the primary action visible; move revision and lifecycle metadata into collapsed technical details.
+- Q: Where should an export from the embedded macOS client be saved? → A: Open the native macOS Save dialog with the server-suggested filename and let the reviewer choose name and location; cancellation leaves the meeting unchanged and is not an export failure.
+- Q: What should change after the first compact-dialog review still felt too technical? → A: Show only two ordinary controls by default — `Что сохранить` and `Формат` — plus `Отмена` and `Сохранить`. Keep optional presentation settings and copy under `Дополнительно`; remove revision ids, readiness metadata, duration, language, lifecycle jargon, format cards, and the separate outcome summary from the user-facing dialog.
+
 ## Product Decision Summary
 
 GRAF owns one provider-neutral, revision-pinned export snapshot. Every file
@@ -180,6 +188,14 @@ and safe errors.
 4. **Given** generation fails transiently, **When** the reviewer retries,
    **Then** the original meeting content and policy state remain unchanged and
    the error does not reveal storage keys, provider URLs, or private content.
+5. **Given** the reviewer opens export in the embedded macOS client, **When**
+   the generated file is ready, **Then** GRAF opens the native Save dialog with
+   the suggested filename and matching extension so the reviewer can choose
+   the destination or cancel without treating cancellation as a failure.
+6. **Given** the export dialog opens at an embedded or browser width, **When**
+   no advanced details are expanded, **Then** the reviewer sees only what to
+   save, the compatible format, cancel, and the primary save action without
+   revision ids, lifecycle jargon, or a diagnostic preview.
 
 ### User Story 6 - Preserve Lifecycle And Provider-Neutral Truth (Priority: P2)
 
@@ -327,33 +343,41 @@ transcript content in evidence or audit logs.
   the transcript/summary content and one clear artifact state in the existing
   Files/governance surface; it MUST NOT expose format choices as unrelated
   actions on every transcript row.
-- **FR-031**: The export surface MUST first distinguish content scope:
-  `Транскрипт`, `Саммари`, or `Оба`, then present only compatible formats.
-- **FR-032**: Format choices MUST be grouped by user job: reading (TXT, MD),
-  tables (CSV, XLSX), integration (JSON), and captions (SRT).
-- **FR-033**: The export surface MUST show the selected transcript/summary
-  revision, readiness status, language, duration, and whether speaker labels,
-  timestamps, summary sections, and evidence references will be included.
+- **FR-031**: The export surface MUST first offer one plain-language
+  `Что сохранить` control with `Расшифровка`, `Итоги`, or
+  `Расшифровка и итоги`, then present only compatible formats.
+- **FR-032**: Compatible formats MUST use one compact `Формат` control grouped
+  by user job: reading (TXT, MD), tables (CSV, XLSX), data (JSON), and captions
+  (SRT); the default dialog MUST NOT render every format as a separate card.
+- **FR-033**: The default dialog MUST show only the two required choices,
+  accessible progress/error text, cancel, save, and the bounded post-egress
+  warning. Revision ids, readiness metadata, language, duration, response
+  lifecycle, and a duplicate outcome summary MUST NOT appear in the dialog;
+  those truths remain enforced by the server snapshot, policy, and audit.
 - **FR-034**: Safe defaults MUST include speaker labels and timestamps, retain
   exact order, omit all pause-text markers, and use canonical turns rather than
   raw provider rows for human output.
 - **FR-035**: Any optional setting that changes readability, such as displaying
   speaker names or evidence timestamps, MUST NOT change canonical source data or
   machine row boundaries.
-- **FR-036**: The UI MUST provide a concise format preview or format-specific
-  explanation before download without exposing content to unauthorized users.
+- **FR-036**: The selected format MAY have one short plain-language hint, but
+  the dialog MUST NOT add a preview card or repeat the selected values.
 - **FR-037**: Processing, partial, missing, denied, deleted, failed, expired,
   and audit-unavailable states MUST disable or bound the relevant action and
   explain the reason without leaking private meeting or storage details.
 - **FR-038**: Copying transcript or summary MUST use the same semantic formatter
   as the corresponding human export, preserve selection/order/timestamps, and
-  show an accessible success or retryable failure state.
+  show an accessible success or retryable failure state. It MUST be secondary
+  inside collapsed `Дополнительно`, never a competing default footer action.
 - **FR-039**: Export controls, format selection, preview, progress, success,
   failure, and disabled reasons MUST be keyboard operable, focus-visible,
   screen-reader understandable, localization-ready, and free of color-only
   meaning. In the embedded macOS client, starting a file download MUST preserve
   the current meeting route and MUST NOT treat the generated artifact as a
-  cabinet navigation target.
+  cabinet navigation target. The embedded client MUST use the native macOS Save
+  dialog so the reviewer can choose the filename and destination; cancelling
+  that dialog MUST keep the meeting and export selections intact and MUST NOT
+  be reported as generation or download failure.
 - **FR-040**: Export presentation MUST use the existing GRAF design system and
   clean-room product language; competitor layouts, labels, colors, icons, and
   proprietary copy MUST NOT be copied.
@@ -470,6 +494,17 @@ transcript content in evidence or audit logs.
 - **SC-012**: No critical accessibility blocker remains in keyboard,
   focus-order, accessible-name/live-region, 200% zoom, reduced-motion, or
   screen-reader-oriented semantics review of the complete export journey.
+- **SC-012a**: At the supported embedded width and at 200% zoom, the default
+  collapsed export view keeps the two required choices, status, and primary
+  action reachable within the dialog viewport without horizontal page overflow
+  and exposes no technical metadata.
+- **SC-012b**: In the embedded macOS client, every generated export reaches a
+  native Save dialog with the server-suggested filename and matching extension;
+  choosing a writable location saves exactly one file, while cancellation saves
+  none and emits no failure state.
+- **SC-012c**: A first-time reviewer can understand the default dialog without
+  knowing the terms revision, lifecycle, provider, canonical turn, readiness,
+  or response artifact; none of those terms appear in the visible dialog copy.
 - **SC-013**: No export action returns content after access is revoked, deletion
   starts, the artifact expires, or the required audit event fails.
 - **SC-014**: Before general release, at least 90% of representative reviewers

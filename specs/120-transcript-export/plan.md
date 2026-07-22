@@ -159,9 +159,13 @@ mismatch, serializer failure, or audit failure returns no export bytes.
 
 Meeting detail gains one contextual `Экспорт` action shared by transcript and
 summary, while the Files/governance panel shows the current availability state.
-The existing dialog/sheet primitives present content scope first, then compatible
-format groups, options, revision/readiness metadata, and a concise safe preview.
-The preview is structural/sample-free by default so it cannot leak content.
+The existing compact GRAF dialog/sheet primitives present two ordinary selects:
+`Что сохранить` and `Формат`. Compatible formats remain grouped inside the
+native select; optional speaker/time/evidence controls and copy live under one
+collapsed `Дополнительно`. The dialog does not expose revision ids, readiness
+metadata, language, duration, lifecycle jargon, format cards, or a duplicate
+outcome summary. Those truths remain server-owned and testable outside the
+end-user surface.
 
 Submitting shows an accessible progress state, disables duplicate submission,
 and restores focus on success/failure. Errors retain the user's selection and
@@ -169,6 +173,13 @@ provide retry or a truthful disabled reason. Keyboard order, Escape/close,
 focus trap/return, visible focus, screen-reader labels/live status, reduced
 motion, localization, embedded width, and non-color status cues are validation
 requirements.
+
+Browser delivery continues to use the browser-owned attachment behavior. The
+embedded macOS `WKDownloadDelegate` presents one native `NSSavePanel` with the
+server-suggested filename; a confirmed URL starts the download, while cancel
+returns `nil` without a failure state. The coordinator owns only the transient
+panel/window handoff; server policy, revision pinning, audit, and bytes remain
+unchanged. No custom file picker, persistence model, or dependency is added.
 
 ### 7. Fixture matrix and quickstart
 
@@ -193,6 +204,9 @@ progress, audit failure, revision race, deterministic rerun, and provider swap.
 - Exercise meeting detail and embedded view in the in-app browser for dialog,
   preview, progress, failure, retry, keyboard, screen-reader, focus, reduced
   motion, responsive layout, and console/overflow behavior.
+- Exercise the real macOS save handoff for suggested filename/extension,
+  choosing a non-Downloads folder, overwrite confirmation, cancellation, and
+  preservation of the meeting route; diagnostics remain metadata-only.
 - Run Ruff, `git diff --check`, the commands in `quickstart.md`, and
   `infra/scripts/ci-local.sh` before implementation closeout/PR.
 - Do not run CD or production mutation in this feature lane.

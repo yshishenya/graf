@@ -95,3 +95,63 @@ The corrected native flow was validated at three levels on 2026-07-22:
 No production meeting content, filename, identifier, or screenshot is stored in
 the repository evidence. This engineering hotfix does not replace the T059
 representative-reviewer study required before general release.
+
+## Compact dialog and native destination follow-up
+
+The 2026-07-22 follow-up reused the production template, stylesheet, and
+JavaScript with synthetic metadata in a real `WKWebView`. It also replaced the
+automatic Downloads destination with the existing WebKit coordinator plus the
+platform-native `NSSavePanel`; no new dependency, storage owner, or export
+endpoint was introduced.
+
+| Check | Evidence | Result |
+|---|---|---|
+| Normal embedded layout | A 940 by 720 point WebKit snapshot keeps the title, direct scope/format choices, concise outcome, collapsed details, and footer actions inside one dialog | PASS |
+| Narrow layout | A 390 by 720 point WebKit snapshot has no horizontal page overflow; the dialog body scrolls independently and the actions remain visible | PASS |
+| 200% zoom | A real WebKit `pageZoom` of 2 keeps the header and footer fixed while the selection body remains scrollable | PASS |
+| Progressive disclosure | File options and revision/readiness metadata are closed by default and remain keyboard-focusable through native `details` controls | PASS |
+| Destination seam | Focused Swift tests cover flat suggested filenames, confirmed destinations, and cancellation without a destination | PASS |
+| Regression boundary | The focused server meeting/export/RLS lane passes all 49 cases, including the calendar chooser after export radio controls were added | PASS |
+
+The synthetic screenshots contain no meeting content and remain transient local
+review artifacts rather than repository evidence. The signed-app save-to-folder
+and cancel smoke is recorded in the final runtime section below.
+
+## Plain-language dialog follow-up
+
+Direct review of the first compact version still found too much product-internal
+structure: three scope cards, six format cards, a repeated outcome summary,
+technical disclosure, and a competing copy action. The revised dialog keeps the
+same server and native-save contract but reduces the default decision to two
+native selects and save.
+
+| Check | Evidence | Result |
+|---|---|---|
+| Default hierarchy | `Сохранить файл`, `Что сохранить`, `Формат`, cancel, and save are the only primary controls | PASS |
+| Plain language | Visible copy uses `Расшифровка` and `Итоги`; revision, lifecycle, provider, readiness, canonical, and response-artifact terminology is absent | PASS |
+| Secondary actions | Speaker/time/evidence settings and copy remain available under collapsed `Дополнительно` | PASS |
+| Normal layout | A real 940 by 720 point `WKWebView` snapshot shows the complete dialog without body scrolling | PASS |
+| Narrow layout | A real 390 by 720 point `WKWebView` snapshot keeps both selects, warning, and actions visible without horizontal overflow | PASS |
+| 200% zoom | A real WebKit `pageZoom` of 2 keeps the full decision and footer reachable within the dialog | PASS |
+| Visual comparison | Side-by-side inspection confirms the card grid, diagnostic summary, technical details, and default copy button were removed | PASS |
+
+Screenshots use synthetic meeting metadata only and are not committed. This QA
+does not replace the T059 representative-reviewer study.
+
+## Final signed-app save and cancel smoke
+
+On 2026-07-22, after the production runtime reached
+`89084647eb492b770e1efbf4b50ee4039f6fa50c`, a same-identity locally signed GRAF
+build opened the plain-language dialog for an owner meeting.
+
+| Check | Evidence | Result |
+|---|---|---|
+| Dialog | Only `Что сохранить`, `Формат`, collapsed `Дополнительно`, `Отмена`, and `Сохранить…` were presented | PASS |
+| Native destination | `NSSavePanel` opened with the server-suggested flat TXT filename and allowed an explicit non-Downloads directory | PASS |
+| Saved artifact | Exactly one `582`-byte TXT file appeared in the selected directory | PASS |
+| Cancellation | Cancelling a second Save panel created no second file and showed no failure | PASS |
+| Route continuity | The same meeting and its `Ещё` actions remained open after save and cancel | PASS |
+| Cleanup | The temporary file and isolated directory were removed immediately after metadata-only verification | PASS |
+
+No meeting title, identifier, filename, path, transcript content, or screenshot
+is committed as evidence. This completes T066 but does not replace T059/SC-014.

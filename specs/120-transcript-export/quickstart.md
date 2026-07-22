@@ -109,12 +109,19 @@ Using synthetic content in the in-app browser and embedded-width surface:
 
 1. Open meeting detail and confirm one contextual `Экспорт` action plus one
    Files/governance availability state.
-2. Confirm scope-first selection and only compatible grouped formats.
-3. Confirm revision/readiness/language/duration/options and structural preview.
+2. Confirm the default view contains only `Что сохранить`, `Формат`, `Отмена`,
+   and the primary download/save action; compatible formats remain grouped
+   inside the format select.
+3. Confirm `Дополнительно` is collapsed and contains the optional presentation
+   settings and copy action. Confirm revision ids, readiness metadata,
+   language, duration, lifecycle jargon, format cards, and a duplicate outcome
+   summary do not appear in the dialog.
 4. Submit each format and observe immediate announced preparing state, duplicate
    submit prevention, correct filename/MIME/length, and focus return. In the
-   embedded macOS client, confirm that the file reaches Downloads while the
-   meeting detail remains visible.
+   embedded macOS client, confirm that a native Save dialog opens with the
+   suggested filename/extension; save once to a non-Downloads folder, exercise
+   overwrite confirmation, then cancel a second attempt and confirm no second
+   file or failure state while the meeting detail remains visible.
 5. Trigger partial, missing summary, denied, deletion, generation failure, and
    audit-unavailable states; confirm safe distinct reasons and retry behavior.
 6. Complete the dialog using keyboard only; test Escape/close, focus trap and
@@ -122,6 +129,13 @@ Using synthetic content in the in-app browser and embedded-width surface:
    non-color meaning, 200% zoom, mobile width, and desktop embedded width.
 7. Check console errors, horizontal overflow, and that no competitor assets,
    labels, layout, colors, or icons were copied.
+
+Executed 2026-07-22 result: the plain-language dialog passed the synthetic
+normal/390 px/200% WebKit checks. A same-identity signed GRAF build then opened
+the native Save panel, wrote exactly one `582`-byte TXT file to an explicitly
+selected non-Downloads directory, and cancelled a second save without another
+file, failure state, or route change. The temporary artifact and directory were
+removed immediately; no meeting content or private path is retained here.
 
 ## Performance checks
 

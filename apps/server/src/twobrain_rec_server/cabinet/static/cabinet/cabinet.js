@@ -1933,33 +1933,12 @@
     const speakers = form.querySelector("input[name='include_speaker_labels']");
     const timestamps = form.querySelector("input[name='include_timestamps']");
     const evidence = form.querySelector("input[name='include_evidence']");
-    const previewScope = form.querySelector("[data-export-preview-scope]");
-    const previewReadiness = form.querySelector("[data-export-preview-readiness]");
-    const previewSummaryRevision = form.querySelector("[data-export-preview-summary-revision]");
-    const previewFormat = form.querySelector("[data-export-preview-format]");
-    const previewPurpose = form.querySelector("[data-export-preview-purpose]");
-    const previewSpeakers = form.querySelector("[data-export-preview-speakers]");
-    const previewTimestamps = form.querySelector("[data-export-preview-timestamps]");
-    const previewEvidence = form.querySelector("[data-export-preview-evidence]");
     const formatGroups = [
-      ["Читаемый текст", ["txt", "md"]],
-      ["Таблицы", ["csv", "xlsx"]],
-      ["Структурированные данные", ["json"]],
-      ["Субтитры", ["srt"]]
+      ["Текст", [["txt", "Текст (.txt)"], ["md", "Markdown (.md)"]]],
+      ["Таблицы", [["csv", "Таблица CSV (.csv)"], ["xlsx", "Excel (.xlsx)"]]],
+      ["Данные", [["json", "JSON (.json)"]]],
+      ["Субтитры", [["srt", "Субтитры (.srt)"]]]
     ];
-    const scopeLabels = {
-      transcript: "Транскрипт",
-      summary: "Саммари",
-      combined: "Транскрипт и саммари"
-    };
-    const formatPurposes = {
-      txt: "читаемый текст",
-      md: "заметки и knowledge-base",
-      csv: "одна каноническая реплика на строку",
-      xlsx: "рабочая книга с отдельными листами",
-      json: "versioned provider-neutral snapshot",
-      srt: "субтитры: одна реплика на cue"
-    };
     let returnFocus = null;
     let submitting = false;
 
@@ -1967,36 +1946,6 @@
       if (!status) return;
       status.textContent = message;
       status.dataset.state = state;
-    };
-    const updatePreview = () => {
-      if (!scope || !format) return;
-      if (previewScope) previewScope.textContent = scopeLabels[scope.value] || scope.value;
-      if (previewReadiness) {
-        const key = "exportState" + scope.value.charAt(0).toUpperCase() + scope.value.slice(1);
-        previewReadiness.textContent = form.dataset[key] || "недоступно";
-      }
-      if (previewSummaryRevision) {
-        previewSummaryRevision.textContent = scope.value === "transcript"
-          ? "не выбрано"
-          : (form.dataset.outcomeSetId?.slice(0, 8) || "недоступна");
-      }
-      if (previewFormat) previewFormat.textContent = format.value.toUpperCase();
-      if (previewPurpose) previewPurpose.textContent = formatPurposes[format.value] || "файл встречи";
-      if (previewSpeakers) {
-        previewSpeakers.textContent = speakers?.disabled
-          ? "заданы структурой формата"
-          : (speakers?.checked ? "включены" : "скрыты");
-      }
-      if (previewTimestamps) {
-        previewTimestamps.textContent = timestamps?.disabled
-          ? (format.value === "srt" ? "обязательны для субтитров" : "заданы структурой формата")
-          : (timestamps?.checked ? "включены" : "скрыты");
-      }
-      if (previewEvidence) {
-        previewEvidence.textContent = evidence?.disabled
-          ? "не применимо"
-          : (evidence?.checked ? "включены" : "скрыты");
-      }
     };
     const updateOptions = () => {
       if (!scope || !format) return;
@@ -2010,7 +1959,6 @@
         timestamps.disabled = machineFormat || format.value === "srt";
       }
       if (evidence) evidence.disabled = scope.value === "transcript";
-      updatePreview();
     };
     const updateFormats = () => {
       if (!scope || !format) return;
@@ -2018,14 +1966,14 @@
       const values = (form.dataset[key] || "").split(",").filter(Boolean);
       const previous = format.value;
       const groups = formatGroups.map(([label, groupValues]) => {
-        const available = groupValues.filter((value) => values.includes(value));
+        const available = groupValues.filter(([value]) => values.includes(value));
         if (!available.length) return null;
         const group = document.createElement("optgroup");
         group.label = label;
-        group.append(...available.map((value) => {
+        group.append(...available.map(([value, text]) => {
           const option = document.createElement("option");
           option.value = value;
-          option.textContent = value.toUpperCase();
+          option.textContent = text;
           return option;
         }));
         return group;
@@ -2068,9 +2016,6 @@
     dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
     scope?.addEventListener("change", updateFormats);
     format?.addEventListener("change", updateOptions);
-    [speakers, timestamps, evidence].forEach((control) => {
-      control?.addEventListener("change", updatePreview);
-    });
     updateFormats();
 
     const include = (name) => form.querySelector("input[name='" + name + "']")?.checked === true;
@@ -2142,7 +2087,10 @@
         link.click();
         link.remove();
         window.setTimeout(() => URL.revokeObjectURL(href), 60000);
-        setStatus("Скачивание началось.", "success");
+        setStatus(
+          form.dataset.exportDelivery === "save" ? "Файл готов к сохранению." : "Скачивание началось.",
+          "success"
+        );
         setBusy(false);
         close();
       } catch (error) {
