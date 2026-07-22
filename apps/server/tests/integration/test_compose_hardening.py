@@ -261,6 +261,9 @@ def test_production_env_template_does_not_broadcast_service_specific_secret_file
             "TWOBRAIN_MEDIASCRIBE_CREDENTIAL_FILE",
             "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE",
             "TWOBRAIN_LANGFUSE_CREDENTIAL_FILE",
+            "TWOBRAIN_LANGFUSE_PUBLIC_KEY_FILE",
+            "TWOBRAIN_LANGFUSE_SECRET_KEY_FILE",
+            "TWOBRAIN_LITELLM_API_KEY_FILE",
             "TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE",
             "TWOBRAIN_WEB_CSRF_SECRET_FILE",
         }

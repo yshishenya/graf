@@ -1,6 +1,5 @@
 import pytest
 from pydantic import ValidationError
-
 from twobrain_rec_server.config import LOCAL_DEV_SMOKE_IDS, SMOKE_IDENTITY_CLASS, Settings
 
 
@@ -93,6 +92,25 @@ def test_prompt_optimization_accepts_complete_ai_runtime_without_outcomes(tmp_pa
 
     assert settings.prompt_optimization_enabled is True
     assert settings.outcome_generation_enabled is False
+
+
+def test_production_ai_runtime_rejects_empty_secret_files(tmp_path) -> None:
+    lite_key = tmp_path / "litellm-key"
+    public_key = tmp_path / "langfuse-public-key"
+    secret_key = tmp_path / "langfuse-secret-key"
+    for path in (lite_key, public_key, secret_key):
+        path.write_text("test", encoding="utf-8")
+    lite_key.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="litellm_api_key_file"):
+        _production_settings(
+            outcome_generation_enabled=True,
+            litellm_base_url="https://litellm.example.test",
+            litellm_api_key_file=lite_key,
+            langfuse_base_url="https://cloud.langfuse.com",
+            langfuse_public_key_file=public_key,
+            langfuse_secret_key_file=secret_key,
+        )
 
 
 def test_playback_normalization_defaults_are_bounded_and_isolated() -> None:
