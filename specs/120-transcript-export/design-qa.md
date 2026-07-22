@@ -115,7 +115,7 @@ endpoint was introduced.
 
 The synthetic screenshots contain no meeting content and remain transient local
 review artifacts rather than repository evidence. The signed-app save-to-folder
-and cancel smoke remains part of T066 and must be completed before release.
+and cancel smoke is recorded in the final runtime section below.
 
 ## Plain-language dialog follow-up
 
@@ -136,5 +136,22 @@ native selects and save.
 | Visual comparison | Side-by-side inspection confirms the card grid, diagnostic summary, technical details, and default copy button were removed | PASS |
 
 Screenshots use synthetic meeting metadata only and are not committed. This QA
-does not replace the T059 representative-reviewer study or the T066 signed-app
-native save/cancel smoke.
+does not replace the T059 representative-reviewer study.
+
+## Final signed-app save and cancel smoke
+
+On 2026-07-22, after the production runtime reached
+`89084647eb492b770e1efbf4b50ee4039f6fa50c`, a same-identity locally signed GRAF
+build opened the plain-language dialog for an owner meeting.
+
+| Check | Evidence | Result |
+|---|---|---|
+| Dialog | Only `Что сохранить`, `Формат`, collapsed `Дополнительно`, `Отмена`, and `Сохранить…` were presented | PASS |
+| Native destination | `NSSavePanel` opened with the server-suggested flat TXT filename and allowed an explicit non-Downloads directory | PASS |
+| Saved artifact | Exactly one `582`-byte TXT file appeared in the selected directory | PASS |
+| Cancellation | Cancelling a second Save panel created no second file and showed no failure | PASS |
+| Route continuity | The same meeting and its `Ещё` actions remained open after save and cancel | PASS |
+| Cleanup | The temporary file and isolated directory were removed immediately after metadata-only verification | PASS |
+
+No meeting title, identifier, filename, path, transcript content, or screenshot
+is committed as evidence. This completes T066 but does not replace T059/SC-014.

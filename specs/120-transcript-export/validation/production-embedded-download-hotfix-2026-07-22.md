@@ -54,3 +54,22 @@
   claim.
 - New meetings remain fail-closed until they receive an explicit accepted
   artifact-policy snapshot.
+
+## Plain-language dialog and native destination follow-up
+
+- Follow-up PR: [#4228](https://github.com/yshishenya/crisp/pull/4228).
+- Production runtime SHA:
+  `89084647eb492b770e1efbf4b50ee4039f6fa50c`.
+- The deploy passed backup, restore rehearsal, migration-head, strict RLS,
+  smoke, cleanup, worker, automatic dispatch, and public readiness gates.
+- A same-identity locally signed `2026.07.22.5` validation build displayed only
+  the plain-language scope and format choices plus the collapsed optional
+  controls.
+- The native Save panel wrote exactly one `582`-byte TXT artifact to an
+  explicitly selected non-Downloads directory. Cancelling a second save wrote
+  no second file, showed no failure, and kept the meeting open.
+- The temporary artifact and directory were removed immediately. No meeting
+  title, identifier, filename, path, transcript content, or screenshot is
+  retained in repository evidence.
+- This completes T066. T059/SC-014 remains the separate representative-reviewer
+  gate before a general-release claim.

@@ -192,7 +192,7 @@ dialog, and cancel a second save without a file, failure state, or route change.
 - [X] T063 [US5] Restructure the export markup with existing GRAF dialog primitives and metadata-only progressive disclosure in `apps/server/src/twobrain_rec_server/cabinet/rendering.py` (FR-030–FR-040)
 - [X] T064 [US5] Implement compact responsive styles and minimal selection/preview/disclosure behavior while preserving focus, live status, retry, copy, and browser download in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` (FR-033–FR-040/SC-012a)
 - [X] T065 [US5] Present `NSSavePanel` from the existing WebKit download coordinator, use the sanitized server filename, and treat cancel as a non-failure in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` (FR-039/SC-012b)
-- [ ] T066 [US5] Re-run synthetic embedded-width/200%-zoom/keyboard/failure QA plus a real native save/cancel smoke and record metadata-safe results in `specs/120-transcript-export/design-qa.md` and `specs/120-transcript-export/quickstart.md` (SC-012/SC-012a/SC-012b)
+- [X] T066 [US5] Re-run synthetic embedded-width/200%-zoom/keyboard/failure QA plus a real native save/cancel smoke and record metadata-safe results in `specs/120-transcript-export/design-qa.md` and `specs/120-transcript-export/quickstart.md` (SC-012/SC-012a/SC-012b)
 - [X] T067 [P] Document the export-dialog and native-save behavior, compatibility, and validation boundary in `CHANGELOG.md` (FR-039/FR-040)
 - [X] T068 Run focused server/macOS checks, feature quickstart, `@ponytail-review`, `git diff --check`, and `infra/scripts/ci-local.sh`; reconcile evidence in `specs/120-transcript-export/tasks.md` before requesting implementation commit approval
 
@@ -254,6 +254,17 @@ visible.
   contract tests, synthetic normal/390 px/200% WebKit visual checks,
   JavaScript syntax, Ruff, `git diff --check`, and the complete repository gate
   with `ci_local_result=pass`.
+- After merging the current `master`, the repository gate passed `608` macOS
+  tests, `2178` parallel server tests with `1` skipped, and `41` strict
+  PostgreSQL/RLS tests with `1` skipped. Production deploy of runtime SHA
+  `89084647eb492b770e1efbf4b50ee4039f6fa50c` then passed backup, restore
+  rehearsal, migration-head, RLS, smoke, cleanup, worker, dispatch, and public
+  readiness gates.
+- T066 live evidence passed in the same-identity signed GRAF build: the native
+  Save panel wrote one `582`-byte TXT file to an explicitly selected
+  non-Downloads directory; cancelling the second panel created no second file,
+  showed no failure, and kept the meeting open. The temporary artifact and
+  directory were removed immediately after metadata-only verification.
 - T057 is complete: [PR #4084](https://github.com/yshishenya/crisp/pull/4084)
   merged as `7ea8afc517b79fa943ec1ef99d047027234e3c35`; completed task issues
   are closed, and each has a Russian closure comment with its Spec task, PR,

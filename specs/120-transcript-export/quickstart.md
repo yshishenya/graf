@@ -130,6 +130,13 @@ Using synthetic content in the in-app browser and embedded-width surface:
 7. Check console errors, horizontal overflow, and that no competitor assets,
    labels, layout, colors, or icons were copied.
 
+Executed 2026-07-22 result: the plain-language dialog passed the synthetic
+normal/390 px/200% WebKit checks. A same-identity signed GRAF build then opened
+the native Save panel, wrote exactly one `582`-byte TXT file to an explicitly
+selected non-Downloads directory, and cancelled a second save without another
+file, failure state, or route change. The temporary artifact and directory were
+removed immediately; no meeting content or private path is retained here.
+
 ## Performance checks
 
 Use synthetic 60-minute and greater-than-one-hour fixtures:
