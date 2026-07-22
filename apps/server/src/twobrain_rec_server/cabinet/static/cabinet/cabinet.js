@@ -11,6 +11,15 @@
   const selectedMeetingIds = new Set();
   const contextualControlsAlwaysAvailable = window.matchMedia?.("(hover: none), (pointer: coarse)")?.matches === true;
 
+  const clearMeetingHistoryCache = () => {
+    try {
+      sessionStorage.removeItem("htmx-history-cache");
+    } catch {
+      // The page still blocks new history snapshots when storage is unavailable.
+    }
+  };
+  clearMeetingHistoryCache();
+
   const plural = (value, one, few, many) => {
     const mod10 = value % 10;
     const mod100 = value % 100;
@@ -42,7 +51,7 @@
     target.isConnected &&
     target.closest("[hidden], [aria-hidden='true']") === null;
 
-  const updateSelection = ({ syncStoredSelection = true } = {}) => {
+  const updateSelection = () => {
     const list = currentList();
     const toolbar = document.querySelector("[data-selection-toolbar]");
     const countLabel = document.querySelector("[data-selection-count]");
@@ -51,13 +60,10 @@
     const rows = selectedRows();
     const total = allRows().length;
     const allSelected = total > 0 && rows.length === total;
-    if (syncStoredSelection) {
-      selectedMeetingIds.clear();
-      rows.forEach((row) => selectedMeetingIds.add(row.dataset.meetingId));
-    }
+    selectedMeetingIds.clear();
+    rows.forEach((row) => selectedMeetingIds.add(row.dataset.meetingId));
     countLabel.textContent = `Выбрано: ${rows.length}`;
     toolbar.hidden = rows.length === 0;
-    toolbar.dataset.selectionState = allSelected ? "all" : "partial";
     if (selectionToggle) {
       selectionToggle.checked = allSelected;
       selectionToggle.indeterminate = rows.length > 0 && !allSelected;
@@ -74,10 +80,6 @@
   };
 
   const reconcileMeetingSelection = () => {
-    const visibleIds = new Set(allRows().map((row) => row.dataset.meetingId));
-    Array.from(selectedMeetingIds).forEach((meetingId) => {
-      if (!visibleIds.has(meetingId)) selectedMeetingIds.delete(meetingId);
-    });
     allRows().forEach((row) => {
       const checkbox = row.querySelector("[data-meeting-select]");
       if (checkbox) checkbox.checked = selectedMeetingIds.has(row.dataset.meetingId);
@@ -86,15 +88,26 @@
         contextualControlsAlwaysAvailable || selectedMeetingIds.has(row.dataset.meetingId),
       );
     });
-    updateSelection({ syncStoredSelection: false });
+    updateSelection();
   };
 
-  const scrubSessionMeetingMetadata = () => {
+  const scrubSessionMeetingMetadata = (neutralPath) => {
     document.querySelector(".upcoming")?.remove();
     document.querySelector("[data-upload-activity-list]")?.replaceChildren();
     document.querySelector("#delete-feedback-region")?.replaceChildren();
     const search = document.querySelector("#meeting-search");
     if (search) search.value = "";
+    clearMeetingHistoryCache();
+    try {
+      sessionStorage.removeItem("htmx-current-path-for-history");
+    } catch {
+      // The neutral URL still replaces the private query when storage is unavailable.
+    }
+    try {
+      history.replaceState(null, "", neutralPath);
+    } catch {
+      // Private DOM recovery must not depend on WebKit accepting a history mutation.
+    }
   };
 
   const renderMeetingListRecovery = (kind) => {
@@ -116,11 +129,7 @@
         description: "Сессия завершилась.",
         action: "Войти",
       },
-    }[kind] || {
-      title: "Не удалось загрузить встречи",
-      description: "Попробуйте ещё раз.",
-      action: "Повторить",
-    };
+    }[kind];
     const recovery = document.createElement("section");
     recovery.className = "list-recovery-state";
     recovery.setAttribute("role", "status");
@@ -132,18 +141,18 @@
     const action = document.createElement(kind === "session" ? "a" : "button");
     action.className = "button quiet list-recovery-action";
     action.textContent = copy.action;
+    const listPath = location.pathname.startsWith("/desktop/")
+      ? "/desktop/meetings"
+      : "/meetings";
     if (kind === "session") {
-      const returnPath = location.pathname.startsWith("/desktop/")
-        ? "/desktop/meetings"
-        : "/meetings";
-      action.href = `/login?next=${encodeURIComponent(returnPath)}`;
+      action.href = `/login?next=${encodeURIComponent(listPath)}`;
       action.setAttribute("data-list-sign-in", "");
     } else {
       action.type = "button";
       action.setAttribute("data-list-retry", "");
     }
     recovery.append(title, description, action);
-    if (kind === "session") scrubSessionMeetingMetadata();
+    if (kind === "session") scrubSessionMeetingMetadata(listPath);
     target.removeAttribute("aria-busy");
     target.replaceChildren(recovery);
     selectedMeetingIds.clear();
@@ -170,11 +179,6 @@
       : "Начните запись или загрузите готовый файл.";
     empty.append(emptyTitle, emptyBody);
     list.replaceChildren(empty);
-  };
-
-  const updateMeetingResultCount = () => {
-    const resultCount = document.querySelector(".meeting-result-count");
-    if (resultCount) resultCount.textContent = `Найдено: ${allRows().length}`;
   };
 
   const showMeetingListLoading = () => {
@@ -388,7 +392,8 @@
             failedRows.push(row);
           }
         }
-        updateMeetingResultCount();
+        const resultCount = document.querySelector(".meeting-result-count");
+        if (resultCount) resultCount.textContent = `Найдено: ${allRows().length}`;
         renderClientEmptyList();
         confirm.disabled = false;
         confirm.textContent = "Удалить";
@@ -1842,9 +1847,7 @@
     initCabinet();
   });
 
-  window.addEventListener("pageshow", () => {
-    if (currentList()) updateSelection();
-  });
+  window.addEventListener("pageshow", updateSelection);
 
   initCabinet();
 

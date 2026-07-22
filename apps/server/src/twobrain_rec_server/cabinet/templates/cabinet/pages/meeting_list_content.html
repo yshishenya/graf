@@ -1,6 +1,6 @@
 {% import "cabinet/components/icons.html" as icons %}
 
-<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+<main id="cabinet-main" class="cabinet-main" tabindex="-1" data-hx-history="false">
   <div class="cabinet-workspace">
     <header class="cabinet-topbar">
       <div class="cabinet-titleline">
@@ -11,7 +11,7 @@
         data-hx-target="#meeting-list-region"
         data-hx-select="#meeting-list-region"
         data-hx-swap="outerHTML"
-        data-hx-push-url="true"
+        data-hx-replace-url="true"
         data-hx-trigger="input changed delay:150ms from:#meeting-search, change from:select, submit">
         <div class="cabinet-search-control">
           <span aria-hidden="true">{{ icons.icon("search") }}</span>
@@ -75,7 +75,7 @@
     </section>
     {% endif %}
     <div class="meeting-toolbar">
-      <div class="selection-toolbar" role="toolbar" aria-label="Действия с выбранными встречами" data-selection-toolbar hidden data-visible-total="{{ visible_total }}">
+      <div class="selection-toolbar" role="toolbar" aria-label="Действия с выбранными встречами" data-selection-toolbar hidden>
         <label class="selection-toggle-label">
           <input class="row-check selection-toggle" type="checkbox" data-selection-toggle aria-label="Выбрать все видимые встречи">
           <span>Выбрать все</span>

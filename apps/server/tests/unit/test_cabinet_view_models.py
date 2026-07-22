@@ -320,46 +320,8 @@ def test_common_display_helpers_for_meeting_rows() -> None:
     assert view_models.meeting_media_kind(upload) == "upload"
     assert view_models.meeting_media_label(upload) == "медиа"
     assert view_models.format_duration(65) == "1 мин"
-    assert view_models.date_label(audio) == "16 июн"
-    assert view_models.sort_label("duration_asc") == "Сначала короткие"
-    assert view_models.sort_label("unknown") == "Сначала новые"
-
-
-def test_meeting_list_query_presentation_is_immutable_and_normalizes_unknown_sort() -> None:
-    presentation = view_models.meeting_list_query_presentation(
-        query="  roadmap  ",
-        status="ready",
-        access=None,
-        sort="unknown",
-        visible_total=3,
-    )
-
-    assert presentation.query == "roadmap"
-    assert presentation.sort == "started_desc"
-    assert presentation.sort_label == "Сначала новые"
-    assert presentation.active_filter_count == 1
-    assert presentation.has_refinement is True
-    assert presentation.result_count_label == "Найдено: 3"
-    assert presentation.time_basis == "meeting"
-    with pytest.raises(FrozenInstanceError):
-        presentation.sort = "updated_desc"  # type: ignore[misc]
-
-
-def test_meeting_list_query_presentation_preserves_supported_oldest_update_sort() -> None:
-    presentation = view_models.meeting_list_query_presentation(
-        query=" \n ",
-        status=None,
-        access=None,
-        sort="updated_asc",
-        visible_total=0,
-    )
-
-    assert presentation.query == ""
-    assert presentation.sort == "updated_asc"
-    assert presentation.sort_label == "Давно обновлённые"
-    assert presentation.has_refinement is False
-    assert presentation.result_count_label is None
-    assert presentation.time_basis == "updated"
+    assert view_models.normalize_meeting_list_sort("duration_asc") == "duration_asc"
+    assert view_models.normalize_meeting_list_sort("unknown") == "started_desc"
 
 
 def test_meeting_list_row_presentation_is_immutable_and_keeps_one_status_slot() -> None:
@@ -378,7 +340,6 @@ def test_meeting_list_row_presentation_is_immutable_and_keeps_one_status_slot() 
     assert presentation.time_label == "16 июн, 08:00"
     assert presentation.status_kind is None
     assert presentation.status_label is None
-    assert presentation.status_tone is None
     assert presentation.progress_percent is None
     assert presentation.open_accessible_name == "Открыть встречу Запись, 16 июн, 08:00"
     assert updated.time_label == "Обновлено 16 июн, 11:30"
@@ -421,13 +382,12 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
 
 
 @pytest.mark.parametrize(
-    ("item", "kind", "label", "progress", "action"),
+    ("item", "kind", "label", "progress"),
     [
         (
             _list_item(status="deleted_future"),
             "deleting",
             "Удаляется",
-            None,
             None,
         ),
         (
@@ -441,7 +401,6 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
             ),
             "failed",
             "Не удалось обработать",
-            None,
             None,
         ),
         (
@@ -458,7 +417,6 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
             ),
             "failed",
             "Не удалось обработать",
-            None,
             None,
         ),
         (
@@ -478,13 +436,11 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
             "calendar_choice",
             "Нужен выбор",
             None,
-            "calendar_choice",
         ),
         (
             _list_item(status="local_only", primary_action="wait"),
             "saved_local",
             "Сохранено на Mac",
-            None,
             None,
         ),
         (
@@ -503,7 +459,6 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
             "uploading_measured",
             "Отправляем 40%",
             40,
-            None,
         ),
         (
             _list_item(
@@ -521,13 +476,11 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
             "uploading",
             "Отправляем",
             None,
-            None,
         ),
         (
             _list_item(status="processing", primary_action="wait"),
             "processing",
             "Обрабатывается",
-            None,
             None,
         ),
         (
@@ -541,7 +494,6 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
             "audio_preparing",
             "Аудио готовится",
             None,
-            None,
         ),
         (
             _list_item(
@@ -553,7 +505,6 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
             ),
             "without_audio",
             "Без аудио",
-            None,
             None,
         ),
         (
@@ -569,7 +520,6 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
             "limited",
             "Готово с ограничениями",
             None,
-            None,
         ),
         (
             _list_item(
@@ -583,7 +533,6 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
             None,
             None,
             None,
-            None,
         ),
     ],
 )
@@ -592,15 +541,12 @@ def test_meeting_list_status_projection_uses_one_total_precedence(
     kind: str | None,
     label: str | None,
     progress: int | None,
-    action: str | None,
 ) -> None:
     presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
 
     assert presentation.status_kind == kind
     assert presentation.status_label == label
     assert presentation.progress_percent == progress
-    assert presentation.secondary_action == action
-    assert (presentation.status_tone is None) is (kind is None)
 
 
 @pytest.mark.parametrize("calendar_state", ["matched_auto", "matched_user", "no_context", "cleared_by_user"])
@@ -626,7 +572,7 @@ def test_meeting_list_ready_state_suppresses_playback_and_calendar_normality(
     assert presentation.status_label is None
 
 
-def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fallbacks() -> None:
+def test_recording_time_labels_use_started_at_with_truthful_fallbacks() -> None:
     recorded = _list_item(started_at=datetime(2026, 6, 26, 23, 30, tzinfo=UTC))
     timezone_shifted = _list_item(
         started_at=datetime(2026, 6, 27, 2, 30, tzinfo=timezone(timedelta(hours=3)))
@@ -637,12 +583,10 @@ def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fall
     )
     legacy = _list_item(title="legacy-no-recording-date", started_at=None)
 
-    assert view_models.date_label(recorded) == "26 июн"
-    assert view_models.date_label(timezone_shifted) == "27 июн"
-    assert view_models.date_label(offset_shifted) == "27 июн"
-    assert view_models.date_label(legacy) == "Без даты"
-    assert view_models.sort_label("started_desc") == "Сначала новые"
-    assert view_models.sort_label("started_asc") == "Сначала старые"
+    assert view_models.meeting_time_label(recorded, time_basis="meeting") == "26 июн, 23:30"
+    assert view_models.meeting_time_label(timezone_shifted, time_basis="meeting") == "27 июн, 02:30"
+    assert view_models.meeting_time_label(offset_shifted, time_basis="meeting") == "27 июн, 00:30"
+    assert view_models.meeting_time_label(legacy, time_basis="meeting") == "Без даты"
 
 
 def test_safe_title_uses_legacy_local_recording_fallback_without_control_characters() -> None:

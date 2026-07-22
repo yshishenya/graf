@@ -202,6 +202,15 @@ def test_meeting_list_recovery_replaces_cached_rows_without_echoing_metadata() -
     assert 'document.querySelector("[data-upload-activity-list]")?.replaceChildren()' in recovery
     assert 'document.querySelector("#delete-feedback-region")?.replaceChildren()' in recovery
     assert 'document.querySelector("#meeting-search")' in recovery
+    assert "clearMeetingHistoryCache()" in recovery
+    assert 'sessionStorage.removeItem("htmx-history-cache")' in script
+    assert 'sessionStorage.removeItem("htmx-current-path-for-history")' in recovery
+    assert (
+        'try {\n      history.replaceState(null, "", neutralPath);\n    } catch {'
+        in recovery
+    )
+    assert '"/desktop/meetings"' in recovery
+    assert '"/meetings"' in recovery
     assert "dataset.meetingTitle" not in recovery
     assert "textContent" in recovery
     for marker in {

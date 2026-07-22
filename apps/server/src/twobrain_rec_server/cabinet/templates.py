@@ -126,6 +126,7 @@ def cabinet_html_response(
     hx_request: bool = False,
 ) -> HTMLResponse:
     response = html_response(html, status_code=status_code)
+    response.headers["Cache-Control"] = "private, no-store"
     if hx_request:
         response.headers["Vary"] = "HX-Request"
     return response

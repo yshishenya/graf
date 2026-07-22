@@ -383,8 +383,11 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'method="get"' in page
     assert 'data-hx-target="#meeting-list-region"' in page
     assert 'data-hx-select="#meeting-list-region"' in page
+    assert 'data-hx-replace-url="true"' in page
+    assert 'data-hx-push-url="true"' not in page
     assert "data-clear-selection" in page
     assert "data-list-title" in page
+    assert 'data-hx-history="false"' in page
     assert "Выбрано: 0" in page
     assert "Выбрать все видимые встречи" in page
     assert "Скачивание появится позже" not in page
@@ -437,7 +440,6 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "⇩" not in page
     assert "⌫" not in page
     script = _cabinet_js()
-    assert 'toolbar.dataset.selectionState = allSelected ? "all" : "partial"' in script
     assert "Снять выбор" in script
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
     assert "row.remove()" in script
@@ -765,8 +767,7 @@ def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_determinis
         'confirm.textContent = "Повторить"',
         "pendingDeleteRows = failedRows",
         "renderClientEmptyList",
-        "updateMeetingResultCount",
-        'resultCount.textContent = `Найдено: ${allRows().length}`',
+        "resultCount.textContent = `Найдено: ${allRows().length}`",
         'emptyTitle.textContent = refined ? "Ничего не найдено" : "Пока нет встреч"',
         "list.replaceChildren(empty)",
         'event.target.closest("[data-delete-cancel]")',

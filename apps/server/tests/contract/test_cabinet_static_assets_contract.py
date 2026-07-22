@@ -76,7 +76,10 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert "sessionStorage" not in script
+    assert "sessionStorage.setItem" not in script
+    assert "sessionStorage.getItem" not in script
+    assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
+    assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 1
 
 
 def test_meeting_list_js_separates_open_selection_and_fragment_reconciliation() -> None:
@@ -125,6 +128,7 @@ def test_meeting_list_js_owns_loading_and_metadata_safe_recovery_states() -> Non
         "Сессия завершилась.",
         "Повторить",
         "Войти",
+        'history.replaceState(null, "", neutralPath)',
     ]:
         assert marker in script
 
@@ -340,7 +344,9 @@ def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() 
         "--meeting-row-height: 48px;",
         "--meeting-row-exception-height: 56px;",
         ".meeting-row.has-status {\n  min-height: var(--meeting-row-exception-height);",
+        ".meeting-row.has-status .meeting-content {\n  padding-block: 2px;",
         ".row-select-hit,\n.row-delete-form {\n  width: 32px;\n  height: 32px;",
+        ".calendar-context-list-action {\n  min-height: 32px;",
         ".meeting-title {",
         "text-overflow: ellipsis;",
         ".meeting-date {",

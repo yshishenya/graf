@@ -36,6 +36,7 @@ from twobrain_rec_server.cabinet.view_models import (
     build_list_item,
     build_review_response,
     meeting_list_title,
+    meeting_source,
     normalize_meeting_list_sort,
     previous_recurring_meeting_readiness,
     provider_link_settings_surface,
@@ -261,13 +262,11 @@ async def list_cabinet_meetings(
         media_revision = await _latest_media_revision(
             db, workspace_id=workspace_id, meeting_id=meeting.id
         )
+        source = meeting_source(media_revision)
         if q and not _meeting_matches_query(
             meeting,
             q,
-            source="manual_upload"
-            if media_revision is not None
-            and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
-            else None,
+            source=source,
             visible_title_only=visible_title_search,
         ):
             continue
@@ -326,19 +325,15 @@ async def list_cabinet_meetings(
             previous_recurring_meeting=previous_recurring_meeting,
             playback=playback,
         )
+        if visible_title_search:
+            item.title = meeting_list_title(meeting, source=source)
         if matching_statuses is not None and item.status not in matching_statuses:
             continue
         items.append(item)
         if sort != "title_asc" and len(items) >= limit:
             break
     if sort == "title_asc":
-        items.sort(
-            key=lambda item: (
-                getattr(item, "_list_display_title", item.title)
-                if visible_title_search
-                else item.title
-            ).casefold()
-        )
+        items.sort(key=lambda item: item.title.casefold())
         items = items[:limit]
     return MeetingListResponse(
         items=items,
@@ -875,8 +870,9 @@ def _apply_sort(query: Select[tuple[Meeting]], sort: str) -> Select[tuple[Meetin
         "started_asc": nullslast(asc(Meeting.started_at)),
         "duration_desc": desc(Meeting.duration_seconds),
         "duration_asc": asc(Meeting.duration_seconds),
-        "title_asc": nullslast(asc(Meeting.title)),
     }
+    if sort == "title_asc":
+        return query.order_by(desc(Meeting.created_at))
     return query.order_by(
         sorters.get(sort, nullslast(desc(Meeting.started_at))),
         desc(Meeting.created_at),

@@ -68,13 +68,9 @@ def render_meeting_list_page(
     poll_url: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
-    query_presentation = cabinet_view_models.meeting_list_query_presentation(
-        query=response.filters.q,
-        status=response.filters.status,
-        access=response.filters.access,
-        sort=response.filters.sort,
-        visible_total=len(response.items),
-    )
+    query_value = " ".join((response.filters.q or "").split())
+    sort_value = cabinet_view_models.normalize_meeting_list_sort(response.filters.sort)
+    active_filter_count = int(bool(response.filters.status)) + int(bool(response.filters.access))
     return _page_shell(
         "Мои встречи",
         embedded=embedded,
@@ -99,24 +95,18 @@ def render_meeting_list_page(
             ),
             source="meeting_list.manual_upload",
         ),
-        sort_label=query_presentation.sort_label,
-        query_value=query_presentation.query,
-        status_value=query_presentation.status or "",
-        access_value=query_presentation.access or "",
-        sort_value=query_presentation.sort,
-        filters_active=query_presentation.has_refinement,
-        active_filter_count=query_presentation.active_filter_count,
-        filter_label=(
-            f"Фильтры: {query_presentation.active_filter_count}"
-            if query_presentation.active_filter_count
-            else "Фильтры"
-        ),
-        result_count_label=query_presentation.result_count_label,
+        sort_label=cabinet_view_models.SORT_LABELS[sort_value],
+        query_value=query_value,
+        status_value=response.filters.status or "",
+        access_value=response.filters.access or "",
+        sort_value=sort_value,
+        filters_active=bool(query_value or active_filter_count),
+        active_filter_count=active_filter_count,
+        filter_label=(f"Фильтры: {active_filter_count}" if active_filter_count else "Фильтры"),
         upcoming_content=trusted_component_html(
             _render_upcoming_recurring(response, embedded=embedded),
             source="meeting_list.upcoming_recurring",
         ),
-        visible_total=len(response.items),
     )
 
 
@@ -329,26 +319,25 @@ def _render_meeting_list_region(
     csrf_token: str | None = None,
     poll_url: str | None = None,
 ) -> str:
-    query_presentation = cabinet_view_models.meeting_list_query_presentation(
-        query=response.filters.q,
-        status=response.filters.status,
-        access=response.filters.access,
-        sort=response.filters.sort,
-        visible_total=len(response.items),
+    query_value = " ".join((response.filters.q or "").split())
+    has_refinement = bool(query_value or response.filters.status or response.filters.access)
+    sort_value = cabinet_view_models.normalize_meeting_list_sort(response.filters.sort)
+    time_basis: cabinet_view_models.MeetingListTimeBasis = (
+        "updated" if sort_value in {"updated_desc", "updated_asc"} else "meeting"
     )
     rows = "\n".join(
         _render_meeting_row(
             item,
             embedded=embedded,
             csrf_token=csrf_token,
-            time_basis=query_presentation.time_basis,
+            time_basis=time_basis,
         )
         for item in response.items
     )
     if rows:
         list_content = f'<ol class="meeting-list" aria-label="Встречи">{rows}</ol>'
     else:
-        if query_presentation.has_refinement:
+        if has_refinement:
             list_content = (
                 '<div class="empty-state"><strong>Ничего не найдено</strong>'
                 "<span>Измените запрос или сбросьте фильтры.</span></div>"
@@ -361,8 +350,8 @@ def _render_meeting_list_region(
     poll_attrs = _meeting_list_poll_attrs(response, poll_url=poll_url, poll_empty=embedded)
     result_count = (
         f'<div class="meeting-result-count" role="status" aria-live="polite">'
-        f"{escape(query_presentation.result_count_label)}</div>"
-        if query_presentation.result_count_label
+        f"Найдено: {len(response.items)}</div>"
+        if has_refinement
         else ""
     )
     content = f"""
@@ -758,10 +747,6 @@ def _notes_title(title: str) -> str:
     }.get(title, _ui_text(title))
 
 
-def _ui_icon(name: str) -> str:
-    return render_icon(name)
-
-
 def _render_meeting_row(
     item: MeetingListItem,
     *,
@@ -775,14 +760,13 @@ def _render_meeting_row(
         time_basis=time_basis,
     )
     meeting_path = f"{_base_path(embedded)}/{item.meeting_id}"
-    href = meeting_path
     delete_action = f"{meeting_path}/deletion-requests"
     row_state_classes = ""
     if presentation.status_label is not None:
         row_state_classes += " has-status"
     if selected:
         row_state_classes += " is-selected"
-    source_icon = _ui_icon(presentation.media_kind)
+    source_icon = render_icon(presentation.media_kind)
     source_label = presentation.media_label
     title = escape(presentation.display_title)
     id_base = f"meeting-{item.meeting_id}"
@@ -817,7 +801,7 @@ def _render_meeting_row(
         <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
         <div class="meeting-content">
           <span class="meeting-heading">
-            <a class="meeting-title" data-meeting-open href="{href}" aria-label="{escape(presentation.open_accessible_name)}" aria-describedby="{link_described_by_value}"><span class="row-title" id="{title_id}">{title}</span></a>
+            <a class="meeting-title" data-meeting-open href="{meeting_path}" aria-label="{escape(presentation.open_accessible_name)}" aria-describedby="{link_described_by_value}"><span class="row-title" id="{title_id}">{title}</span></a>
             <span class="meeting-duration muted" id="{duration_id}">{escape(presentation.duration_label)}</span>
           </span>
           {meta_html}
@@ -829,7 +813,7 @@ def _render_meeting_row(
           data-hx-swap="innerHTML">
           {csrf_field}
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
-          <button class="row-delete icon-button" type="button" tabindex="-1" aria-hidden="true" data-row-contextual data-row-delete aria-label="Удалить встречу {title}" title="Удалить">{_ui_icon("trash")}</button>
+          <button class="row-delete icon-button" type="button" tabindex="-1" aria-hidden="true" data-row-contextual data-row-delete aria-label="Удалить встречу {title}" title="Удалить">{render_icon("trash")}</button>
           <noscript><button class="row-delete-noscript" type="submit">Удалить</button></noscript>
         </form>
         <span class="meeting-date" id="{time_id}">{escape(presentation.time_label)}</span>
@@ -846,9 +830,9 @@ def _render_meeting_row_meta(
     status = ""
     if presentation.status_label is not None:
         status = (
-            f'<span class="meeting-status is-{escape(presentation.status_tone or "neutral")}" '
-            f'id="{status_id}" data-status-kind="{escape(presentation.status_kind or "")}"'
-            f'{" data-upload-progress-active" if presentation.progress_percent is not None else ""}>'
+            f'<span class="meeting-status" id="{status_id}" '
+            f'data-status-kind="{escape(presentation.status_kind or "")}"'
+            f"{' data-upload-progress-active' if presentation.progress_percent is not None else ''}>"
             f"{escape(presentation.status_label)}</span>"
         )
     progress = ""
@@ -860,11 +844,11 @@ def _render_meeting_row_meta(
           </span>
         """
     action = ""
-    if presentation.secondary_action == "calendar_choice":
+    if presentation.status_kind == "calendar_choice":
         action = (
             f'<a class="mini-link calendar-context-list-action" '
             f'href="{meeting_path}#calendar-context-chooser">'
-            f"{escape(presentation.secondary_action_label or 'Выбрать встречу')}</a>"
+            "Выбрать встречу</a>"
         )
     return status + progress + action
 
@@ -1255,7 +1239,7 @@ def _render_playback(
     return f"""
       <section class="playback-bar detail-playback {state_classes}" data-playback-state="{escape(review.playback.state)}" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-describedby="playback-live-status"{focus_attribute}>
         <span>{escape(review.playback.label)}</span>
-        <span>{_duration(review.playback.duration_seconds)}</span>
+        <span>{cabinet_view_models.format_duration(review.playback.duration_seconds)}</span>
       </section>
     """
 
@@ -1501,7 +1485,3 @@ def _empty_body(review: MeetingReviewResponse) -> str:
 def _timecode(seconds: int) -> str:
     minutes, second = divmod(max(0, seconds), 60)
     return f"{minutes:02d}:{second:02d}"
-
-
-def _duration(seconds: int) -> str:
-    return cabinet_view_models.format_duration(seconds)

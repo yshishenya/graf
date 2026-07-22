@@ -1,22 +1,21 @@
 # Data Model: Meeting List Presentation Contract
 
-Feature 122 adds no database entity, migration, API field, stored preference, meeting lifecycle state, or local manifest field. This document defines immutable presentation-only values derived from existing safe list data.
+Feature 122 adds no database entity, migration, API field, stored preference, meeting lifecycle state, or local manifest field. It adds one immutable row-presentation value and derives toolbar/collection state directly from the existing safe list response.
 
-## MeetingListQueryPresentation
+## Existing query and filter presentation
 
-Projects the existing allowlisted query string into the toolbar and trailing-time semantics.
+No parallel query value object is introduced. The renderer reuses `MeetingFilterState`, normalizes its existing values once per surface, and derives only the labels needed by the toolbar and list.
 
-| Field | Type | Rule |
-|---|---|---|
-| `query` | string | Existing trimmed `q`; empty means no text refinement. |
-| `status` | existing status filter or null | Transport remains `ready`, `processing`, `partial`, or `failed`; visible labels are grouped user language. |
-| `access` | existing access filter or null | Existing `owner`, `team`, `shared` behavior. |
-| `sort` | existing sort value | Default is `started_desc`. |
-| `sort_label` | string | Exact selected label from the visual contract. |
-| `active_filter_count` | non-negative integer | Counts non-default status and access filters; sorting is not a filter. |
-| `has_refinement` | boolean | True for non-empty query or a non-default status/access filter. |
-| `result_count_label` | string or null | `Найдено: N` only when `has_refinement`; otherwise absent. |
-| `time_basis` | `meeting | updated` | `updated` only for `updated_desc`/`updated_asc`; otherwise `meeting`. |
+| Source or derived value | Rule |
+|---|---|
+| `q` | Trim surrounding/repeated whitespace for display; empty means no text refinement. |
+| `status` | Transport remains `ready`, `processing`, `partial`, or `failed`; visible labels use grouped user language. |
+| `access` | Existing `owner`, `team`, and `shared` behavior is unchanged. |
+| `sort` | Unknown input normalizes to `started_desc`; the existing label map supplies visible copy. |
+| active filters | Count non-default status and access filters; sorting is not a filter. |
+| refinement state | True for non-empty normalized query or a non-default status/access filter. |
+| result count | Render `Найдено: N` only while refinement is active. |
+| time basis | Use `updated` only for `updated_desc`/`updated_asc`; otherwise use `meeting`. |
 
 Validation:
 
@@ -38,10 +37,7 @@ A frozen value object derived from one existing `MeetingListItem` and `time_basi
 | `media_label` | string | Existing safe Russian accessible label for the source icon. |
 | `status_kind` | compact status enum or null | Exactly one status from the precedence table, or null for normal readiness. |
 | `status_label` | string or null | Exact compact copy; null when `status_kind` is null. |
-| `status_tone` | `progress | warning | danger | neutral` or null | Visual distinction that also has text, never color-only. |
 | `progress_percent` | integer `0...99` or null | Present only for active, measurable upload; terminal 100 is never projected. |
-| `secondary_action` | action enum or null | Only a separately rendered applicable action, currently calendar choice or existing recovery. |
-| `secondary_action_label` | string or null | Exact action copy, such as `Выбрать встречу`. |
 | `open_accessible_name` | non-empty string | Includes visible title and trusted time for neutral generated titles; begins `Открыть встречу`. |
 
 ### Compact status enum and total precedence
@@ -64,7 +60,7 @@ The first matching condition wins. Lower rows remain available in source/detail 
 
 Validation invariants:
 
-- `status_kind is null` if and only if `status_label`, `status_tone`, `progress_percent`, and status-specific action are absent.
+- `status_kind is null` if and only if `status_label` and `progress_percent` are absent.
 - At most one `status_label` is rendered.
 - `progress_percent` is present only for `uploading_measured`, `is_active == true`, a positive trustworthy total, and `0 <= N < 100`.
 - `available` playback never creates a token.
@@ -99,7 +95,7 @@ Projects the list collection and asynchronous state without changing routes.
 | Field | Type | Rule |
 |---|---|---|
 | `rows` | ordered tuple of row presentations | Follows the selected existing query sort. |
-| `query` | `MeetingListQueryPresentation` | One toolbar state. |
+| `query` | existing `MeetingFilterState` | One normalized toolbar state without a parallel value object. |
 | `surface_state` | enum | `content`, `first_empty`, `no_results`, `loading`, `offline`, `unavailable`, or `session_expired`. |
 | `state_title` | string or null | Exact visual-target copy for non-content states. |
 | `state_body` | string or null | One short explanation. |
@@ -158,7 +154,7 @@ No `Undo` state is added. The projection does not promise erasure outside GRAF c
 ```text
 Existing database/access/upload/calendar/playback/deletion truth
   -> existing MeetingListItem / MeetingListResponse
-  -> private MeetingListQueryPresentation + MeetingListRowPresentation
+  -> existing filter state + private MeetingListRowPresentation
   -> current browser/embedded Jinja + HTMX surface
 
 Existing native capture/session/custody truth

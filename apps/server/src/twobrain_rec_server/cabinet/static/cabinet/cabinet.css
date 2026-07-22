@@ -260,22 +260,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .row-icon { color: var(--muted); font-size: 16px; }
 .row-title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .row-meta { color: var(--muted); font-size: 12px; display: flex; gap: 9px; flex-wrap: wrap; }
-.upload-progress-label { color: #9ec8ff; font-weight: 650; }
-.playback-state-token {
-  display: inline-flex;
-  align-items: center;
-  min-height: 18px;
-  padding: 1px 7px;
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.playback-state-token.is-available { color: #9fe2c0; border-color: rgba(77, 196, 139, .38); }
-.playback-state-token.is-preparing { color: #9ec8ff; border-color: rgba(92, 155, 235, .38); }
-.playback-state-token.is-unavailable,
-.playback-state-token.is-deleting,
-.playback-state-token.is-deleted { color: #c7cbd2; }
 .upload-progress-meter {
   width: min(180px, 40vw);
   height: 6px;
@@ -1459,7 +1443,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   margin: 18px 0 8px;
   min-height: 32px;
 }
-.meeting-toolbar .section-title { margin: 0; }
 .selection-toolbar {
   display: flex;
   justify-content: flex-start;
@@ -1579,10 +1562,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border-radius: 8px;
   background: rgba(47,201,166,.07);
   padding: 12px;
-  display: grid;
-  gap: 8px;
 }
-.cabinet-deletion-feedback h2,
 .cabinet-deletion-feedback p { margin: 0; }
 .delete-dialog {
   width: min(440px, calc(100vw - 36px));
@@ -3178,22 +3158,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   clip: auto;
   white-space: nowrap;
 }
-.cabinet-control-count {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  display: grid;
-  place-items: center;
-  border: 2px solid var(--bg);
-  border-radius: 999px;
-  background: var(--accent);
-  color: white;
-  font-size: 10px;
-  font-weight: 800;
-}
 .cabinet-control-popover {
   position: absolute;
   z-index: 40;
@@ -3228,10 +3192,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .meeting-toolbar {
   min-height: var(--control-height);
   margin: 0 0 var(--space-1);
-}
-.meeting-toolbar .section-title {
-  color: #cfd3da;
-  font-size: 13px;
 }
 .selection-toolbar {
   min-height: var(--control-height);
@@ -3291,6 +3251,9 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 .meeting-row.has-status {
   min-height: var(--meeting-row-exception-height);
+}
+.meeting-row.has-status .meeting-content {
+  padding-block: 2px;
 }
 .meeting-row.cabinet-row:hover,
 .meeting-row.cabinet-row:focus-within {
@@ -3377,11 +3340,17 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   align-items: center;
   gap: 6px;
 }
+.calendar-context-list-action {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+}
 .meeting-date {
   padding-right: 4px;
   font-variant-numeric: tabular-nums;
 }
-.empty-state {
+.empty-state,
+.list-recovery-state {
   min-height: 176px;
   padding: 32px;
   display: grid;
@@ -3390,7 +3359,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   color: var(--muted);
   text-align: center;
 }
-.empty-state strong {
+.empty-state strong,
+.list-recovery-state strong {
   color: var(--text);
   font-size: 15px;
 }
@@ -3400,9 +3370,6 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 10px;
   background: #1d1f21;
-}
-.list-loading-state[hidden] {
-  display: none;
 }
 .list-loading-state {
   padding: 12px;
@@ -3423,17 +3390,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   border-bottom: 0;
 }
 .list-recovery-state {
-  padding: 32px;
-  display: grid;
-  place-content: center;
   justify-items: center;
-  gap: var(--space-1);
-  color: var(--muted);
-  text-align: center;
-}
-.list-recovery-state strong {
-  color: var(--text);
-  font-size: 15px;
 }
 .list-recovery-action {
   margin-top: var(--space-1);

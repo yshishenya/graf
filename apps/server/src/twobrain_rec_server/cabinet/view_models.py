@@ -150,24 +150,23 @@ SORT_LABELS: dict[str, str] = {
     "duration_asc": "Сначала короткие",
     "title_asc": "По названию",
 }
-
-MEETING_LIST_SORTS = frozenset(SORT_LABELS)
+SHORT_MONTH_LABELS = (
+    "",
+    "янв",
+    "фев",
+    "мар",
+    "апр",
+    "май",
+    "июн",
+    "июл",
+    "авг",
+    "сен",
+    "окт",
+    "ноя",
+    "дек",
+)
 
 MeetingListTimeBasis = Literal["meeting", "updated"]
-MeetingListStatusTone = Literal["progress", "warning", "danger", "neutral"]
-
-
-@dataclass(frozen=True, slots=True)
-class MeetingListQueryPresentation:
-    query: str
-    status: str | None
-    access: str | None
-    sort: str
-    sort_label: str
-    active_filter_count: int
-    has_refinement: bool
-    result_count_label: str | None
-    time_basis: MeetingListTimeBasis
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,11 +178,9 @@ class MeetingListRowPresentation:
     media_label: str
     status_kind: str | None
     status_label: str | None
-    status_tone: MeetingListStatusTone | None
     progress_percent: int | None
-    secondary_action: str | None
-    secondary_action_label: str | None
     open_accessible_name: str
+
 
 CALENDAR_CONTEXT_OWNER_REASON_LABELS: dict[str, str] = {
     "private_free_busy_skipped": "Приватное событие пропущено",
@@ -1306,41 +1303,16 @@ def format_duration(seconds: int) -> str:
     return f"{second} с"
 
 
-def date_label(item: MeetingListItem) -> str:
-    if item.started_at is None:
-        return "Без даты"
-    return short_date_label(
-        item.started_at,
-        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
-    )
-
-
 def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasis) -> str:
-    if time_basis == "updated":
-        if item.updated_at is None:
-            return "Без даты"
-        return "Обновлено " + full_date_time_label(
-            item.updated_at,
-            timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
-        )
-    if item.started_at is None:
+    value = item.updated_at if time_basis == "updated" else item.started_at
+    if value is None:
         return "Без даты"
-    return full_date_time_label(
-        item.started_at,
-        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
-    )
-
-
-def full_date_time_label(
-    value: datetime,
-    *,
-    timezone_offset_minutes: int | None = None,
-) -> str:
     localized = _localized_datetime(
         value,
-        timezone_offset_minutes=timezone_offset_minutes,
+        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
     )
-    return f"{short_date_label(localized)}, {localized:%H:%M}"
+    prefix = "Обновлено " if time_basis == "updated" else ""
+    return f"{prefix}{localized.day} {SHORT_MONTH_LABELS[localized.month]}, {localized:%H:%M}"
 
 
 def _localized_datetime(
@@ -1368,54 +1340,11 @@ def short_date_label(
         value,
         timezone_offset_minutes=timezone_offset_minutes,
     )
-    months = {
-        1: "янв",
-        2: "фев",
-        3: "мар",
-        4: "апр",
-        5: "май",
-        6: "июн",
-        7: "июл",
-        8: "авг",
-        9: "сен",
-        10: "окт",
-        11: "ноя",
-        12: "дек",
-    }
-    return f"{localized.day} {months[localized.month]}"
-
-
-def sort_label(sort: str) -> str:
-    return SORT_LABELS[normalize_meeting_list_sort(sort)]
+    return f"{localized.day} {SHORT_MONTH_LABELS[localized.month]}"
 
 
 def normalize_meeting_list_sort(sort: str | None) -> str:
-    return sort if sort in MEETING_LIST_SORTS else "started_desc"
-
-
-def meeting_list_query_presentation(
-    *,
-    query: str | None,
-    status: str | None,
-    access: str | None,
-    sort: str | None,
-    visible_total: int,
-) -> MeetingListQueryPresentation:
-    normalized_query = " ".join((query or "").split())
-    normalized_sort = normalize_meeting_list_sort(sort)
-    active_filter_count = int(bool(status)) + int(bool(access))
-    has_refinement = bool(normalized_query or active_filter_count)
-    return MeetingListQueryPresentation(
-        query=normalized_query,
-        status=status or None,
-        access=access or None,
-        sort=normalized_sort,
-        sort_label=SORT_LABELS[normalized_sort],
-        active_filter_count=active_filter_count,
-        has_refinement=has_refinement,
-        result_count_label=f"Найдено: {max(0, visible_total)}" if has_refinement else None,
-        time_basis="updated" if normalized_sort in {"updated_desc", "updated_asc"} else "meeting",
-    )
+    return sort if sort in SORT_LABELS else "started_desc"
 
 
 def meeting_list_row_presentation(
@@ -1424,10 +1353,8 @@ def meeting_list_row_presentation(
     time_basis: MeetingListTimeBasis,
 ) -> MeetingListRowPresentation:
     time = meeting_time_label(item, time_basis=time_basis)
-    status_kind, status_copy, tone, progress, action, action_label = (
-        _meeting_list_compact_status(item)
-    )
-    source_title = getattr(item, "_list_display_title", item.title).strip()
+    status_kind, status_copy, progress = _meeting_list_compact_status(item)
+    source_title = item.title.strip()
     title = "Запись" if not source_title or source_title == "Запись без названия" else source_title
     open_name = f"Открыть встречу {title}"
     if title in {"Запись", "Загруженная запись"}:
@@ -1440,10 +1367,7 @@ def meeting_list_row_presentation(
         media_label=meeting_media_label(item),
         status_kind=status_kind,
         status_label=status_copy,
-        status_tone=tone,
         progress_percent=progress,
-        secondary_action=action,
-        secondary_action_label=action_label,
         open_accessible_name=open_name,
     )
 
@@ -1453,29 +1377,19 @@ def _meeting_list_compact_status(
 ) -> tuple[
     str | None,
     str | None,
-    MeetingListStatusTone | None,
     int | None,
-    str | None,
-    str | None,
 ]:
     if item.status == "deleted_future":
-        return "deleting", "Удаляется", "warning", None, None, None
+        return "deleting", "Удаляется", None
     if item.status in {"blocked", "failed", "unavailable"}:
-        return "failed", "Не удалось обработать", "danger", None, None, None
+        return "failed", "Не удалось обработать", None
     upload = item.upload
     if upload is not None and upload.status in {"failed", "aborted", "expired"}:
-        return "failed", "Не удалось обработать", "danger", None, None, None
+        return "failed", "Не удалось обработать", None
     if item.calendar_context is not None and item.calendar_context.needs_owner_action:
-        return (
-            "calendar_choice",
-            "Нужен выбор",
-            "warning",
-            None,
-            "calendar_choice",
-            "Выбрать встречу",
-        )
+        return "calendar_choice", "Нужен выбор", None
     if item.status == "local_only":
-        return "saved_local", "Сохранено на Mac", "neutral", None, None, None
+        return "saved_local", "Сохранено на Mac", None
 
     if upload is not None and upload.is_active:
         progress = upload.progress_percent
@@ -1489,25 +1403,22 @@ def _meeting_list_compact_status(
             return (
                 "uploading_measured",
                 f"Отправляем {progress}%",
-                "progress",
                 progress,
-                None,
-                None,
             )
-        return "uploading", "Отправляем", "progress", None, None, None
+        return "uploading", "Отправляем", None
     if item.status == "uploading":
-        return "uploading", "Отправляем", "progress", None, None, None
+        return "uploading", "Отправляем", None
     if item.status in {"submitted", "processing"}:
-        return "processing", "Обрабатывается", "progress", None, None, None
+        return "processing", "Обрабатывается", None
 
     openable = item.primary_action == "open" or item.status in {"ready", "partial"}
     if openable and item.playback.state == "preparing":
-        return "audio_preparing", "Аудио готовится", "progress", None, None, None
+        return "audio_preparing", "Аудио готовится", None
     if openable and item.playback.state in {"unavailable", "deleting", "deleted"}:
-        return "without_audio", "Без аудио", "warning", None, None, None
+        return "without_audio", "Без аудио", None
     if item.status == "partial":
-        return "limited", "Готово с ограничениями", "warning", None, None, None
-    return None, None, None, None, None, None
+        return "limited", "Готово с ограничениями", None
+    return None, None, None
 
 
 def meeting_media_kind(item: MeetingListItem) -> str:
@@ -1539,20 +1450,15 @@ def meeting_media_label(item: MeetingListItem) -> str:
 
 def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
     title = safe_title_candidate(meeting.title)
-    if title and meeting.title_source in AUTHORITATIVE_TITLE_SOURCES:
-        return _authoritative_title(title)
-    if title is not None:
-        if GENERATED_MANUAL_UPLOAD_RE.fullmatch(title):
-            return "Загруженная запись"
-        if GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
-            return "Запись"
-        projected = safe_title(meeting, source=source)
-        return "Запись" if projected == "Запись без названия" else projected
-    if source == "manual_upload" or GENERATED_MANUAL_UPLOAD_RE.fullmatch(
-        meeting.local_recording_id or ""
+    projected = safe_title(meeting, source=source)
+    if title is None:
+        return projected if projected == "Загруженная запись" else "Запись"
+    if (
+        meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
+        and GENERATED_CAPTURE_TITLE_RE.fullmatch(title)
     ):
-        return "Загруженная запись"
-    return "Запись"
+        return "Запись"
+    return "Запись" if projected == "Запись без названия" else projected
 
 
 def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
@@ -1592,26 +1498,11 @@ def _generated_recording_title(meeting: Meeting) -> str | None:
     started_at = meeting.started_at
     if started_at is None:
         return None
-    if started_at.tzinfo is None:
-        started_at = started_at.replace(tzinfo=UTC)
-    offset = meeting.recording_display_timezone_offset_minutes
-    if offset is not None and -14 * 60 <= offset <= 14 * 60:
-        started_at = started_at.astimezone(timezone(timedelta(minutes=offset)))
-    months = {
-        1: "янв",
-        2: "фев",
-        3: "мар",
-        4: "апр",
-        5: "май",
-        6: "июн",
-        7: "июл",
-        8: "авг",
-        9: "сен",
-        10: "окт",
-        11: "ноя",
-        12: "дек",
-    }
-    return f"Запись {started_at.day} {months[started_at.month]}, {started_at:%H:%M}"
+    started_at = _localized_datetime(
+        started_at,
+        timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
+    )
+    return f"Запись {started_at.day} {SHORT_MONTH_LABELS[started_at.month]}, {started_at:%H:%M}"
 
 
 def safe_title_candidate(raw: str | None) -> str | None:
@@ -1796,13 +1687,13 @@ def build_list_item(
     playback: PlaybackPreparationState | None = None,
 ) -> MeetingListItem:
     status = review_status(meeting, result=result, workflow=workflow)
-    source = _meeting_source(media_revision)
+    source = meeting_source(media_revision)
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
     notes_truth = notes_action_truth_state(
         status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
     )
-    item = MeetingListItem(
+    return MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting, source=source),
         started_at=meeting.started_at,
@@ -1837,8 +1728,6 @@ def build_list_item(
         previous_recurring_meeting=previous_recurring_meeting,
         playback=playback or PlaybackPreparationState(),
     )
-    item._list_display_title = meeting_list_title(meeting, source=source)
-    return item
 
 
 def calendar_context_summary(
@@ -1902,7 +1791,7 @@ def primary_action_for_status(status: MeetingReviewStatus) -> str:
     return "unavailable"
 
 
-def _meeting_source(media_revision: MediaRevision | None) -> str:
+def meeting_source(media_revision: MediaRevision | None) -> str:
     if (
         media_revision is not None
         and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
