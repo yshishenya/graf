@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -178,7 +179,7 @@ async def snapshot_outcome_transcript_metadata_activity(
 
 
 async def snapshot_outcome_transcript_chunk_activity(
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> dict[str, object]:
     settings = get_settings()
     engine = create_engine(settings)
@@ -198,7 +199,7 @@ async def snapshot_outcome_transcript_chunk_activity(
         await engine.dispose()
 
 
-async def execute_outcome_generation_activity(payload: dict[str, object]) -> dict[str, object]:
+async def execute_outcome_generation_activity(payload: dict[str, Any]) -> dict[str, object]:
     settings = get_settings()
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
@@ -215,7 +216,7 @@ async def execute_outcome_generation_activity(payload: dict[str, object]) -> dic
 
 
 async def finalize_outcome_generation_failure_activity(
-    payload: dict[str, object],
+    payload: dict[str, Any],
 ) -> dict[str, str]:
     settings = get_settings()
     engine = create_engine(settings)
@@ -231,7 +232,7 @@ async def finalize_outcome_generation_failure_activity(
         await engine.dispose()
 
 
-async def publish_outcome_observability_activity(payload: dict[str, object]) -> dict[str, str]:
+async def publish_outcome_observability_activity(payload: dict[str, Any]) -> dict[str, str]:
     from temporalio import activity
 
     settings = get_settings()

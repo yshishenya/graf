@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime, timedelta
+from typing import Any
 
 APPROVAL_MAX_DAYS = 7
 
@@ -41,7 +42,7 @@ if workflow is not None:
             self._approval_expires_at = None
 
         @workflow.run
-        async def run(self, payload: dict[str, object]) -> dict[str, object]:
+        async def run(self, payload: dict[str, Any]) -> dict[str, object]:
             try:
                 return await self._run_impl(payload)
             except asyncio.CancelledError:
@@ -80,7 +81,7 @@ if workflow is not None:
                 )
                 raise
 
-        async def _run_impl(self, payload: dict[str, object]) -> dict[str, object]:
+        async def _run_impl(self, payload: dict[str, Any]) -> dict[str, object]:
             resolved = await workflow.execute_activity(
                 "resolve_prompt_optimization_contract_activity",
                 payload,
@@ -178,7 +179,7 @@ if workflow is not None:
 
         async def _retain_plaintext_history(
             self,
-            payload: dict[str, object],
+            payload: dict[str, Any],
             descriptor: object,
         ) -> None:
             if not isinstance(descriptor, dict):
@@ -261,5 +262,5 @@ if workflow is not None:
 else:
 
     class PromptOptimizationWorkflow:
-        async def run(self, payload: dict[str, object]) -> dict[str, object]:
+        async def run(self, payload: dict[str, Any]) -> dict[str, object]:
             return payload
