@@ -372,8 +372,9 @@ Temporal 1.30.0's stable interceptor is selected for production even though its
 new OpenTelemetry plugin is recommended for more accurate spans, because the
 plugin API is still officially experimental. Workflow spans are explicitly
 zero-duration correlation markers; activity/generation spans and durable
-timestamps own latency. Recorded-history replay, trace shape, TraceContext-only
-propagation, full-content trace inspection, and no-duplicate-cost tests are mandatory. The
+timestamps own latency. Recorded-history replay, trace shape, client-local W3C
+TraceContext plus bounded Langfuse-attribute baggage propagation, full-content
+trace inspection, and no-duplicate-cost tests are mandatory. The
 plugin becomes the upgrade path after API stabilization and the same gates. A
 shared prompt base, meeting classifier, separate optimization service, and
 real-meeting optimization datasets are deliberately excluded.

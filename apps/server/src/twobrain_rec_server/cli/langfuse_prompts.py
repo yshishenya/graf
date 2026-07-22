@@ -72,7 +72,7 @@ CONTROL_PROMPTS: dict[str, tuple[str, object, dict[str, object]]] = {
         {
             "config_contract_version": 1,
             "model": "gpt-5.6-luna",
-            "temperature": 0.2,
+            "temperature": 1,
             "max_completion_tokens": 4096,
         },
     ),

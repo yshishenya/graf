@@ -459,11 +459,16 @@ are terminal until configuration or input changes.
 
 Use `temporalio[opentelemetry]==1.30.0` with the stable
 `TracingInterceptor`, registered once on the Temporal client and inherited by
-the worker. A minimal subclass uses `TraceContextTextMapPropagator` so default
-W3C baggage never enters Temporal headers/history. Langfuse `4.14.1` uses the
-same OpenTelemetry provider and exports the explicit outcome/optimization
-workflow tree. It does not turn on unrelated global HTTP, SQL, FastAPI, or
-object-store auto-instrumentation.
+the worker. A minimal subclass uses a client-local composite W3C TraceContext
+and Baggage propagator. Baggage is restricted to the approved Langfuse
+environment/user/session/fixed-trace-name/tags correlation fields, while the transcript and
+model content remain in their explicit Temporal payload and Langfuse
+observation fields. The global propagator is unchanged. Because the serialized
+headers are immutable workflow input and extraction is deterministic, replay
+does not create a new side effect or model call. Langfuse `4.14.1` uses the same
+OpenTelemetry provider and exports the explicit outcome/optimization workflow
+tree. It does not turn on unrelated global HTTP, SQL, FastAPI, or object-store
+auto-instrumentation.
 
 The deterministic root trace ID is derived from
 `outcome-generation/<candidate_id>`. The execution activity persists a retained

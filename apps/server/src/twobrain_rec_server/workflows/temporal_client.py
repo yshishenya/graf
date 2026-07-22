@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from contextlib import nullcontext
 from dataclasses import dataclass
@@ -124,28 +125,83 @@ def validate_outcome_generation_workflow_id(workflow_id: str) -> None:
 
 
 def outcome_tracing_interceptor(tracer=None):
+    from opentelemetry import baggage
+    from opentelemetry import context as otel_context
+    from opentelemetry.baggage.propagation import W3CBaggagePropagator
     from opentelemetry.propagate import get_global_textmap
+    from opentelemetry.propagators.composite import CompositePropagator
+    from opentelemetry.propagators.textmap import TextMapPropagator
     from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
     from temporalio.contrib.opentelemetry import (
         TracingInterceptor,
         TracingWorkflowInboundInterceptor,
     )
 
+    base_propagator = CompositePropagator([TraceContextTextMapPropagator(), W3CBaggagePropagator()])
+    langfuse_tags_baggage_key = "langfuse_tags"
+    langfuse_tags_context_key = "langfuse.propagated.tags"
+
+    class GrafLangfuseTemporalPropagator(TextMapPropagator):
+        @property
+        def fields(self) -> set[str]:
+            return base_propagator.fields
+
+        def inject(self, carrier, context=None, setter=None) -> None:
+            tags = otel_context.get_value(langfuse_tags_context_key, context=context)
+            if isinstance(tags, list):
+                encoded = json.dumps(tags, ensure_ascii=True, separators=(",", ":"))
+                context = baggage.set_baggage(
+                    langfuse_tags_baggage_key,
+                    encoded,
+                    context=context,
+                )
+            if setter is None:
+                base_propagator.inject(carrier, context=context)
+            else:
+                base_propagator.inject(carrier, context=context, setter=setter)
+
+        def extract(self, carrier, context=None, getter=None):
+            if getter is None:
+                context = base_propagator.extract(carrier, context=context)
+            else:
+                context = base_propagator.extract(carrier, context=context, getter=getter)
+            encoded = baggage.get_baggage(langfuse_tags_baggage_key, context=context)
+            if not isinstance(encoded, str) or len(encoded) > 4096:
+                return context
+            try:
+                tags = json.loads(encoded)
+            except (TypeError, ValueError):
+                return context
+            if (
+                not isinstance(tags, list)
+                or len(tags) > 16
+                or any(not isinstance(tag, str) or len(tag) > 200 for tag in tags)
+            ):
+                return context
+            return otel_context.set_value(
+                langfuse_tags_context_key,
+                tags,
+                context=context,
+            )
+
+    propagator = GrafLangfuseTemporalPropagator()
+
     class GrafWorkflowTracingInterceptor(TracingWorkflowInboundInterceptor):
         def __init__(self, next) -> None:
             super().__init__(next)
-            self.text_map_propagator = TraceContextTextMapPropagator()
+            self.text_map_propagator = propagator
 
     class GrafTracingInterceptor(TracingInterceptor):
         def __init__(self) -> None:
             super().__init__(tracer=tracer)
-            self.text_map_propagator = TraceContextTextMapPropagator()
+            self.text_map_propagator = propagator
 
         def workflow_interceptor_class(self, input):
             super().workflow_interceptor_class(input)
             return GrafWorkflowTracingInterceptor
 
-    # Do not mutate the process-global propagator or add W3C baggage.
+    # Keep propagation local to this interceptor; unrelated workflows retain
+    # the process-global propagator.
     assert get_global_textmap() is not None
     return GrafTracingInterceptor()
 

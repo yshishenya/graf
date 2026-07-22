@@ -129,7 +129,7 @@ def outcome_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str
     return {
         "config_contract_version": 1,
         "model": model,
-        "temperature": 0.2,
+        "temperature": 1,
         "max_completion_tokens": 4096,
         "response_format": {
             "type": "json_schema",
@@ -140,7 +140,8 @@ def outcome_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str
 
 def judge_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str, object]:
     config = outcome_config(schema_name=schema_name, model=model)
-    config["temperature"] = 0
+    config["config_contract_version"] = 2
+    config["temperature"] = 1
     config["max_completion_tokens"] = 2048
     config["response_format"] = {
         "type": "json_schema",
@@ -397,22 +398,45 @@ def _validate_json_limits(config: Mapping[str, object]) -> None:
     visit(config, 1)
 
 
-def _validate_base_config(config: Mapping[str, object], expected_keys: set[str]) -> None:
-    if set(config) != expected_keys or config.get("config_contract_version") != 1:
-        raise ValueError("prompt config does not match contract v1")
+def _validate_base_config(
+    config: Mapping[str, object],
+    expected_keys: set[str],
+    *,
+    contract_versions: Sequence[int] = (1,),
+) -> None:
+    if (
+        set(config) != expected_keys
+        or config.get("config_contract_version") not in contract_versions
+    ):
+        contract_label = (
+            "contract v1" if tuple(contract_versions) == (1,) else "judge contract v1 or v2"
+        )
+        raise ValueError(f"prompt config does not match {contract_label}")
     model = config.get("model")
     temperature = config.get("temperature")
     max_tokens = config.get("max_completion_tokens")
     if not isinstance(model, str) or not ALLOWED_MODEL_RE.fullmatch(model):
         raise ValueError("model route is invalid")
-    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not 0 <= temperature <= 2:
+    if (
+        isinstance(temperature, bool)
+        or not isinstance(temperature, (int, float))
+        or not 0 <= temperature <= 2
+    ):
         raise ValueError("temperature is invalid")
-    if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or not 1 <= max_tokens <= 8192:
+    if (
+        isinstance(max_tokens, bool)
+        or not isinstance(max_tokens, int)
+        or not 1 <= max_tokens <= 8192
+    ):
         raise ValueError("max_completion_tokens is invalid")
 
 
 def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> None:
-    _validate_base_config(config, OUTCOME_CONFIG_KEYS)
+    _validate_base_config(
+        config,
+        OUTCOME_CONFIG_KEYS,
+        contract_versions={1, 2} if judge else {1},
+    )
     response_format = config.get("response_format")
     if not isinstance(response_format, dict) or set(response_format) != {"type", "json_schema"}:
         raise ValueError("response_format must be an inline strict JSON schema")
@@ -431,11 +455,15 @@ def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> No
     expected_schema = judge_schema() if judge else outcome_schema()
     if descriptor.get("schema") != expected_schema:
         raise ValueError("response schema does not match the closed contract v1")
-    if judge and (config["temperature"] != 0 or config["max_completion_tokens"] != 2048):
-        raise ValueError("judge settings do not match contract v1")
+    if judge:
+        expected_temperature = 0 if config["config_contract_version"] == 1 else 1
+        if config["temperature"] != expected_temperature or config["max_completion_tokens"] != 2048:
+            raise ValueError("judge settings do not match the config contract")
 
 
-def _validate_reflection_prompt(prompt_type: str, prompt: object, config: Mapping[str, object]) -> None:
+def _validate_reflection_prompt(
+    prompt_type: str, prompt: object, config: Mapping[str, object]
+) -> None:
     if prompt_type != "text" or not isinstance(prompt, str):
         raise ValueError("reflection prompt must be text")
     _validate_base_config(config, REFLECTION_CONFIG_KEYS)

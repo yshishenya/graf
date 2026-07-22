@@ -44,9 +44,6 @@ class _Observation:
         self.kwargs = kwargs
         self.ended: list[int | None] = []
 
-    def set_trace_io(self, **kwargs):
-        self.owner.trace_io = kwargs
-
     def start_observation(self, **kwargs):
         child = _Observation(self.owner, "generation", kwargs)
         self.owner.children.append(child)
@@ -91,7 +88,13 @@ def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_
         completed_at=started + timedelta(seconds=1),
         actual_model="actual-model",
         actual_provider="provider",
-        token_usage={"input": 10, "unknown": "not-fabricated"},
+        token_usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 7,
+            "total_tokens": 17,
+            "prompt_tokens_details": {"cached_tokens": 3},
+            "unknown": "not-fabricated",
+        },
         cost_details=None,
         request_json={"messages": [{"content": "full request"}]},
         transcript_text="full transcript",
@@ -128,16 +131,21 @@ def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_
         "raw_response": call.raw_response_json,
         "validated_result": call.validated_result_json,
     }
-    assert generation["usage_details"] == {"input": 10}
+    assert generation["usage_details"] == {
+        "prompt_tokens": 10,
+        "completion_tokens": 7,
+        "total_tokens": 17,
+        "prompt_tokens_details": {"cached_tokens": 3},
+    }
     assert generation["cost_details"] is None
     assert generation["metadata"]["temporal_workflow_id"] == "outcome-generation/candidate"
     assert generation["metadata"]["temporal_run_id"] == "run"
     assert generation["metadata"]["temporal_activity_id"] == "publish-observability"
-    assert client.trace_io["input"] == {"request": call.request_json}
     assert client.flush_count == 1
 
 
-def test_temporal_dispatch_reuses_deterministic_langfuse_trace_and_w3c_only() -> None:
+def test_temporal_dispatch_reuses_trace_and_propagates_w3c_attributes() -> None:
+    from langfuse._client.propagation import _get_propagated_attributes_from_context
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -162,25 +170,35 @@ def test_temporal_dispatch_reuses_deterministic_langfuse_trace_and_w3c_only() ->
         trace_name="generate-meeting-outcome",
         input_value={"candidate_id": seed.removeprefix("outcome-generation/")},
         environment="test",
-        user_id=None,
-        session_id=None,
+        user_id="user-1",
+        session_id="meeting-1",
         tags=["feature:recording-workflows"],
     ):
         headers = interceptor._context_to_headers({})
-        carrier = interceptor.payload_converter.from_payloads(
-            [headers[interceptor.header_key]]
-        )[0]
-        assert set(carrier) == {"traceparent"}
-        with interceptor._start_as_current_span(
-            "StartWorkflow:OutcomeGenerationWorkflow",
-            attributes={},
-            kind=SpanKind.CLIENT,
-        ):
-            pass
+        carrier = interceptor.payload_converter.from_payloads([headers[interceptor.header_key]])[0]
+        assert set(carrier) == {"traceparent", "baggage"}
+        assert "langfuse_user_id=user-1" in carrier["baggage"]
+        assert "langfuse_session_id=meeting-1" in carrier["baggage"]
+        assert "langfuse_environment=test" in carrier["baggage"]
+        extracted_context = interceptor._context_from_headers(headers)
+
+    assert extracted_context is not None
+    propagated = _get_propagated_attributes_from_context(extracted_context)
+    assert propagated["langfuse.trace.tags"] == ["feature:recording-workflows"]
+    assert propagated["langfuse.trace.name"] == "generate-meeting-outcome"
+    with tracer.start_as_current_span(
+        "StartWorkflow:OutcomeGenerationWorkflow",
+        attributes=propagated,
+        kind=SpanKind.CLIENT,
+        context=extracted_context,
+    ):
+        pass
 
     spans = {span.name: span for span in exporter.get_finished_spans()}
     root = spans["generate-meeting-outcome"]
     started = spans["StartWorkflow:OutcomeGenerationWorkflow"]
     assert started.context.trace_id == root.context.trace_id
     assert started.parent is not None and started.parent.span_id == root.context.span_id
+    assert started.attributes["langfuse.trace.tags"] == ("feature:recording-workflows",)
+    assert started.attributes["langfuse.trace.name"] == "generate-meeting-outcome"
     assert root.context.trace_id == int(deterministic_trace_id(seed.split("/", 1)[1]), 16)
