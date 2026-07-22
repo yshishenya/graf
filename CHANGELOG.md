@@ -12,7 +12,8 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Десять outcome prompts переведены на production version 2; runtime
+  получает модель и параметры из Langfuse Prompt Config.
 
 ### Исправлено
 - Публикация chat-prompt'ов использует wire enum Langfuse v4 `chatmessage`,
@@ -27,13 +28,22 @@
   создают выдуманную generation.
 
 ### Безопасность
-- _Пока нет записей._
+- Expanded zero-leak gate проверил все 21 активный Compose secret-
+  файл, логи, application DB вне retained Generation Call и tracked
+  evidence: все content/credential matches равны нулю; AI-only proof не
+  создал audio, screenshots, diagnostics и analytics events.
 
 ### Документы
-- _Пока нет записей._
+- Feature 121: production LiteLLM/Generation Call/Temporal/Langfuse evidence
+  закрыл T050 и T089; T057 честно оставлен открытым до двух-
+  worker forced-crash GEPA promotion/rollback с approved manifests и
+  calibration pack.
 
 ### Операции
-- _Пока нет записей._
+- Outcome generation в production прошла live proof через LiteLLM на
+  `gpt-5.6-luna`; response-attempt reconciler завершил child workflow,
+  а pending backlog вернулся к нулю. Для histories с patch marker/child
+  допустим только forward-fix rollback до истечения retention.
 
 ## [2026.07.22.5] - 2026-07-22
 

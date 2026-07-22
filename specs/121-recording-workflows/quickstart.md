@@ -432,19 +432,19 @@ invitation tokens, or private user identity.
 | 3–5 | PASS | Pause/resume/one-action Stop, degraded-source truth, crash/finalize/upload custody, and v5 manifest privacy are covered by `CaptureIndicatorTests`, `AppControlAccessibilityTests`, `DesktopUploadQueueV5Tests`, and `CanonicalRecordingManifestTests`. |
 | 5–6 | PASS | Native and server projections preserve one artifact-specific custody/processing lifecycle without a second queue. |
 | 7 | PASS | Browser and embedded desktop use one authorized two-tab meeting workspace with persistent playback, synchronized transcript/speaker behavior, and fail-closed denied/deleting states. |
-| 8–9 | AUTOMATED PASS; live provider gate OPEN | Nine immutable built-ins plus bounded personal templates, one direct `Авто`, per-format prompt/config pinning, candidate failure/retry, and accepted-revision conflict behavior pass unit/contract/integration tests. Live LiteLLM execution remains part of T050. |
+| 8–9 | LIVE PASS | Nine immutable built-ins plus bounded personal templates, one direct `Авто`, per-format prompt/config pinning, candidate failure/retry, and accepted-revision conflict behavior pass automated tests. A production LiteLLM call through `gpt-5.6-luna` also completed and retained its exact Generation Call/Langfuse/Temporal evidence. |
 | 10–12 | PASS with rollout flags off | Internal summary-only sharing, token rotation/revocation, fail-closed workspace/team/public policy, external invitation lifecycle, at-most-once Postal fence, enumeration resistance, and focus return pass. Public links and external invitations stay disabled for rollout. |
 | 13 | PASS | Feature-120 export composition and deletion races block new inference/publication/acceptance, preserve retained observability truth, and expose one contextual More surface. |
 | 14 | PASS | The connected 12-state prototype, narrow native window, keyboard/focus, reduced-motion, increased-contrast, two-tab, modal/listbox, Russian-copy, and clean-room checks pass. Visual artifacts are in `prototype/design-qa*.png`; no real meeting or identity content is present. |
-| 15 | AUTOMATED PASS; live three-store proof OPEN | Deterministic workflow IDs, plaintext Temporal chunk/hash/size contracts, retained Generation Call semantics, sole-publisher Langfuse delivery, deletion races, and no Feature-121 codec/key/delete subsystem pass automated tests. T050/T089 retain the missing live LiteLLM + Generation Call + raw Temporal History proof. |
-| 16 | AUTOMATED PASS; live exercise OPEN | Optional GEPA `0.1.4` adapter, immutable synthetic manifests, persisted fenced ledger, checkpoint restore, budget/deadline, held-out gating, exact unlabelled candidate, operator promotion, rollback, cancellation reconciliation, and bounded purge pass focused tests. The real two-worker forced-crash provider exercise remains T057. |
+| 15 | LIVE PASS | Production read-back confirmed one exact plaintext transcript across the retained Generation Call, Langfuse generation, and Temporal History; exact input/output, usage, cost, privacy, release, and correlation checks passed. The abandoned reconciler child completed and the response-bearing backlog returned to zero. |
+| 16 | AUTOMATED PASS; live exercise OPEN | Optional GEPA `0.1.4` adapter, immutable synthetic manifests, persisted fenced ledger, checkpoint restore, budget/deadline, held-out gating, exact unlabelled candidate, operator promotion, rollback, cancellation reconciliation, and bounded purge pass focused tests. T057 remains open until owner-approved immutable train/development/held-out manifests, the human-labelled calibration pack, and a real two-worker forced-crash GEPA promotion/rollback exercise exist. |
 
 ### Langfuse receipt
 
 Read-only prompt verification against the configured private production project
 returned the ten outcome prompts (`auto`, `outline`, `meeting-minutes`,
 `project-sync`, `weekly-team-meeting`, `one-to-one`, `client-status-update`,
-`interview`, `sales-discovery`, and `custom`) at verified production version 1.
+`interview`, `sales-discovery`, and `custom`) at verified production version 2.
 The reflection and three judge prompts exist at version 1 and correctly remain
 `control-gate-required`; they were not promoted without calibration evidence.
 
@@ -461,10 +461,10 @@ content:
   JSON bytes, SHA-256
   `0ad6f21bec3d8c5f0028725c5c73da2649d4863f610e0a00faf01c961748ef7f`.
 
-This proves the configured private destination, trace shape, explicit
+This initial synthetic receipt proves the configured private destination, trace shape, explicit
 full-content field selection, sole generation publisher, environment, and
-non-public state. It does not substitute for T050/T089's end-to-end call through
-the owner's LiteLLM gateway and raw Temporal/Generation Call read-back.
+non-public state. The production receipt below adds the end-to-end LiteLLM and
+three-store read-back required by T050/T089.
 
 ### Focused and canonical validation
 
@@ -474,10 +474,10 @@ the owner's LiteLLM gateway and raw Temporal/Generation Call read-back.
 - Post-Ponytail focused server regression across prompt optimization, outcome
   generation, sharing, Langfuse, and UI contracts: 89 passed with two external
   dependency warnings and no failures.
-- Canonical `infra/scripts/ci-local.sh`: macOS 608 passed; native
-  `ContractValidation: PASS`; server parallel 2178 passed, 1 skipped; strict
-  PostgreSQL/RLS 41 passed, 1 skipped; collection count 2221 and digest
-  `6963b1ab67ef93ecc1aafac1ba64862c6ff6b0ee9af9e64868eb780ac4b36142`;
+- Canonical `infra/scripts/ci-local.sh` after the observability reconciler:
+  macOS 608 passed; native `ContractValidation: PASS`; server parallel 2191
+  passed, 1 skipped; strict PostgreSQL/RLS 41 passed, 1 skipped; collection
+  digest `e17b34f99664a8cca403c031fd70343b5cbb27cc86952cf19db56a298cfa4673`;
   Ruff, Python compile, production Compose rendering, deployment evidence scan,
   and final `ci_local_result=pass` all passed.
 - The local RLS helper truthfully reported `live_production_probe=not_attempted`;
@@ -504,10 +504,11 @@ The final repeated Ponytail verdict was `Lean already. Ship.`.
 Post-implementation `$speckit-analyze` rechecked 111 explicit FR/SC entries,
 95 dependency-ordered tasks, the constitution v4.0.0 gates, terminology,
 paths, and open-gate truth. Requirement coverage remains complete and the
-finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`; T050, T057, and T089 are
-intentional evidence gates rather than uncovered requirements. The mandatory
-repository issue-canon validator passed after tracker closeout; 87 completed
-Feature-121 issues are closed and only the three live gates remain open.
+finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`. T050 and T089 now have
+production evidence; T057 remains an intentional external evidence gate rather
+than an uncovered requirement. The mandatory repository issue-canon validator
+passed after tracker closeout; 89 of 90 Feature-121 issues are complete and
+only T057/#4177 remains open.
 
 ### Native local-purge hotfix
 
@@ -544,23 +545,54 @@ passed, and the repeated independent review verdict was `CLEAN`.
   request and server CSRF integration regressions. The prior bundle remains in
   a recoverable temporary backup.
 
-### Open external rollout gates
+### Production AI observability closeout
 
-- **T050**: no `TWOBRAIN_LITELLM_BASE_URL` or real
-  `twobrain_litellm_api_key` has been provided. Outcome generation therefore
-  remains disabled and no live provider call, retained Generation Call row, or
-  raw Temporal History proof is claimed.
+PR [#4250](https://github.com/yshishenya/crisp/pull/4250) merged the
+response-attempt reconciler at `22771cde`. Production runs the content-equivalent
+overlay `3a1cfbdcdde5250ec447fc00f8d98a41cf34784a`; a pre-deploy drain found no
+old open outcome workflow and no response-bearing pending Generation Call.
+Because the new Temporal history records the patch marker and abandoned child,
+rollback is forward-fix only while that history is retained: do not deploy code
+that removes the marker or child command.
+
+The metadata-only live receipt is:
+
+- candidate `b2c573a8-439f-4611-80d1-9351d7b51032`, Generation Call
+  `674dba1f-af5a-4b3e-b019-f7064dd98534`, parent run
+  `019f8a8b-92cd-7aa2-8657-52b6421611cb`;
+- child `outcome-observability/b2c573a8-439f-4611-80d1-9351d7b51032`
+  completed; response-bearing pending backlog after reconciliation: `0`;
+- private Langfuse trace `2d56118a47376212493fed5be9ff16a9`, generation
+  observation `da595959984a7fe7`, prompt version `2`, prompt SHA-256
+  `cb3532ffae9b5cc5c789de33d64ad079cb4d05d34829c768483247d77738a795`,
+  model `gpt-5.6-luna`;
+- retained transcript: `720` UTF-8 bytes, SHA-256
+  `acb88b372519b4a6bcc6dc4cd1a7f7b28656c1fd6a8ef345e0a5a6a9e0d046e8`;
+  Temporal parent History: `36` events and one plaintext chunk;
+- exact Langfuse input/output, returned usage, cost presence, private state,
+  runtime release, and Temporal correlation: `PASS`; ledger hashes: `PASS`;
+  disposable source rows were cleaned while the retained Generation Call,
+  Langfuse trace, and Temporal History remained available.
+
+The expanded zero-leak scan read all `21` active Compose secret files (`20`
+unique values) without printing them. Content and secret matches were `0` in
+ordinary logs, the application database outside `generation_calls`, and
+tracked repository content. The server-side AI-only proof created `0` audio
+rows, `0` runtime screenshots, and `0` diagnostic bundles; the desktop path
+was not executed, product analytics was disabled, and no analytics event path
+was invoked. This closes T050 and T089 with metadata-only committed evidence.
+
+### Open external rollout gate
+
 - **T057**: immutable owner-approved synthetic train/development/held-out
-  manifests and live LiteLLM access are absent, so the two-worker forced-crash
-  GEPA/promotion/rollback/purge exercise is not claimed.
-- **T089**: the negative committed-evidence/secret scan and automated content
-  contracts pass; its positive live three-store content-location proof remains
-  coupled to T050.
+  manifests, the human-labelled calibration pack, and a real two-worker
+  forced-crash GEPA promotion/rollback exercise are absent. Automated GEPA
+  contracts pass, but production prompt optimization remains disabled and no
+  live promotion/rollback claim is made.
 
-Production now includes the schema, workers, UI, prompts, and disabled feature
-flags. `TWOBRAIN_OUTCOME_GENERATION_ENABLED`, prompt optimization, public-link,
-team, and external-invitation rollout remain false until their explicit gates
-are satisfied.
+Production outcome generation is configured and passed the live LiteLLM proof.
+Prompt optimization, public-link, team, and external-invitation rollout remain
+false until their explicit gates are satisfied.
 
 T095 is satisfied by the owner's explicit advance approval in this task for
 commit, push, PR, merge, production deploy, release, and installed-app
