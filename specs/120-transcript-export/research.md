@@ -188,14 +188,14 @@ competitor wording, layout, colors, icons, or private screenshots are reused.
 - **Rejected**: Replacing `/downloads/transcript` output in place or repurposing
   the package manifest as a ZIP.
 
-## Decision 11: Progressive disclosure in the dialog; native save ownership on macOS
+## Decision 11: Compact dialog; native save ownership on macOS
 
 - **Decision**: Keep the default export surface compact: scope and format are
-  direct choices, the file outcome is summarized in one line, presentation
-  options live in one lightweight section, and revision/lifecycle metadata is
-  collapsed under `Технические детали`. In the embedded macOS client, hand the
-  server-suggested filename to `NSSavePanel` and let the reviewer choose the
-  filename and destination before `WKDownload` writes bytes.
+  direct choices, while presentation options and copy live under one
+  `Дополнительно` disclosure. Do not expose internal revision, readiness, or
+  lifecycle metadata in this common task. In the embedded macOS client, hand
+  the server-suggested filename to `NSSavePanel` and let the reviewer choose
+  the filename and destination before `WKDownload` writes bytes.
 - **Rationale**: Current production evidence shows that an always-visible
   twelve-row metadata card pushes the primary action below the embedded
   viewport and makes a common task read like diagnostics. The existing native
@@ -204,10 +204,26 @@ competitor wording, layout, colors, icons, or private screenshots are reused.
   without making it the primary job, while the platform save panel provides
   location, rename, directory creation, overwrite confirmation, and keyboard /
   assistive-technology behavior without a new dependency or custom file UI.
-- **Rejected**: Hiding revision truth completely; a multi-step wizard; a wide
+  Revision truth remains enforced by the server and audit contract rather than
+  being presented as a user decision.
+- **Rejected**: Weakening revision truth; a multi-step wizard; a wide
   split-pane preview; a custom folder browser; keeping automatic Downloads as
   the only embedded behavior; persisting generated artifacts to support a
   second download screen.
+
+## Decision 12: Two plain choices beat a compact diagnostic surface
+
+- **Decision**: The default dialog contains two labelled native selects and one
+  save action. Optional presentation controls and copy remain collapsed under
+  `Дополнительно`; revision/readiness/language/duration metadata, format cards,
+  and the repeated outcome summary are removed from the user-facing dialog.
+- **Rationale**: Direct review of the first compact implementation showed that
+  progressive disclosure was not enough: the visible card grid still asked an
+  ordinary reviewer to parse product-internal structure before saving a file.
+  Server-side revision, policy, audit, and deletion guarantees do not require
+  displaying their internal identifiers in this decision surface.
+- **Rejected**: A wizard, a recommended-format quiz, a custom format picker,
+  removing optional settings entirely, or weakening any server-side truth.
 
 ## UX and lifecycle conclusions
 

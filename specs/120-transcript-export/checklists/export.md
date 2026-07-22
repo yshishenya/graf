@@ -90,6 +90,10 @@ requirements before task generation and implementation
 - [x] CHK050 Is browser-owned attachment behavior kept distinct from embedded macOS save ownership so the web client does not invent a filesystem picker? [Consistency, API Contract §Browser meeting-detail contract]
 - [x] CHK051 Is Save-dialog cancellation defined as writing no file and preserving meeting/selection state without weakening server policy, audit, or revision truth? [Recovery, Spec §FR-039/SC-012b]
 - [x] CHK052 Is the native implementation boundary constrained to existing WebKit/AppKit primitives with no new persistence, service, or dependency? [Assumption, Plan §Architecture Decisions 6, Research §Decision 11]
+- [x] CHK053 Does the revised default dialog require only two plain-language choices and one primary action? [Clarity, Spec §US5.6/FR-031–FR-033]
+- [x] CHK054 Are technical metadata, diagnostic preview, and visible format cards explicitly excluded without weakening server revision/policy/audit truth? [Boundary, Spec §FR-033/FR-036]
+- [x] CHK055 Are optional presentation settings and copy preserved as collapsed secondary actions rather than removed or made primary? [Completeness, Spec §FR-035/FR-038]
+- [x] CHK056 Is the simple-dialog outcome measurable without requiring a reviewer to understand internal export terminology? [Measurability, Spec §SC-012c]
 
-52/52 requirement-quality checks pass. No unresolved requirement ambiguity or
+56/56 requirement-quality checks pass. No unresolved requirement ambiguity or
 constitution conflict remains before task generation.

@@ -109,12 +109,13 @@ Using synthetic content in the in-app browser and embedded-width surface:
 
 1. Open meeting detail and confirm one contextual `Экспорт` action plus one
    Files/governance availability state.
-2. Confirm scope-first selection and only compatible grouped formats; the
-   default view uses a compact GRAF hierarchy rather than nested diagnostic
-   cards.
-3. Confirm the concise outcome and presentation options are visible by default;
-   revision/readiness/language/duration/response-only storage are complete and
-   keyboard-accessible under collapsed `Технические детали`.
+2. Confirm the default view contains only `Что сохранить`, `Формат`, `Отмена`,
+   and the primary download/save action; compatible formats remain grouped
+   inside the format select.
+3. Confirm `Дополнительно` is collapsed and contains the optional presentation
+   settings and copy action. Confirm revision ids, readiness metadata,
+   language, duration, lifecycle jargon, format cards, and a duplicate outcome
+   summary do not appear in the dialog.
 4. Submit each format and observe immediate announced preparing state, duplicate
    submit prevention, correct filename/MIME/length, and focus return. In the
    embedded macOS client, confirm that a native Save dialog opens with the

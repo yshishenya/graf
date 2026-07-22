@@ -1996,39 +1996,35 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert 'aria-labelledby="content-export-title"' in page
     assert 'id="content-export-title" tabindex="-1" data-export-dialog-title' in page
     assert f'data-processing-result-id="{result_id}"' in page
-    assert "01:01" in page
-    assert 'data-state="missing"' in page
-    assert "Саммари" in page
+    assert '<select name="content_scope" data-export-scope>' in page
+    assert '<select name="format" data-export-format>' in page
+    assert "Расшифровка" in page
+    assert "Итоги" in page
     assert "недоступно" in page
-    assert "· partial" not in page
-    assert "только на время ответа" in page
-    assert "Уже скачанная копия" in page
+    assert page.count("<optgroup") == 4
+    assert "Файл останется на компьютере после удаления встречи из GRAF." in page
     assert "SAFE_TRANSCRIPT_TEXT" not in page
     assert "data-export-status" in page
     assert 'aria-live="polite"' in page
-    assert page.count('name="content_scope" type="radio"') == 3
-    assert page.count('name="format" type="radio"') == 6
-    assert page.count("data-export-format-group") == 4
-    assert "content-export-summary" in page
+    assert "<summary>Дополнительно</summary>" in page
     assert "data-export-options-details" in page
-    assert "data-export-technical-details" in page
-    assert "<summary>Технические детали</summary>" in page
-    assert "open data-export-technical-details" not in page
+    assert "open data-export-options-details" not in page
+    assert "Технические детали" not in page
+    assert "data-export-technical-details" not in page
+    assert "data-export-preview" not in page
+    assert "Ревизия" not in page
+    assert "Длительность" not in page
+    assert "Хранение файла" not in page
     assert 'class="primary" data-export-submit>Скачать файл</button>' in page
     assert 'class="primary" data-export-submit>Сохранить…</button>' in embedded_page
-    assert "data-export-preview-format" in page
-    assert "data-export-preview-readiness" in page
-    assert "data-export-preview-summary-revision" in page
-    assert "data-export-preview-purpose" in page
-    assert "data-export-preview-evidence" in page
     assert "data-export-copy" in page
     assert "setBusy(true)" in _cabinet_js()
     assert 'requestExport("txt")' in _cabinet_js()
     assert "navigator.clipboard.writeText" in _cabinet_js()
     assert "export_generation_failed" in _cabinet_js()
     assert "audit_unavailable" in _cabinet_js()
-    assert "choice.hidden = !available" in _cabinet_js()
-    assert "summary:not([disabled])" in _cabinet_js()
+    assert "format.replaceChildren(...groups)" in _cabinet_js()
+    assert "select:not([disabled])" in _cabinet_js()
     assert "URL.createObjectURL(blob)" in _cabinet_js()
     assert "returnFocus?.isConnected" in _cabinet_js()
     assert "@media (prefers-reduced-motion: reduce)" in _cabinet_css()

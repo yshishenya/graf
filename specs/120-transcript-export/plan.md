@@ -159,11 +159,13 @@ mismatch, serializer failure, or audit failure returns no export bytes.
 
 Meeting detail gains one contextual `Экспорт` action shared by transcript and
 summary, while the Files/governance panel shows the current availability state.
-The existing compact GRAF dialog/sheet primitives present content scope first,
-then compatible format groups, options, and one concise structural/sample-free
-outcome summary. Revision ids, readiness, language, duration, and response-only
-lifecycle truth remain available under a collapsed `Технические детали`
-disclosure instead of an always-visible diagnostic card.
+The existing compact GRAF dialog/sheet primitives present two ordinary selects:
+`Что сохранить` and `Формат`. Compatible formats remain grouped inside the
+native select; optional speaker/time/evidence controls and copy live under one
+collapsed `Дополнительно`. The dialog does not expose revision ids, readiness
+metadata, language, duration, lifecycle jargon, format cards, or a duplicate
+outcome summary. Those truths remain server-owned and testable outside the
+end-user surface.
 
 Submitting shows an accessible progress state, disables duplicate submission,
 and restores focus on success/failure. Errors retain the user's selection and

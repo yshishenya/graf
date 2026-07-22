@@ -196,6 +196,22 @@ dialog, and cancel a second save without a file, failure state, or route change.
 - [X] T067 [P] Document the export-dialog and native-save behavior, compatibility, and validation boundary in `CHANGELOG.md` (FR-039/FR-040)
 - [X] T068 Run focused server/macOS checks, feature quickstart, `@ponytail-review`, `git diff --check`, and `infra/scripts/ci-local.sh`; reconcile evidence in `specs/120-transcript-export/tasks.md` before requesting implementation commit approval
 
+## Phase 11: User Story 5 Follow-up — Plain-Language Export Dialog (Priority: P1)
+
+**Goal**: Make the default export decision understandable without internal
+export terminology or a wall of format cards.
+
+**Independent test**: Open export as a first-time reviewer and complete a save
+using only `Что сохранить`, `Формат`, and `Сохранить`; verify optional settings
+and copy remain available under `Дополнительно` and no technical metadata is
+visible.
+
+- [X] T069 [P] [US5] Replace compact-card assertions with failing plain-language two-select, collapsed-secondary-actions, no-technical-copy, and simple-footer assertions in `apps/server/tests/unit/test_cabinet_web_shell.py` (FR-031–FR-038/SC-012c)
+- [X] T070 [US5] Simplify export markup to two labelled selects, one short hint, collapsed `Дополнительно`, bounded post-egress copy, and cancel/save actions in `apps/server/src/twobrain_rec_server/cabinet/rendering.py` (FR-031–FR-040)
+- [X] T071 [US5] Delete card/preview/technical-detail styling and restore the minimum compatible-select behavior while preserving options, copy, focus, progress, retry, and browser/native delivery in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` (FR-032–FR-039)
+- [X] T072 [US5] Re-run synthetic normal/390 px/200% WebKit visual and keyboard checks and record metadata-safe evidence in `specs/120-transcript-export/design-qa.md` (SC-012/SC-012a/SC-012c)
+- [X] T073 Run focused server checks, `git diff --check`, Ponytail review, and `infra/scripts/ci-local.sh`; reconcile the follow-up evidence and PR before merge (SC-012/SC-012c)
+
 ---
 
 ## Validation Evidence
@@ -228,11 +244,16 @@ dialog, and cancel a second save without a file, failure state, or route change.
   `35` strict PostgreSQL/RLS tests with `1` skipped; Ruff, JavaScript syntax,
   Python compile, Compose validation, evidence scan, and `git diff --check`
   were also clean.
-- The follow-up Ponytail review removed the now-redundant
-  `data-export-formats-*` payload after direct format choices became the single
-  UI source; the remaining helpers are required for native cancellation and
-  filename seams. No new dependency, service, table, or artifact persistence
-  was introduced.
+- The plain-language follow-up removed the card grid, diagnostic summary,
+  technical disclosure, and related styling/JavaScript. Compatible format
+  data remains the existing minimal source for filtering the native select;
+  native cancellation and filename seams are unchanged. The diff deletes more
+  code than it adds and introduces no dependency, service, table, or artifact
+  persistence.
+- The final plain-language validation passed `63` focused cabinet shell/static
+  contract tests, synthetic normal/390 px/200% WebKit visual checks,
+  JavaScript syntax, Ruff, `git diff --check`, and the complete repository gate
+  with `ci_local_result=pass`.
 - T057 is complete: [PR #4084](https://github.com/yshishenya/crisp/pull/4084)
   merged as `7ea8afc517b79fa943ec1ef99d047027234e3c35`; completed task issues
   are closed, and each has a Russian closure comment with its Spec task, PR,

@@ -136,11 +136,13 @@ credential, or signed URL is accepted by the audit metadata sanitizer.
 - One contextual `Экспорт` action opens the existing accessible dialog/sheet
   pattern; Files/governance shows availability but does not duplicate format
   actions.
-- Content scope is first. Compatible format groups and safe defaults follow.
-- The default dialog view displays scope, compatible format, included options,
-  and one concise structural outcome. Selected revisions, readiness, language,
-  duration, and response-only lifecycle truth remain available under one
-  collapsed `Технические детали` disclosure.
+- The default dialog view contains two ordinary labelled controls: content
+  scope and compatible format. Optional presentation settings and copy remain
+  under one collapsed `Дополнительно` disclosure.
+- Revision identifiers, readiness metadata, language, duration, lifecycle
+  jargon, format cards, diagnostic preview, and a repeated outcome summary are
+  not exposed in the user-facing dialog. The server still enforces and audits
+  the same revision, policy, readiness, and lifecycle contract.
 - Submit enters a live announced preparing state and prevents duplicate submit.
   Success closes/returns focus after download begins. Failure retains selection,
   announces a safe reason, and offers retry when appropriate.

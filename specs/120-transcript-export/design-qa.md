@@ -116,3 +116,25 @@ endpoint was introduced.
 The synthetic screenshots contain no meeting content and remain transient local
 review artifacts rather than repository evidence. The signed-app save-to-folder
 and cancel smoke remains part of T066 and must be completed before release.
+
+## Plain-language dialog follow-up
+
+Direct review of the first compact version still found too much product-internal
+structure: three scope cards, six format cards, a repeated outcome summary,
+technical disclosure, and a competing copy action. The revised dialog keeps the
+same server and native-save contract but reduces the default decision to two
+native selects and save.
+
+| Check | Evidence | Result |
+|---|---|---|
+| Default hierarchy | `Сохранить файл`, `Что сохранить`, `Формат`, cancel, and save are the only primary controls | PASS |
+| Plain language | Visible copy uses `Расшифровка` and `Итоги`; revision, lifecycle, provider, readiness, canonical, and response-artifact terminology is absent | PASS |
+| Secondary actions | Speaker/time/evidence settings and copy remain available under collapsed `Дополнительно` | PASS |
+| Normal layout | A real 940 by 720 point `WKWebView` snapshot shows the complete dialog without body scrolling | PASS |
+| Narrow layout | A real 390 by 720 point `WKWebView` snapshot keeps both selects, warning, and actions visible without horizontal overflow | PASS |
+| 200% zoom | A real WebKit `pageZoom` of 2 keeps the full decision and footer reachable within the dialog | PASS |
+| Visual comparison | Side-by-side inspection confirms the card grid, diagnostic summary, technical details, and default copy button were removed | PASS |
+
+Screenshots use synthetic meeting metadata only and are not committed. This QA
+does not replace the T059 representative-reviewer study or the T066 signed-app
+native save/cancel smoke.

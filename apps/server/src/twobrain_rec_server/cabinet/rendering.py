@@ -560,9 +560,9 @@ def _render_content_export_dialog(
         "combined": capability.combined,
     }
     scope_labels = {
-        "transcript": "Транскрипт",
-        "summary": "Саммари",
-        "combined": "Транскрипт и саммари",
+        "transcript": "Расшифровка",
+        "summary": "Итоги",
+        "combined": "Расшифровка и итоги",
     }
     state_labels = {
         "available": "доступно",
@@ -582,70 +582,48 @@ def _render_content_export_dialog(
         ),
         "transcript",
     )
-    scope_choices = []
-    for scope, state in scope_states.items():
-        available = state.state == "available" or (scope == "summary" and state.state == "partial")
-        scope_choices.append(
-            f"""
-              <label class="content-export-choice content-export-scope-choice" data-state="{escape(state.state)}">
-                <input name="content_scope" type="radio" value="{scope}" data-export-scope
-                  {"checked" if scope == initial_scope else ""}
-                  {"disabled" if not available else ""}>
-                <span class="content-export-choice__title">{escape(scope_labels[scope])}</span>
-                <span class="content-export-choice__meta">{escape(state_labels[state.state])}</span>
-              </label>
-            """
+    scope_options = "".join(
+        (
+            f'<option value="{scope}" '
+            f"{'selected' if scope == initial_scope else ''} "
+            f"{'disabled' if not (state.state == 'available' or (scope == 'summary' and state.state == 'partial')) else ''}>"
+            f"{escape(scope_labels[scope])}"
+            f"{'' if state.state == 'available' else f' — {escape(state_labels[state.state])}'}</option>"
         )
-    state_data = " ".join(
-        f'data-export-state-{scope}="{escape(state_labels[state.state])}"'
         for scope, state in scope_states.items()
     )
+    format_data = " ".join(
+        f'data-export-formats-{scope}="{escape(",".join(formats))}"'
+        for scope, formats in capability.formats.items()
+    )
     format_groups = (
-        ("Читаемый текст", ("txt", "md")),
+        ("Текст", ("txt", "md")),
         ("Таблицы", ("csv", "xlsx")),
-        ("Структурированные данные", ("json",)),
+        ("Данные", ("json",)),
         ("Субтитры", ("srt",)),
     )
-    format_descriptions = {
-        "txt": "Обычный текст",
-        "md": "Заметки",
-        "csv": "Строки реплик",
-        "xlsx": "Книга с листами",
-        "json": "Данные и источники",
-        "srt": "Субтитры",
+    format_labels = {
+        "txt": "Текст (.txt)",
+        "md": "Markdown (.md)",
+        "csv": "Таблица CSV (.csv)",
+        "xlsx": "Excel (.xlsx)",
+        "json": "JSON (.json)",
+        "srt": "Субтитры (.srt)",
     }
-    scopes_by_format = {
-        format_name: tuple(
-            scope for scope, formats in capability.formats.items() if format_name in formats
-        )
-        for format_name in format_descriptions
-    }
-    initial_format = capability.formats[initial_scope][0]
-    format_sections = []
-    for group_label, group_formats in format_groups:
-        choices = "".join(
-            f"""
-              <label class="content-export-choice content-export-format-choice" data-export-format-choice data-export-scopes="{escape(",".join(scopes_by_format[format_name]))}">
-                <input name="format" type="radio" value="{format_name}" data-export-format
-                  {"checked" if format_name == initial_format else ""}>
-                <span class="content-export-choice__title">{format_name.upper()}</span>
-                <span class="content-export-choice__meta">{escape(format_descriptions[format_name])}</span>
-              </label>
-            """
+    initial_formats = set(capability.formats[initial_scope])
+    format_options = "".join(
+        f'<optgroup label="{escape(group_label)}">'
+        + "".join(
+            f'<option value="{format_name}">{escape(format_labels[format_name])}</option>'
             for format_name in group_formats
+            if format_name in initial_formats
         )
-        format_sections.append(
-            f"""
-              <section class="content-export-format-group" data-export-format-group>
-                <p>{escape(group_label)}</p>
-                <div>{choices}</div>
-              </section>
-            """
-        )
+        + "</optgroup>"
+        for group_label, group_formats in format_groups
+        if any(format_name in initial_formats for format_name in group_formats)
+    )
     result_id = str(capability.processing_result_id or "")
     outcome_id = str(capability.outcome_set_id or "")
-    duration_hours, duration_remainder = divmod(max(capability.duration_seconds, 0), 3600)
-    duration_minutes, duration_seconds = divmod(duration_remainder, 60)
     submit_label = "Сохранить…" if embedded else "Скачать файл"
     delivery_mode = "save" if embedded else "download"
     return f"""
@@ -658,63 +636,37 @@ def _render_content_export_dialog(
           data-outcome-set-id="{escape(outcome_id)}"
           data-csrf-token="{escape(csrf_token or "")}"
           data-export-delivery="{delivery_mode}"
-          {state_data}
+          {format_data}
         >
           <header class="content-export-header">
-            <div>
-              <h2 id="content-export-title" tabindex="-1" data-export-dialog-title>Экспорт</h2>
-              <p>Выберите, что сохранить и в каком формате.</p>
-            </div>
+            <h2 id="content-export-title" tabindex="-1" data-export-dialog-title>Сохранить файл</h2>
             <button type="button" class="icon-button content-export-close" aria-label="Закрыть экспорт" data-export-dialog-close>{_ui_icon("x")}</button>
           </header>
           <div class="content-export-body">
-            <fieldset class="content-export-section content-export-scope">
-              <legend>Что сохранить</legend>
-              <div class="content-export-scope-grid">{"".join(scope_choices)}</div>
-            </fieldset>
-            <fieldset class="content-export-section content-export-formats">
-              <legend>Формат</legend>
-              <div class="content-export-format-grid">{"".join(format_sections)}</div>
-            </fieldset>
-            <div class="content-export-summary" aria-label="Выбранный экспорт">
-              <div>
-                <strong><span data-export-preview-scope>{escape(scope_labels[initial_scope])}</span> · <span data-export-preview-format>{initial_format.upper()}</span></strong>
-                <span data-export-preview-purpose>читаемый текст</span>
-              </div>
-              <span data-export-options-summary>Спикеры и время включены</span>
-            </div>
+            <label class="content-export-field">
+              <span>Что сохранить</span>
+              <select name="content_scope" data-export-scope>{scope_options}</select>
+            </label>
+            <label class="content-export-field">
+              <span>Формат</span>
+              <select name="format" data-export-format>{format_options}</select>
+            </label>
             <details class="content-export-details" data-export-options-details>
-              <summary>Настройки файла <span class="muted" data-export-options-summary>Спикеры и время включены</span></summary>
+              <summary>Дополнительно</summary>
               <div class="content-export-options">
-                <label data-export-option-speakers><input type="checkbox" name="include_speaker_labels" checked> Имена спикеров</label>
-                <label data-export-option-timestamps><input type="checkbox" name="include_timestamps" checked> Временные метки</label>
-                <label data-export-option-evidence><input type="checkbox" name="include_evidence" checked> Ссылки на основания саммари</label>
+                <label data-export-option-speakers><input type="checkbox" name="include_speaker_labels" checked> Указывать участников</label>
+                <label data-export-option-timestamps><input type="checkbox" name="include_timestamps" checked> Добавлять время</label>
+                <label data-export-option-evidence><input type="checkbox" name="include_evidence" checked> Добавлять ссылки на фрагменты</label>
+                <button type="button" class="quiet content-export-copy" data-export-copy>Скопировать текст</button>
               </div>
             </details>
-            <details class="content-export-details" data-export-technical-details>
-              <summary>Технические детали</summary>
-              <dl class="content-export-metadata">
-              <div><dt>Ревизия транскрипта</dt><dd>{escape(result_id[:8] or "недоступна")}</dd></div>
-              <div><dt>Ревизия саммари</dt><dd data-export-preview-summary-revision>не выбрано</dd></div>
-              <div><dt>Готовность</dt><dd data-export-preview-readiness>{escape(state_labels[scope_states[initial_scope].state])}</dd></div>
-              <div><dt>Спикеры</dt><dd data-export-preview-speakers>включены</dd></div>
-              <div><dt>Временные метки</dt><dd data-export-preview-timestamps>включены</dd></div>
-              <div><dt>Основания саммари</dt><dd data-export-preview-evidence>не применимо</dd></div>
-              <div><dt>Язык</dt><dd>{escape(capability.language or "не указан")}</dd></div>
-              <div><dt>Длительность</dt><dd>{duration_hours:02d}:{duration_minutes:02d}:{duration_seconds:02d}</dd></div>
-              <div><dt>Хранение файла</dt><dd>только на время ответа</dd></div>
-              </dl>
-            </details>
-            <p class="truth-copy">Уже скачанная копия находится вне последующего отзыва и удаления в GRAF.</p>
+            <p class="truth-copy">Файл останется на компьютере после удаления встречи из GRAF.</p>
           </div>
           <footer class="content-export-footer">
             <p class="content-export-status" data-export-status role="status" aria-live="polite" aria-atomic="true"></p>
             <div class="content-export-actions">
-              <button type="button" class="quiet" data-export-copy>Копировать как текст</button>
-              <span class="content-export-actions__primary">
-                <button type="button" class="quiet" data-export-dialog-cancel>Отмена</button>
-                <button type="submit" class="primary" data-export-submit>{submit_label}</button>
-              </span>
+              <button type="button" class="quiet" data-export-dialog-cancel>Отмена</button>
+              <button type="submit" class="primary" data-export-submit>{submit_label}</button>
             </div>
           </footer>
         </form>
