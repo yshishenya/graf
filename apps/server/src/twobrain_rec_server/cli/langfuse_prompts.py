@@ -11,8 +11,8 @@ from twobrain_rec_server.outcomes.prompt_optimization import (
 )
 from twobrain_rec_server.outcomes.prompts import (
     judge_config,
+    langfuse_prompt_payload,
     outcome_config,
-    prompt_snapshot_hash,
     validate_prompt_snapshot,
 )
 from twobrain_rec_server.outcomes.templates import BUILT_IN_TEMPLATES
@@ -179,11 +179,14 @@ def sync_prompts(*, base_url: str, public_key: str, secret_key: str, apply: bool
                     fetch_timeout_seconds=10,
                 )
             if current is not None:
-                current_hash = prompt_snapshot_hash(
+                current_snapshot = validate_prompt_snapshot(
+                    name=name,
+                    version=int(current.version),
+                    prompt_type=prompt_type,
                     prompt=current.prompt,
                     config=current.config or {},
                 )
-                if current_hash == desired.canonical_hash:
+                if current_snapshot.canonical_hash == desired.canonical_hash:
                     status = "control-gate-required" if name in CONTROL_PROMPTS else "verified"
                     outcomes.append(f"{status}:{name}:v{current.version}")
                     continue
@@ -192,7 +195,7 @@ def sync_prompts(*, base_url: str, public_key: str, secret_key: str, apply: bool
                 continue
             created = client.create_prompt(
                 name=name,
-                prompt=prompt,
+                prompt=langfuse_prompt_payload(prompt),
                 labels=[] if name in CONTROL_PROMPTS else ["production"],
                 tags=[
                     "graf",

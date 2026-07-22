@@ -193,6 +193,32 @@ def prompt_snapshot_hash(*, prompt: object, config: Mapping[str, object]) -> str
     return sha256(payload).hexdigest()
 
 
+def normalize_langfuse_prompt(prompt: object) -> object:
+    """Keep the persisted prompt contract stable across Langfuse SDK wire enums."""
+    if not isinstance(prompt, list):
+        return prompt
+    normalized: list[object] = []
+    for item in prompt:
+        if isinstance(item, dict) and item.get("type") == "chatmessage":
+            normalized.append({**item, "type": "message"})
+        else:
+            normalized.append(item)
+    return normalized
+
+
+def langfuse_prompt_payload(prompt: object) -> object:
+    """Translate the stable GRAF chat-message type to Langfuse v4's API enum."""
+    if not isinstance(prompt, list):
+        return prompt
+    payload: list[object] = []
+    for item in prompt:
+        if isinstance(item, dict) and item.get("type") == "message":
+            payload.append({**item, "type": "chatmessage"})
+        else:
+            payload.append(item)
+    return payload
+
+
 def validate_prompt_snapshot(
     *,
     name: str,
@@ -208,6 +234,7 @@ def validate_prompt_snapshot(
         raise ValueError("unsupported prompt source")
     if prompt_type not in {"chat", "text"}:
         raise ValueError("unsupported prompt type")
+    prompt = normalize_langfuse_prompt(prompt)
     if len(canonical_json(prompt).encode("utf-8")) > MAX_PROMPT_BYTES:
         raise ValueError("prompt exceeds 64 KiB")
     config_copy = dict(config)

@@ -53,6 +53,7 @@ class GenerationTraceContext:
     selected_model: str
     prompt_name: str
     prompt_version: int
+    prompt_hash: str | None = None
     user_id: str | None = None
     session_id: str | None = None
     activity_attempt: int = 1
@@ -239,8 +240,10 @@ def publish_completed_generation(
         "observation_id": call.observation_id,
         "provider_attempt": call.provider_attempt,
         "call_sequence": call.call_sequence,
+        "activity_attempt": context.activity_attempt,
         "prompt_name": context.prompt_name,
         "prompt_version": context.prompt_version,
+        "prompt_hash": context.prompt_hash,
         "selected_model": context.selected_model,
         "actual_model": call.actual_model,
         "actual_provider": call.actual_provider,

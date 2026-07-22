@@ -24,6 +24,7 @@ from twobrain_rec_server.outcomes.prompts import (
     JUDGE_VARIABLES,
     PromptSnapshot,
     canonical_json,
+    langfuse_prompt_payload,
     prompt_variables,
     validate_outcome_result,
     validate_prompt_snapshot,
@@ -1276,7 +1277,7 @@ def publish_unlabelled_candidate(
         tags.append(idempotency_tag)
     created = client.create_prompt(
         name=source.name,
-        prompt=candidate_prompt,
+        prompt=langfuse_prompt_payload(candidate_prompt),
         labels=[],
         tags=tags,
         type=source.prompt_type,
@@ -1527,7 +1528,7 @@ def promote_control_prompt(
     }
     gated = client.create_prompt(
         name=prompt_name,
-        prompt=candidate.prompt,
+        prompt=langfuse_prompt_payload(candidate.prompt),
         labels=[],
         tags=["graf", "recording-workflows", "control-gate-v1"],
         type=prompt_type,
@@ -1589,6 +1590,13 @@ def move_production_label(
         max_retries=0,
         fetch_timeout_seconds=10,
     )
+    target_snapshot = validate_prompt_snapshot(
+        name=prompt_name,
+        version=int(target.version),
+        prompt_type=prompt_type,
+        prompt=target.prompt,
+        config=target.config or {},
+    )
     current_version = int(current.version) if current is not None else None
     if current_version not in {expected_source_version, target_version}:
         raise PromptOptimizationError("production_source_conflict")
@@ -1620,7 +1628,10 @@ def move_production_label(
             prompt=verified.prompt,
             config=verified.config or {},
         )
-        if snapshot.prompt != target.prompt or snapshot.config != (target.config or {}):
+        if (
+            snapshot.prompt != target_snapshot.prompt
+            or snapshot.config != target_snapshot.config
+        ):
             raise ValueError("production target content changed")
         if snapshot_storage is not None:
             persist_verified_promoted_snapshot(snapshot_storage, snapshot)
