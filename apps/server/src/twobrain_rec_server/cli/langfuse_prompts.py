@@ -194,7 +194,11 @@ def sync_prompts(*, base_url: str, public_key: str, secret_key: str, apply: bool
                 name=name,
                 prompt=prompt,
                 labels=[] if name in CONTROL_PROMPTS else ["production"],
-                tags=["graf", "recording-workflows", "contract-v1"],
+                tags=[
+                    "graf",
+                    "recording-workflows",
+                    f"config-contract-v{config['config_contract_version']}",
+                ],
                 type=prompt_type,
                 config=config,
                 commit_message=(
