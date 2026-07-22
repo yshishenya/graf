@@ -8,6 +8,18 @@ import TwoBrainRecShared
 import XCTest
 
 final class DesktopUploadQueueTests: XCTestCase {
+    func testFollowUpReasonsRemainBoundedAcrossRepeatedRetries() {
+        var localPurgeReason = "initial"
+        var scheduledReason = "initial"
+        for _ in 0..<1_000 {
+            localPurgeReason = DesktopUploadFollowUpReason.localPurgeAcknowledgementRetry
+            scheduledReason = DesktopUploadFollowUpReason.scheduledRetry
+        }
+
+        XCTAssertEqual(localPurgeReason, "local_purge_ack_retry")
+        XCTAssertEqual(scheduledReason, "scheduled_retry")
+        XCTAssertEqual(DesktopUploadFollowUpReason.processing(after: "processing_follow_up"), "processing_follow_up")
+    }
     func testBackendRoleMappingUsesTransportVocabulary() {
         XCTAssertEqual(DesktopUploadTransportRole.role(forLocalTrackRole: .mixedMeetingAudio), .media)
         XCTAssertEqual(DesktopUploadTransportRole.role(forLocalTrackRole: .reviewPlayback), .playback)

@@ -1760,13 +1760,13 @@ private struct ContentView: View {
         let followUpReason: String
         let delay: TimeInterval
         if shouldRetryLocalPurgeAcknowledgement {
-            followUpReason = "local_purge_ack_retry_after_\(reason)"
+            followUpReason = DesktopUploadFollowUpReason.localPurgeAcknowledgementRetry
             delay = 60
         } else if needsProcessingFollowUp {
-            followUpReason = reason.hasPrefix("processing_follow_up") ? "processing_follow_up" : "processing_follow_up_after_\(reason)"
+            followUpReason = DesktopUploadFollowUpReason.processing(after: reason)
             delay = 10
         } else {
-            followUpReason = "scheduled_retry_after_\(reason)"
+            followUpReason = DesktopUploadFollowUpReason.scheduledRetry
             delay = max(1, min(nextRetryDate?.timeIntervalSince(now) ?? 10, 60 * 60))
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
@@ -2370,6 +2370,8 @@ private struct AppContentRoot: View {
 }
 
 private enum AppLog {
+    private static let writer = BoundedLogFileWriter(fileURL: fileURL)
+
     static let fileURL: URL = {
         let base = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/GRAF", isDirectory: true)
@@ -2381,7 +2383,7 @@ private enum AppLog {
     }
 
     private static func sanitize(_ detail: String) -> String {
-        detail
+        String(detail.prefix(4_096))
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
             .split(separator: " ")
@@ -2404,20 +2406,7 @@ private enum AppLog {
 
     private static func writeLine(_ line: String) {
         do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            if FileManager.default.fileExists(atPath: fileURL.path),
-               let handle = try? FileHandle(forWritingTo: fileURL) {
-                try handle.seekToEnd()
-                if let data = line.data(using: .utf8) {
-                    try handle.write(contentsOf: data)
-                }
-                try handle.close()
-            } else {
-                try line.write(to: fileURL, atomically: true, encoding: .utf8)
-            }
+            try writer.append(line)
         } catch {
             print("GRAF log write failed: \(error)")
         }

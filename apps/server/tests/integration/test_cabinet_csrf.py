@@ -79,6 +79,40 @@ def test_cookie_authenticated_deletion_request_accepts_session_bound_csrf_token(
     assert response.json()["report_url"].endswith("/deletion-report")
 
 
+def test_native_session_header_can_ack_local_purge_without_weakening_browser_csrf(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    deletion = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_DELETE_COPY},
+    )
+    assert deletion.status_code == 202
+    client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
+    task = client.get("/api/v1/desktop/local-purge-tasks").json()["tasks"][0]
+    payload = {
+        "state": "acknowledged",
+        "reason_code": "local_artifacts_deleted",
+        "client_version": "native-session-regression",
+    }
+
+    cookie_only = client.post(task["ack_url"], json=payload)
+
+    assert cookie_only.status_code == 403
+    assert cookie_only.json()["code"] == "csrf_token_missing"
+
+    client.cookies.clear()
+    native = client.post(
+        task["ack_url"],
+        headers={"X-Auth-Session": OWNER_REVIEW_TEST_TOKEN},
+        json=payload,
+    )
+
+    assert native.status_code == 200
+    assert native.json()["state"] == "acknowledged"
+    assert native.json()["task_id"] == task["task_id"]
+
+
 @pytest.mark.parametrize("method", ["put", "delete"])
 @pytest.mark.parametrize(
     ("csrf_headers", "expected_code"),

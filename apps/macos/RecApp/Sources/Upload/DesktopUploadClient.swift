@@ -302,20 +302,20 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private let partSizeBytes: Int
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let cookieHeaderProvider: @Sendable (URL) -> String?
+    private let authSessionTokenProvider: @Sendable (URL) -> String?
     private let requestExecutor: @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     public init(
         baseURL: URL,
         headers: [String: String] = [:],
         partSizeBytes: Int = Self.defaultPartSizeBytes,
-        cookieHeaderProvider: @escaping @Sendable (URL) -> String? = DesktopUploadClient.defaultCookieHeader
+        authSessionTokenProvider: @escaping @Sendable (URL) -> String? = DesktopUploadClient.defaultAuthSessionToken
     ) {
         self.init(
             baseURL: baseURL,
             headers: headers,
             partSizeBytes: partSizeBytes,
-            cookieHeaderProvider: cookieHeaderProvider,
+            authSessionTokenProvider: authSessionTokenProvider,
             requestExecutor: { request in
                 try await URLSession.shared.data(for: request)
             }
@@ -326,13 +326,13 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         baseURL: URL,
         headers: [String: String],
         partSizeBytes: Int,
-        cookieHeaderProvider: @escaping @Sendable (URL) -> String?,
+        authSessionTokenProvider: @escaping @Sendable (URL) -> String?,
         requestExecutor: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)
     ) {
         self.baseURL = baseURL
         self.headers = headers
         self.partSizeBytes = max(64 * 1024, partSizeBytes)
-        self.cookieHeaderProvider = cookieHeaderProvider
+        self.authSessionTokenProvider = authSessionTokenProvider
         self.requestExecutor = requestExecutor
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -415,19 +415,15 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return "Bearer \(trimmed)"
     }
 
-    public static func defaultCookieHeader(for url: URL) -> String? {
-        authSessionCookieHeader(from: HTTPCookieStorage.shared.cookies(for: url) ?? [])
+    public static func defaultAuthSessionToken(for url: URL) -> String? {
+        authSessionToken(from: HTTPCookieStorage.shared.cookies(for: url) ?? [])
     }
 
-    public static func authSessionCookieHeader(from cookies: [HTTPCookie]) -> String? {
-        let sessionCookies = cookies
-            .filter { cookie in
-                cookie.name == ownerSessionCookieName &&
-                    !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            .map { "\($0.name)=\($0.value)" }
-        guard !sessionCookies.isEmpty else { return nil }
-        return sessionCookies.joined(separator: "; ")
+    public static func authSessionToken(from cookies: [HTTPCookie]) -> String? {
+        cookies.first { cookie in
+            cookie.name == ownerSessionCookieName &&
+                !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }?.value
     }
 
     private static func configuredBaseURLCandidate(
@@ -478,7 +474,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
     private static func shouldRedactHeader(named name: String) -> Bool {
         let lowered = name.lowercased()
-        return lowered.contains("authorization") ||
+        return lowered == "x-auth-session" ||
+            lowered.contains("authorization") ||
             lowered.contains("token") ||
             lowered.contains("cookie") ||
             lowered.contains("secret")
@@ -1188,13 +1185,15 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = timeoutInterval
+        request.httpShouldHandleCookies = false
         for (key, value) in headers {
+            guard key.caseInsensitiveCompare("Cookie") != .orderedSame else { continue }
             request.setValue(value, forHTTPHeaderField: key)
         }
-        if request.value(forHTTPHeaderField: "Cookie") == nil,
-           let cookieHeader = cookieHeaderProvider(url),
-           !cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        if request.value(forHTTPHeaderField: "X-Auth-Session") == nil,
+           let sessionToken = authSessionTokenProvider(url)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !sessionToken.isEmpty {
+            request.setValue(sessionToken, forHTTPHeaderField: "X-Auth-Session")
         }
         return request
     }

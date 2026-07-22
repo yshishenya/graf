@@ -14,7 +14,7 @@ final class CalendarAutoContextMatchTests: XCTestCase {
                 "X-User-Id": "00000000-0000-0000-0000-000000000902",
                 "X-Device-Id": "00000000-0000-0000-0000-000000000903"
             ],
-            cookieHeaderProvider: { _ in nil }
+            authSessionTokenProvider: { _ in nil }
         )
         let body = DesktopCalendarContextResolveRequest(
             recordingStartedAt: CalendarSettingsFixtures.recordingStartedAt,

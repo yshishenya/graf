@@ -122,7 +122,7 @@ final class DesktopUploadClientTests: XCTestCase {
             baseURL: try XCTUnwrap(URL(string: "https://sync.invalid")),
             headers: [:],
             partSizeBytes: 64 * 1024,
-            cookieHeaderProvider: { _ in nil },
+            authSessionTokenProvider: { _ in nil },
             requestExecutor: { _ in
                 (
                     data,
@@ -188,7 +188,7 @@ final class DesktopUploadClientTests: XCTestCase {
             baseURL: try XCTUnwrap(URL(string: "https://synthetic-upload.invalid")),
             headers: ["X-Client-Version": "synthetic-v5"],
             partSizeBytes: 64 * 1024,
-            cookieHeaderProvider: { _ in nil },
+            authSessionTokenProvider: { _ in nil },
             requestExecutor: { request in
                 try await transport.data(for: request)
             }
@@ -544,7 +544,18 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertNil(headers["Authorization"])
     }
 
-    func testAuthSessionCookieHeaderUsesOnlyOwnerSessionCookie() throws {
+    func testSanitizedHeaderPreviewRedactsExplicitNativeSession() throws {
+        let client = DesktopUploadClient(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.pro")),
+            headers: ["X-Auth-Session": "owner-session-token"],
+            authSessionTokenProvider: { _ in nil }
+        )
+
+        XCTAssertEqual(client.sanitizedHeaderPreview["X-Auth-Session"], "<redacted>")
+        XCTAssertFalse(client.sanitizedHeaderPreview.values.contains("owner-session-token"))
+    }
+
+    func testAuthSessionTokenUsesOnlyOwnerSessionCookie() throws {
         let sessionCookie = try XCTUnwrap(HTTPCookie(properties: [
             .domain: "rec.2brain.pro",
             .path: "/",
@@ -560,9 +571,64 @@ final class DesktopUploadClientTests: XCTestCase {
         ]))
 
         XCTAssertEqual(
-            DesktopUploadClient.authSessionCookieHeader(from: [unrelatedCookie, sessionCookie]),
-            "\(DesktopUploadClient.ownerSessionCookieName)=owner-session-token"
+            DesktopUploadClient.authSessionToken(from: [unrelatedCookie, sessionCookie]),
+            "owner-session-token"
         )
+    }
+
+    func testNativeRequestPromotesOwnerSessionWithoutForwardingCookies() async throws {
+        let recorder = NativeAuthRequestRecorder()
+        let client = DesktopUploadClient(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.pro")),
+            headers: ["Cookie": "browser-cookie-must-not-leave-native-client"],
+            partSizeBytes: DesktopUploadClient.defaultPartSizeBytes,
+            authSessionTokenProvider: { _ in "owner-session-token" },
+            requestExecutor: { request in
+                await recorder.record(request)
+                return (
+                    Data("""
+                    {
+                      "task_id": "purge-task",
+                      "meeting_id": "meeting-id",
+                      "task_type": "purge_local_buffers",
+                      "state": "acknowledged",
+                      "safe_reason": null,
+                      "expires_at": "2026-07-23T00:00:00Z",
+                      "ack_url": null
+                    }
+                    """.utf8),
+                    try XCTUnwrap(HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    ))
+                )
+            }
+        )
+        let task = DesktopLocalPurgeTask(
+            taskId: "purge-task",
+            meetingId: "meeting-id",
+            taskType: .purgeLocalBuffers,
+            state: .pending,
+            safeReason: nil,
+            expiresAt: Date(timeIntervalSince1970: 1_800_000_000),
+            ackURL: nil
+        )
+
+        _ = try await client.acknowledgeLocalPurgeTask(
+            task,
+            state: .acknowledged,
+            reasonCode: "local_artifacts_deleted"
+        )
+
+        let recordedRequest = await recorder.request()
+        let request = try XCTUnwrap(recordedRequest)
+        XCTAssertFalse(request.httpShouldHandleCookies)
+        XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Auth-Session"), "owner-session-token")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/v1/desktop/local-purge-tasks/purge-task/ack")
     }
 
     func testConfiguredHeadersAcceptLegacyTwoBrainKeys() {
@@ -977,6 +1043,18 @@ private actor SyntheticV5UploadProgressRecorder {
 
     func snapshots() -> [ServerTruthFingerprint] {
         values
+    }
+}
+
+private actor NativeAuthRequestRecorder {
+    private var value: URLRequest?
+
+    func record(_ request: URLRequest) {
+        value = request
+    }
+
+    func request() -> URLRequest? {
+        value
     }
 }
 
