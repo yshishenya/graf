@@ -20,11 +20,21 @@ metadata-only evidence остаются подробной историей ре
   retained Generation Call и Temporal History, тогда как обычные audit/logs и
   evidence остаются metadata-only.
 - Канонический локальный gate после повторных correctness/security/Ponytail
-  review прошёл: 604 macOS tests, ContractValidation PASS, 2176 server tests
+  review прошёл: 608 macOS tests, ContractValidation PASS, 2178 server tests
   passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1 skipped, Ruff,
   compile, Compose и evidence scan PASS. Десять outcome prompts verified в
   private production Langfuse v1; четыре control prompts остаются без
   production promotion до calibration gate.
+- Feature 121 merged через PR #4235; найденный перед установкой native
+  local-purge/CSRF дефект исправлен и повторно reviewed в PR #4242. Release
+  [`v2026.07.22.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.4)
+  опубликован, production и runtime работают на exact SHA
+  `3724b596bfc80a19d1dbef000f44c97d56fff7eb`: backup/restore, migration
+  `0031_recording_workflows`, Temporal/worker readiness, smoke/cleanup и
+  public live/ready прошли. Public appcast прошёл strict re-fetch, а
+  `/Applications/GRAF.app` обновлена до `2026.07.22.4` с сохранёнными identity
+  и TCC grants; после запуска новых `csrf_token_missing` не наблюдалось, но
+  положительный live pending-purge ack не заявляется. Журнал ограничен 4 МиБ.
 - Runtime rollout остаётся fail-closed: outcome generation, prompt
   optimization, public/team links и external invitations выключены. T050,
   T057 и T089 требуют будущие LiteLLM URL/key, immutable synthetic manifests и
@@ -48,13 +58,15 @@ metadata-only evidence остаются подробной историей ре
 
 Полный inventory и reconciliation для feature specs находится в
 [`docs/spec-kit-feature-index.md`](spec-kit-feature-index.md). На текущем
-`master` проверены 97 spec-каталогов, 97 `spec.md` и 91 `tasks.md`.
+`master` проверены 98 spec-каталогов, 98 `spec.md` и 92 `tasks.md`.
 Requirements-only остаются `011`, `026–029` и `101`; для них не создаются
-искусственные plan/tasks. В implementation/release slice 096–120 статусы
+искусственные plan/tasks. В implementation/release slice 096–121 статусы
 сверены с task receipts и release boundaries: открыты только явно отмеченные
 гейты, включая 096/T101/T104, 106/T049/T063/T064, 109/T022, 119/T008 и
-120/T059. Feature 118 имеет полный Spec Kit package и release receipt, а
-Feature 120 — merged implementation plus controlled production-preview receipt.
+120/T059 и 121/T050/T057/T089. Feature 118 имеет полный Spec Kit package и
+release receipt, Feature 120 — merged implementation plus controlled
+production-preview receipt, а Feature 121 — released/deployed/installed
+fail-closed infrastructure с тремя явно открытыми live gates.
 Эта сверка не закрывает general-release, security или representative-reviewer
 gates.
 

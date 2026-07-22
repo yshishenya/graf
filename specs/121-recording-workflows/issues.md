@@ -25,14 +25,15 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   and so on through T095, which maps to
   [#4215](https://github.com/yshishenya/crisp/issues/4215). Equivalently,
   `issue number = numeric task id + 4120`.
-- The post-implementation mandatory repository-wide validator passed all 149
-  current Spec Kit issues. Completed Feature-121 issues receive their detailed
-  Russian closure receipt after the implementation PR is merged; the three live
-  gates remain open and are linked from the release notes.
-- With explicit user approval,
-  [feature 119 issue #3992](https://github.com/yshishenya/crisp/issues/3992)
-  was normalized without changing its task scope. The mandatory
-  repository-wide canon validator then passed for all 136 open Spec Kit issues.
+- After merge, production deploy, public
+  [`v2026.07.22.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.4),
+  and installed-app verification, 87 completed issues were closed with Russian
+  evidence receipts. Exactly 3 of 90 remain open: #4170, #4177, and #4209.
+- Implementation/release links: PR
+  [#4235](https://github.com/yshishenya/crisp/pull/4235), native purge hotfix
+  [#4242](https://github.com/yshishenya/crisp/pull/4242), and release prep
+  [#4243](https://github.com/yshishenya/crisp/pull/4243). The repository-wide
+  issue-canon validator was rerun after tracker closeout.
 
 ## Phase ranges
 

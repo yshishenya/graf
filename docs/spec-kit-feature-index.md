@@ -1,8 +1,8 @@
 # Реестр Spec Kit и сверка документации
 
-**Дата сверки**: 2026-07-21
-**Проверяемая база**: `origin/master` (`7ea8afc5`)
-**Lane**: docs-only reconciliation; код, production и tracker не изменялись.
+**Дата сверки**: 2026-07-22
+**Проверяемая база**: `origin/master` (`3724b596`)
+**Lane**: release/production closeout; tracker и installed-app receipts сверены.
 
 ## Как читать этот реестр
 
@@ -20,18 +20,18 @@
 
 ## Инвентаризация
 
-На текущем `master` найдено **97 spec-каталогов**, **97 `spec.md`** и **91
-`tasks.md`**. Для 91 implementation slices есть `plan.md`, `tasks.md` и
+На текущем `master` найдено **98 spec-каталогов**, **98 `spec.md`** и **92
+`tasks.md`**. Для 92 implementation slices есть `plan.md`, `tasks.md` и
 `quickstart.md`. Полный artifact matrix такой:
 
 | Артефакт | Найдено | Исключения |
 | --- | ---: | --- |
-| `spec.md` | 97 | нет |
-| `plan.md` | 91 | six requirements-only specs below |
-| `tasks.md` | 91 | six requirements-only specs below |
-| `quickstart.md` | 91 | six requirements-only specs below |
-| `research.md` | 90 | requirements-only specs и механический dead-code batch `075` |
-| `data-model.md` | 87 | requirements-only specs и механические dead-code batches `075–078` |
+| `spec.md` | 98 | нет |
+| `plan.md` | 92 | six requirements-only specs below |
+| `tasks.md` | 92 | six requirements-only specs below |
+| `quickstart.md` | 92 | six requirements-only specs below |
+| `research.md` | 91 | requirements-only specs и механический dead-code batch `075` |
+| `data-model.md` | 88 | requirements-only specs и механические dead-code batches `075–078` |
 
 Для `075` отсутствие `research.md`, а для `075–078` отсутствие `data-model.md`
 намеренно: это delete/import-only cleanup без новых решений, сущностей,
@@ -71,7 +71,7 @@ runtime/release выводов используем current-product-status и fe
 receipts; для следующего изменения сначала обновляем status этого spec, его
 receipt и current-product-status одним change set.
 
-## Текущий срез 096–120
+## Текущий срез 096–121
 
 В этом диапазоне нет каталогов `103`, `112` и `115–117` на проверяемом
 `master`: это незаведённые номера, а не незаполненные feature specs. Новые
@@ -100,6 +100,7 @@ receipt и current-product-status одним change set.
 | [118](../specs/118-interactive-playback-timeline/spec.md) | Реализована, merged через PR #3944 и выпущена в `v2026.07.21.4` | Общая шкала playback/speaker lanes, transcript-follow и meeting-local имена спикеров; отдельный production rollout proof не заявляется. |
 | [119](../specs/119-expand-meeting-app-registry/spec.md) | Реализована и merged через PR #4079 | T008 остаётся открытым: live post-deploy receipt требуется после enablement. |
 | [120](../specs/120-transcript-export/spec.md) | Реализована и merged через PR #4084 | Все шесть форматов, backend и web-cabinet UI валидированы; T059 / #4083 остаётся representative-reviewer gate перед general release. |
+| [121](../specs/121-recording-workflows/spec.md) | Реализована, merged, released, deployed и установлена как `v2026.07.22.4` | Recording/review/outcome/share/deletion infrastructure работает fail-closed на SHA `3724b596`; T050, T057 и T089 остаются открыты до LiteLLM credentials и live three-store/two-worker evidence. |
 
 ## Реальные открытые задачи во всём архиве
 
@@ -123,6 +124,10 @@ receipt и current-product-status одним change set.
   enablement.
 - `120-transcript-export`: T059 — representative-reviewer usability study до
   general release; synthetic QA не заменяет SC-014.
+- `121-recording-workflows`: T050/T057/T089 — live LiteLLM provider call,
+  immutable synthetic manifests, forced-crash GEPA и positive three-store
+  content-location proof; released disabled infrastructure не подменяет эти
+  acceptance gates.
 
 Правило для следующих feature slices: сначала определить, является ли каталог
 requirements-only, implementation slice или release/production closeout; затем
