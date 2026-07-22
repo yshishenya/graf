@@ -557,6 +557,17 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"production Docker secret file is missing or unreadable: {field_name}"
                 ) from exc
+        if self.outcome_generation_enabled or self.prompt_optimization_enabled:
+            ai_secret_files = {
+                "langfuse_public_key_file": self.langfuse_public_key_file,
+                "langfuse_secret_key_file": self.langfuse_secret_key_file,
+                "litellm_api_key_file": self.litellm_api_key_file,
+            }
+            for field_name, path in ai_secret_files.items():
+                if path is None or path.read_text(encoding="utf-8").strip() == "":
+                    raise ValueError(
+                        f"production AI secret file must be non-empty: {field_name}"
+                    )
         if self.processing_enabled and not self.temporal_address:
             raise ValueError("production processing requires temporal_address")
         if (
