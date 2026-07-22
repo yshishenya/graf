@@ -414,10 +414,15 @@ notarization, public-link launch, external email delivery, or user rollout.
 
 ## Implementation Evidence — 2026-07-22
 
-This section records the metadata-safe implementation receipt for branch
-`121-recording-workflows`. It deliberately does not embed transcript text,
-model responses, credentials, raw audio, invitation tokens, or private user
-identity.
+This section records the metadata-safe implementation and release receipt for
+Feature 121, merged through PRs
+[#4235](https://github.com/yshishenya/crisp/pull/4235),
+[#4242](https://github.com/yshishenya/crisp/pull/4242), and
+[#4243](https://github.com/yshishenya/crisp/pull/4243), then released as
+[`v2026.07.22.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.4)
+at exact SHA `3724b596bfc80a19d1dbef000f44c97d56fff7eb`. It deliberately
+does not embed transcript text, model responses, credentials, raw audio,
+invitation tokens, or private user identity.
 
 ### Scenario coverage
 
@@ -469,10 +474,10 @@ the owner's LiteLLM gateway and raw Temporal/Generation Call read-back.
 - Post-Ponytail focused server regression across prompt optimization, outcome
   generation, sharing, Langfuse, and UI contracts: 89 passed with two external
   dependency warnings and no failures.
-- Canonical `infra/scripts/ci-local.sh`: macOS 604 passed; native
-  `ContractValidation: PASS`; server parallel 2176 passed, 1 skipped; strict
-  PostgreSQL/RLS 41 passed, 1 skipped; collection count 2219 and digest
-  `b26e98d5b19605c1921d7c608bd082813965660b62f11f4be51d05b6c961eaa1`;
+- Canonical `infra/scripts/ci-local.sh`: macOS 608 passed; native
+  `ContractValidation: PASS`; server parallel 2178 passed, 1 skipped; strict
+  PostgreSQL/RLS 41 passed, 1 skipped; collection count 2221 and digest
+  `6963b1ab67ef93ecc1aafac1ba64862c6ff6b0ee9af9e64868eb780ac4b36142`;
   Ruff, Python compile, production Compose rendering, deployment evidence scan,
   and final `ci_local_result=pass` all passed.
 - The local RLS helper truthfully reported `live_production_probe=not_attempted`;
@@ -501,7 +506,43 @@ Post-implementation `$speckit-analyze` rechecked 111 explicit FR/SC entries,
 paths, and open-gate truth. Requirement coverage remains complete and the
 finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`; T050, T057, and T089 are
 intentional evidence gates rather than uncovered requirements. The mandatory
-repository issue-canon validator passed 149 Spec Kit issues.
+repository issue-canon validator passed after tracker closeout; 87 completed
+Feature-121 issues are closed and only the three live gates remain open.
+
+### Native local-purge hotfix
+
+Pre-install inspection found a production-shaped `403 csrf_token_missing` loop
+for native local-purge acknowledgement and recursively growing retry reasons.
+PR [#4242](https://github.com/yshishenya/crisp/pull/4242) moved native requests
+from browser cookies to redacted `X-Auth-Session`, explicitly disabled the
+URLSession cookie jar, preserved cookie-only browser CSRF rejection, bounded
+retry reasons, and added a lock-protected 4 MiB log rotation with one retained
+backup. Focused native/server regressions passed, the full canonical gate above
+passed, and the repeated independent review verdict was `CLEAN`.
+
+### Production, release, and installed-app closeout
+
+- Exact-tag deploy from `v2026.07.22.4` passed with
+  `deployed_sha=runtime_sha=3724b596bfc80a19d1dbef000f44c97d56fff7eb`,
+  backup `/opt/projects/2brain-rec/backups/20260722T073804Z`, restore rehearsal,
+  Alembic head `0031_recording_workflows`, runtime identities, Temporal and
+  processing/media worker readiness, automatic dispatch, smoke, and cleanup
+  of 37 database records plus 3 object keys.
+- Public `live` and `ready` returned HTTP 200. The six GitHub Release assets,
+  signed appcast, ZIP, PKG, checksums, notes, and Keychain attestation were
+  published; strict public re-fetch matched local SHA-256 values and passed ZIP
+  plus owner-only update validation. The appcast was replaced last and now
+  advertises `2026.07.22.4`; `.3` is marked superseded.
+- `/Applications/GRAF.app` was replaced only while idle and now reports
+  version `2026.07.22.4`, bundle id `pro.2brain.graf`, the unchanged designated
+  signing requirement, a running process, and retained microphone plus
+  Screen/System Audio grants. Post-launch queue refresh produced no
+  `csrf_token_missing`, recursive local-purge retry, or repeated stable retry;
+  the legacy 8.6 MiB log rotated to a bounded 4 MiB backup and a small current
+  log. This is post-launch negative evidence, not a fabricated positive
+  pending-task acknowledgement; the positive boundary is covered by the native
+  request and server CSRF integration regressions. The prior bundle remains in
+  a recoverable temporary backup.
 
 ### Open external rollout gates
 
@@ -516,10 +557,10 @@ repository issue-canon validator passed 149 Spec Kit issues.
   contracts pass; its positive live three-store content-location proof remains
   coupled to T050.
 
-Production deployment may safely include the schema, workers, UI, prompts, and
-disabled feature flags. `TWOBRAIN_OUTCOME_GENERATION_ENABLED`, prompt
-optimization, public-link, team, and external-invitation rollout remain false
-until their explicit gates are satisfied.
+Production now includes the schema, workers, UI, prompts, and disabled feature
+flags. `TWOBRAIN_OUTCOME_GENERATION_ENABLED`, prompt optimization, public-link,
+team, and external-invitation rollout remain false until their explicit gates
+are satisfied.
 
 T095 is satisfied by the owner's explicit advance approval in this task for
 commit, push, PR, merge, production deploy, release, and installed-app
