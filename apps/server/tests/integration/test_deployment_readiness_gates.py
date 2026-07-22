@@ -104,6 +104,8 @@ def test_remote_deploy_script_declares_and_executes_all_normalization_gates() ->
     assert "HostConfig.GroupAdd" in runtime
     dry_run_steps = next(line for line in wrapper.splitlines() if line.startswith("steps="))
     assert "runtime_secret_group" in dry_run_steps
+    assert 'export TWOBRAIN_LANGFUSE_RELEASE="$expected_sha"' in runtime
+    assert runtime.count('export TWOBRAIN_LANGFUSE_RELEASE="$previous_sha"') == 2
 
 
 def test_remote_deploy_secures_runtime_secrets_for_private_runtime_group(
@@ -185,6 +187,12 @@ printf 'runtime_secret_private_group_result=pass\\n'
     ):
         assert secret_variable in runtime[service_secret_call:ensure_call]
     assert "runtime_service_secret_permissions_result=pass" in runtime
+    litellm_gate = runtime.index('litellm_secret_file="${TWOBRAIN_LITELLM_API_KEY_SECRET_FILE:-}"')
+    assert service_secret_call < litellm_gate < ensure_call
+    assert '"${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}" == "true"' in runtime
+    assert '"${TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED:-false}" == "true"' in runtime
+    assert "reason=litellm_secret_permissions_invalid" in runtime[litellm_gate:ensure_call]
+    assert "litellm_secret_permissions_result=pass" in runtime[litellm_gate:ensure_call]
 
 
 @pytest.mark.parametrize(

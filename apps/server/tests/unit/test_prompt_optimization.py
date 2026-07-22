@@ -857,6 +857,10 @@ def test_control_prompt_sync_creates_unlabelled_candidates(monkeypatch) -> None:
     outcome_creates = [row for row in client.created if row["name"] not in CONTROL_PROMPTS]
     assert control_creates and all(row["labels"] == [] for row in control_creates)
     assert outcome_creates and all(row["labels"] == ["production"] for row in outcome_creates)
+    assert all(
+        f"config-contract-v{row['config']['config_contract_version']}" in row["tags"]
+        for row in client.created
+    )
     assert sum(value.startswith("created-control-candidate:") for value in outcomes) == 4
 
 

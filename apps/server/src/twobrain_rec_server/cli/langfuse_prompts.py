@@ -72,7 +72,7 @@ CONTROL_PROMPTS: dict[str, tuple[str, object, dict[str, object]]] = {
         {
             "config_contract_version": 1,
             "model": "gpt-5.6-luna",
-            "temperature": 0.2,
+            "temperature": 1,
             "max_completion_tokens": 4096,
         },
     ),
@@ -194,7 +194,11 @@ def sync_prompts(*, base_url: str, public_key: str, secret_key: str, apply: bool
                 name=name,
                 prompt=prompt,
                 labels=[] if name in CONTROL_PROMPTS else ["production"],
-                tags=["graf", "recording-workflows", "contract-v1"],
+                tags=[
+                    "graf",
+                    "recording-workflows",
+                    f"config-contract-v{config['config_contract_version']}",
+                ],
                 type=prompt_type,
                 config=config,
                 commit_message=(

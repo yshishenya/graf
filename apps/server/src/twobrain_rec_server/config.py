@@ -141,6 +141,7 @@ class Settings(BaseSettings):
     langfuse_public_key_file: Path | None = None
     langfuse_secret_key_file: Path | None = None
     langfuse_environment: str = "development"
+    langfuse_release: str | None = None
 
     outcome_generation_enabled: bool = False
     litellm_base_url: AnyUrl | None = None
@@ -248,6 +249,7 @@ class Settings(BaseSettings):
         "support_incident_github_token_file",
         "langfuse_public_key_file",
         "langfuse_secret_key_file",
+        "langfuse_release",
         "litellm_api_key_file",
         "public_analytics_yandex_metrica_id",
         "product_analytics_posthog_host",
@@ -404,6 +406,17 @@ class Settings(BaseSettings):
             raise ValueError(f"{capability} requires temporal_address")
         if self.litellm_base_url is None or self.litellm_api_key_file is None:
             raise ValueError(f"{capability} requires the LiteLLM URL and API key file")
+        if self.litellm_base_url.scheme != "https":
+            raise ValueError(f"{capability} requires an HTTPS LiteLLM URL")
+        if any(
+            (
+                self.litellm_base_url.username,
+                self.litellm_base_url.password,
+                self.litellm_base_url.query,
+                self.litellm_base_url.fragment,
+            )
+        ):
+            raise ValueError(f"{capability} requires a credential-free LiteLLM base URL")
         if self.langfuse_base_url is None:
             raise ValueError(f"{capability} requires langfuse_base_url")
         if self.langfuse_public_key_file is None or self.langfuse_secret_key_file is None:

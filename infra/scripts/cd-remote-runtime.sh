@@ -18,6 +18,7 @@ processing_worker_restart_baseline=""
 set -a
 . ./.env
 set +a
+export TWOBRAIN_LANGFUSE_RELEASE="$expected_sha"
 
 # File-backed Compose secrets retain host ownership. Keep generated files in
 # the deploy user's private primary group and grant only that numeric group to
@@ -261,6 +262,7 @@ feature_truth_count() {
 restore_previous_services() {
   local rollback_failed=0
   git reset --hard "$previous_sha" >/dev/null 2>&1 || rollback_failed=1
+  export TWOBRAIN_LANGFUSE_RELEASE="$previous_sha"
   local available_services rollback_build_services rollback_up_services service
   available_services="$("${compose[@]}" config --services 2>/dev/null || true)"
   rollback_build_services=()
@@ -354,6 +356,7 @@ restore_previous_safe_processing_runtime() {
   fi
   echo "rollback_fallback=previous_safe_processing_runtime"
   git reset --hard "$previous_sha" >/dev/null 2>&1 || rollback_failed=1
+  export TWOBRAIN_LANGFUSE_RELEASE="$previous_sha"
   if [[ "$rollback_failed" == "0" ]]; then
     "${compose[@]}" build rec-api rec-processing-worker >/dev/null 2>&1 \
       || rollback_failed=1
@@ -529,6 +532,18 @@ for runtime_service_secret in \
   fi
 done
 echo "runtime_service_secret_permissions_result=pass"
+
+if [[ "${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}" == "true" \
+  || "${TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED:-false}" == "true" ]]; then
+  litellm_secret_file="${TWOBRAIN_LITELLM_API_KEY_SECRET_FILE:-}"
+  if [[ -z "$litellm_secret_file" ]] \
+    || ! secure_runtime_secret_file "$litellm_secret_file"; then
+    echo "deploy_result=blocked"
+    echo "reason=litellm_secret_permissions_invalid"
+    exit 1
+  fi
+  echo "litellm_secret_permissions_result=pass"
+fi
 
 ensure_generated_secret \
   "${TWOBRAIN_POSTGRES_APP_PASSWORD_FILE:-./secrets/twobrain_postgres_app_password}" 32

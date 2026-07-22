@@ -13,6 +13,18 @@ from twobrain_rec_server.config import Settings
 
 _forced_trace_id: ContextVar[int | None] = ContextVar("graf_langfuse_trace_id", default=None)
 _forced_span_ids: ContextVar[tuple[int, ...]] = ContextVar("graf_langfuse_span_ids", default=())
+_BLOCKED_INSTRUMENTATION_SCOPES = {
+    "opentelemetry.instrumentation.fastapi",
+    "opentelemetry.instrumentation.httpx",
+    "opentelemetry.instrumentation.sqlalchemy",
+}
+_OPENAI_USAGE_FIELDS = {
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "prompt_tokens_details",
+    "completion_tokens_details",
+}
 
 
 class CompletedGenerationCall(Protocol):
@@ -125,14 +137,20 @@ def create_langfuse_client(settings: Settings) -> Any:
         secret_key=_read_required_secret(settings.langfuse_secret_key_file),
         base_url=str(settings.langfuse_base_url).rstrip("/"),
         environment=settings.langfuse_environment,
+        release=settings.langfuse_release,
         tracing_enabled=True,
         mask=None,
-        blocked_instrumentation_scopes=[
-            "opentelemetry.instrumentation.fastapi",
-            "opentelemetry.instrumentation.httpx",
-            "opentelemetry.instrumentation.sqlalchemy",
-        ],
+        should_export_span=_should_export_langfuse_span,
         id_generator=_GrafLangfuseIdGenerator(),
+    )
+
+
+def _should_export_langfuse_span(span: Any) -> bool:
+    from langfuse.span_filter import is_default_export_span
+
+    scope = getattr(span, "instrumentation_scope", None)
+    return is_default_export_span(span) and (
+        scope is None or scope.name not in _BLOCKED_INSTRUMENTATION_SCOPES
     )
 
 
@@ -171,7 +189,7 @@ def workflow_dispatch_observation(
             environment=environment,
             tags=tags,
             trace_name=trace_name,
-            as_baggage=False,
+            as_baggage=True,
         ),
         client.start_as_current_observation(
             name=trace_name,
@@ -207,7 +225,7 @@ def publish_completed_generation(
 
     if call.completed_at is None:
         raise ValueError("only completed generation calls can be published")
-    usage_details = _integer_mapping(call.token_usage)
+    usage_details = _usage_details(call.token_usage)
     cost_details = _float_mapping(call.cost_details)
     tags = [
         "feature:recording-workflows",
@@ -263,13 +281,6 @@ def publish_completed_generation(
             prompt=prompt,
             completion_start_time=call.started_at,
         )
-        generation.set_trace_io(
-            input={"request": call.request_json},
-            output={
-                "raw_response": call.raw_response_json,
-                "validated_result": call.validated_result_json,
-            },
-        )
         _set_original_start_time(generation, call.started_at)
         generation.end(end_time=_nanoseconds(call.completed_at))
     client.flush()
@@ -314,6 +325,25 @@ def _integer_mapping(value: Mapping[str, object] | None) -> dict[str, int]:
         for key, item in value.items()
         if isinstance(item, int) and not isinstance(item, bool)
     }
+
+
+def _usage_details(value: Mapping[str, object] | None) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if set(value) & {
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+    }:
+        normalized: dict[str, Any] = _integer_mapping(
+            {key: value[key] for key in _OPENAI_USAGE_FIELDS & set(value)}
+        )
+        for key in ("prompt_tokens_details", "completion_tokens_details"):
+            details = value.get(key)
+            if isinstance(details, Mapping):
+                normalized[key] = _integer_mapping(details)
+        return normalized
+    return _integer_mapping(value)
 
 
 def _float_mapping(value: Mapping[str, object] | None) -> dict[str, float]:
