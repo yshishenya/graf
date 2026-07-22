@@ -9,14 +9,15 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 
 ## Reconciliation status
 
-- Planning tasks T001-T005 and 87 implementation/validation tasks are complete.
+- Planning tasks T001-T005 and 89 implementation/validation tasks are complete.
   Post-implementation analyze finished at CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`;
   canonical CI, repeated correctness/security review, and final Ponytail
   `Lean already. Ship.` evidence are recorded in `quickstart.md`.
-- T050/#4170, T057/#4177, and T089/#4209 remain open. They require the owner's
-  LiteLLM URL/key, immutable synthetic manifests, a real two-worker forced-crash
-  GEPA exercise, and live Generation Call/Temporal/Langfuse three-store
-  read-back. Runtime flags remain off; no unavailable evidence is claimed.
+- T050/#4170 and T089/#4209 have production LiteLLM, retained Generation Call,
+  Temporal History, private Langfuse, reconciler, and zero-leak evidence. Only
+  T057/#4177 remains open: it still requires owner-approved immutable synthetic
+  manifests, a human-labelled calibration pack, and a real two-worker
+  forced-crash GEPA promotion/rollback exercise.
 - Every implementation and validation task T006-T095 has exactly one canonical
   Russian issue in
   [feature:121](https://github.com/yshishenya/crisp/issues?q=is%3Aissue%20label%3Afeature%3A121).
@@ -27,13 +28,15 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   `issue number = numeric task id + 4120`.
 - After merge, production deploy, public
   [`v2026.07.22.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.4),
-  and installed-app verification, 87 completed issues were closed with Russian
-  evidence receipts. Exactly 3 of 90 remain open: #4170, #4177, and #4209.
+  installed-app verification, and the production AI observability closeout,
+  89 completed issues have verified evidence. Exactly 1 of 90 remains open:
+  #4177.
 - Implementation/release links: PR
   [#4235](https://github.com/yshishenya/crisp/pull/4235), native purge hotfix
-  [#4242](https://github.com/yshishenya/crisp/pull/4242), and release prep
-  [#4243](https://github.com/yshishenya/crisp/pull/4243). The repository-wide
-  issue-canon validator was rerun after tracker closeout.
+  [#4242](https://github.com/yshishenya/crisp/pull/4242), release prep
+  [#4243](https://github.com/yshishenya/crisp/pull/4243), and response-attempt
+  reconciler [#4250](https://github.com/yshishenya/crisp/pull/4250). The
+  repository-wide issue-canon validator is rerun after tracker closeout.
 
 ## Phase ranges
 

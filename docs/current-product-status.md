@@ -20,10 +20,12 @@ metadata-only evidence остаются подробной историей ре
   retained Generation Call и Temporal History, тогда как обычные audit/logs и
   evidence остаются metadata-only.
 - Канонический локальный gate после повторных correctness/security/Ponytail
-  review прошёл: 608 macOS tests, ContractValidation PASS, 2178 server tests
+  review прошёл: 608 macOS tests, ContractValidation PASS, 2191 server tests
   passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1 skipped, Ruff,
-  compile, Compose и evidence scan PASS. Десять outcome prompts verified в
-  private production Langfuse v1; четыре control prompts остаются без
+  compile, Compose и evidence scan PASS; collection digest
+  `e17b34f99664a8cca403c031fd70343b5cbb27cc86952cf19db56a298cfa4673`.
+  Десять outcome prompts verified в private production Langfuse v2; четыре
+  control prompts остаются без
   production promotion до calibration gate.
 - Feature 121 merged через PR #4235; найденный перед установкой native
   local-purge/CSRF дефект исправлен и повторно reviewed в PR #4242. Release
@@ -35,11 +37,20 @@ metadata-only evidence остаются подробной историей ре
   `/Applications/GRAF.app` обновлена до `2026.07.22.4` с сохранёнными identity
   и TCC grants; после запуска новых `csrf_token_missing` не наблюдалось, но
   положительный live pending-purge ack не заявляется. Журнал ограничен 4 МиБ.
-- Runtime rollout остаётся fail-closed: outcome generation, prompt
-  optimization, public/team links и external invitations выключены. T050,
-  T057 и T089 требуют будущие LiteLLM URL/key, immutable synthetic manifests и
-  live three-store/two-worker evidence; код, schema и disabled infrastructure
-  могут быть выпущены без заявления этого evidence.
+- Outcome generation в production настроена и прошла live LiteLLM proof
+  на `gpt-5.6-luna`: retained Generation Call, plaintext Temporal History и
+  private Langfuse trace с точными IO/usage/cost/release/correlation прошли
+  read-back. Reconciler из PR #4250 доводит все response-bearing attempts
+  до confirmed без повтора inference; backlog после proof равен `0`.
+  Production работает на content-equivalent overlay
+  `3a1cfbdcdde5250ec447fc00f8d98a41cf34784a`; patch-marker/child в retained
+  history требуют forward-fix rollback. Expanded scan проверил 21 secret-
+  файл, логи, non-ledger DB и committed content: все matches `0`;
+  audio rows/screenshots/diagnostics `0`, analytics disabled/no event path.
+  T050 и T089 закрыты; открыта только T057 без owner-approved
+  immutable train/development/held-out manifests, human calibration pack и
+  real two-worker forced-crash GEPA promotion/rollback evidence. Prompt
+  optimization, public/team links и external invitations остаются выключены.
 
 ## Validation update (2026-07-21)
 
@@ -63,10 +74,10 @@ Requirements-only остаются `011`, `026–029` и `101`; для них н
 искусственные plan/tasks. В implementation/release slice 096–121 статусы
 сверены с task receipts и release boundaries: открыты только явно отмеченные
 гейты, включая 096/T101/T104, 106/T049/T063/T064, 109/T022, 119/T008 и
-120/T059 и 121/T050/T057/T089. Feature 118 имеет полный Spec Kit package и
+120/T059 и 121/T057. Feature 118 имеет полный Spec Kit package и
 release receipt, Feature 120 — merged implementation plus controlled
 production-preview receipt, а Feature 121 — released/deployed/installed
-fail-closed infrastructure с тремя явно открытыми live gates.
+outcome generation с одним явно открытым GEPA gate.
 Эта сверка не закрывает general-release, security или representative-reviewer
 gates.
 
