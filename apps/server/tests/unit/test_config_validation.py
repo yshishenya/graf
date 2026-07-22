@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+
 from twobrain_rec_server.config import LOCAL_DEV_SMOKE_IDS, SMOKE_IDENTITY_CLASS, Settings
 
 
