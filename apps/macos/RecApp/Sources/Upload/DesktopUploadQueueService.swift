@@ -20,6 +20,15 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
     }
 }
 
+public enum DesktopUploadFollowUpReason {
+    public static let localPurgeAcknowledgementRetry = "local_purge_ack_retry"
+    public static let scheduledRetry = "scheduled_retry"
+
+    public static func processing(after reason: String) -> String {
+        reason.hasPrefix("processing_follow_up") ? "processing_follow_up" : "processing_follow_up_after_\(reason)"
+    }
+}
+
 private extension LocalRecordingManifest {
     var isServerUploadEligible: Bool {
         Self.sessionStatusAllowsUpload(status, failureReason: failureReason) &&
