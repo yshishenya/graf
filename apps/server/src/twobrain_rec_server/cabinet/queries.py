@@ -63,9 +63,11 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     ProcessingWorkflow,
     RecordingCalendarContextLink,
+    SummaryTemplate,
     TranscriptSegment,
     UploadPart,
     UploadSession,
+    Workspace,
     WorkspaceProviderLinkState,
 )
 from twobrain_rec_server.domain.statuses import (
@@ -74,6 +76,7 @@ from twobrain_rec_server.domain.statuses import (
     UploadSessionStatus,
 )
 from twobrain_rec_server.outcomes.service import load_outcome_items
+from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY
 
 WEB_STATUS_FILTER_GROUPS: dict[MeetingReviewStatus, frozenset[MeetingReviewStatus]] = {
     "processing": frozenset({"processing", "submitted"}),
@@ -571,6 +574,40 @@ async def get_cabinet_meeting_review(
         meeting_id=meeting_id,
         processing_result_id=result.id if result is not None else None,
     )
+    outcome_template_name = None
+    if outcome_set is not None and outcome_set.template_id is not None:
+        outcome_template = await db.scalar(
+            select(SummaryTemplate).where(
+                SummaryTemplate.workspace_id == workspace_id,
+                SummaryTemplate.id == outcome_set.template_id,
+            )
+        )
+        outcome_template_name = outcome_template.name if outcome_template is not None else None
+    default_summary_template_key = "graf-auto-v1"
+    default_summary_template_name = None
+    workspace = await db.scalar(select(Workspace).where(Workspace.id == workspace_id))
+    if workspace is not None:
+        default_definition = BUILT_IN_BY_KEY.get(workspace.default_summary_template_key)
+        if (
+            workspace.default_summary_template_id is None
+            and default_definition is not None
+            and default_definition.version == workspace.default_summary_template_version
+        ):
+            default_summary_template_key = default_definition.key
+        elif workspace.default_summary_template_id is not None:
+            personal_default = await db.scalar(
+                select(SummaryTemplate).where(
+                    SummaryTemplate.workspace_id == workspace_id,
+                    SummaryTemplate.id == workspace.default_summary_template_id,
+                    SummaryTemplate.owner_user_id == viewer_user_id,
+                    SummaryTemplate.template_key == workspace.default_summary_template_key,
+                    SummaryTemplate.version == workspace.default_summary_template_version,
+                    SummaryTemplate.status == "active",
+                )
+            )
+            if personal_default is not None:
+                default_summary_template_key = personal_default.template_key
+                default_summary_template_name = personal_default.name
     dependency = await db.scalar(
         select(ProcessingDependencyState)
         .where(
@@ -638,6 +675,9 @@ async def get_cabinet_meeting_review(
             viewer_user_id=viewer_user_id,
         ),
         outcome_set=outcome_set,
+        outcome_template_name=outcome_template_name,
+        default_summary_template_key=default_summary_template_key,
+        default_summary_template_name=default_summary_template_name,
         outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
         speaker_names=speaker_names,
         can_rename_speakers=decision.state == "owner" or decision.role in {"owner", "admin"},

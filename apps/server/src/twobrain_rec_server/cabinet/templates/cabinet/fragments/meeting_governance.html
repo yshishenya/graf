@@ -1,0 +1,24 @@
+<dialog class="panel meeting-context-panel meeting-context-dialog" id="meeting-context-more" data-meeting-context-panel="more" aria-modal="true" aria-labelledby="meeting-context-more-title">
+  <div class="panel-head"><h2 id="meeting-context-more-title">Ещё</h2></div>
+  <div class="meeting-more-actions" role="menu" aria-label="Действия со встречей">
+    {% if content_export_available %}
+      <button type="button" role="menuitem" data-export-dialog-open aria-haspopup="dialog" aria-controls="content-export-dialog">Экспортировать…</button>
+    {% endif %}
+    {% if audio_download_available %}
+      <a role="menuitem" href="/api/v1/cabinet/meetings/{{ meeting_id }}/downloads/audio">Скачать аудио</a>
+    {% endif %}
+  </div>
+  <h3>Файлы</h3>
+  {{ artifacts }}
+  <div class="truth-copy" data-boundary-copy="{{ deletion_truth_copy }}">{{ deletion_truth_text }}</div>
+  {{ delete_confirmation }}
+  <details>
+    <summary>Сведения о встрече</summary>
+    {{ revision_status }}
+    {{ calendar_context }}
+    <h3>Спикеры</h3>
+    {{ speaker_lanes }}
+    <h3>Активность</h3>
+    {{ activity }}
+  </details>
+</dialog>

@@ -44,6 +44,13 @@ class Meeting(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retention_delete_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retention_policy_state: Mapped[str] = mapped_column(String(64), default="not_configured")
+    current_outcome_set_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "meeting_outcome_sets.id",
+            name="fk_meetings_current_outcome_set",
+            use_alter=True,
+        )
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

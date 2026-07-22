@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -24,7 +25,9 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_list_page,
     render_meeting_unavailable_page,
     render_settings_page,
+    render_share_invitation_accept_page,
 )
+from twobrain_rec_server.cabinet.review_policy_rendering import render_meeting_share_fragment
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
 )
@@ -59,6 +62,22 @@ def _meeting_unavailable_response(
     return cabinet_html_response(
         render_meeting_unavailable_page(csrf_token=csrf_token),
         status_code=404,
+    )
+
+
+@router.get("/share-invitations/{share_token}", response_class=HTMLResponse, include_in_schema=False)
+async def share_invitation_accept_page(
+    request: Request,
+    share_token: str,
+    workspace_id: Annotated[UUID, Query()],
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+) -> HTMLResponse:
+    return cabinet_html_response(
+        render_share_invitation_accept_page(
+            share_token=share_token,
+            workspace_id=str(workspace_id),
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
     )
 
 
@@ -121,7 +140,7 @@ async def meeting_detail_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     storage: object = StorageDependency,
     db: AsyncSession | None = WebDbDependency,
-) -> HTMLResponse:
+) -> Response:
     if db is None:
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
@@ -146,6 +165,11 @@ async def meeting_detail_page(
             request,
             csrf_token=_csrf_token_for_principal(request, principal),
         )
+    if response.access is not None and not response.access.can_view_full_meeting:
+        return RedirectResponse(
+            url=f"/api/v1/cabinet/meetings/{parsed_meeting_id}/shared-summary",
+            status_code=302,
+        )
     if _is_hx_request(request):
         return cabinet_html_response(
             render_meeting_detail_fragment(
@@ -168,6 +192,36 @@ async def meeting_detail_page(
             ),
         )
     )
+
+
+@router.get(
+    "/meetings/{meeting_id}/share",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def meeting_share_fragment(
+    request: Request,
+    meeting_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    response = await get_cabinet_meeting_review(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+        storage=storage,
+    )
+    if response is None or response.access is None or not response.access.can_share:
+        return _meeting_unavailable_response(
+            request,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    return cabinet_html_response(render_meeting_share_fragment(response), hx_request=True)
 
 
 @router.get("/settings", response_class=HTMLResponse, include_in_schema=False)

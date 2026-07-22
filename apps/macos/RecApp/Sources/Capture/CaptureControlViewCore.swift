@@ -11,6 +11,7 @@ public struct CaptureControlView: View {
     private let selectedRecordingMicrophoneDeviceId: String?
     private let calendarPrompt: DesktopCalendarPrompt?
     private let meetingDetectionStatus: String?
+    private let readinessStatus: DesktopPermissionOnboardingStatus
     private let recordingLevels: LiveRecordingLevels
     private let recordDisabled: Bool
     private let stopDisabled: Bool
@@ -23,6 +24,7 @@ public struct CaptureControlView: View {
     private let onCalendarPromptPrimary: (DesktopCalendarPrompt) -> Void
     private let onCalendarPromptDismiss: (DesktopCalendarPrompt) -> Void
     private let onMeetingDetectionSettings: () -> Void
+    private let onPermissionRecovery: () -> Void
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     public init(
@@ -35,6 +37,7 @@ public struct CaptureControlView: View {
         selectedRecordingMicrophoneDeviceId: String? = nil,
         calendarPrompt: DesktopCalendarPrompt? = nil,
         meetingDetectionStatus: String? = nil,
+        readinessStatus: DesktopPermissionOnboardingStatus = .unknown,
         recordingLevels: LiveRecordingLevels = .inactive,
         recordDisabled: Bool = false,
         stopDisabled: Bool = false,
@@ -46,7 +49,8 @@ public struct CaptureControlView: View {
         onSelectRecordingMicrophone: @escaping (String?) -> Void = { _ in },
         onCalendarPromptPrimary: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
         onCalendarPromptDismiss: @escaping (DesktopCalendarPrompt) -> Void = { _ in },
-        onMeetingDetectionSettings: @escaping () -> Void = {}
+        onMeetingDetectionSettings: @escaping () -> Void = {},
+        onPermissionRecovery: @escaping () -> Void = {}
     ) {
         self.session = session
         self.blockedReason = blockedReason
@@ -57,6 +61,7 @@ public struct CaptureControlView: View {
         self.selectedRecordingMicrophoneDeviceId = selectedRecordingMicrophoneDeviceId
         self.calendarPrompt = calendarPrompt
         self.meetingDetectionStatus = meetingDetectionStatus
+        self.readinessStatus = readinessStatus
         self.recordingLevels = recordingLevels
         self.recordDisabled = recordDisabled
         self.stopDisabled = stopDisabled
@@ -69,6 +74,7 @@ public struct CaptureControlView: View {
         self.onCalendarPromptPrimary = onCalendarPromptPrimary
         self.onCalendarPromptDismiss = onCalendarPromptDismiss
         self.onMeetingDetectionSettings = onMeetingDetectionSettings
+        self.onPermissionRecovery = onPermissionRecovery
     }
 
     public var body: some View {
@@ -122,6 +128,26 @@ public struct CaptureControlView: View {
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordButton)
                     .help(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
                 }
+
+                if session.map({ CaptureStatusItem.showsStopButton(for: $0) }) != true,
+                   let readinessSummary = Self.readinessSummary(for: readinessStatus) {
+                    HStack(spacing: 8) {
+                        Label(
+                            readinessSummary,
+                            systemImage: readinessStatus.isReady ? "checkmark.circle" : "lock.trianglebadge.exclamationmark"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(readinessStatus.isReady ? secondaryTextColor : Color.orange)
+                        .accessibilityLabel(readinessSummary)
+
+                        if !readinessStatus.isReady {
+                            Spacer(minLength: 4)
+                            Button("Настроить доступы", action: onPermissionRecovery)
+                                .controlSize(.small)
+                                .accessibilityLabel("Настроить доступы к микрофону и системному звуку")
+                        }
+                    }
+                }
             }
 
             if let blockedReason, !blockedReason.isEmpty {
@@ -137,6 +163,17 @@ public struct CaptureControlView: View {
                 )
                     .accessibilityLabel(blockedReason)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.blockerBanner)
+            }
+
+            if let session,
+               let degradedRecovery = Self.degradedSourceRecovery(for: session) {
+                StatusNoteView(
+                    icon: "exclamationmark.triangle.fill",
+                    title: "Источник записи недоступен",
+                    detail: degradedRecovery,
+                    iconColor: .orange
+                )
+                .accessibilityLabel(degradedRecovery)
             }
 
             if let calendarPrompt {
@@ -256,6 +293,35 @@ public struct CaptureControlView: View {
         return !CaptureStatusItem.showsStopButton(for: session)
     }
 
+    public static func readinessSummary(for status: DesktopPermissionOnboardingStatus) -> String? {
+        switch (status.microphone, status.systemAudio) {
+        case (.granted, .granted):
+            return "Микрофон и системный звук готовы"
+        case (.granted, _):
+            return "Нужен доступ к системному звуку"
+        case (_, .granted):
+            return "Нужен доступ к микрофону"
+        default:
+            return "Нужен доступ к микрофону и системному звуку"
+        }
+    }
+
+    public static func degradedSourceRecovery(for session: CaptureSession) -> String? {
+        guard session.state == .degraded else {
+            return nil
+        }
+        let sourceTitle = switch session.triggerEvidence["degradedSource"] {
+        case "microphone":
+            "Микрофон"
+        case "system_audio":
+            "Системный звук"
+        default:
+            "Один из источников"
+        }
+        let recovery = session.triggerEvidence["recoveryAction"] ?? "Остановите запись и проверьте источник."
+        return "\(sourceTitle) недоступен. \(recovery)"
+    }
+
     public static func shouldEnableRecordButton(
         for session: CaptureSession?,
         recordDisabled: Bool
@@ -343,9 +409,6 @@ public struct CaptureControlView: View {
         }
         if normalized.contains("Запрос записи отключен") {
             return "Автоопределение выключено"
-        }
-        if normalized.contains("Автозапись") {
-            return "Автоопределение: включено"
         }
         if normalized == "Недоступно" {
             return "Автоопределение недоступно"

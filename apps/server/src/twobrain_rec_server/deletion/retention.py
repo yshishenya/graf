@@ -50,6 +50,7 @@ async def run_retention_scan(
     limit: int = 100,
     dry_run: bool = False,
     storage: object | None = None,
+    temporal_client: object | None = None,
 ) -> RetentionRunResponse:
     snapshot = await persist_retention_policy_snapshot(db, settings, workspace_id=workspace_id)
     if not retention_policy_allows_actions(snapshot):
@@ -116,6 +117,7 @@ async def run_retention_scan(
             policy_snapshot_id=snapshot.id,
             backup_expiry_days=snapshot.backup_expiry_days,
             storage=storage,
+            temporal_client=temporal_client,
         )
         meeting.retention_policy_state = RetentionPolicyState.EXPIRED.value
         created_requests += 1

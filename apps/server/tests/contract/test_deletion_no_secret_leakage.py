@@ -12,7 +12,10 @@ from twobrain_rec_server.api.schemas import (
     LocalPurgeAckRequest,
     LocalPurgeTask,
 )
+from twobrain_rec_server.db.models import Meeting
+from twobrain_rec_server.deletion.service import _initial_artifact_states
 from twobrain_rec_server.domain.statuses import (
+    DeletionArtifactClass,
     DeletionArtifactState,
     DeletionControlScope,
     DeletionState,
@@ -22,7 +25,9 @@ from twobrain_rec_server.domain.statuses import (
 
 
 def test_deletion_request_requires_bounded_confirmation_copy() -> None:
-    request = CreateDeletionRequest(confirmation_boundary="Delete this meeting everywhere GRAF controls.")
+    request = CreateDeletionRequest(
+        confirmation_boundary="Delete this meeting everywhere GRAF controls."
+    )
 
     assert request.confirmation_boundary == "Delete this meeting everywhere GRAF controls."
 
@@ -107,3 +112,52 @@ def test_local_purge_ack_rejects_private_proof_payloads() -> None:
             reason_code="purged",
             local_path="/Users/person/Library/Application Support/2brain/private.wav",
         )
+
+
+def test_deletion_report_names_retained_plaintext_observability_without_failed_purge() -> None:
+    meeting = Meeting(
+        id=uuid4(),
+        workspace_id=uuid4(),
+        created_by_user_id=uuid4(),
+        device_id=uuid4(),
+        local_recording_id="synthetic-retained-observability",
+        duration_seconds=0,
+    )
+    rows = _initial_artifact_states(meeting, uuid4())
+    by_class = {row.artifact_class: row for row in rows}
+
+    for artifact_class in (
+        DeletionArtifactClass.GENERATION_CALL,
+        DeletionArtifactClass.LANGFUSE,
+        DeletionArtifactClass.TEMPORAL_HISTORY,
+    ):
+        row = by_class[artifact_class.value]
+        assert row.state == DeletionArtifactState.OBSERVABILITY_RETAINED.value
+        assert "plaintext" in row.safe_reason.casefold()
+        assert "failed" not in row.safe_reason.casefold()
+
+    assert "Generation Call" in by_class["generation_call"].safe_reason
+    assert "Langfuse" in by_class["langfuse"].safe_reason
+    assert "Temporal History" in by_class["temporal_history"].safe_reason
+    assert "synthetic private meeting content" not in " ".join(row.safe_reason for row in rows)
+
+
+def test_pending_generation_without_an_outcome_does_not_claim_a_summary_purge() -> None:
+    meeting = Meeting(
+        id=uuid4(),
+        workspace_id=uuid4(),
+        created_by_user_id=uuid4(),
+        device_id=uuid4(),
+        local_recording_id="synthetic-pending-generation",
+        duration_seconds=0,
+    )
+    rows = _initial_artifact_states(
+        meeting,
+        uuid4(),
+        outcomes_materialized=False,
+        materialized_artifact_classes={DeletionArtifactClass.OUTCOME_ATTEMPT},
+    )
+    by_class = {row.artifact_class: row for row in rows}
+
+    assert by_class["notes_summary"].state == DeletionArtifactState.NOT_APPLICABLE.value
+    assert by_class["outcome_attempt"].state == DeletionArtifactState.METADATA_RETAINED.value

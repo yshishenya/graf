@@ -24,7 +24,7 @@
   const listInteractionIsActive = () => {
     const region = document.querySelector("#meeting-list-region");
     if (!region) return false;
-    const modalIsOpen = document.querySelector("[data-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open]");
+    const modalIsOpen = document.querySelector("[data-delete-dialog][open], [data-meeting-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open]");
     return Boolean(modalIsOpen) || region.contains(document.activeElement) || region.matches(":hover") || selectedRows().length > 0;
   };
 
@@ -38,6 +38,27 @@
   const isUsableFocusTarget = (target) => target instanceof HTMLElement &&
     target.isConnected &&
     target.closest("[hidden], [aria-hidden='true']") === null;
+
+  const modalFocusTargets = (dialog) => Array.from(dialog.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter((element) => isUsableFocusTarget(element) && !element.matches(":disabled"));
+
+  const trapModalFocus = (dialog, event) => {
+    if (event.key !== "Tab" || !dialog.open) return;
+    const elements = modalFocusTargets(dialog);
+    if (!elements.length) return;
+    const current = elements.indexOf(document.activeElement);
+    const next = event.shiftKey
+      ? (current <= 0 ? elements.length - 1 : current - 1)
+      : (current < 0 || current === elements.length - 1 ? 0 : current + 1);
+    if (
+      (event.shiftKey && current <= 0) ||
+      (!event.shiftKey && (current < 0 || current === elements.length - 1))
+    ) {
+      event.preventDefault();
+      elements[next].focus({ preventScroll: true });
+    }
+  };
 
   const updateSelection = () => {
     const list = currentList();
@@ -389,6 +410,7 @@
       const selected = tab.dataset.detailTab === name;
       tab.classList.toggle("active", selected);
       tab.setAttribute("aria-selected", selected ? "true" : "false");
+      tab.tabIndex = selected ? 0 : -1;
     });
     panels.forEach((panel) => {
       const selected = panel.dataset.detailPanel === name;
@@ -405,8 +427,579 @@
       if (tab.dataset.detailTabReady === "true") return;
       tab.dataset.detailTabReady = "true";
       tab.addEventListener("click", () => activateDetailTab(tab.dataset.detailTab || "recording"));
+      tab.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const current = tabs.indexOf(tab);
+        const next = event.key === "Home" ? 0
+          : event.key === "End" ? tabs.length - 1
+          : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+        activateDetailTab(tabs[next].dataset.detailTab || "recording");
+        tabs[next].focus();
+      });
     });
     if (window.location.hash === "#outcomes") activateDetailTab("outcomes");
+  };
+
+  const initSummaryFormats = () => {
+    document.querySelectorAll("[data-summary-format-controls]").forEach((controls) => {
+      if (controls.dataset.summaryFormatReady === "true") return;
+      const button = controls.querySelector("[data-summary-format-button]");
+      const listbox = controls.querySelector("[data-summary-format-listbox]");
+      const status = document.querySelector("[data-summary-candidate-status]");
+      const dialog = document.querySelector("[data-summary-format-dialog]");
+      const meetingId = controls.dataset.meetingId || "";
+      const candidateStorageKey = `graf-summary-candidate-${meetingId}`;
+      let currentOutcomeSetId = controls.dataset.currentOutcomeSetId || null;
+      let activeTemplate = null;
+      let pollingTimer = null;
+      if (!button || !listbox) return;
+      controls.dataset.summaryFormatReady = "true";
+      const options = () => Array.from(listbox.querySelectorAll('[role="option"]'));
+      const close = ({ restoreFocus = true } = {}) => {
+        listbox.hidden = true;
+        button.setAttribute("aria-expanded", "false");
+        if (restoreFocus) button.focus({ preventScroll: true });
+      };
+      const open = () => {
+        listbox.hidden = false;
+        button.setAttribute("aria-expanded", "true");
+        const selected = listbox.querySelector('[role="option"][aria-selected="true"]');
+        (selected || options()[0])?.focus({ preventScroll: true });
+      };
+      const setBusy = (busy) => {
+        button.disabled = busy;
+        controls.setAttribute("aria-busy", busy ? "true" : "false");
+      };
+      const showStatus = (message, state = "generating", actions = []) => {
+        if (!status) return;
+        status.hidden = false;
+        status.dataset.state = state;
+        status.replaceChildren();
+        const copy = document.createElement("span");
+        copy.textContent = message;
+        status.append(copy);
+        if (!actions.length) return;
+        const actionRow = document.createElement("div");
+        actionRow.className = "summary-candidate-actions";
+        actions.forEach(({ text, action, primary = false }) => {
+          const actionButton = document.createElement("button");
+          actionButton.type = "button";
+          actionButton.textContent = text;
+          if (primary) actionButton.className = "button";
+          actionButton.addEventListener("click", action);
+          actionRow.append(actionButton);
+        });
+        status.append(actionRow);
+      };
+      const candidateErrorCopy = (code) => ({
+        summary_transcript_too_large: "Расшифровка слишком большая для этого действия.",
+        summary_transcript_snapshot_invalid: "Расшифровка изменилась. Обновите страницу и попробуйте снова.",
+        summary_generation_unavailable: "Новый вариант сейчас недоступен. Текущие итоги сохранены.",
+        summary_revision_conflict: "Итоги уже изменились. Обновите страницу."
+      }[code] || "Не удалось подготовить новый вариант. Текущие итоги сохранены.");
+      const retryCandidateAction = () => activeTemplate
+        ? { text: "Повторить", action: () => requestCandidate(activeTemplate), primary: true }
+        : { text: "Обновить страницу", action: () => window.location.reload(), primary: true };
+      const mutate = async (url, method, body) => {
+        const response = await fetch(url, {
+          method,
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
+          },
+          body: body === undefined ? undefined : JSON.stringify(body)
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.code || "summary_request_failed");
+        return payload;
+      };
+      const resolveCandidate = async (candidate, accept) => {
+        setBusy(true);
+        try {
+          const resolved = await mutate(
+            `/api/v1/cabinet/meetings/${meetingId}/summary-candidates/${candidate.candidate_id}/${accept ? "accept" : "reject"}`,
+            "POST",
+            { expected_current_outcome_set_id: currentOutcomeSetId }
+          );
+          currentOutcomeSetId = resolved.current_outcome_set_id || currentOutcomeSetId;
+          if (accept) window.location.reload();
+          else if (status) status.hidden = true;
+        } catch (error) {
+          showStatus(candidateErrorCopy(error instanceof Error ? error.message : ""), "failed");
+        } finally {
+          setBusy(false);
+        }
+      };
+      const renderCandidate = (candidate) => {
+        if (candidate.state === "generating") {
+          window.sessionStorage.setItem(candidateStorageKey, JSON.stringify({
+            poll_url: candidate.poll_url,
+            template: activeTemplate
+          }));
+          showStatus("Готовим новый вариант. Текущие итоги остаются на месте.");
+          return;
+        }
+        window.clearTimeout(pollingTimer);
+        window.sessionStorage.removeItem(candidateStorageKey);
+        pollingTimer = null;
+        setBusy(false);
+        if (candidate.state === "ready") {
+          showStatus("Новый вариант готов. Текущие итоги сохранены.", "ready", [
+            { text: "Оставить текущие", action: () => resolveCandidate(candidate, false) },
+            { text: "Использовать", action: () => resolveCandidate(candidate, true), primary: true }
+          ]);
+          return;
+        }
+        if (candidate.state === "accepted") {
+          window.location.reload();
+          return;
+        }
+        showStatus("Не удалось подготовить новый вариант. Текущие итоги сохранены.", "failed", [
+          retryCandidateAction()
+        ]);
+      };
+      const pollCandidate = async (candidate) => {
+        try {
+          const response = await fetch(candidate.poll_url, { credentials: "same-origin", cache: "no-store" });
+          if (!response.ok) throw new Error("summary_poll_failed");
+          const next = await response.json();
+          renderCandidate(next);
+          if (next.state === "generating") {
+            pollingTimer = window.setTimeout(() => pollCandidate(next), 1200);
+          }
+        } catch (_error) {
+          setBusy(false);
+          showStatus("Не удалось обновить новый вариант. Текущие итоги сохранены.", "failed", [
+            retryCandidateAction()
+          ]);
+        }
+      };
+      const requestCandidate = async (template) => {
+        if (!template || !meetingId) return;
+        activeTemplate = template;
+        setBusy(true);
+        showStatus(`Готовим формат «${template.name}». Текущие итоги остаются на месте.`);
+        try {
+          const candidate = await mutate(
+            `/api/v1/cabinet/meetings/${meetingId}/summary-candidates`,
+            "POST",
+            {
+              template_key: template.key,
+              template_id: template.id || null,
+              template_version: template.version,
+              expected_current_outcome_set_id: currentOutcomeSetId
+            }
+          );
+          renderCandidate(candidate);
+          if (candidate.state === "generating") {
+            pollingTimer = window.setTimeout(() => pollCandidate(candidate), 1200);
+          }
+        } catch (error) {
+          setBusy(false);
+          showStatus(candidateErrorCopy(error instanceof Error ? error.message : ""), "failed", [
+            { text: "Повторить", action: () => requestCandidate(template), primary: true }
+          ]);
+        }
+      };
+      const templateFrom = (option) => ({
+        id: option.dataset.templateId || null,
+        key: option.dataset.templateKey,
+        version: Number(option.dataset.templateVersion || "1"),
+        name: option.dataset.templateName || option.textContent.trim()
+      });
+      button.addEventListener("click", () => listbox.hidden ? open() : close());
+      button.addEventListener("keydown", (event) => {
+        if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        open();
+        const items = options();
+        const target = event.key === "ArrowUp" || event.key === "End"
+          ? items[items.length - 1]
+          : items[0];
+        target?.focus({ preventScroll: true });
+      });
+      listbox.addEventListener("keydown", (event) => {
+        const option = event.target.closest?.('[role="option"]');
+        if (!option) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          close();
+          return;
+        }
+        if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const items = options();
+        const current = items.indexOf(option);
+        const next = event.key === "Home" ? 0
+          : event.key === "End" ? items.length - 1
+          : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus({ preventScroll: true });
+      });
+      listbox.addEventListener("click", (event) => {
+        const option = event.target.closest?.("[data-summary-format-option]");
+        if (!option) return;
+        close();
+        requestCandidate(templateFrom(option));
+      });
+      const allFormats = listbox.querySelector("[data-summary-format-all]");
+      const closeDialog = () => {
+        if (!(dialog instanceof HTMLDialogElement)) return;
+        dialog.close();
+        button.focus({ preventScroll: true });
+      };
+      allFormats?.addEventListener("click", async () => {
+        close({ restoreFocus: false });
+        if (!(dialog instanceof HTMLDialogElement)) return;
+        dialog.showModal();
+        dialog.querySelector("[data-summary-format-option]")?.focus({ preventScroll: true });
+        const personalHost = dialog.querySelector("[data-summary-personal-options]");
+        try {
+          const response = await fetch("/api/v1/cabinet/summary-templates", { credentials: "same-origin", cache: "no-store" });
+          if (!response.ok) return;
+          const templates = await response.json();
+          if (!personalHost || !templates.personal?.length) return;
+          personalHost.hidden = false;
+          personalHost.replaceChildren(...templates.personal.map((template) => {
+            const option = document.createElement("button");
+            option.type = "button";
+            option.dataset.summaryFormatOption = "";
+            option.dataset.templateId = template.template_id;
+            option.dataset.templateKey = template.template_key;
+            option.dataset.templateVersion = String(template.version);
+            option.dataset.templateName = template.name;
+            option.textContent = template.name;
+            return option;
+          }));
+        } catch (_error) {
+          // Built-in formats remain usable when the optional personal list cannot refresh.
+        }
+      });
+      dialog?.querySelector("[data-summary-format-dialog-close]")?.addEventListener("click", closeDialog);
+      dialog?.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        closeDialog();
+      });
+      dialog?.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+      dialog?.addEventListener("click", (event) => {
+        if (event.target === dialog) closeDialog();
+        const option = event.target.closest?.("[data-summary-format-option]");
+        if (!option) return;
+        closeDialog();
+        requestCandidate(templateFrom(option));
+      });
+      document.addEventListener("click", (event) => {
+        if (!listbox.hidden && event.target instanceof Node && !controls.contains(event.target)) {
+          close({ restoreFocus: false });
+        }
+      });
+      const resumeCandidate = window.sessionStorage.getItem(candidateStorageKey);
+      if (resumeCandidate) {
+        let resumed = { poll_url: resumeCandidate, template: null };
+        try {
+          const stored = JSON.parse(resumeCandidate);
+          if (stored && typeof stored.poll_url === "string") resumed = stored;
+        } catch (_error) {
+          // A pre-121 URL-only value can still be polled; retry falls back to reload.
+        }
+        activeTemplate = resumed.template || null;
+        setBusy(true);
+        showStatus("Проверяем новый вариант. Текущие итоги остаются на месте.");
+        pollCandidate({ poll_url: resumed.poll_url });
+      }
+    });
+  };
+
+  const initSummaryTemplateSettings = () => {
+    document.querySelectorAll("[data-summary-template-settings]").forEach((settings) => {
+      if (settings.dataset.summaryTemplateReady === "true") return;
+      settings.dataset.summaryTemplateReady = "true";
+      const endpoint = settings.dataset.templateEndpoint;
+      const defaultEndpoint = settings.dataset.summaryDefaultEndpoint;
+      const defaultSelect = settings.querySelector("[data-summary-default-template]");
+      const defaultHelp = settings.querySelector("[data-summary-default-help]");
+      const list = settings.querySelector("[data-summary-personal-template-list]");
+      const status = settings.querySelector("[data-summary-template-settings-status]");
+      const dialog = settings.querySelector("[data-summary-template-dialog]");
+      const form = dialog?.querySelector("[data-summary-template-form]");
+      const error = dialog?.querySelector("[data-summary-template-form-error]");
+      const title = dialog?.querySelector("[data-summary-template-dialog-title]");
+      let editingTemplate = null;
+      let returnFocus = null;
+      let canManageDefault = false;
+      const setStatus = (message) => { if (status) status.textContent = message; };
+      const setError = (message = "") => {
+        if (!error) return;
+        error.textContent = message;
+        error.hidden = !message;
+        if (message) error.focus({ preventScroll: true });
+      };
+      const request = async (url, method = "GET", body) => {
+        const response = await fetch(url, {
+          method,
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: {
+            ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
+          },
+          body: body === undefined ? undefined : JSON.stringify(body)
+        });
+        const payload = response.status === 204 ? null : await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload?.code || "summary_template_request_failed");
+        return payload;
+      };
+      const closeDialog = () => {
+        if (!(dialog instanceof HTMLDialogElement)) return;
+        dialog.close();
+        if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+        returnFocus = null;
+      };
+      const setSections = (sections) => {
+        form?.querySelectorAll('input[name="sections"]').forEach((input) => {
+          input.checked = sections.includes(input.value);
+        });
+      };
+      const openEditor = (trigger, template = null) => {
+        if (!(dialog instanceof HTMLDialogElement) || !form) return;
+        returnFocus = trigger;
+        editingTemplate = template?.template_id ? template : null;
+        form.reset();
+        setError();
+        const name = form.elements.namedItem("name");
+        const purpose = form.elements.namedItem("purpose");
+        const language = form.elements.namedItem("output_language");
+        const detail = form.elements.namedItem("detail_level");
+        if (title) title.textContent = editingTemplate ? "Изменить формат" : "Новый формат";
+        if (template) {
+          if (name) name.value = editingTemplate ? template.name : `${template.name} — копия`.slice(0, 80);
+          if (purpose) purpose.value = template.purpose;
+          if (language) language.value = template.output_language || "ru";
+          if (detail) detail.value = template.detail_level || "standard";
+          setSections(template.sections || ["summary", "action_items"]);
+        }
+        dialog.showModal();
+        name?.focus({ preventScroll: true });
+      };
+      const templateErrorCopy = (code) => ({
+        summary_template_conflict: "Формат уже изменился. Обновите список и повторите.",
+        summary_template_limit: "Достигнут лимит личных форматов.",
+        summary_template_not_found: "Формат больше недоступен."
+      }[code] || "Не удалось сохранить формат. Проверьте поля и попробуйте снова.");
+      const mutateTemplate = async (template, action) => {
+        try {
+          setStatus("Сохраняем…");
+          if (action === "duplicate") {
+            await request(`${endpoint}/${template.template_id}/duplicate`, "POST");
+          } else if (action === "archive") {
+            await request(`${endpoint}/${template.template_id}/archive`, "POST");
+          } else if (action === "delete") {
+            if (!window.confirm(`Удалить формат «${template.name}»? Старые итоги встреч сохранятся.`)) return;
+            await request(`${endpoint}/${template.template_id}`, "DELETE");
+          }
+          await loadTemplates();
+          setStatus(action === "duplicate" ? "Копия создана." : action === "archive" ? "Формат скрыт." : "Формат удалён.");
+        } catch (requestError) {
+          setStatus(templateErrorCopy(requestError instanceof Error ? requestError.message : ""));
+        }
+      };
+      const renderTemplates = (templates) => {
+        if (!list) return;
+        if (!templates.length) {
+          const empty = document.createElement("p");
+          empty.className = "muted";
+          empty.textContent = "Личных форматов пока нет.";
+          list.replaceChildren(empty);
+          return;
+        }
+        list.replaceChildren(...templates.map((template) => {
+          const row = document.createElement("article");
+          row.className = "summary-template-row";
+          const copy = document.createElement("div");
+          const name = document.createElement("strong");
+          const purpose = document.createElement("span");
+          purpose.className = "muted";
+          name.textContent = template.name;
+          purpose.textContent = template.purpose;
+          copy.append(name, purpose);
+          const actions = document.createElement("div");
+          actions.className = "summary-template-actions";
+          [
+            ["Изменить", () => openEditor(actions.querySelector("button"), template)],
+            ["Копировать", () => mutateTemplate(template, "duplicate")],
+            ["Скрыть", () => mutateTemplate(template, "archive")],
+            ["Удалить", () => mutateTemplate(template, "delete")]
+          ].forEach(([text, handler]) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "button quiet";
+            button.textContent = text;
+            button.addEventListener("click", handler);
+            actions.append(button);
+          });
+          row.append(copy, actions);
+          return row;
+        }));
+      };
+      const loadTemplates = async () => {
+        try {
+          const payload = await request(endpoint);
+          renderTemplates(payload.personal || []);
+          if (defaultSelect) {
+            canManageDefault = payload.can_manage_default === true;
+            defaultSelect.value = payload.default_template_key;
+            defaultSelect.disabled = !canManageDefault;
+          }
+          if (defaultHelp) {
+            defaultHelp.textContent = payload.can_manage_default
+              ? "Используется для новых итогов, если формат встречи не выбран отдельно."
+              : "Изменить может владелец пространства.";
+          }
+        } catch (_error) {
+          if (list) list.textContent = "Не удалось загрузить личные форматы.";
+        }
+      };
+      defaultSelect?.addEventListener("change", async () => {
+        const option = defaultSelect.selectedOptions[0];
+        if (!option || !defaultEndpoint) return;
+        defaultSelect.disabled = true;
+        setStatus("Сохраняем формат по умолчанию…");
+        try {
+          await request(defaultEndpoint, "PUT", {
+            template_key: option.value,
+            template_id: option.dataset.templateId || null,
+            template_version: Number(option.dataset.templateVersion || "1")
+          });
+          setStatus("Формат по умолчанию обновлён.");
+        } catch (requestError) {
+          setStatus(templateErrorCopy(requestError instanceof Error ? requestError.message : ""));
+          await loadTemplates();
+        } finally {
+          if (defaultSelect) defaultSelect.disabled = !canManageDefault;
+        }
+      });
+      settings.querySelector("[data-summary-template-create]")?.addEventListener("click", (event) => {
+        openEditor(event.currentTarget);
+      });
+      settings.querySelectorAll("[data-summary-template-copy]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const row = button.closest("[data-summary-template-built-in]");
+          openEditor(button, {
+            name: row.dataset.templateName,
+            purpose: row.dataset.templatePurpose,
+            sections: (row.dataset.templateSections || "").split(",").filter(Boolean),
+            output_language: "ru",
+            detail_level: "standard"
+          });
+        });
+      });
+      dialog?.querySelectorAll("[data-summary-template-dialog-close], [data-summary-template-dialog-cancel]").forEach((button) => {
+        button.addEventListener("click", closeDialog);
+      });
+      dialog?.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        closeDialog();
+      });
+      dialog?.addEventListener("click", (event) => {
+        if (event.target === dialog) closeDialog();
+      });
+      dialog?.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+      form?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = new FormData(form);
+        const sections = data.getAll("sections");
+        if (!sections.length) {
+          setError("Выберите хотя бы один раздел.");
+          return;
+        }
+        const payload = {
+          name: String(data.get("name") || "").trim(),
+          purpose: String(data.get("purpose") || "").trim(),
+          sections,
+          output_language: String(data.get("output_language") || "ru"),
+          detail_level: String(data.get("detail_level") || "standard"),
+          ...(editingTemplate ? { expected_version: editingTemplate.version } : {})
+        };
+        const submit = form.querySelector("[data-summary-template-submit]");
+        if (submit) submit.disabled = true;
+        try {
+          await request(
+            editingTemplate ? `${endpoint}/${editingTemplate.template_id}` : endpoint,
+            editingTemplate ? "PATCH" : "POST",
+            payload
+          );
+          closeDialog();
+          await loadTemplates();
+          setStatus(editingTemplate ? "Формат обновлён." : "Формат создан.");
+        } catch (requestError) {
+          setError(templateErrorCopy(requestError instanceof Error ? requestError.message : ""));
+        } finally {
+          if (submit) submit.disabled = false;
+        }
+      });
+      loadTemplates();
+    });
+  };
+
+  const initMeetingContextPanels = () => {
+    const triggers = Array.from(document.querySelectorAll("[data-meeting-panel-open]"));
+    const panels = Array.from(document.querySelectorAll("[data-meeting-context-panel]"));
+    if (!triggers.length || !panels.length) return;
+    const triggerFor = (panel) => triggers.find(
+      (trigger) => trigger.dataset.meetingPanelOpen === panel.dataset.meetingContextPanel
+    );
+    const panelIsOpen = (panel) => panel instanceof HTMLDialogElement ? panel.open : !panel.hidden;
+    const closePanel = (panel, restoreFocus = false) => {
+      if (panel instanceof HTMLDialogElement) {
+        if (panel.open) panel.close();
+      } else {
+        panel.hidden = true;
+      }
+      const trigger = triggerFor(panel);
+      trigger?.setAttribute("aria-expanded", "false");
+      if (restoreFocus) trigger?.focus({ preventScroll: true });
+    };
+    const closePanels = () => panels.forEach((panel) => closePanel(panel));
+    triggers.forEach((trigger) => {
+      if (trigger.dataset.meetingPanelReady === "true") return;
+      trigger.dataset.meetingPanelReady = "true";
+      trigger.addEventListener("click", () => {
+        const panel = panels.find((candidate) => candidate.dataset.meetingContextPanel === trigger.dataset.meetingPanelOpen);
+        const opening = panel ? !panelIsOpen(panel) : false;
+        closePanels();
+        if (!opening || !panel) return;
+        trigger.setAttribute("aria-expanded", "true");
+        if (panel instanceof HTMLDialogElement && typeof panel.showModal === "function") {
+          panel.showModal();
+        } else {
+          panel.hidden = false;
+        }
+        panel.focus({ preventScroll: true });
+      });
+      const panel = panels.find((candidate) => candidate.dataset.meetingContextPanel === trigger.dataset.meetingPanelOpen);
+      if (!(panel instanceof HTMLDialogElement) || panel.dataset.meetingDialogReady === "true") return;
+      panel.dataset.meetingDialogReady = "true";
+      panel.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        closePanel(panel, true);
+      });
+      panel.addEventListener("click", (event) => {
+        if (event.target === panel) closePanel(panel, true);
+      });
+    });
+    if (document.body.dataset.meetingPanelEscapeReady === "true") return;
+    document.body.dataset.meetingPanelEscapeReady = "true";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      const openPanel = document.querySelector("[data-meeting-context-panel]:not(dialog):not([hidden])");
+      if (!openPanel) return;
+      const trigger = document.querySelector(`[data-meeting-panel-open="${openPanel.dataset.meetingContextPanel}"]`);
+      openPanel.hidden = true;
+      trigger?.setAttribute("aria-expanded", "false");
+      trigger?.focus({ preventScroll: true });
+    });
   };
 
   const formatTime = (seconds) => {
@@ -984,22 +1577,6 @@
 
     const focusDialogElement = (element) => element?.focus({ preventScroll: true });
 
-    const focusableDialogElements = () => Array.from(dialog.querySelectorAll(
-      "a[href], button:not([disabled]), input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
-    )).filter((element) => !element.hidden && !element.matches(":disabled") && element.getAttribute("aria-hidden") !== "true");
-
-    const trapDialogFocus = (event) => {
-      if (event.key !== "Tab" || (!dialog.open && !dialog.hasAttribute("open"))) return;
-      const focusable = focusableDialogElements();
-      if (!focusable.length) return;
-      const currentIndex = focusable.indexOf(document.activeElement);
-      const nextIndex = event.shiftKey
-        ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
-        : (currentIndex < 0 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
-      event.preventDefault();
-      focusDialogElement(focusable[nextIndex]);
-    };
-
     const openDialog = (trigger) => {
       lastTrigger = trigger;
       if (dialog.dataset.uploadAvailable !== "true" || !csrfToken) {
@@ -1017,7 +1594,7 @@
       focusDialogElement(lastTrigger);
     };
 
-    dialog.addEventListener("keydown", trapDialogFocus);
+    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
 
     document.body.addEventListener("click", (event) => {
       if (!(event.target instanceof Element)) return;
@@ -1420,10 +1997,6 @@
       else dialog.setAttribute("open", "");
       title?.focus({ preventScroll: true });
     };
-    const focusable = () => Array.from(dialog.querySelectorAll(
-      "button:not([disabled]), summary:not([disabled]), select:not([disabled]), input:not([disabled])"
-    )).filter((element) => !element.closest("[hidden]"));
-
     document.querySelectorAll("[data-export-dialog-open]").forEach((button) => {
       button.addEventListener("click", () => open(button));
     });
@@ -1440,22 +2013,7 @@
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) close();
     });
-    dialog.addEventListener("keydown", (event) => {
-      if (event.key !== "Tab") return;
-      const elements = focusable();
-      if (!elements.length) return;
-      const current = elements.indexOf(document.activeElement);
-      const next = event.shiftKey
-        ? (current <= 0 ? elements.length - 1 : current - 1)
-        : (current < 0 || current === elements.length - 1 ? 0 : current + 1);
-      if (
-        (event.shiftKey && current <= 0) ||
-        (!event.shiftKey && (current < 0 || current === elements.length - 1))
-      ) {
-        event.preventDefault();
-        elements[next].focus({ preventScroll: true });
-      }
-    });
+    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
     scope?.addEventListener("change", updateFormats);
     format?.addEventListener("change", updateOptions);
     updateFormats();
@@ -1561,6 +2119,200 @@
     });
   };
 
+  const initMeetingDeleteDialog = () => {
+    const dialog = document.querySelector("[data-meeting-delete-dialog]");
+    const opener = document.querySelector("[data-meeting-delete-dialog-open]");
+    if (!dialog || !opener || dialog.dataset.ready === "true") return;
+    dialog.dataset.ready = "true";
+    let returnFocus = null;
+    const close = () => {
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+      returnFocus = null;
+    };
+    opener.addEventListener("click", () => {
+      returnFocus = opener;
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+      dialog.querySelector("[data-meeting-delete-dialog-title]")?.focus({ preventScroll: true });
+    });
+    dialog.querySelector("[data-meeting-delete-dialog-cancel]")?.addEventListener("click", close);
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      close();
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) close();
+    });
+    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+  };
+
+  const initShareDialogs = () => {
+    document.querySelectorAll("[data-share-dialog]").forEach((dialog) => {
+      if (!(dialog instanceof HTMLDialogElement) || dialog.dataset.shareReady === "true") return;
+      dialog.dataset.shareReady = "true";
+      const opener = document.querySelector(`[aria-controls="${dialog.id}"]`);
+      const status = dialog.querySelector("[data-share-status]");
+      const form = dialog.querySelector("[data-share-recipient-form]");
+      const results = dialog.querySelector("[data-share-recipient-results]");
+      const recipientInput = form?.querySelector("[data-share-recipient-input]");
+      const meetingId = form?.dataset.meetingId || "";
+      const setResultsVisible = (visible) => {
+        if (results) results.hidden = !visible;
+        recipientInput?.setAttribute("aria-expanded", visible ? "true" : "false");
+      };
+      const focusResultOption = (current, offset) => {
+        const options = Array.from(results?.querySelectorAll('[role="option"]') || []);
+        if (!options.length) return;
+        const index = options.indexOf(current);
+        options[(index + offset + options.length) % options.length].focus({ preventScroll: true });
+      };
+      const setStatus = (message, tone = "neutral") => {
+        if (!status) return;
+        status.textContent = message;
+        status.dataset.tone = tone;
+      };
+      const mutate = async (url, options) => {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          ...options,
+          headers: {
+            "Content-Type": "application/json",
+            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+            ...(options?.headers || {})
+          }
+        });
+        if (!response.ok) throw new Error(String(response.status));
+        return response.status === 204 ? null : response.json();
+      };
+      const grantRecipient = async (userId, label) => {
+        try {
+          await mutate(`/api/v1/cabinet/meetings/${meetingId}/shares`, {
+            method: "POST",
+            body: JSON.stringify({
+              audience_type: "user",
+              audience_id: userId,
+              content_scope: "summary_only",
+              can_download: false,
+              can_export: false
+            })
+          });
+          setResultsVisible(false);
+          setStatus(`Доступ к итогам открыт: ${label}`, "success");
+        } catch (_error) {
+          setStatus("Не удалось открыть доступ. Попробуйте ещё раз.", "error");
+        }
+      };
+      const close = () => {
+        dialog.close();
+        if (opener instanceof HTMLElement) opener.focus({ preventScroll: true });
+      };
+      dialog.querySelector("[data-share-dialog-close]")?.addEventListener("click", close);
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        close();
+      });
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) close();
+      });
+      dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+      form?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const query = recipientInput?.value.trim() || "";
+        if (query.length < 2) {
+          setStatus("Введите имя или email.", "error");
+          return;
+        }
+        setResultsVisible(false);
+        setStatus("Ищем…");
+        try {
+          const response = await fetch(`${form.action}?query=${encodeURIComponent(query)}`, {
+            credentials: "same-origin"
+          });
+          if (!response.ok) throw new Error(String(response.status));
+          const payload = await response.json();
+          const items = Array.isArray(payload.items) ? payload.items : [];
+          if (items.length && results) {
+            results.replaceChildren();
+            items.forEach((item) => {
+              const button = document.createElement("button");
+              button.type = "button";
+              button.setAttribute("role", "option");
+              button.setAttribute("aria-selected", "false");
+              button.textContent = item.display_label;
+              button.addEventListener("focus", () => {
+                results.querySelectorAll('[role="option"]').forEach((option) => {
+                  option.setAttribute("aria-selected", option === button ? "true" : "false");
+                });
+              });
+              button.addEventListener("click", () => grantRecipient(item.user_id, item.display_label));
+              results.append(button);
+            });
+            setResultsVisible(true);
+            setStatus("Выберите человека.");
+            results.querySelector("button")?.focus({ preventScroll: true });
+            return;
+          }
+          if (query.includes("@")) {
+            await mutate(`/api/v1/cabinet/meetings/${meetingId}/share-invitations`, {
+              method: "POST",
+              body: JSON.stringify({
+                address: query,
+                content_scope: "summary_only",
+                can_download: false,
+                can_export: false
+              })
+            });
+            setStatus("Приглашение отправлено.", "success");
+            return;
+          }
+          setStatus("Никого не нашли. Проверьте имя.", "error");
+        } catch (_error) {
+          setStatus("Не удалось пригласить. Попробуйте ещё раз.", "error");
+        }
+      });
+      recipientInput?.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown" && !results?.hidden) {
+          event.preventDefault();
+          results.querySelector('[role="option"]')?.focus({ preventScroll: true });
+        } else if (event.key === "Escape" && !results?.hidden) {
+          event.preventDefault();
+          event.stopPropagation();
+          setResultsVisible(false);
+        }
+      });
+      results?.addEventListener("keydown", (event) => {
+        const option = event.target.closest?.('[role="option"]');
+        if (!option) return;
+        if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          if (event.key === "Home") results.querySelector('[role="option"]')?.focus({ preventScroll: true });
+          else if (event.key === "End") results.querySelector('[role="option"]:last-of-type')?.focus({ preventScroll: true });
+          else focusResultOption(option, event.key === "ArrowDown" ? 1 : -1);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setResultsVisible(false);
+          recipientInput?.focus({ preventScroll: true });
+        }
+      });
+      dialog.querySelectorAll("[data-share-revoke-url]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          try {
+            await mutate(button.dataset.shareRevokeUrl, { method: "DELETE" });
+            button.closest("[data-share-viewer-row]")?.remove();
+            setStatus("Доступ отозван.", "success");
+          } catch (_error) {
+            setStatus("Не удалось отозвать доступ.", "error");
+          }
+        });
+      });
+      if (!dialog.open) dialog.showModal();
+      recipientInput?.focus({ preventScroll: true });
+    });
+  };
+
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
@@ -1569,10 +2321,15 @@
     initMeetingList();
     initManualUpload();
     initDetailTabs();
+    initSummaryFormats();
+    initSummaryTemplateSettings();
+    initMeetingContextPanels();
+    initShareDialogs();
     initPlayback();
     initPlaybackRecoveryPolling();
     initSpeakerNameForms();
     initContentExport();
+    initMeetingDeleteDialog();
     initCalendarSettings();
   };
 

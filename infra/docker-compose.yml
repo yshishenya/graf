@@ -78,6 +78,13 @@ services:
       TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED: ${TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED:-true}
       TWOBRAIN_PROCESSING_ENABLED: "true"
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
+      TWOBRAIN_LITELLM_BASE_URL: ${TWOBRAIN_LITELLM_BASE_URL:-}
+      TWOBRAIN_LITELLM_API_KEY_FILE: /run/secrets/twobrain_litellm_api_key
+      TWOBRAIN_LANGFUSE_BASE_URL: https://cloud.langfuse.com
+      TWOBRAIN_LANGFUSE_PUBLIC_KEY_FILE: /run/secrets/twobrain_langfuse_public_key
+      TWOBRAIN_LANGFUSE_SECRET_KEY_FILE: /run/secrets/twobrain_langfuse_secret_key
+      TWOBRAIN_LANGFUSE_ENVIRONMENT: production
     secrets:
       - source: twobrain_postgres_app_password
         target: twobrain_postgres_password
@@ -115,6 +122,21 @@ services:
         mode: 0440
       - source: graf_yandex_offline_oauth_token
         target: graf_yandex_offline_oauth_token
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_litellm_api_key
+        target: twobrain_litellm_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_langfuse_public_key
+        target: twobrain_langfuse_public_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_langfuse_secret_key
+        target: twobrain_langfuse_secret_key
         uid: "100"
         gid: "101"
         mode: 0440
@@ -179,6 +201,13 @@ services:
       TWOBRAIN_MINIO_SECURE: "false"
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
       TWOBRAIN_MEDIASCRIBE_API_KEY_FILE: /run/secrets/twobrain_mediascribe_api_key
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
+      TWOBRAIN_LITELLM_BASE_URL: ${TWOBRAIN_LITELLM_BASE_URL:-}
+      TWOBRAIN_LITELLM_API_KEY_FILE: /run/secrets/twobrain_litellm_api_key
+      TWOBRAIN_LANGFUSE_BASE_URL: https://cloud.langfuse.com
+      TWOBRAIN_LANGFUSE_PUBLIC_KEY_FILE: /run/secrets/twobrain_langfuse_public_key
+      TWOBRAIN_LANGFUSE_SECRET_KEY_FILE: /run/secrets/twobrain_langfuse_secret_key
+      TWOBRAIN_LANGFUSE_ENVIRONMENT: production
     secrets:
       - source: twobrain_postgres_app_password
         target: twobrain_postgres_password
@@ -194,6 +223,21 @@ services:
         mode: 0440
       - source: twobrain_mediascribe_api_key
         target: twobrain_mediascribe_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_litellm_api_key
+        target: twobrain_litellm_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_langfuse_public_key
+        target: twobrain_langfuse_public_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_langfuse_secret_key
+        target: twobrain_langfuse_secret_key
         uid: "100"
         gid: "101"
         mode: 0440
@@ -766,3 +810,9 @@ secrets:
     file: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_PROJECT_KEY_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}
   graf_yandex_offline_oauth_token:
     file: ${TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OAUTH_TOKEN_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}
+  twobrain_litellm_api_key:
+    file: ${TWOBRAIN_LITELLM_API_KEY_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}
+  twobrain_langfuse_public_key:
+    file: ${TWOBRAIN_LANGFUSE_PUBLIC_KEY_SECRET_FILE:-./secrets/twobrain_langfuse_public_key}
+  twobrain_langfuse_secret_key:
+    file: ${TWOBRAIN_LANGFUSE_SECRET_KEY_SECRET_FILE:-./secrets/twobrain_langfuse_secret_key}

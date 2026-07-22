@@ -3,6 +3,66 @@
     <div class="cabinet-topbar">
       <div class="cabinet-titleline"><strong>Настройки</strong><span>Подключения</span></div>
     </div>
+    <section class="settings-section cabinet-card summary-format-settings" id="summary-formats" aria-labelledby="summary-formats-title" data-summary-template-settings data-template-endpoint="/api/v1/cabinet/summary-templates" data-summary-default-endpoint="/api/v1/cabinet/summary-templates/default">
+      <div>
+        <div class="section-title" id="summary-formats-title">Форматы итогов</div>
+        <p class="muted">По умолчанию используется «Авто». Личные форматы доступны во всех ваших встречах.</p>
+      </div>
+      <div class="settings-actions">
+        <button class="button quiet" type="button" data-summary-template-create aria-haspopup="dialog" aria-controls="summary-template-dialog">Создать формат</button>
+      </div>
+      <label class="summary-default-template">Формат по умолчанию
+        <select data-summary-default-template disabled>
+          {% for format in summary_formats %}<option value="{{ format.key }}" data-template-version="{{ format.version }}">{{ format.name }}</option>{% endfor %}
+        </select>
+        <span class="muted" data-summary-default-help>Изменить может владелец пространства.</span>
+      </label>
+      <div class="summary-template-library" data-summary-template-library>
+        <div class="summary-template-group">
+          <h3>Встроенные</h3>
+          <div class="summary-template-list">
+            {% for format in summary_formats %}
+            <article class="summary-template-row" data-summary-template-built-in data-template-key="{{ format.key }}" data-template-name="{{ format.name }}" data-template-purpose="{{ format.purpose }}" data-template-sections="{{ format.sections|join(',') }}">
+              <div><strong>{{ format.name }}</strong><span class="muted">{{ format.purpose }}</span></div>
+              <button type="button" class="button quiet" data-summary-template-copy>Создать копию</button>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="summary-template-group">
+          <h3>Личные</h3>
+          <div class="summary-template-list" data-summary-personal-template-list><p class="muted">Загружаем…</p></div>
+        </div>
+      </div>
+      <p class="summary-template-settings-status" data-summary-template-settings-status role="status" aria-live="polite" aria-atomic="true"></p>
+      <dialog id="summary-template-dialog" class="summary-template-dialog" data-summary-template-dialog aria-labelledby="summary-template-dialog-title">
+        <form data-summary-template-form>
+          <div class="summary-format-dialog__header">
+            <div><h2 id="summary-template-dialog-title" data-summary-template-dialog-title>Новый формат</h2><p class="muted">Выберите только то, что должно появиться в итогах.</p></div>
+            <button type="button" class="icon-button" data-summary-template-dialog-close aria-label="Закрыть">×</button>
+          </div>
+          <label>Название<input name="name" maxlength="80" required autocomplete="off"></label>
+          <label>Для чего нужен<textarea name="purpose" maxlength="240" required rows="2"></textarea></label>
+          <fieldset>
+            <legend>Разделы</legend>
+            <label><input type="checkbox" name="sections" value="summary" checked> Кратко</label>
+            <label><input type="checkbox" name="sections" value="key_points"> Ключевое</label>
+            <label><input type="checkbox" name="sections" value="decisions"> Решения</label>
+            <label><input type="checkbox" name="sections" value="action_items" checked> Действия</label>
+            <label><input type="checkbox" name="sections" value="followups"> Продолжение</label>
+            <label><input type="checkbox" name="sections" value="risks"> Риски</label>
+            <label><input type="checkbox" name="sections" value="questions"> Вопросы</label>
+            <label><input type="checkbox" name="sections" value="evidence"> Фрагменты</label>
+          </fieldset>
+          <div class="summary-template-options">
+            <label>Язык<select name="output_language"><option value="ru">Русский</option><option value="en">English</option></select></label>
+            <label>Подробность<select name="detail_level"><option value="brief">Кратко</option><option value="standard" selected>Обычно</option><option value="detailed">Подробно</option></select></label>
+          </div>
+          <p class="summary-template-form-error" data-summary-template-form-error role="alert" tabindex="-1" hidden></p>
+          <div class="dialog-actions"><button type="button" data-summary-template-dialog-cancel>Отмена</button><button type="submit" data-summary-template-submit>Сохранить</button></div>
+        </form>
+      </dialog>
+    </section>
     <section class="settings-section cabinet-card" id="calendar-connections" aria-labelledby="calendar-connections-title">
       <div>
         <div class="section-title" id="calendar-connections-title">Календари</div>

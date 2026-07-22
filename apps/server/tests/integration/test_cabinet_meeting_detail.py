@@ -158,10 +158,10 @@ def test_098_calendar_roster_stays_separate_from_transcript_speakers_and_permiss
         context_block = context_match.group(0)
         transcript_panel = transcript_match.group(1)
         speaker_start = response.text.index("<h3>Спикеры</h3>")
-        speaker_end = response.text.index("<h3>Управление</h3>", speaker_start)
+        speaker_end = response.text.index("<h3>Активность</h3>", speaker_start)
         speaker_panel = response.text[speaker_start:speaker_end]
 
-        assert response.text.index(context_block) < response.text.index("<h3>Доступ</h3>")
+        assert response.text.index(context_block) < speaker_start
         for name in CALENDAR_ROSTER_NAMES:
             assert name in context_block
             assert name not in transcript_panel
@@ -358,11 +358,14 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in ready.text
     assert "<style>" not in ready.text
     assert "Итоги" in ready.text
-    assert "Запись и расшифровка" in ready.text
+    assert "Расшифровка" in ready.text
+    assert ready.text.count('role="tab"') == 2
+    assert 'id="detail-tab-outcomes"' in ready.text
+    assert 'id="detail-tab-recording"' in ready.text
     assert SAFE_TRANSCRIPT_TEXT in ready.text
     assert "Спикеры" in ready.text
-    assert "Ассистент" in ready.text
-    assert "Шаблон" in ready.text
+    assert "Формат:" in ready.text
+    assert "Все форматы…" in ready.text
     assert "Кратко" in ready.text
     assert "Действия" in ready.text
     assert "Итоги отложены" in ready.text
@@ -370,8 +373,8 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "feature 016" not in ready.text.lower()
     assert "feature:016" not in ready.text.lower()
     assert "016-meeting-detail" not in ready.text
-    assert "Доступ" in ready.text
-    assert "Видимость для команды" in ready.text
+    assert "Поделиться" in ready.text
+    assert 'id="meeting-context-more"' in ready.text
     assert "Файлы" in ready.text
     assert 'class="playback-bar detail-playback"' in ready.text
     assert f'src="/api/v1/cabinet/meetings/{seeds.ready_id}/playback"' in ready.text
@@ -413,10 +416,9 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
     assert "Расшифровка" in response.text
     assert "Recording &amp; Transcript" not in response.text
     assert SAFE_TRANSCRIPT_TEXT in response.text
-    assert "Открыть в браузере" in response.text
-    assert "Доступ" in response.text
+    assert "Файлы" in response.text
     assert "Поделиться" in response.text
-    assert "Отчет" in response.text
+    assert "Ещё" in response.text
     assert "Record live" not in response.text
     assert "Krisp Devices" not in response.text
 

@@ -1,5 +1,6 @@
 import Foundation
 import TwoBrainRecAppCore
+import TwoBrainRecShared
 
 #if canImport(XCTest)
 import XCTest
@@ -585,6 +586,59 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             ),
             .embedded(configuration.calendarSettingsURL())
         )
+    }
+
+    func testLocalRecordingLifecycleStaysUsableBeforeServerIdentityExists() {
+        let localOnly = DesktopUploadCustodyProjection(
+            item: custodyFixtureQueueItem(id: "local-only", state: .queued)
+        )
+        let uploading = DesktopUploadCustodyProjection(
+            item: custodyFixtureQueueItem(id: "uploading", state: .uploading)
+        )
+
+        XCTAssertEqual(localOnly.custodyState, .serverUnknownLocalSaved)
+        XCTAssertEqual(localOnly.uploadState, .notStarted)
+        XCTAssertNil(localOnly.serverMeetingId)
+        XCTAssertFalse(localOnly.reviewAvailable)
+        XCTAssertEqual(uploading.custodyState, .partialUploaded)
+        XCTAssertEqual(uploading.uploadState, .partialUploaded)
+        XCTAssertNil(uploading.serverMeetingId)
+        XCTAssertFalse(uploading.reviewAvailable)
+    }
+
+    func testServerProcessingAndReadyLifecycleDoNotOverwriteLocalCustodyTruth() {
+        let processing = DesktopUploadCustodyProjection(
+            item: custodyFixtureQueueItem(
+                id: "server-processing",
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: "meeting-processing",
+                    mediaRevisionId: "revision-processing",
+                    processingStatus: "pending_processing",
+                    finalizedAt: Date(timeIntervalSince1970: 200)
+                )
+            )
+        )
+        let ready = DesktopUploadCustodyProjection(
+            item: custodyFixtureQueueItem(
+                id: "server-ready",
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: "meeting-ready",
+                    mediaRevisionId: "revision-ready",
+                    processingStatus: "processed",
+                    finalizedAt: Date(timeIntervalSince1970: 200)
+                )
+            )
+        )
+
+        XCTAssertEqual(processing.custodyState, .processing)
+        XCTAssertEqual(processing.uploadState, .finalized)
+        XCTAssertFalse(processing.reviewAvailable)
+        XCTAssertEqual(ready.custodyState, .delivered)
+        XCTAssertEqual(ready.uploadState, .finalized)
+        XCTAssertTrue(ready.reviewAvailable)
+        XCTAssertEqual(ready.normalUserAction, .openReview)
     }
 }
 #endif

@@ -103,7 +103,7 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     constraints = CONSTRAINTS_PATH.read_text()
 
     assert "constraints.txt" in dockerfile
-    assert 'pip install --constraint constraints.txt "."' in dockerfile
+    assert 'pip install --constraint constraints.txt ".[evaluation]"' in dockerfile
     assert '".[dev]"' not in dockerfile
     assert "pytest" not in constraints
     assert "ruff" not in constraints
@@ -261,6 +261,9 @@ def test_production_env_template_does_not_broadcast_service_specific_secret_file
             "TWOBRAIN_MEDIASCRIBE_CREDENTIAL_FILE",
             "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE",
             "TWOBRAIN_LANGFUSE_CREDENTIAL_FILE",
+            "TWOBRAIN_LANGFUSE_PUBLIC_KEY_FILE",
+            "TWOBRAIN_LANGFUSE_SECRET_KEY_FILE",
+            "TWOBRAIN_LITELLM_API_KEY_FILE",
             "TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE",
             "TWOBRAIN_WEB_CSRF_SECRET_FILE",
         }

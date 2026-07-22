@@ -121,6 +121,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         )
         XCTAssertTrue(source.contains("checkmark.circle.fill"))
         XCTAssertTrue(source.contains("session.state == .stopped || session.state == .finalized"))
+        XCTAssertFalse(source.contains(".keyboardShortcut(.escape, modifiers: [])"))
     }
 
     func testDesktopCaptureChromeUsesFeature104DensityAndContrastContracts() throws {
@@ -149,6 +150,58 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("DesktopMeetingShellChrome.spacingMedium"))
         XCTAssertTrue(captureSource.contains("DesktopMeetingShellChrome.spacingMedium"))
         XCTAssertTrue(shellSource.contains(".contentShape(Rectangle())"))
+    }
+
+    func testFeature121NarrowKeyboardContrastAndMotionContract() throws {
+        let root = try Self.repositoryRoot()
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"
+            ),
+            encoding: .utf8
+        )
+        let captureSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertLessThan(
+            DesktopMeetingShellChrome.collapsedInspectorWidth,
+            DesktopMeetingShellChrome.expandedInspectorWidth
+        )
+        XCTAssertGreaterThanOrEqual(
+            DesktopMeetingShellChrome.compactRailActionHitSize,
+            DesktopMeetingShellChrome.minimumInteractiveTarget
+        )
+        XCTAssertTrue(shellSource.contains(".frame(maxWidth: .infinity, maxHeight: .infinity"))
+        XCTAssertTrue(shellSource.contains("compactInspector"))
+        XCTAssertTrue(shellSource.contains(".keyboardShortcut(\"r\", modifiers: [.command, .shift])"))
+        XCTAssertTrue(captureSource.contains(".keyboardShortcut(\"r\", modifiers: [.command, .shift])"))
+        XCTAssertFalse(shellSource.contains(".keyboardShortcut(.escape, modifiers: [])"))
+        XCTAssertFalse(captureSource.contains(".keyboardShortcut(.escape, modifiers: [])"))
+        XCTAssertTrue(shellSource.contains("@Environment(\\.accessibilityReduceMotion)"))
+        XCTAssertTrue(shellSource.contains("accessibilityReduceMotion ? nil : .easeInOut"))
+        XCTAssertTrue(shellSource.contains("@Environment(\\.colorSchemeContrast)"))
+        XCTAssertTrue(captureSource.contains("@Environment(\\.colorSchemeContrast)"))
+        XCTAssertTrue(shellSource.contains("colorSchemeContrast == .increased"))
+        XCTAssertTrue(captureSource.contains("colorSchemeContrast == .increased"))
+        let joinPrompt = DesktopCalendarPrompt(
+            id: "join-prompt",
+            kind: .join,
+            eventId: "event",
+            title: "Встреча началась",
+            message: "Открыть встречу?",
+            primaryActionTitle: "Открыть встречу",
+            accessibilityLabel: "Встреча началась"
+        )
+        XCTAssertTrue(
+            CaptureControlView.shouldShowDirectRecordButton(
+                for: nil,
+                calendarPrompt: joinPrompt
+            )
+        )
     }
 
     func testDesktopCabinetCopyStaysCleanRoomAndProductFacing() {
@@ -229,6 +282,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(DesktopPermissionOnboardingView.subtitle.contains("Запись не начнется"))
         XCTAssertTrue(DesktopPermissionOnboardingView.systemAudioStepDetail.contains("перезапуск GRAF"))
         XCTAssertTrue(DesktopPermissionOnboardingView.startStepDetail.contains("кнопку записи"))
+        XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки macOS")
+        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить снова")
         for text in copy {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("krisp"))
             XCTAssertFalse(text.localizedCaseInsensitiveContains("api"))
@@ -318,7 +373,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertFalse(label.localizedCaseInsensitiveContains("@"))
     }
 
-    func testMeetingDetectionSettingsExposeOneScrollableSelectableAppList() throws {
+    func testMeetingDetectionSettingsExposeOnlyDetectAndAsk() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent(
@@ -328,10 +383,10 @@ final class AppControlAccessibilityTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("ScrollView"))
-        XCTAssertTrue(source.contains("ForEach(promptCapableTargets"))
-        XCTAssertTrue(source.contains(".toggleStyle(.checkbox)"))
-        XCTAssertTrue(source.contains("Список появится после загрузки реестра."))
-        XCTAssertTrue(source.contains("Set(promptCapableTargets.map(\\.id))"))
+        XCTAssertTrue(source.contains("Запрашивать запись"))
+        XCTAssertFalse(source.contains("ForEach(promptCapableTargets"))
+        XCTAssertFalse(source.contains("Всегда писать"))
+        XCTAssertFalse(source.contains("selectAllAutoRecordTargets"))
         XCTAssertFalse(source.localizedCaseInsensitiveContains("diagnostic"))
     }
 

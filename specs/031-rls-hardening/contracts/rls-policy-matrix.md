@@ -63,6 +63,9 @@ Tables:
 - `meeting_outcome_sets`
 - `meeting_outcome_items`
 - `meeting_outcome_generation_attempts`
+- `summary_templates`
+- `generation_calls`
+- `meeting_share_invitations`
 - `calendar_sources`
 - `calendar_credential_envelopes`
 - `external_calendars`
@@ -91,6 +94,27 @@ Tables:
 - `playback_normalization_attempts`
 - `playback_backfill_runs`
 - `meeting_speaker_names`
+
+`generation_calls` deliberately has no request-context policy. It is visible to
+the matching workspace worker and approved maintenance contexts only, so the
+retained plaintext model-call ledger cannot become an end-user data surface.
+
+## Maintenance-Only Global Tables
+
+Policy shape:
+
+```text
+approved_maintenance_context(operation)
+```
+
+Tables:
+
+- `prompt_optimization_runs`
+- `prompt_optimization_call_ledger`
+
+These optimizer tables are global operator data, not tenant-owned data. Request
+and worker contexts receive no rows; only an approved maintenance context can
+read or mutate them.
 
 `workspace_invitations` and `admin_audit_events` use the direct workspace policy
 for normal request and worker contexts, and additionally allow `auth_bootstrap` only when

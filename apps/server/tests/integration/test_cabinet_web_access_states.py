@@ -24,10 +24,13 @@ def test_cabinet_web_detail_renders_access_artifacts_and_activity_without_privat
     assert 'data-cabinet-shell' in response.text
     assert 'data-cabinet-navigation' in response.text
     assert 'data-active-nav="meetings"' in response.text
-    assert "Владелец" in response.text
-    assert "Видимость для команды" in response.text
+    assert "Поделиться" in response.text
+    assert "Ещё" in response.text
     assert "Расшифровка" in response.text
-    assert "Скачать" in response.text
+    assert "Экспортировать…" in response.text
+    assert "Файлы" in response.text
+    assert "Спикеры" in response.text
+    assert "Активность" in response.text
     assert "скачивание завершено" in response.text.lower()
     assert "Уже скачанные или экспортированные файлы" in response.text
     assert 'data-boundary-copy="Files already downloaded' in response.text

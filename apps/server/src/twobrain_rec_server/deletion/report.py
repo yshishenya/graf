@@ -34,8 +34,10 @@ STATE_LABELS = {
 }
 
 DEPENDENCY_ARTIFACT_CLASSES = {
+    "generation_call",
     "mediascribe",
     "langfuse",
+    "temporal_history",
     "processing_workflow",
     "upload_temp",
     "diagnostics",

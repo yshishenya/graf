@@ -138,6 +138,25 @@ class Settings(BaseSettings):
     langfuse_base_url: AnyUrl | None = None
     langfuse_health_url: AnyUrl | None = None
     langfuse_credential_file: Path | None = None
+    langfuse_public_key_file: Path | None = None
+    langfuse_secret_key_file: Path | None = None
+    langfuse_environment: str = "development"
+
+    outcome_generation_enabled: bool = False
+    litellm_base_url: AnyUrl | None = None
+    litellm_api_key_file: Path | None = None
+    litellm_request_timeout_seconds: PositiveInt = Field(default=120)
+    outcome_transcript_chunk_bytes: PositiveInt = Field(default=196_608)
+    outcome_temporal_payload_bytes: PositiveInt = Field(default=262_144)
+    outcome_transcript_max_bytes: PositiveInt = Field(default=8_388_608)
+    prompt_optimization_enabled: bool = False
+
+    share_workspace_audience_enabled: bool = False
+    share_team_audience_enabled: bool = False
+    share_public_links_enabled: bool = False
+    share_public_links_abuse_gate_approved: bool = False
+    share_external_invitations_enabled: bool = False
+    share_invitation_ttl_seconds: PositiveInt = Field(default=604_800)
 
     processing_enabled: bool = False
     processing_poll_interval_seconds: PositiveInt = Field(default=5)
@@ -220,12 +239,16 @@ class Settings(BaseSettings):
         "mediascribe_health_url",
         "langfuse_base_url",
         "langfuse_health_url",
+        "litellm_base_url",
         "auth_base_url",
         "web_login_workspace_id",
         "postal_host_header",
         "credential_encryption_key_file",
         "web_csrf_secret_file",
         "support_incident_github_token_file",
+        "langfuse_public_key_file",
+        "langfuse_secret_key_file",
+        "litellm_api_key_file",
         "public_analytics_yandex_metrica_id",
         "product_analytics_posthog_host",
         "product_analytics_posthog_project_key_file",
@@ -361,6 +384,64 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def validate_outcome_generation_safety(self) -> "Settings":
+        if self.outcome_transcript_chunk_bytes != 196_608:
+            raise ValueError("outcome transcript chunks must remain exactly 192 KiB")
+        if self.outcome_temporal_payload_bytes != 262_144:
+            raise ValueError("outcome Temporal payload ceiling must remain exactly 256 KiB")
+        if self.outcome_transcript_max_bytes != 8_388_608:
+            raise ValueError("outcome transcript snapshot ceiling must remain exactly 8 MiB")
+        if self.outcome_transcript_chunk_bytes >= self.outcome_temporal_payload_bytes:
+            raise ValueError("outcome transcript chunk must remain below serialized payload ceiling")
+        if not (self.outcome_generation_enabled or self.prompt_optimization_enabled):
+            return self
+        capability = (
+            "outcome generation"
+            if self.outcome_generation_enabled
+            else "prompt optimization"
+        )
+        if self.temporal_address is None:
+            raise ValueError(f"{capability} requires temporal_address")
+        if self.litellm_base_url is None or self.litellm_api_key_file is None:
+            raise ValueError(f"{capability} requires the LiteLLM URL and API key file")
+        if self.langfuse_base_url is None:
+            raise ValueError(f"{capability} requires langfuse_base_url")
+        if self.langfuse_public_key_file is None or self.langfuse_secret_key_file is None:
+            raise ValueError(
+                f"{capability} requires Langfuse public and secret key files"
+            )
+        if not self.langfuse_environment.strip():
+            raise ValueError(f"{capability} requires a Langfuse environment")
+        return self
+
+    @model_validator(mode="after")
+    def validate_recording_sharing_safety(self) -> "Settings":
+        if self.share_team_audience_enabled:
+            raise ValueError(
+                "team sharing requires a canonical workspace team directory"
+            )
+        if self.share_public_links_enabled and self.public_base_url is None:
+            raise ValueError("public meeting links require public_base_url")
+        if (
+            self.share_public_links_enabled
+            and not self.share_public_links_abuse_gate_approved
+        ):
+            raise ValueError(
+                "public meeting links require the shared ingress abuse gate"
+            )
+        if not self.share_external_invitations_enabled:
+            return self
+        if self.temporal_address is None:
+            raise ValueError("external meeting invitations require temporal_address")
+        if not self.email_login_delivery_enabled:
+            raise ValueError("external meeting invitations require email delivery")
+        if self.credential_encryption_key_file is None:
+            raise ValueError("external meeting invitations require credential encryption key")
+        if self.public_base_url is None:
+            raise ValueError("external meeting invitations require public_base_url")
+        return self
+
+    @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
@@ -458,6 +539,9 @@ class Settings(BaseSettings):
             "support_incident_github_token_file": self.support_incident_github_token_file,
             "product_analytics_posthog_project_key_file": self.product_analytics_posthog_project_key_file,
             "product_analytics_yandex_oauth_token_file": self.product_analytics_yandex_oauth_token_file,
+            "langfuse_public_key_file": self.langfuse_public_key_file,
+            "langfuse_secret_key_file": self.langfuse_secret_key_file,
+            "litellm_api_key_file": self.litellm_api_key_file,
         }
         for field_name, path in required_secret_files.items():
             if path is None:
@@ -473,6 +557,17 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"production Docker secret file is missing or unreadable: {field_name}"
                 ) from exc
+        if self.outcome_generation_enabled or self.prompt_optimization_enabled:
+            ai_secret_files = {
+                "langfuse_public_key_file": self.langfuse_public_key_file,
+                "langfuse_secret_key_file": self.langfuse_secret_key_file,
+                "litellm_api_key_file": self.litellm_api_key_file,
+            }
+            for field_name, path in ai_secret_files.items():
+                if path is None or path.read_text(encoding="utf-8").strip() == "":
+                    raise ValueError(
+                        f"production AI secret file must be non-empty: {field_name}"
+                    )
         if self.processing_enabled and not self.temporal_address:
             raise ValueError("production processing requires temporal_address")
         if (

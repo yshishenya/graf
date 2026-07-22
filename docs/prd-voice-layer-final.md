@@ -779,10 +779,12 @@ Docker operations baseline:
 - Production logs must exclude raw audio, transcript text, credentials, tokens, signed URLs, and sensitive meeting metadata by default.
 - Deployment must fail closed if required secrets are missing.
 
-External owner-controlled dependencies:
+Approved external dependencies:
 
 - MediaScribe at `https://mediascribe.2brain.pro`.
-- Langfuse at `https://langfuse.2brain.pro`.
+- A private Langfuse Cloud EU project at `https://cloud.langfuse.com`, with
+  public trace publishing disabled, for approved content-bearing model-call
+  observations and prompt control.
 
 These external dependencies must have health checks, server-side secrets, timeout policies, audit events, and documented degraded behavior, but they are not deployed inside the `2brain_rec` Docker Compose profile unless a later architecture decision changes this.
 
@@ -795,10 +797,18 @@ Temporal workflow requirements:
 
 - Required workflows: ingest finalization, MediaScribe transcription, notes generation, retention, and deletion.
 - Workflow payloads must store IDs, object keys, artifact references, checksums, and state, not raw audio bytes.
-- Workflow payloads must not store full transcript text, full notes, prompts, model responses, signed URLs, API keys, auth tokens, or upload tokens unless explicitly encrypted and retention-managed.
+- Outcome-generation history must contain the complete canonical transcript in
+  plaintext for internal-MVP debugging. Exact full request/response/result
+  retention belongs to Langfuse and the retained Generation Call ledger rather
+  than being deliberately duplicated into Temporal History.
+- Deterministic plaintext chunks may be used to stay below Temporal's request,
+  transaction, and History limits. Do not add a transcript PayloadCodec,
+  application-layer encryption, masking, redaction, or GRAF-managed History
+  deletion. Search Attributes and Memo remain bounded operational indexes.
 - Meeting content should live in `2brain_rec` artifact storage and database tables where deletion can be tracked.
 - Workflow history retention must be configured and documented.
-- Deletion workflows must include Temporal payload/history limitations in the deletion verification report.
+- Deletion reports must state that Temporal History is retained according to
+  operator-managed namespace retention and is not deleted with the meeting.
 
 ## 15. Ingest Protocol
 
@@ -1080,7 +1090,12 @@ Retention rules:
 - Transcript-only mode purges temporary audio after successful transcript finalization or terminal failure, subject to legal hold.
 - Audio recording mode retains raw chunks, normalized audio, and/or mixed playback according to policy.
 - Deletion cascades across Postgres, object storage, search, vector index, caches, generated exports, and integration delivery queues.
-- Workflow histories, workflow payloads, worker temp files, and retry queues must be encrypted or redacted, have retention limits, and participate in deletion workflows where they contain meeting content or derived content.
+- Outcome workflow histories and payloads retain the complete plaintext meeting
+  transcript, plus any other content naturally required by execution/failures,
+  under operator-managed Temporal retention and do not participate in meeting
+  deletion. Exact full model-call content remains guaranteed in Langfuse and the
+  Generation Call ledger. Worker temp files and pre-egress retry queues remain
+  GRAF lifecycle artifacts and are purged with the meeting.
 - Backups have documented expiry.
 - Legal hold blocks destructive purge.
 - Purge completion is auditable.
@@ -1173,14 +1188,54 @@ Quality rules:
 - Important claims cite transcript segment IDs and timestamps.
 - AI must not invent owners, dates, commitments, or attendees.
 - Regeneration creates a new `ModelRun` and preserves prior output history.
-- Admins configure allowed model providers.
+- Admins configure allowed model providers and routes in LiteLLM; product owners
+  select the route and all request-level model settings through a promoted,
+  versioned Langfuse Prompt Config.
+- GRAF sends content-bearing notes-generation requests only to an
+  owner-controlled, explicitly allowlisted LiteLLM gateway using its
+  OpenAI-compatible API. GRAF does not store upstream provider credentials or
+  call upstream providers directly.
+- Each outcome format resolves its promoted Langfuse prompt version. That
+  version atomically contains prompt text, selected LiteLLM model route,
+  allowlisted generation parameters, and strict response schema. The initial
+  selected route is private `gpt-5.6-luna`; a later promoted Langfuse version
+  may select another approved route without changing GRAF workflow code.
+  LiteLLM may remap the selected route to another approved upstream provider,
+  and each generation records both the selected route and actual
+  provider/model provenance returned by the gateway when available.
+- Every LiteLLM route allowed to receive meeting content must document its
+  destination, data classes, retention/deletion limits, and rollback before it
+  is enabled.
 - MediaScribe is the default transcription backend. If MediaScribe uses external model providers internally, that is treated as part of the owner's controlled backend and must be documented in the deployment/security notes.
-- Langfuse at `https://langfuse.2brain.pro` is used for LLM observability for the `2brain_rec` project.
-- Default Langfuse traces must be metadata-only: model/provider, prompt/template version, artifact IDs, token counts, latency, status, error class, workspace ID, and retention policy ID.
-- Raw audio, transcript text, meeting notes, prompts containing meeting content, user chat messages, model outputs, credentials, access tokens, signed URLs, and participant identifiers must not be stored in Langfuse by default.
-- Content-bearing Langfuse traces require explicit admin enablement, documented purpose, strict RBAC, short retention, and audit logging.
-- Content-bearing Langfuse traces must participate in deletion workflows for meetings, transcripts, AI chat, model runs, and user deletion.
-- Internal MVP may fail open if Langfuse is unavailable: LLM generation may continue, but admin health is degraded and an observability event is recorded.
+- A private Langfuse Cloud EU project at `https://cloud.langfuse.com`, with
+  public trace publishing disabled, is used for prompt control and one
+  content-bearing `generation` observation per completed model call whose
+  response reaches durable GRAF storage.
+- That generation contains the exact compiled logical request, full pinned canonical
+  transcript, raw model response, and validated result. Related AI workflow
+  observations may contain the same plaintext content when useful for debugging.
+  GRAF does not redact, mask, truncate, encrypt, or delete Langfuse content.
+- Raw audio and runtime credentials are not deliberately attached as
+  observability attributes. Credential-like meeting speech remains unchanged
+  inside the canonical transcript without a masking pipeline.
+- One sole publisher keeps Langfuse export durably pending until confirmation
+  with deterministic trace/observation identity, even after meeting deletion,
+  and retries without repeating the model call. A tracing outage does not block
+  a generated candidate, recording, or transcription. Prompt
+  resolution may continue only from an integrity-checked last-known-good export
+  of the exact promoted Langfuse version; without either source, recording and
+  transcription continue while notes generation reports a bounded dependency
+  wait instead of silently using code-owned model settings.
+- GEPA prompt optimization runs as offline durable work over versioned
+  synthetic datasets, publishes exact numeric candidate prompt versions without
+  manually assigned deployment labels, never auto-promotes production, and
+  requires held-out evaluation plus explicit
+  deployment-operator promotion, expected-source verification, and rollback
+  evidence. Automated promotion also requires protected-label capability and a
+  sole deployment-service mutation credential; otherwise it remains disabled.
+  Workspace admins cannot change the project-global production label. Real
+  transcript/output/feedback optimization remains out of scope for this first
+  synthetic-only optimizer.
 - Future regulated deployments may configure LLM generation to fail closed when Langfuse tracing is unavailable.
 
 AI chat, when enabled:
@@ -1426,7 +1481,11 @@ Deletion behavior:
 - Preferred copy: "Delete this meeting everywhere 2brain Rec controls."
 - The confirmation dialog must state that downloaded files and data already sent to approved external integrations cannot be revoked by `2brain Rec`.
 - After confirmation, the meeting enters `deleting` state until completion or failure.
-- Completion state shows a deletion report with artifact classes covered, backup expiry status, local-device purge status, MediaScribe dependency state, Langfuse trace/content state where applicable, and outstanding failures.
+- Completion state shows a deletion report with artifact classes covered,
+  backup expiry status, local-device purge status, MediaScribe dependency state,
+  and outstanding failures. It also states that the GRAF Generation Call
+  ledger, Langfuse observations, and Temporal History remain as observability
+  copies.
 - Server-side purge completion does not imply desktop local buffer purge.
 
 Acceptance criteria:
@@ -1522,8 +1581,13 @@ Participant notice requirements:
 Data boundary default:
 
 - Self-hosted mode blocks external STT, LLM, embedding, analytics, telemetry, crash reporting, webhook, and integration egress unless explicitly configured by admin.
-- For the internal MVP, `https://mediascribe.2brain.pro` and `https://langfuse.2brain.pro` are treated as owner-controlled service dependencies, not arbitrary third-party SaaS egress.
-- The internal `2brain.dev` deployment allows MediaScribe for STT job submission, polling, and result retrieval, and allows Langfuse for approved LLM observability metadata and redacted traces.
+- For the internal MVP, `https://mediascribe.2brain.pro` remains an
+  owner-controlled service dependency; `https://cloud.langfuse.com` is approved
+  third-party SaaS egress for prompt control and the narrowly defined
+  content-bearing generation observation.
+- The internal `2brain.dev` deployment allows MediaScribe for STT job
+  submission, polling, and result retrieval, and allows Langfuse Cloud only for
+  approved prompt definitions, generation content, and bounded metadata.
 - For future customer self-hosted deployments, MediaScribe and Langfuse must be represented as configurable external dependencies with explicit admin allowlist, data-retention notes, and fail-open/fail-closed policy.
 - The product must not claim that no processing egress occurs when MediaScribe is enabled.
 - Admins can allowlist providers and destinations.
@@ -1543,9 +1607,11 @@ Deletion must remove or make unrecoverable:
 - Server-generated exports.
 - Temporary processing files.
 - Queue/retry state.
-- Workflow histories/payloads where they contain meeting-derived content, or documented retention/technical limits.
+- Workflow histories/payloads are retained observability copies under
+  operator-managed Temporal retention and are not deletion targets.
 - Cached model prompts/responses.
-- Langfuse traces where content-bearing traces were enabled.
+- Langfuse observations are retained observability copies under operator-managed
+  Langfuse retention and are not deletion targets.
 - MediaScribe retained jobs/downloads where deletion is supported, or documented external dependency limits where unsupported.
 - Diagnostic attachments containing meeting metadata.
 - Backup copies according to expiry or crypto-erasure policy.
@@ -1556,7 +1622,10 @@ Deletion SLA and limits:
 - MVP target: server-side active storage purge completes within 24 hours for eligible artifacts.
 - Backup expiry window must be documented per deployment.
 - Downloaded exports and payloads already delivered to external integrations cannot be technically revoked by `2brain_rec`; they must be audited and shown as post-egress limits.
-- Deletion verification reports must list artifact classes covered, outstanding failures, backup expiry status, local desktop purge state, MediaScribe dependency state, and Langfuse trace/content state where applicable.
+- Deletion verification reports must list artifact classes covered, outstanding
+  failures, backup expiry status, local desktop purge state, and MediaScribe
+  dependency state, plus disclose retained Langfuse and Temporal observability
+  copies without treating them as failed purge artifacts.
 - Deletion status must distinguish complete, in progress, failed retryable, failed terminal, blocked by legal hold, pending backup expiry, post-egress limit, and client unreachable.
 - If a desktop device is unreachable, server deletion may complete but local purge remains unverified until the device acknowledges purge or the local buffer expiry window passes.
 - Crypto-erasure may satisfy backup deletion only when key scope and key destruction are documented.
@@ -1575,7 +1644,12 @@ Backup, restore, and deletion verification:
 
 - Each deployment must define RPO, RTO, backup schedule, backup storage location, encryption method, encryption key owner, retention period, and restore test cadence.
 - Restore tests must verify meetings, artifacts, audit logs, consent evidence, deletion states, and retention policies.
-- Deletion requests must expose per-artifact status for Postgres rows, MinIO objects, local desktop buffers, workflow histories/payloads, worker temp files, retry queues, exports, search indexes, vector indexes, model prompts/responses, Langfuse traces, diagnostic attachments, MediaScribe dependency state, and backup expiry.
+- Deletion requests must expose per-artifact status for Postgres rows, MinIO
+  objects, local desktop buffers, worker temp files, retry queues, exports,
+  search indexes, vector indexes, model prompts/responses, diagnostic
+  attachments, MediaScribe dependency state, and backup expiry. Langfuse
+  observations and Temporal histories are disclosed as retained observability,
+  not deletion targets.
 - Backup access, restore execution, and backup deletion must create audit events where supported.
 
 Diagnostics privacy:
@@ -2261,7 +2335,9 @@ Security/privacy:
 - Recording cannot start until active workspace consent policy is satisfied.
 - Every capture session has visible local indicator.
 - Local buffers are encrypted.
-- External egress is blocked by default except explicitly configured owner-controlled internal dependencies for internal MVP, including MediaScribe and approved Langfuse metadata tracing.
+- External egress is blocked by default except explicitly configured approved
+  dependencies for internal MVP, including MediaScribe and the governed
+  Langfuse content-bearing generation contract.
 - Permanent deletion cascades across metadata, object storage, indexes, exports, caches, and queues.
 - Audit logs are tamper-evident or append-only.
 

@@ -1,24 +1,27 @@
 <!--
 Sync Impact Report
-Version change: 2.0.2 -> 2.1.0
+Version change: 3.0.0 -> 4.0.0
 Modified principles:
-- Capture-First MVP Integrity: the superseded separate audio-routing
-  implementation is removed, not parked; future advanced routing requires a
-  new approved architecture and cannot revive the legacy implementation.
-- Spec-Driven Delivery With Testable Gates: capture/audio routing remains
-  high-risk while obsolete component-specific gates are replaced by current
-  capture and new-architecture gates.
+- Data Boundary And Secret Discipline -> Plaintext Observability For Internal
+  MVP: complete transcript and model content are intentionally retained in
+  Langfuse and the Generation Call ledger, while Temporal History retains the
+  complete transcript, all without application-layer encryption, redaction, or
+  GRAF-managed observability deletion.
+- Deletion Truth And Lifecycle Accounting: meeting deletion remains truthful
+  and complete inside GRAF, while Langfuse observations and Temporal History
+  are explicitly retained under operator-managed platform retention.
 Added sections:
 - None.
 Removed sections:
 - None.
 Templates requiring updates:
 - ✅ reviewed .specify/templates; no structural change needed.
-- ✅ updated AGENTS.md operating router.
-- ✅ updated docs/agent-guidance/spec-kit-flow.md and product-gates.md.
-- ✅ updated the product baseline and ADR 004.
+- ✅ updated AGENTS.md for the internal-MVP plaintext observability policy.
+- ✅ updated docs/agent-guidance/product-gates.md.
+- ✅ updated docs/prd-voice-layer-final.md AI boundary.
 Follow-up items:
-- None.
+- Revisit encryption, redaction, and observability deletion only in a later
+  stabilization feature when the operator chooses to add those controls.
 -->
 # 2brain Rec Constitution
 
@@ -67,23 +70,103 @@ recording, transcript-only capture, or assisted auto-start can be enabled.
 Rationale: botless capture is powerful and sensitive. Trust depends on visible
 state, immediate control, clear policy, and no surprise recording.
 
-### III. Data Boundary And Secret Discipline
+### III. Plaintext Observability For Internal MVP
 
 2brain Rec-owned meeting data MUST remain in configured owner-controlled
-infrastructure by default. MediaScribe and Langfuse are owner-controlled
-dependencies for internal MVP only and MUST be represented as configurable,
-explicitly allowlisted dependencies for future customer deployments.
+infrastructure by default. An external SaaS dependency MAY be used only after
+an explicit approved feature or constitution decision defines its destination,
+region, data classes, secret custody, timeout/failure behavior, retention,
+deletion limits, and rollback. MediaScribe remains an owner-controlled internal
+dependency. Langfuse Cloud EU is an approved external dependency for
+internal-MVP AI observability and prompt control and MUST remain configurable
+and explicitly allowlisted for every deployment.
+
+AI notes that require transcript content MUST leave GRAF only through an
+owner-controlled, explicitly allowlisted LiteLLM gateway. GRAF MUST NOT contain
+direct provider-specific credentials or direct provider endpoints. Each
+LiteLLM route that may receive meeting content MUST be explicitly approved by
+the deployment operator with its destination, data class, retention/deletion
+limits, and rollback recorded. Langfuse Prompt Config MUST be the single
+editable authority for the prompt, selected LiteLLM model route, allowlisted
+request-level generation settings, and structured-output schema. GRAF MUST
+validate and atomically pin an exact promoted prompt/config version before
+model execution. Changing the selected model route or generation settings MUST
+be possible through a promoted Langfuse version without workflow-code changes.
+LiteLLM remains authoritative only for mapping that selected route to an
+approved upstream provider and for upstream secret custody. The application
+MUST preserve both the selected route and the actual provider/model provenance
+returned by the gateway when available.
 
 Desktop clients MUST never send audio directly to MediaScribe and MUST never
 store MediaScribe credentials. Secrets, API keys, passwords, device tokens,
-upload tokens, signed URLs, and live credential paths MUST NOT be committed,
-logged, exposed in diagnostics, embedded in images, or shipped to clients.
-Langfuse traces MUST be metadata-only by default; content-bearing traces require
-explicit admin enablement, short retention, RBAC, audit logging, and deletion
-participation.
+upload tokens, signed-URL secrets, and live credential paths MUST NOT be
+committed, logged, exposed in diagnostics, embedded in images, or shipped to
+clients.
 
-Rationale: the product promise is control. Hidden egress or sloppy secret
-handling breaks both security and positioning.
+For every completed model call whose response reaches GRAF, exactly one
+Langfuse `generation` observation MUST contain the exact compiled logical model
+request, the complete pinned canonical transcript revision, the raw model
+response, and the locally validated result. The surrounding AI workflow
+observations MAY contain the same plaintext meeting/model content when it makes
+the execution easier to debug. GRAF MUST NOT redact, mask, truncate, encrypt,
+or delete this observability content. Once a completed response is durably
+captured in the retained Generation Call ledger, one sole observability
+publisher MUST keep its deterministic delivery pending and retry until Langfuse
+confirms that observation; candidate readiness MUST NOT wait for confirmation,
+and retry MUST NOT repeat inference. Meeting deletion MUST NOT cancel or suppress
+delivery for a completed retained call. A call that may have left GRAF but
+crashes before its response is durably captured MUST be reported as `ambiguous`;
+GRAF MUST NOT fabricate missing content or claim exactly-once provider egress.
+Langfuse MUST NOT become the source of truth for meeting, workflow, acceptance,
+or deletion state.
+
+Outcome-generation Temporal History MUST contain the complete pinned canonical
+transcript in plaintext. The workflow MAY use deterministic plaintext chunks
+to remain below Temporal request, transaction, and History limits, and those
+chunks MUST reconstruct the complete transcript without omission. GRAF MUST NOT
+install a transcript PayloadCodec, application-layer encryption, masking,
+redaction, or workflow-history deletion for the internal MVP. Workflow inputs,
+activity inputs/results, and failure details MAY contain full meeting/model
+content when required for execution or debugging. Search Attributes and Memo
+MUST stay bounded, low-cardinality operational fields because they are indexes,
+not transcript storage. Observability retention is controlled by the operator's
+Langfuse and Temporal configuration; GRAF MUST NOT shorten it or delete traces
+or histories when a meeting is deleted.
+
+Runtime credentials, API keys, authorization headers, cookies, passwords,
+signed-URL secrets, and raw audio are not model inputs and MUST NOT be
+deliberately attached as observability attributes. This rule does not authorize
+content-changing transcript filters: the canonical transcript remains complete
+and verbatim even when spoken text resembles a credential. The application MUST
+select the relevant transcript/model fields explicitly, without a redaction or
+masking pipeline. Recording and transcription MUST continue when Langfuse is
+unavailable; trace export MAY retry with deterministic identity and MUST NOT
+repeat a completed model call.
+
+Prompt-control failure MAY use only an exact, integrity-checked last-known-good
+export of a previously promoted Langfuse prompt/config version. If neither
+Langfuse nor that verified snapshot is available, recording and transcription
+MUST continue while AI generation waits in a truthful bounded dependency state;
+GRAF MUST NOT invent or silently substitute model settings from code.
+
+Prompt optimization MUST run outside the user request path as durable,
+deployment-operator-controlled work. Workspace administrators MUST NOT control
+project-global prompt labels. Optimizers MAY publish exact numeric candidate
+prompt versions and evaluation evidence without a manually assigned deployment
+label, but MUST NOT move production without explicit
+operator approval, held-out validation, privacy review, serialized
+expected-source verification, protected-label plus sole mutation credential
+readiness, and a rollback target. Automated promotion MUST remain disabled when
+that readiness is unavailable. Feature 121 prompt optimization remains
+synthetic-only to keep the first version small. Synthetic optimization
+observations and Temporal histories MAY contain complete plaintext inputs,
+outputs, judge feedback, and optimizer state. Using real meetings for
+optimization remains a separate product decision.
+
+Rationale: during the internal MVP, complete debuggability is more valuable
+than building a security subsystem before the product flow stabilizes. The
+operator owns the Langfuse, LiteLLM, and Temporal environments and explicitly
+accepts plaintext observability content there.
 
 ### IV. Deletion Truth And Lifecycle Accounting
 
@@ -92,12 +175,13 @@ MUST NOT promise universal erasure outside controlled storage. Preferred wording
 is: "Delete this meeting everywhere 2brain Rec controls."
 
 Every feature that creates, transforms, exports, observes, or caches meeting
-content MUST register lifecycle artifacts for retention and deletion accounting.
-Deletion reports MUST distinguish active server purge, local desktop purge,
-backup expiry, Temporal/workflow payload limits, MediaScribe dependency state,
-Langfuse trace/content state, diagnostics, external/post-egress limits, and
-unreachable clients. If a dependency cannot confirm deletion, the UI and admin
-report MUST say so.
+content MUST register lifecycle artifacts for truthful accounting. Deletion
+reports MUST distinguish active GRAF server purge, local desktop purge, backup
+expiry, MediaScribe dependency state, and unreachable clients. They MUST also
+state that the GRAF Generation Call ledger, Langfuse observations, and Temporal
+History are retained under the operator's observability policy and are not
+deleted by meeting deletion. The product MUST NOT present these retained
+observability copies as a failed GRAF purge.
 
 Rationale: deletion is not a button; it is a cross-system lifecycle promise.
 Precise status is safer than broad claims that the system cannot prove.
@@ -143,8 +227,29 @@ must be decomposed into reviewable artifacts before code.
 - Temporal is the selected durable workflow engine for MVP workflows unless the
   constitution is amended.
 - MediaScribe at `https://mediascribe.2brain.pro` is the MVP STT dependency.
-- Langfuse at `https://langfuse.2brain.pro` is the MVP LLM observability
-  dependency.
+- An owner-controlled, explicitly allowlisted LiteLLM deployment is the MVP LLM
+  gateway for content-bearing notes generation. Application workers MUST use
+  its OpenAI-compatible contract and MUST NOT call upstream model providers
+  directly.
+- A private Langfuse Cloud EU project at `https://cloud.langfuse.com` is the
+  approved internal-MVP LLM observability and prompt-control dependency; public
+  trace publishing MUST remain disabled, and self-hosted/customer deployments
+  MUST configure and allowlist their own approved destination.
+- Langfuse observations retain the complete plaintext transcript, logical
+  request, raw model response, and validated result for internal-MVP debugging.
+- Temporal History retains the complete plaintext transcript and may naturally
+  retain other workflow/model content; the exact full request/response/result is
+  guaranteed in Langfuse and the Generation Call ledger rather than duplicated
+  deliberately. Deterministic plaintext chunks keep payloads within Temporal
+  limits. No transcript codec or application-layer encryption is used.
+- GRAF does not redact, mask, truncate, or delete Langfuse or Temporal
+  observability content. Their retention is operator-managed.
+- Langfuse Prompt Config is the versioned authority for prompt text, selected
+  LiteLLM model route, request-level generation settings, and structured-output
+  schema. LiteLLM owns upstream routing and secrets, not product model policy.
+- Durable model calls and offline prompt-optimization runs use Temporal.
+  Protected production prompt labels require explicit deployment-operator promotion after
+  evaluation; optimization never auto-promotes.
 - Default storage mode retains audio plus transcript; transcript-only mode is
   required.
 - User deletion deletes the whole meeting in MVP; partial artifact deletion is
@@ -215,4 +320,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 2.1.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-07-13
+**Version**: 4.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-07-22
