@@ -122,6 +122,52 @@ final class CanonicalRecordingManifestTests: XCTestCase {
         XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("rawAudio"))
         XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("transcriptText"))
     }
+
+    func testV5ManifestPreservesPausePrivacyIntervalWithoutFabricatedTrack() throws {
+        let segment = ProductPrivacySegment(
+            segmentId: "privacy-1",
+            sessionId: "paused-session",
+            control: .pause,
+            startedAt: Date(timeIntervalSince1970: 14),
+            endedAt: Date(timeIntervalSince1970: 16),
+            startMonotonicMs: 4_000,
+            endMonotonicMs: 6_000,
+            localMicTreatment: .silenced
+        )
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .v5Manifest(
+                sessionId: "paused-session",
+                directoryId: "paused-session",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: canonicalTracks(),
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions(),
+                privacySegments: [segment]
+            )
+
+        XCTAssertEqual(manifest.privacySegments, [segment])
+        XCTAssertEqual(manifest.tracks.count, 2)
+        XCTAssertEqual(manifest.privacySegments?.first?.durationMs, 2_000)
+    }
+
+    func testV5ManifestKeepsSourceFailureTruth() {
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .v5Manifest(
+                sessionId: "source-loss",
+                directoryId: "source-loss",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: canonicalTracks(),
+                failureReason: .deviceUnavailable,
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions()
+            )
+
+        XCTAssertEqual(manifest.status, .failed)
+        XCTAssertEqual(manifest.failureReason, .deviceUnavailable)
+        XCTAssertFalse(manifest.isComplete)
+    }
 }
 
 final class HistoricalRecordingPackageCompatibilityTests: XCTestCase {

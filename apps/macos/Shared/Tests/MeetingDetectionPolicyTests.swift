@@ -19,7 +19,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(action, .prompt(targetID: "yandex_telemost"))
     }
 
-    func testTargetScopedAutoRecordRequiresExplicitTargetOptIn() {
+    func testLegacyTargetAutoRecordPreferenceStillRequiresAUserPrompt() {
         let action = MeetingDetectionPolicy().action(
             for: MeetingDetectionCandidateDecision(
                 kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
@@ -33,7 +33,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             prerequisites: MeetingDetectionCapturePrerequisites()
         )
 
-        XCTAssertEqual(action, .autoRecord(targetID: "yandex_telemost"))
+        XCTAssertEqual(action, .prompt(targetID: "yandex_telemost"))
     }
 
     func testTargetScopedAutoRecordStillPromptsWhenTargetIsUnchecked() {
@@ -139,7 +139,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(action, .suppress(reason: RecordingStartBlocker.policyDisabled.rawValue))
     }
 
-    func testRecordingPrerequisiteBlocksAutoRecordEvenAfterTargetOptIn() {
+    func testRecordingPrerequisiteBlocksPromptEvenWithLegacyTargetOptIn() {
         let prerequisite = RecordingPrerequisiteGate().evaluate(recordingPrerequisite(storageRisk: .critical))
         let action = MeetingDetectionPolicy().action(
             for: MeetingDetectionCandidateDecision(

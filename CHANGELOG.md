@@ -9,22 +9,44 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature 121: единый простой путь записи от проверки разрешений и ручного
+  старта до паузы, остановки, локального сохранения, обработки и просмотра
+  встречи в двух вкладках «Итоги»/«Расшифровка» с постоянным плеером.
+- Девять встроенных форматов итогов, личные структурированные шаблоны,
+  кандидатная генерация через сменяемый LiteLLM gateway и отдельный Langfuse
+  prompt/config для каждого формата.
+- Внутренний sharing, отзыв/ротация ссылок, ограниченные внешние приглашения и
+  контекстный More-меню для экспорта, скачивания и удаления.
+- Temporal workflows для генерации итогов, доставки приглашений и
+  синтетической GEPA-оптимизации с операторским promotion/rollback.
 
 ### Изменено
-- _Пока нет записей._
+- Экран записи и встречи использует одну очевидную основную кнопку, спокойные
+  статусы и progressive disclosure вместо панели с множеством переключателей.
+- Langfuse Prompt Config является источником модели и параметров запроса;
+  полный транскрипт и model-call content намеренно сохраняются в утверждённых
+  Langfuse, Generation Call и Temporal observability boundaries.
 
 ### Исправлено
-- _Пока нет записей._
+- Удалены countdown/autostart, небезопасный Stop по обычному Escape и
+  дублирующие пути создания share grant.
+- Temporal cancellation/retry границы теперь завершают commit, закрытие
+  AsyncSession и engine disposal без дублей, потерянных результатов или
+  бесконечного rollback reconciliation.
 
 ### Безопасность
-- _Пока нет записей._
+- RLS, CSRF, token hashing, deletion-first authorization, invitation at-most-once
+  fence и fail-closed public/team/external gates покрыты contract/integration
+  тестами; секреты остаются только в ignored runtime files.
 
 ### Документы
-- _Пока нет записей._
+- Обновлены Spec Kit package, UX/IA, data model, contracts, quickstart evidence,
+  task/issue mapping и текущий статус Feature 121.
 
 ### Операции
-- _Пока нет записей._
+- Outcome generation, prompt optimization, public links и external invitations
+  по умолчанию выключены. Live LiteLLM/GEPA content-location gates T050, T057 и
+  T089 остаются открыты до предоставления gateway URL/key и synthetic manifests.
 
 ## [2026.07.22.1] - 2026-07-22
 

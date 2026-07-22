@@ -411,3 +411,116 @@ Record only:
 
 Passing local scenarios does not claim signed app, production deployment,
 notarization, public-link launch, external email delivery, or user rollout.
+
+## Implementation Evidence — 2026-07-22
+
+This section records the metadata-safe implementation receipt for branch
+`121-recording-workflows`. It deliberately does not embed transcript text,
+model responses, credentials, raw audio, invitation tokens, or private user
+identity.
+
+### Scenario coverage
+
+| Scenarios | Result | Evidence |
+|---|---|---|
+| 1–2 | PASS | Native readiness, separate permission recovery, idempotent manual Start, and detect-and-ask without countdown/autostart are covered by `CaptureControlV5Tests`, `SystemAudioPermissionUXTests`, `AppControlAccessibilityTests`, and `MeetingDetectionPolicyTests`. |
+| 3–5 | PASS | Pause/resume/one-action Stop, degraded-source truth, crash/finalize/upload custody, and v5 manifest privacy are covered by `CaptureIndicatorTests`, `AppControlAccessibilityTests`, `DesktopUploadQueueV5Tests`, and `CanonicalRecordingManifestTests`. |
+| 5–6 | PASS | Native and server projections preserve one artifact-specific custody/processing lifecycle without a second queue. |
+| 7 | PASS | Browser and embedded desktop use one authorized two-tab meeting workspace with persistent playback, synchronized transcript/speaker behavior, and fail-closed denied/deleting states. |
+| 8–9 | AUTOMATED PASS; live provider gate OPEN | Nine immutable built-ins plus bounded personal templates, one direct `Авто`, per-format prompt/config pinning, candidate failure/retry, and accepted-revision conflict behavior pass unit/contract/integration tests. Live LiteLLM execution remains part of T050. |
+| 10–12 | PASS with rollout flags off | Internal summary-only sharing, token rotation/revocation, fail-closed workspace/team/public policy, external invitation lifecycle, at-most-once Postal fence, enumeration resistance, and focus return pass. Public links and external invitations stay disabled for rollout. |
+| 13 | PASS | Feature-120 export composition and deletion races block new inference/publication/acceptance, preserve retained observability truth, and expose one contextual More surface. |
+| 14 | PASS | The connected 12-state prototype, narrow native window, keyboard/focus, reduced-motion, increased-contrast, two-tab, modal/listbox, Russian-copy, and clean-room checks pass. Visual artifacts are in `prototype/design-qa*.png`; no real meeting or identity content is present. |
+| 15 | AUTOMATED PASS; live three-store proof OPEN | Deterministic workflow IDs, plaintext Temporal chunk/hash/size contracts, retained Generation Call semantics, sole-publisher Langfuse delivery, deletion races, and no Feature-121 codec/key/delete subsystem pass automated tests. T050/T089 retain the missing live LiteLLM + Generation Call + raw Temporal History proof. |
+| 16 | AUTOMATED PASS; live exercise OPEN | Optional GEPA `0.1.4` adapter, immutable synthetic manifests, persisted fenced ledger, checkpoint restore, budget/deadline, held-out gating, exact unlabelled candidate, operator promotion, rollback, cancellation reconciliation, and bounded purge pass focused tests. The real two-worker forced-crash provider exercise remains T057. |
+
+### Langfuse receipt
+
+Read-only prompt verification against the configured private production project
+returned the ten outcome prompts (`auto`, `outline`, `meeting-minutes`,
+`project-sync`, `weekly-team-meeting`, `one-to-one`, `client-status-update`,
+`interview`, `sales-discovery`, and `custom`) at verified production version 1.
+The reflection and three judge prompts exist at version 1 and correctly remain
+`control-gate-required`; they were not promoted without calibration evidence.
+
+A synthetic private trace was re-read from Langfuse without printing its
+content:
+
+- trace `a03a989e4897dbddcfc74ca51edf522f`, name
+  `generate-meeting-outcome`, environment `production`, `public=false`;
+- root chain observation `34b6a360749bbcde` and sole generation observation
+  `b2307bd949bda2dd`;
+- input keys are exactly `request` and `transcript`, 305 canonical JSON bytes,
+  SHA-256 `95784f39bca15dc360f39b5fdc9b76e521898f19843a0f85525eaf5a6b20d095`;
+- output keys are exactly `raw_response` and `validated_result`, 243 canonical
+  JSON bytes, SHA-256
+  `0ad6f21bec3d8c5f0028725c5c73da2649d4863f610e0a00faf01c961748ef7f`.
+
+This proves the configured private destination, trace shape, explicit
+full-content field selection, sole generation publisher, environment, and
+non-public state. It does not substitute for T050/T089's end-to-end call through
+the owner's LiteLLM gateway and raw Temporal/Generation Call read-back.
+
+### Focused and canonical validation
+
+- Final prompt-optimization cancellation/idempotency suite after adversarial
+  remediation: 116 passed; independent re-review suite: 69 passed; Ruff and
+  diff checks passed.
+- Post-Ponytail focused server regression across prompt optimization, outcome
+  generation, sharing, Langfuse, and UI contracts: 89 passed with two external
+  dependency warnings and no failures.
+- Canonical `infra/scripts/ci-local.sh`: macOS 604 passed; native
+  `ContractValidation: PASS`; server parallel 2176 passed, 1 skipped; strict
+  PostgreSQL/RLS 41 passed, 1 skipped; collection count 2219 and digest
+  `b26e98d5b19605c1921d7c608bd082813965660b62f11f4be51d05b6c961eaa1`;
+  Ruff, Python compile, production Compose rendering, deployment evidence scan,
+  and final `ci_local_result=pass` all passed.
+- The local RLS helper truthfully reported `live_production_probe=not_attempted`;
+  production RLS/health evidence belongs to the post-merge deployment receipt,
+  not this local gate.
+
+### Review and simplification
+
+Correctness/security review iterated through failure finalization, infinite
+Temporal retries, plaintext chunking, durable GEPA checkpoints, usage/cost
+provenance, prompt variables, held-out isolation, object-first purge,
+materialization certificates, cancellation quiescence, Langfuse label mutation
+reconciliation, DB commit/AsyncSession exit/engine disposal, and rollback child
+cancellation. The final independent verdict found no P0/P1/P2 issue.
+
+Ponytail review removed production-unused settings and helpers, duplicate
+share-writer and response-provenance paths, test-only runtime ledgers/checkpoint
+formats, a no-op optimizer callback, a self-comparison guard, and dead workflow
+chunk/observability helpers. Deliberate Temporal sandbox fallbacks, semantic
+workflow result types, per-activity transaction scopes, and the explicit WebKit
+dialog focus boundary remain because they enforce tested runtime contracts.
+The final repeated Ponytail verdict was `Lean already. Ship.`.
+
+Post-implementation `$speckit-analyze` rechecked 111 explicit FR/SC entries,
+95 dependency-ordered tasks, the constitution v4.0.0 gates, terminology,
+paths, and open-gate truth. Requirement coverage remains complete and the
+finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`; T050, T057, and T089 are
+intentional evidence gates rather than uncovered requirements. The mandatory
+repository issue-canon validator passed 149 Spec Kit issues.
+
+### Open external rollout gates
+
+- **T050**: no `TWOBRAIN_LITELLM_BASE_URL` or real
+  `twobrain_litellm_api_key` has been provided. Outcome generation therefore
+  remains disabled and no live provider call, retained Generation Call row, or
+  raw Temporal History proof is claimed.
+- **T057**: immutable owner-approved synthetic train/development/held-out
+  manifests and live LiteLLM access are absent, so the two-worker forced-crash
+  GEPA/promotion/rollback/purge exercise is not claimed.
+- **T089**: the negative committed-evidence/secret scan and automated content
+  contracts pass; its positive live three-store content-location proof remains
+  coupled to T050.
+
+Production deployment may safely include the schema, workers, UI, prompts, and
+disabled feature flags. `TWOBRAIN_OUTCOME_GENERATION_ENABLED`, prompt
+optimization, public-link, team, and external-invitation rollout remain false
+until their explicit gates are satisfied.
+
+T095 is satisfied by the owner's explicit advance approval in this task for
+commit, push, PR, merge, production deploy, release, and installed-app
+replacement after validation and review.

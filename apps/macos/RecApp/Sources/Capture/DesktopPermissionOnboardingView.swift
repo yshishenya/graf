@@ -46,6 +46,8 @@ public struct DesktopPermissionOnboardingView: View {
     public static let systemAudioStepDetail = "Нужна macOS, чтобы GRAF мог получить звук встречи. После настройки может потребоваться перезапуск GRAF."
     public static let startStepTitle = "Начните аудиозапись"
     public static let startStepDetail = "После разрешений используйте кнопку записи в правой панели управления."
+    public static let openSettingsTitle = "Открыть настройки macOS"
+    public static let retryTitle = "Проверить снова"
 
     private let status: DesktopPermissionOnboardingStatus
     private let isRequesting: Bool
@@ -180,11 +182,11 @@ private struct PermissionOnboardingRow: View {
 
                 if state != .granted {
                     HStack(spacing: 8) {
-                        Button(primaryTitle, action: onPrimary)
+                        Button(state == .unknown ? primaryTitle : DesktopPermissionOnboardingView.retryTitle, action: onPrimary)
                             .disabled(isRequesting)
                             .accessibilityIdentifier(primaryIdentifier)
 
-                        Button("Настройки macOS", action: onSettings)
+                        Button(DesktopPermissionOnboardingView.openSettingsTitle, action: onSettings)
                             .disabled(isRequesting)
                     }
                     .controlSize(.small)

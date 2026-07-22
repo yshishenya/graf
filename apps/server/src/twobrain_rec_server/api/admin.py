@@ -703,6 +703,7 @@ async def create_admin_meeting_export(
     dependencies=[WebCSRFDependency],
 )
 async def create_admin_meeting_deletion(
+    request: Request,
     meeting_id: UUID,
     payload: AdminDeletionRequest,
     tenant_scope: TenantScope = TenantDependency,
@@ -732,6 +733,7 @@ async def create_admin_meeting_deletion(
         request_source=DeletionRequestSource.ADMIN,
         reason_code=payload.reason_code,
         storage=storage,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await db.commit()
     return response

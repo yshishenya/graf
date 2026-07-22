@@ -43,14 +43,9 @@ from twobrain_rec_server.cabinet.rendering_shared import (
     _ui_text,
 )
 from twobrain_rec_server.cabinet.review_policy_rendering import (
-    _render_access_chip,
-    _render_access_summary,
     _render_activity,
     _render_artifacts,
     _render_delete_confirmation,
-    _render_governance,
-    _render_share_panel,
-    _render_top_actions,
 )
 from twobrain_rec_server.cabinet.templates import (
     render_icon,
@@ -58,6 +53,7 @@ from twobrain_rec_server.cabinet.templates import (
     trusted_component_html,
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
+from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY, BUILT_IN_TEMPLATES
 
 
 def render_meeting_list_page(
@@ -128,6 +124,24 @@ def render_meeting_unavailable_page(
     )
 
 
+def render_share_invitation_accept_page(
+    *,
+    share_token: str,
+    workspace_id: str,
+    csrf_token: str | None,
+) -> str:
+    return _page_shell(
+        "Приглашение на встречу",
+        embedded=False,
+        csrf_token=csrf_token,
+        content_template="cabinet/pages/share_invitation_content.html",
+        accept_action=(
+            f"/api/v1/cabinet/share-invitations/{share_token}/accept"
+            f"?workspace_id={workspace_id}"
+        ),
+    )
+
+
 def render_settings_page(
     *,
     embedded: bool = False,
@@ -166,6 +180,7 @@ def render_settings_page(
         workspace_join_offers=workspace_join_offers,
         workspace_offer_result=offer_result_copy,
         workspace_offer_action_base_path="/settings/join-offers",
+        summary_formats=BUILT_IN_TEMPLATES,
     )
 
 
@@ -463,24 +478,51 @@ def _render_meeting_detail_content(
             """,
             source="meeting_detail.empty_transcript",
         )
-    recording_tab = "Расшифровка" if embedded else "Запись и расшифровка"
+    outcomes_selected = review.notes_action_truth.summary.state == "available"
+    content_export_available = review.content_exports is not None and (
+        review.content_exports.transcript.state == "available"
+        or review.content_exports.summary.state in {"available", "partial"}
+        or review.content_exports.combined.state == "available"
+    )
+    current_summary_format_key = review.template.reason or "graf-auto-v1"
+    current_summary_format = BUILT_IN_BY_KEY.get(current_summary_format_key)
     return render_template(
         "cabinet/pages/meeting_detail_content.html",
         base_path=_base_path(embedded),
         meeting_title=review.meeting.title,
+        meeting_date=cabinet_view_models.date_label(review.meeting),
+        meeting_duration=cabinet_view_models.format_duration(review.meeting.duration_seconds),
         status_label=_ui_text(review.meeting.status_label),
         media_revision_id=str(review.provenance.media_revision_id or ""),
         local_media_revision_id=review.provenance.local_media_revision_id or "",
         playback_poll_url=poll_url or "",
         playback_poll_active="true" if review.playback.state == "preparing" else "false",
         playback_live_label=review.playback.label,
-        recording_tab=recording_tab,
-        access_chip=trusted_component_html(
-            _render_access_chip(review.meeting.access), source="meeting_detail.access_chip"
-        ),
         top_actions=trusted_component_html(
-            _render_top_actions(review, embedded=embedded), source="meeting_detail.top_actions"
+            _render_meeting_workspace_actions(review), source="meeting_detail.top_actions"
         ),
+        outcomes_selected=outcomes_selected,
+        content_export_available=content_export_available,
+        meeting_id=review.meeting.meeting_id,
+        summary_controls_available=bool(
+            review.access is not None
+            and review.access.state == "owner"
+            and review.transcript.available
+        ),
+        summary_formats=BUILT_IN_TEMPLATES,
+        current_summary_format_key=current_summary_format_key,
+        current_summary_format=(
+            current_summary_format.name
+            if current_summary_format is not None
+            else review.template.label
+        ),
+        current_outcome_set_id=(
+            str(review.content_exports.outcome_set_id or "")
+            if review.content_exports is not None
+            else ""
+        ),
+        summary_settings_href=_settings_path(embedded) + "#summary-formats",
+        audio_download_available=(review.governance.download.state == "available"),
         outcomes=trusted_component_html(
             _render_notes_outcomes(review), source="meeting_detail.outcomes"
         ),
@@ -505,31 +547,24 @@ def _render_meeting_detail_content(
             ),
             source="meeting_detail.calendar_context",
         ),
-        access_summary=trusted_component_html(
-            _render_access_summary(review), source="meeting_detail.access_summary"
-        ),
-        share_panel=trusted_component_html(
-            _render_share_panel(review), source="meeting_detail.share_panel"
-        ),
         artifacts=trusted_component_html(
             _render_artifacts(review), source="meeting_detail.artifacts"
         ),
         deletion_truth_copy=review.deletion_truth_copy or "",
         deletion_truth_text=_ui_text(review.deletion_truth_copy or ""),
         delete_confirmation=trusted_component_html(
-            _render_delete_confirmation(review, embedded=embedded),
+            _render_delete_confirmation(
+                review,
+                embedded=embedded,
+                csrf_token=csrf_token,
+            ),
             source="meeting_detail.delete_confirmation",
         ),
         speaker_lanes=trusted_component_html(
             _render_speaker_lanes(review, embedded=embedded, csrf_token=csrf_token),
             source="meeting_detail.speaker_lanes",
         ),
-        governance=trusted_component_html(
-            _render_governance(review), source="meeting_detail.governance"
-        ),
         activity=trusted_component_html(_render_activity(review), source="meeting_detail.activity"),
-        assistant_label=_ui_text(review.assistant.label),
-        template_label=_ui_text(review.template.label),
         playback=trusted_component_html(
             _render_playback(review, embedded=embedded, csrf_token=csrf_token),
             source="meeting_detail.playback",
@@ -539,6 +574,15 @@ def _render_meeting_detail_content(
             source="meeting_detail.content_export_dialog",
         ),
     )
+
+
+def _render_meeting_workspace_actions(review: MeetingReviewResponse) -> str:
+    share_disabled = " disabled" if review.governance.share.state != "available" else ""
+    share_url = f"/meetings/{review.meeting.meeting_id}/share"
+    return f"""
+      <button type="button" data-share-dialog-open aria-controls="meeting-share-dialog" hx-get="{share_url}" hx-target="#meeting-share-host" hx-swap="innerHTML"{share_disabled}>Поделиться</button>
+      <button type="button" data-meeting-panel-open="more" aria-controls="meeting-context-more" aria-expanded="false">Ещё</button>
+    """
 
 
 def _render_content_export_dialog(

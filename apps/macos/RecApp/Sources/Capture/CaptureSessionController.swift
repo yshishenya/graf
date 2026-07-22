@@ -129,6 +129,9 @@ public final class CaptureSessionController {
 
     public func start() throws -> CaptureSession {
         var current = try requireSession()
+        if [.starting, .active, .paused, .degraded].contains(current.state) {
+            return current
+        }
         guard canTransition(from: current.state, to: .starting) else {
             throw CaptureSessionControllerError.invalidTransition("Cannot start from \(current.state.rawValue)")
         }
@@ -180,7 +183,10 @@ public final class CaptureSessionController {
         return current
     }
 
-    public func markDegraded() throws -> CaptureSession {
+    public func markDegraded(
+        source: String? = nil,
+        recoveryAction: String? = nil
+    ) throws -> CaptureSession {
         var current = try requireSession()
         guard canTransition(from: current.state, to: .degraded) else {
             throw CaptureSessionControllerError.invalidTransition("Cannot mark degraded from \(current.state.rawValue)")
@@ -189,6 +195,12 @@ public final class CaptureSessionController {
         current.state = .degraded
         current.visibleIndicatorState = .degraded
         current.stopActionAvailable = true
+        if let source {
+            current.triggerEvidence["degradedSource"] = source
+        }
+        if let recoveryAction {
+            current.triggerEvidence["recoveryAction"] = recoveryAction
+        }
         session = current
         return current
     }

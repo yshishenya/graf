@@ -58,6 +58,7 @@ from twobrain_rec_server.db.models.meeting_access import (
     MeetingArtifactPolicy,
     MeetingEgressAuditEvent,
     MeetingShareGrant,
+    MeetingShareInvitation,
 )
 from twobrain_rec_server.db.models.meeting_detection import (
     MeetingDetectionCandidate,
@@ -76,9 +77,13 @@ from twobrain_rec_server.db.models.normalization import (
 )
 from twobrain_rec_server.db.models.onboarding import WorkspaceJoinOffer
 from twobrain_rec_server.db.models.outcomes import (
+    GenerationCall,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    PromptOptimizationCallLedger,
+    PromptOptimizationRun,
+    SummaryTemplate,
 )
 from twobrain_rec_server.db.models.processing import (
     DiarizationSegment,
@@ -115,10 +120,15 @@ __all__ = [
     "MeetingEgressAuditEvent",
     "MeetingLifecycleAuditEvent",
     "MeetingShareGrant",
+    "MeetingShareInvitation",
     "MeetingSpeakerName",
     "MeetingOutcomeGenerationAttempt",
     "MeetingOutcomeItem",
     "MeetingOutcomeSet",
+    "GenerationCall",
+    "PromptOptimizationCallLedger",
+    "PromptOptimizationRun",
+    "SummaryTemplate",
     "MeetingTargetRegistryEntry",
     "MeetingTargetRegistryVersion",
     "Organization",

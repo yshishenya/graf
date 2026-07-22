@@ -237,7 +237,10 @@ def test_shared_viewer_playback_route_uses_stored_m4a_review_artifact(client) ->
     share = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
         headers=auth_headers(),
-        json={"grantee_user_id": str(SHARED_USER_ID)},
+        json={
+            "grantee_user_id": str(SHARED_USER_ID),
+            "content_scope": "full_meeting",
+        },
     )
     assert share.status_code == 201
 

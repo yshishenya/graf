@@ -82,6 +82,7 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
     SummaryStatus,
 )
+from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY
 
 if TYPE_CHECKING:
     from twobrain_rec_server.db.models import WorkspaceProviderLinkState
@@ -1493,6 +1494,8 @@ def governance_summary(
     *,
     access: MeetingAccessState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
+    content_exports: ContentExportCapabilityResponse | None = None,
+    can_delete: bool = False,
 ) -> GovernanceActionSummary:
     access = access or owner_access_state()
     artifacts = artifacts or []
@@ -1501,10 +1504,16 @@ def governance_summary(
         and artifact.state == "available"
         for artifact in artifacts
     )
-    export_available = any(
+    canonical_export_available = content_exports is not None and (
+        content_exports.transcript.state == "available"
+        or content_exports.summary.state in {"available", "partial"}
+        or content_exports.combined.state == "available"
+    )
+    package_export_available = any(
         artifact.artifact_class == "package" and artifact.state == "available"
         for artifact in artifacts
     )
+    export_available = canonical_export_available or package_export_available
     return GovernanceActionSummary(
         share=GovernanceActionState(
             state="available" if access.can_share else "disabled",
@@ -1516,10 +1525,12 @@ def governance_summary(
         ),
         export=GovernanceActionState(
             state="available" if export_available and access.can_export else "disabled",
-            label="Export package",
-            reason="Includes only currently policy-allowed artifacts."
+            label="Экспортировать…" if canonical_export_available else "Export package",
+            reason="Canonical revision-pinned export is available."
+            if canonical_export_available and access.can_export
+            else "A policy-allowed export package is available."
             if export_available and access.can_export
-            else "No policy-allowed export package is available.",
+            else "No policy-allowed canonical content export is available.",
             destructive=False,
         ),
         download=GovernanceActionState(
@@ -1537,9 +1548,13 @@ def governance_summary(
             destructive=False,
         ),
         delete=GovernanceActionState(
-            state="planned",
-            label="Delete this meeting everywhere GRAF controls",
-            reason="Planned; this does not promise deletion outside GRAF control.",
+            state="available" if can_delete and access.state == "owner" else "disabled",
+            label="Удалить встречу…",
+            reason="Deletes meeting artifacts everywhere GRAF controls; retained observability remains."
+            if can_delete and access.state == "owner"
+            else "Deletion is available in the authorized meeting detail with the GRAF-controlled scope."
+            if access.state == "owner"
+            else "Only the meeting owner can delete this meeting.",
             destructive=True,
         ),
     )
@@ -1556,6 +1571,30 @@ def future_slots() -> list[SlotState]:
 
 def slot_state(label: str) -> SlotState:
     return SlotState(state="planned", label=label, reason="Planned for a later feature slice.")
+
+
+def summary_template_slot(
+    outcome_set: MeetingOutcomeSet | None,
+    *,
+    personal_name: str | None = None,
+    default_template_key: str = "graf-auto-v1",
+    default_template_name: str | None = None,
+) -> SlotState:
+    template_key = (
+        outcome_set.template_key
+        if outcome_set is not None and outcome_set.template_key
+        else default_template_key
+    )
+    definition = BUILT_IN_BY_KEY.get(template_key)
+    return SlotState(
+        state="available",
+        label=(
+            definition.name
+            if definition is not None
+            else personal_name or default_template_name or "Личный формат"
+        ),
+        reason=template_key,
+    )
 
 
 def build_list_item(
@@ -1840,10 +1879,14 @@ def transcript_state(
             if confirmed
             else "UNKNOWN"
         )
-        speaker_key = canonical_label.lower() if confirmed else (
-            f"unconfirmed:{matching_diarization.id}"
-            if matching_diarization is not None
-            else f"unknown:{segment.id}"
+        speaker_key = (
+            canonical_label.lower()
+            if confirmed
+            else (
+                f"unconfirmed:{matching_diarization.id}"
+                if matching_diarization is not None
+                else f"unknown:{segment.id}"
+            )
         )
         view = TranscriptSegmentView(
             segment_id=str(segment.id),
@@ -1942,9 +1985,9 @@ def canonical_turn_id(processing_result_id: UUID | None, segment_ids: Iterable[s
     source_ids = tuple(segment_ids)
     if processing_result_id is None:
         return source_ids[0]
-    digest = hashlib.sha256(
-        f"{processing_result_id}:{','.join(source_ids)}".encode()
-    ).hexdigest()[:24]
+    digest = hashlib.sha256(f"{processing_result_id}:{','.join(source_ids)}".encode()).hexdigest()[
+        :24
+    ]
     return f"turn_{digest}"
 
 
@@ -1954,9 +1997,7 @@ def derive_speaker_turns(
     turns: list[TranscriptSpeakerTurnView] = []
     current: list[TranscriptSegmentView] = []
     valid_rows = [
-        row
-        for row, _ in rows
-        if row.start_seconds >= 0 and row.end_seconds >= row.start_seconds
+        row for row, _ in rows if row.start_seconds >= 0 and row.end_seconds >= row.start_seconds
     ]
     overlap_ids: set[str] = set()
     timeline_rows = sorted(
@@ -2673,6 +2714,9 @@ def build_review_response(
     calendar_context_detail: MeetingCalendarContextResponse | None = None,
     activity: MeetingActivityResponse | None = None,
     outcome_set: MeetingOutcomeSet | None = None,
+    outcome_template_name: str | None = None,
+    default_summary_template_key: str = "graf-auto-v1",
+    default_summary_template_name: str | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
     speaker_names: dict[str, str] | None = None,
     can_rename_speakers: bool = False,
@@ -2741,7 +2785,12 @@ def build_review_response(
         notes=notes_state(status),
         notes_action_truth=notes_truth,
         playback=playback,
-        governance=governance_summary(access=access_state, artifacts=artifact_states),
+        governance=governance_summary(
+            access=access_state,
+            artifacts=artifact_states,
+            content_exports=content_exports,
+            can_delete=True,
+        ),
         access=access_state,
         share=share,
         artifacts=artifact_states,
@@ -2749,7 +2798,12 @@ def build_review_response(
         activity=activity,
         deletion_truth_copy=DELETION_TRUTH_COPY,
         assistant=slot_state("Assistant"),
-        template=slot_state("Template"),
+        template=summary_template_slot(
+            outcome_set,
+            personal_name=outcome_template_name,
+            default_template_key=default_summary_template_key,
+            default_template_name=default_summary_template_name,
+        ),
     )
 
 

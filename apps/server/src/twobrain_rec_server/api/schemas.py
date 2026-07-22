@@ -1214,6 +1214,188 @@ PublicLinkState = Literal["disabled_by_default", "policy_blocked"]
 ShareGrantStatus = Literal["active", "revoked"]
 ActivityOutcome = Literal["allowed", "denied", "completed", "failed", "prepared"]
 ExportPackageStatus = Literal["requested", "ready", "failed", "expired"]
+SummaryTemplateKind = Literal["builtin", "personal"]
+SummaryTemplateStatus = Literal["active", "archived", "deleted"]
+SummaryDetailLevel = Literal["brief", "standard", "detailed"]
+SummaryOutputLanguage = Literal["ru", "en"]
+SummarySection = Literal[
+    "summary",
+    "key_points",
+    "decisions",
+    "action_items",
+    "followups",
+    "risks",
+    "questions",
+    "evidence",
+]
+SummaryCandidateState = Literal[
+    "queued",
+    "generating",
+    "blocked_dependency",
+    "candidate",
+    "accepted",
+    "rejected",
+    "failed",
+    "cancelled",
+]
+SummaryCandidateProjectionState = Literal["generating", "ready", "accepted", "closed", "failed"]
+ShareAudienceType = Literal["user", "workspace", "team", "link"]
+ShareContentScope = Literal["summary_only", "full_meeting"]
+ShareInvitationStatus = Literal[
+    "pending",
+    "sending",
+    "sent",
+    "accepted",
+    "expired",
+    "revoked",
+    "failed",
+    "deleted",
+]
+
+
+class CreateSummaryTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: SafeClientText = Field(min_length=1, max_length=80)
+    purpose: SafeClientText = Field(min_length=1, max_length=240)
+    sections: list[SummarySection] = Field(min_length=1, max_length=8)
+    output_language: SummaryOutputLanguage
+    detail_level: SummaryDetailLevel
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return " ".join(value.split())
+
+    @field_validator("sections")
+    @classmethod
+    def require_unique_sections(
+        cls, value: list[SummarySection]
+    ) -> list[SummarySection]:
+        if len(value) != len(set(value)):
+            raise ValueError("summary sections must be unique")
+        return value
+
+
+class UpdateSummaryTemplateRequest(CreateSummaryTemplateRequest):
+    expected_version: int = Field(ge=1)
+
+
+class SummaryTemplateView(BaseModel):
+    template_id: UUID | None = None
+    template_key: str
+    kind: SummaryTemplateKind
+    name: str
+    purpose: str
+    sections: list[SummarySection]
+    output_language: SummaryOutputLanguage
+    detail_level: SummaryDetailLevel
+    version: int = Field(ge=1)
+    status: SummaryTemplateStatus
+    can_edit: bool = False
+    can_duplicate: bool = True
+
+
+class SummaryTemplateListResponse(BaseModel):
+    default_template_key: str
+    can_manage_default: bool = False
+    recommended: list[SummaryTemplateView] = Field(default_factory=list, max_length=4)
+    personal: list[SummaryTemplateView] = Field(default_factory=list, max_length=100)
+
+
+class UpdateDefaultSummaryTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_key: str = Field(min_length=1, max_length=120)
+    template_id: UUID | None = None
+    template_version: int = Field(ge=1)
+
+
+class CreateSummaryCandidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_key: str = Field(min_length=1, max_length=120)
+    template_id: UUID | None = None
+    template_version: int = Field(ge=1)
+    expected_current_outcome_set_id: UUID | None = None
+
+
+class SummaryCandidateResponse(BaseModel):
+    candidate_id: UUID
+    state: SummaryCandidateProjectionState
+    current_outcome_set_id: UUID | None = None
+    poll_url: str
+
+
+class ResolveSummaryCandidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_current_outcome_set_id: UUID | None = None
+
+
+class CreateScopedShareGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    audience_type: ShareAudienceType = "user"
+    audience_id: UUID | None = None
+    content_scope: ShareContentScope = "summary_only"
+    can_download: bool = False
+    can_export: bool = False
+    expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def require_matching_audience_identity(self) -> Self:
+        if self.audience_type == "link" and self.audience_id is not None:
+            raise ValueError("link audience must not include audience_id")
+        if self.audience_type != "link" and self.audience_id is None:
+            raise ValueError("non-link audience requires audience_id")
+        return self
+
+
+class CreateMeetingShareInvitationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    address: str = Field(min_length=3, max_length=320)
+    content_scope: ShareContentScope = "summary_only"
+    can_download: bool = False
+    can_export: bool = False
+
+    @field_validator("address")
+    @classmethod
+    def validate_delivery_address(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        local, separator, domain = normalized.rpartition("@")
+        if not separator or not local or "." not in domain or domain.startswith("."):
+            raise ValueError("invalid delivery address")
+        return normalized
+
+    @model_validator(mode="after")
+    def require_safe_external_scope(self) -> Self:
+        if self.content_scope != "summary_only" or self.can_download or self.can_export:
+            raise ValueError("external invitations support summary-only view access")
+        return self
+
+
+class MeetingShareInvitationResponse(BaseModel):
+    invitation_id: UUID
+    status: ShareInvitationStatus
+    expires_at: datetime
+
+
+class ShareRecipientView(BaseModel):
+    user_id: UUID
+    display_label: str
+
+
+class ShareRecipientListResponse(BaseModel):
+    items: list[ShareRecipientView] = Field(default_factory=list, max_length=20)
+
+
+class PublicShareSummaryResponse(BaseModel):
+    meeting_label: str
+    occurred_at: datetime
+    duration_seconds: int = Field(ge=0)
+    summary_sections: list[dict[str, object]] = Field(default_factory=list, max_length=100)
 
 
 class MeetingAccessState(BaseModel):
@@ -1225,6 +1407,8 @@ class MeetingAccessState(BaseModel):
     can_manage_team_visibility: bool
     can_download: bool
     can_export: bool
+    content_scope: ShareContentScope = "full_meeting"
+    can_view_full_meeting: bool = True
 
 
 class ArtifactEgressState(BaseModel):
@@ -1275,7 +1459,27 @@ class MeetingAccessResponse(BaseModel):
 
 
 class CreateShareGrantRequest(BaseModel):
-    grantee_user_id: UUID
+    model_config = ConfigDict(extra="forbid")
+
+    grantee_user_id: UUID | None = None
+    audience_type: ShareAudienceType = "user"
+    audience_id: UUID | None = None
+    content_scope: ShareContentScope = "summary_only"
+    can_download: bool = False
+    can_export: bool = False
+    expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def normalize_legacy_recipient(self) -> Self:
+        if self.grantee_user_id is not None:
+            if self.audience_id is not None and self.audience_id != self.grantee_user_id:
+                raise ValueError("recipient identifiers must match")
+            self.audience_id = self.grantee_user_id
+        if self.audience_type == "link" and self.audience_id is not None:
+            raise ValueError("link audience must not include audience_id")
+        if self.audience_type != "link" and self.audience_id is None:
+            raise ValueError("non-link audience requires audience_id")
+        return self
 
 
 class ShareGrantResponse(BaseModel):

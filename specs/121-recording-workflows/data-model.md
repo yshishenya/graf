@@ -63,7 +63,7 @@ Table concept: `summary_templates`.
 | `kind` | enum | `builtin` or `personal`. |
 | `name` | string | 1–80 visible characters; original Russian copy. |
 | `purpose` | string | 1–240 visible characters; no meeting content. |
-| `sections_json` | ordered list | Allowlisted section keys only: summary, key points, decisions, action items, follow-ups, risks, questions. |
+| `sections_json` | ordered list | Allowlisted section keys only: summary, key points, decisions, action items, follow-ups, risks, questions, evidence. |
 | `output_language` | enum/string | Allowlisted supported output language; independent of UI and transcript language. |
 | `detail_level` | enum | `brief`, `standard`, or `detailed`. |
 | `version` | positive integer | Increments for every personal edit. |
@@ -106,6 +106,7 @@ inputs plus durable orchestration and AI provenance:
 |---|---|---|
 | `candidate_id` | UUID | Stable idempotency key and workflow correlation. |
 | `source_result_id` | UUID | Pinned selected transcript/result revision. |
+| `requested_by_user_id` | optional UUID | Actor who requested this candidate; null only for policy-owned generation and legacy rows. |
 | `prompt_name` | bounded string | Exact allowlisted format-specific Langfuse prompt key; no prompt content. |
 | `prompt_version` | positive integer | Exact promoted Langfuse version used. |
 | `prompt_source` | enum | `langfuse_production` or `verified_promoted_snapshot`. |

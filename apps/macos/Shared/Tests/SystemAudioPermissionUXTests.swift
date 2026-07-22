@@ -5,6 +5,7 @@ import TwoBrainRecShared
 #if canImport(XCTest)
 import XCTest
 
+@MainActor
 final class SystemAudioPermissionUXTests: XCTestCase {
     func testGrantedPermissionsHaveNoRecoveryPresentation() {
         let result = SystemAudioPermissionGate().evaluate(
@@ -41,7 +42,15 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         XCTAssertFalse(result.presentation?.message.localizedCaseInsensitiveContains("driver") == true)
     }
 
-    @MainActor
+    func testPermissionRecoveryActionsStaySeparateAndRussian() {
+        XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки macOS")
+        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить снова")
+        XCTAssertNotEqual(
+            DesktopPermissionOnboardingAccessibilityIdentifier.microphoneButton,
+            DesktopPermissionOnboardingAccessibilityIdentifier.systemAudioButton
+        )
+    }
+
     func testDetectorAssistedPreparingDoesNotStartRecordingAutomatically() throws {
         let controller = CaptureSessionController(
             clock: { Date(timeIntervalSince1970: 1_783_440_000) },

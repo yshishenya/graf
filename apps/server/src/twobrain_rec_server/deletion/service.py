@@ -18,14 +18,18 @@ from twobrain_rec_server.api.schemas import (
 from twobrain_rec_server.calendar.lifecycle import account_meeting_calendar_context_deletion
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
+    ExportPackage,
     Meeting,
     MeetingDeletionArtifactState,
     MeetingDeletionReport,
     MeetingDeletionRequest,
     MeetingEgressAuditEvent,
     MeetingLifecycleAuditEvent,
+    MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingShareGrant,
+    MeetingShareInvitation,
     MeetingSpeakerName,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
@@ -107,6 +111,7 @@ async def request_meeting_deletion(
     policy_snapshot_id: UUID | None = None,
     backup_expiry_days: int | None = DEFAULT_BACKUP_EXPIRY_DAYS,
     storage: object | None = None,
+    temporal_client: object | None = None,
 ) -> DeletionRequestResponse:
     if confirmation_boundary != BOUNDED_DELETE_COPY:
         raise ProblemDetail(
@@ -197,7 +202,7 @@ async def request_meeting_deletion(
         meeting=meeting,
         deletion_request_id=deletion_request.id,
     )
-    outcomes_materialized = await _mark_outcomes_deleting(db, meeting=meeting)
+    outcomes_materialized, workflow_ids = await _mark_outcomes_deleting(db, meeting=meeting)
     post_egress_safe_reason = await _post_egress_safe_reason(db, meeting=meeting)
     purge_result = await _purge_server_controlled_content(db, meeting=meeting, storage=storage)
     artifact_states = _initial_artifact_states(
@@ -231,6 +236,10 @@ async def request_meeting_deletion(
     )
     db.add_all([*artifact_states, report])
     await _flush_or_fail_closed(db)
+    await _request_temporal_cancellation(
+        temporal_client,
+        workflow_ids=workflow_ids,
+    )
     return DeletionRequestResponse(
         request_id=deletion_request.id,
         meeting_id=meeting.id,
@@ -589,10 +598,68 @@ async def _purge_server_controlled_content(
             .where(MeetingOutcomeSet.meeting_id == meeting.id)
         )
     ).all()
-    if outcome_sets:
+    generation_attempts = (
+        await db.scalars(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(MeetingOutcomeGenerationAttempt.workspace_id == meeting.workspace_id)
+            .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting.id)
+        )
+    ).all()
+    if outcome_sets or generation_attempts:
         await _purge_meeting_outcomes(db, meeting=meeting)
+    if outcome_sets:
         result.materialized_classes.add(DeletionArtifactClass.NOTES_SUMMARY)
         result.purged_classes.add(DeletionArtifactClass.NOTES_SUMMARY)
+    if generation_attempts:
+        result.materialized_classes.add(DeletionArtifactClass.OUTCOME_ATTEMPT)
+
+    export_packages = (
+        await db.scalars(
+            select(ExportPackage)
+            .where(ExportPackage.workspace_id == meeting.workspace_id)
+            .where(ExportPackage.meeting_id == meeting.id)
+        )
+    ).all()
+    if export_packages:
+        await db.execute(
+            delete(ExportPackage)
+            .where(ExportPackage.workspace_id == meeting.workspace_id)
+            .where(ExportPackage.meeting_id == meeting.id)
+        )
+        result.materialized_classes.add(DeletionArtifactClass.EXPORT_PACKAGE)
+        result.purged_classes.add(DeletionArtifactClass.EXPORT_PACKAGE)
+
+    share_grants = (
+        await db.scalars(
+            select(MeetingShareGrant)
+            .where(MeetingShareGrant.workspace_id == meeting.workspace_id)
+            .where(MeetingShareGrant.meeting_id == meeting.id)
+        )
+    ).all()
+    if share_grants:
+        await db.execute(
+            delete(MeetingShareGrant)
+            .where(MeetingShareGrant.workspace_id == meeting.workspace_id)
+            .where(MeetingShareGrant.meeting_id == meeting.id)
+        )
+        result.materialized_classes.add(DeletionArtifactClass.SHARE_GRANT)
+        result.purged_classes.add(DeletionArtifactClass.SHARE_GRANT)
+
+    share_invitations = (
+        await db.scalars(
+            select(MeetingShareInvitation)
+            .where(MeetingShareInvitation.workspace_id == meeting.workspace_id)
+            .where(MeetingShareInvitation.meeting_id == meeting.id)
+        )
+    ).all()
+    if share_invitations:
+        await db.execute(
+            delete(MeetingShareInvitation)
+            .where(MeetingShareInvitation.workspace_id == meeting.workspace_id)
+            .where(MeetingShareInvitation.meeting_id == meeting.id)
+        )
+        result.materialized_classes.add(DeletionArtifactClass.SHARE_INVITATION)
+        result.purged_classes.add(DeletionArtifactClass.SHARE_INVITATION)
 
     return result
 
@@ -676,6 +743,16 @@ async def _purge_meeting_outcomes(db: AsyncSession, *, meeting: Meeting) -> None
         item.owner_text = None
         item.due_date_text = None
         item.source_refs_json = []
+    generation_attempts = (
+        await db.scalars(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(MeetingOutcomeGenerationAttempt.workspace_id == meeting.workspace_id)
+            .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting.id)
+        )
+    ).all()
+    for attempt in generation_attempts:
+        attempt.status = "cancelled"
+        attempt.failure_code = "meeting_deleted"
 
 
 def _initial_artifact_states(
@@ -809,16 +886,50 @@ def _initial_artifact_states(
             outcomes_reason,
         ),
         (
+            DeletionArtifactClass.OUTCOME_ATTEMPT,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.METADATA_RETAINED
+            if DeletionArtifactClass.OUTCOME_ATTEMPT in materialized_artifact_classes
+            else DeletionArtifactState.NOT_APPLICABLE,
+            "Generation attempt cancelled; prompt linkage retained for pending observability delivery"
+            if DeletionArtifactClass.OUTCOME_ATTEMPT in materialized_artifact_classes
+            else "Outcome generation attempt not materialized",
+        ),
+        (
+            DeletionArtifactClass.GENERATION_CALL,
+            DeletionControlScope.CONTROLLED,
+            DeletionArtifactState.OBSERVABILITY_RETAINED,
+            "Plaintext Generation Call ledger retained for observability",
+        ),
+        (
             DeletionArtifactClass.EXPORT_PACKAGE,
             DeletionControlScope.CONTROLLED,
-            DeletionArtifactState.PURGE_REQUESTED,
-            "Export package purge requested",
+            _purge_state(DeletionArtifactClass.EXPORT_PACKAGE, purged_artifact_classes),
+            _purge_reason(
+                "Export package",
+                DeletionArtifactClass.EXPORT_PACKAGE,
+                purged_artifact_classes,
+            ),
         ),
         (
             DeletionArtifactClass.SHARE_GRANT,
             DeletionControlScope.CONTROLLED,
-            DeletionArtifactState.PURGE_REQUESTED,
-            "Share grants disabled for this meeting",
+            _purge_state(DeletionArtifactClass.SHARE_GRANT, purged_artifact_classes),
+            _purge_reason(
+                "Share grants and link tokens",
+                DeletionArtifactClass.SHARE_GRANT,
+                purged_artifact_classes,
+            ),
+        ),
+        (
+            DeletionArtifactClass.SHARE_INVITATION,
+            DeletionControlScope.CONTROLLED,
+            _purge_state(DeletionArtifactClass.SHARE_INVITATION, purged_artifact_classes),
+            _purge_reason(
+                "Share invitations and token hashes",
+                DeletionArtifactClass.SHARE_INVITATION,
+                purged_artifact_classes,
+            ),
         ),
         (
             DeletionArtifactClass.UPLOAD_TEMP,
@@ -843,8 +954,14 @@ def _initial_artifact_states(
         (
             DeletionArtifactClass.LANGFUSE,
             DeletionControlScope.EXTERNAL,
-            DeletionArtifactState.METADATA_RETAINED,
-            "Langfuse is metadata-only by default",
+            DeletionArtifactState.OBSERVABILITY_RETAINED,
+            "Plaintext Langfuse observations retained under operator policy",
+        ),
+        (
+            DeletionArtifactClass.TEMPORAL_HISTORY,
+            DeletionControlScope.EXTERNAL,
+            DeletionArtifactState.OBSERVABILITY_RETAINED,
+            "Plaintext Temporal History retained under operator policy",
         ),
         (
             DeletionArtifactClass.DIAGNOSTICS,
@@ -979,7 +1096,11 @@ async def _post_egress_safe_reason(db: AsyncSession, *, meeting: Meeting) -> str
     return "post_egress_events:" + ",".join(unique_event_types)
 
 
-async def _mark_outcomes_deleting(db: AsyncSession, *, meeting: Meeting) -> bool:
+async def _mark_outcomes_deleting(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+) -> tuple[bool, tuple[str, ...]]:
     outcome_sets = (
         await db.scalars(
             select(MeetingOutcomeSet)
@@ -990,7 +1111,50 @@ async def _mark_outcomes_deleting(db: AsyncSession, *, meeting: Meeting) -> bool
     ).all()
     for outcome_set in outcome_sets:
         outcome_set.lifecycle_state = OutcomeLifecycleState.DELETING.value
-    return bool(outcome_sets)
+    attempts = (
+        await db.scalars(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(MeetingOutcomeGenerationAttempt.workspace_id == meeting.workspace_id)
+            .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting.id)
+            .where(
+                MeetingOutcomeGenerationAttempt.status.in_(
+                    {"queued", "generating", "blocked_dependency"}
+                )
+            )
+        )
+    ).all()
+    for attempt in attempts:
+        attempt.status = "cancelled"
+        attempt.failure_code = "meeting_deleting"
+    workflow_ids = tuple(
+        dict.fromkeys(attempt.workflow_id for attempt in attempts if attempt.workflow_id)
+    )
+    # Outcome-attempt accounting is tracked separately in
+    # ``materialized_artifact_classes``. Do not report a summary purge when a
+    # queued attempt never produced an outcome set.
+    return bool(outcome_sets), workflow_ids
+
+
+async def _request_temporal_cancellation(
+    temporal_client: object | None,
+    *,
+    workflow_ids: tuple[str, ...],
+) -> None:
+    if temporal_client is None:
+        return
+    get_handle = getattr(temporal_client, "get_workflow_handle", None)
+    if get_handle is None:
+        return
+    for workflow_id in workflow_ids:
+        try:
+            handle = get_handle(workflow_id)
+            cancel = getattr(handle, "cancel", None)
+            if cancel is not None:
+                await cancel()
+        except Exception:
+            # The durable deletion tombstone is authoritative; cancellation is
+            # best-effort and Temporal History remains retained either way.
+            continue
 
 
 def _local_purge_task_from_model(task: LocalPurgeTaskModel) -> LocalPurgeTask:

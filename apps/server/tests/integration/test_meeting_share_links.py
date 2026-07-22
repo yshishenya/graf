@@ -33,14 +33,17 @@ def test_login_required_share_link_resolves_for_grantee_and_can_be_revoked(clien
     share = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
         headers=auth_headers(),
-        json={"grantee_user_id": str(SHARED_USER_ID)},
+        json={
+            "grantee_user_id": str(SHARED_USER_ID),
+            "content_scope": "full_meeting",
+        },
     )
     assert share.status_code == 201
     payload = share.json()
     token_url = payload["share_url"]
 
     resolved = client.get(
-        f"/api/v1{token_url}",
+        token_url,
         headers=auth_headers_for(),
         follow_redirects=False,
     )
@@ -53,7 +56,7 @@ def test_login_required_share_link_resolves_for_grantee_and_can_be_revoked(clien
         headers=auth_headers(),
     )
     blocked = client.get(
-        f"/api/v1{token_url}",
+        token_url,
         headers=auth_headers_for(),
         follow_redirects=False,
     )

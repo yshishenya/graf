@@ -39,6 +39,10 @@ services:
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
+      TWOBRAIN_LITELLM_BASE_URL: ${TWOBRAIN_LITELLM_BASE_URL:-}
+      TWOBRAIN_LANGFUSE_BASE_URL: https://cloud.langfuse.com
+      TWOBRAIN_LANGFUSE_ENVIRONMENT: development
     command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
     healthcheck:
       test: ["CMD", "python", "/app/scripts/verify_processing_worker_ready.py"]

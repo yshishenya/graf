@@ -76,7 +76,11 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert "sessionStorage" not in script
+    assert script.count("sessionStorage") == 3
+    assert "graf-summary-candidate-" in script
+    assert "sessionStorage.setItem(candidateStorageKey, JSON.stringify({" in script
+    assert "poll_url: candidate.poll_url" in script
+    assert "template: activeTemplate" in script
 
 
 def test_cabinet_js_uses_product_facing_ellipsis_in_async_states() -> None:
@@ -118,7 +122,7 @@ def test_cabinet_js_owns_component_dom_behavior() -> None:
         'deleteDialog?.addEventListener("cancel"',
         'source.matches("[data-upload-progress-poll]")',
         "listInteractionIsActive()",
-        'document.querySelector("[data-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open]")',
+        'document.querySelector("[data-delete-dialog][open], [data-meeting-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open]")',
         "deleteReturnMeetingId",
         "isUsableFocusTarget(deleteReturnFocus)",
         "target.closest(\"[hidden], [aria-hidden='true']\") === null",

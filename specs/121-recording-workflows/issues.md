@@ -9,20 +9,26 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 
 ## Reconciliation status
 
-- Planning tasks T001-T005 are complete. The v4 plaintext-observability analyze
-  finished at CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`; no retrospective planning
-  issues were created.
-- Every open implementation and validation task T006-T095 has exactly one open
-  canonical Russian issue in
+- Planning tasks T001-T005 and 87 implementation/validation tasks are complete.
+  Post-implementation analyze finished at CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`;
+  canonical CI, repeated correctness/security review, and final Ponytail
+  `Lean already. Ship.` evidence are recorded in `quickstart.md`.
+- T050/#4170, T057/#4177, and T089/#4209 remain open. They require the owner's
+  LiteLLM URL/key, immutable synthetic manifests, a real two-worker forced-crash
+  GEPA exercise, and live Generation Call/Temporal/Langfuse three-store
+  read-back. Runtime flags remain off; no unavailable evidence is claimed.
+- Every implementation and validation task T006-T095 has exactly one canonical
+  Russian issue in
   [feature:121](https://github.com/yshishenya/crisp/issues?q=is%3Aissue%20label%3Afeature%3A121).
 - The mapping is contiguous: T006 maps to
   [#4126](https://github.com/yshishenya/crisp/issues/4126), T007 maps to #4127,
   and so on through T095, which maps to
   [#4215](https://github.com/yshishenya/crisp/issues/4215). Equivalently,
   `issue number = numeric task id + 4120`.
-- Post-sync validation updated 24 affected existing issue bodies and checked all
-  90 feature issues: missing 0, unexpected 0, duplicates 0, canon failures 0.
-  The mandatory repository-wide validator passed all 136 open Spec Kit issues.
+- The post-implementation mandatory repository-wide validator passed all 149
+  current Spec Kit issues. Completed Feature-121 issues receive their detailed
+  Russian closure receipt after the implementation PR is merged; the three live
+  gates remain open and are linked from the release notes.
 - With explicit user approval,
   [feature 119 issue #3992](https://github.com/yshishenya/crisp/issues/3992)
   was normalized without changing its task scope. The mandatory

@@ -91,3 +91,20 @@ def test_desktop_embedded_detail_uses_same_playback_contract(client) -> None:
     assert "data-timeline-track" in html
     assert "data-timeline-playhead" in html
     assert "desktop-embedded" in html
+
+
+def test_browser_and_embedded_keep_the_same_persistent_timeline_fixture(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A parity")
+
+    browser = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
+    embedded = client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers())
+
+    assert browser.status_code == embedded.status_code == 200
+    for html in (browser.text, embedded.text):
+        assert html.count("data-playback-shell") == 1
+        assert html.count("data-timeline-track") == 2
+        assert html.count("data-transcript-turn") == 2
+        assert 'data-speaker-key="speaker_00"' in html
+        assert 'data-speaker-key="speaker_01"' in html
+        assert html.index('data-detail-panel="recording"') < html.index("data-playback-shell")

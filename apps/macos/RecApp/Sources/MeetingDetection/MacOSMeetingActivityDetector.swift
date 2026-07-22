@@ -22,7 +22,6 @@ public struct MacOSAudioOwnershipLogStreamConfiguration: Equatable, Sendable {
 
 public enum MacOSMeetingActivityDetectorOutput: Equatable, Sendable {
     case promptEligible(targetID: String, bundleID: String)
-    case autoRecordEligible(targetID: String, bundleID: String)
     case candidateObserved(
         bundleID: String,
         score: Int,
@@ -172,8 +171,6 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         ) {
         case .prompt(let targetID):
             return .promptEligible(targetID: targetID, bundleID: event.bundleID)
-        case .autoRecord(let targetID):
-            return .autoRecordEligible(targetID: targetID, bundleID: event.bundleID)
         case .detectOnly:
             if decision.shouldUploadCandidateIdentity {
                 return .candidateObserved(
@@ -195,7 +192,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
 
     private func shouldMarkEmitted(_ output: MacOSMeetingActivityDetectorOutput?) -> Bool {
         switch output {
-        case .promptEligible, .autoRecordEligible, .candidateObserved, .suppressed:
+        case .promptEligible, .candidateObserved, .suppressed:
             true
         case .ended, nil:
             false

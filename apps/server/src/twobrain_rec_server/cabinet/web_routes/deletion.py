@@ -50,7 +50,9 @@ async def meeting_deletion_report_page(
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting = await _authorized_lifecycle_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -78,6 +80,7 @@ async def meeting_deletion_report_page(
         )
     )
 
+
 @router.post(
     "/meetings/{meeting_id}/deletion-requests",
     response_class=HTMLResponse,
@@ -100,7 +103,9 @@ async def meeting_deletion_request_page(
     db: AsyncSession | None = WebDbDependency,
 ) -> Response:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -115,6 +120,7 @@ async def meeting_deletion_request_page(
         device_id=principal.session_device_id,
         confirmation_boundary=confirmation_boundary,
         storage=storage,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await db.commit()
     embedded = request.url.path.startswith("/desktop/")

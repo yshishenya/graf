@@ -13,7 +13,7 @@ dependencies = [
     "asyncpg>=0.30,<1",
     "cryptography>=42,<50",
     "fastapi>=0.115,<1",
-    "httpx>=0.28,<1",
+    "httpx==0.28.1",
     "jinja2>=3.1.6,<4",
     "minio>=7.2,<8",
     "openpyxl>=3.1.5,<4",
@@ -21,7 +21,9 @@ dependencies = [
     "pydantic-settings>=2.7,<3",
     "python-multipart>=0.0.20,<1",
     "sqlalchemy[asyncio]>=2.0,<3",
-    "temporalio>=1.10,<2",
+    "langfuse==4.14.1",
+    "opentelemetry-sdk==1.44.0",
+    "temporalio[opentelemetry]==1.30.0",
     "uvicorn[standard]>=0.34,<1",
 ]
 
@@ -31,6 +33,9 @@ dev = [
     "pytest-asyncio>=1.4,<2",
     "pytest-xdist>=3.8,<4",
     "ruff==0.15.20",
+]
+evaluation = [
+    "gepa==0.1.4",
 ]
 
 [tool.hatch.build.targets.wheel]

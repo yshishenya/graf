@@ -110,7 +110,7 @@ Request:
 Validation:
 
 - name and purpose bounded and normalized;
-- 1–7 unique allowlisted sections;
+- 1–8 unique allowlisted sections, including the evidence category;
 - allowlisted language/detail only;
 - no HTML, executable markup, model/system prompt, secret, or meeting content;
 - per-user active-template limit enforced by product policy.
@@ -704,18 +704,26 @@ Extend the existing route:
 }
 ```
 
-Allowed `audience_type`: `user`, `workspace`, `team`, `link`.
+Allowed current `audience_type`: `user`, `workspace`, `link`. The schema reserves
+`team`, but runtime configuration rejects enabling it until a canonical
+same-workspace team entity and membership authority exists; direct attempts
+fail closed rather than creating an unusable grant.
 
 Rules:
 
 - default is user + summary-only + no download/export;
-- workspace/team/link require matching policy and explicit confirmation token
+- workspace/link require matching policy and explicit confirmation token
   from the HTML flow;
-- `team` requires same-workspace team ID;
+- `team` is schema-reserved and always rejected until a canonical same-workspace
+  team entity and membership authority exists;
 - `link` requires expiry when workspace policy says so and returns a raw token
   once; only its hash is stored;
 - duplicate active grants update deterministically or return the current grant;
 - deletion/revocation policy is checked before commit.
+
+Email invitations are restricted to summary-only view access in Feature 121.
+Full-meeting, playback, download, and export capabilities require an internal
+same-workspace identity until token-bound downstream authorization exists.
 
 ### Revoke / Rotate Link
 
@@ -740,8 +748,17 @@ delivery value plus lookup hash, starts a durable delivery lifecycle, and
 returns a content-free invitation state. Responses never reveal whether an
 unrelated private account exists.
 
+Because Postal's v1 send API has no idempotency-key contract, GRAF uses an
+at-most-once delivery fence. It commits `sending` before network egress and
+never automatically sends that invitation again. A crash or ambiguous timeout
+after the fence ends in a bounded `failed`/`postal_delivery_outcome_unknown`
+state that requires a fresh invitation; this can lose a notification but cannot
+duplicate it. The UI describes `sent` as accepted by the mail service, not proof
+of inbox delivery. Public/external flags remain off until the operator accepts
+this delivery behavior and the separate abuse/legal gates.
+
 `DELETE /api/v1/cabinet/meetings/{meeting_id}/share-invitations/{invitation_id}`
-revokes a pending/sent invitation.
+revokes a pending/sending/sent invitation.
 
 External invitation endpoints remain disabled until SMTP/delivery, identity,
 retention, RLS, abuse, and deletion gates pass.

@@ -151,7 +151,9 @@ async def content_export_capabilities(
     policy = await resolve_artifact_policy(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
     )
-    transcript_blocked = _policy_blocked_state("transcript", policy.transcript_download, access)
+    transcript_blocked = _policy_blocked_state(
+        "transcript", policy.transcript_download, access, required_action="export"
+    )
     transcript = unavailable
     if transcript_blocked is not None:
         transcript = ContentExportReadiness(state="denied", reason=transcript_blocked.reason)
@@ -167,7 +169,9 @@ async def content_export_capabilities(
         ProcessingResultStatus.PARTIAL.value,
     }:
         transcript = ContentExportReadiness(
-            state="partial" if result.status == ProcessingResultStatus.PARTIAL.value else "processing",
+            state="partial"
+            if result.status == ProcessingResultStatus.PARTIAL.value
+            else "processing",
             reason="transcript_not_terminal",
         )
 
@@ -177,15 +181,15 @@ async def content_export_capabilities(
         meeting_id=meeting.id,
         processing_result_id=result.id if result is not None else None,
     )
-    summary_blocked = _policy_blocked_state("summary", policy.summary_download, access)
+    summary_blocked = _policy_blocked_state(
+        "summary", policy.summary_download, access, required_action="export"
+    )
     if summary_blocked is not None:
         summary = ContentExportReadiness(state="denied", reason=summary_blocked.reason)
     elif outcome_set is None:
         summary = ContentExportReadiness(state="missing", reason="stored_summary_missing")
     elif outcome_set.status in {"available", "partial"} and not outcome_set.content_hash:
-        summary = ContentExportReadiness(
-            state="failed", reason="stored_summary_revision_unpinned"
-        )
+        summary = ContentExportReadiness(state="failed", reason="stored_summary_revision_unpinned")
     elif outcome_set.status in {"available", "partial"}:
         summary = ContentExportReadiness(
             state="available" if outcome_set.status == "available" else "partial",
@@ -339,7 +343,10 @@ async def create_content_export(
             title="Export generation failed",
         ) from exc
 
-    await db.refresh(meeting)
+    # Lock only at the final egress boundary. Holding this lock while rendering
+    # would prevent a concurrent deletion from publishing its tombstone and
+    # invert the required deletion-wins recheck.
+    meeting = await _lock_export_meeting(db, meeting)
     await db.refresh(result)
     final_access = await decide_meeting_access(
         db,
@@ -351,9 +358,7 @@ async def create_content_export(
         db, meeting=meeting, access=final_access, result=result
     )
     final_readiness = getattr(final_capabilities, selection.content_scope)
-    revision_current = await _processing_result_is_current(
-        db, meeting=meeting, result=result
-    )
+    revision_current = await _processing_result_is_current(db, meeting=meeting, result=result)
     selected_outcome_current = True
     if selection.outcome_set_id is not None:
         final_outcome = await current_outcome_set(
@@ -376,9 +381,7 @@ async def create_content_export(
         denial = (404, "meeting_not_found", "Meeting not found")
     elif final_readiness.state == "denied":
         denial = (403, "export_policy_denied", "Export policy denied")
-    elif not _content_export_readiness_allows(
-        selection.content_scope, final_readiness.state
-    ):
+    elif not _content_export_readiness_allows(selection.content_scope, final_readiness.state):
         denial = (409, "export_unavailable", "Export unavailable")
     elif not revision_current or not selected_outcome_current:
         denial = (409, "export_revision_stale", "Export revision is stale")
@@ -1318,6 +1321,7 @@ async def create_export_package(
     actor_user_id: UUID,
     device_id: UUID,
 ) -> ExportPackageResponse:
+    meeting = await _lock_export_meeting(db, meeting)
     if meeting_deletion_active(meeting):
         await record_egress_audit_event(
             db,
@@ -1544,6 +1548,18 @@ def meeting_deletion_active(meeting: Meeting) -> bool:
     return (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value
 
 
+async def _lock_export_meeting(db: AsyncSession, meeting: Meeting) -> Meeting:
+    locked = await db.scalar(
+        select(Meeting)
+        .where(Meeting.workspace_id == meeting.workspace_id, Meeting.id == meeting.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return locked
+
+
 def _deleted_artifact_states() -> list[ArtifactEgressState]:
     return [
         ArtifactEgressState(
@@ -1663,7 +1679,9 @@ def _package_state(
     access: AccessDecision,
     artifact_states: list[ArtifactEgressState],
 ) -> ArtifactEgressState:
-    blocked = _policy_blocked_state("package", policy_value, access)
+    blocked = _policy_blocked_state(
+        "package", policy_value, access, required_action="export"
+    )
     if blocked is not None:
         return blocked
     if any(state.state == "available" for state in artifact_states):
@@ -1687,6 +1705,8 @@ def _policy_blocked_state(
     artifact_class: ArtifactClass,
     policy_value: str,
     access: AccessDecision,
+    *,
+    required_action: str = "download",
 ) -> ArtifactEgressState | None:
     if not access.can_view:
         return ArtifactEgressState(
@@ -1694,6 +1714,15 @@ def _policy_blocked_state(
             state="policy_blocked",
             label="Access required",
             reason="Viewer cannot access this meeting.",
+            action="disabled",
+        )
+    action_allowed = access.can_export if required_action == "export" else access.can_download
+    if not action_allowed:
+        return ArtifactEgressState(
+            artifact_class=artifact_class,
+            state="policy_blocked",
+            label="Not allowed",
+            reason=f"Viewer is not allowed to {required_action} this artifact.",
             action="disabled",
         )
     if policy_value == "disabled":

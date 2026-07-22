@@ -266,6 +266,7 @@ apps/server/src/twobrain_rec_server/
 │   └── outcomes.py
 ├── db/migrations/versions/0031_recording_workflow_templates_sharing.py
 ├── outcomes/
+│   ├── ai_service.py
 │   ├── generator.py
 │   ├── prompts.py
 │   ├── prompt_optimization.py
@@ -291,7 +292,10 @@ apps/server/tests/
 **Structure Decision**: Keep native capture changes inside current Swift files
 and keep post-meeting functionality inside the existing server cabinet,
 including pending invitation/link policy in the current access service;
-template generation remains with the existing `outcomes/` package. Add one
+template generation remains with the existing `outcomes/` package. The new
+`ai_service.py` owns only Feature-121 durable candidate/generation-call
+activities; the pre-existing `service.py` keeps synchronous non-AI outcome
+projection and is not overloaded with provider orchestration. Add one
 focused Langfuse adapter under
 the existing observability boundary and one outcome workflow/activity under the
 existing Temporal worker. Add a small optional offline GEPA adapter and a

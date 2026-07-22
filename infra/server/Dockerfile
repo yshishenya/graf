@@ -13,7 +13,7 @@ COPY apps/server/alembic.ini /app/alembic.ini
 COPY apps/server/src /app/src
 COPY apps/server/scripts /app/scripts
 
-RUN pip install --constraint constraints.txt "."
+RUN pip install --constraint constraints.txt ".[evaluation]"
 
 FROM base AS media-runtime
 

@@ -338,7 +338,7 @@ technology in desktop, browser, and embedded layouts.
 
 - **FR-036**: Sharing MUST model audience, exposed content, and allowed actions independently in policy, while the UI MUST sequence those decisions through progressive disclosure rather than present a capability matrix.
 - **FR-037**: The default share configuration MUST be invite-only, summary-only, view access.
-- **FR-038**: Supported audiences MUST be invited identities, active workspace, selected team, and anyone-with-link when workspace policy permits.
+- **FR-038**: Supported audiences MUST be invited identities, active workspace, and anyone-with-link when workspace policy permits. Selected-team access MUST remain absent and fail-closed until GRAF has a canonical same-workspace team directory and membership authority; Feature 121 MUST NOT invent team UUIDs or infer teams from labels.
 - **FR-039**: Supported content scopes MUST distinguish summary-only from the full authorized meeting bundle.
 - **FR-040**: Shared access MUST be view-only in the normal flow; download/export MUST remain owner actions and any later recipient-download capability MUST be an explicit advanced per-recipient permission bounded by policy and artifact availability.
 - **FR-041**: The first Share surface MUST show a person/email field, `Пригласить`, current viewers with revoke actions, and one collapsed `Что увидят: только итоги` row; role, public-link, workspace/team, and capability detail MUST remain hidden until relevant.

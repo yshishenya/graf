@@ -1,0 +1,10 @@
+<main id="cabinet-main" class="main" tabindex="-1">
+  <section class="panel compact-panel" aria-labelledby="share-invitation-title">
+    <h1 id="share-invitation-title">Вам открыли итоги встречи</h1>
+    <p>Доступ появится только у аккаунта с тем же подтверждённым email.</p>
+    <form method="post" action="{{ accept_action }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <button type="submit" class="button">Принять приглашение</button>
+    </form>
+  </section>
+</main>
