@@ -55,6 +55,11 @@ from twobrain_rec_server.api.schemas import (
     ShareGrantResponse,
     ShareRecipientListResponse,
     ShareRecipientView,
+    SummaryCandidateListResponse,
+    SummaryCandidateNextAction,
+    SummaryCandidatePreviewItem,
+    SummaryCandidatePreviewResponse,
+    SummaryCandidateReasonCode,
     SummaryCandidateResponse,
     SummaryTemplateListResponse,
     SummaryTemplateView,
@@ -1019,6 +1024,103 @@ async def create_summary_candidate_route(
 
 
 @router.get(
+    "/cabinet/meetings/{meeting_id}/summary-candidates",
+    response_model=SummaryCandidateListResponse,
+    operation_id="listSummaryCandidates",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def list_summary_candidates_route(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryCandidateListResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, decision = await _authorized_meeting(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id, viewer_user_id=principal.user_id
+    )
+    if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
+        raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
+    attempts = (
+        await db.scalars(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(
+                MeetingOutcomeGenerationAttempt.workspace_id == tenant_scope.workspace_id,
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            )
+            .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
+            .limit(8)
+        )
+    ).all()
+    return SummaryCandidateListResponse(
+        candidates=[_summary_candidate_response(attempt, meeting.current_outcome_set_id) for attempt in attempts]
+    )
+
+
+@router.get(
+    "/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
+    response_model=SummaryCandidatePreviewResponse,
+    operation_id="previewSummaryCandidate",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def preview_summary_candidate_route(
+    meeting_id: UUID,
+    candidate_id: UUID,
+    response: Response,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = DbDependency,
+) -> SummaryCandidatePreviewResponse:
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    meeting, decision = await _authorized_meeting(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id, viewer_user_id=principal.user_id
+    )
+    if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
+        raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
+    attempt = await db.scalar(
+        select(MeetingOutcomeGenerationAttempt).where(
+            MeetingOutcomeGenerationAttempt.workspace_id == tenant_scope.workspace_id,
+            MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            MeetingOutcomeGenerationAttempt.candidate_id == candidate_id,
+        )
+    )
+    if attempt is None or attempt.outcome_set_id is None or attempt.status not in {"candidate", "accepted"}:
+        raise ProblemDetail(status=409, code="summary_candidate_unavailable", title="Summary candidate is not ready")
+    items = (
+        await db.scalars(
+            select(MeetingOutcomeItem)
+            .where(
+                MeetingOutcomeItem.workspace_id == tenant_scope.workspace_id,
+                MeetingOutcomeItem.meeting_id == meeting_id,
+                MeetingOutcomeItem.outcome_set_id == attempt.outcome_set_id,
+                MeetingOutcomeItem.state == "available",
+            )
+            .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+        )
+    ).all()
+    return SummaryCandidatePreviewResponse(
+        candidate_id=candidate_id,
+        outcome_set_id=attempt.outcome_set_id,
+        template_key=attempt.template_key,
+        items=[
+            SummaryCandidatePreviewItem(
+                category=item.category,
+                text=item.text or "",
+                owner_text=item.owner_text or "",
+                due_date_text=item.due_date_text or "",
+                truth_label=item.truth_label or "",
+                source_refs=[str(ref) for ref in (item.source_refs_json or [])],
+            )
+            for item in items
+        ],
+    )
+
+
+@router.get(
     "/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}",
     response_model=SummaryCandidateResponse,
     operation_id="getSummaryCandidate",
@@ -1128,10 +1230,17 @@ async def _resolve_summary_candidate_route(
             expected_current_outcome_set_id=payload.expected_current_outcome_set_id,
         )
     except OutcomeGenerationTerminalError as exc:
+        # A stale candidate is closed inside the service before the bounded
+        # 409 is raised. Commit that dismissal so server-authoritative recovery
+        # does not resurrect the same candidate after a reload.
+        if str(exc) == "summary_transcript_changed":
+            await db.commit()
         _raise_summary_problem(exc)
     await db.commit()
     attempt = await db.scalar(
         select(MeetingOutcomeGenerationAttempt).where(
+            MeetingOutcomeGenerationAttempt.workspace_id == tenant_scope.workspace_id,
+            MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
             MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
         )
     )
@@ -2067,6 +2176,8 @@ def _summary_candidate_response(
         "failed": "failed",
         "cancelled": "failed",
     }.get(attempt.status, "failed")
+    reason_code, retryable, next_action = _summary_candidate_projection(attempt)
+    template_definition = BUILT_IN_BY_KEY.get(attempt.template_key or "")
     return SummaryCandidateResponse(
         candidate_id=attempt.candidate_id,
         state=state,
@@ -2075,7 +2186,69 @@ def _summary_candidate_response(
             f"/api/v1/cabinet/meetings/{attempt.meeting_id}/summary-candidates/"
             f"{attempt.candidate_id}"
         ),
+        outcome_set_id=attempt.outcome_set_id,
+        template_key=attempt.template_key,
+        template_name=(
+            template_definition.name
+            if template_definition is not None
+            else ("Личный формат" if attempt.template_id is not None else None)
+        ),
+        template_id=attempt.template_id,
+        template_version=attempt.template_version,
+        reason_code=reason_code,
+        retryable=retryable,
+        next_action=next_action,
     )
+
+
+def _summary_candidate_projection(
+    attempt: MeetingOutcomeGenerationAttempt,
+) -> tuple[SummaryCandidateReasonCode | None, bool, SummaryCandidateNextAction | None]:
+    """Map internal failure truth to a small, stable cabinet action contract."""
+    if attempt.status in {"queued", "generating", "blocked_dependency"}:
+        return "generating", False, "wait"
+    if attempt.status in {"candidate", "accepted"}:
+        return None, False, "review" if attempt.status == "candidate" else None
+    if attempt.status == "rejected":
+        return "dismissed", False, None
+    if attempt.status == "cancelled":
+        return "cancelled", False, "open_meeting"
+    code = attempt.failure_code
+    projection = {
+        "summary_response_invalid": ("result_invalid", False, "new_candidate"),
+        "summary_transcript_changed": ("source_changed", False, "refresh"),
+        "outcome_transcript_changed": ("source_changed", False, "refresh"),
+        "summary_template_unavailable": ("template_unavailable", False, "choose_format"),
+        "summary_revision_conflict": ("revision_changed", False, "refresh"),
+        "summary_provider_outcome_ambiguous": (
+            "provider_outcome_unknown",
+            False,
+            "refresh_status",
+        ),
+        "meeting_deleting": ("meeting_deleting", False, "open_meeting"),
+        "meeting_deleted": ("meeting_deleted", False, "open_meetings"),
+        "summary_generation_retries_exhausted": (
+            "temporary_unavailable",
+            True,
+            "retry",
+        ),
+        "langfuse_prompt_unavailable": (
+            "prompt_unavailable",
+            True,
+            "retry",
+        ),
+        "prompt_snapshot_export_unavailable": (
+            "prompt_unavailable",
+            True,
+            "retry",
+        ),
+        "litellm_endpoint_unavailable": (
+            "provider_unavailable",
+            True,
+            "retry",
+        ),
+    }
+    return projection.get(code or "", ("generation_failed", False, "refresh"))
 
 
 def _raise_summary_problem(exc: OutcomeGenerationTerminalError) -> None:

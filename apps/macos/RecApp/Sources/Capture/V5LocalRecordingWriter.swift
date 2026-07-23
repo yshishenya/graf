@@ -12,7 +12,11 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     /// capture queue. Stop uses a larger per-source bound and fails closed only
     /// when the source is still producing beyond that finite drain.
     private static let maximumBatchesPerLiveDrain = 64
-    private static let maximumBatchesAtStop = 4_096
+    // Keep finalization responsive even when a broken source ignores the stop
+    // boundary.  1,024 batches still covers a bounded burst of several dozen
+    // seconds at the writer frame limit while keeping the fail-closed path
+    // comfortably below the user-visible stop budget.
+    private static let maximumBatchesAtStop = 1_024
     private static let batchFrameLimit = 8_192
 
     private let store: LocalRecordingStore

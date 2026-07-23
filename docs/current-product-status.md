@@ -141,6 +141,26 @@ metadata-only evidence остаются подробной историей ре
   real two-worker forced-crash GEPA promotion/rollback evidence. Prompt
   optimization, public/team links и external invitations остаются выключены.
 
+## Validation update (2026-07-23) — outcome-generation decoder and candidate UX hotfix
+
+- Production incident analysis isolated the failure to
+  `OutcomeObservabilityReconcilerWorkflow` returning `dict[str, object]`.
+  Temporal 1.30 rejected the already-completed child result during parent
+  replay (`Unserializable type during conversion`), leaving an accepted parent
+  workflow running even though no model call was pending. This is separate
+  from `summary_response_invalid`, where a valid LiteLLM response is rejected
+  by local category/source-reference validation.
+- The hotfix changes both outcome workflow result boundaries to
+  `dict[str, Any]` (compatible with retained histories), makes Langfuse span
+  filtering sandbox-safe, and adds owner-only server candidate recovery,
+  preview, bounded reason/retryability projection, and selected-format pending
+  UI. It does not delete or redact any transcript, Generation Call, Langfuse
+  observation, or Temporal History.
+- Production readiness remains **pending** until focused tests, canonical CI,
+  forward-fix deployment, known-workflow recovery, valid/invalid candidate
+  smoke, zero running outcome-parent check, and zero Langfuse sandbox-warning
+  check are recorded in the Feature-121 quickstart.
+
 ## Validation update (2026-07-21)
 
 - Feature `090-manual-media-upload-ui` получила production owner-upload

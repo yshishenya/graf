@@ -240,6 +240,32 @@ destructive behavior documented by Krisp: generation creates a candidate and
 does not replace accepted or manually edited notes until the owner chooses
 `Использовать` after the new result exists.
 
+### Candidate lifecycle and regeneration matrix
+
+The user sees one calm current result and, only when relevant, one pending or
+ready alternative. The server retains every revision; the main page never
+becomes a version-management dashboard.
+
+| Situation | User action / visible state | Automatic behavior | Accepted result |
+|---|---|---|---|
+| First usable transcript, no accepted result | Quiet `Готовим итоги…` | One policy-owned `Авто` candidate | None yet; transcript stays usable |
+| First candidate succeeds | `Новый вариант готов` (or existing deterministic итог remains current) | No second hidden format/classifier call | Candidate is accepted only by the existing explicit initial policy; otherwise owner chooses `Использовать` |
+| Owner chooses another format | `Готовим формат «…»` | Reuse one durable candidate/workflow on retry | Remains current |
+| Candidate ready | `Новый вариант готов` with preview, `Использовать`, `Оставить текущие` | No auto-accept | Remains current until explicit accept |
+| Candidate transiently fails | `Не удалось подготовить…` + concrete retry | Retry same candidate only, bounded by workflow policy | Remains current |
+| Candidate invalid/stale/deleted/ambiguous | Reason + one recovery action, no blind retry | No automatic new candidate | Remains current |
+| Reload, second tab, or new owner device | Server restores pending/ready candidate | Session storage is only a cache | Unchanged |
+| Transcript/source revision changes | Candidate marked unusable; `Обновить расшифровку` or explicit new request | Cancel before egress/publication | Remains current |
+| Owner accepts ready candidate | One confirmation-free `Использовать` action | Atomic expected-pointer check | New set becomes current; old set is superseded |
+| Owner dismisses/rejects | Candidate leaves primary view; history remains owner-only | No deletion and no regeneration | Unchanged |
+| Prompt/model/template/share changes | No surprise UI change | Existing candidates keep pinned provenance | Unchanged |
+| Shared viewer opens meeting | Only accepted summary is rendered | Never exposes candidates or templates | Unchanged |
+
+The selector therefore distinguishes `Текущие итоги: <format>` from
+`Готовим вариант: <format>`. Selecting the already-current format is a no-op;
+creating another version is an explicit `Создать новый вариант` action, not a
+hidden repeat request.
+
 ### Sharing
 
 The first Share surface answers only:

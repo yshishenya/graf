@@ -76,6 +76,14 @@ def test_langfuse_span_filter_keeps_trace_tree_and_drops_unrelated_io() -> None:
     )
 
 
+def test_langfuse_span_filter_is_temporal_sandbox_safe() -> None:
+    source = Path("src/twobrain_rec_server/observability/langfuse.py").read_text(
+        encoding="utf-8"
+    )
+    assert "from langfuse.span_filter import" not in source
+    assert "_should_export_langfuse_span" in source
+
+
 def test_langfuse_v4_chat_wire_type_round_trips_to_stable_prompt_contract() -> None:
     from langfuse.api.prompts.types.create_chat_prompt_request import CreateChatPromptRequest
     from langfuse.api.prompts.types.create_chat_prompt_type import CreateChatPromptType

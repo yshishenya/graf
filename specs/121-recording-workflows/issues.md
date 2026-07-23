@@ -26,7 +26,7 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   successful promotion/rollback. All traces and Temporal histories retain
   complete plaintext content; the receipt contains hashes, sizes, and counts
   only.
-- Every implementation and validation task T006-T096 has exactly one canonical
+- Every implementation and validation task T006-T100 has exactly one canonical
   Russian issue in
   [feature:121](https://github.com/yshishenya/crisp/issues?q=is%3Aissue%20label%3Afeature%3A121).
 - The mapping is contiguous: T006 maps to
@@ -37,9 +37,9 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 - After merge, production deploy, public
   [`v2026.07.23.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.3),
   installed-app verification, and the production AI observability closeout,
-  91 completed issues have verified evidence. No Feature-121 issue remains open;
-  T096/#4253 is closed after the accepted outcome pointer hotfix was deployed and
-  verified.
+  91 completed issues have verified evidence. T097-T100 are the active
+  production-regression hotfix issues and remain open until their new evidence
+  is recorded.
 - Implementation/release links: PR
   [#4235](https://github.com/yshishenya/crisp/pull/4235), native purge hotfix
   [#4242](https://github.com/yshishenya/crisp/pull/4242), release prep
@@ -69,6 +69,10 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 | T080-T086 | #4200-#4206 | Accessibility and Russian cross-surface UX |
 | T087-T095 | #4207-#4215 | Validation, review, and release boundary |
 | T096 | #4253 | Accepted-summary pointer production regression hotfix |
+| T097 | [#4320](https://github.com/yshishenya/crisp/issues/4320) | Temporal result and tracing sandbox regression hotfix |
+| T098 | [#4321](https://github.com/yshishenya/crisp/issues/4321) | Owner candidate recovery and bounded error UX |
+| T099 | [#4322](https://github.com/yshishenya/crisp/issues/4322) | Regeneration/version business logic matrix |
+| T100 | [#4323](https://github.com/yshishenya/crisp/issues/4323) | Production recovery and smoke evidence |
 
 Issues must only be closed after their acceptance criteria and evidence are
 verified. Matching task checkboxes must only be marked complete after the same

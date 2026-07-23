@@ -2,10 +2,31 @@ from __future__ import annotations
 
 from hashlib import sha256
 from types import SimpleNamespace
+from typing import Any, get_type_hints
 
 import pytest
+from temporalio.converter import DataConverter
 
 from twobrain_rec_server.workflows import outcome_generation_workflow as workflow_module
+
+
+def test_child_completion_result_uses_temporal_compatible_type_hint() -> None:
+    """A completed child result must decode when the parent applies its event."""
+    return_hint = get_type_hints(
+        workflow_module.OutcomeObservabilityReconcilerWorkflow.run
+    )["return"]
+    assert return_hint == dict[str, Any]
+
+    result = {
+        "candidate_id": "candidate",
+        "candidate_terminal": True,
+        "pending_count": 0,
+        "published_count": 0,
+    }
+    payload = DataConverter.default.payload_converter.to_payloads([result])
+    assert DataConverter.default.payload_converter.from_payloads(payload, [return_hint]) == [
+        result
+    ]
 
 
 def _workflow_runtime(execute_activity, child_starts: list[tuple[dict, dict]]):
@@ -225,6 +246,62 @@ async def test_transcript_snapshot_failure_is_projected_to_failed_state(monkeypa
     assert "execute_outcome_generation_activity" not in activity_names
     assert activity_names.count("finalize_outcome_generation_failure_activity") == 1
     assert len(child_starts) == 1
+
+
+@pytest.mark.anyio
+async def test_workflow_snapshot_validation_preserves_terminal_failure_code(monkeypatch) -> None:
+    activity_names: list[str] = []
+    finalizer_payloads: list[dict] = []
+    child_starts: list[tuple[dict, dict]] = []
+
+    async def execute_activity(name, payload, **_kwargs):
+        activity_names.append(name)
+        if name == "resolve_outcome_prompt_config_activity":
+            return {"prompt_hash": "prompt-hash"}
+        if name == "snapshot_outcome_transcript_metadata_activity":
+            return {
+                "candidate_id": payload["candidate_id"],
+                "source_result_id": payload["source_result_id"],
+                "snapshot_hash": "wrong-hash",
+                "chunk_count": 1,
+                "transcript_bytes": len("full transcript"),
+            }
+        if name == "snapshot_outcome_transcript_chunk_activity":
+            return {
+                "candidate_id": payload["candidate_id"],
+                "source_result_id": payload["source_result_id"],
+                "snapshot_hash": "wrong-hash",
+                "chunk_index": 0,
+                "chunk_count": 1,
+                "transcript_utf8": "full transcript",
+            }
+        if name == "finalize_outcome_generation_failure_activity":
+            finalizer_payloads.append(payload)
+            return {"candidate_id": payload["candidate_id"], "status": "failed"}
+        raise AssertionError(name)
+
+    monkeypatch.setattr(
+        workflow_module,
+        "workflow",
+        _workflow_runtime(execute_activity, child_starts),
+    )
+    payload = {
+        "candidate_id": "candidate",
+        "meeting_id": "meeting",
+        "workspace_id": "workspace",
+        "source_result_id": "result",
+        "template_key": "graf-auto-v1",
+        "template_version": "1",
+        "prompt_name": "graf/meeting-outcome/auto",
+    }
+
+    with pytest.raises(workflow_module.TranscriptSnapshotError, match="hash_invalid"):
+        await workflow_module.OutcomeGenerationWorkflow().run(payload)
+
+    assert activity_names[-1] == "finalize_outcome_generation_failure_activity"
+    assert finalizer_payloads == [
+        {**payload, "failure_code": "outcome_transcript_hash_invalid"}
+    ]
 
 
 @pytest.mark.anyio

@@ -56,6 +56,36 @@ screen/state map is [ux-ia.md](./ux-ia.md).
   Temporal History stores the complete transcript in plaintext. Feature 121
   does not encrypt, redact, mask, truncate, or delete those observability copies.
 
+### Session 2026-07-23 — candidate lifecycle and recovery
+
+- The first usable transcript may trigger one policy-owned `Авто` generation.
+  This is the only implicit generation. Every later format change or
+  regeneration is an explicit owner action.
+- Automatic work is limited to retrying the same durable candidate after a
+  transient worker, provider, or prompt-control dependency failure and to
+  reconciling already-retained response delivery. It never creates a second
+  candidate, repeats an ambiguous provider call, or replaces an accepted set.
+- Prompt/model/config changes, template edits, sharing changes, reloads, and
+  provider remaps never silently regenerate an existing meeting. A new request
+  pins the currently promoted Langfuse version and creates a new candidate.
+- A transcript/source revision change invalidates queued or generating work
+  before egress and prevents acceptance of a stale candidate. The accepted
+  pointer remains current; the owner may explicitly request a new candidate
+  from the new source revision.
+- Candidate revisions are retained. A ready candidate is previewable by its
+  owner, `Использовать` performs the atomic compare-and-swap acceptance, and
+  dismiss/reject does not delete history. Shared viewers and exports always
+  read the accepted pointer only.
+- Meeting reload, a second browser tab, or a new authorized owner device must
+  recover the server-persisted pending/ready candidate; browser session storage
+  is only a performance hint, never the source of truth. At most one current
+  candidate is promoted in the primary meeting view; older candidates remain
+  available in owner-only history.
+- A failed candidate exposes a bounded reason and whether retry is safe. Only
+  transient failures offer `Повторить`; schema-invalid, stale, deleted,
+  authorization, configuration, and ambiguous-provider failures explain the
+  next action without a blind retry.
+
 ## User Scenarios & Testing
 
 ### User Story 1 - Start A Trustworthy Recording (Priority: P1)
@@ -331,6 +361,24 @@ technology in desktop, browser, and embedded layouts.
 - **FR-031**: A template MUST define a bounded ordered set of supported sections, output language, and detail level, and MUST reject unsafe or unsupported content.
 - **FR-032**: Every generated summary MUST record template identity/version, source transcript/result revision, exact format-specific Langfuse prompt/config version and hash, output schema version, selected LiteLLM model route, and actual provider/model identity when returned.
 - **FR-033**: Regeneration MUST create a candidate revision and MUST NOT silently overwrite accepted notes or owner edits.
+- **FR-033a**: The first usable transcript MAY trigger one policy-owned `Авто`
+  generation. Subsequent format changes and regenerations MUST require an
+  explicit owner action; automatic retries MUST reuse the same candidate and
+  durable workflow identity and MUST never replace an accepted pointer.
+- **FR-033b**: A candidate MUST pin its source transcript/result revision,
+  template version, exact Langfuse prompt/config snapshot, schema, and request
+  actor. A source revision change MUST prevent stale candidate publication or
+  acceptance while preserving the accepted pointer; a new candidate requires
+  an explicit owner request.
+- **FR-033c**: Candidate state MUST be recoverable from the server after reload,
+  a second tab, or a new owner device. Browser storage MAY cache a poll URL but
+  MUST NOT be the only record. Owners MUST be able to preview a ready candidate
+  before acceptance; reject/dismiss MUST retain the revision for history.
+- **FR-033d**: User-visible candidate failures MUST expose a bounded reason,
+  retryability, and next action. Only transient dependency/worker failures MAY
+  offer retry; invalid structured output, stale source/template, deletion,
+  authorization, configuration, and ambiguous provider outcomes MUST NOT offer
+  a blind retry.
 - **FR-034**: A format change MUST generate a candidate while the accepted summary stays visible/current; only after the candidate succeeds may the owner choose `Использовать`, and dismissing or failing the candidate MUST preserve the accepted revision without an up-front replace/preserve question.
 - **FR-035**: Sharing a rendered summary MUST NOT grant access to a personal reusable template definition.
 
