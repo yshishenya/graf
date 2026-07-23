@@ -201,6 +201,7 @@ private struct ContentView: View {
     @State private var permissionOnboardingStatus = DesktopPermissionOnboardingStatus.unknown
     @State private var permissionOnboardingPresented = false
     @State private var permissionOnboardingRequestInProgress = false
+    @State private var permissionRestartRequired = false
 
     let workspaceZoom: WorkspaceZoomPreference
 
@@ -221,11 +222,11 @@ private struct ContentView: View {
             startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton(
                 for: captureSession,
                 calendarPrompt: desktopCalendarPrompt
-            ) && permissionOnboardingStatus.isReady && !recordingStartInProgress && !recordingStopInProgress,
+            ) && effectivePermissionOnboardingStatus.isReady && !recordingStartInProgress && !recordingStopInProgress,
             recordingTransitionInProgress: recordingStartInProgress || recordingStopInProgress,
             hasActionableCaptureProblem: CaptureControlView.hasActionableProblem(
                 blockedReason: recordingBlocker
-            ) || !permissionOnboardingStatus.isReady || desktopCalendarPrompt?.kind == .record,
+            ) || !effectivePermissionOnboardingStatus.isReady || desktopCalendarPrompt?.kind == .record,
             showsAppUpdateBadge: appUpdateController.presentation.showsSidebarBadge,
             onStartRecording: {
                 Task { await startManualRecording() }
@@ -268,9 +269,9 @@ private struct ContentView: View {
                 selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
                 calendarPrompt: desktopCalendarPrompt,
                 meetingDetectionStatus: meetingDetectionStatus,
-                readinessStatus: permissionOnboardingStatus,
+                readinessStatus: effectivePermissionOnboardingStatus,
                 recordingLevels: liveRecordingLevels,
-                recordDisabled: !permissionOnboardingStatus.isReady || recordingStartInProgress || recordingStopInProgress,
+                recordDisabled: !effectivePermissionOnboardingStatus.isReady || recordingStartInProgress || recordingStopInProgress,
                 stopDisabled: recordingStartInProgress || recordingStopInProgress,
                 pauseDisabled: recordingStartInProgress || recordingStopInProgress,
                 onRecord: {
@@ -328,6 +329,7 @@ private struct ContentView: View {
             DesktopPermissionOnboardingView(
                 status: permissionOnboardingStatus,
                 isRequesting: permissionOnboardingRequestInProgress,
+                restartRequired: permissionRestartRequired,
                 onRequestMicrophone: {
                     Task { await requestStartupMicrophonePermission() }
                 },
@@ -338,13 +340,21 @@ private struct ContentView: View {
                     openPermissionSettings(DesktopPermissionOnboardingSettings.microphoneURL)
                 },
                 onOpenSystemAudioSettings: {
+                    permissionRestartRequired = true
                     openPermissionSettings(DesktopPermissionOnboardingSettings.screenAndSystemAudioURL)
+                },
+                onRefresh: {
+                    refreshPermissionOnboarding(reason: "permission_settings_recheck", presentIfNeeded: false)
                 },
                 onDismiss: {
                     permissionOnboardingPresented = false
                 },
                 onFinish: {
+                    guard !permissionRestartRequired else { return }
                     permissionOnboardingPresented = false
+                },
+                onRestart: {
+                    restartGRAFAfterPermissionChange()
                 }
             )
         }
@@ -387,6 +397,7 @@ private struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
             permissionOnboardingPresented = false
             permissionOnboardingRequestInProgress = false
+            permissionRestartRequired = false
             dismissMeetingDetectionPrompt()
             guard !terminationCleanupInProgress else { return }
             terminationCleanupInProgress = true
@@ -430,6 +441,17 @@ private struct ContentView: View {
         )
     }
 
+    private var effectivePermissionOnboardingStatus: DesktopPermissionOnboardingStatus {
+        guard permissionRestartRequired,
+              permissionOnboardingStatus.systemAudio == .granted else {
+            return permissionOnboardingStatus
+        }
+        return DesktopPermissionOnboardingStatus(
+            microphone: permissionOnboardingStatus.microphone,
+            systemAudio: .stale
+        )
+    }
+
     @MainActor
     private func refreshPermissionOnboarding(reason: String, presentIfNeeded: Bool) {
         let status = DesktopPermissionOnboardingStatus(
@@ -440,7 +462,7 @@ private struct ContentView: View {
         )
         permissionOnboardingStatus = status
 
-        if status.isReady {
+        if status.isReady && !permissionRestartRequired {
             permissionOnboardingPresented = false
         } else {
             if presentIfNeeded {
@@ -478,13 +500,33 @@ private struct ContentView: View {
         permissionOnboardingRequestInProgress = true
         defer { permissionOnboardingRequestInProgress = false }
 
-        _ = await systemAudioPermissionAuthorizer.requestPermission()
+        let permissionState = await systemAudioPermissionAuthorizer.requestPermission()
+        if permissionState == .granted {
+            permissionRestartRequired = true
+        }
         refreshPermissionOnboarding(reason: "system_audio_permission_requested", presentIfNeeded: false)
     }
 
     @MainActor
     private func openPermissionSettings(_ url: URL) {
         NSWorkspace.shared.open(url)
+    }
+
+    @MainActor
+    private func restartGRAFAfterPermissionChange() {
+        guard !terminationCleanupInProgress else { return }
+        AppLog.writeRaw(
+            event: "desktop.permission_onboarding_restart_requested",
+            detail: "reason=system_audio_permission_change"
+        )
+        permissionOnboardingPresented = false
+        permissionOnboardingRequestInProgress = false
+        permissionRestartRequired = false
+        if let appDelegate = NSApp.delegate as? AppLifecycleDelegate {
+            appDelegate.requestRelaunch()
+        } else {
+            NSApp.terminate(nil)
+        }
     }
 
     @MainActor
@@ -2179,6 +2221,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private let workspaceZoomStore = WorkspaceZoomStore()
     private let appUpdateController: AppUpdateController
     private var terminationReplyPending = false
+    private var relaunchAfterTermination = false
 
     override init() {
         appUpdateController = AppUpdateController { event, detail in
@@ -2268,8 +2311,24 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     func applicationWillTerminate(_: Notification) {
+        if relaunchAfterTermination {
+            relaunchAfterTermination = false
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            configuration.createsNewApplicationInstance = true
+            NSWorkspace.shared.openApplication(
+                at: Bundle.main.bundleURL,
+                configuration: configuration
+            )
+        }
         mainWindow = nil
         settingsWindow = nil
+    }
+
+    func requestRelaunch() {
+        guard !terminationReplyPending else { return }
+        relaunchAfterTermination = true
+        NSApp.terminate(nil)
     }
 
     @objc private func applicationTerminationCleanupFinished() {
@@ -2288,6 +2347,10 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     private func dismissModalWindowsForTermination() {
+        if NSApp.modalWindow != nil {
+            NSApp.abortModal()
+        }
+
         for window in NSApp.windows {
             if let attachedSheet = window.attachedSheet {
                 window.endSheet(attachedSheet)
@@ -2295,6 +2358,15 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             if window.isSheet, let sheetParent = window.sheetParent {
                 sheetParent.endSheet(window)
             }
+        }
+
+        for window in NSApp.windows {
+            if let mainWindow, window === mainWindow {
+                continue
+            }
+            guard window.isVisible else { continue }
+            window.orderOut(nil)
+            window.close()
         }
     }
 

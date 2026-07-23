@@ -284,6 +284,12 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(DesktopPermissionOnboardingView.startStepDetail.contains("кнопку записи"))
         XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки macOS")
         XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить снова")
+        XCTAssertEqual(DesktopPermissionOnboardingView.restartTitle, "Перезапустить GRAF")
+        XCTAssertTrue(DesktopPermissionOnboardingView.microphoneDeniedDetail.contains("Откройте настройки"))
+        XCTAssertEqual(
+            DesktopPermissionOnboardingAccessibilityIdentifier.restartButton,
+            "desktop.permissionOnboarding.restart"
+        )
         for text in copy {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("krisp"))
             XCTAssertFalse(text.localizedCaseInsensitiveContains("api"))
@@ -306,7 +312,14 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("sessionId: \"startup-permission-onboarding\""))
         XCTAssertTrue(source.contains("microphoneCaptureService.requestPermissionAndPreflight("))
         XCTAssertTrue(source.contains("systemAudioPermissionAuthorizer.requestPermission()"))
-        XCTAssertTrue(source.contains("if status.isReady {\n            permissionOnboardingPresented = false"))
+        XCTAssertTrue(source.contains("if status.isReady && !permissionRestartRequired {\n            permissionOnboardingPresented = false"))
+        XCTAssertTrue(source.contains("restartRequired: permissionRestartRequired"))
+        XCTAssertTrue(source.contains("onRestart: {"))
+        XCTAssertTrue(source.contains("effectivePermissionOnboardingStatus"))
+        XCTAssertTrue(source.contains("appDelegate.requestRelaunch()"))
+        XCTAssertTrue(source.contains("relaunchAfterTermination"))
+        XCTAssertTrue(source.contains("configuration.createsNewApplicationInstance = true"))
+        XCTAssertTrue(source.contains("NSWorkspace.shared.openApplication("))
         XCTAssertFalse(source.contains("requestStartupMicrophonePermission() async {\n        await startManualRecording"))
         XCTAssertFalse(source.contains("requestStartupSystemAudioPermission() async {\n        await startManualRecording"))
     }
@@ -324,6 +337,10 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("dismissModalWindowsForTermination()"))
         XCTAssertTrue(source.contains("window.endSheet(attachedSheet)"))
         XCTAssertTrue(source.contains("sheetParent.endSheet(window)"))
+        XCTAssertTrue(source.contains("NSApp.modalWindow"))
+        XCTAssertTrue(source.contains("NSApp.abortModal()"))
+        XCTAssertTrue(source.contains("window.orderOut(nil)"))
+        XCTAssertTrue(source.contains("window.close()"))
     }
 
     func testDesktopAppDoesNotRequestPermissionsDuringTerminationCleanup() throws {

@@ -217,6 +217,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <false/>
   <key>NSMicrophoneUsageDescription</key>
   <string>GRAF использует доступ к микрофону, чтобы проверить и записать звук встречи.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>GRAF использует доступ к системному звуку, чтобы сохранить входящий звук встречи локально.</string>
   <key>NSScreenCaptureUsageDescription</key>
   <string>GRAF использует доступ к записи экрана и системного звука, чтобы сохранить входящий звук встречи локально.</string>
   <key>NSPrincipalClass</key>
