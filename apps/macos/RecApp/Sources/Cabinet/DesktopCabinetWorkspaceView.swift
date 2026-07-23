@@ -139,30 +139,22 @@ public struct DesktopCabinetWorkspaceView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 520)
-            if let recoveryActionTitle = activeCabinetState.recoveryActionTitle,
-               let recoveryTarget {
-                switch recoveryTarget {
-                case let .embedded(url):
-                    Button {
-                        currentRoute = url
-                        activeCabinetStateBinding.wrappedValue = .loading
-                    } label: {
-                        Label(recoveryActionTitle, systemImage: activeCabinetState.recoverySystemImage)
+            if let recoveryActionTitle, let recoveryTarget {
+                HStack(spacing: DesktopMeetingShellChrome.spacingSmall) {
+                    recoveryButton(
+                        target: recoveryTarget,
+                        title: recoveryActionTitle,
+                        systemImage: activeCabinetState.recoverySystemImage,
+                        prominent: true
+                    )
+                    if let homeRecoveryTarget {
+                        recoveryButton(
+                            target: homeRecoveryTarget,
+                            title: "К списку встреч",
+                            systemImage: "house",
+                            prominent: false
+                        )
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .frame(minHeight: DesktopMeetingShellChrome.minimumInteractiveTarget)
-                    .help(recoveryActionTitle)
-                    .accessibilityLabel(recoveryActionTitle)
-                case let .external(url):
-                    Link(destination: url) {
-                        Label(recoveryActionTitle, systemImage: "arrow.up.right.square")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .frame(minHeight: DesktopMeetingShellChrome.minimumInteractiveTarget)
-                    .help(recoveryActionTitle)
-                    .accessibilityLabel(recoveryActionTitle)
                 }
             }
         }
@@ -181,16 +173,87 @@ public struct DesktopCabinetWorkspaceView: View {
 
     private var recoveryTarget: DesktopCabinetRecoveryTarget? {
         guard let configuration else { return nil }
-        if let route = currentRoute ?? initialRoute {
-            let decision = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL).decision(for: route)
-            if decision.route.kind == .calendarSettings {
-                return DesktopCabinetWorkspace.calendarSettingsRecoveryTarget(
-                    for: activeCabinetState,
-                    configuration: configuration
-                )
-            }
+        return DesktopCabinetWorkspace.recoveryTarget(
+            for: activeCabinetState,
+            currentRoute: currentRoute,
+            initialRoute: initialRoute,
+            configuration: configuration
+        )
+    }
+
+    private var recoveryActionTitle: String? {
+        guard recoveryTarget != nil else { return nil }
+        guard activeCabinetState == .blockedRoute else {
+            return activeCabinetState.recoveryActionTitle
         }
-        return DesktopCabinetWorkspace.recoveryTarget(for: activeCabinetState, configuration: configuration)
+        guard let configuration,
+              let route = recoveryURL,
+              route.path != configuration.meetingsURL().path
+        else {
+            return activeCabinetState.recoveryActionTitle
+        }
+        return "Вернуться"
+    }
+
+    private var recoveryURL: URL? {
+        guard case let .embedded(url)? = recoveryTarget else { return nil }
+        return url
+    }
+
+    private var shouldShowHomeRecovery: Bool {
+        guard let configuration,
+              let route = recoveryURL,
+              route.path != configuration.meetingsURL().path
+        else { return false }
+        return [.offline, .timeout, .malformedResponse, .blockedRoute].contains(activeCabinetState)
+    }
+
+    private var homeRecoveryTarget: DesktopCabinetRecoveryTarget? {
+        guard shouldShowHomeRecovery, let configuration else { return nil }
+        return .embedded(configuration.meetingsURL())
+    }
+
+    private struct RecoveryButtonModifier: ViewModifier {
+        let title: String
+        let prominent: Bool
+
+        func body(content: Content) -> some View {
+            Group {
+                if prominent {
+                    content.buttonStyle(.borderedProminent)
+                } else {
+                    content.buttonStyle(.bordered)
+                }
+            }
+            .controlSize(.regular)
+            .frame(minHeight: DesktopMeetingShellChrome.minimumInteractiveTarget)
+            .help(title)
+            .accessibilityLabel(title)
+        }
+    }
+
+    @ViewBuilder
+    private func recoveryButton(
+        target: DesktopCabinetRecoveryTarget,
+        title: String,
+        systemImage: String,
+        prominent: Bool
+    ) -> some View {
+        switch target {
+        case let .embedded(url):
+            Button {
+                currentRoute = url
+                activeCabinetStateBinding.wrappedValue = .loading
+            } label: {
+                Label(title, systemImage: systemImage)
+            }
+            .modifier(RecoveryButtonModifier(title: title, prominent: prominent))
+        case let .external(url):
+            Link(destination: url) {
+                Label(title, systemImage: "arrow.up.right.square")
+            }
+            .modifier(RecoveryButtonModifier(title: title, prominent: prominent))
+        }
     }
 
     private var shouldShowEmbeddedSurface: Bool {

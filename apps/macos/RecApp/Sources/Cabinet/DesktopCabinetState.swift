@@ -32,13 +32,13 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         case .workspaceReselectionRequired:
             return "Доступ к выбранному пространству больше не подтверждён. Войдите снова и выберите доступное пространство. \(Self.localRecordingBoundary)"
         case .accessDenied:
-            return "Не удалось подтвердить доступ к встречам. Обратитесь к владельцу рабочего пространства."
+            return "Не удалось подтвердить доступ к встречам. Обратитесь к владельцу рабочего пространства. \(Self.localRecordingBoundary)"
         case .notFound:
-            return "Не удалось подтвердить доступ к этому разделу."
+            return "Не удалось подтвердить доступ к этой встрече. Вернитесь к списку встреч. \(Self.localRecordingBoundary)"
         case .malformedResponse:
             return "Не удалось загрузить встречи. Повторите попытку. \(Self.localRecordingBoundary)"
         case .blockedRoute:
-            return "Этот раздел нельзя открыть внутри GRAF."
+            return "Эта функция недоступна внутри приложения. Вернитесь к списку встреч и продолжите работу. \(Self.localRecordingBoundary)"
         }
     }
 
@@ -51,13 +51,13 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         case .accessDenied:
             return "Нет доступа к встречам"
         case .notFound:
-            return "Раздел недоступен"
+            return "Встреча недоступна"
         case .offline, .timeout:
             return "Встречи временно недоступны"
         case .notConfigured:
             return "Встречи не подключены"
         case .blockedRoute:
-            return "Раздел недоступен"
+            return "Функция недоступна"
         case .malformedResponse:
             return "Не удалось загрузить встречи"
         case .loading, .ready:
@@ -94,6 +94,8 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
             return "Войти и выбрать пространство"
         case .offline, .timeout, .malformedResponse:
             return "Повторить"
+        case .accessDenied, .notFound, .blockedRoute:
+            return "К списку встреч"
         default:
             return nil
         }
@@ -107,6 +109,8 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
             return "person.crop.circle"
         case .offline, .timeout, .malformedResponse:
             return "arrow.clockwise"
+        case .accessDenied, .notFound, .blockedRoute:
+            return "arrow.left"
         default:
             return "arrow.right"
         }
@@ -244,14 +248,60 @@ public enum DesktopCabinetWorkspace {
         for state: DesktopCabinetState,
         configuration: DesktopCabinetConfiguration
     ) -> DesktopCabinetRecoveryTarget? {
+        recoveryTarget(
+            for: state,
+            currentRoute: nil,
+            initialRoute: nil,
+            configuration: configuration
+        )
+    }
+
+    /// Returns a safe document route for a recovery action. A failed resource
+    /// request must not replace the last useful meeting page with an API URL.
+    public static func recoveryTarget(
+        for state: DesktopCabinetState,
+        currentRoute: URL?,
+        initialRoute: URL?,
+        configuration: DesktopCabinetConfiguration
+    ) -> DesktopCabinetRecoveryTarget? {
         switch state {
         case .expiredSession, .workspaceReselectionRequired:
-            return .embedded(loginRoute(configuration: configuration))
-        case .offline, .timeout, .malformedResponse:
+            let nextRoute = retryableDocumentRoute(
+                currentRoute: currentRoute,
+                initialRoute: initialRoute,
+                configuration: configuration
+            )
+            return .embedded(loginRoute(configuration: configuration, next: nextRoute.path))
+        case .offline, .timeout, .malformedResponse, .blockedRoute:
+            return .embedded(
+                retryableDocumentRoute(
+                    currentRoute: currentRoute,
+                    initialRoute: initialRoute,
+                    configuration: configuration
+                )
+            )
+        case .accessDenied, .notFound:
             return .embedded(configuration.meetingsURL())
         default:
             return nil
         }
+    }
+
+    private static func retryableDocumentRoute(
+        currentRoute: URL?,
+        initialRoute: URL?,
+        configuration: DesktopCabinetConfiguration
+    ) -> URL {
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        for route in [currentRoute, initialRoute].compactMap({ $0 }) {
+            let decision = policy.decision(for: route)
+            if decision.decision == .allow,
+               [.meetingList, .meetingDetail, .meetingDeletionReport, .calendarSettings,
+                .meetingDetectionSettings].contains(decision.route.kind) {
+                return route
+            }
+        }
+        return configuration.meetingsURL()
     }
 
     public static func calendarSettingsRecoveryTarget(
