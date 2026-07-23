@@ -349,6 +349,7 @@ def validate_outcome_result(
         raise ValueError("outcome items must be a bounded list")
     seen: set[tuple[str, int]] = set()
     counts = {category: 0 for category in OUTCOME_CATEGORIES}
+    normalized_items: list[dict[str, object]] = []
     for item in items:
         if not isinstance(item, dict):
             raise ValueError("outcome item must be an object")
@@ -390,11 +391,20 @@ def validate_outcome_result(
                 raise ValueError("source reference is outside the pinned transcript")
             if not isinstance(ref["sequence"], int) or ref["sequence"] < 0:
                 raise ValueError("source reference sequence is invalid")
+        normalized_items.append(
+            {
+                **item,
+                "source_refs": [
+                    {**ref, "evidence_kind": "segment"}
+                    for ref in refs
+                ],
+            }
+        )
         counts[category] += 1
     for category, state in states.items():
         if (state == "available") != (counts[category] > 0):
             raise ValueError("category state and item count disagree")
-    return {"category_states": dict(states), "items": [dict(item) for item in items]}
+    return {"category_states": dict(states), "items": normalized_items}
 
 
 def _validate_json_limits(config: Mapping[str, object]) -> None:
