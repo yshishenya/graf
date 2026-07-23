@@ -27,6 +27,13 @@ metadata-only evidence остаются подробной историей ре
   (2,230 passed, 1 skipped) and strict (41 passed, 1 skipped), lint, compile,
   RLS boundary, compose config and deployment evidence scan. No production
   public-link or external-delivery flag was enabled.
+- Production deploy: PASS for code SHA
+  `0594a5ca35de74ebea0efca0f0db85b6f37b2c4f`; migration head
+  `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
+  probe, runtime/worker readiness, production smoke and automatic dispatch
+  passed. Post-deploy automatic retry, backfill, range and normalization
+  maintenance remain separate required follow-up checks; sharing remains in
+  the gated-disabled rollout described above.
 
 ## Validation update (2026-07-23) — deletion list feedback cleanup
 

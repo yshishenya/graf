@@ -49,9 +49,15 @@
   расширения вирусного rollout.
 
 ### Операции
-- External email, public links, native Contacts и referral attribution остаются
-  выключенными до delivery, identity, abuse, privacy/legal, retention и
-  deletion evidence gates; production deploy не выполнялся.
+- Production deploy gated-disabled кандидата прошёл для SHA
+  `0594a5ca35de74ebea0efca0f0db85b6f37b2c4f`: backup/restore rehearsal,
+  migration head `0035_meeting_share_security`, disposable RLS probe,
+  runtime/worker readiness и production smoke — PASS. External email, public
+  links, native Contacts и referral attribution остаются выключенными до
+  delivery, identity, abuse, privacy/legal, retention и deletion evidence
+  gates.
+- Локальный macOS artifact `2026.07.24.1` собран с `GRAF Local Code Signing`;
+  package unsigned, Developer ID и notarization не заявляются.
 
 ## [2026.07.23.7] - 2026-07-23
 

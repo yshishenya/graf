@@ -167,6 +167,15 @@ referral attribution as part of this release.
 - `infra/scripts/ci-local.sh`: pass — macOS 609 passed; PostgreSQL 2,230
   parallel + 41 strict passed, 2 skipped; Ruff, Python compile, RLS boundary,
   compose config and deployment evidence scan passed.
+- CD dry-run and execute: pass for branch `125-meeting-sharing` and deployed
+  code SHA `0594a5ca35de74ebea0efca0f0db85b6f37b2c4f`; migration head
+  `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
+  probe, runtime/worker readiness, production smoke and automatic dispatch
+  passed. Automatic retry, backfill, range and normalization maintenance are
+  recorded by the deploy gate as required post-deploy follow-up checks.
+- macOS local artifact `2026.07.24.1` was built as
+  `apps/macos/.build/installer/graf-local.pkg` with `GRAF Local Code Signing`;
+  the package is unsigned and has no Developer ID or notarization evidence.
 - Synthetic browser/embedded contract coverage includes both `/meetings/.../share`
   and `/desktop/.../share`; no meeting content, live credentials or real
   contacts were used. Live production public-link and external-delivery gates
