@@ -1002,28 +1002,134 @@ async def create_summary_candidate_route(
             code="summary_dispatch_state_invalid",
             title="Summary generation could not be started",
         )
+    # A durable ready candidate is already the result of a successful Temporal
+    # run. Repeated clicks/reloads must return it, not dispatch a second run.
+    if attempt.status == "candidate":
+        return _summary_candidate_response(
+            attempt,
+            meeting.current_outcome_set_id,
+            template_name=await _summary_candidate_template_name(db, attempt),
+        )
     temporal_client = getattr(request.app.state, "outcome_temporal_client", None)
-    if temporal_client is None:
-        temporal_client = await connect_temporal_client(settings, outcome_tracing=True)
-        request.app.state.outcome_temporal_client = temporal_client
-    started = await start_outcome_generation_workflow(
-        temporal_client=temporal_client,
-        settings=settings,
-        candidate_id=attempt.candidate_id,
-        meeting_id=meeting_id,
-        workspace_id=tenant_scope.workspace_id,
-        source_result_id=attempt.source_result_id,
-        template_key=attempt.template_key,
-        template_version=attempt.template_version,
-        prompt_name=attempt.prompt_name,
-        requested_by_user_id=principal.user_id,
+    try:
+        if temporal_client is None:
+            temporal_client = await connect_temporal_client(settings, outcome_tracing=True)
+            request.app.state.outcome_temporal_client = temporal_client
+        started = await start_outcome_generation_workflow(
+            temporal_client=temporal_client,
+            settings=settings,
+            candidate_id=attempt.candidate_id,
+            meeting_id=meeting_id,
+            workspace_id=tenant_scope.workspace_id,
+            source_result_id=attempt.source_result_id,
+            template_key=attempt.template_key,
+            template_version=attempt.template_version,
+            prompt_name=attempt.prompt_name,
+            requested_by_user_id=principal.user_id,
+        )
+    except Exception as exc:
+        # The candidate was committed before Temporal dispatch. Keep it queued
+        # because a network error can be ambiguous: Temporal may have accepted
+        # the deterministic workflow ID even when the HTTP request failed. A
+        # retry therefore safely reuses the same candidate/workflow instead of
+        # starting a second model call. Persist only a bounded, user-safe code;
+        # never store provider/Temporal exception text with meeting content.
+        current_attempt = await db.scalar(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(
+                MeetingOutcomeGenerationAttempt.workspace_id == tenant_scope.workspace_id,
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                MeetingOutcomeGenerationAttempt.candidate_id == attempt.candidate_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if current_attempt is None:
+            raise ProblemDetail(
+                status=503,
+                code="summary_generation_unavailable",
+                title="Summary generation is temporarily unavailable",
+            ) from exc
+        # A worker may have completed or terminally failed while the dispatch
+        # response was in flight. In that case its durable state is authoritative
+        # and must not be overwritten by the stale request-side exception.
+        if (
+            current_attempt.status not in {"queued", "generating", "blocked_dependency"}
+            or current_attempt.outcome_set_id is not None
+        ):
+            await db.commit()
+            return _summary_candidate_response(
+                current_attempt,
+                meeting.current_outcome_set_id,
+                template_name=await _summary_candidate_template_name(db, current_attempt),
+            )
+        if (
+            current_attempt.failure_code is not None
+            and current_attempt.failure_code != "summary_generation_unavailable"
+        ):
+            # A worker/provider failure may have committed while the API was
+            # waiting for Temporal's start acknowledgement. Preserve that
+            # more specific durable state instead of masking it as a dispatch
+            # outage or resetting its retry semantics.
+            await db.commit()
+            return _summary_candidate_response(
+                current_attempt,
+                meeting.current_outcome_set_id,
+                template_name=await _summary_candidate_template_name(db, current_attempt),
+            )
+        current_attempt.failure_code = "summary_generation_unavailable"
+        current_attempt.failure_source = "temporal_dispatch"
+        current_attempt.failure_reason = "Temporal dispatch is temporarily unavailable"
+        await db.commit()
+        raise ProblemDetail(
+            status=503,
+            code="summary_generation_unavailable",
+            title="Summary generation is temporarily unavailable",
+        ) from exc
+    # Re-read after dispatch because the worker may have advanced the candidate
+    # while the Temporal start call was in flight. Never let a stale request
+    # overwrite a completed/failed state or clear its diagnostic reason.
+    current_attempt = await db.scalar(
+        select(MeetingOutcomeGenerationAttempt)
+        .where(
+            MeetingOutcomeGenerationAttempt.workspace_id == tenant_scope.workspace_id,
+            MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            MeetingOutcomeGenerationAttempt.candidate_id == attempt.candidate_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    attempt.workflow_run_id = started.run_id
+    if current_attempt is None:
+        raise ProblemDetail(
+            status=503,
+            code="summary_generation_unavailable",
+            title="Summary generation is temporarily unavailable",
+        )
+    # A reused workflow may not expose a run ID (for example after an
+    # AlreadyStarted response). Never overwrite a previously persisted run
+    # correlation with None; this is important when two browser requests race.
+    if started.run_id is not None and current_attempt.workflow_run_id is None:
+        # Keep correlation even when the worker finished between the start
+        # acknowledgement and this read. Never replace an ID written by a
+        # concurrent/reused dispatch.
+        current_attempt.workflow_run_id = started.run_id
+    if (
+        current_attempt.status in {"queued", "generating", "blocked_dependency"}
+        and current_attempt.outcome_set_id is None
+        and current_attempt.failure_code == "summary_generation_unavailable"
+        and current_attempt.failure_source == "temporal_dispatch"
+    ):
+        # Clear only the marker written by this API's previous dispatch
+        # failure. A worker/provider failure may have won the race while start
+        # was in flight and must remain visible for the next status read.
+        current_attempt.failure_code = None
+        current_attempt.failure_source = None
+        current_attempt.failure_reason = None
     await db.commit()
     return _summary_candidate_response(
-        attempt,
+        current_attempt,
         meeting.current_outcome_set_id,
-        template_name=await _summary_candidate_template_name(db, attempt),
+        template_name=await _summary_candidate_template_name(db, current_attempt),
     )
 
 
@@ -1052,6 +1158,11 @@ async def list_summary_candidates_route(
             .where(
                 MeetingOutcomeGenerationAttempt.workspace_id == tenant_scope.workspace_id,
                 MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                # Legacy deterministic/blocked/cancelled attempts predate the
+                # candidate lifecycle and intentionally have no candidate_id.
+                # They remain durable provenance, but are not owner-review
+                # candidates and must never be projected through this API.
+                MeetingOutcomeGenerationAttempt.candidate_id.is_not(None),
             )
             .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
             .limit(8)
@@ -1102,6 +1213,16 @@ async def preview_summary_candidate_route(
     )
     if attempt is None or attempt.outcome_set_id is None or attempt.status not in {"candidate", "accepted"}:
         raise ProblemDetail(status=409, code="summary_candidate_unavailable", title="Summary candidate is not ready")
+    preview_categories = {
+        "summary",
+        "key_points",
+        "decisions",
+        "action_items",
+        "followups",
+        "risks",
+        "questions",
+        "evidence",
+    }
     items = (
         await db.scalars(
             select(MeetingOutcomeItem)
@@ -1110,8 +1231,10 @@ async def preview_summary_candidate_route(
                 MeetingOutcomeItem.meeting_id == meeting_id,
                 MeetingOutcomeItem.outcome_set_id == attempt.outcome_set_id,
                 MeetingOutcomeItem.state == "available",
+                MeetingOutcomeItem.category.in_(preview_categories),
             )
             .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+            .limit(200)
         )
     ).all()
     return SummaryCandidatePreviewResponse(
@@ -1125,9 +1248,17 @@ async def preview_summary_candidate_route(
                 owner_text=item.owner_text or "",
                 due_date_text=item.due_date_text or "",
                 truth_label=item.truth_label or "",
-                source_refs=[str(ref) for ref in (item.source_refs_json or [])],
+                source_refs=[
+                    str(ref)
+                    for ref in (
+                        item.source_refs_json
+                        if isinstance(item.source_refs_json, list)
+                        else []
+                    )[:32]
+                ],
             )
             for item in items
+            if item.category in preview_categories
         ],
     )
 
@@ -2258,6 +2389,8 @@ def _summary_candidate_projection(
 ) -> tuple[SummaryCandidateReasonCode | None, bool, SummaryCandidateNextAction | None]:
     """Map internal failure truth to a small, stable cabinet action contract."""
     if attempt.status in {"queued", "generating", "blocked_dependency"}:
+        if attempt.failure_code == "summary_generation_unavailable":
+            return "temporary_unavailable", True, "retry"
         return "generating", False, "wait"
     if attempt.status in {"candidate", "accepted"}:
         return None, False, "review" if attempt.status == "candidate" else None

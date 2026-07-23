@@ -156,9 +156,9 @@ metadata-only evidence остаются подробной историей ре
   UI. It does not delete or redact any transcript, Generation Call, Langfuse
   observation, or Temporal History.
 - Production readiness is now **complete for T097–T100**. Focused review and
-  canonical CI passed; release candidate
-  `028fdfb59662978faaa27507569dc8a9d39d8bba` was deployed with the same
-  runtime SHA. Backup/restore rehearsal passed at
+  canonical CI passed; final release `v2026.07.23.10` was deployed at
+  runtime SHA `9cd7b5040a8213e58f52cf1d1cfd90059021d0a` (the earlier
+  `028fdfb` was a superseded release candidate). Backup/restore rehearsal passed at
   `/opt/projects/2brain-rec/backups/20260723T142743Z`, migration head is
   `0033_prompt_opt_maintenance`, and Temporal, processing, media worker,
   automatic dispatch, public live/ready, and metadata-only production smoke
@@ -188,6 +188,29 @@ metadata-only evidence остаются подробной историей ре
   unrelated playback-normalization checks explicitly at
   `required_post_deploy`; they are not claimed as part of this
   outcome-generation receipt.
+
+## Validation update (2026-07-23) — candidate recovery regression (pending release)
+
+- Production logs captured one metadata-only HTTP 500 on
+  `GET /api/v1/cabinet/meetings/{uuid}/summary-candidates` (request id
+  `74e15694-3786-4f7f-996f-0005a62e8d62`). The deployed runtime projected a
+  legacy deterministic attempt whose `candidate_id` was null, then failed while
+  building the owner candidate response; Uvicorn subsequently reported the
+  secondary `Response content shorter than Content-Length` transport error.
+- Production database counts at investigation time were `2 accepted` and `6
+  failed/summary_response_invalid` AI candidates; all `11` retained response
+  calls were `completed/confirmed`. The six invalid results are a separate
+  strict model-output validation signal, not transcript loss or accepted-summary
+  replacement. The old browser bundle mapped that bounded failure to the
+  generic “Не удалось подготовить новый вариант…” fallback.
+- The pending T101/T102 hotfix filters null-candidate legacy provenance before
+  projection, preserves accepted results across post-commit Temporal dispatch
+  outages, reuses deterministic candidate/workflow IDs on explicit retry, and
+  maps invalid/temporary failures to an actionable user message. It does not
+  alter or delete any retained transcript, Generation Call, Langfuse
+  observation, or Temporal History. Automatic background scanning of
+  undispatched candidates remains a separate follow-up; this slice uses the
+  explicit retry path.
 
 ## Validation update (2026-07-21)
 

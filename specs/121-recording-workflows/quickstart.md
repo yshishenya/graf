@@ -263,7 +263,8 @@ horizontal modal scroll, clipped warning, or English/debug implementation copy.
 ## Scenario 15: Plaintext Temporal History And Full-Content Langfuse Tracing
 
 1. Commit one synthetic queued candidate and interrupt dispatch before Temporal
-   accepts it; run reconciliation and confirm one deterministic workflow.
+   accepts it; invoke the explicit retry path and confirm one deterministic
+   workflow. A background undispatched-row scanner is outside this MVP slice.
 2. Restart the worker before, during, and after the provider activity; repeat
    activity delivery and confirm at most one publishable candidate.
 3. Exercise timeout, `429`, and transient `5xx`, then auth/configuration,
@@ -714,9 +715,10 @@ Local validation evidence before deployment:
 
 ### Production forward-fix receipt — T100 (2026-07-23)
 
-- Release candidate `028fdfb59662978faaa27507569dc8a9d39d8bba` was deployed
-  from `codex/121-outcome-generation-fix` with `deployed_sha=runtime_sha`
-  equal to that value. Backup and restore rehearsal passed at
+- Final release `v2026.07.23.10` was deployed from
+  `codex/121-outcome-generation-fix` with `deployed_sha=runtime_sha`
+  `9cd7b5040a8213e58f52cf1d1cfd90059021d0a`; the earlier `028fdfb` was only
+  a superseded release candidate. Backup and restore rehearsal passed at
   `/opt/projects/2brain-rec/backups/20260723T142743Z`; migration head was
   `0033_prompt_opt_maintenance`; Temporal, processing, media worker,
   automatic dispatch, public live/ready, and metadata-only production smoke
@@ -755,3 +757,27 @@ Focused review follow-up PR [#4461](https://github.com/yshishenya/crisp/pull/446
 and release `v2026.07.23.10` carry this receipt. The evidence is metadata-only:
 no transcript text, model response, credentials, or private meeting content is
 committed.
+
+### Candidate projection and dispatch recovery — T101/T102
+
+Production read-only evidence for the reported user error found one HTTP 500
+on the owner candidate-list endpoint. The failing runtime attempted to project
+an older deterministic attempt with a null `candidate_id`; the retained
+accepted result and all `11` Generation Calls were unaffected. The same window
+contained `2` accepted and `6` `summary_response_invalid` AI candidates; those
+are strict model-output validation failures, not Temporal/LiteLLM transport
+loss. The old bundle mapped that bounded failure to the generic fallback copy.
+
+Local validation for the recovery slice:
+
+- `bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_summary_template_ui_contract.py tests/integration/test_outcome_generation_dispatch.py` — `21 passed`.
+- `infra/scripts/ci-local.sh` — `608` macOS tests, `2222 passed / 1 skipped` parallel PostgreSQL tests, `41 passed / 1 skipped` strict PostgreSQL tests; Ruff, Python compile, Compose config, and deployment-evidence scan passed.
+- Regression coverage includes null legacy rows, bounded preview projection,
+  Temporal dispatch outage/retry, ready-candidate no-replay, run-ID retention,
+  and worker/dispatch race preservation. The code does not add a background
+  undispatched-row scanner; recovery of a lost start acknowledgement is an
+  explicit retry of the same deterministic candidate/workflow ID.
+
+This receipt remains pending until the branch is merged, the next CalVer
+release is deployed at its exact SHA, and the production owner-list smoke is
+repeated without a 500. Evidence remains metadata-only.

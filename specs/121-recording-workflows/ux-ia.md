@@ -261,6 +261,12 @@ becomes a version-management dashboard.
 | Prompt/model/template/share changes | No surprise UI change | Existing candidates keep pinned provenance | Unchanged |
 | Shared viewer opens meeting | Only accepted summary is rendered | Never exposes candidates or templates | Unchanged |
 
+The candidate list is tolerant of older outcome provenance: legacy rows without
+`candidate_id` are invisible in the owner candidate UI and cannot turn a page
+load into a generic error. A Temporal dispatch outage has one clear next step —
+`Попробовать ещё раз` — while the accepted summary remains visible and the
+server reuses the same candidate on retry.
+
 The selector therefore distinguishes `Текущие итоги: <format>` from
 `Готовим вариант: <format>`. Selecting the already-current format is a no-op;
 creating another version is an explicit `Создать новый вариант` action, not a

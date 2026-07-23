@@ -376,7 +376,10 @@ prompt.
 After the candidate and generation attempt commit, the server dispatches
 `OutcomeGenerationWorkflow` with deterministic workflow ID
 `outcome-generation/{candidate_id}`. Dispatch failure does not delete the row;
-the existing processing reconciler boundary retries undispatched queued rows.
+the owner receives a bounded retryable problem and an explicit retry reuses the
+same candidate/workflow identity. A background scanner for undispatched rows is
+not part of this MVP contract and must be specified separately before it is
+described as automatic recovery.
 
 Temporal workflow start input remains compact:
 
