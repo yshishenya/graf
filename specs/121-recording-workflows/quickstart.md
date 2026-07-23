@@ -796,3 +796,45 @@ Production closeout for T101/T102 is complete:
   `summary-candidates` 500, `Response content shorter than Content-Length`, or
   `summary_generation` error. Accepted results and all retained observability
   data remain untouched. Evidence remains metadata-only.
+
+### Invalid model response and actionable regeneration recovery — T103
+
+The follow-up investigation of the generic “Не удалось подготовить новый
+вариант” message found completed LiteLLM calls whose structured JSON failed the
+local outcome contract: category state did not match its items, an item used a
+section outside the selected format, or a source reference sequence did not
+match the pinned transcript snapshot. This was a bounded validation failure,
+not transcript loss or a Temporal/Langfuse transport failure. The retained
+Generation Call, Langfuse trace, and Temporal plaintext history remain the
+source of truth.
+
+T103 closes the path end to end:
+
+- all ten production `graf/meeting-outcome/*` Langfuse prompts are promoted at
+  version `3` and include a final self-check for state/item parity, allowed
+  sections, unique ordinals, and exact transcript reference pairs;
+- the worker rejects a mismatched reference sequence, reuses only retryable
+  candidate failures, keeps one active candidate per pinned source, and maps
+  prompt/source/content/concurrency failures to stable owner actions;
+- the embedded cabinet bundle exposes the exact recovery copy and the HTML
+  shell is `private, no-store` so an old WebView cannot retain the previous
+  generic fallback.
+
+Validation evidence:
+
+- focused unit/dispatch/contract tests: `14 passed`; Ruff, Python compile, JS
+  syntax and diff checks passed; macOS CI completed `622` tests and
+  `ContractValidation: PASS`;
+- release [`v2026.07.23.17`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.17)
+  deployed at exact runtime SHA
+  `da3a625d96491e99159c7a80ee69a82337daefb6`;
+- production backup/restore, RLS, migration head
+  `0033_prompt_opt_maintenance`, Temporal/worker readiness, smoke and cleanup
+  passed. Public `/api/v1/health/live` and `/api/v1/health/ready` returned
+  `200`; the deployed static bundle contains `result_invalid` and
+  `summary_request_unavailable` recovery paths.
+
+The local PostgreSQL portion of the canonical CI was not runnable because the
+developer machine had no Docker Engine; the remote production gate completed
+the database, readiness, and smoke checks. No transcript or model content is
+committed in this evidence.
