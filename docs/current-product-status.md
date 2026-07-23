@@ -136,10 +136,9 @@ metadata-only evidence остаются подробной историей ре
   history требуют forward-fix rollback. Expanded scan проверил 21 secret-
   файл, логи, non-ledger DB и committed content: все matches `0`;
   audio rows/screenshots/diagnostics `0`, analytics disabled/no event path.
-  T050 и T089 закрыты; открыта только T057 без owner-approved
-  immutable train/development/held-out manifests, human calibration pack и
-  real two-worker forced-crash GEPA promotion/rollback evidence. Prompt
-  optimization, public/team links и external invitations остаются выключены.
+  T050, T057 и T089 закрыты с metadata-only production evidence. Prompt
+  optimization для обычного трафика, public/team links и external invitations
+  остаются выключены по отдельным rollout-политикам.
 
 ## Validation update (2026-07-23) — outcome-generation decoder and candidate UX hotfix
 
@@ -156,10 +155,39 @@ metadata-only evidence остаются подробной историей ре
   preview, bounded reason/retryability projection, and selected-format pending
   UI. It does not delete or redact any transcript, Generation Call, Langfuse
   observation, or Temporal History.
-- Production readiness remains **pending** until focused tests, canonical CI,
-  forward-fix deployment, known-workflow recovery, valid/invalid candidate
-  smoke, zero running outcome-parent check, and zero Langfuse sandbox-warning
-  check are recorded in the Feature-121 quickstart.
+- Production readiness is now **complete for T097–T100**. Focused review and
+  canonical CI passed; release candidate
+  `028fdfb59662978faaa27507569dc8a9d39d8bba` was deployed with the same
+  runtime SHA. Backup/restore rehearsal passed at
+  `/opt/projects/2brain-rec/backups/20260723T142743Z`, migration head is
+  `0033_prompt_opt_maintenance`, and Temporal, processing, media worker,
+  automatic dispatch, public live/ready, and metadata-only production smoke
+  all passed.
+- The known parent
+  `outcome-generation/a65deb9a-e9ed-4048-ac7b-26e9f0657f68` (run
+  `019f8e11-3db5-72eb-a73d-db4893baca80`) replayed with the forward-compatible
+  worker and completed at `2026-07-23T14:36:08Z`. Its retained History
+  contains `46` events and one plaintext transcript chunk of `20328` UTF-8
+  bytes; the chunk hash matches the attempt hash
+  `ded0defcde2940b2fba9fc664ac8008d5062e8d64bf10465f732144681dbf942`.
+  Candidate state is `accepted`; its single Generation Call is
+  `completed/confirmed` with `provider_attempt=1`, `call_sequence=1`, and
+  `gpt-5.6-luna`. The response-bearing backlog is `11` completed/confirmed
+  rows with no pending exports.
+- Private Langfuse trace `a2c4ed95a65338818e00217318b19fc9` is `production` and
+  `public=false`, with `18` observations and exactly one generation
+  `4a87ed7b08da9f93` using `graf/meeting-outcome/project-sync` v2 and
+  `gpt-5.6-luna`. Generation Call and Langfuse request/raw-response/
+  validated-result hashes match; usage is `7279` total tokens and the reported
+  calculated cost is `0.014114999999`. Decoder/sandbox markers in API, worker,
+  and Temporal logs after the forward-fix were `0`; replay completed without a
+  second model call.
+- Rollback is forward-only for this retained history: a worker older than the
+  `dict[str, Any]` boundary must not be deployed and the existing child/marker
+  compatibility path must remain. The global deploy script keeps four
+  unrelated playback-normalization checks explicitly at
+  `required_post_deploy`; they are not claimed as part of this
+  outcome-generation receipt.
 
 ## Validation update (2026-07-21)
 
