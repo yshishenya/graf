@@ -1,7 +1,7 @@
 # Реестр Spec Kit и сверка документации
 
 **Дата сверки**: 2026-07-23
-**Проверяемая база**: `origin/master` (`05d66e58`)
+**Проверяемая база**: `origin/master` (`9ffa8a78`)
 **Lane**: release/production closeout; tracker и installed-app receipts сверены.
 
 Feature 124 merged в `origin/master`, server release и production receipt
