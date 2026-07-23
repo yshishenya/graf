@@ -47,6 +47,37 @@ After installing, verify the local result with:
 open "/Applications/GRAF.app"
 ```
 
+## First Launch on a Mac Without Apple Developer Trust
+
+The no-account local package is not Developer ID signed or notarized. On a
+different Mac, Gatekeeper can show a warning such as «Файл graf-local.pkg не
+был открыт». This is an expected limitation of the channel, not a reason to
+disable macOS security globally.
+
+Use the supported one-time system confirmation:
+
+1. Close the warning dialog without moving the package to the Trash.
+2. Open **System Settings → Privacy & Security**.
+3. In **Security**, click **Open Anyway** for `graf-local.pkg`, authenticate if
+   macOS asks, and confirm the open action.
+4. Open the package again and install `GRAF.app` into `/Applications`.
+
+Do not use `sudo spctl --master-disable`, TCC reset commands, manual TCC database
+edits, or an audio-driver installer. The package-level signature remains
+unsigned in this no-account path even after the one-time confirmation.
+
+After the first launch:
+
+- Click **Разрешить микрофон** in GRAF while the state is «Нужно разрешение» and
+  accept the normal macOS prompt. The `.pkg` is not a microphone permission
+  target; GRAF must first request access as the running app.
+- If the state is «Отклонено», click **Открыть настройки macOS** and enable GRAF
+  in **Privacy & Security → Microphone**. GRAF does not promise a second prompt
+  after a denial.
+- Enable GRAF in **Privacy & Security → Screen & System Audio Recording**, return
+  to GRAF, and click **Перезапустить GRAF**. The old process must exit before the
+  new process can read the updated permission state.
+
 Local development may use ad-hoc app signing only when Developer Tools Security
 is enabled. If it is disabled, macOS can install the `.app` successfully but
 kill it through AMFI before app diagnostics are written. Check the local state
