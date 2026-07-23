@@ -393,6 +393,8 @@ async def start_outcome_generation_workflow(
     prompt_name: str,
     requested_by_user_id: UUID | None = None,
 ) -> OutcomeGenerationWorkflowStart:
+    from temporalio.common import WorkflowIDReusePolicy
+
     from twobrain_rec_server.workflows.outcome_generation_workflow import (
         OutcomeGenerationWorkflow,
     )
@@ -427,12 +429,22 @@ async def start_outcome_generation_workflow(
                 payload,
                 id=workflow_id,
                 task_queue=outcome_generation_task_queue(settings),
+                # A completed successful candidate must not be replayed under
+                # the same deterministic ID. Failed runs remain dispatchable
+                # for the explicit retry path, while an ambiguous start still
+                # safely reuses the same ID.
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             )
     except Exception as exc:
         exc_name = exc.__class__.__name__.lower()
         if "already" not in exc_name and "workflowalready" not in exc_name:
             raise
-        return OutcomeGenerationWorkflowStart(workflow_id=workflow_id, reused=True)
+        existing_run_id = getattr(exc, "run_id", None)
+        return OutcomeGenerationWorkflowStart(
+            workflow_id=workflow_id,
+            run_id=existing_run_id if isinstance(existing_run_id, str) else None,
+            reused=True,
+        )
     run_id = _started_workflow_run_id(handle)
     return OutcomeGenerationWorkflowStart(workflow_id=workflow_id, run_id=run_id)
 

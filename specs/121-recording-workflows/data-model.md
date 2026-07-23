@@ -208,6 +208,13 @@ Rules:
 - Deletion blocks new generation and prevents candidate acceptance.
 - Duplicate dispatch reuses `workflow_id`; duplicate activity delivery reuses
   `candidate_id` and cannot create a second publishable candidate.
+- Legacy deterministic attempts with a null `candidate_id` remain outside the
+  candidate projection contract. The owner list filters them before applying
+  the eight-row candidate bound.
+- Temporal dispatch is post-commit. A dispatch outage records only the bounded
+  `summary_generation_unavailable` marker on the active attempt; retrying the
+  same format reuses the candidate/workflow identity and never assumes that an
+  ambiguous start did not reach Temporal.
 - Langfuse export outage leaves the candidate ready and changes only the
   background export status; retry cannot repeat the model call. If no promoted
   version or verified snapshot can be resolved, the attempt enters

@@ -73,10 +73,13 @@ screen/state map is [ux-ia.md](./ux-ia.md).
 - The first usable transcript may trigger one policy-owned `Авто` generation.
   This is the only implicit generation. Every later format change or
   regeneration is an explicit owner action.
-- Automatic work is limited to retrying the same durable candidate after a
-  transient worker, provider, or prompt-control dependency failure and to
-  reconciling already-retained response delivery. It never creates a second
-  candidate, repeats an ambiguous provider call, or replaces an accepted set.
+- Temporal activity retries cover transient worker/provider/prompt-control
+  failures, while an API-level `Попробовать ещё раз` explicitly re-dispatches
+  the same durable candidate when the initial start acknowledgement is
+  unavailable. The separate Langfuse delivery reconciler handles retained
+  response delivery. This slice does not run a background scanner for
+  undispatched candidates. None of these paths creates a second candidate,
+  repeats an ambiguous provider call, or replaces an accepted set.
 - Prompt/model/config changes, template edits, sharing changes, reloads, and
   provider remaps never silently regenerate an existing meeting. A new request
   pins the currently promoted Langfuse version and creates a new candidate.
@@ -97,6 +100,25 @@ screen/state map is [ux-ia.md](./ux-ia.md).
   transient failures offer `Повторить`; schema-invalid, stale, deleted,
   authorization, configuration, and ambiguous-provider failures explain the
   next action without a blind retry.
+
+### Session 2026-07-23 — legacy rows and dispatch recovery
+
+- Legacy deterministic `stored`/`blocked`/`cancelled` attempts remain durable
+  provenance, but a row without `candidate_id` is not a candidate and MUST NOT
+  be projected by the owner candidate list or preview API. This keeps the
+  accepted-summary pointer and the new candidate lifecycle separate during the
+  additive rollout.
+- Candidate creation commits its durable row before Temporal dispatch. If the
+  dispatch response is unavailable, the same candidate remains active with the
+  bounded `summary_generation_unavailable` marker; the API returns a retryable
+  dependency problem and a later explicit retry reuses the same candidate and
+  deterministic workflow ID. The accepted result is never changed, and an
+  ambiguous start is never converted into a new candidate or a terminal model
+  failure.
+- A ready candidate is returned as-is on duplicate format requests; the API
+  never starts a second Temporal run for a candidate that already has a stored
+  outcome set. A reused Temporal run ID is stored only when supplied, and a
+  missing run ID never erases an existing correlation.
 
 ## User Scenarios & Testing
 

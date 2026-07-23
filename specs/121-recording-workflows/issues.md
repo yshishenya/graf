@@ -26,7 +26,7 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   successful promotion/rollback. All traces and Temporal histories retain
   complete plaintext content; the receipt contains hashes, sizes, and counts
   only.
-- Every implementation and validation task T006-T100 has exactly one canonical
+- Every implementation and validation task T006-T102 has exactly one canonical
   Russian issue in
   [feature:121](https://github.com/yshishenya/crisp/issues?q=is%3Aissue%20label%3Afeature%3A121).
 - The mapping is contiguous: T006 maps to
@@ -74,6 +74,8 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 | T098 | [#4321](https://github.com/yshishenya/crisp/issues/4321) | Owner candidate recovery and bounded error UX |
 | T099 | [#4322](https://github.com/yshishenya/crisp/issues/4322) | Regeneration/version business logic matrix |
 | T100 | [#4323](https://github.com/yshishenya/crisp/issues/4323) | Production recovery and smoke evidence |
+| T101 | [#4501](https://github.com/yshishenya/crisp/issues/4501) | Legacy candidate projection and Temporal dispatch recovery |
+| T102 | [#4502](https://github.com/yshishenya/crisp/issues/4502) | Bounded owner candidate preview projection |
 
 Issues must only be closed after their acceptance criteria and evidence are
 verified. Matching task checkboxes must only be marked complete after the same

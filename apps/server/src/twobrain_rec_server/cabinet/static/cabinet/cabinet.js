@@ -628,6 +628,15 @@
       const renderCandidate = (candidate) => {
         if (candidate.state === "generating") {
           clearPreview();
+          if (candidate.reason_code === "temporary_unavailable") {
+            window.clearTimeout(pollingTimer);
+            pollingTimer = null;
+            setBusy(false);
+            if (pendingLabel) pendingLabel.hidden = true;
+            const retry = retryCandidateAction(candidate);
+            showStatus(candidateErrorCopy(candidate.reason_code), "failed", retry ? [retry] : []);
+            return;
+          }
           window.sessionStorage.setItem(candidateStorageKey, JSON.stringify({
             poll_url: candidate.poll_url,
             template: activeTemplate

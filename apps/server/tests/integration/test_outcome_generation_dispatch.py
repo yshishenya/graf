@@ -13,7 +13,9 @@ from twobrain_rec_server.workflows.temporal_client import (
 
 
 class _AlreadyStartedError(RuntimeError):
-    pass
+    def __init__(self, message: str = "already started", *, run_id: str | None = None) -> None:
+        super().__init__(message)
+        self.run_id = run_id
 
 
 class _Handle:
@@ -58,6 +60,9 @@ async def test_candidate_dispatch_uses_deterministic_id_and_plaintext_identifier
     assert payload["prompt_name"] == "graf/meeting-outcome/auto"
     assert options["id"] == f"outcome-generation/{candidate_id}"
     assert options["task_queue"] == "graf-processing-outcomes"
+    from temporalio.common import WorkflowIDReusePolicy
+
+    assert options["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
 
 
 @pytest.mark.anyio
@@ -80,6 +85,31 @@ async def test_duplicate_candidate_dispatch_reuses_existing_workflow() -> None:
     assert started.workflow_id == f"outcome-generation/{candidate_id}"
     assert started.reused is True
     assert started.run_id is None
+
+
+@pytest.mark.anyio
+async def test_duplicate_candidate_dispatch_keeps_temporal_run_id_when_available() -> None:
+    candidate_id = UUID("11111111-1111-1111-1111-111111111111")
+
+    class _Client(_TemporalClient):
+        async def start_workflow(self, workflow, payload, **kwargs):
+            self.calls.append((workflow, payload, kwargs))
+            raise _AlreadyStartedError(run_id="existing-run")
+
+    started = await start_outcome_generation_workflow(
+        temporal_client=_Client(),
+        settings=Settings(),
+        candidate_id=candidate_id,
+        meeting_id=UUID("22222222-2222-2222-2222-222222222222"),
+        workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
+        source_result_id=UUID("44444444-4444-4444-4444-444444444444"),
+        template_key="graf-auto-v1",
+        template_version=1,
+        prompt_name="graf/meeting-outcome/auto",
+    )
+
+    assert started.reused is True
+    assert started.run_id == "existing-run"
 
 
 @pytest.mark.anyio
