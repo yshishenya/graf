@@ -7,7 +7,15 @@ from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.cabinet import create_outcome_ready_meeting, seed_cabinet_meetings
 from twobrain_rec_server.api.cabinet import _summary_candidate_projection
-from twobrain_rec_server.db.models import ProcessingResult, Workspace, WorkspaceMembership
+from twobrain_rec_server.db.models import (
+    Meeting,
+    MeetingOutcomeItem,
+    MeetingOutcomeSet,
+    ProcessingResult,
+    Workspace,
+    WorkspaceMembership,
+)
+from twobrain_rec_server.outcomes.ai_service import create_summary_candidate
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 
 SERVER_ROOT = Path(__file__).resolve().parents[2]
@@ -74,7 +82,7 @@ def test_candidate_ui_preserves_current_notes_until_explicit_accept() -> None:
     assert "Создать новый вариант" in script
     assert "currentSummaryFormatTemplateId" in script
     assert "currentSummaryFormatVersion" in script
-    assert "requestFailureAction" in script
+    assert "candidateErrorAction" in script
     assert '"summary_revision_conflict"' in script
 
 
@@ -117,6 +125,109 @@ def test_format_selection_uses_the_rendered_accepted_revision_and_starts_tempora
     assert len(temporal.starts) == 1
     started = next(iter(temporal.starts.values()))
     assert started["payload"]["template_key"] == "graf-meeting-minutes-v1"
+
+
+def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client)
+    created = client.post(
+        "/api/v1/cabinet/summary-templates",
+        headers=auth_headers(),
+        json={
+            "name": "Мой формат для проверки",
+            "purpose": "Проверка предпросмотра",
+            "sections": ["summary"],
+            "output_language": "ru",
+            "detail_level": "standard",
+        },
+    )
+    assert created.status_code == 201
+    template = created.json()
+
+    async def seed_candidate():
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            attempt = await create_summary_candidate(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                requested_by_user_id=USER_ID,
+                template_key=template["template_key"],
+                template_id=template["template_id"],
+                template_version=template["version"],
+                expected_current_outcome_set_id=None,
+            )
+            outcome_set = MeetingOutcomeSet(
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                media_revision_id=attempt.media_revision_id,
+                processing_result_id=result.id,
+                status="available",
+                source_kind="litellm",
+                generator_kind="litellm",
+                generator_version="test-preview",
+                template_id=template["template_id"],
+                template_key=template["template_key"],
+                template_version=template["version"],
+                revision_state="candidate",
+            )
+            db.add(outcome_set)
+            await db.flush()
+            db.add(
+                MeetingOutcomeItem(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=meeting_id,
+                    outcome_set_id=outcome_set.id,
+                    category="summary",
+                    sequence=0,
+                    state="available",
+                    text="Пункт предпросмотра",
+                    owner_text="",
+                    due_date_text="",
+                    truth_label="supported",
+                    source_refs_json=[],
+                )
+            )
+            attempt.outcome_set_id = outcome_set.id
+            attempt.status = "candidate"
+            await db.commit()
+            return attempt.candidate_id
+
+    candidate_id = client.portal.call(seed_candidate)
+    preview = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
+        headers=auth_headers(),
+    )
+    assert preview.status_code == 200
+    assert preview.headers["cache-control"] == "private, no-store"
+    assert preview.headers["pragma"] == "no-cache"
+    assert preview.json()["template_key"] == template["template_key"]
+    assert preview.json()["items"][0]["category"] == "summary"
+    listed = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates",
+        headers=auth_headers(),
+    )
+    assert listed.status_code == 200
+    listed_candidate = next(
+        item for item in listed.json()["candidates"] if item["candidate_id"] == str(candidate_id)
+    )
+    assert listed_candidate["template_name"] == template["name"]
+
+    foreign_headers = {
+        **auth_headers(),
+        "X-Organization-Id": "10000000-0000-0000-0000-000000000016",
+        "X-Workspace-Id": "20000000-0000-0000-0000-000000000016",
+        "X-User-Id": "30000000-0000-0000-0000-000000000016",
+        "X-Device-Id": "40000000-0000-0000-0000-000000000016",
+    }
+    hidden = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
+        headers=foreign_headers,
+    )
+    assert hidden.status_code in {403, 404}
 
 
 def test_summary_selector_keyboard_focus_and_candidate_projection_are_simple(client) -> None:
