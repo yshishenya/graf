@@ -9,8 +9,8 @@ metadata-only evidence остаются подробной историей ре
 ## Validation update (2026-07-23) — T057 prompt-optimization closeout
 
 - Feature implementation was deployed at SHA
-  `89fd568a6c8a1055f11b1f9de22f149f69fee559`; the current release merge runs at
-  `8807c624843cf2bf9852646952610a8376686e04`, with migration head
+  `f6890b1aaf11fb0f7d9e836af370b17bce93dc76`; the current release merge is
+  `93cf18a9089ecfc18d0708972d09f1d45d2f2d76`, with migration head
   `0033_prompt_opt_maintenance`. The operations-only
   optimizer worker is isolated from the normal recording worker and uses the
   maintenance role/RLS context; Temporal/API/processing/media readiness,
@@ -42,10 +42,17 @@ metadata-only evidence остаются подробной историей ре
   Temporal History has 74 events with two plaintext `transcript_utf8` results
   (`74683+35265` bytes). No GRAF-owned optimizer evidence was purged during
   this closeout, per the MVP observability policy.
+- The post-deploy heartbeat smoke
+  `d2738c12-5fb2-49da-8a74-e48b2ea76a75` reached development `1.0` and held-out
+  `1.0`, was explicitly rejected by the operator, and produced zero
+  `RuntimeWarning`, `_heartbeat_async`, or `never awaited` messages in the
+  operations worker log. The worker-thread heartbeat bridge is therefore
+  covered on the live GEPA path without changing the plaintext observability
+  policy.
 - Closeout CI after the live exercise: 608 macOS tests, ContractValidation PASS,
-  2206 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1
+  2207 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1
   skipped, collection digest
-  `6ee1a51dc6d0ecdad7a93c789a728f0e77fb978255ed28ec192507fa6b24116d`, Ruff,
+  `bd7ebd520e7d5a4e318b1d8820911d0f1a389b762fb71e365a500bb0607ac54c`, Ruff,
   compile, Compose, and deployment-evidence scan PASS.
 
 ## Validation update (2026-07-23) — accepted-summary pointer hotfix
