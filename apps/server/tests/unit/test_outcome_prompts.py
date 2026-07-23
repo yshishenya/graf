@@ -172,6 +172,7 @@ def test_outcome_validation_preserves_category_truth_and_source_ownership() -> N
         result,
         allowed_categories=["summary", "action_items"],
         allowed_segment_ids={"seg-1"},
+        allowed_segment_sequences={"seg-1": 0},
     )
     assert validated["items"][0]["source_refs"] == [
         {
@@ -196,3 +197,23 @@ def test_outcome_validation_preserves_category_truth_and_source_ownership() -> N
             allowed_categories=["summary", "action_items"],
             allowed_segment_ids={"seg-1"},
         )
+
+    wrong_sequence = deepcopy(result)
+    wrong_sequence["items"][0]["source_refs"][0]["sequence"] = 1
+    with pytest.raises(ValueError, match="does not match"):
+        validate_outcome_result(
+            wrong_sequence,
+            allowed_categories=["summary", "action_items"],
+            allowed_segment_ids={"seg-1"},
+            allowed_segment_sequences={"seg-1": 0},
+        )
+
+
+def test_outcome_prompt_requires_state_item_and_exact_reference_self_checks() -> None:
+    from twobrain_rec_server.cli.langfuse_prompts import outcome_prompt
+
+    system_message = outcome_prompt("test focus")[0]["content"]
+    assert "Build the items first" in system_message
+    assert "never emit an item for a category outside the requested sections" in system_message
+    assert "Copy every source_refs transcript_segment_id and sequence exactly" in system_message
+    assert "self-check the closed category set" in system_message
