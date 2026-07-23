@@ -1,10 +1,30 @@
 # Текущий статус продукта
 
-Date: 2026-07-22
+Date: 2026-07-23
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Validation update (2026-07-23) — accepted-summary pointer hotfix
+
+- Production regression T096 / issue #4253 исправлена в ветке
+  `codex/121-summary-pointer-hotfix`: accepted outcome теперь читается только
+  через `Meeting.current_outcome_set_id`, а legacy extractive rows получают
+  этот указатель additive-миграцией `0032_outcome_pointer` без выдумывания
+  template provenance.
+- Полный локальный gate прошёл: 608 macOS tests, `ContractValidation: PASS`,
+  2198 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1
+  skipped, collection digest
+  `02702796e56ab9e65a5a69a5f89720c4b512b4e25a5ca6ab6602780bf3bbdae1`, Ruff,
+  compile, Compose и deployment-evidence scan PASS.
+- Целевой Postgres regression прошёл `45 passed`: выбор формата сохраняет
+  rendered CAS pointer и запускает ровно один Temporal workflow; двухсессионная
+  проверка показывает, что deletion lock выигрывает у baseline generation;
+  stale export возвращает 409 без attachment и без смешанных байтов.
+- Production deploy, smoke, migration head и release receipt для этого hotfix
+  будут добавлены после merge и проверки exact SHA; до этого T096 остаётся
+  открытым.
 
 ## Validation update (2026-07-22)
 

@@ -14,7 +14,7 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   canonical CI, repeated correctness/security review, and final Ponytail
   `Lean already. Ship.` evidence are recorded in `quickstart.md`.
 - T050/#4170 and T089/#4209 have production LiteLLM, retained Generation Call,
-  Temporal History, private Langfuse, reconciler, and zero-leak evidence. Only
+  Temporal History, private Langfuse, reconciler, and zero-leak evidence.
   T057/#4177 remains open: it still requires owner-approved immutable synthetic
   manifests, a human-labelled calibration pack, and a real two-worker
   forced-crash GEPA promotion/rollback exercise.
@@ -29,8 +29,10 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 - After merge, production deploy, public
   [`v2026.07.22.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.4),
   installed-app verification, and the production AI observability closeout,
-  89 completed issues have verified evidence. Exactly 1 of 90 remains open:
-  #4177.
+  89 completed issues have verified evidence. Exactly 2 of 91 remain open:
+  #4177 and #4253. Production regression task T096 is tracked by
+  [#4253](https://github.com/yshishenya/crisp/issues/4253) until the accepted
+  outcome pointer hotfix is deployed and verified.
 - Implementation/release links: PR
   [#4235](https://github.com/yshishenya/crisp/pull/4235), native purge hotfix
   [#4242](https://github.com/yshishenya/crisp/pull/4242), release prep
@@ -52,6 +54,7 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 | T072-T079 | #4192-#4199 | Export and deletion |
 | T080-T086 | #4200-#4206 | Accessibility and Russian cross-surface UX |
 | T087-T095 | #4207-#4215 | Validation, review, and release boundary |
+| T096 | #4253 | Accepted-summary pointer production regression hotfix |
 
 Issues must only be closed after their acceptance criteria and evidence are
 verified. Matching task checkboxes must only be marked complete after the same

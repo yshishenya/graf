@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from twobrain_rec_server.db.models import (
+    Meeting,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     ProcessingResult,
@@ -54,9 +55,22 @@ async def ensure_outcomes_for_processing_result(
     *,
     result: ProcessingResult,
 ) -> MeetingOutcomeSet:
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(
+            Meeting.workspace_id == result.workspace_id,
+            Meeting.id == result.meeting_id,
+        )
+        .with_for_update()
+    )
+    if meeting is None:
+        raise RuntimeError("meeting_not_found")
+    if meeting.deleted_at is not None or meeting.deletion_state not in {None, "none"}:
+        raise RuntimeError("meeting_deletion_active")
     existing = await _load_current_outcome_set(db, result=result)
     transcript_is_available = result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value and result.segment_count > 0
     if existing is not None and should_reuse_outcome_set(existing, transcript_is_available=transcript_is_available):
+        await _accept_initial_outcome_set(db, meeting=meeting, outcome_set=existing)
         return existing
     started_at = datetime.now(UTC)
     outcome_set = existing or await create_outcome_set(
@@ -152,8 +166,33 @@ async def ensure_outcomes_for_processing_result(
             "item_count": len(stored_items),
         },
     )
+    await _accept_initial_outcome_set(db, meeting=meeting, outcome_set=outcome_set)
     await db.flush()
     return outcome_set
+
+
+async def _accept_initial_outcome_set(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    outcome_set: MeetingOutcomeSet,
+) -> None:
+    if outcome_set.status not in {
+        OutcomeSetStatus.AVAILABLE.value,
+        OutcomeSetStatus.PARTIAL.value,
+    }:
+        return
+    if (
+        meeting.deleted_at is not None
+        or meeting.deletion_state not in {None, "none"}
+        or meeting.current_outcome_set_id not in {None, outcome_set.id}
+    ):
+        return
+    outcome_set.revision_state = "accepted"
+    outcome_set.accepted_at = outcome_set.accepted_at or outcome_set.generated_at or datetime.now(UTC)
+    if meeting.current_outcome_set_id is None:
+        meeting.current_outcome_set_id = outcome_set.id
+    await db.flush()
 
 
 async def _load_current_outcome_set(
