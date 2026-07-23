@@ -52,7 +52,11 @@
   timer, automatic start, app list и opt-in checkbox как обязательный контракт.
 
 ### Операции
-- _Пока нет записей._
+- Опубликован macOS owner-only update `v2026.07.23.11` с публичным Sparkle
+  appcast; ZIP/PKG/appcast повторно скачаны из production и проверены по
+  SHA-256 и Sparkle signatures. Канал использует локальный Keychain signer и
+  не заявляется как Developer ID/notarized public distribution; предыдущий
+  `2026.07.22.6` оставлен для rollback.
 
 ## [2026.07.23.10] - 2026-07-23
 
