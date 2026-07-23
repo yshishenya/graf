@@ -493,12 +493,13 @@ invitation tokens, or private user identity.
   Langfuse and Temporal plaintext history is retained and no GRAF-owned evidence
   was deleted during closeout.
 - Closeout validation after the live exercise: 608 macOS tests, ContractValidation
-  PASS, 2206 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed /
+  PASS, 2207 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed /
   1 skipped, collection digest
-  `6ee1a51dc6d0ecdad7a93c789a728f0e77fb978255ed28ec192507fa6b24116d`, Ruff,
+  `bd7ebd520e7d5a4e318b1d8820911d0f1a389b762fb71e365a500bb0607ac54c`, Ruff,
   compile, Compose, and deployment-evidence scan PASS. The local destructive RLS
   probe remained correctly blocked because no disposable `RLS_TEST_DATABASE_URL`
-  was supplied; the production RLS/readiness gate passed during deployment.
+  was supplied; the production RLS/readiness gate passed during deployment. The
+  worker-thread heartbeat bridge regression test also passed.
 
 ### Accepted-summary pointer hotfix — T096 / #4253 (2026-07-23)
 
