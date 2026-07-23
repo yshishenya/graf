@@ -95,7 +95,7 @@ browser/embedded behavior.
 - [X] T020 Run `git diff --check`, focused Ruff if Python changed, and all automated commands from `specs/123-meeting-actions-menu/quickstart.md`
 - [X] T021 Run `infra/scripts/ci-local.sh` and record metadata-safe evidence in `specs/123-meeting-actions-menu/tasks.md`
 - [X] T022 Run Ponytail review over the complete diff and remove unjustified dependency, persistence, abstraction or duplicated policy logic while preserving security, accessibility and lifecycle truth
-- [ ] T023 Reconcile completed tasks with GitHub issues, PR links and release/deploy evidence in `specs/123-meeting-actions-menu/issues.md` and `specs/123-meeting-actions-menu/tasks.md`
+- [X] T023 Reconcile completed tasks with GitHub issues, PR links and release/deploy evidence in `specs/123-meeting-actions-menu/issues.md` and `specs/123-meeting-actions-menu/tasks.md`
 
 ---
 

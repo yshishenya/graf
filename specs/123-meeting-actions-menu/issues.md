@@ -29,7 +29,7 @@ closure-комментарию.
 | T020 | [#4273](https://github.com/yshishenya/crisp/issues/4273) | Пройдены focused closeout checks | Open — ждёт PR |
 | T021 | [#4274](https://github.com/yshishenya/crisp/issues/4274) | Пройден полный локальный CI, evidence записан | Open — ждёт PR |
 | T022 | [#4275](https://github.com/yshishenya/crisp/issues/4275) | Ponytail review завершён без лишней сложности | Open — ждёт PR |
-| T023 | [#4276](https://github.com/yshishenya/crisp/issues/4276) | Mapping подготовлен; PR и release evidence добавляются ниже | Open — текущий closeout |
+| T023 | [#4276](https://github.com/yshishenya/crisp/issues/4276) | Mapping и PR evidence подготовлены | Open — ждёт принятия PR |
 
 ## Validation and release evidence
 
@@ -43,13 +43,14 @@ closure-комментарию.
   remains mandatory.
 - Design QA: [design-qa.md](design-qa.md), `final result: passed`; comparison
   captures are synthetic and metadata-safe.
-- PR: **TBD until the validated implementation commit is pushed**.
+- PR: [#4278](https://github.com/yshishenya/crisp/pull/4278), commit
+  `6010cee80c8b29cbf68922356a02d3615ec888ac`.
 - Release/deploy: **not run from this feature branch**. Execute only after PR
   merge, release tag preparation and the approved remote dry-run/execute gate.
 
 ## Closeout rule
 
-After the PR is accepted, add its URL above, post one Russian closure comment
-per completed issue with the relevant evidence, and close #4254–#4276 together
-only when the release/rollback evidence is available. Do not claim production
-availability before that gate.
+After the PR is accepted, post one Russian closure comment per completed issue
+with the relevant evidence, and close #4254–#4276 together only when the
+release/rollback evidence is available. Do not claim production availability
+before that gate.
