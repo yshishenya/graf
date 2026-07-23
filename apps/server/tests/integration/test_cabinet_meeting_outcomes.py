@@ -15,7 +15,12 @@ from tests.fixtures.cabinet import (
     FOREIGN_WORKSPACE_ID,
     create_outcome_ready_meeting,
 )
-from twobrain_rec_server.db.models import MeetingOutcomeItem, MeetingOutcomeSet, ProcessingResult
+from twobrain_rec_server.db.models import (
+    Meeting,
+    MeetingOutcomeItem,
+    MeetingOutcomeSet,
+    ProcessingResult,
+)
 from twobrain_rec_server.outcomes.store import OUTCOME_GENERATOR_VERSION
 
 
@@ -285,6 +290,12 @@ async def _seed_outcome_set(
         )
         db.add(outcome_set)
         await db.flush()
+        if status in {"available", "partial"}:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            outcome_set.revision_state = "accepted"
+            outcome_set.accepted_at = outcome_set.generated_at
+            meeting.current_outcome_set_id = outcome_set.id
         for item in items or []:
             db.add(
                 MeetingOutcomeItem(

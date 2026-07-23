@@ -300,10 +300,10 @@ async def execute_candidate_generation(
     started_at = datetime.now(UTC)
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
-        attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
-        snapshot = _stored_prompt_snapshot(attempt)
-        if snapshot is None or attempt.source_result_id is None:
-            raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
+        # Deletion takes the Meeting lock before dependent attempts/outcomes.
+        # Read the candidate without a lock only to discover its meeting, then
+        # establish the canonical Meeting -> attempt -> call order below.
+        attempt = await _candidate_attempt(db, workspace_id, candidate_id)
         meeting = await db.scalar(
             select(Meeting)
             .where(
@@ -312,8 +312,12 @@ async def execute_candidate_generation(
             )
             .with_for_update()
         )
+        attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
         if meeting is None or meeting.deletion_state not in {None, "none"}:
             raise OutcomeGenerationTerminalError("meeting_deleting")
+        snapshot = _stored_prompt_snapshot(attempt)
+        if snapshot is None or attempt.source_result_id is None:
+            raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
         segments = await _candidate_segments(db, attempt)
         transcript = canonical_transcript(segments)
         transcript_hash = sha256(transcript.encode("utf-8")).hexdigest()
@@ -398,12 +402,12 @@ async def execute_candidate_generation(
     )
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
-        attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
         meeting = await db.scalar(
             select(Meeting)
             .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
             .with_for_update()
         )
+        attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
         call = await db.scalar(
             select(GenerationCall).where(GenerationCall.id == call_id).with_for_update()
         )
@@ -763,6 +767,11 @@ async def resolve_summary_candidate(
     accept: bool,
     expected_current_outcome_set_id: UUID | None,
 ) -> MeetingOutcomeSet:
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
+        .with_for_update()
+    )
     attempt = await db.scalar(
         select(MeetingOutcomeGenerationAttempt)
         .where(
@@ -774,11 +783,6 @@ async def resolve_summary_candidate(
     )
     if attempt is None or attempt.outcome_set_id is None:
         raise OutcomeGenerationTerminalError("summary_candidate_unavailable")
-    meeting = await db.scalar(
-        select(Meeting)
-        .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
-        .with_for_update()
-    )
     outcome_set = await db.get(MeetingOutcomeSet, attempt.outcome_set_id)
     if meeting is None or outcome_set is None:
         raise OutcomeGenerationTerminalError("summary_candidate_unavailable")

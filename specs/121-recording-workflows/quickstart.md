@@ -439,6 +439,34 @@ invitation tokens, or private user identity.
 | 15 | LIVE PASS | Production read-back confirmed one exact plaintext transcript across the retained Generation Call, Langfuse generation, and Temporal History; exact input/output, usage, cost, privacy, release, and correlation checks passed. The abandoned reconciler child completed and the response-bearing backlog returned to zero. |
 | 16 | AUTOMATED PASS; live exercise OPEN | Optional GEPA `0.1.4` adapter, immutable synthetic manifests, persisted fenced ledger, checkpoint restore, budget/deadline, held-out gating, exact unlabelled candidate, operator promotion, rollback, cancellation reconciliation, and bounded purge pass focused tests. T057 remains open until owner-approved immutable train/development/held-out manifests, the human-labelled calibration pack, and a real two-worker forced-crash GEPA promotion/rollback exercise exist. |
 
+### Accepted-summary pointer hotfix — T096 / #4253 (2026-07-23)
+
+The production-shaped regression where a format selection returned `409
+summary_revision_conflict` was traced to legacy extractive outcomes with a
+missing `Meeting.current_outcome_set_id`. The additive migration
+`0032_outcome_pointer` ranks only active, non-deleting legacy extractive rows,
+sets the pointer atomically, marks the selected row accepted, and is safe to
+run twice; it leaves template provenance fields unset. Runtime baseline
+generation now takes the Meeting lock before outcome mutation, and AI candidate
+reservation, completion, and accept/reject use the same Meeting → attempt lock
+order as deletion.
+
+The regression contract covers the complete user path: rendered
+`data-current-outcome-set-id` remains the accepted CAS token, selecting a
+non-Auto built-in starts exactly one Temporal workflow with the requested
+template, and a newer processing result makes summary/combined export missing
+with reason `stored_summary_revision_stale`. A malicious mixed-revision export
+returns 409, records a denial, and emits no attachment or content bytes. The
+two-session deletion test proves generation waits for and then observes a
+committed deletion state.
+
+Validation evidence: focused PostgreSQL suite `45 passed`; canonical
+`infra/scripts/ci-local.sh` passed with 608 macOS tests, 2198 server tests / 1
+skip, strict PostgreSQL/RLS 41 tests / 1 skip, collection digest
+`02702796e56ab9e65a5a69a5f89720c4b512b4e25a5ca6ab6602780bf3bbdae1`, Ruff,
+compile, Compose, and deployment-evidence scan. Production migration/smoke
+evidence is intentionally recorded only after the exact release is deployed.
+
 ### Langfuse receipt
 
 Read-only prompt verification against the configured private production project

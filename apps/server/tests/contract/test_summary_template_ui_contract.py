@@ -4,8 +4,10 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
-from tests.fixtures.cabinet import seed_cabinet_meetings
-from twobrain_rec_server.db.models import Workspace, WorkspaceMembership
+from tests.fakes.fake_temporal import FakeTemporalClient
+from tests.fixtures.cabinet import create_outcome_ready_meeting, seed_cabinet_meetings
+from twobrain_rec_server.db.models import ProcessingResult, Workspace, WorkspaceMembership
+from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 
 SERVER_ROOT = Path(__file__).resolve().parents[2]
 CABINET_JS = SERVER_ROOT / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
@@ -68,6 +70,47 @@ def test_candidate_ui_preserves_current_notes_until_explicit_accept() -> None:
     assert "JSON.stringify({" in script
     assert "template: activeTemplate" in script
     assert 'text: "Обновить страницу"' in script
+
+
+def test_format_selection_uses_the_rendered_accepted_revision_and_starts_temporal(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client)
+
+    async def generate_baseline():
+        async with client.app_state["sessionmaker"]() as db:
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert result is not None
+            outcome_set = await ensure_outcomes_for_processing_result(db, result=result)
+            await db.commit()
+            return outcome_set.id
+
+    accepted_id = client.portal.call(generate_baseline)
+    page = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
+
+    assert page.status_code == 200
+    assert f'data-current-outcome-set-id="{accepted_id}"' in page.text
+
+    temporal = FakeTemporalClient()
+    client.app.state.settings.outcome_generation_enabled = True
+    client.app.state.outcome_temporal_client = temporal
+    response = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates",
+        headers=auth_headers(),
+        json={
+            "template_key": "graf-meeting-minutes-v1",
+            "template_id": None,
+            "template_version": 1,
+            "expected_current_outcome_set_id": str(accepted_id),
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["state"] == "generating"
+    assert response.json()["current_outcome_set_id"] == str(accepted_id)
+    assert len(temporal.starts) == 1
+    started = next(iter(temporal.starts.values()))
+    assert started["payload"]["template_key"] == "graf-meeting-minutes-v1"
 
 
 def test_summary_selector_keyboard_focus_and_candidate_projection_are_simple(client) -> None:

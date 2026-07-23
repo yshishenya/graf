@@ -41,6 +41,12 @@ accepted-summary pointer needed to make candidate regeneration safe:
 |---|---|---|
 | `current_outcome_set_id` | optional UUID | Same workspace/meeting; points only to an accepted active outcome set; cleared/blocked by deletion. |
 
+Migration `0032_outcome_pointer` backfills this pointer only for eligible
+legacy extractive outcomes (`outcomes-extractive-v1`) on active, non-deleting
+meetings. It intentionally leaves template provenance fields unset and is
+idempotent; a newer processing result does not replace an already accepted
+pointer until a user explicitly accepts a candidate.
+
 The pointer changes only in the same transaction that accepts a generated
 candidate. A failed or cancelled candidate never changes it.
 
