@@ -168,14 +168,18 @@ def test_outcome_validation_preserves_category_truth_and_source_ownership() -> N
             }
         ],
     }
-    assert (
-        validate_outcome_result(
-            result,
-            allowed_categories=["summary", "action_items"],
-            allowed_segment_ids={"seg-1"},
-        )
-        == result
+    validated = validate_outcome_result(
+        result,
+        allowed_categories=["summary", "action_items"],
+        allowed_segment_ids={"seg-1"},
     )
+    assert validated["items"][0]["source_refs"] == [
+        {
+            "transcript_segment_id": "seg-1",
+            "sequence": 0,
+            "evidence_kind": "segment",
+        }
+    ]
     inconsistent = deepcopy(result)
     inconsistent["category_states"]["summary"] = "not_found"
     with pytest.raises(ValueError, match="disagree"):

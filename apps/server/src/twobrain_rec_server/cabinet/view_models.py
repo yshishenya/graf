@@ -2586,7 +2586,12 @@ def _outcome_source_basis(outcome_set: MeetingOutcomeSet) -> str:
 
 
 def _outcome_item_view(item: MeetingOutcomeItem) -> OutcomeItemView:
-    refs = [OutcomeSourceReferenceView(**ref) for ref in item.source_refs_json]
+    refs = [
+        OutcomeSourceReferenceView(
+            **{**ref, "evidence_kind": ref.get("evidence_kind") or "segment"}
+        )
+        for ref in item.source_refs_json
+    ]
     return OutcomeItemView(
         category=item.category,
         sequence=item.sequence,
