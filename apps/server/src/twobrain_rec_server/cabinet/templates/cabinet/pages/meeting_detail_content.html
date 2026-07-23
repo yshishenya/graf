@@ -24,13 +24,14 @@
     {{ calendar_context_chooser }}
     <section class="tab-panel{% if outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes"{% if not outcomes_selected %} hidden{% endif %}>
       {% if summary_controls_available %}
-      <div class="summary-format-toolbar" data-summary-format-controls data-meeting-id="{{ meeting_id }}" data-current-outcome-set-id="{{ current_outcome_set_id }}">
+      <div class="summary-format-toolbar" data-summary-format-controls data-meeting-id="{{ meeting_id }}" data-current-outcome-set-id="{{ current_outcome_set_id }}" data-current-summary-format-key="{{ current_summary_format_key }}" data-current-summary-format-template-id="{{ current_summary_format_template_id }}" data-current-summary-format-version="{{ current_summary_format_version }}">
         <h2>Итоги</h2>
         <div class="summary-format-picker">
           <button type="button" class="summary-format-button" data-summary-format-button aria-haspopup="listbox" aria-controls="summary-format-listbox" aria-expanded="false">
             <span>Формат: <strong data-summary-format-label>{{ current_summary_format }}</strong></span>
             <span aria-hidden="true">⌄</span>
           </button>
+          <span class="summary-format-pending" data-summary-pending-format-label hidden aria-live="polite"></span>
           <div id="summary-format-listbox" class="summary-format-listbox" data-summary-format-listbox data-recommended-limit="4" role="listbox" aria-label="Формат итогов" hidden>
             {% for format in summary_formats[:4] %}
             <button type="button" role="option" aria-selected="{{ 'true' if format.key == current_summary_format_key else 'false' }}" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}">{{ format.name }}</button>
@@ -41,6 +42,7 @@
       </div>
       {% endif %}
       <div class="summary-candidate-status" data-summary-candidate-status role="status" aria-live="polite" aria-atomic="true" hidden></div>
+      <div class="summary-candidate-preview" data-summary-candidate-preview hidden></div>
       {{ outcomes }}
     </section>
     <section class="tab-panel{% if not outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording"{% if outcomes_selected %} hidden{% endif %}>

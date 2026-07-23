@@ -604,11 +604,11 @@ The final repeated Ponytail verdict was `Lean already. Ship.`.
 Post-implementation `$speckit-analyze` rechecked 111 explicit FR/SC entries,
 95 dependency-ordered tasks, the constitution v4.0.0 gates, terminology,
 paths, and open-gate truth. Requirement coverage remains complete and the
-finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`. T050 and T089 now have
-production evidence; T057 remains an intentional external evidence gate rather
-than an uncovered requirement. The mandatory repository issue-canon validator
-passed after tracker closeout; 90 of 91 Feature-121 issues are complete and
-only T057/#4177 remains open.
+finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`. T050, T057, T089, and
+T100 now have production evidence; T057's synthetic-only boundary remains a
+rollout policy rather than an uncovered requirement. The mandatory repository
+issue-canon validator passed after tracker closeout; the T097–T100
+production-regression issues are closed after the receipt below.
 
 ### Native local-purge hotfix
 
@@ -682,13 +682,13 @@ rows, `0` runtime screenshots, and `0` diagnostic bundles; the desktop path
 was not executed, product analytics was disabled, and no analytics event path
 was invoked. This closes T050 and T089 with metadata-only committed evidence.
 
-### Open external rollout gate
+### Separate rollout limitations
 
-- **T057**: immutable owner-approved synthetic train/development/held-out
-  manifests, the human-labelled calibration pack, and a real two-worker
-  forced-crash GEPA promotion/rollback exercise are absent. Automated GEPA
-  contracts pass, but production prompt optimization remains disabled and no
-  live promotion/rollback claim is made.
+- Prompt optimization remains disabled for ordinary meeting traffic; the
+  completed T057 exercise covers only the owner-approved synthetic manifests
+  and its explicit GEPA gate. Public links, team-wide links, and external
+  invitations remain disabled until their separate product and policy gates
+  are accepted.
 
 Production outcome generation is configured and passed the live LiteLLM proof.
 Prompt optimization, public-link, team, and external-invitation rollout remain
@@ -697,3 +697,65 @@ false until their explicit gates are satisfied.
 T095 is satisfied by the owner's explicit advance approval in this task for
 commit, push, PR, merge, production deploy, release, and installed-app
 replacement after validation and review.
+
+### Outcome-generation regression hotfix (T097–T100)
+
+The 2026-07-23 production regression was isolated to Temporal's decoding of a
+completed observability child result annotated as `dict[str, object]`; the
+model request was never reached for the affected run. The forward-compatible
+fix changes workflow boundary results to `dict[str, Any]`, which also decodes
+the already-retained child completion payload during replay. Langfuse span
+filtering is dependency-free inside the callback so the Temporal sandbox does
+not import `urllib` through the SDK. The owner candidate projection now keeps
+server state authoritative after reload and reports bounded reason/retryability
+without exposing provider text; ready candidates have an owner-only preview.
+
+Local validation evidence before deployment:
+
+- `bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_openapi_contract_drift.py tests/contract/test_summary_template_ui_contract.py tests/unit/test_summary_candidate_revisions.py tests/integration/test_outcome_generation_workflow.py tests/contract/test_langfuse_runtime_contract.py` — 38 passed.
+- `infra/scripts/ci-local.sh` — 608 macOS tests passed; 2,214 parallel and 41 strict PostgreSQL tests passed; Ruff, Python compile, compose config, and deployment-evidence scan passed.
+- `Temporalio` default `DataConverter` round-trip for the child completion result passed; the canonical OpenAPI contract now matches `SlotState.template_id/version`.
+
+### Production forward-fix receipt — T100 (2026-07-23)
+
+- Release candidate `028fdfb59662978faaa27507569dc8a9d39d8bba` was deployed
+  from `codex/121-outcome-generation-fix` with `deployed_sha=runtime_sha`
+  equal to that value. Backup and restore rehearsal passed at
+  `/opt/projects/2brain-rec/backups/20260723T142743Z`; migration head was
+  `0033_prompt_opt_maintenance`; Temporal, processing, media worker,
+  automatic dispatch, public live/ready, and metadata-only production smoke
+  all passed.
+- The previously running parent
+  `outcome-generation/a65deb9a-e9ed-4048-ac7b-26e9f0657f68` (run
+  `019f8e11-3db5-72eb-a73d-db4893baca80`) replayed with the forward-compatible
+  worker and completed at `2026-07-23T14:36:08Z`. Its history grew to `46`
+  events and contained one plaintext transcript chunk of `20328` UTF-8 bytes;
+  the chunk hash matched the retained attempt hash
+  `ded0defcde2940b2fba9fc664ac8008d5062e8d64bf10465f732144681dbf942`.
+- Candidate `a65deb9a-e9ed-4048-ac7b-26e9f0657f68` is `accepted`. Its single
+  retained Generation Call is `completed/confirmed`, `call_sequence=1`,
+  `provider_attempt=1`, and model `gpt-5.6-luna`; transcript, request, raw
+  response, and validated-result hashes are present. The global
+  response-bearing backlog read back as `11` completed/confirmed rows, with no
+  pending export state.
+- Private Langfuse trace `a2c4ed95a65338818e00217318b19fc9` is in
+  `production` with `public=false`; it has `18` observations, exactly one
+  generation observation `4a87ed7b08da9f93`, prompt
+  `graf/meeting-outcome/project-sync` v2, and model `gpt-5.6-luna`. Input,
+  raw-response, and validated-result hashes matched the Generation Call; the
+  generation reported `7279` total tokens and Langfuse-calculated cost
+  `0.014114999999`.
+- From the forward-fix deployment window, decoder/sandbox markers
+  (`Failed decoding arguments`, `Unserializable type`, `SandboxRestrictions`,
+  `urllib`) were counted as `0` in API, worker, and Temporal logs. The replay
+  completed without a second Generation Call or another model request.
+- Rollback is forward-only for this retained history: do not deploy a worker
+  older than the `dict[str, Any]` boundary or remove the existing child/marker
+  compatibility path. The repository-wide deploy script still reports four
+  unrelated playback-normalization checks as `required_post_deploy`; no pass
+  claim for those separate scopes is included in this T100 receipt.
+
+Focused review follow-up PR [#4461](https://github.com/yshishenya/crisp/pull/4461)
+and release `v2026.07.23.10` carry this receipt. The evidence is metadata-only:
+no transcript text, model response, credentials, or private meeting content is
+committed.

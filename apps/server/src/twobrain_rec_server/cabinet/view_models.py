@@ -1594,6 +1594,12 @@ def summary_template_slot(
             else personal_name or default_template_name or "Личный формат"
         ),
         reason=template_key,
+        template_id=outcome_set.template_id if outcome_set is not None else None,
+        version=(
+            outcome_set.template_version
+            if outcome_set is not None and outcome_set.template_version is not None
+            else definition.version if definition is not None else None
+        ),
     )
 
 

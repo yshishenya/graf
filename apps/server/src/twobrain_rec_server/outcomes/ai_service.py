@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -180,7 +181,7 @@ async def resolve_candidate_prompt(
     settings: Settings,
     workspace_id: UUID,
     candidate_id: UUID,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
         attempt = await _candidate_attempt(db, workspace_id, candidate_id)
@@ -293,7 +294,7 @@ async def execute_candidate_generation(
     candidate_id: UUID,
     expected_snapshot_hash: str,
     settings: Settings,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     api_key = _read_secret(settings.litellm_api_key_file)
     if settings.litellm_base_url is None:
         raise OutcomeGenerationDependencyError("litellm_endpoint_unavailable")
@@ -318,6 +319,16 @@ async def execute_candidate_generation(
         snapshot = _stored_prompt_snapshot(attempt)
         if snapshot is None or attempt.source_result_id is None:
             raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
+        latest_result = await db.scalar(
+            select(ProcessingResult)
+            .where(
+                ProcessingResult.workspace_id == workspace_id,
+                ProcessingResult.meeting_id == meeting.id,
+            )
+            .order_by(ProcessingResult.imported_at.desc(), ProcessingResult.created_at.desc())
+        )
+        if latest_result is None or latest_result.id != attempt.source_result_id:
+            raise OutcomeGenerationTerminalError("summary_transcript_changed")
         segments = await _candidate_segments(db, attempt)
         transcript = canonical_transcript(segments)
         transcript_hash = sha256(transcript.encode("utf-8")).hexdigest()
@@ -418,6 +429,32 @@ async def execute_candidate_generation(
             attempt.failure_code = "meeting_deleted"
             await db.commit()
             raise OutcomeGenerationTerminalError("meeting_deleting")
+        # Processing imports acquire the Meeting lock before publishing a new
+        # result.  Re-check the source while we still hold that same lock so a
+        # result committed after reservation cannot leak the stale transcript
+        # to LiteLLM or create an outcome from an obsolete revision.
+        latest_result = await db.scalar(
+            select(ProcessingResult)
+            .where(
+                ProcessingResult.workspace_id == workspace_id,
+                ProcessingResult.meeting_id == meeting_id,
+            )
+            .order_by(ProcessingResult.imported_at.desc(), ProcessingResult.created_at.desc())
+        )
+        source_changed = latest_result is None or latest_result.id != source_result_id
+        if not source_changed:
+            latest_segments = await _candidate_segments(db, attempt)
+            latest_hash = sha256(
+                canonical_transcript(latest_segments).encode("utf-8")
+            ).hexdigest()
+            source_changed = latest_hash != transcript_hash
+        if source_changed:
+            _complete_generation_call_without_response(call, call_state="failed")
+            attempt.status = "failed"
+            attempt.failure_code = "summary_transcript_changed"
+            attempt.ended_at = datetime.now(UTC)
+            await db.commit()
+            raise OutcomeGenerationTerminalError("summary_transcript_changed")
         # Hold the meeting row through the one provider call and candidate write. This gives
         # deletion and inference one database-serialized order: a committed deletion wins
         # before egress, while a call already holding the lock finishes before deletion starts.
@@ -757,6 +794,36 @@ async def finalize_candidate_generation_failure(
         await db.commit()
 
 
+async def mark_candidate_generation_terminal_failure(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    *,
+    workspace_id: UUID,
+    candidate_id: UUID,
+    failure_code: str,
+) -> None:
+    """Persist a non-retryable candidate outcome before Temporal re-raises it.
+
+    The workflow finalizer intentionally projects exhausted *retryable* errors
+    to ``summary_generation_retries_exhausted``.  Terminal activity errors
+    must keep their bounded domain code (for example, a changed transcript),
+    otherwise the cabinet offers a misleading retry and recovery resurrects a
+    candidate that can no longer be accepted.
+    """
+    async with sessionmaker() as db:
+        await _apply_worker_workspace(db, workspace_id)
+        attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
+        if attempt.outcome_set_id is not None or attempt.status not in {
+            "queued",
+            "generating",
+            "blocked_dependency",
+        }:
+            return
+        attempt.status = "failed"
+        attempt.failure_code = failure_code[:120]
+        attempt.ended_at = datetime.now(UTC)
+        await db.commit()
+
+
 async def resolve_summary_candidate(
     db: AsyncSession,
     *,
@@ -790,8 +857,37 @@ async def resolve_summary_candidate(
         raise OutcomeGenerationTerminalError("meeting_deleting")
     if meeting.current_outcome_set_id != expected_current_outcome_set_id:
         raise OutcomeGenerationTerminalError("summary_revision_conflict")
+    # A candidate that has already been accepted or rejected is immutable from
+    # the user's point of view.  In particular, do not run the transcript
+    # freshness check below and mutate the accepted pointer after a later
+    # processing result arrives.
     if attempt.status != "candidate":
         raise OutcomeGenerationTerminalError("summary_candidate_unavailable")
+    latest_result = await db.scalar(
+        select(ProcessingResult)
+        .where(
+            ProcessingResult.workspace_id == workspace_id,
+            ProcessingResult.meeting_id == meeting_id,
+        )
+        .order_by(ProcessingResult.imported_at.desc(), ProcessingResult.created_at.desc())
+    )
+    source_changed = latest_result is None or latest_result.id != attempt.source_result_id
+    if not source_changed:
+        latest_segments = await _candidate_segments(db, attempt)
+        latest_hash = sha256(canonical_transcript(latest_segments).encode("utf-8")).hexdigest()
+        expected_source_hash = attempt.temporal_transcript_hash or outcome_set.source_result_hash
+        source_changed = (
+            expected_source_hash is not None and latest_hash != expected_source_hash
+        )
+    if source_changed:
+        outcome_set.revision_state = "rejected"
+        attempt.status = "rejected"
+        attempt.failure_code = "summary_transcript_changed"
+        attempt.ended_at = datetime.now(UTC)
+        if accept:
+            await db.flush()
+            raise OutcomeGenerationTerminalError("summary_transcript_changed")
+        return outcome_set
     if not accept:
         outcome_set.revision_state = "rejected"
         attempt.status = "rejected"
