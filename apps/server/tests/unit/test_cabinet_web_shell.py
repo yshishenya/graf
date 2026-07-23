@@ -2024,7 +2024,7 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert "Итоги" in page
     assert "недоступно" in page
     assert page.count("<optgroup") == 4
-    assert "Файл останется на компьютере после удаления встречи из GRAF." in page
+    assert "Файл останется на компьютере после удаления встречи из GRAF." not in page
     assert "SAFE_TRANSCRIPT_TEXT" not in page
     assert "data-export-status" in page
     assert 'aria-live="polite"' in page
