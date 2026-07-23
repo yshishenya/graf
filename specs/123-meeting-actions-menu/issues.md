@@ -45,8 +45,11 @@ closure-комментарию.
   captures are synthetic and metadata-safe.
 - PR: [#4278](https://github.com/yshishenya/crisp/pull/4278), commit
   `6010cee80c8b29cbf68922356a02d3615ec888ac`.
-- Release/deploy: **not run from this feature branch**. Execute only after PR
-  merge, release tag preparation and the approved remote dry-run/execute gate.
+- Release/deploy: `infra/scripts/cd-remote.sh --dry-run` completed and listed
+  the clean-worktree, pinned-SHA, backup/restore, secret, migration, worker,
+  smoke and rollback gates. `--execute` was intentionally not run from this
+  feature branch; it requires PR merge, release tag preparation and explicit
+  approval.
 
 ## Closeout rule
 
