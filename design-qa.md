@@ -89,3 +89,47 @@ final result: passed
 - Final release boundary: [v2026.07.21.9](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.9), implementation [PR #4008](https://github.com/yshishenya/crisp/pull/4008), release [PR #4009](https://github.com/yshishenya/crisp/pull/4009). No P0, P1, or P2 finding remains.
 
 final result: passed
+
+---
+
+# Feature 123: меню «Ещё»
+
+Подробный feature-specific отчёт находится в
+[`specs/123-meeting-actions-menu/design-qa.md`](specs/123-meeting-actions-menu/design-qa.md).
+
+## Evidence
+
+- Source visual truth: выбранный пользователем первый вариант ImageGen;
+  исходный артефакт находится вне репозитория и не поставляется в продукт.
+- Implementation screenshot:
+  `specs/123-meeting-actions-menu/design-qa-open-menu.png`.
+- Combined comparison:
+  `specs/123-meeting-actions-menu/design-qa-comparison.png`.
+- Source and implementation pixels: 1488 × 1058; CSS viewport: 1488 × 1058;
+  density 1; downsampling не применялся.
+- State: тёмная тема, detail встречи, меню открыто, первый пункт в фокусе;
+  fixture синтетический и metadata-safe.
+
+## Review
+
+- Full-view comparison: композиция, плотность и расположение меню совпадают с
+  выбранным направлением; отличие безопасного fixture в теле встречи не
+  относится к этой UI-поверхности.
+- Focused comparison: проверена область меню; 280px ширина, 48px строки,
+  helper hierarchy, divider перед удалением, focus ring и существующие иконки.
+- Fidelity surfaces: сохранены шрифт и иерархия GRAF, spacing/tokens, цвета
+  темы и контраста, vector icon source и русские пользовательские подписи.
+- Tested interactions: click/Enter/Space/ArrowUp/ArrowDown/Home/End/Escape,
+  outside click, details dialog close/backdrop/focus return; desktop 1488×1058
+  и mobile 390×844 без clipping; console без error/warn.
+
+## Findings and history
+
+No actionable P0/P1/P2 findings remain. Initial review found only brittle
+contract assertions and a destination-trigger focus race; contracts were
+updated to the semantic markup, focus restoration was made visible-target
+aware, and the desktop/mobile states were captured again.
+
+## Result
+
+final result: passed

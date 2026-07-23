@@ -24,7 +24,7 @@
   const listInteractionIsActive = () => {
     const region = document.querySelector("#meeting-list-region");
     if (!region) return false;
-    const modalIsOpen = document.querySelector("[data-delete-dialog][open], [data-meeting-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open]");
+    const modalIsOpen = document.querySelector("[data-delete-dialog][open], [data-meeting-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open], [data-meeting-context-panel=details][open]");
     return Boolean(modalIsOpen) || region.contains(document.activeElement) || region.matches(":hover") || selectedRows().length > 0;
   };
 
@@ -38,6 +38,13 @@
   const isUsableFocusTarget = (target) => target instanceof HTMLElement &&
     target.isConnected &&
     target.closest("[hidden], [aria-hidden='true']") === null;
+
+  const restoreMeetingActionFocus = (target) => {
+    const visibleTarget = isUsableFocusTarget(target)
+      ? target
+      : document.querySelector('[data-meeting-panel-open="more"]');
+    visibleTarget?.focus({ preventScroll: true });
+  };
 
   const modalFocusTargets = (dialog) => Array.from(dialog.querySelectorAll(
     'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -951,6 +958,13 @@
       (trigger) => trigger.dataset.meetingPanelOpen === panel.dataset.meetingContextPanel
     );
     const panelIsOpen = (panel) => panel instanceof HTMLDialogElement ? panel.open : !panel.hidden;
+    const menuItems = (panel) => Array.from(panel.querySelectorAll('[role="menuitem"]'))
+      .filter((item) => isUsableFocusTarget(item) && !item.matches(":disabled"));
+    const focusMenuItem = (panel, index) => {
+      const items = menuItems(panel);
+      if (!items.length) return;
+      items[(index + items.length) % items.length].focus({ preventScroll: true });
+    };
     const closePanel = (panel, restoreFocus = false) => {
       if (panel instanceof HTMLDialogElement) {
         if (panel.open) panel.close();
@@ -958,29 +972,44 @@
         panel.hidden = true;
       }
       const trigger = triggerFor(panel);
-      trigger?.setAttribute("aria-expanded", "false");
-      if (restoreFocus) trigger?.focus({ preventScroll: true });
+      if (trigger?.getAttribute("aria-haspopup") === "menu") trigger.setAttribute("aria-expanded", "false");
+      if (restoreFocus) restoreMeetingActionFocus(trigger);
     };
     const closePanels = () => panels.forEach((panel) => closePanel(panel));
+    const openPanel = (panel, edge = 0) => {
+      closePanels();
+      const trigger = triggerFor(panel);
+      if (trigger?.getAttribute("aria-haspopup") === "menu") trigger.setAttribute("aria-expanded", "true");
+      if (panel instanceof HTMLDialogElement && typeof panel.showModal === "function") {
+        panel.showModal();
+        modalFocusTargets(panel)[0]?.focus({ preventScroll: true });
+      } else {
+        panel.hidden = false;
+        focusMenuItem(panel, edge);
+      }
+    };
     triggers.forEach((trigger) => {
       if (trigger.dataset.meetingPanelReady === "true") return;
       trigger.dataset.meetingPanelReady = "true";
-      trigger.addEventListener("click", () => {
-        const panel = panels.find((candidate) => candidate.dataset.meetingContextPanel === trigger.dataset.meetingPanelOpen);
-        const opening = panel ? !panelIsOpen(panel) : false;
-        closePanels();
-        if (!opening || !panel) return;
-        trigger.setAttribute("aria-expanded", "true");
-        if (panel instanceof HTMLDialogElement && typeof panel.showModal === "function") {
-          panel.showModal();
-        } else {
-          panel.hidden = false;
-        }
-        panel.focus({ preventScroll: true });
-      });
       const panel = panels.find((candidate) => candidate.dataset.meetingContextPanel === trigger.dataset.meetingPanelOpen);
+      if (!panel) return;
+      trigger.addEventListener("click", () => {
+        if (panelIsOpen(panel)) {
+          closePanel(panel, true);
+          return;
+        }
+        openPanel(panel);
+      });
+      if (trigger.getAttribute("role") !== "menuitem") {
+        trigger.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          openPanel(panel, event.key === "ArrowUp" ? -1 : 0);
+        });
+      }
       if (!(panel instanceof HTMLDialogElement) || panel.dataset.meetingDialogReady === "true") return;
       panel.dataset.meetingDialogReady = "true";
+      panel.querySelector("[data-meeting-panel-close]")?.addEventListener("click", () => closePanel(panel, true));
       panel.addEventListener("cancel", (event) => {
         event.preventDefault();
         closePanel(panel, true);
@@ -988,17 +1017,45 @@
       panel.addEventListener("click", (event) => {
         if (event.target === panel) closePanel(panel, true);
       });
+      panel.addEventListener("keydown", (event) => trapModalFocus(panel, event));
+    });
+    panels.filter((panel) => panel.getAttribute("role") === "menu").forEach((panel) => {
+      if (panel.dataset.meetingMenuReady === "true") return;
+      panel.dataset.meetingMenuReady = "true";
+      panel.addEventListener("keydown", (event) => {
+        const item = event.target.closest?.('[role="menuitem"]');
+        if (!item) return;
+        const items = menuItems(panel);
+        const current = items.indexOf(item);
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closePanel(panel, true);
+        } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          focusMenuItem(panel, current + (event.key === "ArrowDown" ? 1 : -1));
+        } else if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          focusMenuItem(panel, event.key === "End" ? -1 : 0);
+        }
+      });
+      panel.addEventListener("click", (event) => {
+        if (event.target.closest?.('[role="menuitem"]')) closePanel(panel);
+      });
     });
     if (document.body.dataset.meetingPanelEscapeReady === "true") return;
     document.body.dataset.meetingPanelEscapeReady = "true";
+    document.addEventListener("click", (event) => {
+      const openPanel = panels.find((panel) => panel.getAttribute("role") === "menu" && panelIsOpen(panel));
+      if (!openPanel || event.target.closest?.("[data-meeting-context-panel], [data-meeting-panel-open]")) return;
+      const opensDestination = event.target.closest?.(
+        "[data-share-dialog-open], [data-export-dialog-open], [data-meeting-delete-dialog-open]"
+      );
+      closePanel(openPanel, !opensDestination);
+    });
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      const openPanel = document.querySelector("[data-meeting-context-panel]:not(dialog):not([hidden])");
-      if (!openPanel) return;
-      const trigger = document.querySelector(`[data-meeting-panel-open="${openPanel.dataset.meetingContextPanel}"]`);
-      openPanel.hidden = true;
-      trigger?.setAttribute("aria-expanded", "false");
-      trigger?.focus({ preventScroll: true });
+      const openPanel = panels.find((panel) => panel.getAttribute("role") === "menu" && panelIsOpen(panel));
+      if (openPanel) closePanel(openPanel, true);
     });
   };
 
@@ -1987,7 +2044,7 @@
       if (submitting) return;
       if (typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
-      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+      restoreMeetingActionFocus(returnFocus);
       returnFocus = null;
     };
     const open = (trigger) => {
@@ -2128,7 +2185,7 @@
     const close = () => {
       if (typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
-      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+      restoreMeetingActionFocus(returnFocus);
       returnFocus = null;
     };
     opener.addEventListener("click", () => {

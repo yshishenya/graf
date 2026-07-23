@@ -1046,6 +1046,25 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Удалить встречу?" not in page
 
 
+def test_detail_shell_hides_more_when_no_action_or_detail_is_available() -> None:
+    review = _review()
+    review.content_exports = None
+    review.governance.download.state = "disabled"
+    review.governance.delete.state = "planned"
+    review.artifacts = []
+    review.activity.items = []
+    review.speakers.speakers = []
+    review.provenance.media_revision_id = None
+    review.provenance.local_media_revision_id = None
+    review.calendar_context = None
+    review.deletion_truth_copy = ""
+
+    page = render_meeting_detail_page(review)
+
+    assert 'data-meeting-panel-open="more"' not in page
+    assert 'id="meeting-context-more"' not in page
+
+
 def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     review = _review()
     review.playback = PlaybackReviewState(
