@@ -20,7 +20,10 @@
   после проверки `current_user` и `row_security`.
 
 ### Исправлено
-- _Пока нет записей._
+- Для GEPA-действий добавлен один bounded semantic-validation retry с отдельным
+  idempotency key: случайный malformed task/judge JSON сохраняется в полном
+  ledger/trace для дебага, а повторный provider call остаётся отдельно
+  наблюдаемым и учитывается в бюджете.
 
 ### Безопасность
 - _Пока нет записей._

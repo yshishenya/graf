@@ -779,17 +779,19 @@ class PromptOptimizationAdapter:
         scores: list[float] = []
         trajectories: list[OptimizationTrajectory] | None = [] if capture_traces else None
         for example in batch:
-            task_call = self._call(
+            _, validated = self._call_with_validation_retry(
                 phase="task",
                 snapshot=self.contract.source,
                 prompt_text=prompt_text,
                 variables=task_model_variables(example.transcript_json),
                 example_id=example.id,
-            )
-            validated = validate_outcome_result(
-                task_call.validated_result,
+                validator=lambda value,
                 allowed_categories=example.required_categories,
-                allowed_segment_ids=set(example.segment_ids),
+                allowed_segment_ids=frozenset(example.segment_ids): validate_outcome_result(
+                    value,
+                    allowed_categories=allowed_categories,
+                    allowed_segment_ids=set(allowed_segment_ids),
+                ),
             )
             judge_scores: list[float] = []
             feedback: list[str] = []
@@ -806,14 +808,14 @@ class PromptOptimizationAdapter:
                     variables["required_categories_json"] = canonical_json(
                         list(example.required_categories)
                     )
-                judge_call = self._call(
+                _, judge_result = self._call_with_validation_retry(
                     phase=phase,
                     snapshot=self.contract.judges[judge_name],
                     prompt_text="",
                     variables=variables,
                     example_id=example.id,
+                    validator=validate_judge_result,
                 )
-                judge_result = validate_judge_result(judge_call.validated_result)
                 judge_scores.append(float(judge_result["score"]))
                 feedback.append(str(judge_result["feedback"]))
             score = min(judge_scores)
@@ -837,6 +839,43 @@ class PromptOptimizationAdapter:
             objective_scores=None,
             num_metric_calls=len(batch) * 4,
         )
+
+    def _call_with_validation_retry(
+        self,
+        *,
+        phase: str,
+        snapshot: PromptSnapshot,
+        prompt_text: str,
+        variables: Mapping[str, str],
+        example_id: str,
+        validator: Callable[[object], Any],
+    ) -> tuple[ModelCall, Any]:
+        """Retry one provider result when the closed semantic contract rejects it.
+
+        LiteLLM deliberately does not replay provider calls. A malformed structured
+        result is still retained in the ledger for debugging, then one bounded
+        validation retry uses a distinct idempotency key so the second response is
+        independently observable and budgeted.
+        """
+
+        for attempt in range(2):
+            call = self._call(
+                phase=phase,
+                snapshot=snapshot,
+                prompt_text=prompt_text,
+                variables=variables,
+                example_id=(
+                    example_id
+                    if attempt == 0
+                    else f"{example_id}:validation-retry-{attempt}"
+                ),
+            )
+            try:
+                return call, validator(call.validated_result)
+            except (ValueError, PromptOptimizationError):
+                if attempt == 1:
+                    raise
+        raise AssertionError("validation retry loop exhausted")
 
     def make_reflective_dataset(
         self,
