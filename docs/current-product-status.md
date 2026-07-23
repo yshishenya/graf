@@ -22,9 +22,14 @@ metadata-only evidence остаются подробной историей ре
   rendered CAS pointer и запускает ровно один Temporal workflow; двухсессионная
   проверка показывает, что deletion lock выигрывает у baseline generation;
   stale export возвращает 409 без attachment и без смешанных байтов.
-- Production deploy, smoke, migration head и release receipt для этого hotfix
-  будут добавлены после merge и проверки exact SHA; до этого T096 остаётся
-  открытым.
+- Production deploy использовал source SHA
+  `c013bdab27a8be1f705f4727f4bfca2c926c5e9a`; backup
+  `/opt/projects/2brain-rec/backups/20260723T011346Z`, migration head
+  `0032_outcome_pointer`, RLS/runtime identity, Temporal/worker readiness,
+  smoke/cleanup, automatic dispatch и public live/ready прошли. Все шесть
+  runtime services healthy. Pointer inventory: legacy accepted outcomes без
+  pointer `0`, active accepted pointers `32`, invalid pointers `0`; после
+  выкладки summary-candidate 409 `0`. Release receipt — `v2026.07.23.1`.
 
 ## Validation update (2026-07-22)
 

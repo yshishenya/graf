@@ -15,6 +15,27 @@
 - _Пока нет записей._
 
 ### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.23.1] - 2026-07-23
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
 - Feature 121 / T096 / #4253: выбор формата итогов больше не откатывается в
   «Авто» из-за отсутствующего указателя принятой версии. Старые extractive
   итоги получают безопасный accepted-pointer при миграции, а новая версия
@@ -34,6 +55,12 @@
 - Для выкладки требуется применить additive Alembic migration
   `0032_outcome_pointer`; она идемпотентно backfill-ит только legacy
   extractive outcomes у активных встреч и не трогает пользовательские шаблоны.
+- Production deploy прошёл на source SHA
+  `c013bdab27a8be1f705f4727f4bfca2c926c5e9a`: backup/restore rehearsal,
+  migration head `0032_outcome_pointer`, RLS/runtime identity,
+  Temporal/worker readiness, smoke/cleanup, automatic dispatch и live/ready
+  прошли; pointer inventory `0/32/0` (null/accepted/invalid). Выпущен
+  `v2026.07.23.1`.
 
 ## [2026.07.22.6] - 2026-07-22
 

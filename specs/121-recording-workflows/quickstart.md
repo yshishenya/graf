@@ -464,8 +464,14 @@ Validation evidence: focused PostgreSQL suite `45 passed`; canonical
 `infra/scripts/ci-local.sh` passed with 608 macOS tests, 2198 server tests / 1
 skip, strict PostgreSQL/RLS 41 tests / 1 skip, collection digest
 `02702796e56ab9e65a5a69a5f89720c4b512b4e25a5ca6ab6602780bf3bbdae1`, Ruff,
-compile, Compose, and deployment-evidence scan. Production migration/smoke
-evidence is intentionally recorded only after the exact release is deployed.
+compile, Compose, and deployment-evidence scan. Production deploy used source
+SHA `c013bdab27a8be1f705f4727f4bfca2c926c5e9a`, backup
+`/opt/projects/2brain-rec/backups/20260723T011346Z`, and migration head
+`0032_outcome_pointer`; RLS, runtime identity, Temporal/worker readiness,
+smoke/cleanup, automatic dispatch, and public live/ready all passed. The
+post-deploy pointer inventory was `legacy_outcomes_with_null_pointer=0`,
+`active_accepted_pointer_count=32`, `invalid_pointer_count=0`; no summary
+candidate 409 was observed after deployment.
 
 ### Langfuse receipt
 
@@ -535,7 +541,7 @@ paths, and open-gate truth. Requirement coverage remains complete and the
 finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`. T050 and T089 now have
 production evidence; T057 remains an intentional external evidence gate rather
 than an uncovered requirement. The mandatory repository issue-canon validator
-passed after tracker closeout; 89 of 90 Feature-121 issues are complete and
+passed after tracker closeout; 90 of 91 Feature-121 issues are complete and
 only T057/#4177 remains open.
 
 ### Native local-purge hotfix

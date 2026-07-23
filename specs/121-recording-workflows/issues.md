@@ -9,7 +9,7 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 
 ## Reconciliation status
 
-- Planning tasks T001-T005 and 89 implementation/validation tasks are complete.
+- Planning tasks T001-T005 and 90 implementation/validation tasks are complete.
   Post-implementation analyze finished at CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`;
   canonical CI, repeated correctness/security review, and final Ponytail
   `Lean already. Ship.` evidence are recorded in `quickstart.md`.
@@ -18,7 +18,7 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   T057/#4177 remains open: it still requires owner-approved immutable synthetic
   manifests, a human-labelled calibration pack, and a real two-worker
   forced-crash GEPA promotion/rollback exercise.
-- Every implementation and validation task T006-T095 has exactly one canonical
+- Every implementation and validation task T006-T096 has exactly one canonical
   Russian issue in
   [feature:121](https://github.com/yshishenya/crisp/issues?q=is%3Aissue%20label%3Afeature%3A121).
 - The mapping is contiguous: T006 maps to
@@ -29,15 +29,16 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 - After merge, production deploy, public
   [`v2026.07.22.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.4),
   installed-app verification, and the production AI observability closeout,
-  89 completed issues have verified evidence. Exactly 2 of 91 remain open:
-  #4177 and #4253. Production regression task T096 is tracked by
-  [#4253](https://github.com/yshishenya/crisp/issues/4253) until the accepted
-  outcome pointer hotfix is deployed and verified.
+  90 completed issues have verified evidence. Exactly 1 of 91 remains open:
+  #4177; T096/#4253 is closed after the accepted outcome pointer hotfix was
+  deployed and verified.
 - Implementation/release links: PR
   [#4235](https://github.com/yshishenya/crisp/pull/4235), native purge hotfix
   [#4242](https://github.com/yshishenya/crisp/pull/4242), release prep
-  [#4243](https://github.com/yshishenya/crisp/pull/4243), and response-attempt
-  reconciler [#4250](https://github.com/yshishenya/crisp/pull/4250). The
+  [#4243](https://github.com/yshishenya/crisp/pull/4243), response-attempt
+  reconciler [#4250](https://github.com/yshishenya/crisp/pull/4250), and
+  accepted-summary pointer hotfix [#4277](https://github.com/yshishenya/crisp/pull/4277).
+  Release `v2026.07.23.1` carries the production closeout. The
   repository-wide issue-canon validator is rerun after tracker closeout.
 
 ## Phase ranges
