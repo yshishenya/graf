@@ -35,6 +35,81 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         XCTAssertTrue(manifest.tracks.first(where: { $0.role == .reviewPlayback })?.isReviewPlaybackArtifact == true)
     }
 
+    func testV5WriterIgnoresCallbackDeliveryJitterForValidPTS() throws {
+        let root = makeRoot("v5-system-audio-callback-jitter")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let incoming = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeWriter(root: root, microphone: microphone, incoming: incoming)
+
+        let directory = try writer.start(
+            sessionId: "v5-callback-jitter",
+            startedAt: Date(timeIntervalSince1970: 12),
+            scopeApproval: scopeApproval(id: "scope-v5-callback-jitter"),
+            permissions: grantedPermissions()
+        )
+        microphone.append(batch(
+            samples: Array(repeating: 0.4, count: 4_800),
+            seconds: 100,
+            clock: .sourcePresentationTime,
+            observedHostTimeSeconds: 100.01
+        ))
+        incoming.append(batch(
+            samples: Array(repeating: 0.2, count: 4_800),
+            seconds: 100,
+            clock: .sourcePresentationTime,
+            observedHostTimeSeconds: 100.50
+        ))
+        microphone.append(batch(
+            samples: Array(repeating: 0.4, count: 4_800),
+            seconds: 100.10,
+            clock: .sourcePresentationTime,
+            observedHostTimeSeconds: 100.60
+        ))
+        incoming.append(batch(
+            samples: Array(repeating: 0.2, count: 4_800),
+            seconds: 100.10,
+            clock: .sourcePresentationTime,
+            observedHostTimeSeconds: 100.11
+        ))
+
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 13))
+
+        XCTAssertTrue(manifest.isComplete)
+        XCTAssertEqual(manifest.failureReason, .none)
+        XCTAssertEqual(
+            Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
+            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
+        )
+    }
+
+    func testRepeatedStopReturnsTheAlreadyFinalizedManifest() throws {
+        let root = makeRoot("v5-system-audio-repeated-stop")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let incoming = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeWriter(root: root, microphone: microphone, incoming: incoming)
+
+        let directory = try writer.start(
+            sessionId: "v5-repeated-stop",
+            startedAt: Date(timeIntervalSince1970: 14),
+            scopeApproval: scopeApproval(id: "scope-v5-repeated-stop"),
+            permissions: grantedPermissions()
+        )
+        appendStereoConversation(microphone: microphone, incoming: incoming, at: 140)
+
+        let first = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 15))
+        let second = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 16))
+
+        XCTAssertEqual(second.sessionId, first.sessionId)
+        XCTAssertEqual(second.directoryId, first.directoryId)
+        XCTAssertEqual(second.finalizedAt, first.finalizedAt)
+        XCTAssertEqual(
+            Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
+            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
+        )
+    }
+
     func testV5WriterFailsClosedForUncomparableSourceClocksWithoutPublishingAudio() throws {
         let root = makeRoot("v5-system-audio-clock-mismatch")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -213,12 +288,17 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
     private func batch(
         samples: [Float],
         seconds: Double,
-        clock: RecordingAudioClockDomain
+        clock: RecordingAudioClockDomain,
+        observedHostTimeSeconds: Double? = nil
     ) -> RecordingAudioBatch {
         RecordingAudioBatch(
             samples: samples,
             format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
-            presentationTime: RecordingAudioPresentationTimestamp(seconds: seconds, clockDomain: clock),
+            presentationTime: RecordingAudioPresentationTimestamp(
+                seconds: seconds,
+                clockDomain: clock,
+                observedHostTimeSeconds: observedHostTimeSeconds
+            ),
             discontinuity: .none,
             routeGeneration: 0
         )

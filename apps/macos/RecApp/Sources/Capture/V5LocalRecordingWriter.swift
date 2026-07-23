@@ -26,6 +26,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private let recordMicrophone: Bool
     private let queue = DispatchQueue(label: "pro.2brain.graf.v5-local-recording-writer", qos: .userInitiated)
     private var active: V5ActiveRecording?
+    private var lastFinalizedManifest: LocalRecordingManifest?
 
     public init(
         store: LocalRecordingStore = LocalRecordingStore(),
@@ -195,6 +196,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         limitationCopyShownAt: Date?
     ) throws -> LocalRecordingDirectory {
         guard active == nil else { throw LocalRecordingWriterError.alreadyRecording }
+        lastFinalizedManifest = nil
         let directory: LocalRecordingDirectory
         do {
             directory = try store.createDirectory(sessionId: sessionId)
@@ -258,7 +260,12 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         stoppedAt: Date,
         failureReason: LocalRecordingFailureReason
     ) throws -> LocalRecordingManifest {
-        guard let active else { throw LocalRecordingWriterError.notRecording }
+        guard let active else {
+            if let lastFinalizedManifest {
+                return lastFinalizedManifest
+            }
+            throw LocalRecordingWriterError.notRecording
+        }
         active.timer?.cancel()
         finalizePrivacySegment(for: active, endedAt: stoppedAt)
         defer { self.active = nil }
@@ -329,6 +336,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             limitationCopyShownAt: active.limitationCopyShownAt
         )
         try manifestService.write(manifest, to: active.directory.manifestURL)
+        lastFinalizedManifest = manifest
         return manifest
     }
 
@@ -546,8 +554,6 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private static func failureReason(for error: Error) -> LocalRecordingFailureReason {
         switch error {
         case RecordingAudioTimelineError.uncomparablePresentationTimes,
-             RecordingAudioTimelineError.sourceClockObservationMissing,
-             RecordingAudioTimelineError.sourceClockMappingUnstable,
              RecordingAudioTimelineError.routeGenerationChanged,
              RecordingAudioTimelineError.gapExceedsBound,
              RecordingAudioTimelineError.lateBatch:
