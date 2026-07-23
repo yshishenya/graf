@@ -26,7 +26,7 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   successful promotion/rollback. All traces and Temporal histories retain
   complete plaintext content; the receipt contains hashes, sizes, and counts
   only.
-- Every implementation and validation task T006-T102 has exactly one canonical
+- Every implementation and validation task T006-T103 has exactly one canonical
   Russian issue in
   [feature:121](https://github.com/yshishenya/crisp/issues?q=is%3Aissue%20label%3Afeature%3A121).
 - The mapping is contiguous: T006 maps to
@@ -76,12 +76,17 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 | T100 | [#4323](https://github.com/yshishenya/crisp/issues/4323) | Production recovery and smoke evidence |
 | T101 | [#4501](https://github.com/yshishenya/crisp/issues/4501) | Legacy candidate projection and Temporal dispatch recovery |
 | T102 | [#4502](https://github.com/yshishenya/crisp/issues/4502) | Bounded owner candidate preview projection |
+| T103 | [#4509](https://github.com/yshishenya/crisp/issues/4509) | Actionable invalid outcome and regeneration recovery |
 
 T101 and T102 were implemented in [PR #4503](https://github.com/yshishenya/crisp/pull/4503),
 released as [`v2026.07.23.14`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.14),
 deployed at exact runtime SHA `1e14004836bc069522002615839e3985586012ff`, and
 closed after the production smoke/log receipt recorded in the Feature-121
 quickstart. No transcript or model content is included in this mapping.
+
+T103 is implemented in the follow-up outcome recovery change and awaits the
+release PR/production receipt before issue closure. No transcript or model
+content is included in this mapping.
 
 Issues must only be closed after their acceptance criteria and evidence are
 verified. Matching task checkboxes must only be marked complete after the same
