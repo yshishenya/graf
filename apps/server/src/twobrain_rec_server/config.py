@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID
 
 from pydantic import AliasChoices, AnyUrl, Field, PositiveInt, field_validator, model_validator
@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+asyncpg://twobrain_rec:twobrain_rec@localhost:54329/twobrain_rec"
     )
+    # Deployment-global prompt optimization uses the maintenance role only.
+    prompt_optimization_database_url: str | None = None
 
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "twobrain_rec"
@@ -54,6 +56,7 @@ class Settings(BaseSettings):
     public_base_url: AnyUrl | None = None
 
     postgres_password_file: Path | None = None
+    prompt_optimization_postgres_password_file: Path | None = None
     minio_access_key_file: Path | None = None
     minio_secret_key_file: Path | None = None
     smoke_credential_file: Path | None = None
@@ -251,6 +254,8 @@ class Settings(BaseSettings):
         "langfuse_secret_key_file",
         "langfuse_release",
         "litellm_api_key_file",
+        "prompt_optimization_database_url",
+        "prompt_optimization_postgres_password_file",
         "public_analytics_yandex_metrica_id",
         "product_analytics_posthog_host",
         "product_analytics_posthog_project_key_file",
@@ -269,6 +274,26 @@ class Settings(BaseSettings):
     def database_url_requires_postgresql_asyncpg(cls, value: str) -> str:
         if not value.startswith("postgresql+asyncpg://"):
             raise ValueError("database_url must use PostgreSQL with the asyncpg driver")
+        return value
+
+    @field_validator("prompt_optimization_database_url")
+    @classmethod
+    def prompt_optimization_database_url_requires_postgresql_asyncpg(
+        cls, value: str | None
+    ) -> str | None:
+        if value is not None and not value.startswith("postgresql+asyncpg://"):
+            raise ValueError(
+                "prompt_optimization_database_url must use PostgreSQL with the asyncpg driver"
+            )
+        if value is not None:
+            try:
+                username = unquote(urlsplit(value).username or "")
+            except ValueError as exc:
+                raise ValueError("prompt_optimization_database_url is invalid") from exc
+            if username != "twobrain_rec_maintenance":
+                raise ValueError(
+                    "prompt_optimization_database_url must use the twobrain_rec_maintenance role"
+                )
         return value
 
     @field_validator("public_analytics_validation_mode")
@@ -425,6 +450,13 @@ class Settings(BaseSettings):
             )
         if not self.langfuse_environment.strip():
             raise ValueError(f"{capability} requires a Langfuse environment")
+        if self.prompt_optimization_enabled and (
+            self.prompt_optimization_database_url is None
+            or self.prompt_optimization_postgres_password_file is None
+        ):
+            raise ValueError(
+                "prompt optimization requires the maintenance database URL and password file"
+            )
         return self
 
     @model_validator(mode="after")
@@ -541,6 +573,7 @@ class Settings(BaseSettings):
             )
         required_secret_files = {
             "postgres_password_file": self.postgres_password_file,
+            "prompt_optimization_postgres_password_file": self.prompt_optimization_postgres_password_file,
             "minio_access_key_file": self.minio_access_key_file,
             "minio_secret_key_file": self.minio_secret_key_file,
             "smoke_credential_file": self.smoke_credential_file,
@@ -630,6 +663,14 @@ class Settings(BaseSettings):
             self.database_url = self.database_url.replace(
                 "__POSTGRES_PASSWORD__", quote(postgres_password, safe="")
             )
+        if self.prompt_optimization_postgres_password_file is not None:
+            maintenance_password = self.prompt_optimization_postgres_password_file.read_text(
+                encoding="utf-8"
+            ).strip()
+            if self.prompt_optimization_database_url is not None:
+                self.prompt_optimization_database_url = self.prompt_optimization_database_url.replace(
+                    "__POSTGRES_PASSWORD__", quote(maintenance_password, safe="")
+                )
         if self.minio_access_key_file is not None:
             self.minio_access_key = self.minio_access_key_file.read_text(encoding="utf-8").strip()
         if self.minio_secret_key_file is not None:
@@ -666,6 +707,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "production database_url must not point at localhost or wildcard hosts"
             )
+        if self.prompt_optimization_database_url is not None:
+            prompt_database_host = urlsplit(self.prompt_optimization_database_url).hostname
+            if prompt_database_host is None or prompt_database_host in unsafe_hosts:
+                raise ValueError(
+                    "production prompt_optimization_database_url must not point at localhost or wildcard hosts"
+                )
         if self.minio_endpoint.split(":", maxsplit=1)[0] in unsafe_hosts:
             raise ValueError(
                 "production minio_endpoint must not point at localhost or wildcard hosts"

@@ -325,13 +325,24 @@ remain visible as an intentional MVP tradeoff.
 
 ## Scenario 16: GEPA Candidate, Operator Promotion, And Rollback
 
+The live exercise is production/operator-only. Start the operations-only
+container explicitly; never enable the optimizer flag on
+`rec-processing-worker`:
+
+```sh
+docker compose --profile operations run --rm \
+  -e TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED=true \
+  rec-prompt-optimization-worker \
+  python -m twobrain_rec_server.cli.prompt_optimization <command> ...
+```
+
 1. Create immutable synthetic train/development/held-out manifests in approved
    owner-controlled test storage and start one deployment-operator-authorized
-   `PromptOptimizationWorkflow` pinned to the current production prompt/config
+   `PromptOptimizationWorkflow` from the Compose `operations` profile, pinned to the current production prompt/config
    plus exact `graf/prompt-optimization/reflection` and three
    `graf/evaluation/meeting-outcome-*` prompt/config versions. Prove a workspace
    admin and ordinary cabinet request cannot start or approve it.
-2. Run two eligible workers, crash one after a model call and during a GEPA
+2. Run two eligible operations-only workers (never the normal recording worker), crash one after a model call and during a GEPA
    iteration, then confirm hash/schema/prefix-verified restore of the latest
    complete server-generated checkpoint on the other worker. Verify the new
    activity fence blocks a stale worker write, durable-success entries are

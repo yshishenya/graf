@@ -1,3 +1,4 @@
+from twobrain_rec_server.db.session import create_prompt_optimization_database
 from twobrain_rec_server.db.tenant_context import (
     ALLOWED_MAINTENANCE_OPERATIONS,
     ALLOWED_TENANT_CONTEXT_KINDS,
@@ -46,4 +47,5 @@ __all__ = [
     "tenant_context_from_scope",
     "tenant_context_settings",
     "workspace_auth_context_settings",
+    "create_prompt_optimization_database",
 ]

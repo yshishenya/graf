@@ -9,10 +9,15 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature 121 / T057: добавлен изолированный operations-only Temporal worker
+  для синтетической GEPA-оптимизации. Он использует отдельный maintenance
+  PostgreSQL URL/role с точным RLS-контекстом, не регистрируется в обычном
+  recording worker и запускается только через Compose profile `operations`.
 
 ### Изменено
-- _Пока нет записей._
+- Prompt-optimization DB операции теперь fail-closed проверяют роль
+  `twobrain_rec_maintenance`, сохраняют контекст операции и стартуют только
+  после проверки `current_user` и `row_security`.
 
 ### Исправлено
 - _Пока нет записей._
@@ -21,10 +26,15 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Зафиксированы миграция `0033_prompt_opt_maintenance`, граница обычного и
+  operations worker и команды операторского запуска T057.
 
 ### Операции
-- _Пока нет записей._
+- Перед запуском T057 применить миграцию `0033_prompt_opt_maintenance`; обычный
+  `rec-processing-worker` не должен получать maintenance secret или prompt-
+  optimization queue. Для live exercise использовать только synthetic
+  manifests и operations profile; операторский CLI запускается внутри
+  `rec-prompt-optimization-worker` с `TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED=true`.
 
 ## [2026.07.23.1] - 2026-07-23
 

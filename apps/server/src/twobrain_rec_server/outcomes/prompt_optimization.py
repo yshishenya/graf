@@ -1807,11 +1807,11 @@ async def mark_prompt_optimization_history_staging_started(
     phase: Literal["evolution", "heldout"],
 ) -> None:
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
 
-    engine = create_engine(settings)
+    engine, sessionmaker = create_prompt_optimization_database(settings)
     try:
-        async with create_sessionmaker(engine)() as db:
+        async with sessionmaker() as db:
             run = await db.get(PromptOptimizationRun, run_id, with_for_update=True)
             if run is None:
                 raise PromptOptimizationError("optimization_run_not_found")
@@ -1991,11 +1991,11 @@ class _PersistentLedgerBridge:
         snapshot = self._snapshot(phase)
 
         async def operation() -> PersistedCallReservation:
-            from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+            from twobrain_rec_server.db.session import create_prompt_optimization_database
 
-            engine = create_engine(self.settings)
+            engine, sessionmaker = create_prompt_optimization_database(self.settings)
             try:
-                async with create_sessionmaker(engine)() as db:
+                async with sessionmaker() as db:
                     reservation = await reserve_persisted_call(
                         db,
                         run_id=self.run_id,
@@ -2046,11 +2046,11 @@ class _PersistentLedgerBridge:
         self.storage.put_stream(artifact_ref, BytesIO(payload), len(payload))
 
         async def operation() -> None:
-            from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+            from twobrain_rec_server.db.session import create_prompt_optimization_database
 
-            engine = create_engine(self.settings)
+            engine, sessionmaker = create_prompt_optimization_database(self.settings)
             try:
-                async with create_sessionmaker(engine)() as db:
+                async with sessionmaker() as db:
                     await complete_persisted_call(
                         db,
                         run_id=self.run_id,
@@ -2070,11 +2070,11 @@ class _PersistentLedgerBridge:
 
     def fail(self, *, call_key: str, fence: UUID) -> None:
         async def operation() -> None:
-            from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+            from twobrain_rec_server.db.session import create_prompt_optimization_database
 
-            engine = create_engine(self.settings)
+            engine, sessionmaker = create_prompt_optimization_database(self.settings)
             try:
-                async with create_sessionmaker(engine)() as db:
+                async with sessionmaker() as db:
                     await mark_persisted_call_ambiguous(
                         db,
                         run_id=self.run_id,
@@ -2100,11 +2100,11 @@ class _PersistentLedgerBridge:
         from sqlalchemy import select
 
         from twobrain_rec_server.db.models import PromptOptimizationCallLedger
-        from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+        from twobrain_rec_server.db.session import create_prompt_optimization_database
 
-        engine = create_engine(self.settings)
+        engine, sessionmaker = create_prompt_optimization_database(self.settings)
         try:
-            async with create_sessionmaker(engine)() as db:
+            async with sessionmaker() as db:
                 query = select(PromptOptimizationCallLedger).where(
                     PromptOptimizationCallLedger.run_id == self.run_id,
                     PromptOptimizationCallLedger.status == "succeeded",
@@ -2299,7 +2299,7 @@ async def resolve_prompt_optimization_contract_activity(
 ) -> dict[str, object]:
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
     from twobrain_rec_server.observability.langfuse import (
         create_langfuse_client,
         shutdown_langfuse,
@@ -2309,9 +2309,9 @@ async def resolve_prompt_optimization_contract_activity(
     if not settings.prompt_optimization_enabled:
         raise PromptOptimizationError("prompt_optimization_disabled")
     run_id = UUID(str(payload["run_id"]))
-    engine = create_engine(settings)
+    engine, sessionmaker = create_prompt_optimization_database(settings)
     try:
-        async with create_sessionmaker(engine)() as db:
+        async with sessionmaker() as db:
             run = await db.get(PromptOptimizationRun, run_id)
             if run is None or run.deployment_scope != "global":
                 raise PromptOptimizationError("optimization_run_not_found")
@@ -2443,7 +2443,7 @@ async def finalize_prompt_optimization_history_materialization_activity(
 ) -> dict[str, object]:
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
 
     run_id = UUID(str(payload["run_id"]))
     phase = str(payload["phase"])
@@ -2469,9 +2469,9 @@ async def finalize_prompt_optimization_history_materialization_activity(
         },
         phase=phase,
     )
-    engine = create_engine(get_settings())
+    engine, sessionmaker = create_prompt_optimization_database(get_settings())
     try:
-        async with create_sessionmaker(engine)() as db:
+        async with sessionmaker() as db:
             run = await db.get(PromptOptimizationRun, run_id, with_for_update=True)
             if run is None:
                 raise PromptOptimizationError("optimization_run_not_found")
@@ -2496,7 +2496,7 @@ async def run_gepa_prompt_optimization_activity(
 
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
     from twobrain_rec_server.observability.langfuse import (
         create_langfuse_client,
         shutdown_langfuse,
@@ -2562,9 +2562,9 @@ async def run_gepa_prompt_optimization_activity(
     calibrations = _calibrations_from_resolved(resolved, contract)
     try:
         with tempfile.TemporaryDirectory(prefix=f"graf-gepa-{run_id}-") as run_dir:
-            engine = create_engine(settings)
+            engine, sessionmaker = create_prompt_optimization_database(settings)
             try:
-                async with create_sessionmaker(engine)() as db:
+                async with sessionmaker() as db:
                     run = await db.get(PromptOptimizationRun, run_id)
                     if run and run.run_artifact_ref and run.checkpoint_hash:
                         checkpoint_payload = await _run_thread_until_quiescent(
@@ -2608,9 +2608,11 @@ async def run_gepa_prompt_optimization_activity(
                     )
 
                     async def advance() -> None:
-                        checkpoint_engine = create_engine(settings)
+                        checkpoint_engine, checkpoint_sessionmaker = create_prompt_optimization_database(
+                            settings
+                        )
                         try:
-                            async with create_sessionmaker(checkpoint_engine)() as db:
+                            async with checkpoint_sessionmaker() as db:
                                 await advance_checkpoint_pointer(
                                     db,
                                     run_id=run_id,
@@ -2843,7 +2845,7 @@ async def validate_heldout_prompt_candidate_activity(
 async def publish_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str, object]:
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
     from twobrain_rec_server.observability.langfuse import (
         create_langfuse_client,
         shutdown_langfuse,
@@ -2861,11 +2863,11 @@ async def publish_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
     approval_expires_at = datetime.fromisoformat(str(payload["approval_expires_at"]))
     cancellation_observed = threading.Event()
     idempotency_tag = f"graf-optimization-run-{run_id}"
-    engine = create_engine(settings)
+    engine, sessionmaker = create_prompt_optimization_database(settings)
     client = create_langfuse_client(settings)
     try:
         async with _quiescent_session_scope(
-            create_sessionmaker(engine)(),
+            sessionmaker(),
             cancellation_observed=cancellation_observed,
             complete_after_cancel=False,
         ) as db:
@@ -2952,13 +2954,13 @@ async def authorize_prompt_optimization_action_activity(
 
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
 
     action_id = UUID(payload["action_id"])
     decision = payload["decision"]
-    engine = create_engine(get_settings())
+    engine, sessionmaker = create_prompt_optimization_database(get_settings())
     try:
-        async with create_sessionmaker(engine)() as db:
+        async with sessionmaker() as db:
             run = await db.scalar(
                 select(PromptOptimizationRun)
                 .where(PromptOptimizationRun.approval_action_id == action_id)
@@ -2989,7 +2991,7 @@ async def promote_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
 
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
     from twobrain_rec_server.observability.langfuse import (
         create_langfuse_client,
         shutdown_langfuse,
@@ -2998,11 +3000,11 @@ async def promote_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
 
     settings = get_settings()
     run_id = UUID(str(payload["run_id"]))
-    engine = create_engine(settings)
+    engine, sessionmaker = create_prompt_optimization_database(settings)
     client = create_langfuse_client(settings)
     try:
         async with _quiescent_session_scope(
-            create_sessionmaker(engine)(),
+            sessionmaker(),
             complete_after_cancel=True,
         ) as db:
             await db.execute(
@@ -3074,7 +3076,7 @@ async def promote_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
 async def finalize_prompt_optimization_activity(payload: dict[str, Any]) -> dict[str, object]:
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
     from twobrain_rec_server.observability.langfuse import (
         create_langfuse_client,
         shutdown_langfuse,
@@ -3086,9 +3088,9 @@ async def finalize_prompt_optimization_activity(payload: dict[str, Any]) -> dict
     if status not in terminal_statuses:
         raise PromptOptimizationError("optimization_terminal_status_invalid")
     settings = get_settings()
-    engine = create_engine(settings)
+    engine, sessionmaker = create_prompt_optimization_database(settings)
     try:
-        async with create_sessionmaker(engine)() as db:
+        async with sessionmaker() as db:
             run = await db.get(PromptOptimizationRun, run_id, with_for_update=True)
             if run is None:
                 raise PromptOptimizationError("optimization_run_not_found")
@@ -3129,11 +3131,11 @@ async def authorize_prompt_rollback_action_activity(payload: dict[str, Any]) -> 
 
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
 
-    engine = create_engine(get_settings())
+    engine, sessionmaker = create_prompt_optimization_database(get_settings())
     try:
-        async with create_sessionmaker(engine)() as db:
+        async with sessionmaker() as db:
             run = await db.scalar(
                 select(PromptOptimizationRun)
                 .where(
@@ -3169,7 +3171,7 @@ async def rollback_prompt_production_label_activity(
 
     from twobrain_rec_server.config import get_settings
     from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.db.session import create_prompt_optimization_database
     from twobrain_rec_server.observability.langfuse import (
         create_langfuse_client,
         shutdown_langfuse,
@@ -3178,11 +3180,11 @@ async def rollback_prompt_production_label_activity(
 
     settings = get_settings()
     run_id = UUID(str(payload["run_id"]))
-    engine = create_engine(settings)
+    engine, sessionmaker = create_prompt_optimization_database(settings)
     client = create_langfuse_client(settings)
     try:
         async with _quiescent_session_scope(
-            create_sessionmaker(engine)(),
+            sessionmaker(),
             complete_after_cancel=True,
         ) as db:
             await db.execute(

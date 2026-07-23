@@ -53,12 +53,12 @@ def test_workflow_source_keeps_operator_identity_out_of_temporal_update() -> Non
     assert rollback_source.count("ActivityCancellationType.WAIT_CANCELLATION_COMPLETED") == 2
 
 
-def test_worker_isolates_all_optimizer_activities_on_concurrency_one_queue() -> None:
+def test_operations_worker_isolates_all_optimizer_activities_on_concurrency_one_queue() -> None:
     import inspect
 
-    from twobrain_rec_server.workflows import worker
+    from twobrain_rec_server.workflows import prompt_optimization_worker, worker
 
-    source = inspect.getsource(worker.run_worker)
+    source = inspect.getsource(prompt_optimization_worker.run_prompt_optimization_worker)
     expected_activities = {
         "resolve_prompt_optimization_contract_activity",
         "run_gepa_prompt_optimization_activity",
@@ -77,7 +77,12 @@ def test_worker_isolates_all_optimizer_activities_on_concurrency_one_queue() -> 
     assert "task_queue=prompt_optimization_task_queue(settings)" in source
     assert "workflows=[PromptOptimizationWorkflow, PromptRollbackWorkflow]" in source
     assert "max_concurrent_activities=1" in source
-    assert "asyncio.gather(*(worker.run() for worker in workers))" in source
+    assert "await worker.run()" in source
+    normal_source = inspect.getsource(worker.run_worker)
+    for activity_name in expected_activities:
+        assert activity_name not in normal_source
+    assert "prompt_optimization_task_queue" not in normal_source
+    assert "PromptOptimizationWorkflow" not in normal_source
 
 
 @pytest.mark.anyio

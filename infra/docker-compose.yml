@@ -272,6 +272,103 @@ services:
     networks:
       - rec-private
 
+  rec-prompt-optimization-worker:
+    profiles: ["operations"]
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: "no"
+    init: true
+    user: twobrain
+    group_add:
+      - "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1770,uid=100,gid=101
+    env_file:
+      - ./env/rec.production.env.example
+    environment:
+      TWOBRAIN_ENV: production
+      TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
+      TWOBRAIN_PROCESSING_ENABLED: "false"
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: "false"
+      TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED: ${TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED:-false}
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_maintenance:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
+      TWOBRAIN_PROMPT_OPTIMIZATION_DATABASE_URL: postgresql+asyncpg://twobrain_rec_maintenance:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_PROMPT_OPTIMIZATION_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_SECRET_KEY: __DOCKER_SECRET_FILE__
+      TWOBRAIN_MINIO_ACCESS_KEY_FILE: /run/secrets/twobrain_minio_api_access_key
+      TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_api_secret_key
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_LITELLM_BASE_URL: ${TWOBRAIN_LITELLM_BASE_URL:-}
+      TWOBRAIN_LITELLM_API_KEY_FILE: /run/secrets/twobrain_litellm_api_key
+      TWOBRAIN_LANGFUSE_BASE_URL: https://cloud.langfuse.com
+      TWOBRAIN_LANGFUSE_PUBLIC_KEY_FILE: /run/secrets/twobrain_langfuse_public_key
+      TWOBRAIN_LANGFUSE_SECRET_KEY_FILE: /run/secrets/twobrain_langfuse_secret_key
+      TWOBRAIN_LANGFUSE_ENVIRONMENT: production
+      TWOBRAIN_LANGFUSE_RELEASE: ${TWOBRAIN_LANGFUSE_RELEASE:-}
+    secrets:
+      - source: twobrain_postgres_maintenance_password
+        target: twobrain_postgres_password
+      - source: twobrain_minio_api_access_key
+        target: twobrain_minio_api_access_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_minio_api_secret_key
+        target: twobrain_minio_api_secret_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_litellm_api_key
+        target: twobrain_litellm_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_langfuse_public_key
+        target: twobrain_langfuse_public_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_langfuse_secret_key
+        target: twobrain_langfuse_secret_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+    command: ["python", "-m", "twobrain_rec_server.workflows.prompt_optimization_worker"]
+    depends_on:
+      rec-db-runtime-bootstrap:
+        condition: service_completed_successfully
+      rec-temporal:
+        condition: service_healthy
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+      rec-minio-init:
+        condition: service_completed_successfully
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+    networks:
+      - rec-private
+
   rec-media-worker:
     build:
       context: ..

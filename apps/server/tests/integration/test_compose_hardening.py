@@ -75,6 +75,7 @@ def test_production_compose_sets_log_rotation_and_resource_limits_for_services()
         "rec-minio-init",
         "rec-temporal",
         "rec-processing-worker",
+        "rec-prompt-optimization-worker",
         "rec-media-worker",
     ]:
         service = compose["services"][service_name]
@@ -231,6 +232,7 @@ def test_generated_runtime_secrets_use_private_deploy_group_mounts() -> None:
         "rec-db-runtime-bootstrap",
         "rec-maintenance",
         "rec-reprocess-maintenance",
+        "rec-prompt-optimization-worker",
         "rec-minio-init",
     }
 
@@ -248,6 +250,37 @@ def test_generated_runtime_secrets_use_private_deploy_group_mounts() -> None:
                 continue
             assert {"uid", "gid", "mode"}.isdisjoint(secret)
             assert service_name == "rec-minio-init" or service_name in private_group_services
+
+
+def test_prompt_optimization_worker_is_operations_only_and_isolated_from_recording_workers() -> None:
+    compose = _compose()
+    optimizer = compose["services"]["rec-prompt-optimization-worker"]
+    processing = compose["services"]["rec-processing-worker"]
+
+    assert optimizer["profiles"] == ["operations"]
+    assert optimizer["command"] == [
+        "python",
+        "-m",
+        "twobrain_rec_server.workflows.prompt_optimization_worker",
+    ]
+    assert optimizer["environment"]["TWOBRAIN_DATABASE_URL"].startswith(
+        "postgresql+asyncpg://twobrain_rec_maintenance:"
+    )
+    assert optimizer["environment"]["TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED"].endswith(
+        "false}"
+    )
+    assert {
+        secret["source"] for secret in optimizer["secrets"]
+    } >= {
+        "twobrain_postgres_maintenance_password",
+        "twobrain_litellm_api_key",
+        "twobrain_langfuse_public_key",
+        "twobrain_langfuse_secret_key",
+    }
+    assert "twobrain_postgres_maintenance_password" not in {
+        secret["source"] for secret in processing["secrets"]
+    }
+    assert "TWOBRAIN_PROMPT_OPTIMIZATION_DATABASE_URL" not in processing["environment"]
 
 
 def test_production_env_template_does_not_broadcast_service_specific_secret_files() -> None:

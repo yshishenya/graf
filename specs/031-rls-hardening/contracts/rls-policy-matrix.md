@@ -130,6 +130,11 @@ policies only on `playback_normalization_jobs` and `playback_backfill_runs`.
 `playback_normalization_attempts`, scheduler DML, and every content/artifact
 operation require the exact request/worker workspace predicate.
 
+The deployment-global GEPA optimizer uses the separate
+`prompt_optimization` maintenance operation. It is accepted only through the
+`twobrain_rec_maintenance` role and the exact transaction-local maintenance
+context; ordinary recording workers never mount that role's password.
+
 ## Inherited Workspace Tables
 
 Policy shape:

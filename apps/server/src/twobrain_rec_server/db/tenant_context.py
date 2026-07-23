@@ -21,6 +21,7 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "provider_link_cleanup",
         "playback_normalization_inventory",
         "playback_normalization_dispatch",
+        "prompt_optimization",
     }
 )
 
