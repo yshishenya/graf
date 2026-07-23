@@ -65,10 +65,18 @@ for start_attempt in 1 2; do
       sleep 0.25
     done
   fi
-  if [[ "$postgres_ready" == true ]] && docker exec "$postgres_container" \
-    psql --set=ON_ERROR_STOP=1 --username=twobrain_rec --dbname=postgres \
-    --command "create database \"${rls_database}\"" >/dev/null; then
-    postgres_initialized=true
+  if [[ "$postgres_ready" == true ]]; then
+    for _database_attempt in {1..20}; do
+      if docker exec "$postgres_container" \
+        psql --set=ON_ERROR_STOP=1 --username=twobrain_rec --dbname=postgres \
+        --command "create database \"${rls_database}\"" >/dev/null; then
+        postgres_initialized=true
+        break
+      fi
+      sleep 0.25
+    done
+  fi
+  if [[ "$postgres_initialized" == true ]]; then
     break
   fi
   if [[ "$container_started" == true ]]; then

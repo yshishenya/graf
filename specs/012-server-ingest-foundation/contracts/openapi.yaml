@@ -14093,10 +14093,15 @@ components:
             - dismissed
             - cancelled
             - result_invalid
+            - transcript_unavailable
+            - source_unavailable
             - source_changed
             - template_unavailable
             - revision_changed
+            - prompt_invalid
             - provider_outcome_unknown
+            - content_unavailable
+            - generation_in_progress
             - meeting_deleting
             - meeting_deleted
             - temporary_unavailable
