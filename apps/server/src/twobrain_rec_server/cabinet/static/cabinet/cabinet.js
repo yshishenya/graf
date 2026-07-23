@@ -134,8 +134,7 @@
 
   const submitDeletionForm = async (form) => {
     const headers = {
-      "HX-Request": "true",
-      "HX-Target": "delete-feedback-region"
+      "HX-Request": "true"
     };
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
     const response = await fetch(form.action, {
@@ -145,11 +144,6 @@
       headers
     });
     if (!response.ok) throw new Error("deletion_request_failed");
-    const responseDocument = new DOMParser().parseFromString(await response.text(), "text/html");
-    const feedback = responseDocument.querySelector("[data-cabinet-fragment='deletion-feedback']");
-    const target = document.querySelector("#delete-feedback-region");
-    if (!feedback || !target) throw new Error("deletion_feedback_missing");
-    target.replaceChildren(document.importNode(feedback, true));
   };
 
   const initMeetingList = () => {

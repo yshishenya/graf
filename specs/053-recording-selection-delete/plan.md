@@ -6,7 +6,7 @@
 
 ## Summary
 
-This follow-up keeps the existing selection and deletion lifecycle but removes the confusing report hand-off from the owner flow. The smallest safe implementation is to return a concise status fragment, redirect non-JavaScript form submits back to the list, and remove accepted rows from the browser list immediately. The lifecycle service, audit rows, and separate diagnostic report remain unchanged.
+This follow-up keeps the existing selection and deletion lifecycle but removes the confusing report hand-off and persistent status banner from the owner flow. The smallest safe implementation is to return an empty success body, redirect non-JavaScript form submits back to the list, and remove accepted rows from the browser list immediately. The lifecycle service, audit rows, and separate diagnostic report remain unchanged.
 
 ## Technical Context
 
@@ -22,7 +22,7 @@ This follow-up keeps the existing selection and deletion lifecycle but removes t
 
 **Project Type**: Server-rendered web cabinet inside the hybrid 2brain Rec server/desktop product.
 
-**Performance Goals**: Selection feedback should appear in under one second for the current list limit. Delete submission uses existing deletion lifecycle behavior.
+**Performance Goals**: Accepted rows should disappear in under one second for the current list limit. Delete submission uses existing deletion lifecycle behavior.
 
 **Constraints**: All new visible strings must be Russian. Deletion copy must remain bounded to `2brain Rec` controlled systems. Evidence must stay metadata-only. Desktop clients still do not receive secrets, signed URLs, object keys, raw audio, or transcript text through list evidence.
 
@@ -91,7 +91,7 @@ See [data-model.md](./data-model.md), [contracts/cabinet-selection-delete-contra
 - **Visible consent and user control**: PASS. Post-meeting delete UI does not affect active capture visibility or stop controls.
 - **Data boundary and secret discipline**: PASS. UI calls the existing server-owned delete endpoint with bounded confirmation text only.
 - **Deletion truth and lifecycle accounting**: PASS. The contract requires bounded Russian copy and existing lifecycle accounting.
-- **Deletion UX boundary**: PASS. The detailed report remains a diagnostic surface, while the owner flow returns to the list with concise progress copy and never promises universal erasure.
+- **Deletion UX boundary**: PASS. The detailed report remains a diagnostic surface, while the owner flow returns to the list without a persistent status banner and never promises universal erasure.
 - **Spec-driven delivery**: PASS. Tasks and analyze must be clean before code edits.
 
 ## Complexity Tracking

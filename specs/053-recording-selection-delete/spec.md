@@ -12,7 +12,7 @@
 
 ### Session 2026-07-21
 
-- Q: What should the owner see after confirming deletion? → A: Stay on the meeting list, remove the selected row or rows immediately after the server accepts the request, and show only a short status message; do not open or link a deletion report.
+- Q: What should the owner see after confirming deletion? → A: Stay on the meeting list, remove the selected row or rows immediately after the server accepts the request, and do not show a persistent success or cleanup banner; do not open or link a deletion report.
 - Q: What happens to lifecycle details that are not needed in the normal user flow? → A: Keep the existing lifecycle accounting and separate report endpoint for support and operator diagnostics, but keep it out of the owner confirmation and success flow.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -31,7 +31,7 @@ As an owner reviewing meeting records, I can delete one recording directly from 
 2. **Given** the row delete control is activated, **When** the owner sees the confirmation dialog, **Then** all visible title, body, and buttons are in Russian and the dialog explains that the meeting will be deleted where `2brain Rec` controls it.
 3. **Given** the owner confirms deletion, **When** the deletion succeeds, **Then** the row is removed from the active list and the owner stays on the list.
 4. **Given** the owner cancels deletion, **When** the dialog closes, **Then** the row remains visible and unchanged.
-5. **Given** the owner confirms deletion, **When** the request is accepted, **Then** the list shows a short Russian status and does not redirect to or link a deletion report.
+5. **Given** the owner confirms deletion, **When** the request is accepted, **Then** the row disappears, the dialog closes, and the list does not render a persistent status banner or redirect to a deletion report.
 
 ---
 
@@ -59,7 +59,7 @@ As the product owner, I can ship this delete UI without overstating erasure beyo
 
 **Why this priority**: Deletion is high-risk product copy. The UI must preserve existing deletion truth and lifecycle boundaries.
 
-**Independent Test**: Review every new delete confirmation, status, disabled action, and error string and confirm it is Russian, understandable, and bounded to controlled `2brain Rec` storage.
+**Independent Test**: Review every new delete confirmation, disabled action, and error string and confirm it is Russian, understandable, and bounded to controlled `2brain Rec` storage.
 
 **Acceptance Scenarios**:
 
@@ -74,7 +74,7 @@ As the product owner, I can ship this delete UI without overstating erasure beyo
 - A delete request fails for one selected recording but succeeds for another.
 - The selected list includes a meeting already deleting, deleted, or unavailable to the owner.
 - The list is empty after deletion.
-- A deletion request is accepted while lifecycle cleanup of local copies, backups, or dependencies is still pending; the status must not claim universal erasure.
+- A deletion request is accepted while lifecycle cleanup of local copies, backups, or dependencies is still pending; the list removes the row without exposing an internal cleanup status or claiming universal erasure.
 - Keyboard-only users need to select rows, discover delete, cancel, and confirm without mouse hover.
 - Disabled download must not start egress, create audit rows, or imply availability.
 
@@ -98,7 +98,7 @@ As the product owner, I can ship this delete UI without overstating erasure beyo
 - **FR-013**: The implementation MUST preserve existing access, retention, deletion lifecycle, audit, and no-secret/no-private-content boundaries.
 - **FR-014**: This slice MUST NOT implement mark-as-unread, a row overflow menu, bulk download, public links, external share, or partial artifact deletion.
 - **FR-015**: User-facing changes MUST be covered by focused automated checks and a metadata-safe runtime proof for the list selection/delete flow.
-- **FR-016**: The normal owner deletion flow MUST show only a concise Russian completion status and MUST NOT redirect to, embed, or link the detailed deletion report.
+- **FR-016**: The normal owner deletion flow MUST remove accepted rows and close the confirmation without rendering a persistent success or cleanup status, and MUST NOT redirect to, embed, or link the detailed deletion report.
 - **FR-017**: The existing deletion lifecycle, audit records, and detailed report endpoint MUST remain available through separate support/operator or direct diagnostic paths; removing the report from the normal flow MUST NOT remove lifecycle accounting.
 
 ### Key Entities *(include if feature involves data)*
@@ -119,13 +119,13 @@ As the product owner, I can ship this delete UI without overstating erasure beyo
 - **SC-005**: New deletion copy contains no universal-erasure promise and keeps the bounded `2brain Rec` control wording.
 - **SC-006**: Focused automated checks cover single delete, batch delete, cancel, disabled download, and failed deletion behavior.
 - **SC-007**: No new evidence committed by this slice contains raw audio, transcript text, credentials, tokens, signed URLs, object keys, private account identifiers, or private local paths.
-- **SC-008**: In focused web-flow checks, an accepted delete leaves the owner on the meeting list, removes the selected row or rows, and exposes no report link in the user-facing status fragment.
+- **SC-008**: In focused web-flow checks, an accepted delete leaves the owner on the meeting list, removes the selected row or rows, and renders no persistent success, cleanup, or report-status fragment.
 
 ## Assumptions
 
 - The owner meeting list and existing deletion lifecycle from feature `018` are the source of truth for delete execution.
 - The list already has enough stable row identity to support selection without a new data model.
 - Batch deletion can be implemented by applying the existing whole-meeting deletion path to each selected meeting.
-- The existing lifecycle service may finish local, backup, or dependency cleanup after the list has removed the row; the short status must describe acceptance and progress without promising universal erasure.
+- The existing lifecycle service may finish local, backup, or dependency cleanup after the list has removed the row; detailed lifecycle/report information remains available only through its direct diagnostic/operator path.
 - Download/export policy remains out of scope until a later slice explicitly enables it.
 - KRISP screenshots are used only as clean-room interaction reference; 2brain Rec keeps original visual design and Russian copy.

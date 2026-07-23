@@ -834,11 +834,7 @@ def _render_meeting_row(
           <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
           <span class="row-meta">{row_meta}</span>
         </a>
-        <form class="row-delete-form" method="post" action="{delete_action}" data-row-delete-form
-          data-hx-post="{delete_action}"
-          data-hx-target="#delete-feedback-region"
-          data-hx-select="[data-cabinet-fragment='deletion-feedback']"
-          data-hx-swap="innerHTML">
+        <form class="row-delete-form" method="post" action="{delete_action}" data-row-delete-form data-hx-post="{delete_action}">
           {csrf_field}
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
           <button class="row-delete icon-button" type="button" tabindex="-1" aria-hidden="true" data-row-contextual data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>

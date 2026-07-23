@@ -31,7 +31,7 @@
 
 ## Decision: Keep The Report Out Of The Normal Owner Flow
 
-**Rationale**: The owner asked for a fast, direct delete of the selected recording. The current web response replaces the list outcome with a detailed lifecycle report link even though the request has already removed server-controlled content and the row should no longer be actionable. Returning a short status and removing accepted rows fixes the confusing hand-off without weakening the existing lifecycle accounting.
+**Rationale**: The owner asked for a fast, direct delete of the selected recording. The current web response replaces the list outcome with a detailed lifecycle report link and a persistent status block even though the request has already removed server-controlled content and the row should no longer be actionable. Removing the status block and the accepted row fixes the confusing hand-off without weakening the existing lifecycle accounting.
 
 **Alternatives considered**:
 - Delete the lifecycle report endpoint: rejected because support and operators still need the truthful artifact, dependency, backup, and local-purge status.
