@@ -332,6 +332,7 @@ def validate_outcome_result(
     *,
     allowed_categories: Sequence[str],
     allowed_segment_ids: set[str],
+    allowed_segment_sequences: Mapping[str, int] | None = None,
 ) -> dict[str, object]:
     if not isinstance(result, dict) or set(result) != {"category_states", "items"}:
         raise ValueError("outcome result must contain category_states and items only")
@@ -366,7 +367,12 @@ def validate_outcome_result(
             raise ValueError("outcome item has unknown or missing fields")
         category = item["category"]
         sequence = item["sequence"]
-        if category not in categories or not isinstance(sequence, int) or not 0 <= sequence <= 99:
+        if (
+            category not in categories
+            or not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or not 0 <= sequence <= 99
+        ):
             raise ValueError("outcome item category or sequence is invalid")
         key = (category, sequence)
         if key in seen:
@@ -389,8 +395,18 @@ def validate_outcome_result(
                 raise ValueError("source reference is invalid")
             if str(ref["transcript_segment_id"]) not in allowed_segment_ids:
                 raise ValueError("source reference is outside the pinned transcript")
-            if not isinstance(ref["sequence"], int) or ref["sequence"] < 0:
+            if (
+                not isinstance(ref["sequence"], int)
+                or isinstance(ref["sequence"], bool)
+                or ref["sequence"] < 0
+            ):
                 raise ValueError("source reference sequence is invalid")
+            if (
+                allowed_segment_sequences is not None
+                and int(ref["sequence"])
+                != allowed_segment_sequences.get(str(ref["transcript_segment_id"]))
+            ):
+                raise ValueError("source reference sequence does not match the pinned transcript")
         normalized_items.append(
             {
                 **item,

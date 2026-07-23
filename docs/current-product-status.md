@@ -178,6 +178,30 @@ metadata-only evidence остаются подробной историей ре
   `summary-candidates` 500, `Response content shorter than Content-Length`, or
   `summary_generation` error. T101/T102 are closed after this evidence.
 
+## Validation update (2026-07-23) — T103 actionable outcome recovery
+
+- The reported generic regeneration error was traced to strict local rejection
+  of completed LiteLLM JSON: state/item parity, selected-section membership, or
+  exact transcript reference sequence could be invalid. The transcript was not
+  lost, and no Temporal/Langfuse transport failure was found. Full plaintext
+  transcript and model-call content remain retained in the existing
+  Generation Call, Langfuse, and Temporal observability paths.
+- PR [#4510](https://github.com/yshishenya/crisp/pull/4510) adds the prompt,
+  validator, candidate lifecycle, API projection, and embedded UI recovery
+  fixes. All ten production outcome prompts are at Langfuse production v3.
+  The public static bundle contains the new bounded reason/action mapping.
+- Release
+  [`v2026.07.23.17`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.17)
+  is deployed at exact runtime SHA
+  `da3a625d96491e99159c7a80ee69a82337daefb6`. Backup and restore rehearsal,
+  RLS, migration head `0033_prompt_opt_maintenance`, Temporal and processing
+  readiness, automatic dispatch, metadata-only production smoke and cleanup
+  all passed. The production containers are healthy and public
+  `/api/v1/health/live` and `/api/v1/health/ready` both returned HTTP 200.
+- The local server PostgreSQL CI lane was unavailable because Docker Engine was
+  not running on the developer machine; focused tests and the complete remote
+  production gate passed. Evidence contains no transcript or model content.
+
 ## Validation update (2026-07-21)
 
 - Feature `090-manual-media-upload-ui` получила production owner-upload

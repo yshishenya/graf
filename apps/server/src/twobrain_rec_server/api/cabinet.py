@@ -1108,10 +1108,13 @@ async def create_summary_candidate_route(
     # A reused workflow may not expose a run ID (for example after an
     # AlreadyStarted response). Never overwrite a previously persisted run
     # correlation with None; this is important when two browser requests race.
-    if started.run_id is not None and current_attempt.workflow_run_id is None:
+    if started.run_id is not None and (
+        current_attempt.workflow_run_id is None or not started.reused
+    ):
         # Keep correlation even when the worker finished between the start
-        # acknowledgement and this read. Never replace an ID written by a
-        # concurrent/reused dispatch.
+        # acknowledgement and this read. A fresh run after an explicit retry
+        # replaces the prior failed run; an AlreadyStarted/reused dispatch
+        # never replaces the correlation already recorded for that candidate.
         current_attempt.workflow_run_id = started.run_id
     if (
         current_attempt.status in {"queued", "generating", "blocked_dependency"}
@@ -1152,22 +1155,41 @@ async def list_summary_candidates_route(
     )
     if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
         raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
-    attempts = (
+    candidate_query = select(MeetingOutcomeGenerationAttempt).where(
+        MeetingOutcomeGenerationAttempt.workspace_id == tenant_scope.workspace_id,
+        MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+        # Legacy deterministic/blocked/cancelled attempts predate the
+        # candidate lifecycle and intentionally have no candidate_id.
+        # They remain durable provenance, but are not owner-review
+        # candidates and must never be projected through this API.
+        MeetingOutcomeGenerationAttempt.candidate_id.is_not(None),
+    )
+    # Keep active work visible even when older history is crowded by terminal
+    # attempts. The bounded recent history remains the normal path; this small
+    # union is the server-authoritative reload/new-device recovery path.
+    active_attempts = (
         await db.scalars(
-            select(MeetingOutcomeGenerationAttempt)
-            .where(
-                MeetingOutcomeGenerationAttempt.workspace_id == tenant_scope.workspace_id,
-                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
-                # Legacy deterministic/blocked/cancelled attempts predate the
-                # candidate lifecycle and intentionally have no candidate_id.
-                # They remain durable provenance, but are not owner-review
-                # candidates and must never be projected through this API.
-                MeetingOutcomeGenerationAttempt.candidate_id.is_not(None),
+            candidate_query.where(
+                MeetingOutcomeGenerationAttempt.status.in_(
+                    ("queued", "generating", "blocked_dependency")
+                )
             )
-            .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
-            .limit(8)
         )
     ).all()
+    recent_attempts = (
+        await db.scalars(
+            candidate_query.order_by(MeetingOutcomeGenerationAttempt.created_at.desc()).limit(8)
+        )
+    ).all()
+    active_by_id = {attempt.id: attempt for attempt in active_attempts}
+    recent_by_id = {attempt.id: attempt for attempt in recent_attempts}
+    attempts = sorted(active_by_id.values(), key=lambda attempt: attempt.created_at, reverse=True)
+    attempts.extend(
+        attempt
+        for attempt in sorted(recent_by_id.values(), key=lambda item: item.created_at, reverse=True)
+        if attempt.id not in active_by_id
+    )
+    attempts = attempts[:8]
     template_names = await _summary_candidate_template_names(db, attempts)
     return SummaryCandidateListResponse(
         candidates=[
@@ -2401,10 +2423,21 @@ def _summary_candidate_projection(
     code = attempt.failure_code
     projection = {
         "summary_response_invalid": ("result_invalid", False, "new_candidate"),
+        "summary_transcript_unavailable": ("transcript_unavailable", False, "refresh"),
+        "summary_source_unavailable": ("source_unavailable", False, "refresh"),
         "summary_transcript_changed": ("source_changed", False, "refresh"),
         "outcome_transcript_changed": ("source_changed", False, "refresh"),
         "summary_template_unavailable": ("template_unavailable", False, "choose_format"),
+        "summary_template_snapshot_invalid": ("template_unavailable", False, "choose_format"),
         "summary_revision_conflict": ("revision_changed", False, "refresh"),
+        "summary_generation_in_progress": ("generation_in_progress", False, "refresh_status"),
+        "summary_prompt_invalid": ("prompt_invalid", False, "choose_format"),
+        "summary_prompt_snapshot_corrupt": ("prompt_invalid", False, "choose_format"),
+        "summary_prompt_not_selected": ("prompt_invalid", False, "choose_format"),
+        "summary_prompt_resolution_conflict": ("revision_changed", False, "refresh"),
+        "generation_call_not_completed": ("content_unavailable", False, "refresh_status"),
+        "generation_call_content_incomplete": ("content_unavailable", False, "refresh_status"),
+        "generation_call_content_hash_mismatch": ("content_unavailable", False, "refresh_status"),
         "summary_provider_outcome_ambiguous": (
             "provider_outcome_unknown",
             False,

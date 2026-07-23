@@ -62,6 +62,18 @@ from twobrain_rec_server.workflows.temporal_client import outcome_generation_wor
 
 AI_GENERATOR_VERSION = "outcomes-ai-v1"
 ZERO_UUID = UUID(int=0)
+_ACTIVE_CANDIDATE_STATUSES = ("queued", "generating", "blocked_dependency")
+_RETRYABLE_CANDIDATE_FAILURES = frozenset(
+    {
+        "summary_generation_retries_exhausted",
+        "summary_generation_unavailable",
+        "langfuse_prompt_unavailable",
+        "prompt_snapshot_export_unavailable",
+        "litellm_endpoint_unavailable",
+        "litellm_unavailable",
+        "litellm_retryable_response",
+    }
+)
 
 
 class OutcomeGenerationTerminalError(RuntimeError):
@@ -130,23 +142,59 @@ async def create_summary_candidate(
         output_language = "ru"
         detail_level = "standard"
         template_sections = definition.sections
-    reusable = await db.scalar(
+    active = await db.scalar(
         select(MeetingOutcomeGenerationAttempt)
         .where(
             MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
             MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
             MeetingOutcomeGenerationAttempt.source_result_id == result.id,
-            MeetingOutcomeGenerationAttempt.template_key == template_key,
-            MeetingOutcomeGenerationAttempt.template_version == template_version,
-            MeetingOutcomeGenerationAttempt.requested_by_user_id == requested_by_user_id,
-            MeetingOutcomeGenerationAttempt.status.in_(
-                {"queued", "generating", "blocked_dependency", "candidate"}
-            ),
+            MeetingOutcomeGenerationAttempt.candidate_id.is_not(None),
+            MeetingOutcomeGenerationAttempt.status.in_(_ACTIVE_CANDIDATE_STATUSES),
         )
         .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
     )
-    if reusable is not None:
-        return reusable
+    if active is not None:
+        if (
+            active.template_key == template_key
+            and active.template_version == template_version
+            and active.requested_by_user_id == requested_by_user_id
+        ):
+            return active
+        raise OutcomeGenerationTerminalError("summary_generation_in_progress")
+
+    reusable_attempts = (
+        await db.scalars(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(
+                MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                MeetingOutcomeGenerationAttempt.source_result_id == result.id,
+                MeetingOutcomeGenerationAttempt.candidate_id.is_not(None),
+                MeetingOutcomeGenerationAttempt.template_key == template_key,
+                MeetingOutcomeGenerationAttempt.template_version == template_version,
+                MeetingOutcomeGenerationAttempt.requested_by_user_id == requested_by_user_id,
+                MeetingOutcomeGenerationAttempt.status.in_(
+                    (*_ACTIVE_CANDIDATE_STATUSES, "candidate", "failed")
+                ),
+            )
+            .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
+        )
+    ).all()
+    for reusable in reusable_attempts:
+        if reusable.status in (*_ACTIVE_CANDIDATE_STATUSES, "candidate"):
+            return reusable
+        if reusable.failure_code in _RETRYABLE_CANDIDATE_FAILURES:
+            # A Temporal retry exhaustion is terminal for that workflow run,
+            # but remains safe to retry explicitly. Reuse the same candidate
+            # and deterministic workflow ID; never create a second model-call
+            # history merely because the owner clicked retry.
+            reusable.status = "queued"
+            reusable.failure_code = None
+            reusable.failure_source = None
+            reusable.failure_reason = None
+            reusable.ended_at = None
+            return reusable
+
     candidate_id = uuid4()
     attempt = MeetingOutcomeGenerationAttempt(
         workspace_id=workspace_id,
@@ -187,7 +235,10 @@ async def resolve_candidate_prompt(
         attempt = await _candidate_attempt(db, workspace_id, candidate_id)
         if attempt.prompt_name is None:
             raise OutcomeGenerationTerminalError("summary_prompt_not_selected")
-        stored = _stored_prompt_snapshot(attempt)
+        try:
+            stored = _stored_prompt_snapshot(attempt)
+        except ValueError as exc:
+            raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
         if stored is not None:
             return _prompt_result(stored)
         prompt_name = attempt.prompt_name
@@ -207,19 +258,26 @@ async def resolve_candidate_prompt(
                     get_storage(settings),
                     prompt_name=prompt_name,
                 )
+            except ValueError as fallback_exc:
+                raise OutcomeGenerationTerminalError(
+                    "summary_prompt_snapshot_corrupt"
+                ) from fallback_exc
             except Exception as fallback_exc:
                 raise OutcomeGenerationDependencyError(
                     "langfuse_prompt_unavailable"
                 ) from fallback_exc
         else:
-            snapshot = validate_prompt_snapshot(
-                name=prompt_name,
-                version=int(remote.version),
-                prompt_type="chat",
-                prompt=remote.prompt,
-                config=remote.config or {},
-                source="langfuse_production",
-            )
+            try:
+                snapshot = validate_prompt_snapshot(
+                    name=prompt_name,
+                    version=int(remote.version),
+                    prompt_type="chat",
+                    prompt=remote.prompt,
+                    config=remote.config or {},
+                    source="langfuse_production",
+                )
+            except ValueError as exc:
+                raise OutcomeGenerationTerminalError("summary_prompt_invalid") from exc
             try:
                 await asyncio.to_thread(
                     persist_verified_promoted_snapshot,
@@ -235,7 +293,10 @@ async def resolve_candidate_prompt(
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
         attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
-        concurrent = _stored_prompt_snapshot(attempt)
+        try:
+            concurrent = _stored_prompt_snapshot(attempt)
+        except ValueError as exc:
+            raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
         if concurrent is not None:
             if concurrent.canonical_hash != snapshot.canonical_hash:
                 raise OutcomeGenerationTerminalError("summary_prompt_resolution_conflict")
@@ -316,7 +377,10 @@ async def execute_candidate_generation(
         attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
         if meeting is None or meeting.deletion_state not in {None, "none"}:
             raise OutcomeGenerationTerminalError("meeting_deleting")
-        snapshot = _stored_prompt_snapshot(attempt)
+        try:
+            snapshot = _stored_prompt_snapshot(attempt)
+        except ValueError as exc:
+            raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
         if snapshot is None or attempt.source_result_id is None:
             raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
         latest_result = await db.scalar(
@@ -515,6 +579,9 @@ async def execute_candidate_generation(
                 response.parsed_content,
                 allowed_categories=sections,
                 allowed_segment_ids={str(segment.segment_id) for segment in segments},
+                allowed_segment_sequences={
+                    str(segment.segment_id): segment.sequence for segment in segments
+                },
             )
         except ValueError as exc:
             validated = {
@@ -623,7 +690,10 @@ async def publish_generation_call(
         if call.export_status == "confirmed":
             return
         attempt = await _candidate_attempt(db, workspace_id, call.candidate_id)
-        snapshot = _stored_prompt_snapshot(attempt)
+        try:
+            snapshot = _stored_prompt_snapshot(attempt)
+        except ValueError as exc:
+            raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
         if snapshot is None or attempt.prompt_name is None or attempt.prompt_version is None:
             raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
         _verify_generation_call_hashes(call)
@@ -971,14 +1041,17 @@ def _stored_prompt_snapshot(
         or attempt.prompt_hash is None
     ):
         return None
-    snapshot = validate_prompt_snapshot(
-        name=attempt.prompt_name,
-        version=attempt.prompt_version,
-        prompt_type="chat",
-        prompt=attempt.prompt_definition,
-        config=attempt.prompt_config,
-        source=attempt.prompt_source or "verified_promoted_snapshot",
-    )
+    try:
+        snapshot = validate_prompt_snapshot(
+            name=attempt.prompt_name,
+            version=attempt.prompt_version,
+            prompt_type="chat",
+            prompt=attempt.prompt_definition,
+            config=attempt.prompt_config,
+            source=attempt.prompt_source or "verified_promoted_snapshot",
+        )
+    except ValueError as exc:
+        raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
     if snapshot.canonical_hash != attempt.prompt_hash:
         raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt")
     return snapshot

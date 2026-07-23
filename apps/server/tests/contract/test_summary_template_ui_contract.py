@@ -87,6 +87,10 @@ def test_candidate_ui_preserves_current_notes_until_explicit_accept() -> None:
     assert "candidateErrorAction" in script
     assert '"summary_revision_conflict"' in script
     assert 'result_invalid: "Модель вернула неподтверждённый результат.' in script
+    assert 'summary_generation_in_progress: "Другой вариант уже готовится.' in script
+    assert 'summary_request_unavailable: "Не удалось связаться с сервисом итогов.' in script
+    assert "const latestFailure = candidates.find" in script
+    assert "candidate.template_version" in script
 
 
 def test_candidate_list_ignores_legacy_deterministic_attempts(client) -> None:
@@ -330,6 +334,98 @@ def test_ready_candidate_is_reused_without_a_second_temporal_dispatch(client) ->
     assert response.status_code == 202
     assert response.json()["candidate_id"] == str(candidate_id)
     assert response.json()["state"] == "ready"
+
+
+def test_retryable_failed_candidate_reuses_identity_and_replaces_run_id(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "retryable-failed-candidate")
+
+    async def seed_failed_candidate():
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await create_summary_candidate(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                requested_by_user_id=USER_ID,
+                template_key="graf-meeting-minutes-v1",
+                template_id=None,
+                template_version=1,
+                expected_current_outcome_set_id=None,
+            )
+            attempt.status = "failed"
+            attempt.failure_code = "summary_generation_retries_exhausted"
+            attempt.workflow_run_id = "old-failed-run"
+            await db.commit()
+            return attempt.candidate_id
+
+    candidate_id = client.portal.call(seed_failed_candidate)
+    temporal = FakeTemporalClient()
+    client.app.state.settings.outcome_generation_enabled = True
+    client.app.state.outcome_temporal_client = temporal
+    response = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates",
+        headers=auth_headers(),
+        json={
+            "template_key": "graf-meeting-minutes-v1",
+            "template_id": None,
+            "template_version": 1,
+            "expected_current_outcome_set_id": None,
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["candidate_id"] == str(candidate_id)
+    assert response.json()["state"] == "generating"
+    assert len(temporal.starts) == 1
+
+    async def load_candidate() -> MeetingOutcomeGenerationAttempt | None:
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
+                )
+            )
+
+    candidate = client.portal.call(load_candidate)
+    assert candidate is not None
+    assert candidate.status == "queued"
+    assert candidate.failure_code is None
+    assert candidate.workflow_run_id == "run-1"
+
+
+def test_active_candidate_blocks_a_different_format(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "one-active-candidate")
+
+    async def seed_active_candidate():
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await create_summary_candidate(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                requested_by_user_id=USER_ID,
+                template_key="graf-meeting-minutes-v1",
+                template_id=None,
+                template_version=1,
+                expected_current_outcome_set_id=None,
+            )
+            await db.commit()
+            return attempt.candidate_id
+
+    client.portal.call(seed_active_candidate)
+    client.app.state.settings.outcome_generation_enabled = True
+    client.app.state.outcome_temporal_client = FakeTemporalClient()
+    response = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates",
+        headers=auth_headers(),
+        json={
+            "template_key": "graf-outline-v1",
+            "template_id": None,
+            "template_version": 1,
+            "expected_current_outcome_set_id": None,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "summary_generation_in_progress"
 
 
 def test_already_started_dispatch_does_not_clear_existing_run_id(client) -> None:
@@ -577,6 +673,21 @@ def test_terminal_model_validation_failure_has_bounded_non_retry_projection() ->
         SimpleNamespace(status="failed", failure_code="summary_response_invalid")
     )
     assert (reason, retryable, next_action) == ("result_invalid", False, "new_candidate")
+
+
+def test_candidate_projection_keeps_terminal_dependency_reasons_actionable() -> None:
+    from types import SimpleNamespace
+
+    cases = {
+        "summary_generation_in_progress": ("generation_in_progress", False, "refresh_status"),
+        "summary_prompt_invalid": ("prompt_invalid", False, "choose_format"),
+        "summary_transcript_unavailable": ("transcript_unavailable", False, "refresh"),
+        "generation_call_content_hash_mismatch": ("content_unavailable", False, "refresh_status"),
+    }
+    for code, expected in cases.items():
+        assert _summary_candidate_projection(
+            SimpleNamespace(status="failed", failure_code=code)
+        ) == expected
 
 
 def test_workspace_default_format_is_persisted_and_returned_by_list_api(client) -> None:

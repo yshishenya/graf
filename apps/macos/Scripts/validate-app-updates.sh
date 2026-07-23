@@ -92,8 +92,10 @@ assert_calver "$VERSION"
 [ "$SHORT_VERSION" = "$VERSION" ] || fail "short and machine versions differ"
 
 MICROPHONE_COPY=$(plist_read NSMicrophoneUsageDescription "$INFO_PLIST")
+SYSTEM_AUDIO_CAPTURE_COPY=$(plist_read NSAudioCaptureUsageDescription "$INFO_PLIST")
 SYSTEM_AUDIO_COPY=$(plist_read NSScreenCaptureUsageDescription "$INFO_PLIST")
 [ -n "$MICROPHONE_COPY" ] || fail "microphone usage description is missing"
+[ -n "$SYSTEM_AUDIO_CAPTURE_COPY" ] || fail "system-audio capture usage description is missing"
 [ -n "$SYSTEM_AUDIO_COPY" ] || fail "screen/system-audio usage description is missing"
 
 lipo -archs "$EXECUTABLE" | tr ' ' '\n' | grep -qx arm64 || fail "GRAF executable is not arm64-capable"
