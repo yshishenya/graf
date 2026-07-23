@@ -21,7 +21,7 @@ appears only when it changes the user's next action.
 
 **Language/Version**: Swift 6 on macOS; Python 3.13 on server; HTML/CSS/JavaScript using the existing server-rendered cabinet
 
-**Primary Dependencies**: ScreenCaptureKit and existing native capture services; SwiftUI/AppKit shell; FastAPI; SQLAlchemy 2 async; PostgreSQL; Jinja2; HTMX already vendored in the cabinet; existing Temporal cluster/worker with `temporalio[opentelemetry]==1.30.0`; `opentelemetry-sdk==1.44.0`; existing `httpx==0.28.1` for the owner-controlled LiteLLM Proxy contract; `langfuse==4.14.1` for versioned prompt/model request policy and full-content tracing; optional offline `gepa==0.1.4`; external LiteLLM stable capability baseline `1.93.0`; existing object storage and MediaScribe server boundary. No DSPy, LiteLLM, OpenAI client SDK, PayloadCodec, codec endpoint/service, key-management subsystem, or second content store is added to GRAF.
+**Primary Dependencies**: ScreenCaptureKit and existing native capture services; SwiftUI/AppKit shell; FastAPI; SQLAlchemy 2 async; PostgreSQL; Jinja2; HTMX already vendored in the cabinet; existing Temporal cluster/worker with `temporalio[opentelemetry]==1.30.0`; `opentelemetry-sdk==1.44.0`; existing `httpx==0.28.1` for the owner-controlled LiteLLM Proxy contract; `langfuse==4.14.1` for versioned prompt/model request policy and full-content tracing; optional offline `gepa==0.1.4`; external LiteLLM stable capability baseline `1.93.0`; existing object storage and MediaScribe server boundary. Prompt optimization runs in a dedicated operations-only Temporal worker with the maintenance PostgreSQL role. No DSPy, LiteLLM, OpenAI client SDK, PayloadCodec, codec endpoint/service, key-management subsystem, or second content store is added to GRAF.
 
 **Storage**: Existing v5 local recording package and persisted desktop upload queue; existing PostgreSQL meeting/outcome/access/deletion tables; additive summary-template, exact prompt/config snapshot, retained plaintext generation-call record, Temporal run-chain correlation, optimization-run provenance, and share/invitation tables; resumable GEPA artifacts remain in approved owner-controlled worker storage; no new service or independent content store
 
@@ -87,7 +87,7 @@ appears only when it changes the user's next action.
   activity, and generation observations expose full relevant content without
   duplicate generation/cost observations on replay or export retry;
 - GEPA runs only as deployment-operator-triggered durable offline work on a
-  dedicated concurrency-one task queue in the existing worker process, stores full
+  dedicated concurrency-one task queue in an operations-only worker service, stores full
   optimization artifacts in owner-controlled storage, and cannot promote the
   project-global production label without held-out gates and deployment-operator approval;
 - GEPA reflection and three metric-specific quality judges use independently
@@ -266,6 +266,7 @@ apps/server/src/twobrain_rec_server/
 │   └── outcomes.py
 ├── db/migrations/versions/0031_recording_workflow_templates_sharing.py
 ├── db/migrations/versions/0032_backfill_current_outcome_set.py
+├── db/migrations/versions/0033_prompt_optimization_maintenance.py
 ├── outcomes/
 │   ├── ai_service.py
 │   ├── generator.py
@@ -279,6 +280,7 @@ apps/server/src/twobrain_rec_server/
 │   ├── outcome_generation_workflow.py
 │   ├── prompt_optimization_workflow.py
 │   ├── prompt_rollback_workflow.py
+│   ├── prompt_optimization_worker.py
 │   ├── temporal_client.py
 │   └── worker.py
 ├── cli/prompt_optimization.py
@@ -362,10 +364,11 @@ No constitution violations require justification. Production adds the official
 Langfuse SDK and pinned OpenTelemetry support to the existing Temporal/httpx
 boundary. GEPA is optional offline-only. DSPy, LiteLLM SDK, OpenAI SDK, another
 provider abstraction, content store, codec/key service, and orchestration
-service are not added. The existing Temporal cluster
-and worker process are reused. GEPA uses a dedicated
-optimization task queue with concurrency one; only a separate service/cluster
-is deferred until measured isolation/capacity requires it. Existing
+service are not added. The existing Temporal cluster is reused. GEPA uses a
+dedicated operations-only worker service and optimization task queue with
+concurrency one; it never shares the normal recording worker or its
+credentials. A separate Temporal cluster is deferred until measured
+isolation/capacity requires it. Existing
 cabinet access, outcome generation, export, and deletion modules remain the
 owning services.
 

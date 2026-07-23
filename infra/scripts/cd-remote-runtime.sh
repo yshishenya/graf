@@ -267,7 +267,7 @@ restore_previous_services() {
   available_services="$("${compose[@]}" config --services 2>/dev/null || true)"
   rollback_build_services=()
   rollback_up_services=()
-  for service in rec-api rec-db-runtime-bootstrap rec-maintenance rec-reprocess-maintenance rec-migrate rec-minio-init rec-processing-worker; do
+  for service in rec-api rec-db-runtime-bootstrap rec-maintenance rec-reprocess-maintenance rec-prompt-optimization-worker rec-migrate rec-minio-init rec-processing-worker; do
     if grep -Fxq "$service" <<<"$available_services"; then
       rollback_build_services+=("$service")
     fi
@@ -552,6 +552,12 @@ ensure_generated_secret \
 ensure_generated_secret \
   "${TWOBRAIN_POSTGRES_MEDIA_PASSWORD_FILE:-./secrets/twobrain_postgres_media_password}" 32
 echo "runtime_db_secret_provision_result=pass"
+if ! secure_runtime_secret_file "${TWOBRAIN_POSTGRES_MAINTENANCE_PASSWORD_FILE:-./secrets/twobrain_postgres_maintenance_password}"; then
+  echo "deploy_result=blocked"
+  echo "reason=maintenance_database_secret_permissions_invalid"
+  exit 1
+fi
+echo "maintenance_database_secret_permissions_result=pass"
 ensure_generated_secret \
   "${TWOBRAIN_MINIO_MEDIA_ACCESS_KEY_FILE:-./secrets/twobrain_minio_media_access_key}" 10
 ensure_generated_secret \
@@ -588,6 +594,7 @@ fi
   rec-db-runtime-bootstrap \
   rec-maintenance \
   rec-reprocess-maintenance \
+  rec-prompt-optimization-worker \
   rec-migrate \
   rec-minio-init \
   rec-processing-worker \
