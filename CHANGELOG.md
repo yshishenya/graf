@@ -48,16 +48,23 @@
 - Langfuse span-фильтр больше не импортирует SDK внутри Temporal sandbox.
 - Ошибка проверки plaintext-снимка транскрипта теперь сохраняется как
   bounded terminal reason, а не маскируется под исчерпанную retry-политику.
+- Из предыдущего сбоя восстановлен уже существующий outcome workflow без
+  повторного вызова модели; принятую версию и сохранённый транскрипт не
+  заменяли.
 
 ### Безопасность
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Добавлен metadata-only production receipt T100 с проверкой Temporal History,
+  Generation Call и private Langfuse trace.
 
 ### Операции
 - Добавлены regression-проверки Temporal DataConverter и production smoke для
   отсутствия зависших OutcomeGenerationWorkflow/ошибок sandbox.
+- Релиз `v2026.07.23.10` выкачен на SHA
+  `028fdfb59662978faaa27507569dc8a9d39d8bba`; rollback для сохранённой
+  истории остаётся forward-only.
 
 ## [2026.07.23.7] - 2026-07-23
 

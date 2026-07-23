@@ -35,11 +35,12 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   [#4215](https://github.com/yshishenya/crisp/issues/4215). Equivalently,
   `issue number = numeric task id + 4120`.
 - After merge, production deploy, public
-  [`v2026.07.23.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.3),
+  [`v2026.07.23.10`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.10),
   installed-app verification, and the production AI observability closeout,
-  91 completed issues have verified evidence. T097-T100 are the active
-  production-regression hotfix issues and remain open until their new evidence
-  is recorded.
+  all Feature-121 implementation and validation issues have verified evidence.
+  T097-T100 are closed by follow-up PRs [#4459](https://github.com/yshishenya/crisp/pull/4459)
+  and [#4461](https://github.com/yshishenya/crisp/pull/4461); the T100 receipt
+  is recorded in the Feature-121 quickstart and current-product status.
 - Implementation/release links: PR
   [#4235](https://github.com/yshishenya/crisp/pull/4235), native purge hotfix
   [#4242](https://github.com/yshishenya/crisp/pull/4242), release prep
