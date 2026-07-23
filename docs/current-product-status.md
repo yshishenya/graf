@@ -20,9 +20,13 @@ metadata-only evidence остаются подробной историей ре
   `561c8c7323561a1009442255f94130c1536433e531e15db873dec3f669360aec`.
   Immutable synthetic train/development/held-out manifest hashes and the
   calibration gate are recorded in Scenario 16 of the Feature-121 quickstart.
-- Successful owner run `da6ac03b-470a-4612-87fb-4210bc646706` produced candidate
-  v4 (development `1.0`, held-out minimum `0.9`), then completed explicit
-  approve → promote → rollback. Forced-crash run
+- Combined owner run `9912c9b8-5433-4678-afb9-8446792b18ce` produced candidate
+  v5 (development `0.8`, held-out minimum `1.0`) at checkpoint revision `4`,
+  then killed `t057-worker-r` (exit 137); the surviving worker completed
+  explicit approve → promote → rollback. The production label was read back as
+  v3 with the expected config hash. Successful owner run
+  `da6ac03b-470a-4612-87fb-4210bc646706` independently records candidate v4
+  promotion/rollback. Forced-crash run
   `b772ab2e-c021-4a33-8ce1-4796ba019197` killed `t057-worker-l` (exit 137) after
   a checkpoint; the second worker resumed at activity attempt 2 and advanced
   checkpoint revision `1 → 5`, then rejected a `0.83` held-out score through
@@ -32,8 +36,12 @@ metadata-only evidence остаются подробной историей ре
   response content, and Temporal History retains complete plaintext
   `transcript_utf8` activity results through the default converter. Receipts
   contain only counts, byte lengths, hashes, and correlation IDs; no transcript
-  text is committed. No GRAF-owned optimizer evidence was purged during this
-  closeout, per the MVP observability policy.
+  text is committed. The combined run trace is
+  `cf2d0039497de44871811dfd02cbbab7` (25 observations, 12 generations with
+  non-empty input/output/model/usage and prompt/config metadata), and its
+  Temporal History has 74 events with two plaintext `transcript_utf8` results
+  (`74683+35265` bytes). No GRAF-owned optimizer evidence was purged during
+  this closeout, per the MVP observability policy.
 - Closeout CI after the live exercise: 608 macOS tests, ContractValidation PASS,
   2206 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1
   skipped, collection digest

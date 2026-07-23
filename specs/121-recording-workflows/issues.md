@@ -17,13 +17,15 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   Temporal History, private Langfuse, reconciler, and zero-leak evidence.
   T057/#4177 is complete: owner-approved immutable synthetic manifests and the
   human-labelled calibration pack were read back from private production
-  Langfuse; run `da6ac03b-470a-4612-87fb-4210bc646706` passed development and
-  held-out gates, approval, promotion, and rollback; and run
-  `b772ab2e-c021-4a33-8ce1-4796ba019197` proved two-worker forced-crash resume
-  (worker `t057-worker-l` exit 137, checkpoint 1 → 5, activity attempt 2) before
-  correctly failing closed on a 0.83 held-out score. Both traces and Temporal
-  histories retain complete plaintext content; the receipt contains hashes,
-  sizes, and counts only.
+  Langfuse; combined run `9912c9b8-5433-4678-afb9-8446792b18ce` reached a
+  gated candidate, survived a worker exit 137, and completed approval,
+  promotion, and rollback; run `b772ab2e-c021-4a33-8ce1-4796ba019197`
+  separately proved in-flight two-worker checkpoint/fencing resume (checkpoint
+  1 → 5, activity attempt 2) before correctly failing closed on a 0.83 held-out
+  score; and run `da6ac03b-470a-4612-87fb-4210bc646706` records an independent
+  successful promotion/rollback. All traces and Temporal histories retain
+  complete plaintext content; the receipt contains hashes, sizes, and counts
+  only.
 - Every implementation and validation task T006-T096 has exactly one canonical
   Russian issue in
   [feature:121](https://github.com/yshishenya/crisp/issues?q=is%3Aissue%20label%3Afeature%3A121).
