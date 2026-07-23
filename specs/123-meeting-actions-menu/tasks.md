@@ -148,3 +148,21 @@ story label inside story phases, and exact repository paths.
 - `git diff --check`, targeted Ruff and `node --check` passed. Ponytail review:
   lean already; no new dependency, persistence, egress, client capability
   model or unjustified abstraction remains.
+
+## Production release evidence
+
+- PR #4278 merged as `151e906dba1099bffc4b9029d918b1a054ac93ce`.
+- Release preparation PR #4279 merged as
+  `376bc07ba2a7b4fe8ded628afe5e4265c79231db`; annotated tag and GitHub Release
+  `v2026.07.23.2` point to that exact SHA.
+- Production execute ran from `codex/deploy-v202607232` and returned
+  `deploy_result=pass`, `readiness_verdict=infra_smoke_ready`,
+  `automatic_dispatch_result=pass`, `smoke_result=pass`, cleanup `pass`, and
+  public health checks `pass`. Backup/restore rehearsal passed with reference
+  `/opt/projects/2brain-rec/backups/20260723T020318Z`.
+- Remote disposable `postgres_test` RLS hardening validation passed. The
+  receipt explicitly records `live_production_probe=not_attempted`; runtime
+  database identity checks and production smoke/health checks passed.
+- Post-deploy automatic retry, backfill inventory, range playback and
+  normalization cleanup remain explicitly marked `required_post_deploy` by the
+  deploy script and are outside this UI-only feature closeout.
