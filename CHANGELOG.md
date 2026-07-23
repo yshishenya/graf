@@ -65,7 +65,8 @@
   optimization queue. Для live exercise использовать только synthetic
   manifests и operations profile; операторский CLI запускается внутри
   `rec-prompt-optimization-worker` с `TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED=true`.
-- Live production receipt 2026-07-23: runtime SHA `89fd568a`, migration head
+- Live production receipt 2026-07-23: feature implementation SHA `89fd568a`,
+  release merge SHA `8807c624`, migration head
   `0033_prompt_opt_maintenance`; successful run
   `da6ac03b-470a-4612-87fb-4210bc646706` and forced-crash recovery run
   `b772ab2e-c021-4a33-8ce1-4796ba019197` are recorded in the Feature-121

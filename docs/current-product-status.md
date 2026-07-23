@@ -8,8 +8,10 @@ metadata-only evidence остаются подробной историей ре
 
 ## Validation update (2026-07-23) — T057 prompt-optimization closeout
 
-- Production runtime now runs exact SHA `89fd568a6c8a1055f11b1f9de22f149f69fee559`
-  with migration head `0033_prompt_opt_maintenance`. The operations-only
+- Feature implementation was deployed at SHA
+  `89fd568a6c8a1055f11b1f9de22f149f69fee559`; the current release merge runs at
+  `8807c624843cf2bf9852646952610a8376686e04`, with migration head
+  `0033_prompt_opt_maintenance`. The operations-only
   optimizer worker is isolated from the normal recording worker and uses the
   maintenance role/RLS context; Temporal/API/processing/media readiness,
   smoke, migration, and restore rehearsal passed.
