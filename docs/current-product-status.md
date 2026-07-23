@@ -6,6 +6,14 @@ Date: 2026-07-23
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
+## Validation update (2026-07-23) — deletion list feedback cleanup
+
+- Список встреч после подтвержденного удаления сразу убирает строку и закрывает
+  диалог. Постоянный success/cleanup-баннер внизу списка удален: он не менял
+  следующего действия пользователя и оставлял лишнее пространство. Ошибка
+  удаления остается рядом с подтверждением, а серверная lifecycle-очистка и
+  retained observability-копии не изменены.
+
 ## Validation update (2026-07-23) — T057 prompt-optimization closeout
 
 - Feature implementation was deployed at SHA

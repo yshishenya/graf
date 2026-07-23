@@ -420,7 +420,9 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "data-row-delete-form" in page
     assert 'data-hx-post="/meetings/' in page
     assert 'name="confirmation_boundary"' in page
-    assert 'id="delete-feedback-region"' in page
+    assert 'id="delete-feedback-region"' not in page
+    assert 'data-hx-target="#delete-feedback-region"' not in page
+    assert 'data-hx-select="[data-cabinet-fragment=\'deletion-feedback\']"' not in page
     assert "Отчет удаления" not in page
     assert "data-delete-dialog" in page
     assert "Удалить запись?" in page
@@ -440,6 +442,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Снять выбор" in script
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
     assert "row.remove()" in script
+    assert '"HX-Target"' not in script
+    assert "deletion_feedback_missing" not in script
     assert "row.dataset.deletionRequested" not in script
 
 

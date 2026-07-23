@@ -7,7 +7,7 @@
 ## Deletion Truth
 
 - [x] CHK001 Does the spec distinguish accepted removal from later local, backup, dependency, and post-egress state? [Clarity, Spec §FR-009a, Edge Cases]
-- [x] CHK002 Does the owner-facing status avoid universal-erasure claims while preserving the bounded `2brain Rec` wording? [Consistency, Spec §FR-007, FR-016]
+- [x] CHK002 Does the owner-facing flow avoid universal-erasure claims while preserving the bounded `2brain Rec` wording in confirmation and errors? [Consistency, Spec §FR-007, FR-016]
 - [x] CHK003 Is the detailed lifecycle report explicitly retained for separate diagnostics rather than deleted from the system? [Completeness, Spec §FR-017]
 
 ## Privacy And Access
