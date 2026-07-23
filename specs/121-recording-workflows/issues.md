@@ -90,7 +90,7 @@ released through [PR #4511](https://github.com/yshishenya/crisp/pull/4511) as
 and deployed at exact runtime SHA
 `da3a625d96491e99159c7a80ee69a82337daefb6`. Remote backup/restore, RLS,
 migration, readiness, smoke and cleanup evidence is recorded in
-`quickstart.md`; issue #4509 can be closed. No transcript or model content is
+`quickstart.md`; issue #4509 is closed. No transcript or model content is
 included in this mapping.
 
 Issues must only be closed after their acceptance criteria and evidence are
