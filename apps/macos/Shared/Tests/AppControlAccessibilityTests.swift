@@ -373,7 +373,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertFalse(label.localizedCaseInsensitiveContains("@"))
     }
 
-    func testMeetingDetectionSettingsExposeOnlyDetectAndAsk() throws {
+    func testMeetingDetectionSettingsExposeDetectAndAskAndAutoRecordList() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent(
@@ -384,9 +384,13 @@ final class AppControlAccessibilityTests: XCTestCase {
 
         XCTAssertTrue(source.contains("ScrollView"))
         XCTAssertTrue(source.contains("Запрашивать запись"))
-        XCTAssertFalse(source.contains("ForEach(promptCapableTargets"))
-        XCTAssertFalse(source.contains("Всегда писать"))
-        XCTAssertFalse(source.contains("selectAllAutoRecordTargets"))
+        XCTAssertTrue(source.contains("Автозапись"))
+        XCTAssertTrue(source.contains("ForEach(promptCapableTargets"))
+        XCTAssertTrue(source.contains("Всегда писать") || source.contains("autoRecordSectionDetail"))
+        XCTAssertTrue(source.contains("selectAllAutoRecordTargets"))
+        XCTAssertTrue(source.contains("clearAutoRecordTargets"))
+        XCTAssertTrue(source.contains("MeetingTargetRegistryStore"))
+        XCTAssertTrue(source.contains("twoBrainRecMeetingTargetRegistryDidChange"))
         XCTAssertFalse(source.localizedCaseInsensitiveContains("diagnostic"))
     }
 

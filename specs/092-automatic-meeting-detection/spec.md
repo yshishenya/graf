@@ -7,6 +7,14 @@
 **Status**: Implemented and released foundation; production target promotion and
 live admin-browser receipt remain intentionally unclaimed
 
+> Current ownership note (2026-07-23): Feature 092 remains the registry,
+> detection, policy-gate, and target-scoped identity foundation. Feature
+> `124-restore-automatic-recording` is the current owner of the restored macOS
+> prompt UX and runtime wiring: `Автозапись` app list, per-target preference,
+> eight-second countdown, automatic start on expiry, immediate start, skip, and
+> `Всегда писать это приложение`. Do not replace those behaviors with a generic
+> detect-only prompt during later 092/119 maintenance.
+
 **Input**: User description: "091 занят. Давай 092. Новую функцию. Автоматическое
 определение, что началась новая встреча, и предлагать ее записывать. Запись
 должна подхватываться в приложениях видеоконференций и браузерах. Посмотри как
@@ -392,13 +400,15 @@ behavior, MediaScribe egress, new transcription workflows, or new deletion
 execution. It may pass trigger metadata to the existing local recording and
 upload/review flows, but it must not weaken their gates.
 
-General automatic recording for all meetings remains out of scope. A first
-release may implement a user-selected, target-scoped auto-record preference
-created from the record prompt checkbox ("always record meetings from this
-app/service"). That preference is not hidden recording: every auto-start still
-requires approved target evidence, hard safety gates, a persistent local
-indicator, one-action Stop, suppression after Stop, metadata-only evidence, and
-settings controls to disable or revoke the rule.
+General automatic recording for all meetings remains out of scope. The
+verified-target implementation is now restored by Feature 124: its prompt
+shows the eight-second countdown, starts on expiry unless skipped, starts
+immediately on `Записать сейчас`, and can create a reversible target-scoped
+rule through `Всегда писать это приложение`. That preference is not hidden
+recording: every automatic start still requires approved target evidence, hard
+safety gates, a persistent local indicator, one-action Stop, suppression after
+Stop, metadata-only evidence, and settings controls to disable or revoke the
+rule.
 
 ## Detection Model
 

@@ -54,18 +54,20 @@
 
 ### Tests For User Story 1
 
-- [X] T015 [P] [US1] Add failing readiness, silence-versus-unavailable, duplicate Start, and detect-and-ask-without-countdown/autostart tests in `apps/macos/Shared/Tests/CaptureControlV5Tests.swift`
+- [X] T015 [P] [US1] Add failing readiness, silence-versus-unavailable, duplicate Start, and Feature-121 baseline detect-and-ask tests in `apps/macos/Shared/Tests/CaptureControlV5Tests.swift`; the no-countdown assertion is historical and superseded by Feature 124.
 - [X] T016 [P] [US1] Add failing permission recovery and Russian accessibility tests in `apps/macos/Shared/Tests/SystemAudioPermissionUXTests.swift` and `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
-- [X] T017 [P] [US1] Add failing meeting-detection no-auto-start and suppression tests in `apps/macos/Shared/Tests/MeetingDetectionPolicyTests.swift`
+- [X] T017 [P] [US1] Add failing meeting-detection baseline suppression tests in `apps/macos/Shared/Tests/MeetingDetectionPolicyTests.swift`; Feature 124 owns restored target-scoped auto-record behavior.
 
 ### Implementation For User Story 1
 
 - [X] T018 [US1] Project one current readiness state/primary action and quiet healthy source summary into `apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift`
 - [X] T019 [US1] Reuse existing permission services to present separate microphone and Screen/System Audio recovery actions in `apps/macos/RecApp/Sources/Capture/DesktopPermissionOnboardingView.swift`
-- [X] T020 [US1] Keep repeated Start idempotent, remove any second active Start affordance, and replace the eight-second auto-start/countdown plus in-prompt auto-record toggle with Start/Not now detect-and-ask in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift` and `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T020 [US1] Keep repeated Start idempotent and remove any second active Start affordance. The historical replacement of the eight-second auto-start/countdown plus in-prompt auto-record toggle with Start/Not now is superseded for verified targets by Feature 124, which restores that contract in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
 - [X] T021 [US1] Make T015–T017 pass and record quickstart scenarios 1–2 in `specs/121-recording-workflows/quickstart.md`
 
-**Checkpoint**: Manual Start and detect-and-ask are independently usable; no auto-record or new audio engine exists.
+**Checkpoint**: Manual Start and the Feature-121 detect-and-ask baseline are
+independently usable; Feature 124 separately owns the restored target-scoped
+auto-record path, and no new audio engine exists.
 
 ---
 

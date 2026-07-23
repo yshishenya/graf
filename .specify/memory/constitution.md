@@ -1,6 +1,6 @@
 <!--
 Sync Impact Report
-Version change: 3.0.0 -> 4.0.0
+Version change: 4.0.0 -> 4.1.0
 Modified principles:
 - Data Boundary And Secret Discipline -> Plaintext Observability For Internal
   MVP: complete transcript and model content are intentionally retained in
@@ -10,8 +10,12 @@ Modified principles:
 - Deletion Truth And Lifecycle Accounting: meeting deletion remains truthful
   and complete inside GRAF, while Langfuse observations and Temporal History
   are explicitly retained under operator-managed platform retention.
+- Visible Consent And User Control: the approved target-scoped automatic
+  recording flow, countdown, opt-in checkbox, and native-app allowlist are
+  preserved product requirements and cannot be removed by a cleanup or UX
+  simplification without an explicit superseding feature decision.
 Added sections:
-- None.
+- None; the existing capture and consent principle is materially expanded.
 Removed sections:
 - None.
 Templates requiring updates:
@@ -19,9 +23,13 @@ Templates requiring updates:
 - ✅ updated AGENTS.md for the internal-MVP plaintext observability policy.
 - ✅ updated docs/agent-guidance/product-gates.md.
 - ✅ updated docs/prd-voice-layer-final.md AI boundary.
+- ✅ this amendment is propagated to the active recording specification,
+  current product status, and release changelog by Feature 124.
 Follow-up items:
 - Revisit encryption, redaction, and observability deletion only in a later
   stabilization feature when the operator chooses to add those controls.
+- Do not remove automatic recording behavior without a new approved feature,
+  migration/compatibility note, and explicit product-owner decision.
 -->
 # 2brain Rec Constitution
 
@@ -59,10 +67,31 @@ one-action stop path. The product MUST NOT provide user or admin settings that
 make active capture invisible. Manual start/stop MUST remain available whenever
 workspace policy permits recording.
 
+The approved target-scoped automatic-recording flow is a required product
+capability, not removable legacy. Settings MUST expose the meeting-detection
+control and a complete allowlist of verified native meeting applications. Each
+application MUST have an explicit, reversible auto-record permission. A user
+MUST be able to choose "always record this application" from the meeting
+prompt, and that choice MUST persist in the target-scoped settings.
+
+For a detected approved target without saved auto-record permission, the
+product MUST show a visible prompt with the designed countdown timer and
+automatic start at its expiry, while retaining an immediate manual start,
+dismissal, and one-action Stop. Saved auto-record permission MAY start capture
+without asking again, but the local visible indicator, one-action Stop, and all
+capture prerequisites remain mandatory. Automatic recording MUST be limited to
+approved meeting targets or explicit user-selected capture scopes and MUST NOT
+start from arbitrary system audio, media playback, notifications, music,
+videos, or non-approved apps.
+
 Assisted auto-start is allowed only as a policy-gated, user-acknowledged,
-visible, auditable feature. It MUST be limited to approved meeting targets or
-explicit user-selected capture scopes and MUST NOT start from arbitrary system
-audio, media playback, notifications, music, videos, or non-approved apps.
+visible, auditable feature. The countdown and automatic-start path MUST remain
+gated by meeting confidence, target permission, microphone/system-audio
+authorization, storage readiness, suppression state, and the current capture
+policy. A cleanup, refactor, or UX simplification MUST NOT remove the timer,
+auto-start, opt-in checkbox, or application allowlist. Removing or narrowing
+this contract requires a new approved Spec Kit feature, compatibility and
+migration notes, updated tests, and an explicit product-owner decision.
 Internal-team MVP may operate without participant-facing notice, but
 external/customer workspaces MUST select a notice/legal policy before
 recording, transcript-only capture, or assisted auto-start can be enabled.
@@ -320,4 +349,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 4.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-07-22
+**Version**: 4.1.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-07-23

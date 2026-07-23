@@ -19,7 +19,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(action, .prompt(targetID: "yandex_telemost"))
     }
 
-    func testLegacyTargetAutoRecordPreferenceStillRequiresAUserPrompt() {
+    func testTargetScopedAutoRecordReturnsAutoRecordAfterExplicitOptIn() {
         let action = MeetingDetectionPolicy().action(
             for: MeetingDetectionCandidateDecision(
                 kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
@@ -33,7 +33,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             prerequisites: MeetingDetectionCapturePrerequisites()
         )
 
-        XCTAssertEqual(action, .prompt(targetID: "yandex_telemost"))
+        XCTAssertEqual(action, .autoRecord(targetID: "yandex_telemost"))
     }
 
     func testTargetScopedAutoRecordStillPromptsWhenTargetIsUnchecked() {
@@ -139,7 +139,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(action, .suppress(reason: RecordingStartBlocker.policyDisabled.rawValue))
     }
 
-    func testRecordingPrerequisiteBlocksPromptEvenWithLegacyTargetOptIn() {
+    func testRecordingPrerequisiteBlocksAutoRecordEvenAfterTargetOptIn() {
         let prerequisite = RecordingPrerequisiteGate().evaluate(recordingPrerequisite(storageRisk: .critical))
         let action = MeetingDetectionPolicy().action(
             for: MeetingDetectionCandidateDecision(
@@ -234,6 +234,38 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(
             detector.advance(now: Date(timeIntervalSince1970: 125), registry: registry, settings: MeetingDetectionSettings()),
             [.ended(bundleID: "ru.yandex.desktop.telemost")]
+        )
+    }
+
+    func testDetectorEmitsAutoRecordEligibleForOptedInTarget() throws {
+        let registry = try MeetingDetectionPolicyTests.registry()
+        let detector = MacOSMeetingActivityDetector(debounceSeconds: 5)
+        var settings = MeetingDetectionSettings()
+        settings.targetScopedAutoRecordEnabled = true
+        settings.autoRecordTargetIds = ["yandex_telemost"]
+        let event = MacOSAudioOwnershipEvent(
+            bundleID: "ru.yandex.desktop.telemost",
+            displayName: "Yandex Telemost",
+            state: .active,
+            observedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        _ = detector.handle(event: event, registry: registry, settings: settings)
+
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 106),
+                registry: registry,
+                settings: settings
+            ),
+            [.autoRecordEligible(targetID: "yandex_telemost", bundleID: "ru.yandex.desktop.telemost")]
+        )
+        XCTAssertTrue(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 107),
+                registry: registry,
+                settings: settings
+            ).isEmpty
         )
     }
 

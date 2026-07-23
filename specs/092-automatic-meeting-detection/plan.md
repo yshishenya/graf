@@ -18,7 +18,10 @@ uses Gilb-style macOS `AudioHAL` app ownership for native app detection.
 Browser meeting detection is planned as macOS browser metadata plus calendar or
 join intent; browser extensions remain future optional adapters. First prompt
 capability is limited to verified targets such as Zoom and Yandex Telemost, with
-target-scoped auto-record only after explicit user opt-in from a prompt.
+target-scoped auto-record only after explicit user opt-in from a prompt. The
+current macOS prompt/list owner is Feature 124, which preserves the eight-second
+countdown, automatic expiry start, immediate start, skip, and per-target
+settings controls while reusing this plan's registry and prerequisite gates.
 
 ## Technical Context
 

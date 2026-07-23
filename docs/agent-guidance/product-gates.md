@@ -20,6 +20,24 @@ Use this file with `.specify/memory/constitution.md`,
 - Active capture must always have a persistent local visible indicator and a
   one-action stop path.
 - No user or admin setting may make active capture invisible.
+- Target-scoped automatic recording is a protected MVP capability. The active
+  contract is owned by Feature `124-restore-automatic-recording` and uses the
+  verified native macOS meeting-app registry, the `Автозапись` settings page,
+  one reversible checkbox per prompt-capable app, and `Выбрать все` / `Снять
+  все` actions. The preference is stored by exact target identity, never as a
+  global “record everything” switch.
+- A first-time prompt for a verified target shows the designed eight-second
+  countdown and starts recording when it expires. `Записать сейчас` starts
+  immediately, `Пропустить` suppresses this prompt, and `Всегда писать это
+  приложение` persists the target-scoped rule for future detections. These
+  controls must remain visible, accessible, reversible, and routed through the
+  existing capture prerequisites, workspace policy, local indicator, and
+  one-action Stop gates.
+- Removing or materially weakening the target list, per-app permission,
+  countdown, automatic start, or prompt checkbox requires a new approved Spec
+  Kit feature with migration/compatibility notes, focused regression tests, and
+  explicit product-owner approval. A later recording-flow refactor must not
+  treat these behaviors as legacy or optional cleanup.
 
 ## Audio, Artifacts, And Diagnostics
 
