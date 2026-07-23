@@ -84,9 +84,14 @@ deployed at exact runtime SHA `1e14004836bc069522002615839e3985586012ff`, and
 closed after the production smoke/log receipt recorded in the Feature-121
 quickstart. No transcript or model content is included in this mapping.
 
-T103 is implemented in the follow-up outcome recovery change and awaits the
-release PR/production receipt before issue closure. No transcript or model
-content is included in this mapping.
+T103 was implemented in [PR #4510](https://github.com/yshishenya/crisp/pull/4510),
+released through [PR #4511](https://github.com/yshishenya/crisp/pull/4511) as
+[`v2026.07.23.17`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.17),
+and deployed at exact runtime SHA
+`da3a625d96491e99159c7a80ee69a82337daefb6`. Remote backup/restore, RLS,
+migration, readiness, smoke and cleanup evidence is recorded in
+`quickstart.md`; issue #4509 can be closed. No transcript or model content is
+included in this mapping.
 
 Issues must only be closed after their acceptance criteria and evidence are
 verified. Matching task checkboxes must only be marked complete after the same
