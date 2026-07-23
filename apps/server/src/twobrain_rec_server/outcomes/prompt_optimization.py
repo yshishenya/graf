@@ -92,6 +92,25 @@ async def _run_thread_until_quiescent(
         return result
 
 
+def _schedule_activity_heartbeat(
+    loop: asyncio.AbstractEventLoop,
+    heartbeat: Callable[[object], None],
+    details: Mapping[str, object],
+) -> None:
+    """Bridge a worker-thread callback to Temporal's activity event loop."""
+
+    if loop.is_closed():
+        return
+    payload = dict(details)
+
+    def send() -> None:
+        with suppress(Exception):
+            heartbeat(payload)
+
+    with suppress(RuntimeError):
+        loop.call_soon_threadsafe(send)
+
+
 async def _complete_async_operation_until_quiescent(
     operation: Awaitable[Any],
     *,
@@ -2546,6 +2565,11 @@ async def run_gepa_prompt_optimization_activity(
     from twobrain_rec_server.storage.minio_client import get_storage
 
     settings = get_settings()
+    heartbeat_loop = asyncio.get_running_loop()
+
+    def heartbeat(details: Mapping[str, object]) -> None:
+        _schedule_activity_heartbeat(heartbeat_loop, activity.heartbeat, details)
+
     resolved = payload["resolved_contract"]
     if not isinstance(resolved, Mapping):
         raise PromptOptimizationError("optimization_contract_invalid")
@@ -2585,8 +2609,7 @@ async def run_gepa_prompt_optimization_activity(
         observed_call_keys.add(call_key)
         observations.append(dict(value))
         _publish_optimization_observation(langfuse, run_id=run_id, value=value)
-        with suppress(Exception):
-            activity.heartbeat({"phase": value["phase"], "call_key": value["call_key"]})
+        heartbeat({"phase": value["phase"], "call_key": value["call_key"]})
 
     budget_value = resolved["budget"]
     budget = OptimizationBudget(
@@ -2668,14 +2691,13 @@ async def run_gepa_prompt_optimization_activity(
 
                     asyncio.run(advance())
                     next_revision[0] += 1
-                    with suppress(Exception):
-                        activity.heartbeat(
-                            {
-                                "phase": "checkpoint",
-                                "iteration": iteration,
-                                "revision": current_revision,
-                            }
-                        )
+                    heartbeat(
+                        {
+                            "phase": "checkpoint",
+                            "iteration": iteration,
+                            "revision": current_revision,
+                        }
+                    )
                 except Exception as exc:
                     checkpoint_failures.append(exc)
                     # GEPA's callback dispatcher is observational and swallows
@@ -2765,6 +2787,11 @@ async def validate_heldout_prompt_candidate_activity(
     from twobrain_rec_server.storage.minio_client import get_storage
 
     settings = get_settings()
+    heartbeat_loop = asyncio.get_running_loop()
+
+    def heartbeat(details: Mapping[str, object]) -> None:
+        _schedule_activity_heartbeat(heartbeat_loop, activity.heartbeat, details)
+
     resolved = payload["resolved_contract"]
     optimized = payload["optimization_result"]
     if not isinstance(resolved, Mapping) or not isinstance(optimized, Mapping):
@@ -2809,8 +2836,7 @@ async def validate_heldout_prompt_candidate_activity(
         observed_call_keys.add(call_key)
         observations.append(dict(value))
         _publish_optimization_observation(langfuse, run_id=run_id, value=value)
-        with suppress(Exception):
-            activity.heartbeat({"phase": value["phase"], "call_key": value["call_key"]})
+        heartbeat({"phase": value["phase"], "call_key": value["call_key"]})
 
     ledger = _PersistentLedgerBridge(
         settings=settings,

@@ -15,7 +15,8 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Temporal heartbeat из GEPA callback теперь маршалится через event loop
+  activity; устранён unawaited-coroutine шум при работе из worker-thread.
 
 ### Безопасность
 - _Пока нет записей._
