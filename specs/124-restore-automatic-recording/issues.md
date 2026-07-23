@@ -40,3 +40,16 @@ rerun затронут четырьмя новыми внешними Feature-12
 Все issues выше закрыты после выполнения задач, validation evidence и явного
 closeout по правилам `docs/agent-guidance/tracker-policy.md`; #4316 содержит
 общий closeout для T021 и T022.
+
+## Release и production closeout
+
+- Feature 124 выпущена как [`v2026.07.23.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.9)
+  и развернута на exact SHA `5d5b8428239f9f1439cefc63e11bd1b07e3f4279`.
+- Backup/restore rehearsal, migration head `0033_prompt_opt_maintenance`,
+  production smoke/cleanup, worker/API/Temporal readiness и automatic dispatch
+  прошли; итоговый `readiness_verdict=infra_smoke_ready`.
+- Production RLS read-only metadata probe прошёл: 77/77 таблиц с RLS и FORCE,
+  failed tables: none; live/ready health оба HTTP 200.
+- Предыдущий tag-кандидат `v2026.07.23.8` остановлен fail-closed на
+  несовместимой с production migration lineage и superseded `.9`; его не
+  публиковали как production release.

@@ -6,7 +6,7 @@ Date: 2026-07-23
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
-## Validation update (2026-07-23, Feature 124 branch)
+## Validation update (2026-07-23, Feature 124 release/production)
 
 - Feature `124-restore-automatic-recording` restores the previously designed
   target-scoped meeting workflow: the `Автозапись` settings page with the full
@@ -16,15 +16,27 @@ metadata-only evidence остаются подробной историей ре
   The implementation reuses Feature 092/119 registry and capture gates; it
   does not revive the removed audio-routing implementation or enable arbitrary
   audio auto-recording.
-- This remains a local Feature-124 implementation with no release, deployment,
-  or production-acceptance claim.
+- Feature 124 released as [`v2026.07.23.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.9)
+  and deployed to production at exact SHA
+  `5d5b8428239f9f1439cefc63e11bd1b07e3f4279`. The previous `.8` candidate
+  stopped fail-closed on an outdated migration lineage and is superseded; no
+  production rollout was claimed from that candidate.
+- Production deploy evidence is complete: backup and restore rehearsal passed,
+  migration head is `0033_prompt_opt_maintenance`, production smoke/cleanup,
+  API and worker readiness, Temporal readiness and automatic dispatch passed,
+  and the final verdict is `infra_smoke_ready`.
+- Production RLS read-only metadata verification passed: `77/77` covered tables
+  have RLS enabled and forced, `failed_table_names=none`, and live production
+  enforcement is enabled. Public `/api/v1/health/live` and
+  `/api/v1/health/ready` both returned HTTP 200.
 - Post-review focused validation is complete: policy 16/16, capture 39/39
   (including cancelled-countdown, prompt-disappearance and trigger-coalescing
-  regressions), accessibility 18/18, `ContractValidation: PASS`; full
-  `infra/scripts/ci-local.sh` passed with macOS 609/609, server 2191 passed / 1
+  regressions), accessibility 18/18, `ContractValidation: PASS`. The pre-merge
+  canonical local CI baseline passed with macOS 609/609, server 2191 passed / 1
   skipped, strict PostgreSQL 41 passed / 1 skipped, lint/compile/compose/evidence
-  scans passing. This evidence is local metadata only; no production RLS probe,
-  deploy, or release was run for Feature 124.
+  scans passing. Release used the documented local-CI bypass for the existing
+  host-load-sensitive debug timing assertion; all mandatory remote release and
+  production gates passed.
 
 - Historical Feature `121-recording-workflows` реализует единый спокойный
   recording flow:

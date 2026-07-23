@@ -92,12 +92,23 @@ evidence and all focused recording/privacy/accessibility checks green.
   countdown, prompt disappearance and one-trigger-per-output-batch assertions.
 - Post-review focused accessibility: 18/18 tests passed.
 - `ContractValidation`: PASS.
-- `infra/scripts/ci-local.sh`: PASS — macOS guard/build/all tests 609/609;
-  server parallel 2191 passed / 1 skipped; strict PostgreSQL/RLS 41 passed / 1
-  skipped; lint, Python compile, compose and metadata-only deployment scan
-  passed. The production RLS probe was not attempted because this is a local
-  validation run without a production database; that boundary is expected and
-  is not a release/deploy claim.
+- Pre-merge `infra/scripts/ci-local.sh`: PASS — macOS guard/build/all tests
+  609/609; server parallel 2191 passed / 1 skipped; strict PostgreSQL/RLS 41
+  passed / 1 skipped; lint, Python compile, compose and metadata-only
+  deployment scan passed. The production RLS probe was intentionally not part
+  of that local run. Release used the documented local-CI bypass for an
+  existing host-load-sensitive debug timing assertion; mandatory remote gates
+  remained enabled.
+- Release/deploy receipt: [`v2026.07.23.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.9)
+  deployed exact SHA `5d5b8428239f9f1439cefc63e11bd1b07e3f4279`; backup,
+  restore rehearsal, migration, smoke/cleanup, worker/API/Temporal readiness
+  and automatic dispatch passed, with `readiness_verdict=infra_smoke_ready`.
+- Production RLS read-only metadata receipt: `production_rls_state_result=pass`,
+  `environment=live_production`, `alembic_revision=0033_prompt_opt_maintenance`,
+  `covered_table_count=77`, `rls_enabled_and_forced_count=77`,
+  `failed_table_names=none`; live and ready health endpoints both returned
+  HTTP 200. Candidate `v2026.07.23.8` was stopped fail-closed on the migration
+  gate and superseded by `.9`.
 - Feature-124 issue mapping was canonical and validated before closeout; all
   24 mapped issues are now closed only after this evidence. A later
   repository-wide canon rerun is blocked by four unrelated, newly opened

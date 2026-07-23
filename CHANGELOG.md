@@ -9,19 +9,26 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature 124: восстановлен target-scoped workflow автозаписи встреч для
+  проверенных native macOS-приложений — страница `Автозапись` со списком,
+  настройкой каждого приложения и действиями `Выбрать все` / `Снять все`.
 
 ### Изменено
-- _Пока нет записей._
+- В prompt снова доступны восьмисекундный countdown, автоматический старт по
+  истечении, `Записать сейчас`, `Пропустить` и чекбокс `Всегда писать это
+  приложение`; настройка сохраняется по точному target ID.
 
 ### Исправлено
-- _Пока нет записей._
+- Закрытый или исчезнувший prompt больше не может позднее запустить запись;
+  повторные detector events не создают второй recording trigger.
 
 ### Безопасность
-- _Пока нет записей._
+- Target-scoped opt-in и прежние capture/privacy gates сохранены; production RLS
+  read-only verification после deploy прошёл для 77/77 таблиц.
 
 ### Документы
-- _Пока нет записей._
+- Constitution, PRD, product status и Feature-124 Spec Kit artifacts закрепляют
+  timer, automatic start, app list и opt-in checkbox как обязательный контракт.
 
 ### Операции
 - _Пока нет записей._
@@ -47,7 +54,10 @@
 ### Операции
 - Ветка релиза синхронизирована с актуальной production lineage, включая
   миграции `0032/0033`; предыдущий кандидат `v2026.07.23.8` остановлен
-  fail-closed на migration gate и не публикуется как production release.
+  fail-closed на migration gate и superseded финальным `v2026.07.23.9`.
+- Финальный deploy прошёл: backup/restore rehearsal, migration, smoke/cleanup,
+  readiness и public health/ready gates успешны; production работает на
+  `5d5b8428239f9f1439cefc63e11bd1b07e3f4279`.
 
 ## [2026.07.23.8] - 2026-07-23
 

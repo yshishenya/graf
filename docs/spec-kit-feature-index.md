@@ -4,9 +4,9 @@
 **Проверяемая база**: `origin/master` (`3724b596`)
 **Lane**: release/production closeout; tracker и installed-app receipts сверены.
 
-На текущей ветке дополнительно ведётся Feature 124; она ещё не входит в
-`origin/master` и поэтому показана отдельной строкой ниже. Её active product
-и runtime truth находится в `docs/current-product-status.md` и артефактах
+Feature 124 выпущена и развернута с текущей feature-ветки, но ещё не входит в
+`origin/master`, поэтому показана отдельной строкой ниже. Её active product и
+runtime truth находится в `docs/current-product-status.md` и артефактах
 `specs/124-restore-automatic-recording/`.
 
 ## Как читать этот реестр
@@ -106,7 +106,7 @@ receipt и current-product-status одним change set.
 | [119](../specs/119-expand-meeting-app-registry/spec.md) | Реализована и merged через PR #4079 | T008 остаётся открытым: live post-deploy receipt требуется после enablement. |
 | [120](../specs/120-transcript-export/spec.md) | Реализована и merged через PR #4084 | Все шесть форматов, backend и web-cabinet UI валидированы; T059 / #4083 остаётся representative-reviewer gate перед general release. |
 | [121](../specs/121-recording-workflows/spec.md) | Реализована, merged, released, deployed и установлена как `v2026.07.22.4` | Recording/review/outcome/share/deletion infrastructure работает fail-closed на SHA `3724b596`; T050, T057 и T089 остаются открыты до LiteLLM credentials и live three-store/two-worker evidence. |
-| [124](../specs/124-restore-automatic-recording/spec.md) | Реализована и post-review validated на текущей ветке; commit/release pending | Восстановлены native target-scoped auto-record, список приложений, checkbox, восьмисекундный countdown и automatic start; cancellation/deduplication fixes проверены focused tests и полным локальным CI. |
+| [124](../specs/124-restore-automatic-recording/spec.md) | Реализована, post-review validated, released и deployed как `v2026.07.23.9` | Восстановлены native target-scoped auto-record, список приложений, checkbox, восьмисекундный countdown и automatic start; production работает на exact SHA `5d5b8428239f`; RLS 77/77 и health/ready receipts есть. `.8` остановлен fail-closed и superseded. |
 
 ## Реальные открытые задачи во всём архиве
 
