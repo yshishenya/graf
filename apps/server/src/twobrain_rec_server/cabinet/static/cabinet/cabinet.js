@@ -497,12 +497,27 @@
       };
       const candidateErrorCopy = (code) => ({
         summary_transcript_too_large: "Расшифровка слишком большая для этого действия.",
+        summary_transcript_unavailable: "Расшифровка пока недоступна. Обновите страницу и попробуйте снова.",
+        summary_source_unavailable: "Источник итогов пока недоступен. Обновите страницу и попробуйте снова.",
+        transcript_unavailable: "Расшифровка пока недоступна. Обновите страницу и попробуйте снова.",
+        source_unavailable: "Источник итогов пока недоступен. Обновите страницу и попробуйте снова.",
         summary_transcript_snapshot_invalid: "Расшифровка изменилась. Обновите страницу и попробуйте снова.",
         summary_transcript_changed: "Расшифровка изменилась. Обновите страницу и запросите новый вариант.",
         outcome_transcript_changed: "Расшифровка изменилась. Обновите страницу и запросите новый вариант.",
         summary_generation_unavailable: "Новый вариант сейчас недоступен. Текущие итоги сохранены.",
         summary_prompt_resolution_conflict: "Настройки формата изменились. Обновите страницу и попробуйте снова.",
+        summary_prompt_invalid: "Настройки выбранного формата недоступны. Выберите другой формат.",
+        summary_prompt_snapshot_corrupt: "Настройки выбранного формата недоступны. Выберите другой формат.",
+        summary_prompt_not_selected: "Не удалось определить настройки формата. Выберите формат ещё раз.",
+        prompt_invalid: "Настройки выбранного формата недоступны. Выберите другой формат.",
+        summary_generation_in_progress: "Другой вариант уже готовится. Обновите статус через несколько секунд.",
+        generation_in_progress: "Другой вариант уже готовится. Обновите статус через несколько секунд.",
+        generation_call_not_completed: "Ответ модели не был сохранён полностью. Обновите статус.",
+        generation_call_content_incomplete: "Ответ модели не был сохранён полностью. Обновите статус.",
+        generation_call_content_hash_mismatch: "Не удалось проверить сохранённый ответ. Обновите статус.",
+        content_unavailable: "Ответ модели не был сохранён полностью. Обновите статус.",
         summary_revision_conflict: "Итоги уже изменились. Обновите страницу.",
+        revision_changed: "Итоги уже изменились. Обновите страницу.",
         result_invalid: "Модель вернула неподтверждённый результат. Можно попробовать другой вариант.",
         source_changed: "Расшифровка изменилась. Обновите страницу и запросите новый вариант.",
         template_unavailable: "Этот формат больше недоступен. Выберите другой формат.",
@@ -510,9 +525,15 @@
         temporary_unavailable: "Сервис временно недоступен. Текущие итоги сохранены.",
         prompt_unavailable: "Настройки формата временно недоступны. Текущие итоги сохранены.",
         provider_unavailable: "Сервис генерации временно недоступен. Текущие итоги сохранены.",
+        summary_request_unavailable: "Не удалось связаться с сервисом итогов. Текущие итоги сохранены.",
+        summary_poll_unavailable: "Не удалось обновить статус нового варианта. Текущие итоги сохранены.",
+        summary_candidate_not_found: "Новый вариант больше недоступен. Обновите страницу.",
+        summary_generation_forbidden: "У вас больше нет доступа к созданию итогов.",
+        generation_failed: "Не удалось проверить новый вариант. Обновите страницу.",
         meeting_deleting: "Встреча удаляется. Новый вариант создать нельзя.",
         meeting_deleted: "Встреча удалена.",
-        cancelled: "Подготовка нового варианта отменена."
+        cancelled: "Подготовка нового варианта отменена.",
+        dismissed: "Вариант закрыт. Текущие итоги сохранены."
       }[code] || "Не удалось подготовить новый вариант. Текущие итоги сохранены.");
       const retryCandidateAction = (candidate = {}) => {
         if (activeTemplate && (candidate.retryable || candidate.next_action === "new_candidate")) {
@@ -529,12 +550,25 @@
           "summary_transcript_changed",
           "outcome_transcript_changed",
           "summary_prompt_resolution_conflict",
-          "summary_template_unavailable"
+          "summary_template_unavailable",
+          "summary_transcript_unavailable",
+          "summary_source_unavailable",
+          "summary_prompt_invalid",
+          "summary_prompt_snapshot_corrupt",
+          "summary_prompt_not_selected",
+          "summary_generation_in_progress",
+          "generation_call_not_completed",
+          "generation_call_content_incomplete",
+          "generation_call_content_hash_mismatch",
+          "summary_candidate_not_found",
+          "summary_generation_forbidden"
         ].includes(code)) {
           return { text: "Обновить страницу", action: () => window.location.reload(), primary: true };
         }
         if ([
           "summary_generation_unavailable",
+          "summary_request_unavailable",
+          "summary_poll_unavailable",
           "langfuse_prompt_unavailable",
           "prompt_snapshot_export_unavailable",
           "litellm_endpoint_unavailable"
@@ -555,7 +589,11 @@
           body: body === undefined ? undefined : JSON.stringify(body)
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.code || "summary_request_failed");
+        if (!response.ok) {
+          const error = new Error(payload.code || (response.status >= 500 ? "summary_request_unavailable" : "summary_request_failed"));
+          error.status = response.status;
+          throw error;
+        }
         return payload;
       };
       const clearPreview = () => {
@@ -676,17 +714,25 @@
       const pollCandidate = async (candidate) => {
         try {
           const response = await fetch(candidate.poll_url, { credentials: "same-origin", cache: "no-store" });
-          if (!response.ok) throw new Error("summary_poll_failed");
-          const next = await response.json();
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            const error = new Error(payload.code || (response.status >= 500 ? "summary_poll_unavailable" : "summary_candidate_not_found"));
+            error.status = response.status;
+            throw error;
+          }
+          const next = payload;
           renderCandidate(next);
           if (next.state === "generating") {
             pollingTimer = window.setTimeout(() => pollCandidate(next), 1200);
           }
-        } catch (_error) {
+        } catch (error) {
           setBusy(false);
           if (pendingLabel) pendingLabel.hidden = true;
-          const retry = retryCandidateAction({ retryable: true });
-          showStatus("Не удалось обновить новый вариант. Текущие итоги сохранены.", "failed", retry ? [retry] : []);
+          const code = error instanceof Error ? error.message : "summary_poll_unavailable";
+          const retry = ["summary_poll_unavailable", "summary_request_unavailable"].includes(code)
+            ? retryCandidateAction({ retryable: true })
+            : candidateErrorAction(code, activeTemplate);
+          showStatus(candidateErrorCopy(code), "failed", retry ? [retry] : []);
         }
       };
       const requestCandidate = async (template) => {
@@ -716,7 +762,9 @@
         } catch (error) {
           setBusy(false);
           if (pendingLabel) pendingLabel.hidden = true;
-          const code = error instanceof Error ? error.message : "";
+          const code = error instanceof Error && error.message && error.message !== "summary_request_failed"
+            ? error.message
+            : "summary_request_unavailable";
           const action = candidateErrorAction(code, template);
           showStatus(candidateErrorCopy(code), "failed", action ? [action] : []);
         }
@@ -753,14 +801,19 @@
         name: option.dataset.templateName || option.textContent.trim()
       });
       const templateFromCandidate = (candidate) => {
-        const option = options().find(
-          (item) => item.dataset.templateKey === (candidate.template_key || "")
-        );
+        const candidateKey = candidate.template_key || "";
+        const candidateId = candidate.template_id || null;
+        const candidateVersion = Number(candidate.template_version || "1");
+        const option = options().find((item) => (
+          item.dataset.templateKey === candidateKey
+          && Number(item.dataset.templateVersion || "1") === candidateVersion
+          && (item.dataset.templateId || null) === candidateId
+        ));
         if (option) return templateFrom(option);
-        return candidate.template_key ? {
-          id: candidate.template_id || null,
-          key: candidate.template_key,
-          version: Number(candidate.template_version || "1"),
+        return candidateKey ? {
+          id: candidateId,
+          key: candidateKey,
+          version: candidateVersion,
           name: candidate.template_name || "Личный формат"
         } : null;
       };
@@ -892,6 +945,11 @@
         if (current) {
           window.clearTimeout(pollingTimer);
           applyServerCandidate(current);
+          return;
+        }
+        const latestFailure = candidates.find((candidate) => candidate.state === "failed");
+        if (latestFailure) {
+          applyServerCandidate(latestFailure);
           return;
         }
         resumeCachedCandidate();

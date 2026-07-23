@@ -100,6 +100,14 @@ screen/state map is [ux-ia.md](./ux-ia.md).
   transient failures offer `Повторить`; schema-invalid, stale, deleted,
   authorization, configuration, and ambiguous-provider failures explain the
   next action without a blind retry.
+- There is at most one queued/generating candidate per meeting/source revision.
+  A request for the same pinned format reuses it; a request for another format
+  returns `409 summary_generation_in_progress` so the owner sees one clear
+  progress path instead of competing hidden work.
+- Explicit retry after bounded Temporal retry exhaustion reuses the failed
+  candidate and deterministic workflow ID, clears only the retryable failure
+  marker, and records a fresh Temporal run correlation. A structured-output
+  validation failure never reuses the failed candidate.
 
 ### Session 2026-07-23 — legacy rows and dispatch recovery
 
@@ -119,6 +127,9 @@ screen/state map is [ux-ia.md](./ux-ia.md).
   never starts a second Temporal run for a candidate that already has a stored
   outcome set. A reused Temporal run ID is stored only when supplied, and a
   missing run ID never erases an existing correlation.
+- Candidate prompt/config validation failures are terminal and bounded; they
+  do not spend all Temporal retry attempts. The owner receives a format or
+  refresh action rather than the generic retry message.
 
 ## User Scenarios & Testing
 

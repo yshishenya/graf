@@ -8,6 +8,7 @@ def test_cabinet_full_page_response_does_not_set_hx_vary() -> None:
 
     assert isinstance(response, HTMLResponse)
     assert "hx-request" not in response.headers.get("vary", "").lower()
+    assert response.headers["cache-control"] == "private, no-store"
 
 
 def test_cabinet_hx_response_sets_vary_header() -> None:
