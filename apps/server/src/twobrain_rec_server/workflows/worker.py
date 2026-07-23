@@ -22,19 +22,6 @@ from twobrain_rec_server.outcomes.ai_service import (
     resolve_candidate_prompt,
     snapshot_candidate_transcript,
 )
-from twobrain_rec_server.outcomes.prompt_optimization import (
-    authorize_prompt_optimization_action_activity,
-    authorize_prompt_rollback_action_activity,
-    finalize_prompt_optimization_activity,
-    finalize_prompt_optimization_history_materialization_activity,
-    promote_prompt_candidate_activity,
-    publish_prompt_candidate_activity,
-    resolve_prompt_optimization_contract_activity,
-    rollback_prompt_production_label_activity,
-    run_gepa_prompt_optimization_activity,
-    snapshot_prompt_optimization_history_chunk_activity,
-    validate_heldout_prompt_candidate_activity,
-)
 from twobrain_rec_server.processing import reasons, store
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
@@ -47,15 +34,10 @@ from twobrain_rec_server.workflows.outcome_generation_workflow import (
     OutcomeObservabilityReconcilerWorkflow,
 )
 from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
-from twobrain_rec_server.workflows.prompt_optimization_workflow import (
-    PromptOptimizationWorkflow,
-)
-from twobrain_rec_server.workflows.prompt_rollback_workflow import PromptRollbackWorkflow
 from twobrain_rec_server.workflows.temporal_client import (
     connect_temporal_client,
     outcome_generation_task_queue,
     processing_worker_identity,
-    prompt_optimization_task_queue,
 )
 
 
@@ -539,6 +521,10 @@ async def run_worker() -> None:
     from temporalio.worker import Worker
 
     settings = get_settings()
+    if settings.prompt_optimization_enabled:
+        raise RuntimeError(
+            "prompt optimization must run in the operations-only worker"
+        )
     processing_client = await connect_temporal_client(settings)
     processing_activity = activity.defn(name="run_processing_pipeline_activity")(
         run_processing_pipeline_activity
@@ -576,24 +562,8 @@ async def run_worker() -> None:
         activities=[processing_activity, invitation_activity],
         identity=processing_worker_identity(),
     )
-    optimizer_activities = [
-        activity.defn(name=callable_.__name__)(callable_)
-        for callable_ in (
-            resolve_prompt_optimization_contract_activity,
-            run_gepa_prompt_optimization_activity,
-            snapshot_prompt_optimization_history_chunk_activity,
-            finalize_prompt_optimization_history_materialization_activity,
-            validate_heldout_prompt_candidate_activity,
-            publish_prompt_candidate_activity,
-            authorize_prompt_optimization_action_activity,
-            promote_prompt_candidate_activity,
-            finalize_prompt_optimization_activity,
-            authorize_prompt_rollback_action_activity,
-            rollback_prompt_production_label_activity,
-        )
-    ]
     workers = [processing_worker]
-    if settings.outcome_generation_enabled or settings.prompt_optimization_enabled:
+    if settings.outcome_generation_enabled:
         traced_client = await connect_temporal_client(
             settings,
             identity=f"{processing_worker_identity()}:ai",
@@ -610,17 +580,6 @@ async def run_worker() -> None:
                     ],
                     activities=outcome_activities,
                     identity=f"{processing_worker_identity()}:outcomes",
-                )
-            )
-        if settings.prompt_optimization_enabled:
-            workers.append(
-                Worker(
-                    traced_client,
-                    task_queue=prompt_optimization_task_queue(settings),
-                    workflows=[PromptOptimizationWorkflow, PromptRollbackWorkflow],
-                    activities=optimizer_activities,
-                    identity=f"{processing_worker_identity()}:prompt-optimization",
-                    max_concurrent_activities=1,
                 )
             )
     await asyncio.gather(*(worker.run() for worker in workers))

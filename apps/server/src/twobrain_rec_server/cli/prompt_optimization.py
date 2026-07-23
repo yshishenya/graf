@@ -11,7 +11,10 @@ from sqlalchemy import delete, select
 
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import PromptOptimizationCallLedger, PromptOptimizationRun
-from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+from twobrain_rec_server.db.session import (
+    create_prompt_optimization_database,
+    verify_prompt_optimization_database_identity,
+)
 from twobrain_rec_server.observability.langfuse import create_langfuse_client, shutdown_langfuse
 from twobrain_rec_server.outcomes.prompt_optimization import (
     ADAPTER_VERSION,
@@ -78,9 +81,14 @@ async def run_command(
     settings = settings or get_settings()
     if not settings.prompt_optimization_enabled:
         raise RuntimeError("prompt optimization is disabled")
-    engine = create_engine(settings)
-    sessionmaker = create_sessionmaker(engine)
+    actor_id = str(getattr(args, "actor_id", None) or "graf-prompt-optimization-cli")[:120]
+    engine, sessionmaker = create_prompt_optimization_database(
+        settings,
+        actor_id=actor_id,
+        reason_category="operator_cli",
+    )
     try:
+        await verify_prompt_optimization_database_identity(sessionmaker)
         if args.command == "start":
             return await _start(args, settings=settings, sessionmaker=sessionmaker)
         if args.command == "inspect":

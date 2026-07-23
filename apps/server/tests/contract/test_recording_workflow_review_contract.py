@@ -44,8 +44,9 @@ def test_meeting_player_is_outside_switchable_content_and_truth_stays_contextual
     assert html.index('data-detail-panel="outcomes"') < html.index("data-playback-shell")
     assert html.index('data-detail-panel="recording"') < html.index("data-playback-shell")
     assert 'id="meeting-share-host"' in html
-    assert '<dialog class="panel meeting-context-panel meeting-context-dialog"' in html
+    assert 'class="meeting-actions-menu"' in html
     assert 'data-meeting-context-panel="more"' in html
+    assert 'id="meeting-details-dialog"' in html
     assert "Медиа-ревизия" in html
     assert "Файлы" in html
     assert 'role="menu" aria-label="Действия со встречей"' in html

@@ -4,7 +4,7 @@ from html import escape
 
 from twobrain_rec_server.api.schemas import ArtifactEgressState, MeetingReviewResponse
 from twobrain_rec_server.cabinet.rendering_shared import _base_path, _ui_text
-from twobrain_rec_server.cabinet.templates import render_template
+from twobrain_rec_server.cabinet.templates import render_icon, render_template
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 
@@ -101,6 +101,19 @@ def _render_artifact_state(review: MeetingReviewResponse, artifact: ArtifactEgre
     """
 
 
+def _render_delete_action(review: MeetingReviewResponse) -> str:
+    if review.governance.delete.state != "available":
+        return ""
+    return f"""
+      <button type="button" class="meeting-action-item meeting-action-item--danger"
+              role="menuitem" tabindex="-1" data-meeting-delete-dialog-open
+              aria-haspopup="dialog" aria-controls="meeting-delete-dialog">
+        <span class="meeting-action-item__icon">{render_icon("trash")}</span>
+        <span class="meeting-action-item__body"><strong>Удалить встречу…</strong></span>
+      </button>
+    """
+
+
 def _render_delete_confirmation(
     review: MeetingReviewResponse,
     *,
@@ -112,27 +125,23 @@ def _render_delete_confirmation(
     request_action = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-requests"
     report_href = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
     return f"""
-      <div class="delete-confirmation">
-        <button type="button" class="danger-button" data-meeting-delete-dialog-open
-                aria-haspopup="dialog" aria-controls="meeting-delete-dialog">Удалить встречу…</button>
-        <dialog id="meeting-delete-dialog" class="delete-dialog" data-meeting-delete-dialog
-                aria-labelledby="meeting-delete-title">
-          <form method="post" action="{escape(request_action)}" data-meeting-delete-form>
-            <input type="hidden" name="_csrf" value="{escape(csrf_token or "")}">
-            <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
-            <h2 id="meeting-delete-title" tabindex="-1" data-meeting-delete-dialog-title>Удалить встречу?</h2>
-            <p>Встреча и доступ к ней будут удалены везде, чем управляет GRAF.</p>
-            <p class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</p>
-            <p class="muted">Полные записи Generation Call, наблюдения Langfuse и Temporal History удалены не будут: они остаются по политике хранения оператора.</p>
-            <p class="muted">Резервные копии, локальные буферы, данные внешних сервисов и уже переданные копии отражаются отдельно в отчёте.</p>
-            <a class="mini-link" href="{report_href}">{escape(_ui_text("Report"))}</a>
-            <div class="dialog-actions">
-              <button type="button" data-meeting-delete-dialog-cancel>Отмена</button>
-              <button type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить встречу</button>
-            </div>
-          </form>
-        </dialog>
-      </div>
+      <dialog id="meeting-delete-dialog" class="delete-dialog" data-meeting-delete-dialog
+              aria-labelledby="meeting-delete-title">
+        <form method="post" action="{escape(request_action)}" data-meeting-delete-form>
+          <input type="hidden" name="_csrf" value="{escape(csrf_token or "")}">
+          <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
+          <h2 id="meeting-delete-title" tabindex="-1" data-meeting-delete-dialog-title>Удалить встречу?</h2>
+          <p>Встреча и доступ к ней будут удалены везде, чем управляет GRAF.</p>
+          <p class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</p>
+          <p class="muted">Полные записи Generation Call, наблюдения Langfuse и Temporal History удалены не будут: они остаются по политике хранения оператора.</p>
+          <p class="muted">Резервные копии, локальные буферы, данные внешних сервисов и уже переданные копии отражаются отдельно в отчёте.</p>
+          <a class="mini-link" href="{report_href}">{escape(_ui_text("Report"))}</a>
+          <div class="dialog-actions">
+            <button type="button" data-meeting-delete-dialog-cancel>Отмена</button>
+            <button type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить встречу</button>
+          </div>
+        </form>
+      </dialog>
     """
 
 

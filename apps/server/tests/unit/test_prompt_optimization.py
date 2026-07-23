@@ -401,8 +401,11 @@ def _install_prompt_transition_activity_fakes(
             return None
 
     monkeypatch.setattr(config_module, "get_settings", lambda: SimpleNamespace())
-    monkeypatch.setattr(session_module, "create_engine", lambda _settings: Engine())
-    monkeypatch.setattr(session_module, "create_sessionmaker", lambda _engine: lambda: Session())
+    monkeypatch.setattr(
+        session_module,
+        "create_prompt_optimization_database",
+        lambda _settings: (Engine(), lambda: Session()),
+    )
     monkeypatch.setattr(langfuse_module, "create_langfuse_client", lambda _settings: client)
     monkeypatch.setattr(langfuse_module, "shutdown_langfuse", lambda _client: None)
     monkeypatch.setattr(storage_module, "get_storage", lambda _settings: storage)

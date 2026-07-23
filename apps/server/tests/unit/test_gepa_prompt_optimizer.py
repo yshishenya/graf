@@ -25,6 +25,7 @@ from twobrain_rec_server.outcomes.prompt_optimization import (
     SyntheticExample,
     SyntheticManifest,
     _run_thread_until_quiescent,
+    _schedule_activity_heartbeat,
     calibrate_judge,
     pack_gepa_checkpoint,
     persist_prompt_optimization_history,
@@ -130,6 +131,28 @@ class _FakeLedger:
         if not row or row.reservation.fence != fence or row.reservation.status != "reserved":
             raise PromptOptimizationError("optimization_activity_fenced")
         return row
+
+
+@pytest.mark.anyio
+async def test_worker_thread_heartbeat_is_scheduled_on_activity_loop() -> None:
+    loop = asyncio.get_running_loop()
+    delivered = asyncio.Event()
+    heartbeats: list[dict[str, object]] = []
+
+    def heartbeat(details: object) -> None:
+        assert isinstance(details, dict)
+        heartbeats.append(details)
+        delivered.set()
+
+    await asyncio.to_thread(
+        _schedule_activity_heartbeat,
+        loop,
+        heartbeat,
+        {"phase": "checkpoint", "revision": 4},
+    )
+    await asyncio.wait_for(delivered.wait(), timeout=1)
+
+    assert heartbeats == [{"phase": "checkpoint", "revision": 4}]
 
 
 @pytest.mark.anyio

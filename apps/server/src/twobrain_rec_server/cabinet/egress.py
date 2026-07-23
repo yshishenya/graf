@@ -9,7 +9,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from anyio import to_thread
-from sqlalchemy import case, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -181,6 +181,11 @@ async def content_export_capabilities(
         meeting_id=meeting.id,
         processing_result_id=result.id if result is not None else None,
     )
+    outcome_matches_result = (
+        outcome_set is not None
+        and result is not None
+        and outcome_set.processing_result_id == result.id
+    )
     summary_blocked = _policy_blocked_state(
         "summary", policy.summary_download, access, required_action="export"
     )
@@ -188,6 +193,11 @@ async def content_export_capabilities(
         summary = ContentExportReadiness(state="denied", reason=summary_blocked.reason)
     elif outcome_set is None:
         summary = ContentExportReadiness(state="missing", reason="stored_summary_missing")
+    elif not outcome_matches_result:
+        summary = ContentExportReadiness(
+            state="missing",
+            reason="stored_summary_revision_stale",
+        )
     elif outcome_set.status in {"available", "partial"} and not outcome_set.content_hash:
         summary = ContentExportReadiness(state="failed", reason="stored_summary_revision_unpinned")
     elif outcome_set.status in {"available", "partial"}:
@@ -210,7 +220,10 @@ async def content_export_capabilities(
     )
     return ContentExportCapabilityResponse(
         processing_result_id=result.id if result else None,
-        outcome_set_id=outcome_set.id if outcome_set else None,
+        # Keep the accepted pointer as the UI CAS token even when a newer
+        # processing result makes the stored summary temporarily stale.
+        # Export readiness remains fail-closed via ``stored_summary_revision_stale``.
+        outcome_set_id=outcome_set.id if outcome_set is not None else None,
         transcript=transcript,
         summary=summary,
         combined=combined,
@@ -429,32 +442,22 @@ async def current_outcome_set(
     meeting_id: UUID,
     processing_result_id: UUID | None,
 ) -> MeetingOutcomeSet | None:
-    if processing_result_id is None:
-        return None
     return await db.scalar(
         select(MeetingOutcomeSet)
+        .join(Meeting, Meeting.current_outcome_set_id == MeetingOutcomeSet.id)
         .where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == meeting_id,
             MeetingOutcomeSet.workspace_id == workspace_id,
             MeetingOutcomeSet.meeting_id == meeting_id,
-            MeetingOutcomeSet.processing_result_id == processing_result_id,
             MeetingOutcomeSet.lifecycle_state == "active",
-        )
-        .order_by(
-            case(
-                (
-                    MeetingOutcomeSet.status.in_(
-                        {
-                            OutcomeSetStatus.AVAILABLE.value,
-                            OutcomeSetStatus.PARTIAL.value,
-                        }
-                    ),
-                    0,
-                ),
-                else_=1,
+            MeetingOutcomeSet.revision_state == "accepted",
+            MeetingOutcomeSet.status.in_(
+                {
+                    OutcomeSetStatus.AVAILABLE.value,
+                    OutcomeSetStatus.PARTIAL.value,
+                }
             ),
-            MeetingOutcomeSet.generated_at.desc().nullslast(),
-            MeetingOutcomeSet.created_at.desc(),
-            MeetingOutcomeSet.id.desc(),
         )
         .execution_options(populate_existing=True)
     )

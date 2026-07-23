@@ -12,6 +12,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, seed_cabinet_meetings
 from tests.fixtures.cabinet_access import (
     add_workspace_user,
@@ -189,8 +190,8 @@ def test_combined_policy_is_composed_fail_closed_from_component_policies(
     ("outcome_status", "summary_state", "combined_state"),
     [
         ("partial", "partial", "available"),
-        ("generating", "processing", "missing"),
-        ("failed", "failed", "missing"),
+        ("generating", "missing", "missing"),
+        ("failed", "missing", "missing"),
     ],
 )
 def test_summary_capability_preserves_stored_partial_processing_and_failed_truth(
@@ -217,7 +218,10 @@ def test_summary_capability_preserves_stored_partial_processing_and_failed_truth
 
     assert capability.status_code == 200
     payload = capability.json()
-    assert payload["outcome_set_id"] == str(outcome_set_id)
+    if outcome_status == "partial":
+        assert payload["outcome_set_id"] == str(outcome_set_id)
+    else:
+        assert payload["outcome_set_id"] is None
     assert payload["summary"]["state"] == summary_state
     assert payload["combined"]["state"] == combined_state
     if outcome_status == "partial":
@@ -563,6 +567,122 @@ def test_new_generation_does_not_hide_current_saved_summary(client) -> None:
     assert capability["combined"]["state"] == "available"
 
 
+def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(
+        client,
+        seeds.ready_id,
+        transcript_download="allowed",
+        summary_download="allowed",
+    )
+    accepted_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+
+    async def seed_newer_result():
+        async with client.app_state["sessionmaker"]() as db:
+            current = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
+            )
+            assert current is not None
+            current_segments = (
+                await db.scalars(
+                    select(TranscriptSegment)
+                    .where(TranscriptSegment.processing_result_id == current.id)
+                    .order_by(TranscriptSegment.sequence.asc())
+                )
+            ).all()
+            newer = ProcessingResult(
+                meeting_id=current.meeting_id,
+                media_revision_id=current.media_revision_id,
+                workspace_id=current.workspace_id,
+                mediascribe_job_id=current.mediascribe_job_id,
+                result_version=current.result_version + 1,
+                status="imported",
+                transcript_status="available",
+                diarization_status=current.diarization_status,
+                summary_status=current.summary_status,
+                language=current.language,
+                segment_count=current.segment_count,
+                diarization_segment_count=current.diarization_segment_count,
+                source_result_hash="newer-result-hash",
+                imported_at=datetime.now(UTC),
+            )
+            db.add(newer)
+            await db.flush()
+            db.add_all(
+                [
+                    TranscriptSegment(
+                        processing_result_id=newer.id,
+                        meeting_id=segment.meeting_id,
+                        workspace_id=segment.workspace_id,
+                        sequence=segment.sequence,
+                        start_seconds=segment.start_seconds,
+                        end_seconds=segment.end_seconds,
+                        text=segment.text,
+                        source_role=segment.source_role,
+                        source_role_original=segment.source_role_original,
+                    )
+                    for segment in current_segments
+                ]
+            )
+            await db.commit()
+            return newer.id
+
+    newer_result_id = asyncio.run(seed_newer_result())
+    capability = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+    ).json()
+
+    assert capability["processing_result_id"] == str(newer_result_id)
+    assert capability["transcript"]["state"] == "available"
+    assert capability["summary"] == {
+        "state": "missing",
+        "reason": "stored_summary_revision_stale",
+    }
+    assert capability["combined"]["state"] == "missing"
+    assert capability["outcome_set_id"] == str(accepted_id)
+
+    page = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
+    assert page.status_code == 200
+    assert f'data-current-outcome-set-id="{accepted_id}"' in page.text
+
+    client.app.state.settings.outcome_generation_enabled = True
+    temporal = FakeTemporalClient()
+    client.app.state.outcome_temporal_client = temporal
+    candidate = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/summary-candidates",
+        headers=auth_headers(),
+        json={
+            "template_key": "graf-meeting-minutes-v1",
+            "template_id": None,
+            "template_version": 1,
+            "expected_current_outcome_set_id": str(accepted_id),
+        },
+    )
+    assert candidate.status_code == 202, candidate.text
+    assert candidate.json()["current_outcome_set_id"] == str(accepted_id)
+    assert len(temporal.starts) == 1
+
+    denied = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+        json={
+            "content_scope": "summary",
+            "format": "json",
+            "processing_result_id": str(newer_result_id),
+            "outcome_set_id": str(accepted_id),
+        },
+    )
+    assert denied.status_code == 409
+    assert denied.json()["code"] == "export_unavailable"
+    assert "content-disposition" not in denied.headers
+    assert any(
+        event.event_type == "content_export_denied"
+        and event.policy_reason == "stored_summary_revision_stale"
+        for event in audit_events(client, seeds.ready_id)
+    )
+
+
 def test_summary_without_content_hash_is_not_exportable_as_a_pinned_revision(client) -> None:
     seeds = seed_cabinet_meetings(client)
     set_artifact_policy(
@@ -803,9 +923,13 @@ async def _seed_stored_summary(
             content_hash=f"fixture-summary-hash-{generator_version}",
             lifecycle_state="active",
             generated_at=datetime.now(UTC) if status in {"available", "partial"} else None,
+            revision_state="accepted" if status in {"available", "partial"} else None,
         )
         db.add(outcome_set)
         await db.flush()
+        if status in {"available", "partial"}:
+            outcome_set.accepted_at = outcome_set.generated_at
+            meeting.current_outcome_set_id = outcome_set.id
         db.add_all(
             [
                 MeetingOutcomeItem(

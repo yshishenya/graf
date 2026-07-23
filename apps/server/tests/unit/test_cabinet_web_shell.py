@@ -420,7 +420,9 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "data-row-delete-form" in page
     assert 'data-hx-post="/meetings/' in page
     assert 'name="confirmation_boundary"' in page
-    assert 'id="delete-feedback-region"' in page
+    assert 'id="delete-feedback-region"' not in page
+    assert 'data-hx-target="#delete-feedback-region"' not in page
+    assert 'data-hx-select="[data-cabinet-fragment=\'deletion-feedback\']"' not in page
     assert "Отчет удаления" not in page
     assert "data-delete-dialog" in page
     assert "Удалить запись?" in page
@@ -440,6 +442,8 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "Снять выбор" in script
     assert "const shouldSelectAll = selectedRows().length !== rows.length" in script
     assert "row.remove()" in script
+    assert '"HX-Target"' not in script
+    assert "deletion_feedback_missing" not in script
     assert "row.dataset.deletionRequested" not in script
 
 
@@ -1044,6 +1048,25 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Удалить встречу…" not in page
     assert "Request deletion" not in page
     assert "Удалить встречу?" not in page
+
+
+def test_detail_shell_hides_more_when_no_action_or_detail_is_available() -> None:
+    review = _review()
+    review.content_exports = None
+    review.governance.download.state = "disabled"
+    review.governance.delete.state = "planned"
+    review.artifacts = []
+    review.activity.items = []
+    review.speakers.speakers = []
+    review.provenance.media_revision_id = None
+    review.provenance.local_media_revision_id = None
+    review.calendar_context = None
+    review.deletion_truth_copy = ""
+
+    page = render_meeting_detail_page(review)
+
+    assert 'data-meeting-panel-open="more"' not in page
+    assert 'id="meeting-context-more"' not in page
 
 
 def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
@@ -2005,7 +2028,7 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert "Итоги" in page
     assert "недоступно" in page
     assert page.count("<optgroup") == 4
-    assert "Файл останется на компьютере после удаления встречи из GRAF." in page
+    assert "Файл останется на компьютере после удаления встречи из GRAF." not in page
     assert "SAFE_TRANSCRIPT_TEXT" not in page
     assert "data-export-status" in page
     assert 'aria-live="polite"' in page

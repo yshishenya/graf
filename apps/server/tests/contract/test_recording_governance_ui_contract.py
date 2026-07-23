@@ -9,15 +9,29 @@ POLICY_RENDERING = SERVER_ROOT / "src/twobrain_rec_server/cabinet/review_policy_
 CABINET_JS = SERVER_ROOT / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
 
 
-def test_more_menu_keeps_export_audio_download_and_delete_contextual() -> None:
+def test_more_menu_is_compact_ordered_and_keeps_details_separate() -> None:
     source = GOVERNANCE_FRAGMENT.read_text(encoding="utf-8")
 
     assert 'data-meeting-context-panel="more"' in source
+    assert 'class="meeting-actions-menu"' in source
+    assert 'role="menu"' in source
     assert "Экспортировать…" in source
+    assert "Расшифровка или итоги" in source
+    assert "Скачать аудио…" in source
+    assert "Исходная запись" in source
+    assert "Сведения о встрече" in source
+    assert "{{ delete_action }}" in source
+    assert source.index("Экспортировать…") < source.index("Скачать аудио…")
+    assert source.index("Скачать аудио…") < source.index("Сведения о встрече")
+    assert source.index("Сведения о встрече") < source.index("{{ delete_action }}")
+    assert 'data-meeting-context-panel="details"' in source
+    assert 'aria-labelledby="meeting-details-title"' in source
     assert "{{ artifacts }}" in source
     assert "{{ delete_confirmation }}" in source
+    assert source.index('role="menu"') < source.index('id="meeting-details-dialog"')
+    assert source.index('id="meeting-details-dialog"') < source.index("{{ artifacts }}")
     assert "governance" not in source.casefold()
-    assert "disabled" not in source
+    assert '<h2 id="meeting-context-more-title">Ещё</h2>' not in source
 
 
 def test_delete_confirmation_is_a_focused_named_dialog_with_retained_observability_copy() -> None:
@@ -44,4 +58,6 @@ def test_more_menu_hides_unavailable_capability_actions_instead_of_rendering_a_c
     assert "{% if content_export_available %}" in source
     assert "{% if audio_download_available %}" in source
     assert 'role="menu"' in source
+    assert "{{ artifacts }}" not in source[source.index('role="menu"') : source.index('id="meeting-details-dialog"')]
+    assert "Активность" not in source[source.index('role="menu"') : source.index('id="meeting-details-dialog"')]
     assert "capability matrix" not in source.casefold()

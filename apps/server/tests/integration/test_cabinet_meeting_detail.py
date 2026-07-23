@@ -157,8 +157,8 @@ def test_098_calendar_roster_stays_separate_from_transcript_speakers_and_permiss
         assert transcript_match is not None
         context_block = context_match.group(0)
         transcript_panel = transcript_match.group(1)
-        speaker_start = response.text.index("<h3>Спикеры</h3>")
-        speaker_end = response.text.index("<h3>Активность</h3>", speaker_start)
+        speaker_start = response.text.index(">Спикеры</h3>")
+        speaker_end = response.text.index(">Активность</h3>", speaker_start)
         speaker_panel = response.text[speaker_start:speaker_end]
 
         assert response.text.index(context_block) < speaker_start
@@ -375,6 +375,8 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "016-meeting-detail" not in ready.text
     assert "Поделиться" in ready.text
     assert 'id="meeting-context-more"' in ready.text
+    assert 'class="meeting-actions-menu"' in ready.text
+    assert 'id="meeting-details-dialog"' in ready.text
     assert "Файлы" in ready.text
     assert 'class="playback-bar detail-playback"' in ready.text
     assert f'src="/api/v1/cabinet/meetings/{seeds.ready_id}/playback"' in ready.text
@@ -419,6 +421,8 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
     assert "Файлы" in response.text
     assert "Поделиться" in response.text
     assert "Ещё" in response.text
+    assert 'class="meeting-actions-menu"' in response.text
+    assert 'id="meeting-details-dialog"' in response.text
     assert "Record live" not in response.text
     assert "Krisp Devices" not in response.text
 

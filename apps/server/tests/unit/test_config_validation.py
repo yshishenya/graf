@@ -58,6 +58,15 @@ def test_database_url_accepts_postgresql_async_driver() -> None:
     assert settings.database_url.startswith("postgresql+asyncpg://")
 
 
+def test_prompt_optimization_database_url_requires_maintenance_role() -> None:
+    with pytest.raises(ValidationError, match="twobrain_rec_maintenance"):
+        Settings(
+            prompt_optimization_database_url=(
+                "postgresql+asyncpg://twobrain_rec_app:secret@db:5432/twobrain_rec"
+            )
+        )
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
@@ -77,7 +86,8 @@ def test_prompt_optimization_accepts_complete_ai_runtime_without_outcomes(tmp_pa
     lite_key = tmp_path / "litellm-key"
     public_key = tmp_path / "langfuse-public-key"
     secret_key = tmp_path / "langfuse-secret-key"
-    for path in (lite_key, public_key, secret_key):
+    maintenance_db_key = tmp_path / "maintenance-db-key"
+    for path in (lite_key, public_key, secret_key, maintenance_db_key):
         path.write_text("test", encoding="utf-8")
 
     settings = Settings(
@@ -86,6 +96,11 @@ def test_prompt_optimization_accepts_complete_ai_runtime_without_outcomes(tmp_pa
         temporal_address="temporal:7233",
         litellm_base_url="https://litellm.example.test",
         litellm_api_key_file=lite_key,
+        prompt_optimization_database_url=(
+            "postgresql+asyncpg://twobrain_rec_maintenance:__POSTGRES_PASSWORD__@"
+            "postgres.example.test:5432/twobrain_rec"
+        ),
+        prompt_optimization_postgres_password_file=maintenance_db_key,
         langfuse_base_url="https://langfuse.example.test",
         langfuse_public_key_file=public_key,
         langfuse_secret_key_file=secret_key,

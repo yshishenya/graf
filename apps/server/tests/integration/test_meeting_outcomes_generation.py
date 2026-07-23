@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import importlib
 
+import pytest
 from sqlalchemy import select
 
 from tests.fixtures.cabinet import create_outcome_ready_meeting
 from twobrain_rec_server.db.models import (
+    Meeting,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
@@ -51,6 +53,111 @@ def test_outcome_generation_is_idempotent_and_stores_source_evidence(client) -> 
     assert all(item.workspace_id for item in items)
     assert all(item.source_refs_json for item in items if item.state == "available")
     assert {item.category for item in items} >= {"summary", "key_points", "evidence"}
+
+
+def test_first_baseline_outcome_becomes_the_accepted_meeting_revision(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client)
+    service = _service_module()
+
+    async def generate_and_repair() -> tuple:
+        async with client.app_state["sessionmaker"]() as db:
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            meeting = await db.get(Meeting, meeting_id)
+            assert result is not None
+            assert meeting is not None
+            outcome_set = await service.ensure_outcomes_for_processing_result(db, result=result)
+            await db.commit()
+            first = (
+                meeting.current_outcome_set_id,
+                outcome_set.revision_state,
+                outcome_set.accepted_at is not None,
+                outcome_set.requested_by_user_id,
+                outcome_set.accepted_by_user_id,
+                outcome_set.template_key,
+                outcome_set.template_version,
+                outcome_set.output_language,
+                outcome_set.detail_level,
+            )
+
+            meeting.current_outcome_set_id = None
+            outcome_set.revision_state = None
+            outcome_set.accepted_at = None
+            await db.commit()
+
+            repaired = await service.ensure_outcomes_for_processing_result(db, result=result)
+            await db.commit()
+            return first, (
+                meeting.current_outcome_set_id,
+                repaired.revision_state,
+                repaired.accepted_at is not None,
+                repaired.requested_by_user_id,
+                repaired.accepted_by_user_id,
+                repaired.template_key,
+                repaired.template_version,
+                repaired.output_language,
+                repaired.detail_level,
+            ), outcome_set.id
+
+    first, repaired, outcome_set_id = asyncio.run(generate_and_repair())
+
+    expected = (
+        outcome_set_id,
+        "accepted",
+        True,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    assert first == expected
+    assert repaired == expected
+
+
+def test_deletion_state_is_checked_under_the_meeting_lock_before_outcome_mutation(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client)
+    service = _service_module()
+
+    async def attempt_while_deletion_commits() -> int:
+        sessionmaker = client.app_state["sessionmaker"]
+        async with sessionmaker() as locker, sessionmaker() as worker:
+            result_a = await locker.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            meeting_a = await locker.scalar(
+                select(Meeting)
+                .where(Meeting.id == meeting_id)
+                .with_for_update()
+            )
+            result_b = await worker.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert result_a is not None
+            assert result_b is not None
+            assert meeting_a is not None
+            meeting_a.deletion_state = "requested"
+
+            blocked = asyncio.create_task(
+                service.ensure_outcomes_for_processing_result(worker, result=result_b)
+            )
+            await asyncio.sleep(0.05)
+            assert not blocked.done(), "generation must wait for the Meeting deletion lock"
+            await locker.commit()
+
+            with pytest.raises(RuntimeError, match="meeting_deletion_active"):
+                await asyncio.wait_for(blocked, timeout=5)
+            rows = (
+                await worker.scalars(
+                    select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id)
+                )
+            ).all()
+            await worker.rollback()
+            return len(rows)
+
+    assert asyncio.run(attempt_while_deletion_commits()) == 0
 
 
 def test_outcome_generation_preserves_not_inferable_category_truth(client) -> None:

@@ -104,4 +104,5 @@ RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "operator_diagnostics",
     "playback_normalization_inventory",
     "playback_normalization_dispatch",
+    "prompt_optimization",
 }

@@ -33,11 +33,14 @@ Temporary list UI state shown when `Selection Set` is not empty.
 - Shows disabled download action with later-copy.
 - Shows enabled delete action.
 
-## Owner Delete Feedback
+## Owner Delete Outcome
 
-Short-lived metadata-only status shown after a deletion request is accepted.
+The accepted row is removed from the active list and the confirmation dialog
+closes. There is no persistent success or cleanup status region.
 
-- Confirms that the selected row was removed from the active list.
-- States that GRAF-controlled cleanup may continue.
-- Contains no report link, lifecycle table, object key, transcript, or private data.
-- Does not replace the existing server lifecycle report used by support or operators.
+- Failure remains visible in the confirmation dialog so the affected row can be
+  retried.
+- The owner flow contains no report link, lifecycle table, object key,
+  transcript, or private data.
+- The existing server lifecycle report remains available to support and
+  operators through its separate diagnostic path.

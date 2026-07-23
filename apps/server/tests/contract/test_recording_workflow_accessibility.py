@@ -35,6 +35,7 @@ def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> Non
     share = _source(SHARE_DIALOG)
     governance = _source(GOVERNANCE_DIALOG)
     policy = _source(POLICY_RENDERING)
+    rendering = _source(RENDERING)
     script = _source(JAVASCRIPT)
 
     assert 'aria-labelledby="share-dialog-title"' in share
@@ -42,8 +43,13 @@ def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> Non
     assert 'role="combobox"' in share
     assert 'aria-autocomplete="list"' in share
     assert 'role="listbox"' in share
-    assert 'aria-labelledby="meeting-context-more-title"' in governance
+    assert 'aria-labelledby="meeting-details-title"' in governance
     assert 'aria-modal="true"' in governance
+    assert 'aria-haspopup="menu"' in rendering
+    assert 'aria-controls="meeting-context-more"' in rendering
+    assert 'aria-expanded="false"' in rendering
+    assert 'role="menu"' in governance
+    assert 'role="menuitem"' in governance
     assert 'aria-labelledby="meeting-delete-title"' in policy
     assert 'tabindex="-1" data-meeting-delete-dialog-title' in policy
     assert 'tabindex="1"' not in "".join((share, governance, policy))
@@ -55,6 +61,21 @@ def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> Non
     assert "opener.focus({ preventScroll: true })" in script
     assert "returnFocus.focus({ preventScroll: true })" in script
     assert 'dialog.querySelector("[data-meeting-delete-dialog-title]")?.focus' in script
+
+
+def test_more_menu_has_complete_keyboard_model_and_visible_return_target() -> None:
+    governance = _source(GOVERNANCE_DIALOG)
+    script = _source(JAVASCRIPT)
+    css = _source(STYLES)
+
+    for key in ("ArrowUp", "ArrowDown", "Home", "End", "Escape"):
+        assert key in script
+    assert "menuItems" in script
+    assert "restoreMeetingActionFocus" in script
+    assert 'data-meeting-panel-open="details"' in governance
+    assert "data-meeting-panel-close" in governance
+    assert ".meeting-action-item" in css
+    assert "min-height: 48px" in css
 
 
 def test_format_selector_exposes_one_labelled_listbox_with_bounded_quick_choices() -> None:

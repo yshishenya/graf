@@ -329,13 +329,24 @@ remain visible as an intentional MVP tradeoff.
 
 ## Scenario 16: GEPA Candidate, Operator Promotion, And Rollback
 
+The live exercise is production/operator-only. Start the operations-only
+container explicitly; never enable the optimizer flag on
+`rec-processing-worker`:
+
+```sh
+docker compose --profile operations run --rm \
+  -e TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED=true \
+  rec-prompt-optimization-worker \
+  python -m twobrain_rec_server.cli.prompt_optimization <command> ...
+```
+
 1. Create immutable synthetic train/development/held-out manifests in approved
    owner-controlled test storage and start one deployment-operator-authorized
-   `PromptOptimizationWorkflow` pinned to the current production prompt/config
+   `PromptOptimizationWorkflow` from the Compose `operations` profile, pinned to the current production prompt/config
    plus exact `graf/prompt-optimization/reflection` and three
    `graf/evaluation/meeting-outcome-*` prompt/config versions. Prove a workspace
    admin and ordinary cabinet request cannot start or approve it.
-2. Run two eligible workers, crash one after a model call and during a GEPA
+2. Run two eligible operations-only workers (never the normal recording worker), crash one after a model call and during a GEPA
    iteration, then confirm hash/schema/prefix-verified restore of the latest
    complete server-generated checkpoint on the other worker. Verify the new
    activity fence blocks a stale worker write, durable-success entries are
@@ -441,7 +452,92 @@ invitation tokens, or private user identity.
 | 13 | PASS | Feature-120 export composition and deletion races block new inference/publication/acceptance, preserve retained observability truth, and expose one contextual More surface. |
 | 14 | PASS | The connected 12-state prototype, narrow native window, keyboard/focus, reduced-motion, increased-contrast, two-tab, modal/listbox, Russian-copy, and clean-room checks pass. Visual artifacts are in `prototype/design-qa*.png`; no real meeting or identity content is present. |
 | 15 | LIVE PASS | Production read-back confirmed one exact plaintext transcript across the retained Generation Call, Langfuse generation, and Temporal History; exact input/output, usage, cost, privacy, release, and correlation checks passed. The abandoned reconciler child completed and the response-bearing backlog returned to zero. |
-| 16 | AUTOMATED PASS; live exercise OPEN | Optional GEPA `0.1.4` adapter, immutable synthetic manifests, persisted fenced ledger, checkpoint restore, budget/deadline, held-out gating, exact unlabelled candidate, operator promotion, rollback, cancellation reconciliation, and bounded purge pass focused tests. T057 remains open until owner-approved immutable train/development/held-out manifests, the human-labelled calibration pack, and a real two-worker forced-crash GEPA promotion/rollback exercise exist. |
+| 16 | LIVE PASS | Optional GEPA `0.1.4` adapter, immutable synthetic manifests, persisted fenced ledger, checkpoint restore, budget/deadline, held-out gating, exact unlabelled candidate, operator promotion, rollback, cancellation reconciliation, and bounded purge pass focused tests. The owner-approved production exercise used the private Langfuse prompt `graf/meeting-outcome/t057-synthetic` v3, immutable train/development/held-out manifests (one example each; hashes are recorded below), two operations-only workers, and the configured LiteLLM route. Combined run `9912c9b8-5433-4678-afb9-8446792b18ce` reached candidate v5 (development 0.8, held-out minimum 1.0), checkpoint revision 4, then killed `t057-worker-r` with exit 137; the surviving `t057-worker-s` completed approve → promote → rollback to v3. Separate run `b772ab2e-c021-4a33-8ce1-4796ba019197` proves in-flight activity retry/fencing: after checkpoint 1, the killed worker resumed at activity attempt 2 and advanced to revision 5; its held-out 0.83 was rejected by the immutable 0.9 gate (fail-closed). The earlier `da6ac03b-470a-4612-87fb-4210bc646706` independently records a successful v4 promotion/rollback. All three runs retain complete plaintext model-call content in Langfuse and complete plaintext `transcript_utf8` activity results in Temporal History; no transcript text is printed in this evidence. The stable-interceptor limitation remains documented, and no JEPA/DSPy dependency is present. |
+
+### T057 live receipt (metadata-only)
+
+- Source prompt: `graf/meeting-outcome/t057-synthetic` production v3;
+  production config hash `561c8c7323561a1009442255f94130c1536433e531e15db873dec3f669360aec`.
+- Immutable synthetic manifests (one example per split): train
+  `f7580ad9daadd918b9b5ae31917531ba3e3e0a6a95efe83b60674698ebdaa650`,
+  development `7bf2f1b2b8840cd399461e5e6cae392b58673483c59c46419dd386feda5e66db`,
+  held-out `5e958a9964e77387d936caa2f6bb4ba9ffe35fc438335e653405301932287960`.
+- Successful run `da6ac03b-470a-4612-87fb-4210bc646706`: checkpoint revision 3,
+  checkpoint hash `dd1ed99612c19ce58c2cfeb53d5d52a8c6de56a48ccd3ad745a49c6a47cf89b7`,
+  23 succeeded ledger calls, candidate v4, development 1.0, held-out minimum
+  0.9, then operator approval, promotion, and rollback.
+- Forced-crash run `b772ab2e-c021-4a33-8ce1-4796ba019197`: worker
+  `t057-worker-l` exit 137; checkpoint revisions advanced 1 → 5 and resumed
+  ledger rows reached activity attempt 2. Held-out minimum 0.83 was rejected by
+  the immutable 0.9 gate, leaving no candidate to promote.
+- Combined crash/promotion/rollback run `9912c9b8-5433-4678-afb9-8446792b18ce`:
+  checkpoint revision 4, checkpoint hash
+  `6884deb5c4257fb7052f0e554331d5e66a5a50c14d598fb1ea20f4bd8a601a99`, 12
+  succeeded ledger calls, candidate v5, development 0.8, held-out minimum 1.0.
+  Worker `t057-worker-r` exited 137 after the checkpoint; `t057-worker-s`
+  completed the gated approve → promote → rollback sequence. The production
+  label was read back as v3 with the recorded config hash.
+- Langfuse trace IDs are `cfa0f784c0fa6674a1fb79b206b0ade7` (successful) and
+  `bb7ab4bd1f893daffc3d6d710e2badc5` (crash recovery). The traces contain 23
+  and 33 generation observations respectively; every generation has non-empty
+  input and output, prompt/config metadata, and usage fields. Content is retained
+  in the private project but intentionally omitted from this receipt.
+- Combined run Langfuse trace `cf2d0039497de44871811dfd02cbbab7` contains 25
+  observations, including 12 generations; all 12 have non-empty input, output,
+  model, usage details, prompt/config metadata, and run correlation metadata.
+- Temporal optimization histories contain 78 and 59 events respectively. Each
+  has three plaintext activity results with the `transcript_utf8` field: evolution
+  chunks plus held-out, with decoded plaintext byte counts (successful:
+  196608+8417+35793; crash recovery: 196608+52001+35163). This is a read-back
+  of the default Temporal converter, not an encrypted or redacted artifact.
+- Combined run Temporal History contains 74 events and two plaintext activity
+  results with `transcript_utf8` (decoded byte lengths `74683+35265`), read back
+  through the default converter without printing content.
+- The operator CLI does not purge these runs: per the MVP observability policy,
+  Langfuse and Temporal plaintext history is retained and no GRAF-owned evidence
+  was deleted during closeout.
+- Closeout validation after the live exercise: 608 macOS tests, ContractValidation
+  PASS, 2207 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed /
+  1 skipped, collection digest
+  `bd7ebd520e7d5a4e318b1d8820911d0f1a389b762fb71e365a500bb0607ac54c`, Ruff,
+  compile, Compose, and deployment-evidence scan PASS. The local destructive RLS
+  probe remained correctly blocked because no disposable `RLS_TEST_DATABASE_URL`
+  was supplied; the production RLS/readiness gate passed during deployment. The
+  worker-thread heartbeat bridge regression test also passed.
+
+### Accepted-summary pointer hotfix — T096 / #4253 (2026-07-23)
+
+The production-shaped regression where a format selection returned `409
+summary_revision_conflict` was traced to legacy extractive outcomes with a
+missing `Meeting.current_outcome_set_id`. The additive migration
+`0032_outcome_pointer` ranks only active, non-deleting legacy extractive rows,
+sets the pointer atomically, marks the selected row accepted, and is safe to
+run twice; it leaves template provenance fields unset. Runtime baseline
+generation now takes the Meeting lock before outcome mutation, and AI candidate
+reservation, completion, and accept/reject use the same Meeting → attempt lock
+order as deletion.
+
+The regression contract covers the complete user path: rendered
+`data-current-outcome-set-id` remains the accepted CAS token, selecting a
+non-Auto built-in starts exactly one Temporal workflow with the requested
+template, and a newer processing result makes summary/combined export missing
+with reason `stored_summary_revision_stale`. A malicious mixed-revision export
+returns 409, records a denial, and emits no attachment or content bytes. The
+two-session deletion test proves generation waits for and then observes a
+committed deletion state.
+
+Validation evidence: focused PostgreSQL suite `45 passed`; canonical
+`infra/scripts/ci-local.sh` passed with 608 macOS tests, 2198 server tests / 1
+skip, strict PostgreSQL/RLS 41 tests / 1 skip, collection digest
+`02702796e56ab9e65a5a69a5f89720c4b512b4e25a5ca6ab6602780bf3bbdae1`, Ruff,
+compile, Compose, and deployment-evidence scan. Production deploy used source
+SHA `c013bdab27a8be1f705f4727f4bfca2c926c5e9a`, backup
+`/opt/projects/2brain-rec/backups/20260723T011346Z`, and migration head
+`0032_outcome_pointer`; RLS, runtime identity, Temporal/worker readiness,
+smoke/cleanup, automatic dispatch, and public live/ready all passed. The
+post-deploy pointer inventory was `legacy_outcomes_with_null_pointer=0`,
+`active_accepted_pointer_count=32`, `invalid_pointer_count=0`; no summary
+candidate 409 was observed after deployment.
 
 ### Langfuse receipt
 
@@ -511,7 +607,7 @@ paths, and open-gate truth. Requirement coverage remains complete and the
 finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`. T050 and T089 now have
 production evidence; T057 remains an intentional external evidence gate rather
 than an uncovered requirement. The mandatory repository issue-canon validator
-passed after tracker closeout; 89 of 90 Feature-121 issues are complete and
+passed after tracker closeout; 90 of 91 Feature-121 issues are complete and
 only T057/#4177 remains open.
 
 ### Native local-purge hotfix

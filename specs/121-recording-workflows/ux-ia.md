@@ -284,6 +284,7 @@ advanced row, not a global capability matrix.
 | Export processing | `Готовим файл…`; dialog may close safely |
 | Delete | `Ещё → Удалить встречу…`; one named confirmation |
 | Deleting | Hide content/actions immediately; `Удаляем встречу…` |
+| List after delete | Remove the accepted row and close the dialog; do not render a persistent success/cleanup banner |
 | Deleted | Remove from normal list; do not promise deletion of external copies |
 | Delete races | `Удаление уже началось`; no new share/generation/export publication |
 | Missing, denied, revoked, expired, deleted | Same safe `Встреча недоступна` shell |

@@ -45,6 +45,7 @@ from twobrain_rec_server.cabinet.rendering_shared import (
 from twobrain_rec_server.cabinet.review_policy_rendering import (
     _render_activity,
     _render_artifacts,
+    _render_delete_action,
     _render_delete_confirmation,
 )
 from twobrain_rec_server.cabinet.templates import (
@@ -484,6 +485,13 @@ def _render_meeting_detail_content(
         or review.content_exports.summary.state in {"available", "partial"}
         or review.content_exports.combined.state == "available"
     )
+    meeting_details_available = _meeting_details_available(review)
+    more_actions_available = (
+        content_export_available
+        or review.governance.download.state == "available"
+        or meeting_details_available
+        or review.governance.delete.state == "available"
+    )
     current_summary_format_key = review.template.reason or "graf-auto-v1"
     current_summary_format = BUILT_IN_BY_KEY.get(current_summary_format_key)
     return render_template(
@@ -499,10 +507,16 @@ def _render_meeting_detail_content(
         playback_poll_active="true" if review.playback.state == "preparing" else "false",
         playback_live_label=review.playback.label,
         top_actions=trusted_component_html(
-            _render_meeting_workspace_actions(review), source="meeting_detail.top_actions"
+            _render_meeting_workspace_actions(
+                review,
+                more_actions_available=more_actions_available,
+            ),
+            source="meeting_detail.top_actions",
         ),
         outcomes_selected=outcomes_selected,
         content_export_available=content_export_available,
+        meeting_details_available=meeting_details_available,
+        more_actions_available=more_actions_available,
         meeting_id=review.meeting.meeting_id,
         summary_controls_available=bool(
             review.access is not None
@@ -560,6 +574,15 @@ def _render_meeting_detail_content(
             ),
             source="meeting_detail.delete_confirmation",
         ),
+        delete_action=trusted_component_html(
+            _render_delete_action(review),
+            source="meeting_detail.delete_confirmation",
+        ),
+        deletion_report_href=(
+            f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
+            if review.governance.delete.state == "available"
+            else ""
+        ),
         speaker_lanes=trusted_component_html(
             _render_speaker_lanes(review, embedded=embedded, csrf_token=csrf_token),
             source="meeting_detail.speaker_lanes",
@@ -580,12 +603,35 @@ def _render_meeting_detail_content(
     )
 
 
-def _render_meeting_workspace_actions(review: MeetingReviewResponse) -> str:
+def _meeting_details_available(review: MeetingReviewResponse) -> bool:
+    return bool(
+        review.artifacts
+        or (review.activity is not None and review.activity.items)
+        or (review.speakers is not None and review.speakers.speakers)
+        or review.provenance.media_revision_id
+        or review.provenance.local_media_revision_id
+        or review.calendar_context
+        or review.deletion_truth_copy
+    )
+
+
+def _render_meeting_workspace_actions(
+    review: MeetingReviewResponse,
+    *,
+    more_actions_available: bool,
+) -> str:
     share_disabled = " disabled" if review.governance.share.state != "available" else ""
     share_url = f"/meetings/{review.meeting.meeting_id}/share"
+    more_action = ""
+    if more_actions_available:
+        more_action = """
+      <button type="button" id="meeting-actions-trigger" data-meeting-panel-open="more"
+              aria-haspopup="menu" aria-controls="meeting-context-more"
+              aria-expanded="false">Ещё</button>
+        """
     return f"""
       <button type="button" data-share-dialog-open aria-controls="meeting-share-dialog" hx-get="{share_url}" hx-target="#meeting-share-host" hx-swap="innerHTML"{share_disabled}>Поделиться</button>
-      <button type="button" data-meeting-panel-open="more" aria-controls="meeting-context-more" aria-expanded="false">Ещё</button>
+      {more_action}
     """
 
 
@@ -704,7 +750,6 @@ def _render_content_export_dialog(
                 <button type="button" class="quiet content-export-copy" data-export-copy>Скопировать текст</button>
               </div>
             </details>
-            <p class="truth-copy">Файл останется на компьютере после удаления встречи из GRAF.</p>
           </div>
           <footer class="content-export-footer">
             <p class="content-export-status" data-export-status role="status" aria-live="polite" aria-atomic="true"></p>
@@ -788,11 +833,7 @@ def _render_meeting_row(
           <span class="row-title">{title} <span class="muted">{_duration(item.duration_seconds)}</span></span>
           <span class="row-meta">{row_meta}</span>
         </a>
-        <form class="row-delete-form" method="post" action="{delete_action}" data-row-delete-form
-          data-hx-post="{delete_action}"
-          data-hx-target="#delete-feedback-region"
-          data-hx-select="[data-cabinet-fragment='deletion-feedback']"
-          data-hx-swap="innerHTML">
+        <form class="row-delete-form" method="post" action="{delete_action}" data-row-delete-form data-hx-post="{delete_action}">
           {csrf_field}
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
           <button class="row-delete icon-button" type="button" tabindex="-1" aria-hidden="true" data-row-contextual data-row-delete aria-label="Удалить запись {title}" title="Удалить">{_ui_icon("trash")}</button>
