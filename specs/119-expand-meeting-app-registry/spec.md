@@ -6,6 +6,14 @@
 
 **Status**: Draft
 
+> Runtime ownership note (2026-07-23): Feature 119 owns the verified native
+> target catalog and common settings list. Feature
+> `124-restore-automatic-recording` owns the recording behavior consuming that
+> list, including per-target opt-in, the eight-second prompt countdown,
+> automatic start on expiry, `Записать сейчас`, `Пропустить`, and
+> `Всегда писать это приложение`. Registry expansion must not be used as a
+> reason to remove those controls.
+
 **Input**: User description: "Проверить и добавить все известные приложения
 конференций, перенести и дополнить список проверенных, максимально расширить
 поддерживаемые системы, включая Telegram и все возможные его форки; при

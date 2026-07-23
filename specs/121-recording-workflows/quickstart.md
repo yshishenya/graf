@@ -91,8 +91,12 @@ accessible names and visible keyboard focus.
 ## Scenario 2: Detect-And-Ask And Duplicate Start
 
 1. Feed a supported synthetic meeting-detection candidate.
-2. Verify the prompt identifies safe app/context data and offers `Начать` and
-   `Не сейчас` without countdown, auto-start, or an in-prompt auto-record toggle.
+2. For the historical Feature-121 baseline, verify the prompt identifies safe
+   app/context data and preserves one deliberate Start/Not now flow. The
+   current verified-native-target contract is Feature 124: its prompt shows an
+   eight-second countdown, `Записать сейчас`, `Пропустить`, and `Всегда писать
+   это приложение`; expiry starts one recording and the checkbox persists only
+   that exact target for future detections.
 3. Trigger Start from two visible controls nearly simultaneously.
 4. Verify one recording session/package identity and no second Start control in
    starting/active state.
@@ -428,7 +432,7 @@ invitation tokens, or private user identity.
 
 | Scenarios | Result | Evidence |
 |---|---|---|
-| 1–2 | PASS | Native readiness, separate permission recovery, idempotent manual Start, and detect-and-ask without countdown/autostart are covered by `CaptureControlV5Tests`, `SystemAudioPermissionUXTests`, `AppControlAccessibilityTests`, and `MeetingDetectionPolicyTests`. |
+| 1–2 | Historical PASS + Feature-124 focused validation | Native readiness, separate permission recovery, idempotent manual Start, and the restored verified-target countdown/autostart/list contract are covered by Feature-124 focused tests; the old no-countdown claim remains only as Feature-121 history. |
 | 3–5 | PASS | Pause/resume/one-action Stop, degraded-source truth, crash/finalize/upload custody, and v5 manifest privacy are covered by `CaptureIndicatorTests`, `AppControlAccessibilityTests`, `DesktopUploadQueueV5Tests`, and `CanonicalRecordingManifestTests`. |
 | 5–6 | PASS | Native and server projections preserve one artifact-specific custody/processing lifecycle without a second queue. |
 | 7 | PASS | Browser and embedded desktop use one authorized two-tab meeting workspace with persistent playback, synchronized transcript/speaker behavior, and fail-closed denied/deleting states. |

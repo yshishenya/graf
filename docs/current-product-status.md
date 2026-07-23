@@ -1,16 +1,36 @@
 # Текущий статус продукта
 
-Date: 2026-07-22
+Date: 2026-07-23
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
-## Validation update (2026-07-22)
+## Validation update (2026-07-23, Feature 124 branch)
 
-- Feature `121-recording-workflows` реализует единый спокойный recording flow:
+- Feature `124-restore-automatic-recording` restores the previously designed
+  target-scoped meeting workflow: the `Автозапись` settings page with the full
+  verified native-app list and per-app checkboxes, prompt opt-in via `Всегда
+  писать это приложение`, the eight-second countdown, immediate
+  `Записать сейчас`, `Пропустить`, and automatic start on countdown expiry.
+  The implementation reuses Feature 092/119 registry and capture gates; it
+  does not revive the removed audio-routing implementation or enable arbitrary
+  audio auto-recording.
+- This remains a local Feature-124 implementation with no release, deployment,
+  or production-acceptance claim.
+- Post-review focused validation is complete: policy 16/16, capture 39/39
+  (including cancelled-countdown, prompt-disappearance and trigger-coalescing
+  regressions), accessibility 18/18, `ContractValidation: PASS`; full
+  `infra/scripts/ci-local.sh` passed with macOS 609/609, server 2191 passed / 1
+  skipped, strict PostgreSQL 41 passed / 1 skipped, lint/compile/compose/evidence
+  scans passing. This evidence is local metadata only; no production RLS probe,
+  deploy, or release was run for Feature 124.
+
+- Historical Feature `121-recording-workflows` реализует единый спокойный
+  recording flow:
   раздельное восстановление разрешений, ручной idempotent Start,
-  detect-and-ask без countdown/autostart, Pause/Resume/Stop, понятную custody и
+  detect-and-ask baseline for the non-restored workflow, Pause/Resume/Stop,
+  понятную custody и
   processing truth, две вкладки встречи с постоянным плеером, девять форматов
   итогов, личные шаблоны, internal sharing, приглашения, gated links и
   контекстные export/download/delete actions. Модель и параметры приходят из
@@ -494,9 +514,11 @@ receipt не заявляются; они остаются отдельными 
   former v3 package format. Its separate-file assertions and role mapping are
   not the active local-artifact contract and cannot be copied into new capture
   code, UI or validation.
-- Feature `011-assisted-auto-recording` is specified but not planned or
-  implemented. It records the future detect-and-ask rollout, automatic naming
-  policy, and local-trust-shell/server-dashboard UI authority model.
+- Feature `011-assisted-auto-recording` remains a broad historical product
+  proposal and is not the owner of the current implementation. The narrower
+  verified-target workflow is now specified and restored by Feature 124;
+  generalized automatic recording and the original routed-audio assumptions
+  remain outside the accepted scope.
 - Feature `090-manual-media-upload-ui` is merged through
   [#3874](https://github.com/yshishenya/crisp/pull/3874) and follow-up review
   fixes in [#3877](https://github.com/yshishenya/crisp/pull/3877). The final
@@ -592,6 +614,11 @@ receipt не заявляются; они остаются отдельными 
   providers without safe active-tab evidence remain manual-only. Live app
   receipts are post-enable QA and are not yet claimed; production release and
   deploy evidence are still open.
+- Feature `124-restore-automatic-recording` is the current owner of the runtime
+  contract that consumes the Feature-119 list. Any future recording-workflow
+  refactor must preserve the list, target-scoped preference, prompt checkbox,
+  eight-second countdown, automatic expiry start, immediate start, and skip
+  actions, or open a new approved replacement feature first.
 - Feature `012-server-ingest-foundation` is implemented as the first backend
   foundation slice in this repository: FastAPI ingest service scaffold,
   local/prod Docker Compose stacks, Postgres/Alembic schema models, MinIO
@@ -1081,9 +1108,10 @@ receipt не заявляются; они остаются отдельными 
 - Production RLS coverage is accepted only for the `031` covered table
   inventory. Future tenant-owned tables and product surfaces still need their
   own ADR `003` classification, tests, and metadata-only evidence before merge.
-- Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
-  detect-and-ask, automatic naming, and future auto-record behavior have not
-  been implemented or accepted.
+- Feature `011-assisted-auto-recording` remains requirements-only only for its
+  broad/generalized scope. The verified-target detect-and-ask and
+  target-scoped auto-record behavior is owned by Feature 124; its local branch
+  implementation passed post-review validation but is not yet a release claim.
 - Signed/notarized production installer evidence remains separate from local
   ad-hoc development package evidence.
 - Feature `030-mvp-experience-design-system` now provides the MVP product
@@ -1212,7 +1240,9 @@ Keep separate unless the next spec explicitly changes scope:
   implemented, merged, released, and production-smoked in `048`. Remaining
   playback-related work is post-MVP scope such as compressed share audio,
   public links, waveform polish, native Swift controls, or editing.
-- Assisted auto-start and generalized meeting detection.
+- Generalized meeting detection and unrestricted assisted auto-start remain
+  deferred. Verified-target, target-scoped auto-record with the Feature-124
+  countdown/prompt contract is current and must not be removed as cleanup.
 - The former live speakerphone cleanup/AEC research is archived in
   `docs/audio-capture-backlog.md`. It is neither an active feature backlog nor
   a fallback for v5; new capture must keep the truthful one-timeline contract.
@@ -1230,8 +1260,10 @@ the current accepted implementation or `012` ingest slice.
   privacy, platform, and QA evidence. Accepted feature `022` covers
   product-owned Pause/Resume truth and keeps unsupported meeting targets
   fail-closed; it does not claim third-party Zoom/Telemost mute interception.
-- `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
-  naming, and any future auto-start behavior from the accepted requirements.
+- `011-assisted-auto-recording`: broad future work only. For the current
+  verified native target path, follow Feature 124 and preserve its settings,
+  per-target opt-in, eight-second automatic start, and visible skip/start
+  prompt contract.
 - Public-link and external-recipient sharing policy: add optional public links,
   expiration, external invitations, abuse controls, and admin/legal copy after
   the login-required 017 flow is accepted.

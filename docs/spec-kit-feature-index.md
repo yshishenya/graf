@@ -1,8 +1,13 @@
 # Реестр Spec Kit и сверка документации
 
-**Дата сверки**: 2026-07-22
+**Дата сверки**: 2026-07-23
 **Проверяемая база**: `origin/master` (`3724b596`)
 **Lane**: release/production closeout; tracker и installed-app receipts сверены.
+
+На текущей ветке дополнительно ведётся Feature 124; она ещё не входит в
+`origin/master` и поэтому показана отдельной строкой ниже. Её active product
+и runtime truth находится в `docs/current-product-status.md` и артефактах
+`specs/124-restore-automatic-recording/`.
 
 ## Как читать этот реестр
 
@@ -42,7 +47,7 @@ Requirements-only намеренно оставлены без выдуманн�
 
 | Spec | Состояние | Почему не добавляем искусственную реализацию |
 | --- | --- | --- |
-| `011-assisted-auto-recording` | specified, not planned | Будущая detect-and-ask функция; продуктовый baseline прямо оставляет её вне реализации. |
+| `011-assisted-auto-recording` | broad historical proposal; narrower runtime owned by Feature 124 | Для широкого generalized scope не добавляем искусственный plan/tasks; verified-native target-scoped workflow ведётся в Feature 124. |
 | `026`, `027`, `028`, `029` | requirements-only | Исторические/исследовательские требования без утверждённого implementation lane. |
 | `101-streaming-egress-audit-semantics` | requirements-only, open | Требования к полноценной post-egress семантике сформулированы, но отдельный plan/tasks ещё не утверждён. |
 
@@ -101,6 +106,7 @@ receipt и current-product-status одним change set.
 | [119](../specs/119-expand-meeting-app-registry/spec.md) | Реализована и merged через PR #4079 | T008 остаётся открытым: live post-deploy receipt требуется после enablement. |
 | [120](../specs/120-transcript-export/spec.md) | Реализована и merged через PR #4084 | Все шесть форматов, backend и web-cabinet UI валидированы; T059 / #4083 остаётся representative-reviewer gate перед general release. |
 | [121](../specs/121-recording-workflows/spec.md) | Реализована, merged, released, deployed и установлена как `v2026.07.22.4` | Recording/review/outcome/share/deletion infrastructure работает fail-closed на SHA `3724b596`; T050, T057 и T089 остаются открыты до LiteLLM credentials и live three-store/two-worker evidence. |
+| [124](../specs/124-restore-automatic-recording/spec.md) | Реализована и post-review validated на текущей ветке; commit/release pending | Восстановлены native target-scoped auto-record, список приложений, checkbox, восьмисекундный countdown и automatic start; cancellation/deduplication fixes проверены focused tests и полным локальным CI. |
 
 ## Реальные открытые задачи во всём архиве
 

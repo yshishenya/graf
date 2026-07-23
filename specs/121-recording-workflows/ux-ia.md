@@ -149,17 +149,19 @@ closes a popover or dialog and MUST NOT stop recording.
 | Low disk safety gate | `Освободите место перед записью` → `Открыть хранилище` | Calculates the threshold without exposing it by default |
 | Workspace policy blocks | `Запись недоступна в этом рабочем пространстве` | Does not leak policy identifiers |
 | Offline | Quiet reassurance that recording works offline | Defers server work |
-| Meeting detected | Small nonmodal prompt with Start / Not now | Prompt expires without recording |
+| Meeting detected | Small nonmodal prompt with `Записать сейчас`, `Пропустить`, `Всегда писать это приложение`, and an eight-second countdown | Target identity, policy and capture-gate details |
 | Detection becomes stale | Prompt disappears; manual Start stays | No timeout error |
 | Duplicate Start | Button immediately becomes `Начинаем…` | Idempotently creates one session |
 | Recording already active | Current recording opens; no second Start exists | Rejects a second session |
 | User wants another microphone | Opens quiet `Микрофон` control | Uses macOS default otherwise |
 | Normal silence | Remains ready/healthy | Does not treat a quiet level as missing hardware |
 
-The current eight-second `MeetingDetectionPromptView` countdown and `Всегда
-писать это приложение` control violate this contract. Detect-and-ask never
-starts capture by itself; any future auto-record policy belongs to a separate
-approved settings flow.
+The paragraph above is the historical Feature-121 simplification and is
+superseded for verified native targets by Feature 124. The current
+`MeetingDetectionPromptView` intentionally restores the eight-second countdown,
+automatic start on expiry, immediate start, skip, and target-scoped
+`Всегда писать это приложение` opt-in. It still never starts from arbitrary
+audio, an unknown app, or a blocked capture/policy state.
 
 ### Active capture
 
@@ -310,7 +312,8 @@ The interactive prototype MUST cover one connected flow with these 12 states:
 
 1. ready;
 2. one-permission recovery;
-3. detected meeting without countdown/autostart;
+3. detected meeting with the Feature-124 countdown/autostart contract for a
+   verified target, and no start for unknown or blocked activity;
 4. active recording;
 5. paused recording;
 6. degraded source while the other source continues;
