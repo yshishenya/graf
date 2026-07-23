@@ -237,7 +237,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("DesktopMeetingShellChrome.minimumInteractiveTarget"))
         XCTAssertTrue(source.contains("activeCabinetState.recoverySystemImage"))
         XCTAssertTrue(source.contains("accessibilityElement(children: recoveryTarget == nil ? .combine : .contain)"))
-        XCTAssertTrue(source.contains(".accessibilityLabel(recoveryActionTitle)"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(title)"))
         XCTAssertEqual(DesktopCabinetState.offline.recoveryActionTitle, "Повторить")
         XCTAssertFalse(DesktopCabinetState.offline.userMessage.localizedCaseInsensitiveContains("сервером rec"))
         XCTAssertFalse(DesktopCabinetState.offline.userMessage.localizedCaseInsensitiveContains("пароли календаря"))
