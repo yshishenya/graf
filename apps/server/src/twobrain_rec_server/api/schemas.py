@@ -1239,6 +1239,33 @@ SummaryCandidateState = Literal[
     "cancelled",
 ]
 SummaryCandidateProjectionState = Literal["generating", "ready", "accepted", "closed", "failed"]
+SummaryCandidateReasonCode = Literal[
+    "generating",
+    "dismissed",
+    "cancelled",
+    "result_invalid",
+    "source_changed",
+    "template_unavailable",
+    "revision_changed",
+    "provider_outcome_unknown",
+    "meeting_deleting",
+    "meeting_deleted",
+    "temporary_unavailable",
+    "prompt_unavailable",
+    "provider_unavailable",
+    "generation_failed",
+]
+SummaryCandidateNextAction = Literal[
+    "wait",
+    "review",
+    "new_candidate",
+    "refresh",
+    "choose_format",
+    "refresh_status",
+    "open_meeting",
+    "open_meetings",
+    "retry",
+]
 ShareAudienceType = Literal["user", "workspace", "team", "link"]
 ShareContentScope = Literal["summary_only", "full_meeting"]
 ShareInvitationStatus = Literal[
@@ -1325,6 +1352,34 @@ class SummaryCandidateResponse(BaseModel):
     state: SummaryCandidateProjectionState
     current_outcome_set_id: UUID | None = None
     poll_url: str
+    outcome_set_id: UUID | None = None
+    template_key: str | None = None
+    template_name: str | None = None
+    template_id: UUID | None = None
+    template_version: int | None = None
+    reason_code: SummaryCandidateReasonCode | None = None
+    retryable: bool = False
+    next_action: SummaryCandidateNextAction | None = None
+
+
+class SummaryCandidateListResponse(BaseModel):
+    candidates: list[SummaryCandidateResponse] = Field(default_factory=list, max_length=8)
+
+
+class SummaryCandidatePreviewItem(BaseModel):
+    category: SummarySection
+    text: str = ""
+    owner_text: str = ""
+    due_date_text: str = ""
+    truth_label: str = ""
+    source_refs: list[str] = Field(default_factory=list, max_length=32)
+
+
+class SummaryCandidatePreviewResponse(BaseModel):
+    candidate_id: UUID
+    outcome_set_id: UUID
+    template_key: str | None = None
+    items: list[SummaryCandidatePreviewItem] = Field(default_factory=list, max_length=200)
 
 
 class ResolveSummaryCandidateRequest(BaseModel):
@@ -1587,6 +1642,10 @@ class SlotState(BaseModel):
     state: SlotStateValue
     label: str
     reason: str | None = None
+    # Template identity is part of the server-authoritative summary format
+    # state.  The key alone is not enough for personal template revisions.
+    template_id: UUID | None = None
+    version: int | None = Field(default=None, ge=1)
 
 
 class MeetingFilterState(BaseModel):

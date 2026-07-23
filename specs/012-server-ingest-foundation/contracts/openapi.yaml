@@ -6916,6 +6916,146 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - cabinet
+      summary: List Summary Candidates Route
+      operationId: listSummaryCandidates
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryCandidateListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview:
+    get:
+      tags:
+      - cabinet
+      summary: Preview Summary Candidate Route
+      operationId: previewSummaryCandidate
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: candidate_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Candidate Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryCandidatePreviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}:
     get:
       tags:
@@ -13710,6 +13850,18 @@ components:
           - type: string
           - type: 'null'
           title: Reason
+        template_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Template Id
+        version:
+          anyOf:
+          - minimum: 1.0
+            type: integer
+          - type: 'null'
+          title: Version
       type: object
       required:
       - state
@@ -13806,6 +13958,82 @@ components:
       - available
       - assignment_state
       title: SpeakerReviewState
+    SummaryCandidateListResponse:
+      properties:
+        candidates:
+          items:
+            $ref: '#/components/schemas/SummaryCandidateResponse'
+          type: array
+          maxItems: 8
+          title: Candidates
+      type: object
+      title: SummaryCandidateListResponse
+    SummaryCandidatePreviewItem:
+      properties:
+        category:
+          type: string
+          enum:
+          - summary
+          - key_points
+          - decisions
+          - action_items
+          - followups
+          - risks
+          - questions
+          - evidence
+          title: Category
+        text:
+          type: string
+          title: Text
+          default: ''
+        owner_text:
+          type: string
+          title: Owner Text
+          default: ''
+        due_date_text:
+          type: string
+          title: Due Date Text
+          default: ''
+        truth_label:
+          type: string
+          title: Truth Label
+          default: ''
+        source_refs:
+          items:
+            type: string
+          type: array
+          maxItems: 32
+          title: Source Refs
+      type: object
+      required:
+      - category
+      title: SummaryCandidatePreviewItem
+    SummaryCandidatePreviewResponse:
+      properties:
+        candidate_id:
+          type: string
+          format: uuid
+          title: Candidate Id
+        outcome_set_id:
+          type: string
+          format: uuid
+          title: Outcome Set Id
+        template_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Template Key
+        items:
+          items:
+            $ref: '#/components/schemas/SummaryCandidatePreviewItem'
+          type: array
+          maxItems: 200
+          title: Items
+      type: object
+      required:
+      - candidate_id
+      - outcome_set_id
+      title: SummaryCandidatePreviewResponse
     SummaryCandidateResponse:
       properties:
         candidate_id:
@@ -13830,6 +14058,72 @@ components:
         poll_url:
           type: string
           title: Poll Url
+        outcome_set_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Outcome Set Id
+        template_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Template Key
+        template_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Template Name
+        template_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Template Id
+        template_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Template Version
+        reason_code:
+          anyOf:
+          - type: string
+            enum:
+            - generating
+            - dismissed
+            - cancelled
+            - result_invalid
+            - source_changed
+            - template_unavailable
+            - revision_changed
+            - provider_outcome_unknown
+            - meeting_deleting
+            - meeting_deleted
+            - temporary_unavailable
+            - prompt_unavailable
+            - provider_unavailable
+            - generation_failed
+          - type: 'null'
+          title: Reason Code
+        retryable:
+          type: boolean
+          title: Retryable
+          default: false
+        next_action:
+          anyOf:
+          - type: string
+            enum:
+            - wait
+            - review
+            - new_candidate
+            - refresh
+            - choose_format
+            - refresh_status
+            - open_meeting
+            - open_meetings
+            - retry
+          - type: 'null'
+          title: Next Action
       type: object
       required:
       - candidate_id

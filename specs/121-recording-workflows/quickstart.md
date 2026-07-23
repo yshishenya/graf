@@ -693,3 +693,26 @@ false until their explicit gates are satisfied.
 T095 is satisfied by the owner's explicit advance approval in this task for
 commit, push, PR, merge, production deploy, release, and installed-app
 replacement after validation and review.
+
+### Outcome-generation regression hotfix (T097–T100)
+
+The 2026-07-23 production regression was isolated to Temporal's decoding of a
+completed observability child result annotated as `dict[str, object]`; the
+model request was never reached for the affected run. The forward-compatible
+fix changes workflow boundary results to `dict[str, Any]`, which also decodes
+the already-retained child completion payload during replay. Langfuse span
+filtering is dependency-free inside the callback so the Temporal sandbox does
+not import `urllib` through the SDK. The owner candidate projection now keeps
+server state authoritative after reload and reports bounded reason/retryability
+without exposing provider text; ready candidates have an owner-only preview.
+
+Local validation evidence before deployment:
+
+- `bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_openapi_contract_drift.py tests/contract/test_summary_template_ui_contract.py tests/unit/test_summary_candidate_revisions.py tests/integration/test_outcome_generation_workflow.py tests/contract/test_langfuse_runtime_contract.py` — 38 passed.
+- `infra/scripts/ci-local.sh` — 608 macOS tests passed; 2,214 parallel and 41 strict PostgreSQL tests passed; Ruff, Python compile, compose config, and deployment-evidence scan passed.
+- `Temporalio` default `DataConverter` round-trip for the child completion result passed; the canonical OpenAPI contract now matches `SlotState.template_id/version`.
+
+The production forward-fix receipt remains pending until the worker runtime is
+deployed and the known running parent, candidate/Generation Call state,
+Temporal completion, Langfuse trace, and zero-sandbox-warning checks have been
+read back using metadata-only evidence.

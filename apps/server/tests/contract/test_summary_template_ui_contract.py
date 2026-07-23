@@ -6,6 +6,7 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.cabinet import create_outcome_ready_meeting, seed_cabinet_meetings
+from twobrain_rec_server.api.cabinet import _summary_candidate_projection
 from twobrain_rec_server.db.models import ProcessingResult, Workspace, WorkspaceMembership
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 
@@ -70,6 +71,11 @@ def test_candidate_ui_preserves_current_notes_until_explicit_accept() -> None:
     assert "JSON.stringify({" in script
     assert "template: activeTemplate" in script
     assert 'text: "Обновить страницу"' in script
+    assert "Создать новый вариант" in script
+    assert "currentSummaryFormatTemplateId" in script
+    assert "currentSummaryFormatVersion" in script
+    assert "requestFailureAction" in script
+    assert '"summary_revision_conflict"' in script
 
 
 def test_format_selection_uses_the_rendered_accepted_revision_and_starts_temporal(client) -> None:
@@ -124,6 +130,15 @@ def test_summary_selector_keyboard_focus_and_candidate_projection_are_simple(cli
     states = set(schema["SummaryCandidateResponse"]["properties"]["state"]["enum"])
     assert states == {"generating", "ready", "accepted", "closed", "failed"}
     assert states.isdisjoint({"queued", "blocked_dependency", "candidate", "cancelled"})
+
+
+def test_terminal_model_validation_failure_has_bounded_non_retry_projection() -> None:
+    from types import SimpleNamespace
+
+    reason, retryable, next_action = _summary_candidate_projection(
+        SimpleNamespace(status="failed", failure_code="summary_response_invalid")
+    )
+    assert (reason, retryable, next_action) == ("result_invalid", False, "new_candidate")
 
 
 def test_workspace_default_format_is_persisted_and_returned_by_list_api(client) -> None:

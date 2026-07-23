@@ -18,6 +18,50 @@ _BLOCKED_INSTRUMENTATION_SCOPES = {
     "opentelemetry.instrumentation.httpx",
     "opentelemetry.instrumentation.sqlalchemy",
 }
+# Keep this predicate dependency-free.  The Temporal tracing interceptor invokes
+# it from workflow sandbox code; importing the Langfuse SDK there pulls in
+# urllib and is rejected by the sandbox.  These are the Langfuse SDK's stable
+# default LLM/GenAI scope prefixes (Langfuse 4.x).
+_LANGFUSE_TRACER_SCOPE = "langfuse-sdk"
+_KNOWN_LLM_SCOPE_PREFIXES = frozenset(
+    {
+        _LANGFUSE_TRACER_SCOPE,
+        "agent_framework",
+        "autogen-core",
+        "ai",
+        "haystack",
+        "langsmith",
+        "litellm",
+        "openinference",
+        "opentelemetry.instrumentation.openai",
+        "opentelemetry.instrumentation.anthropic",
+        "opentelemetry.instrumentation.agno",
+        "opentelemetry.instrumentation.alephalpha",
+        "opentelemetry.instrumentation.bedrock",
+        "opentelemetry.instrumentation.cohere",
+        "opentelemetry.instrumentation.crewai",
+        "opentelemetry.instrumentation.google_generativeai",
+        "opentelemetry.instrumentation.groq",
+        "opentelemetry.instrumentation.haystack",
+        "opentelemetry.instrumentation.mistralai",
+        "opentelemetry.instrumentation.langchain",
+        "opentelemetry.instrumentation.llamaindex",
+        "opentelemetry.instrumentation.ollama",
+        "opentelemetry.instrumentation.openai_agents",
+        "opentelemetry.instrumentation.openai_v2",
+        "opentelemetry.instrumentation.replicate",
+        "opentelemetry.instrumentation.sagemaker",
+        "opentelemetry.instrumentation.together",
+        "opentelemetry.instrumentation.transformers",
+        "opentelemetry.instrumentation.vertexai",
+        "opentelemetry.instrumentation.voyageai",
+        "opentelemetry.instrumentation.watsonx",
+        "opentelemetry.instrumentation.writer",
+        "pydantic-ai",
+        "strands-agents",
+        "vllm",
+    }
+)
 _OPENAI_USAGE_FIELDS = {
     "prompt_tokens",
     "completion_tokens",
@@ -147,12 +191,17 @@ def create_langfuse_client(settings: Settings) -> Any:
 
 
 def _should_export_langfuse_span(span: Any) -> bool:
-    from langfuse.span_filter import is_default_export_span
-
     scope = getattr(span, "instrumentation_scope", None)
-    return is_default_export_span(span) and (
-        scope is None or scope.name not in _BLOCKED_INSTRUMENTATION_SCOPES
-    )
+    scope_name = getattr(scope, "name", None)
+    if scope_name in _BLOCKED_INSTRUMENTATION_SCOPES:
+        return False
+    if scope_name is not None and any(
+        scope_name == prefix or scope_name.startswith(f"{prefix}.")
+        for prefix in _KNOWN_LLM_SCOPE_PREFIXES
+    ):
+        return True
+    attributes = getattr(span, "attributes", None) or {}
+    return any(isinstance(key, str) and key.startswith("gen_ai") for key in attributes)
 
 
 def langfuse_otel_tracer(client: Any) -> Any:

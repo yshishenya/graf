@@ -433,6 +433,17 @@ async def persist_processing_result(
     result: MediaScribeResult,
     source_result_hash: str,
 ) -> ProcessingResult:
+    # Outcome generation and deletion both serialize on the Meeting row. Keep
+    # result import in that same lock order so a newer transcript cannot be
+    # committed after generation has validated its pinned source but before
+    # the provider call returns.
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(Meeting.workspace_id == job.workspace_id, Meeting.id == job.meeting_id)
+        .with_for_update()
+    )
+    if meeting is None:
+        raise ValueError("processing result meeting is unavailable")
     existing = await db.scalar(
         select(ProcessingResult).where(
             ProcessingResult.workspace_id == job.workspace_id,
