@@ -1020,7 +1020,11 @@ async def create_summary_candidate_route(
     )
     attempt.workflow_run_id = started.run_id
     await db.commit()
-    return _summary_candidate_response(attempt, meeting.current_outcome_set_id)
+    return _summary_candidate_response(
+        attempt,
+        meeting.current_outcome_set_id,
+        template_name=await _summary_candidate_template_name(db, attempt),
+    )
 
 
 @router.get(
@@ -1053,8 +1057,16 @@ async def list_summary_candidates_route(
             .limit(8)
         )
     ).all()
+    template_names = await _summary_candidate_template_names(db, attempts)
     return SummaryCandidateListResponse(
-        candidates=[_summary_candidate_response(attempt, meeting.current_outcome_set_id) for attempt in attempts]
+        candidates=[
+            _summary_candidate_response(
+                attempt,
+                meeting.current_outcome_set_id,
+                template_name=template_names.get(attempt.template_id),
+            )
+            for attempt in attempts
+        ]
     )
 
 
@@ -1149,7 +1161,11 @@ async def get_summary_candidate_route(
     )
     if attempt is None:
         raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
-    return _summary_candidate_response(attempt, meeting.current_outcome_set_id)
+    return _summary_candidate_response(
+        attempt,
+        meeting.current_outcome_set_id,
+        template_name=await _summary_candidate_template_name(db, attempt),
+    )
 
 
 @router.post(
@@ -1250,7 +1266,11 @@ async def _resolve_summary_candidate_route(
             code="summary_candidate_not_found",
             title="Summary candidate not found",
         )
-    return _summary_candidate_response(attempt, meeting.current_outcome_set_id)
+    return _summary_candidate_response(
+        attempt,
+        meeting.current_outcome_set_id,
+        template_name=await _summary_candidate_template_name(db, attempt),
+    )
 
 
 @router.post(
@@ -2159,6 +2179,8 @@ def _reset_default_summary_template(workspace: Workspace) -> None:
 def _summary_candidate_response(
     attempt: MeetingOutcomeGenerationAttempt,
     current_outcome_set_id: UUID | None,
+    *,
+    template_name: str | None = None,
 ) -> SummaryCandidateResponse:
     if attempt.candidate_id is None:
         raise ProblemDetail(
@@ -2191,7 +2213,7 @@ def _summary_candidate_response(
         template_name=(
             template_definition.name
             if template_definition is not None
-            else ("Личный формат" if attempt.template_id is not None else None)
+            else (template_name or "Личный формат" if attempt.template_id is not None else None)
         ),
         template_id=attempt.template_id,
         template_version=attempt.template_version,
@@ -2199,6 +2221,36 @@ def _summary_candidate_response(
         retryable=retryable,
         next_action=next_action,
     )
+
+
+async def _summary_candidate_template_name(
+    db: AsyncSession,
+    attempt: MeetingOutcomeGenerationAttempt,
+) -> str | None:
+    if attempt.template_id is None:
+        return None
+    return await db.scalar(
+        select(SummaryTemplate.name).where(
+            SummaryTemplate.id == attempt.template_id,
+            SummaryTemplate.workspace_id == attempt.workspace_id,
+        )
+    )
+
+
+async def _summary_candidate_template_names(
+    db: AsyncSession,
+    attempts: list[MeetingOutcomeGenerationAttempt],
+) -> dict[UUID, str]:
+    template_ids = {attempt.template_id for attempt in attempts if attempt.template_id is not None}
+    if not template_ids:
+        return {}
+    rows = await db.execute(
+        select(SummaryTemplate.id, SummaryTemplate.name).where(
+            SummaryTemplate.id.in_(template_ids),
+            SummaryTemplate.workspace_id == attempts[0].workspace_id,
+        )
+    )
+    return {template_id: name for template_id, name in rows.all()}
 
 
 def _summary_candidate_projection(

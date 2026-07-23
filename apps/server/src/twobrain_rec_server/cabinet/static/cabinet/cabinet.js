@@ -523,7 +523,7 @@
         }
         return null;
       };
-      const requestFailureAction = (code, template) => {
+      const candidateErrorAction = (code, template) => {
         if ([
           "summary_revision_conflict",
           "summary_transcript_changed",
@@ -619,7 +619,7 @@
           else if (status) status.hidden = true;
         } catch (error) {
           const code = error instanceof Error ? error.message : "";
-          const action = requestFailureAction(code, activeTemplate);
+          const action = candidateErrorAction(code, activeTemplate);
           showStatus(candidateErrorCopy(code), "failed", action ? [action] : []);
         } finally {
           setBusy(false);
@@ -707,9 +707,9 @@
         } catch (error) {
           setBusy(false);
           if (pendingLabel) pendingLabel.hidden = true;
-          showStatus(candidateErrorCopy(error instanceof Error ? error.message : ""), "failed", [
-            { text: "Попробовать ещё раз", action: () => requestCandidate(template), primary: true }
-          ]);
+          const code = error instanceof Error ? error.message : "";
+          const action = candidateErrorAction(code, template);
+          showStatus(candidateErrorCopy(code), "failed", action ? [action] : []);
         }
       };
       const isCurrentFormat = (template) => {
