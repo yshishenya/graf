@@ -29,6 +29,17 @@ metadata-only evidence остаются подробной историей ре
   have RLS enabled and forced, `failed_table_names=none`, and live production
   enforcement is enabled. Public `/api/v1/health/live` and
   `/api/v1/health/ready` both returned HTTP 200.
+- The macOS update is now published as [`v2026.07.23.11`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.11)
+  from merge `05d66e582f77a4bfeed66057043e8269077d395a`. The public Sparkle
+  appcast reports `2026.07.23.11`; its ZIP, PKG and appcast were fetched again
+  over HTTPS, with SHA-256 values
+  `8abdb294667f5b696373b50aa3583ea0db0bd22b2b865bbad9c3914a85f789df`,
+  `d8b93e40164347bfb62f71039fae51fd34dbb84c3c473d21c2268b3edaf2f025` and
+  `1eaac01354991f3eedbf0b73e968cedf1fb1ec3641e25b4899b354b6cb1588e7`.
+  Owner-only update validation, ZIP integrity and both Sparkle signatures
+  passed; the previous `2026.07.22.6` archive remains available for rollback.
+  This channel intentionally uses the local Keychain signer and is not a
+  Developer ID-signed or notarized public distribution.
 - Post-review focused validation is complete: policy 16/16, capture 39/39
   (including cancelled-countdown, prompt-disappearance and trigger-coalescing
   regressions), accessibility 18/18, `ContractValidation: PASS`. The pre-merge

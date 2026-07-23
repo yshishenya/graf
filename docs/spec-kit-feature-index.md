@@ -1,12 +1,12 @@
 # Реестр Spec Kit и сверка документации
 
 **Дата сверки**: 2026-07-23
-**Проверяемая база**: `origin/master` (`3724b596`)
+**Проверяемая база**: `origin/master` (`05d66e58`)
 **Lane**: release/production closeout; tracker и installed-app receipts сверены.
 
-Feature 124 выпущена и развернута с текущей feature-ветки, но ещё не входит в
-`origin/master`, поэтому показана отдельной строкой ниже. Её active product и
-runtime truth находится в `docs/current-product-status.md` и артефактах
+Feature 124 merged в `origin/master`, server release и production receipt
+сохранены, а macOS update опубликован отдельным owner-only Sparkle-каналом.
+Её active product и runtime truth находится в `docs/current-product-status.md` и артефактах
 `specs/124-restore-automatic-recording/`.
 
 ## Как читать этот реестр
@@ -106,7 +106,7 @@ receipt и current-product-status одним change set.
 | [119](../specs/119-expand-meeting-app-registry/spec.md) | Реализована и merged через PR #4079 | T008 остаётся открытым: live post-deploy receipt требуется после enablement. |
 | [120](../specs/120-transcript-export/spec.md) | Реализована и merged через PR #4084 | Все шесть форматов, backend и web-cabinet UI валидированы; T059 / #4083 остаётся representative-reviewer gate перед general release. |
 | [121](../specs/121-recording-workflows/spec.md) | Реализована, merged, released, deployed и установлена как `v2026.07.22.4` | Recording/review/outcome/share/deletion infrastructure работает fail-closed на SHA `3724b596`; T050, T057 и T089 остаются открыты до LiteLLM credentials и live three-store/two-worker evidence. |
-| [124](../specs/124-restore-automatic-recording/spec.md) | Реализована, post-review validated, released и deployed как `v2026.07.23.9` | Восстановлены native target-scoped auto-record, список приложений, checkbox, восьмисекундный countdown и automatic start; production работает на exact SHA `5d5b8428239f`; RLS 77/77 и health/ready receipts есть. `.8` остановлен fail-closed и superseded. |
+| [124](../specs/124-restore-automatic-recording/spec.md) | Реализована, post-review validated, merged, released и deployed; macOS update опубликован как `v2026.07.23.11` | Восстановлены native target-scoped auto-record, список приложений, checkbox, восьмисекундный countdown и automatic start; server receipt `v2026.07.23.9`, public appcast и Sparkle ZIP/PKG receipt `v2026.07.23.11`; RLS 77/77 и health/ready receipts есть. `.8` остановлен fail-closed и superseded. |
 
 ## Реальные открытые задачи во всём архиве
 

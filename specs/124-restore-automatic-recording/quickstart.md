@@ -111,6 +111,17 @@ evidence and all focused recording/privacy/accessibility checks green.
   `failed_table_names=none`; live and ready health endpoints both returned
   HTTP 200. Candidate `v2026.07.23.8` was stopped fail-closed on the migration
   gate and superseded by `.9`.
+- macOS update receipt: [`v2026.07.23.11`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.11)
+  is published from merge `05d66e582f77a4bfeed66057043e8269077d395a`. Public
+  appcast, ZIP and PKG re-fetch passed XML, ZIP-integrity, checksum and Sparkle
+  appcast/archive signature checks. The ZIP SHA-256 is
+  `8abdb294667f5b696373b50aa3583ea0db0bd22b2b865bbad9c3914a85f789df`, the
+  PKG SHA-256 is
+  `d8b93e40164347bfb62f71039fae51fd34dbb84c3c473d21c2268b3edaf2f025`, and
+  the appcast SHA-256 is
+  `1eaac01354991f3eedbf0b73e968cedf1fb1ec3641e25b4899b354b6cb1588e7`.
+  The release is owner-only local-Keychain signed, not Developer ID signed or
+  notarized; `2026.07.22.6` remains the rollback archive.
 - Feature-124 issue mapping was canonical and validated before closeout; all
   24 mapped issues are now closed only after this evidence. A later
   repository-wide canon rerun is blocked by four unrelated, newly opened

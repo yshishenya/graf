@@ -396,6 +396,34 @@ private key, secret, local secret path, meeting content, raw audio or transcript
 - Bitwarden remains an offline recovery backup only. CI, the app and the public
   host never read it and never receive the private signing key.
 
+### T037 closeout receipt — `v2026.07.23.11` (2026-07-23)
+
+The Feature 124 macOS update was published through the approved private-repository
+Keychain recovery lane after exact tag/provenance and owner-only validation. The
+receipt is metadata-only and contains no private key, secret, meeting content,
+raw audio or transcript.
+
+- The immutable tag `v2026.07.23.11` points to merge
+  `05d66e582f77a4bfeed66057043e8269077d395a`; the [GitHub Release](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.11)
+  contains the ZIP, PKG, checksum, appcast, Russian notes and safe signing
+  attestation.
+- The public feed now reports `2026.07.23.11` and points to
+  `GRAF-2026.07.23.11.zip`. The ZIP is `3,734,800` bytes. Local and public
+  SHA-256 values are ZIP
+  `8abdb294667f5b696373b50aa3583ea0db0bd22b2b865bbad9c3914a85f789df`, PKG
+  `d8b93e40164347bfb62f71039fae51fd34dbb84c3c473d21c2268b3edaf2f025`, and
+  appcast
+  `1eaac01354991f3eedbf0b73e968cedf1fb1ec3641e25b4899b354b6cb1588e7`.
+- `validate-app-updates.sh` passed with owner-only trust, the ZIP passed
+  integrity validation, and both the appcast and archive passed Sparkle
+  signature verification. The previous `2026.07.22.6` archive remains in the
+  public directory; the previous appcast was retained as a recoverable backup
+  before the new feed was installed last.
+- The fresh metadata-only attestation reports `channel=macos-keychain`,
+  `state=ready`, `trustGeneration=1`, and the active manifest key id. This
+  remains an owner-only local-signing channel, not Developer ID/notarized public
+  distribution.
+
 The unused `v2026.07.21.2` tag was not rewritten; its release/public assets
 were not published after `origin/master` moved during preparation. The next
 free higher CalVer `.3` was used instead. T037 is closed by this receipt. The
