@@ -64,6 +64,10 @@ RECORDING_WORKFLOW_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0031_recording_workflow_templates_sharing.py"
 )
+MEETING_SHARE_SECURITY_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0035_meeting_share_security_hardening.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -135,6 +139,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         RECORDING_WORKFLOW_MIGRATION,
         "recording_workflow_migration",
     )
+    meeting_share_security_migration = _load_migration_module(
+        MEETING_SHARE_SECURITY_MIGRATION,
+        "meeting_share_security_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -155,6 +163,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(meeting_speaker_migration.MEETING_SPEAKER_TABLES)
         | set(recording_workflow_migration.TENANT_TABLE_POLICIES)
         | set(recording_workflow_migration.GLOBAL_OPERATOR_TABLES)
+        | set(meeting_share_security_migration.CONTENT_WORKSPACE_POLICIES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

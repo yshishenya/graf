@@ -73,12 +73,14 @@ from twobrain_rec_server.auth.dependencies import (
     require_web_csrf,
 )
 from twobrain_rec_server.cabinet.access import (
+    ShareRecipientAccessProof,
     accept_share_invitation,
     create_scoped_share_grant,
     create_share_invitation,
     decide_meeting_access,
     grant_view,
     hash_share_token,
+    invitation_address_hashes,
     lock_shareable_meeting,
     narrow_summary_projection,
     normalize_invitation_address,
@@ -107,6 +109,7 @@ from twobrain_rec_server.cabinet.queries import (
     latest_processing_result,
     list_cabinet_meetings,
 )
+from twobrain_rec_server.cabinet.rendering import render_shared_meeting_summary_page
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.db.models import (
     ExternalIdentity,
@@ -115,6 +118,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeItem,
     MeetingShareGrant,
     SummaryTemplate,
+    UserIdentity,
     Workspace,
     WorkspaceMembership,
 )
@@ -161,6 +165,7 @@ async def get_public_share_db_session(
         yield None
         return
     async with sessionmaker() as session:
+        session.info["share_rate_limit_sessionmaker"] = sessionmaker
         await apply_tenant_context(
             session,
             TenantDatabaseContext(
@@ -208,10 +213,83 @@ async def _verified_invitation_address_hashes(
             )
         ).all()
     return {
-        hash_share_token(normalize_invitation_address(email))
+        digest
         for email in emails
         if email
+        for digest in invitation_address_hashes(normalize_invitation_address(email))
     }
+
+
+async def _recipient_share_access_proof(
+    request: Request,
+    *,
+    recipient_scope: TenantScope,
+    owner_workspace_id: UUID,
+) -> ShareRecipientAccessProof:
+    """Validate the recipient identity and membership in the owner's workspace."""
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_context_unavailable",
+            title="Authentication context unavailable",
+        )
+    async with sessionmaker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=recipient_scope.organization_id,
+                workspace_id=recipient_scope.workspace_id,
+                user_id=recipient_scope.user_id,
+                device_id=recipient_scope.device_id,
+                auth_session_id=recipient_scope.auth_session_id,
+                context_kind="request",
+            ),
+        )
+        user = await session.scalar(
+            select(UserIdentity).where(
+                UserIdentity.id == recipient_scope.user_id,
+                UserIdentity.status == "active",
+            )
+        )
+        emails = (
+            await session.scalars(
+                select(ExternalIdentity.email).where(
+                    ExternalIdentity.user_id == recipient_scope.user_id,
+                    ExternalIdentity.is_verified.is_(True),
+                    ExternalIdentity.email.is_not(None),
+                )
+            )
+        ).all()
+    async with sessionmaker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=recipient_scope.organization_id,
+                workspace_id=owner_workspace_id,
+                user_id=recipient_scope.user_id,
+                device_id=recipient_scope.device_id,
+                auth_session_id=recipient_scope.auth_session_id,
+                context_kind="request",
+            ),
+        )
+        membership = await session.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == owner_workspace_id,
+                WorkspaceMembership.user_id == recipient_scope.user_id,
+                WorkspaceMembership.status == "active",
+            )
+        )
+    return ShareRecipientAccessProof(
+        user_is_active=user is not None,
+        workspace_membership_is_active=membership is not None,
+        verified_address_hashes=frozenset(
+            digest
+            for email in emails
+            if email
+            for digest in invitation_address_hashes(normalize_invitation_address(email))
+        ),
+    )
 
 
 PublicShareDbDependency = Depends(get_public_share_db_session)
@@ -219,8 +297,20 @@ StorageDependency = Depends(get_request_storage)
 CabinetSearchQuery = Query(default=None, max_length=120)
 CabinetStatusQuery = Query(default=None)
 CabinetAccessQuery = Query(default=None)
+ShareRecipientsMeetingIdQuery = Query(default=None)
 CabinetSortQuery = Query(default="updated_desc")
 CabinetLimitQuery = Query(default=50, ge=1, le=100)
+
+
+def _mark_share_secret_response(response: Response) -> None:
+    response.headers.update(
+        {
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow, noarchive",
+        }
+    )
 
 PLAYBACK_BINARY_SCHEMA = {"type": "string", "format": "binary"}
 PLAYBACK_COMMON_HEADERS = {
@@ -364,6 +454,7 @@ async def create_cabinet_manual_media_upload_route(
     dependencies=[PrincipalDependency, DeviceDependency],
 )
 async def get_cabinet_meeting_review_route(
+    request: Request,
     meeting_id: UUID,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -380,6 +471,12 @@ async def get_cabinet_meeting_review_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
         storage=storage,
+        external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
+        invitation_encryption_key=(
+            request.app.state.settings.credential_encryption_key_file.read_bytes().strip()
+            if request.app.state.settings.credential_encryption_key_file is not None
+            else None
+        ),
     )
     if response is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
@@ -440,6 +537,7 @@ async def get_shared_meeting_summary_route(
     dependencies=[PrincipalDependency, DeviceDependency],
 )
 async def get_meeting_access_state_route(
+    request: Request,
     meeting_id: UUID,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -461,7 +559,17 @@ async def get_meeting_access_state_route(
     return MeetingAccessResponse(
         meeting_id=meeting.id,
         access=decision.to_schema(),
-        share=await share_panel_state(db, meeting, decision),
+        share=await share_panel_state(
+            db,
+            meeting,
+            decision,
+            external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
+            invitation_encryption_key=(
+                request.app.state.settings.credential_encryption_key_file.read_bytes().strip()
+                if request.app.state.settings.credential_encryption_key_file is not None
+                else None
+            ),
+        ),
         artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
         deletion_truth_copy=DELETION_TRUTH_COPY,
     )
@@ -1155,6 +1263,7 @@ async def create_meeting_share_grant_route(
     request: Request,
     meeting_id: UUID,
     payload: CreateShareGrantRequest,
+    response: Response,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
@@ -1174,7 +1283,10 @@ async def create_meeting_share_grant_route(
     broader_audience_enabled = {
         "workspace": settings.share_workspace_audience_enabled,
         "team": settings.share_team_audience_enabled,
-        "link": settings.share_public_links_enabled,
+        "link": (
+            settings.share_public_links_enabled
+            and settings.share_public_links_abuse_gate_approved
+        ),
     }.get(payload.audience_type, True)
     grant, raw_token = await create_scoped_share_grant(
         db,
@@ -1191,6 +1303,7 @@ async def create_meeting_share_grant_route(
         broader_audience_enabled=broader_audience_enabled,
     )
     await db.commit()
+    _mark_share_secret_response(response)
     return ShareGrantResponse(
         grant=grant_view(grant, display_name="Authenticated user"),
         share_url=(
@@ -1209,22 +1322,100 @@ async def create_meeting_share_grant_route(
     )
 
 
+async def _search_meeting_share_recipients(
+    *,
+    meeting_id: UUID | None,
+    query: str,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+    device: DeviceContext,
+    db: AsyncSession | None,
+) -> ShareRecipientListResponse:
+    if db is None:
+        raise ProblemDetail(
+            status=503,
+            code="cabinet_store_unavailable",
+            title="Cabinet store unavailable",
+        )
+    if meeting_id is None:
+        # Keep the legacy workspace-only endpoint inert instead of allowing it
+        # to become an identity enumeration primitive.
+        return ShareRecipientListResponse(items=[])
+    _meeting, decision = await _authorized_meeting(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+    )
+    if not decision.can_share:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    rows = await search_share_recipients(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+        device_id=device.device_id,
+        query=query,
+    )
+    return ShareRecipientListResponse(
+        items=[
+            ShareRecipientView(
+                user_id=row.user_id,
+                display_label=row.display_label,
+                source=row.source,
+                recipient_type=row.recipient_type,
+                freshness=row.freshness,
+            )
+            for row in rows
+        ]
+    )
+
+
 @router.get(
     "/cabinet/share-recipients",
     response_model=ShareRecipientListResponse,
     operation_id="searchMeetingShareRecipients",
     dependencies=[PrincipalDependency, DeviceDependency],
 )
-async def search_meeting_share_recipients_route(
+async def search_legacy_share_recipients_route(
     query: str = Query(min_length=0, max_length=80),
+    meeting_id: UUID | None = ShareRecipientsMeetingIdQuery,
     tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
     db: AsyncSession | None = DbDependency,
 ) -> ShareRecipientListResponse:
-    if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
-    rows = await search_share_recipients(db, workspace_id=tenant_scope.workspace_id, query=query)
-    return ShareRecipientListResponse(
-        items=[ShareRecipientView(user_id=user_id, display_label=label) for user_id, label in rows]
+    return await _search_meeting_share_recipients(
+        meeting_id=meeting_id,
+        query=query,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        device=device,
+        db=db,
+    )
+
+
+@router.get(
+    "/cabinet/meetings/{meeting_id}/share-recipients",
+    response_model=ShareRecipientListResponse,
+    operation_id="searchMeetingShareRecipientsForMeeting",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def search_meeting_share_recipients_route(
+    meeting_id: UUID,
+    query: str = Query(min_length=0, max_length=80),
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+) -> ShareRecipientListResponse:
+    return await _search_meeting_share_recipients(
+        meeting_id=meeting_id,
+        query=query,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        device=device,
+        db=db,
     )
 
 
@@ -1237,6 +1428,7 @@ async def search_meeting_share_recipients_route(
 async def rotate_meeting_share_link_route(
     meeting_id: UUID,
     grant_id: UUID,
+    response: Response,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
@@ -1259,11 +1451,19 @@ async def rotate_meeting_share_link_route(
         grant_id=grant_id,
     )
     await db.commit()
+    _mark_share_secret_response(response)
     return ShareGrantResponse(
         grant=grant_view(grant, display_name="Ссылка"),
         share_url=(
-            f"/api/v1/cabinet/public-shares/{raw_token}"
-            f"?workspace_id={tenant_scope.workspace_id}"
+            (
+                f"/api/v1/cabinet/public-shares/{raw_token}"
+                f"?workspace_id={tenant_scope.workspace_id}"
+            )
+            if grant.audience_type == "link"
+            else (
+                f"/api/v1/cabinet/share/{raw_token}"
+                f"?workspace_id={tenant_scope.workspace_id}"
+            )
         ),
     )
 
@@ -1286,7 +1486,12 @@ async def create_meeting_share_invitation_route(
 ) -> MeetingShareInvitationResponse:
     settings = request.app.state.settings
     if not settings.share_external_invitations_enabled:
-        raise ProblemDetail(status=503, code="share_invitations_disabled", title="Invitations unavailable")
+        raise ProblemDetail(
+            status=403,
+            code="share_invitations_disabled",
+            title="External invitations are disabled",
+            detail="Choose a member of the current workspace instead.",
+        )
     if db is None or settings.credential_encryption_key_file is None:
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     meeting, _ = await _authorized_meeting(
@@ -1412,22 +1617,30 @@ async def revoke_meeting_share_grant_route(
     dependencies=[PrincipalDependency, DeviceDependency],
 )
 async def resolve_login_required_share_link_route(
+    request: Request,
     share_token: str,
     workspace_id: Annotated[UUID, Query()],
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
+    recipient_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = PublicShareDbDependency,
 ) -> Response:
     if db is None:
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
+    recipient_proof = await _recipient_share_access_proof(
+        request,
+        recipient_scope=recipient_scope,
+        owner_workspace_id=workspace_id,
+    )
     meeting = await resolve_share_token(
         db,
         workspace_id=workspace_id,
         viewer_user_id=principal.user_id,
         device_id=device.device_id,
         share_token=share_token,
+        recipient_proof=recipient_proof,
     )
     if meeting is None:
         raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
@@ -1436,6 +1649,7 @@ async def resolve_login_required_share_link_route(
         meeting,
         workspace_id=workspace_id,
         viewer_user_id=principal.user_id,
+        recipient_proof=recipient_proof,
     )
     if not decision.can_view_full_meeting:
         items = []
@@ -1451,19 +1665,31 @@ async def resolve_login_required_share_link_route(
                     .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
                 )
             ).all()
-        response = JSONResponse(
-            PublicShareSummaryResponse.model_validate(
-                narrow_summary_projection(
-                    meeting_label=meeting.title or "Встреча",
-                    occurred_at=meeting.started_at or meeting.created_at,
-                    duration_seconds=meeting.duration_seconds,
-                    summary_sections=[
-                        {"category": item.category, "text": item.text or ""} for item in items
-                    ],
-                )
-            ).model_dump(mode="json")
+        projection = narrow_summary_projection(
+            meeting_label=meeting.title or "Встреча",
+            occurred_at=meeting.started_at or meeting.created_at,
+            duration_seconds=meeting.duration_seconds,
+            summary_sections=[
+                {"category": item.category, "text": item.text or ""} for item in items
+            ],
         )
         await db.commit()
+        if "text/html" in request.headers.get("accept", "").lower():
+            response = cabinet_html_response(
+                render_shared_meeting_summary_page(
+                    meeting_title=str(projection["meeting_label"]),
+                    occurred_at=projection["occurred_at"],
+                    duration_seconds=int(projection["duration_seconds"]),
+                    summary_sections=projection["summary_sections"],
+                    authenticated=True,
+                )
+            )
+            _mark_share_secret_response(response)
+            return response
+        response = JSONResponse(
+            PublicShareSummaryResponse.model_validate(projection).model_dump(mode="json")
+        )
+        _mark_share_secret_response(response)
         return response
     await db.commit()
     return RedirectResponse(url=f"/meetings/{meeting.id}", status_code=302)
@@ -1479,9 +1705,13 @@ async def resolve_public_meeting_share_route(
     share_token: str,
     workspace_id: Annotated[UUID, Query()],
     db: AsyncSession | None = PublicShareDbDependency,
-) -> PublicShareSummaryResponse:
+) -> Response | PublicShareSummaryResponse:
     settings = request.app.state.settings
-    if not settings.share_public_links_enabled or db is None:
+    if (
+        not settings.share_public_links_enabled
+        or not settings.share_public_links_abuse_gate_approved
+        or db is None
+    ):
         raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
     grant = await db.scalar(
         select(MeetingShareGrant).where(
@@ -1541,6 +1771,18 @@ async def resolve_public_meeting_share_route(
     )
     grant.last_used_at = datetime.now(UTC)
     await db.commit()
+    if "text/html" in request.headers.get("accept", "").lower():
+        response = cabinet_html_response(
+                render_shared_meeting_summary_page(
+                meeting_title=str(projection["meeting_label"]),
+                occurred_at=projection["occurred_at"],
+                duration_seconds=int(projection["duration_seconds"]),
+                    summary_sections=projection["summary_sections"],
+                    authenticated=False,
+                )
+        )
+        _mark_share_secret_response(response)
+        return response
     return PublicShareSummaryResponse.model_validate(projection)
 
 
@@ -1553,38 +1795,82 @@ async def resolve_public_meeting_share_route(
 async def accept_meeting_share_invitation_route(
     request: Request,
     share_token: str,
+    response: Response,
     workspace_id: Annotated[UUID, Query()],
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
     recipient_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = PublicShareDbDependency,
 ) -> Response | ShareGrantResponse:
-    if db is None:
+    settings = request.app.state.settings
+    if db is None or settings.credential_encryption_key_file is None:
         raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
     verified_address_hashes = await _verified_invitation_address_hashes(
         request,
         recipient_scope=recipient_scope,
     )
-    grant = await accept_share_invitation(
+    recipient_proof = await _recipient_share_access_proof(
+        request,
+        recipient_scope=recipient_scope,
+        owner_workspace_id=workspace_id,
+    )
+    accepted = await accept_share_invitation(
         db,
         workspace_id=workspace_id,
         user_id=principal.user_id,
         device_id=device.device_id,
         raw_token=share_token,
         verified_address_hashes=verified_address_hashes,
+        encryption_key=settings.credential_encryption_key_file.read_bytes().strip(),
+        recipient_user_active=recipient_proof.user_is_active,
     )
-    if grant is None:
+    if accepted is None:
         raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+    grant, grant_raw_token = accepted
+    if request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
+        meeting = await db.get(Meeting, grant.meeting_id)
+        if meeting is None:
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        items = []
+        if meeting.current_outcome_set_id is not None:
+            items = (
+                await db.scalars(
+                    select(MeetingOutcomeItem)
+                    .where(
+                        MeetingOutcomeItem.workspace_id == workspace_id,
+                        MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
+                        MeetingOutcomeItem.state == "available",
+                    )
+                    .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+                )
+            ).all()
+        projection = narrow_summary_projection(
+            meeting_label=meeting.title or "Встреча",
+            occurred_at=meeting.started_at or meeting.created_at,
+            duration_seconds=meeting.duration_seconds,
+            summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+        )
+        await db.commit()
+        html_response = cabinet_html_response(
+            render_shared_meeting_summary_page(
+                meeting_title=str(projection["meeting_label"]),
+                occurred_at=projection["occurred_at"],
+                duration_seconds=int(projection["duration_seconds"]),
+                summary_sections=projection["summary_sections"],
+                authenticated=True,
+            )
+        )
+        _mark_share_secret_response(html_response)
+        return html_response
     await db.commit()
+    _mark_share_secret_response(response)
     response = ShareGrantResponse(
         grant=grant_view(grant, display_name="Authenticated user"),
         share_url=(
-            f"/api/v1/cabinet/share/{share_token}"
+            f"/api/v1/cabinet/share/{grant_raw_token}"
             f"?workspace_id={workspace_id}"
         ),
     )
-    if request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
-        return RedirectResponse(url=response.share_url, status_code=303)
     return response
 
 

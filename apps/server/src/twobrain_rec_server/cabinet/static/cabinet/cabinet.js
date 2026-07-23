@@ -2207,26 +2207,73 @@
       const status = dialog.querySelector("[data-share-status]");
       const form = dialog.querySelector("[data-share-recipient-form]");
       const results = dialog.querySelector("[data-share-recipient-results]");
+      const viewers = dialog.querySelector("[data-share-viewers]");
       const recipientInput = form?.querySelector("[data-share-recipient-input]");
       const meetingId = form?.dataset.meetingId || "";
+      const externalInvitationsEnabled = dialog.dataset.shareExternalInvitations === "available";
       const setResultsVisible = (visible) => {
         if (results) results.hidden = !visible;
-        recipientInput?.setAttribute("aria-expanded", visible ? "true" : "false");
+      };
+      const focusResult = (option) => {
+        if (!(option instanceof HTMLElement)) return;
+        option.focus({ preventScroll: true });
       };
       const focusResultOption = (current, offset) => {
-        const options = Array.from(results?.querySelectorAll('[role="option"]') || []);
+        const options = Array.from(results?.querySelectorAll("button") || []);
         if (!options.length) return;
         const index = options.indexOf(current);
-        options[(index + offset + options.length) % options.length].focus({ preventScroll: true });
+        focusResult(options[(index + offset + options.length) % options.length]);
       };
       const setStatus = (message, tone = "neutral") => {
         if (!status) return;
         status.textContent = message;
         status.dataset.tone = tone;
       };
+      const shareErrorMessage = (code) => ({
+        share_invitations_disabled: "Внешние приглашения пока отключены. Выберите участника рабочей области.",
+        meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
+        invalid_invitation: "Проверьте адрес электронной почты.",
+        invalid_invitation_ttl: "Срок действия приглашения недоступен. Попробуйте ещё раз.",
+        external_share_scope_invalid: "Внешний доступ возможен только к итогам без скачивания.",
+        grantee_not_found: "Не удалось подтвердить участника. Попробуйте найти его заново.",
+        grantee_already_has_access: "У этого участника уже есть доступ к встрече.",
+        share_policy_blocked: "Этот способ доступа пока недоступен по политике.",
+        share_not_found: "Ссылка больше недоступна. Обновите список доступов.",
+        share_grant_not_found: "Доступ уже отозван или истёк.",
+        auth_session_expired: "Сессия истекла. Обновите страницу и войдите снова.",
+        csrf_token_missing: "Сессия страницы устарела. Обновите страницу.",
+        csrf_token_invalid: "Сессия страницы устарела. Обновите страницу.",
+        cabinet_store_unavailable: "Сервис доступа временно недоступен. Попробуйте позже.",
+        postal_config_missing: "Почтовая доставка пока не настроена. Выберите участника рабочей области.",
+        postal_delivery_disabled: "Почтовая доставка пока отключена. Выберите участника рабочей области.",
+        postal_timeout: "Почтовый сервис не подтвердил доставку. Повторите позже.",
+        postal_request_failed: "Не удалось связаться с почтовым сервисом. Повторите позже.",
+        postal_malformed_response: "Почтовый сервис не подтвердил доставку. Повторите позже.",
+        postal_delivery_outcome_unknown: "Доставка не подтверждена. Не отправляйте повторно сразу — проверьте позже.",
+        share_team_audience_unavailable: "Командный доступ пока не настроен.",
+        rate_limited: "Слишком много запросов. Попробуйте позже.",
+        clipboard_unavailable: "Не удалось скопировать ссылку. Скопируйте её из адресной строки."
+      }[code] || "Не удалось изменить доступ. Попробуйте ещё раз.");
+      const recipientSourceLabel = (item) => {
+        let source = item.source === "workspace_calendar"
+          ? "Календарь и рабочая область"
+          : item.source === "calendar"
+            ? "Календарь"
+            : "Рабочая область";
+        if (item.freshness === "stale") source += " · данные могут устареть";
+        if (item.freshness === "unknown") source += " · источник недоступен";
+        return source;
+      };
+      const maskInvitationAddress = (address) => {
+        const [local, domain] = String(address || "").trim().toLowerCase().split("@");
+        if (!local || !domain) return "Приглашение";
+        const maskedLocal = local.length <= 2 ? `${local[0]}*` : `${local[0]}***${local[local.length - 1]}`;
+        return `${maskedLocal}@${domain}`;
+      };
       const mutate = async (url, options) => {
         const response = await fetch(url, {
           credentials: "same-origin",
+          cache: "no-store",
           ...options,
           headers: {
             "Content-Type": "application/json",
@@ -2234,12 +2281,166 @@
             ...(options?.headers || {})
           }
         });
-        if (!response.ok) throw new Error(String(response.status));
+        if (!response.ok) {
+          const problem = await response.json().catch(() => ({}));
+          const error = new Error(problem.code || String(response.status));
+          error.code = problem.code || String(response.status);
+          throw error;
+        }
         return response.status === 204 ? null : response.json();
       };
-      const grantRecipient = async (userId, label) => {
+      const copyShareUrl = async (shareUrl) => {
+        if (!shareUrl) throw new Error("clipboard_unavailable");
+        const absoluteUrl = new URL(shareUrl, window.location.origin).href;
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(absoluteUrl);
+          return;
+        }
+        const fallback = document.createElement("textarea");
+        fallback.value = absoluteUrl;
+        fallback.readOnly = true;
+        fallback.setAttribute("aria-hidden", "true");
+        fallback.style.position = "fixed";
+        fallback.style.opacity = "0";
+        document.body.append(fallback);
         try {
-          await mutate(`/api/v1/cabinet/meetings/${meetingId}/shares`, {
+          fallback.select();
+          if (!document.execCommand("copy")) throw new Error("clipboard_unavailable");
+        } finally {
+          fallback.remove();
+        }
+      };
+      const showEmptyViewers = () => {
+        if (!viewers || viewers.querySelector("[data-share-viewer-row]")) return;
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.dataset.shareEmpty = "true";
+        empty.textContent = "Пока доступ есть только у владельца.";
+        viewers.append(empty);
+      };
+      const bindViewerRow = (row, shareUrl = "") => {
+        const copy = row.querySelector("[data-share-copy-button]");
+        const rotateUrl = row.querySelector("[data-share-rotate-url]")?.dataset.shareRotateUrl || "";
+        const revoke = row.querySelector("[data-share-revoke-url]");
+        let rowBusy = false;
+        const setRowBusy = (busy) => {
+          rowBusy = busy;
+          [copy, revoke].forEach((control) => {
+            if (control) control.disabled = busy;
+          });
+        };
+        copy?.addEventListener("click", async () => {
+          if (rowBusy) return;
+          setRowBusy(true);
+          try {
+            let resolvedUrl = shareUrl;
+            if (!resolvedUrl && rotateUrl) {
+              const payload = await mutate(rotateUrl, { method: "POST" });
+              resolvedUrl = payload?.share_url || "";
+              shareUrl = resolvedUrl;
+              setStatus("Создана новая ссылка — прежняя больше не работает.", "progress");
+            }
+            await copyShareUrl(resolvedUrl);
+            setStatus("Ссылка скопирована.", "success");
+          } catch (error) {
+            setStatus(shareErrorMessage(error?.code || error?.message), "error");
+          } finally {
+            setRowBusy(false);
+          }
+        });
+        revoke?.addEventListener("click", async () => {
+          if (rowBusy) return;
+          setRowBusy(true);
+          try {
+            await mutate(revoke.dataset.shareRevokeUrl, { method: "DELETE" });
+            row.remove();
+            showEmptyViewers();
+            setStatus("Доступ отозван.", "success");
+          } catch (error) {
+            setStatus(shareErrorMessage(error?.code || error?.message), "error");
+          } finally {
+            setRowBusy(false);
+          }
+        });
+      };
+      const appendViewerRow = (label, payload) => {
+        if (!viewers) return;
+        viewers.querySelector("[data-share-empty]")?.remove();
+        const row = document.createElement("div");
+        row.className = "share-viewer-row";
+        row.dataset.shareViewerRow = "true";
+        const identity = document.createElement("span");
+        const name = document.createElement("strong");
+        name.textContent = label;
+        const scope = document.createElement("small");
+        scope.className = "muted";
+        scope.textContent = "Итоги · ссылка готова";
+        identity.append(name, scope);
+        const actions = document.createElement("span");
+        actions.className = "share-viewer-row__actions";
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.dataset.shareCopyButton = "true";
+        copy.textContent = "Скопировать ссылку";
+        const revoke = document.createElement("button");
+        revoke.type = "button";
+        revoke.dataset.shareRevokeUrl = `/api/v1/cabinet/meetings/${meetingId}/shares/${payload?.grant?.grant_id || ""}`;
+        revoke.textContent = "Отозвать";
+        actions.append(copy, revoke);
+        row.append(identity, actions);
+        viewers.append(row);
+        bindViewerRow(row, payload?.share_url || "");
+        return row;
+      };
+      const bindInvitationRow = (row) => {
+        const revoke = row.querySelector("[data-share-invitation-revoke-url]");
+        revoke?.addEventListener("click", async () => {
+          revoke.disabled = true;
+          try {
+            await mutate(revoke.dataset.shareInvitationRevokeUrl, { method: "DELETE" });
+            row.remove();
+            showEmptyViewers();
+            setStatus("Приглашение отменено.", "success");
+          } catch (error) {
+            revoke.disabled = false;
+            setStatus(shareErrorMessage(error?.code || error?.message), "error");
+          }
+        });
+      };
+      const appendInvitationRow = (payload, displayLabel = "Приглашение") => {
+        const invitation = payload?.invitation || payload;
+        if (!viewers || !invitation?.invitation_id) return;
+        viewers.querySelector("[data-share-empty]")?.remove();
+        const row = document.createElement("div");
+        row.className = "share-viewer-row share-viewer-row--invitation";
+        row.dataset.shareInvitationRow = "true";
+        const identity = document.createElement("span");
+        const label = document.createElement("strong");
+        label.textContent = displayLabel || invitation.display_label || "Приглашение";
+        const status = document.createElement("small");
+        status.className = "muted";
+        const expiresAt = invitation.expires_at ? new Date(invitation.expires_at) : null;
+        const statusLabel = {
+          pending: "Готовится к отправке",
+          sending: "Отправляется",
+          sent: "Отправлено",
+          outcome_unknown: "Доставка не подтверждена — не отправляйте повторно сразу"
+        }[invitation.status] || invitation.status || "Готовится к отправке";
+        status.textContent = `${statusLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${expiresAt.toLocaleDateString("ru-RU")}` : ""}`;
+        identity.append(label, status);
+        const revoke = document.createElement("button");
+        revoke.type = "button";
+        revoke.dataset.shareInvitationRevokeUrl = `/api/v1/cabinet/meetings/${meetingId}/share-invitations/${invitation.invitation_id}`;
+        revoke.textContent = "Отменить";
+        row.append(identity, revoke);
+        viewers.append(row);
+        bindInvitationRow(row);
+      };
+      const grantRecipient = async (userId, label, button) => {
+        if (button?.disabled) return;
+        if (button) button.disabled = true;
+        try {
+          const payload = await mutate(`/api/v1/cabinet/meetings/${meetingId}/shares`, {
             method: "POST",
             body: JSON.stringify({
               audience_type: "user",
@@ -2250,9 +2451,12 @@
             })
           });
           setResultsVisible(false);
-          setStatus(`Доступ к итогам открыт: ${label}`, "success");
-        } catch (_error) {
-          setStatus("Не удалось открыть доступ. Попробуйте ещё раз.", "error");
+          appendViewerRow(label, payload);
+          setStatus(`Доступ к итогам открыт: ${label}. Ссылка готова для копирования.`, "success");
+        } catch (error) {
+          setStatus(shareErrorMessage(error?.code || error?.message), "error");
+        } finally {
+          if (button?.isConnected) button.disabled = false;
         }
       };
       const close = () => {
@@ -2268,6 +2472,8 @@
         if (event.target === dialog) close();
       });
       dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+      let searchSequence = 0;
+      let searchController = null;
       form?.addEventListener("submit", async (event) => {
         event.preventDefault();
         const query = recipientInput?.value.trim() || "";
@@ -2277,36 +2483,54 @@
         }
         setResultsVisible(false);
         setStatus("Ищем…");
+        const sequence = ++searchSequence;
+        searchController?.abort();
+        searchController = new AbortController();
         try {
           const response = await fetch(`${form.action}?query=${encodeURIComponent(query)}`, {
-            credentials: "same-origin"
+            credentials: "same-origin",
+            cache: "no-store",
+            signal: searchController.signal
           });
-          if (!response.ok) throw new Error(String(response.status));
+          if (!response.ok) {
+            const problem = await response.json().catch(() => ({}));
+            const error = new Error(problem.code || String(response.status));
+            error.code = problem.code || String(response.status);
+            throw error;
+          }
           const payload = await response.json();
+          if (sequence !== searchSequence) return;
           const items = Array.isArray(payload.items) ? payload.items : [];
           if (items.length && results) {
             results.replaceChildren();
             items.forEach((item) => {
               const button = document.createElement("button");
               button.type = "button";
-              button.setAttribute("role", "option");
-              button.setAttribute("aria-selected", "false");
-              button.textContent = item.display_label;
-              button.addEventListener("focus", () => {
-                results.querySelectorAll('[role="option"]').forEach((option) => {
-                  option.setAttribute("aria-selected", option === button ? "true" : "false");
-                });
-              });
-              button.addEventListener("click", () => grantRecipient(item.user_id, item.display_label));
+              button.id = `share-recipient-option-${meetingId}-${item.user_id}`;
+              const label = document.createElement("strong");
+              label.textContent = item.display_label;
+              const source = document.createElement("small");
+              source.className = "muted";
+              source.textContent = recipientSourceLabel(item);
+              const action = document.createElement("span");
+              action.className = "share-recipient-option__action";
+              action.textContent = "Открыть доступ к итогам";
+              button.append(label, source, action);
+              button.setAttribute("aria-label", `${action.textContent}: ${item.display_label}, ${source.textContent}`);
+              button.addEventListener("click", () => grantRecipient(item.user_id, item.display_label, button));
               results.append(button);
             });
             setResultsVisible(true);
             setStatus("Выберите человека.");
-            results.querySelector("button")?.focus({ preventScroll: true });
+            focusResult(results.querySelector("button"));
             return;
           }
           if (query.includes("@")) {
-            await mutate(`/api/v1/cabinet/meetings/${meetingId}/share-invitations`, {
+            if (!externalInvitationsEnabled) {
+              setStatus(shareErrorMessage("share_invitations_disabled"), "error");
+              return;
+            }
+            const invitation = await mutate(`/api/v1/cabinet/meetings/${meetingId}/share-invitations`, {
               method: "POST",
               body: JSON.stringify({
                 address: query,
@@ -2315,18 +2539,29 @@
                 can_export: false
               })
             });
-            setStatus("Приглашение отправлено.", "success");
+            appendInvitationRow(invitation, maskInvitationAddress(query));
+            setStatus("Приглашение поставлено в отправку. Доставка может занять несколько минут.", "success");
             return;
           }
           setStatus("Никого не нашли. Проверьте имя.", "error");
-        } catch (_error) {
-          setStatus("Не удалось пригласить. Попробуйте ещё раз.", "error");
+        } catch (error) {
+          if (error?.name === "AbortError") return;
+          setStatus(shareErrorMessage(error?.code || error?.message), "error");
+        } finally {
+          if (sequence === searchSequence) searchController = null;
         }
+      });
+      recipientInput?.addEventListener("input", () => {
+        searchSequence += 1;
+        searchController?.abort();
+        searchController = null;
+        setResultsVisible(false);
+        setStatus(recipientInput.value.trim() ? "Нажмите «Найти»." : "");
       });
       recipientInput?.addEventListener("keydown", (event) => {
         if (event.key === "ArrowDown" && !results?.hidden) {
           event.preventDefault();
-          results.querySelector('[role="option"]')?.focus({ preventScroll: true });
+          focusResult(results.querySelector("button"));
         } else if (event.key === "Escape" && !results?.hidden) {
           event.preventDefault();
           event.stopPropagation();
@@ -2334,12 +2569,12 @@
         }
       });
       results?.addEventListener("keydown", (event) => {
-        const option = event.target.closest?.('[role="option"]');
+        const option = event.target.closest?.("button");
         if (!option) return;
         if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
           event.preventDefault();
-          if (event.key === "Home") results.querySelector('[role="option"]')?.focus({ preventScroll: true });
-          else if (event.key === "End") results.querySelector('[role="option"]:last-of-type')?.focus({ preventScroll: true });
+          if (event.key === "Home") focusResult(results.querySelector("button"));
+          else if (event.key === "End") focusResult(results.querySelector("button:last-of-type"));
           else focusResultOption(option, event.key === "ArrowDown" ? 1 : -1);
         } else if (event.key === "Escape") {
           event.preventDefault();
@@ -2348,17 +2583,8 @@
           recipientInput?.focus({ preventScroll: true });
         }
       });
-      dialog.querySelectorAll("[data-share-revoke-url]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          try {
-            await mutate(button.dataset.shareRevokeUrl, { method: "DELETE" });
-            button.closest("[data-share-viewer-row]")?.remove();
-            setStatus("Доступ отозван.", "success");
-          } catch (_error) {
-            setStatus("Не удалось отозвать доступ.", "error");
-          }
-        });
-      });
+      dialog.querySelectorAll("[data-share-viewer-row]").forEach((row) => bindViewerRow(row));
+      dialog.querySelectorAll("[data-share-invitation-row]").forEach((row) => bindInvitationRow(row));
       if (!dialog.open) dialog.showModal();
       recipientInput?.focus({ preventScroll: true });
     });

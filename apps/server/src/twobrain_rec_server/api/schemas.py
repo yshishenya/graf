@@ -1241,6 +1241,11 @@ SummaryCandidateState = Literal[
 SummaryCandidateProjectionState = Literal["generating", "ready", "accepted", "closed", "failed"]
 ShareAudienceType = Literal["user", "workspace", "team", "link"]
 ShareContentScope = Literal["summary_only", "full_meeting"]
+ShareCapabilityState = Literal["available", "policy_blocked", "auth_required"]
+ShareRecipientSource = Literal["workspace", "calendar", "workspace_calendar"]
+ShareRecipientType = Literal["workspace_member"]
+ShareRecipientFreshness = Literal["current", "stale", "unknown"]
+ExternalInvitationState = Literal["available", "disabled"]
 ShareInvitationStatus = Literal[
     "pending",
     "sending",
@@ -1249,6 +1254,7 @@ ShareInvitationStatus = Literal[
     "expired",
     "revoked",
     "failed",
+    "outcome_unknown",
     "deleted",
 ]
 
@@ -1385,6 +1391,9 @@ class MeetingShareInvitationResponse(BaseModel):
 class ShareRecipientView(BaseModel):
     user_id: UUID
     display_label: str
+    source: ShareRecipientSource = "workspace"
+    recipient_type: ShareRecipientType = "workspace_member"
+    freshness: ShareRecipientFreshness = "current"
 
 
 class ShareRecipientListResponse(BaseModel):
@@ -1425,13 +1434,31 @@ class ShareGrantView(BaseModel):
     role_label: Literal["Owner", "Team", "Can view"]
     status: ShareGrantStatus
     created_at: datetime
+    audience_type: ShareAudienceType = "user"
+    content_scope: ShareContentScope = "summary_only"
+    expires_at: datetime | None = None
+
+
+class ShareInvitationView(BaseModel):
+    invitation_id: UUID
+    status: ShareInvitationStatus
+    created_at: datetime
+    expires_at: datetime
+    display_label: str = "Приглашение"
 
 
 class SharePanelState(BaseModel):
     team_visibility: TeamVisibilityState
     active_grants: list[ShareGrantView] = Field(default_factory=list)
+    active_invitations: list[ShareInvitationView] = Field(default_factory=list)
     copy_link_state: CopyLinkState
     public_link_state: PublicLinkState
+    capability_state: ShareCapabilityState = "available"
+    capability_reason: str | None = None
+    external_invitation_state: ExternalInvitationState = "disabled"
+    recipient_sources: list[Literal["workspace", "calendar"]] = Field(
+        default_factory=lambda: ["workspace"]
+    )
 
 
 class MeetingActivityItem(BaseModel):

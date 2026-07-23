@@ -63,6 +63,10 @@ RECORDING_WORKFLOW_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0031_recording_workflow_templates_sharing.py"
 )
+MEETING_SHARE_SECURITY_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0035_meeting_share_security_hardening.py"
+)
 PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
@@ -90,6 +94,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + PLAYBACK_NORMALIZATION_MIGRATION.read_text(encoding="utf-8")
         + MEETING_SPEAKER_MIGRATION.read_text(encoding="utf-8")
         + RECORDING_WORKFLOW_MIGRATION.read_text(encoding="utf-8")
+        + MEETING_SHARE_SECURITY_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):

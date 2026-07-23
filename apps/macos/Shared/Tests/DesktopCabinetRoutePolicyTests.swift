@@ -115,7 +115,11 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(admin.route.kind, .admin)
         XCTAssertEqual(admin.reason, .openBrowserOwnedAdmin)
 
-        XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/share")).decision, .blockWithMessage)
+        let share = policy.decision(for: try url("/desktop/meetings/meeting-033/share"))
+        XCTAssertEqual(share.decision, .allow)
+        XCTAssertEqual(share.route.kind, .meetingShare)
+        XCTAssertEqual(share.route.meetingId, "meeting-033")
+        XCTAssertEqual(share.reason, .allowedMeetingShare)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/download")).reason, .blockedFutureGovernance)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/delete")).reason, .blockedFutureGovernance)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/deletion")).reason, .blockedFutureGovernance)

@@ -21,8 +21,11 @@ from twobrain_rec_server.db.models import (
     CalendarSource,
     ExportPackage,
     ExternalCalendar,
+    ExternalIdentity,
     MeetingEgressAuditEvent,
     MeetingShareGrant,
+    RecordingCalendarContextLink,
+    WorkspaceMembership,
 )
 
 
@@ -70,6 +73,124 @@ def test_login_required_share_link_resolves_for_grantee_and_can_be_revoked(clien
         assert "share_token_hash" not in event.metadata_json
 
 
+def test_internal_share_search_is_meeting_bound_and_finds_verified_email(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_workspace_user(client, display_name="Synthetic Teammate")
+
+    async def seed_identity() -> None:
+        async with client.app_state["sessionmaker"]() as session:
+            session.add(
+                ExternalIdentity(
+                    user_id=SHARED_USER_ID,
+                    provider="synthetic",
+                    provider_subject="synthetic-teammate",
+                    email="teammate@example.test",
+                    is_verified=True,
+                )
+            )
+            await session.commit()
+
+    asyncio.run(seed_identity())
+
+    response = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/share-recipients",
+        headers=auth_headers(),
+        params={"query": "teammate@example.test"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [
+        {
+            "user_id": str(SHARED_USER_ID),
+            "display_label": "Synthetic Teammate",
+            "source": "workspace",
+            "recipient_type": "workspace_member",
+            "freshness": "current",
+        }
+    ]
+
+    legacy = client.get(
+        "/api/v1/cabinet/share-recipients",
+        headers=auth_headers(),
+        params={"query": "teammate"},
+    )
+    assert legacy.status_code == 200
+    assert legacy.json()["items"] == []
+
+
+def test_disabled_external_share_returns_truthful_problem_without_delivery(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    response = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/share-invitations",
+        headers=auth_headers(),
+        json={"address": "outside@example.test"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "share_invitations_disabled"
+    assert response.json()["detail"]
+
+
+def test_user_share_rotation_returns_recipient_bound_url_and_invalidates_old_token(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_workspace_user(client)
+    created = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+        headers=auth_headers(),
+        json={"grantee_user_id": str(SHARED_USER_ID), "content_scope": "summary_only"},
+    )
+    assert created.status_code == 201
+
+    rotated = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/{created.json()['grant']['grant_id']}/rotate",
+        headers=auth_headers(),
+    )
+
+    assert rotated.status_code == 200
+    assert "/api/v1/cabinet/share/" in rotated.json()["share_url"]
+    assert client.get(created.json()["share_url"], headers=auth_headers_for()).status_code == 404
+    resolved = client.get(rotated.json()["share_url"], headers=auth_headers_for())
+    assert resolved.status_code == 200
+    assert set(resolved.json()) == {
+        "meeting_label",
+        "occurred_at",
+        "duration_seconds",
+        "summary_sections",
+    }
+
+
+def test_internal_grant_stops_working_after_membership_is_revoked(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_workspace_user(client)
+    created = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+        headers=auth_headers(),
+        json={"grantee_user_id": str(SHARED_USER_ID), "content_scope": "summary_only"},
+    )
+    assert created.status_code == 201
+
+    async def revoke_membership() -> None:
+        async with client.app_state["sessionmaker"]() as session:
+            membership = await session.scalar(
+                select(WorkspaceMembership).where(
+                    WorkspaceMembership.workspace_id == WORKSPACE_ID,
+                    WorkspaceMembership.user_id == SHARED_USER_ID,
+                )
+            )
+            assert membership is not None
+            membership.status = "revoked"
+            await session.commit()
+
+    asyncio.run(revoke_membership())
+    response = client.get(
+        created.json()["share_url"],
+        headers=auth_headers_for(),
+        follow_redirects=False,
+    )
+    assert response.status_code == 403
+
+
 def test_calendar_attendees_do_not_create_meeting_share_grants(client) -> None:
     meeting = client.post(
         "/api/v1/meetings",
@@ -88,6 +209,158 @@ def test_calendar_attendees_do_not_create_meeting_share_grants(client) -> None:
 
     assert linked.status_code == 200
     assert grant_count == 0
+
+
+def test_calendar_workspace_match_is_source_labelled_without_side_effects(client) -> None:
+    add_workspace_user(client, display_name="Calendar Teammate")
+
+    async def seed_identity() -> None:
+        async with client.app_state["sessionmaker"]() as session:
+            session.add(
+                ExternalIdentity(
+                    user_id=SHARED_USER_ID,
+                    provider="synthetic-calendar",
+                    provider_subject="calendar-teammate",
+                    email="calendar.teammate@example.test",
+                    is_verified=True,
+                )
+            )
+            await session.commit()
+
+    asyncio.run(seed_identity())
+    meeting_id = UUID(
+        client.post(
+            "/api/v1/meetings",
+            headers=auth_headers(),
+            json={"local_recording_id": "calendar-internal-share-candidate", "duration_seconds": 900},
+        ).json()["meeting_id"]
+    )
+    event_id = _seed_calendar_event_with_external_attendee(
+        client,
+        participant_email="calendar.teammate@example.test",
+        participant_display_name="Calendar Teammate",
+        participant_workspace_relation="internal",
+        participant_candidate_class="internal_attendee",
+    )
+    before = _meeting_side_effect_counts(client, meeting_id)
+
+    linked = client.put(
+        f"/api/v1/meetings/{meeting_id}/calendar-context",
+        headers=auth_headers(),
+        json={"event_id": event_id, "context_reason": "manual_selection"},
+    )
+    search = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/share-recipients",
+        headers=auth_headers(),
+        params={"query": "calendar.teammate"},
+    )
+
+    assert linked.status_code == 200
+    assert search.status_code == 200
+    assert search.json()["items"] == [
+        {
+            "user_id": str(SHARED_USER_ID),
+            "display_label": "Calendar Teammate",
+            "source": "workspace_calendar",
+            "recipient_type": "workspace_member",
+            "freshness": "current",
+        }
+    ]
+    assert _meeting_side_effect_counts(client, meeting_id) == before
+
+
+def test_stale_calendar_match_is_labelled_without_grant_side_effect(client) -> None:
+    add_workspace_user(client, display_name="Stale Calendar Teammate")
+
+    async def seed_identity() -> None:
+        async with client.app_state["sessionmaker"]() as session:
+            session.add(
+                ExternalIdentity(
+                    user_id=SHARED_USER_ID,
+                    provider="synthetic-stale-calendar",
+                    provider_subject="stale-calendar-teammate",
+                    email="stale.calendar@example.test",
+                    is_verified=True,
+                )
+            )
+            await session.commit()
+
+    asyncio.run(seed_identity())
+    meeting_id = UUID(
+        client.post(
+            "/api/v1/meetings",
+            headers=auth_headers(),
+            json={"local_recording_id": "stale-calendar-share-candidate", "duration_seconds": 900},
+        ).json()["meeting_id"]
+    )
+    event_id = _seed_calendar_event_with_external_attendee(
+        client,
+        participant_email="stale.calendar@example.test",
+        participant_display_name="Stale Calendar Teammate",
+        participant_workspace_relation="internal",
+        participant_candidate_class="internal_attendee",
+    )
+    linked = client.put(
+        f"/api/v1/meetings/{meeting_id}/calendar-context",
+        headers=auth_headers(),
+        json={"event_id": event_id, "context_reason": "manual_selection"},
+    )
+
+    async def age_context() -> None:
+        async with client.app_state["sessionmaker"]() as session:
+            link = await session.scalar(
+                select(RecordingCalendarContextLink).where(
+                    RecordingCalendarContextLink.workspace_id == WORKSPACE_ID,
+                    RecordingCalendarContextLink.meeting_id == meeting_id,
+                )
+            )
+            assert link is not None
+            link.updated_at = datetime.now(UTC) - timedelta(days=8)
+            await session.commit()
+
+    asyncio.run(age_context())
+    search = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/share-recipients",
+        headers=auth_headers(),
+        params={"query": "stale.calendar"},
+    )
+
+    assert linked.status_code == 200
+    assert search.status_code == 200
+    assert search.json()["items"][0]["source"] == "workspace_calendar"
+    assert search.json()["items"][0]["freshness"] == "stale"
+    assert _share_grant_count(client, meeting_id) == 0
+
+
+def test_declined_calendar_attendee_is_not_emitted_as_recipient(client) -> None:
+    meeting_id = UUID(
+        client.post(
+            "/api/v1/meetings",
+            headers=auth_headers(),
+            json={"local_recording_id": "declined-calendar-share-candidate", "duration_seconds": 900},
+        ).json()["meeting_id"]
+    )
+    event_id = _seed_calendar_event_with_external_attendee(
+        client,
+        participant_email="declined@example.test",
+        participant_display_name="Declined Calendar Guest",
+        participant_workspace_relation="external",
+        participant_candidate_class="declined",
+    )
+    linked = client.put(
+        f"/api/v1/meetings/{meeting_id}/calendar-context",
+        headers=auth_headers(),
+        json={"event_id": event_id, "context_reason": "manual_selection"},
+    )
+    search = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/share-recipients",
+        headers=auth_headers(),
+        params={"query": "declined"},
+    )
+
+    assert linked.status_code == 200
+    assert search.status_code == 200
+    assert search.json()["items"] == []
 
 
 def test_us6_roster_heavy_match_has_zero_share_or_delivery_side_effects(client) -> None:
@@ -155,6 +428,10 @@ def _seed_calendar_event_with_external_attendee(
     client,
     *,
     attendee_count: int = 1,
+    participant_email: str = "guest@external.test",
+    participant_display_name: str = "External Guest",
+    participant_workspace_relation: str = "external",
+    participant_candidate_class: str = "external",
 ) -> str:
     source_response = client.post(
         "/api/v1/calendar/sources",
@@ -172,11 +449,11 @@ def _seed_calendar_event_with_external_attendee(
     participants = attendee_heavy_event_fixture(count=attendee_count)["participants"]
     participants[0] = {
         **participants[0],
-        "email": "guest@external.test",
+        "email": participant_email,
         "email_hash": "sha256:synthetic-external-guest",
-        "display_name": "External Guest",
-        "workspace_relation": "external",
-        "recipient_candidate_class": "external",
+        "display_name": participant_display_name,
+        "workspace_relation": participant_workspace_relation,
+        "recipient_candidate_class": participant_candidate_class,
     }
 
     async def seed() -> str:

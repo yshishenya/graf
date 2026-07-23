@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -12,6 +14,16 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
     list_workspace_join_offers,
+)
+from twobrain_rec_server.cabinet.access import (
+    accept_share_invitation,
+    consume_share_invitation_continuation,
+    create_share_invitation_continuation,
+    finalize_share_invitation_continuation,
+    invitation_address_hashes,
+    narrow_summary_projection,
+    normalize_invitation_address,
+    share_invitation_preview,
 )
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
@@ -26,6 +38,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_unavailable_page,
     render_settings_page,
     render_share_invitation_accept_page,
+    render_shared_meeting_summary_page,
 )
 from twobrain_rec_server.cabinet.review_policy_rendering import render_meeting_share_fragment
 from twobrain_rec_server.cabinet.templates import (
@@ -37,6 +50,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     CabinetSearchQuery,
     CabinetSortQuery,
     CabinetStatusFilter,
+    OptionalPrincipalDependency,
     PrincipalDependency,
     StorageDependency,
     WebDbDependency,
@@ -45,6 +59,8 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _is_hx_request,
     _request_path_with_query,
 )
+from twobrain_rec_server.db.models import ExternalIdentity, Meeting, MeetingOutcomeItem
+from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
@@ -65,20 +81,206 @@ def _meeting_unavailable_response(
     )
 
 
+@router.get("/share-invitations/continue", response_class=HTMLResponse, include_in_schema=False)
+async def share_invitation_continuation(
+    request: Request,
+    workspace_id: Annotated[UUID, Query()],
+    state: str = Query(min_length=16, max_length=128),
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    recipient_scope: TenantScope = WebTenantDependency,
+) -> Response:
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    key_file = request.app.state.settings.credential_encryption_key_file
+    if sessionmaker is None or key_file is None:
+        raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+    async with sessionmaker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=recipient_scope.organization_id,
+                workspace_id=recipient_scope.workspace_id,
+                user_id=recipient_scope.user_id,
+                device_id=recipient_scope.device_id,
+                auth_session_id=recipient_scope.auth_session_id,
+                context_kind="request",
+            ),
+        )
+        verified_emails = (
+            await session.scalars(
+                select(ExternalIdentity.email).where(
+                    ExternalIdentity.user_id == principal.user_id,
+                    ExternalIdentity.is_verified.is_(True),
+                    ExternalIdentity.email.is_not(None),
+                )
+            )
+        ).all()
+    verified_address_hashes = {
+        digest
+        for email in verified_emails
+        if email
+        for digest in invitation_address_hashes(normalize_invitation_address(email))
+    }
+    async with sessionmaker() as session:
+        session.info["share_rate_limit_sessionmaker"] = sessionmaker
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=principal.organization_id,
+                workspace_id=workspace_id,
+                user_id=principal.user_id,
+                device_id=recipient_scope.device_id,
+                auth_session_id=principal.session_id,
+                context_kind="request",
+            ),
+        )
+        raw_token = await consume_share_invitation_continuation(
+            session,
+            workspace_id=workspace_id,
+            nonce=state,
+            encryption_key=key_file.read_bytes().strip(),
+        )
+        if raw_token is None:
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        accepted = await accept_share_invitation(
+            session,
+            workspace_id=workspace_id,
+            user_id=principal.user_id,
+            device_id=recipient_scope.device_id,
+            raw_token=raw_token,
+            verified_address_hashes=verified_address_hashes,
+            encryption_key=key_file.read_bytes().strip(),
+            recipient_user_active=True,
+        )
+        if accepted is None:
+            retry_path = (
+                f"/share-invitations/continue?workspace_id={workspace_id}"
+                f"&state={state}"
+            )
+            return RedirectResponse(
+                url=f"/login?{urlencode({'next': retry_path, 'error': 'share_recipient_mismatch'})}",
+                status_code=303,
+            )
+        grant, _grant_token = accepted
+        if not await finalize_share_invitation_continuation(
+            session,
+            workspace_id=workspace_id,
+            nonce=state,
+        ):
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        meeting = await session.get(Meeting, grant.meeting_id)
+        if meeting is None:
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        items = (
+            (
+                await session.scalars(
+                    select(MeetingOutcomeItem)
+                    .where(
+                        MeetingOutcomeItem.workspace_id == workspace_id,
+                        MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
+                        MeetingOutcomeItem.state == "available",
+                    )
+                    .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+                )
+            ).all()
+            if meeting.current_outcome_set_id is not None
+            else []
+        )
+        projection = narrow_summary_projection(
+            meeting_label=meeting.title or "Встреча",
+            occurred_at=meeting.started_at or meeting.created_at,
+            duration_seconds=meeting.duration_seconds,
+            summary_sections=[
+                {"category": item.category, "text": item.text or ""} for item in items
+            ],
+        )
+        await session.commit()
+    response = cabinet_html_response(
+        render_shared_meeting_summary_page(
+            meeting_title=str(projection["meeting_label"]),
+            occurred_at=projection["occurred_at"],
+            duration_seconds=int(projection["duration_seconds"]),
+            summary_sections=projection["summary_sections"],
+            authenticated=True,
+        )
+    )
+    response.headers.update(
+        {
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow, noarchive",
+        }
+    )
+    return response
+
+
 @router.get("/share-invitations/{share_token}", response_class=HTMLResponse, include_in_schema=False)
 async def share_invitation_accept_page(
     request: Request,
     share_token: str,
     workspace_id: Annotated[UUID, Query()],
-    principal: AuthenticatedPrincipal = PrincipalDependency,
+    principal: AuthenticatedPrincipal | None = OptionalPrincipalDependency,
 ) -> HTMLResponse:
-    return cabinet_html_response(
+    preview = None
+    continuation_nonce = None
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is not None:
+        async with sessionmaker() as session:
+            await apply_tenant_context(
+                session,
+                TenantDatabaseContext(
+                    organization_id=UUID(int=0),
+                    workspace_id=workspace_id,
+                    user_id=UUID(int=0),
+                    context_kind="request",
+                ),
+            )
+            preview = await share_invitation_preview(
+                session,
+                workspace_id=workspace_id,
+                raw_token=share_token,
+            )
+            key_file = request.app.state.settings.credential_encryption_key_file
+            if preview is not None and principal is None and key_file is not None:
+                continuation_nonce = await create_share_invitation_continuation(
+                    session,
+                    workspace_id=workspace_id,
+                    raw_token=share_token,
+                    encryption_key=key_file.read_bytes().strip(),
+                )
+            await session.commit()
+    post_login_next_path = "/meetings"
+    if continuation_nonce is not None:
+        post_login_next_path = (
+            f"/share-invitations/continue?workspace_id={workspace_id}"
+            f"&state={continuation_nonce}"
+        )
+    response = cabinet_html_response(
         render_share_invitation_accept_page(
             share_token=share_token,
             workspace_id=str(workspace_id),
-            csrf_token=_csrf_token_for_principal(request, principal),
+            csrf_token=(
+                _csrf_token_for_principal(request, principal)
+                if principal is not None
+                else None
+            ),
+            meeting_title=preview.meeting_title if preview else None,
+            meeting_occurred_at=preview.occurred_at if preview else None,
+            meeting_duration_seconds=preview.duration_seconds if preview else None,
+            invitation_expires_at=preview.expires_at if preview else None,
+            authenticated=principal is not None,
+            post_login_next_path=post_login_next_path,
         )
     )
+    response.headers.update(
+        {
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow, noarchive",
+        }
+    )
+    return response
 
 
 @router.get("/meetings", response_class=HTMLResponse, include_in_schema=False)
@@ -159,6 +361,12 @@ async def meeting_detail_page(
         viewer_user_id=principal.user_id,
         storage=storage,
         include_calendar_correction_candidates=calendar_context_action == "change",
+        external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
+        invitation_encryption_key=(
+            request.app.state.settings.credential_encryption_key_file.read_bytes().strip()
+            if request.app.state.settings.credential_encryption_key_file is not None
+            else None
+        ),
     )
     if response is None:
         return _meeting_unavailable_response(
@@ -215,6 +423,12 @@ async def meeting_share_fragment(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
         storage=storage,
+        external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
+        invitation_encryption_key=(
+            request.app.state.settings.credential_encryption_key_file.read_bytes().strip()
+            if request.app.state.settings.credential_encryption_key_file is not None
+            else None
+        ),
     )
     if response is None or response.access is None or not response.access.can_share:
         return _meeting_unavailable_response(

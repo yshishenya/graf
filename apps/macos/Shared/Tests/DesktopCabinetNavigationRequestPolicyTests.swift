@@ -38,6 +38,21 @@ final class DesktopCabinetNavigationRequestPolicyTests: XCTestCase {
         }
     }
 
+    func testReloadsMeetingShareNavigationWithDesktopHeaders() throws {
+        let policy = try makePolicy()
+        let shareURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033/share"))
+        let request = URLRequest(url: shareURL)
+
+        switch policy.decision(forNavigationRequest: request, isForMainFrame: true) {
+        case let .reload(reloaded):
+            XCTAssertEqual(reloaded.url, shareURL)
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Client-Version"), "local-macos")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+        case .allow:
+            XCTFail("Expected meeting share navigation to be reloaded with desktop headers")
+        }
+    }
+
     func testReloadsCalendarSettingsNavigationWithDesktopHeaders() throws {
         let policy = try makePolicy()
         let settingsURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/settings/integrations/calendar"))

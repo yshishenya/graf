@@ -1,10 +1,32 @@
 # Текущий статус продукта
 
-Date: 2026-07-23
+Date: 2026-07-24
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Validation update (2026-07-24) — Feature 125 Share candidate
+
+- Feature `125-meeting-sharing` исправляет B2B Share как authenticated
+  summary-only сценарий: capability-aware модалка не вызывает выключенный
+  внешний email endpoint, поиск привязан к встрече и праву владельца,
+  кандидаты объединяют active workspace directory и связанный календарный
+  roster без побочного grant/delivery эффекта, а user grants получают
+  recipient-bound URL с rotation/revoke и повторной проверкой membership.
+- B2C exact-email invitation flow реализован за operator flag: metadata-only
+  email/landing, explicit login/signup, exact verified identity, отдельный
+  grant token с bounded replay-safe выдачей и без workspace auto-join. External
+  delivery, public links, native Contacts picker/provider lookup и referral
+  attribution остаются выключенными до delivery, identity, rate-limit/abuse,
+  privacy/legal, retention/deletion and analytics evidence gates. The current
+  branch is release-ready only for this gated-disabled behavior.
+- Validation: focused Share/access/workflow matrix 48 passed; separate
+  wrong-account continuation and desktop share-route checks 4 passed;
+  `infra/scripts/ci-local.sh` passed macOS (609 tests), PostgreSQL parallel
+  (2,230 passed, 1 skipped) and strict (41 passed, 1 skipped), lint, compile,
+  RLS boundary, compose config and deployment evidence scan. No production
+  public-link or external-delivery flag was enabled.
 
 ## Validation update (2026-07-23) — deletion list feedback cleanup
 

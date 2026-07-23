@@ -7227,9 +7227,93 @@ paths:
     get:
       tags:
       - cabinet
-      summary: Search Meeting Share Recipients Route
+      summary: Search Legacy Share Recipients Route
       operationId: searchMeetingShareRecipients
       parameters:
+      - name: query
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 0
+          maxLength: 80
+          title: Query
+      - name: meeting_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareRecipientListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/share-recipients:
+    get:
+      tags:
+      - cabinet
+      summary: Search Meeting Share Recipients Route
+      operationId: searchMeetingShareRecipientsForMeeting
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
       - name: query
         in: query
         required: true
@@ -12213,6 +12297,7 @@ components:
           - expired
           - revoked
           - failed
+          - outcome_unknown
           - deleted
           title: Status
         expires_at:
@@ -13626,6 +13711,28 @@ components:
           type: string
           format: date-time
           title: Created At
+        audience_type:
+          type: string
+          enum:
+          - user
+          - workspace
+          - team
+          - link
+          title: Audience Type
+          default: user
+        content_scope:
+          type: string
+          enum:
+          - summary_only
+          - full_meeting
+          title: Content Scope
+          default: summary_only
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
       type: object
       required:
       - grant_id
@@ -13634,6 +13741,44 @@ components:
       - status
       - created_at
       title: ShareGrantView
+    ShareInvitationView:
+      properties:
+        invitation_id:
+          type: string
+          format: uuid
+          title: Invitation Id
+        status:
+          type: string
+          enum:
+          - pending
+          - sending
+          - sent
+          - accepted
+          - expired
+          - revoked
+          - failed
+          - outcome_unknown
+          - deleted
+          title: Status
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        display_label:
+          type: string
+          title: Display Label
+          default: Приглашение
+      type: object
+      required:
+      - invitation_id
+      - status
+      - created_at
+      - expires_at
+      title: ShareInvitationView
     SharePanelState:
       properties:
         team_visibility:
@@ -13648,6 +13793,11 @@ components:
             $ref: '#/components/schemas/ShareGrantView'
           type: array
           title: Active Grants
+        active_invitations:
+          items:
+            $ref: '#/components/schemas/ShareInvitationView'
+          type: array
+          title: Active Invitations
         copy_link_state:
           type: string
           enum:
@@ -13661,6 +13811,34 @@ components:
           - disabled_by_default
           - policy_blocked
           title: Public Link State
+        capability_state:
+          type: string
+          enum:
+          - available
+          - policy_blocked
+          - auth_required
+          title: Capability State
+          default: available
+        capability_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Capability Reason
+        external_invitation_state:
+          type: string
+          enum:
+          - available
+          - disabled
+          title: External Invitation State
+          default: disabled
+        recipient_sources:
+          items:
+            type: string
+            enum:
+            - workspace
+            - calendar
+          type: array
+          title: Recipient Sources
       type: object
       required:
       - team_visibility
@@ -13686,6 +13864,27 @@ components:
         display_label:
           type: string
           title: Display Label
+        source:
+          type: string
+          enum:
+          - workspace
+          - calendar
+          - workspace_calendar
+          title: Source
+          default: workspace
+        recipient_type:
+          type: string
+          const: workspace_member
+          title: Recipient Type
+          default: workspace_member
+        freshness:
+          type: string
+          enum:
+          - current
+          - stale
+          - unknown
+          title: Freshness
+          default: current
       type: object
       required:
       - user_id

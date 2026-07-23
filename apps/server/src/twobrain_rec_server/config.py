@@ -209,6 +209,7 @@ class Settings(BaseSettings):
     upload_session_ttl_seconds: PositiveInt = Field(default=86_400)
     auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
     web_csrf_secret: str = "twobrain_rec_dev_web_csrf_secret"
+    share_identity_hash_secret: str = "twobrain_rec_dev_share_identity_hash_secret"
     auth_callback_state_ttl_seconds: PositiveInt = Field(default=900)
     legacy_header_auth_enabled: bool = False
     retention_meeting_delete_after_days: PositiveInt | None = Field(default=365)
@@ -731,6 +732,14 @@ class Settings(BaseSettings):
             self.web_csrf_secret in dev_secrets or len(self.web_csrf_secret) < 32
         ):
             raise ValueError("production web_csrf_secret must be explicit and non-placeholder")
+        if self.share_external_invitations_enabled and (
+            self.share_identity_hash_secret in dev_secrets
+            or self.share_identity_hash_secret.startswith("twobrain_rec_dev_")
+            or len(self.share_identity_hash_secret) < 32
+        ):
+            raise ValueError(
+                "production share_identity_hash_secret must be explicit when external invitations are enabled"
+            )
         root_markers = ("root", "admin")
         if any(marker in self.minio_access_key.lower() for marker in root_markers):
             raise ValueError("production MinIO API access key must not be a root/admin credential")

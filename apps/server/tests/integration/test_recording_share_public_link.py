@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import UTC, datetime, timedelta
 
 from cryptography.fernet import Fernet
@@ -20,7 +21,6 @@ from twobrain_rec_server.cabinet.access import (
 from twobrain_rec_server.db.models import (
     ExternalIdentity,
     Meeting,
-    MeetingShareGrant,
     MeetingShareInvitation,
     RegisteredDevice,
     UserIdentity,
@@ -46,6 +46,14 @@ def test_summary_only_user_cannot_open_full_meeting_routes(client) -> None:
     )
 
     assert share.status_code == 201
+    html_summary = client.get(
+        share.json()["share_url"],
+        headers={**auth_headers_for(), "Accept": "text/html"},
+    )
+    assert html_summary.status_code == 200
+    assert html_summary.headers["cache-control"] == "private, no-store"
+    assert "Итоги встречи" in html_summary.text
+    assert "audio" not in html_summary.text.lower()
     set_artifact_policy(client, seeds.ready_id, summary_download="allowed")
     assert client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers_for()
@@ -187,7 +195,9 @@ def test_public_summary_link_rotation_and_revocation_invalidate_old_tokens(clien
     seeds = seed_cabinet_meetings(client)
     settings = client.app.state.settings
     previous = settings.share_public_links_enabled
+    previous_abuse_gate = settings.share_public_links_abuse_gate_approved
     settings.share_public_links_enabled = True
+    settings.share_public_links_abuse_gate_approved = True
     try:
         created = client.post(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
@@ -203,6 +213,10 @@ def test_public_summary_link_rotation_and_revocation_invalidate_old_tokens(clien
         assert created.status_code == 201
         old_url = created.json()["share_url"]
         assert client.get(old_url).status_code == 200
+        html = client.get(old_url, headers={"Accept": "text/html"})
+        assert html.status_code == 200
+        assert html.headers["cache-control"] == "private, no-store"
+        assert "Итоги встречи" in html.text
 
         grant_id = created.json()["grant"]["grant_id"]
         rotated = client.post(
@@ -222,6 +236,7 @@ def test_public_summary_link_rotation_and_revocation_invalidate_old_tokens(clien
         assert client.get(new_url).status_code == 404
     finally:
         settings.share_public_links_enabled = previous
+        settings.share_public_links_abuse_gate_approved = previous_abuse_gate
 
 
 def test_revoked_user_grant_can_be_recreated_and_revoked_again(client) -> None:
@@ -265,7 +280,9 @@ def test_revoked_public_link_can_be_recreated(client) -> None:
     seeds = seed_cabinet_meetings(client)
     settings = client.app.state.settings
     previous = settings.share_public_links_enabled
+    previous_abuse_gate = settings.share_public_links_abuse_gate_approved
     settings.share_public_links_enabled = True
+    settings.share_public_links_abuse_gate_approved = True
     payload = {
         "audience_type": "link",
         "content_scope": "summary_only",
@@ -296,6 +313,7 @@ def test_revoked_public_link_can_be_recreated(client) -> None:
         assert client.get(second.json()["share_url"]).status_code == 200
     finally:
         settings.share_public_links_enabled = previous
+        settings.share_public_links_abuse_gate_approved = previous_abuse_gate
 
 
 def test_expired_and_revoked_invitations_can_be_recreated(client) -> None:
@@ -317,8 +335,9 @@ def test_expired_and_revoked_invitations_can_be_recreated(client) -> None:
                 can_download=False,
                 can_export=False,
                 encryption_key=key,
-                ttl_seconds=-1,
+                ttl_seconds=1,
             )
+            first_expired.expires_at = datetime.now(UTC) - timedelta(seconds=1)
             await db.commit()
             replacement = await create_share_invitation(
                 db,
@@ -327,7 +346,7 @@ def test_expired_and_revoked_invitations_can_be_recreated(client) -> None:
                 actor_user_id=USER_ID,
                 device_id=DEVICE_ID,
                 address="invitee@example.com",
-                content_scope="full_meeting",
+                content_scope="summary_only",
                 can_download=False,
                 can_export=False,
                 encryption_key=key,
@@ -357,18 +376,44 @@ def test_expired_and_revoked_invitations_can_be_recreated(client) -> None:
                 ttl_seconds=3600,
             )
             await db.commit()
-            return first_expired, replacement, after_revoke
+            outcome_unknown = await create_share_invitation(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting=meeting,
+                actor_user_id=USER_ID,
+                device_id=DEVICE_ID,
+                address="unknown@example.com",
+                content_scope="summary_only",
+                can_download=False,
+                can_export=False,
+                encryption_key=key,
+                ttl_seconds=3600,
+            )
+            outcome_unknown.status = "outcome_unknown"
+            outcome_unknown.failure_code = "postal_delivery_outcome_unknown"
+            await db.commit()
+            await revoke_share_invitation(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting=meeting,
+                actor_user_id=USER_ID,
+                device_id=DEVICE_ID,
+                invitation_id=outcome_unknown.id,
+            )
+            await db.commit()
+            return first_expired, replacement, after_revoke, outcome_unknown
 
-    first_expired, replacement, after_revoke = asyncio.run(exercise_cycles())
+    first_expired, replacement, after_revoke, outcome_unknown = asyncio.run(exercise_cycles())
     assert first_expired.status == "expired"
     assert first_expired.encrypted_delivery_address == ""
     assert replacement.status == "revoked"
     assert replacement.encrypted_delivery_address == ""
     assert len({first_expired.id, replacement.id, after_revoke.id}) == 3
     assert after_revoke.status == "pending"
+    assert outcome_unknown.status == "revoked"
 
 
-def test_external_invitation_accepts_from_another_workspace_and_resolves_share(client) -> None:
+def test_external_invitation_accepts_from_another_workspace_and_resolves_share(client, tmp_path) -> None:
     from uuid import UUID
 
     seeds = seed_cabinet_meetings(client)
@@ -376,6 +421,10 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(c
     recipient_workspace_id = UUID("20000000-0000-0000-0000-000000000221")
     recipient_device_id = UUID("40000000-0000-0000-0000-000000000221")
     recipient_email = "external-invitee@example.com"
+    key = Fernet.generate_key()
+    key_path = tmp_path / "share.key"
+    key_path.write_bytes(key)
+    client.app.state.settings.credential_encryption_key_file = key_path
 
     async def seed_invitation() -> str:
         async with client.app_state["sessionmaker"]() as db:
@@ -424,23 +473,6 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(c
             )
             meeting = await db.get(Meeting, seeds.ready_id)
             assert meeting is not None
-            db.add(
-                MeetingShareGrant(
-                    workspace_id=WORKSPACE_ID,
-                    meeting_id=meeting.id,
-                    grant_type="user",
-                    grantee_user_id=recipient_user_id,
-                    audience_type="user",
-                    audience_id=recipient_user_id,
-                    content_scope="full_meeting",
-                    can_download=True,
-                    can_export=True,
-                    created_by_user_id=USER_ID,
-                    status="active",
-                    metadata_json={"source": "preexisting_test_grant"},
-                )
-            )
-            key = Fernet.generate_key()
             invitation = await create_share_invitation(
                 db,
                 workspace_id=WORKSPACE_ID,
@@ -462,17 +494,76 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(c
             return raw_token
 
     raw_token = asyncio.run(seed_invitation())
+    anonymous_preview = client.get(
+        f"/share-invitations/{raw_token}?workspace_id={WORKSPACE_ID}",
+        headers={"Accept": "text/html"},
+    )
+    assert anonymous_preview.status_code == 200
+    assert "Вам открыли итоги встречи" in anonymous_preview.text
+    assert raw_token not in anonymous_preview.text
+    assert "share-invitations%2Fcontinue" in anonymous_preview.text
+    state_match = re.search(r"%26state%3D([A-Za-z0-9_-]+)", anonymous_preview.text)
+    assert state_match is not None
     recipient_headers = auth_headers_for(
         user_id=recipient_user_id,
         device_id=recipient_device_id,
         workspace_id=recipient_workspace_id,
     )
+    wrong_account = client.get(
+        f"/share-invitations/continue?workspace_id={WORKSPACE_ID}&state={state_match.group(1)}",
+        headers=auth_headers(),
+        follow_redirects=False,
+    )
+    assert wrong_account.status_code == 303
+    assert "share_recipient_mismatch" in wrong_account.headers["location"]
+    assert state_match.group(1) in wrong_account.headers["location"]
+    continued = client.get(
+        f"/share-invitations/continue?workspace_id={WORKSPACE_ID}&state={state_match.group(1)}",
+        headers=recipient_headers,
+    )
+    assert continued.status_code == 200
+    assert raw_token not in continued.text
+    assert "Итоги встречи" in continued.text
+    assert (
+        client.get(
+            f"/share-invitations/continue?workspace_id={WORKSPACE_ID}&state={state_match.group(1)}",
+            headers=recipient_headers,
+        ).status_code
+        == 404
+    )
+
+    async def seed_second_invitation() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, seeds.ready_id)
+            assert meeting is not None
+            invitation = await create_share_invitation(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting=meeting,
+                actor_user_id=USER_ID,
+                device_id=DEVICE_ID,
+                address=recipient_email,
+                content_scope="summary_only",
+                can_download=False,
+                can_export=False,
+                encryption_key=key,
+                ttl_seconds=3600,
+            )
+            _, token = open_invitation_delivery(
+                invitation.encrypted_delivery_address,
+                key=key,
+            )
+            await db.commit()
+            return token
+
+    api_raw_token = asyncio.run(seed_second_invitation())
     accepted = client.post(
-        f"/api/v1/cabinet/share-invitations/{raw_token}/accept",
+        f"/api/v1/cabinet/share-invitations/{api_raw_token}/accept",
         params={"workspace_id": str(WORKSPACE_ID)},
         headers=recipient_headers,
     )
     assert accepted.status_code == 200
+    assert raw_token not in accepted.json()["share_url"]
     resolved = client.get(accepted.json()["share_url"], headers=recipient_headers)
     assert resolved.status_code == 200
     assert set(resolved.json()) == {
@@ -481,6 +572,36 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(c
         "duration_seconds",
         "summary_sections",
     }
+    replay = client.post(
+        f"/api/v1/cabinet/share-invitations/{api_raw_token}/accept",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers=recipient_headers,
+    )
+    assert replay.status_code == 200
+    assert replay.json()["share_url"] == accepted.json()["share_url"]
+
+    form_raw_token = asyncio.run(seed_second_invitation())
+    form_acceptance = client.post(
+        f"/api/v1/cabinet/share-invitations/{form_raw_token}/accept",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        headers={
+            **recipient_headers,
+            "Accept": "text/html",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        data={},
+        follow_redirects=False,
+    )
+    assert form_acceptance.status_code == 200
+    assert "location" not in form_acceptance.headers
+    assert form_raw_token not in form_acceptance.text
+    assert "Итоги встречи" in form_acceptance.text
+
+    async def owner_membership() -> WorkspaceMembership | None:
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.get(WorkspaceMembership, (WORKSPACE_ID, recipient_user_id))
+
+    assert asyncio.run(owner_membership()) is None
 
 
 def test_enabled_broader_audiences_have_no_dead_share_paths(client) -> None:
@@ -499,10 +620,12 @@ def test_enabled_broader_audiences_have_no_dead_share_paths(client) -> None:
         settings.share_workspace_audience_enabled,
         settings.share_team_audience_enabled,
         settings.share_public_links_enabled,
+        settings.share_public_links_abuse_gate_approved,
     )
     settings.share_workspace_audience_enabled = True
     settings.share_team_audience_enabled = True
     settings.share_public_links_enabled = True
+    settings.share_public_links_abuse_gate_approved = True
     try:
         workspace_share = client.post(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
@@ -557,6 +680,7 @@ def test_enabled_broader_audiences_have_no_dead_share_paths(client) -> None:
             settings.share_workspace_audience_enabled,
             settings.share_team_audience_enabled,
             settings.share_public_links_enabled,
+            settings.share_public_links_abuse_gate_approved,
         ) = previous
 
 
@@ -564,7 +688,9 @@ def test_public_link_resolution_does_not_depend_on_process_local_state(client) -
     seeds = seed_cabinet_meetings(client)
     settings = client.app.state.settings
     previous = settings.share_public_links_enabled
+    previous_abuse_gate = settings.share_public_links_abuse_gate_approved
     settings.share_public_links_enabled = True
+    settings.share_public_links_abuse_gate_approved = True
     try:
         created = client.post(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
@@ -585,3 +711,4 @@ def test_public_link_resolution_does_not_depend_on_process_local_state(client) -
         assert client.get(share_url).status_code == 200
     finally:
         settings.share_public_links_enabled = previous
+        settings.share_public_links_abuse_gate_approved = previous_abuse_gate

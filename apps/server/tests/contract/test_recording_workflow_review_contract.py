@@ -13,11 +13,17 @@ def test_browser_and_embedded_share_the_two_tab_meeting_workspace(client) -> Non
     add_retained_playback_m4a(client, seeds.ready_id)
 
     pages = [
-        client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers()),
-        client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers()),
+        (
+            client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers()),
+            f"/meetings/{seeds.ready_id}/share",
+        ),
+        (
+            client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers()),
+            f"/desktop/meetings/{seeds.ready_id}/share",
+        ),
     ]
 
-    for response in pages:
+    for response, share_url in pages:
         assert response.status_code == 200
         html = response.text
         assert html.count('role="tab"') == 2
@@ -25,12 +31,21 @@ def test_browser_and_embedded_share_the_two_tab_meeting_workspace(client) -> Non
         assert ">Расшифровка</button>" in html
         assert "Запись и расшифровка" not in html
         assert "data-share-dialog-open" in html
-        assert f'hx-get="/meetings/{seeds.ready_id}/share"' in html
+        assert f'hx-get="{share_url}"' in html
         assert 'id="meeting-share-host"' in html
         assert 'data-meeting-panel-open="more"' in html
         assert '<aside class="right-panel">' not in html
         assert SAFE_TRANSCRIPT_TEXT in html
         assert 'data-playback-state="available"' in html
+
+    for share_url in (
+        f"/meetings/{seeds.ready_id}/share",
+        f"/desktop/meetings/{seeds.ready_id}/share",
+    ):
+        response = client.get(share_url, headers=auth_headers())
+        assert response.status_code == 200
+        assert 'data-share-dialog' in response.text
+        assert 'data-share-recipient-input' in response.text
 
 
 def test_meeting_player_is_outside_switchable_content_and_truth_stays_contextual(client) -> None:

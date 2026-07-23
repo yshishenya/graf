@@ -10,7 +10,7 @@ from sqlalchemy import select
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.email_delivery import EmailLoginDeliveryError, PostalEmailLoginClient
 from twobrain_rec_server.config import get_settings
-from twobrain_rec_server.db.models import MeetingShareInvitation
+from twobrain_rec_server.db.models import Meeting, MeetingShareInvitation, UserIdentity
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import ProcessingStatus
@@ -272,6 +272,23 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
     try:
         async with sessionmaker() as db:
             await apply_tenant_context(db, tenant_context)
+
+            async def cancel_invitation(reserved: MeetingShareInvitation, reason: str) -> None:
+                reserved.status = "cancelled"
+                reserved.failure_code = reason
+                reserved.encrypted_delivery_address = ""
+                await record_egress_audit_event(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=reserved.meeting_id,
+                    actor_user_id=reserved.invited_by_user_id,
+                    device_id=None,
+                    event_type="share_invitation_cancelled",
+                    outcome="failed",
+                    policy_reason=reason,
+                )
+                await db.commit()
+
             invitation = await db.get(MeetingShareInvitation, invitation_id)
             if invitation is None:
                 raise ApplicationError("invitation_not_committed", non_retryable=False)
@@ -280,7 +297,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
             if invitation.status == "sending":
                 # Join the canonical meeting -> invitation lock order and
                 # re-read the state. A late Temporal attempt must never replace
-                # a newer sent, accepted, or revoked state with `failed`.
+                # a newer sent, accepted, or revoked state with `outcome_unknown`.
                 try:
                     await lock_shareable_meeting(
                         db,
@@ -288,6 +305,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                         meeting_id=invitation.meeting_id,
                     )
                 except ProblemDetail:
+                    await cancel_invitation(invitation, "meeting_unavailable_before_delivery")
                     return {
                         "invitation_id": str(invitation_id),
                         "status": "meeting_unavailable",
@@ -308,7 +326,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                         "invitation_id": str(invitation_id),
                         "status": invitation.status,
                     }
-                invitation.status = "failed"
+                invitation.status = "outcome_unknown"
                 invitation.failure_code = "postal_delivery_outcome_unknown"
                 invitation.encrypted_delivery_address = ""
                 await record_egress_audit_event(
@@ -317,12 +335,12 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     meeting_id=invitation.meeting_id,
                     actor_user_id=invitation.invited_by_user_id,
                     device_id=None,
-                    event_type="share_invitation_failed",
+                    event_type="share_invitation_outcome_unknown",
                     outcome="failed",
                     policy_reason="postal_delivery_outcome_unknown",
                 )
                 await db.commit()
-                return {"invitation_id": str(invitation_id), "status": "failed"}
+                return {"invitation_id": str(invitation_id), "status": "outcome_unknown"}
             if invitation.status != "pending":
                 return {"invitation_id": str(invitation_id), "status": invitation.status}
             try:
@@ -332,6 +350,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     meeting_id=invitation.meeting_id,
                 )
             except ProblemDetail:
+                await cancel_invitation(invitation, "meeting_unavailable_before_delivery")
                 return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
             invitation = await db.scalar(
                 select(MeetingShareInvitation)
@@ -350,10 +369,27 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                 invitation.encrypted_delivery_address = ""
                 await db.commit()
                 return {"invitation_id": str(invitation_id), "status": "expired"}
-            address, raw_token = open_invitation_delivery(
-                invitation.encrypted_delivery_address,
-                key=key,
-            )
+            try:
+                address, raw_token = open_invitation_delivery(
+                    invitation.encrypted_delivery_address,
+                    key=key,
+                )
+            except ProblemDetail as exc:
+                invitation.status = "failed"
+                invitation.failure_code = exc.code
+                invitation.encrypted_delivery_address = ""
+                await record_egress_audit_event(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=invitation.meeting_id,
+                    actor_user_id=invitation.invited_by_user_id,
+                    device_id=None,
+                    event_type="share_invitation_failed",
+                    outcome="failed",
+                    policy_reason=exc.code,
+                )
+                await db.commit()
+                raise ApplicationError(exc.code, non_retryable=True) from exc
             acceptance_url = (
                 f"{str(settings.public_base_url).rstrip('/')}/share-invitations/{raw_token}"
                 f"?workspace_id={workspace_id}"
@@ -383,6 +419,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     meeting_id=invitation.meeting_id,
                 )
             except ProblemDetail:
+                await cancel_invitation(invitation, "meeting_unavailable_after_reservation")
                 return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
             invitation = await db.scalar(
                 select(MeetingShareInvitation)
@@ -396,15 +433,25 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
             )
             if invitation is None:
                 return {"invitation_id": str(invitation_id), "status": "cancelled"}
+            meeting = await db.get(Meeting, invitation.meeting_id)
+            if meeting is None:
+                await cancel_invitation(invitation, "meeting_unavailable_after_reservation")
+                return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
+            inviter = await db.get(UserIdentity, invitation.invited_by_user_id)
             try:
                 await PostalEmailLoginClient.from_settings(settings).send_meeting_invitation(
                     recipient_email=address,
                     acceptance_url=acceptance_url,
                     delivery_key=str(invitation.id),
+                    inviter_name=inviter.display_name if inviter is not None else None,
+                    meeting_title=meeting.title,
+                    occurred_at=meeting.started_at or meeting.created_at,
+                    duration_seconds=meeting.duration_seconds,
+                    expires_at=invitation.expires_at,
                 )
             except EmailLoginDeliveryError as exc:
                 invitation.failure_code = exc.reason_code
-                invitation.status = "failed"
+                invitation.status = "outcome_unknown" if exc.outcome_unknown else "failed"
                 invitation.encrypted_delivery_address = ""
                 await record_egress_audit_event(
                     db,
@@ -412,7 +459,11 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     meeting_id=invitation.meeting_id,
                     actor_user_id=invitation.invited_by_user_id,
                     device_id=None,
-                    event_type="share_invitation_failed",
+                    event_type=(
+                        "share_invitation_outcome_unknown"
+                        if exc.outcome_unknown
+                        else "share_invitation_failed"
+                    ),
                     outcome="failed",
                     policy_reason=exc.reason_code,
                 )

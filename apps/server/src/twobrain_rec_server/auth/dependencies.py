@@ -315,6 +315,45 @@ async def get_principal(
     )
 
 
+async def get_optional_principal(
+    request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization", include_in_schema=False),
+    x_auth_session: str | None = Header(default=None, alias="X-Auth-Session", include_in_schema=False),
+    auth_session_cookie: str | None = Cookie(default=None, alias=AUTH_SESSION_COOKIE_NAME, include_in_schema=False),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_organization_id: str | None = Header(default=None, alias="X-Organization-Id"),
+    x_workspace_id: str | None = Header(default=None, alias="X-Workspace-Id"),
+    desktop_calendar_auth_cookie: str | None = Cookie(
+        default=None,
+        alias=DESKTOP_CALENDAR_AUTH_COOKIE_NAME,
+        include_in_schema=False,
+    ),
+) -> AuthenticatedPrincipal | None:
+    if all(
+        value is None
+        for value in (
+            authorization,
+            x_auth_session,
+            auth_session_cookie,
+            x_user_id,
+            x_organization_id,
+            x_workspace_id,
+            desktop_calendar_auth_cookie,
+        )
+    ):
+        return None
+    return await get_principal(
+        request,
+        authorization=authorization,
+        x_auth_session=x_auth_session,
+        auth_session_cookie=auth_session_cookie,
+        x_user_id=x_user_id,
+        x_organization_id=x_organization_id,
+        x_workspace_id=x_workspace_id,
+        desktop_calendar_auth_cookie=desktop_calendar_auth_cookie,
+    )
+
+
 async def get_device_context(
     request: Request,
     authorization: str | None = Header(default=None, alias="Authorization", include_in_schema=False),
