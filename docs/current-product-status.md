@@ -6,6 +6,38 @@ Date: 2026-07-23
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
+## Validation update (2026-07-23) — T057 prompt-optimization closeout
+
+- Production runtime now runs exact SHA `89fd568a6c8a1055f11b1f9de22f149f69fee559`
+  with migration head `0033_prompt_opt_maintenance`. The operations-only
+  optimizer worker is isolated from the normal recording worker and uses the
+  maintenance role/RLS context; Temporal/API/processing/media readiness,
+  smoke, migration, and restore rehearsal passed.
+- The private Langfuse source prompt `graf/meeting-outcome/t057-synthetic` is
+  production v3 with config hash
+  `561c8c7323561a1009442255f94130c1536433e531e15db873dec3f669360aec`.
+  Immutable synthetic train/development/held-out manifest hashes and the
+  calibration gate are recorded in Scenario 16 of the Feature-121 quickstart.
+- Successful owner run `da6ac03b-470a-4612-87fb-4210bc646706` produced candidate
+  v4 (development `1.0`, held-out minimum `0.9`), then completed explicit
+  approve → promote → rollback. Forced-crash run
+  `b772ab2e-c021-4a33-8ce1-4796ba019197` killed `t057-worker-l` (exit 137) after
+  a checkpoint; the second worker resumed at activity attempt 2 and advanced
+  checkpoint revision `1 → 5`, then rejected a `0.83` held-out score through
+  the immutable `0.9` gate. This proves both recovery and fail-closed quality
+  behavior; no automatic promotion occurs on a failed gate.
+- Langfuse traces retain complete plaintext task/reflection/judge request and
+  response content, and Temporal History retains complete plaintext
+  `transcript_utf8` activity results through the default converter. Receipts
+  contain only counts, byte lengths, hashes, and correlation IDs; no transcript
+  text is committed. No GRAF-owned optimizer evidence was purged during this
+  closeout, per the MVP observability policy.
+- Closeout CI after the live exercise: 608 macOS tests, ContractValidation PASS,
+  2206 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1
+  skipped, collection digest
+  `6ee1a51dc6d0ecdad7a93c789a728f0e77fb978255ed28ec192507fa6b24116d`, Ruff,
+  compile, Compose, and deployment-evidence scan PASS.
+
 ## Validation update (2026-07-23) — accepted-summary pointer hotfix
 
 - Production regression T096 / issue #4253 исправлена в ветке

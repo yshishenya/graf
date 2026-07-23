@@ -15,9 +15,15 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   `Lean already. Ship.` evidence are recorded in `quickstart.md`.
 - T050/#4170 and T089/#4209 have production LiteLLM, retained Generation Call,
   Temporal History, private Langfuse, reconciler, and zero-leak evidence.
-  T057/#4177 remains open: it still requires owner-approved immutable synthetic
-  manifests, a human-labelled calibration pack, and a real two-worker
-  forced-crash GEPA promotion/rollback exercise.
+  T057/#4177 is complete: owner-approved immutable synthetic manifests and the
+  human-labelled calibration pack were read back from private production
+  Langfuse; run `da6ac03b-470a-4612-87fb-4210bc646706` passed development and
+  held-out gates, approval, promotion, and rollback; and run
+  `b772ab2e-c021-4a33-8ce1-4796ba019197` proved two-worker forced-crash resume
+  (worker `t057-worker-l` exit 137, checkpoint 1 → 5, activity attempt 2) before
+  correctly failing closed on a 0.83 held-out score. Both traces and Temporal
+  histories retain complete plaintext content; the receipt contains hashes,
+  sizes, and counts only.
 - Every implementation and validation task T006-T096 has exactly one canonical
   Russian issue in
   [feature:121](https://github.com/yshishenya/crisp/issues?q=is%3Aissue%20label%3Afeature%3A121).
@@ -29,9 +35,9 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 - After merge, production deploy, public
   [`v2026.07.22.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.4),
   installed-app verification, and the production AI observability closeout,
-  90 completed issues have verified evidence. Exactly 1 of 91 remains open:
-  #4177; T096/#4253 is closed after the accepted outcome pointer hotfix was
-  deployed and verified.
+  91 completed issues have verified evidence. No Feature-121 issue remains open;
+  T096/#4253 is closed after the accepted outcome pointer hotfix was deployed and
+  verified.
 - Implementation/release links: PR
   [#4235](https://github.com/yshishenya/crisp/pull/4235), native purge hotfix
   [#4242](https://github.com/yshishenya/crisp/pull/4242), release prep

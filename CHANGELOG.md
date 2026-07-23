@@ -34,6 +34,9 @@
 ### Документы
 - Зафиксированы миграция `0033_prompt_opt_maintenance`, граница обычного и
   operations worker и команды операторского запуска T057.
+- Добавлен metadata-only live receipt Scenario 16: успешные approve/promote/
+  rollback и отдельное forced-crash recovery с полным plaintext retention в
+  private Langfuse и Temporal History без вывода transcript text.
 
 ### Операции
 - Перед запуском T057 применить миграцию `0033_prompt_opt_maintenance`; обычный
@@ -41,6 +44,12 @@
   optimization queue. Для live exercise использовать только synthetic
   manifests и operations profile; операторский CLI запускается внутри
   `rec-prompt-optimization-worker` с `TWOBRAIN_PROMPT_OPTIMIZATION_ENABLED=true`.
+- Live production receipt 2026-07-23: runtime SHA `89fd568a`, migration head
+  `0033_prompt_opt_maintenance`; successful run
+  `da6ac03b-470a-4612-87fb-4210bc646706` and forced-crash recovery run
+  `b772ab2e-c021-4a33-8ce1-4796ba019197` are recorded in the Feature-121
+  quickstart. Temporary workers were removed; Langfuse and Temporal histories
+  remain retained.
 
 ## [2026.07.23.2] - 2026-07-23
 
