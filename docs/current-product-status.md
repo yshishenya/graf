@@ -34,9 +34,12 @@ metadata-only evidence остаются подробной историей ре
   regressions), accessibility 18/18, `ContractValidation: PASS`. The pre-merge
   canonical local CI baseline passed with macOS 609/609, server 2191 passed / 1
   skipped, strict PostgreSQL 41 passed / 1 skipped, lint/compile/compose/evidence
-  scans passing. Release used the documented local-CI bypass for the existing
-  host-load-sensitive debug timing assertion; all mandatory remote release and
-  production gates passed.
+  scans passing. A post-merge local rerun reproduced only the unrelated SC-017
+  calendar performance assertion twice (`p95=92.78ms` and `201.96ms` against a
+  `50ms` threshold); Feature-124 code and that performance test were not
+  changed. Release used the documented local-CI bypass for this
+  host-load-sensitive assertion; all mandatory remote release and production
+  gates passed.
 
 - Historical Feature `121-recording-workflows` реализует единый спокойный
   recording flow:

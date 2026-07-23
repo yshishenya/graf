@@ -50,6 +50,11 @@ closeout по правилам `docs/agent-guidance/tracker-policy.md`; #4316 с
   прошли; итоговый `readiness_verdict=infra_smoke_ready`.
 - Production RLS read-only metadata probe прошёл: 77/77 таблиц с RLS и FORCE,
   failed tables: none; live/ready health оба HTTP 200.
+- Post-merge local rerun воспроизвёл только внешний SC-017 performance gate в
+  `calendar_auto_context_match` (`p95=92.78ms` и `201.96ms` при пороге 50ms);
+  Feature 124 и этот тест не изменялись. Поэтому bypass применён только к
+  документированному host-load-sensitive local timing gate, а remote gates
+  остаются пройденными.
 - Предыдущий tag-кандидат `v2026.07.23.8` остановлен fail-closed на
   несовместимой с production migration lineage и superseded `.9`; его не
   публиковали как production release.

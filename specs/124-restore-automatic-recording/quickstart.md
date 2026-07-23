@@ -97,8 +97,10 @@ evidence and all focused recording/privacy/accessibility checks green.
   passed / 1 skipped; lint, Python compile, compose and metadata-only
   deployment scan passed. The production RLS probe was intentionally not part
   of that local run. Release used the documented local-CI bypass for an
-  existing host-load-sensitive debug timing assertion; mandatory remote gates
-  remained enabled.
+  existing host-load-sensitive debug timing assertion. The post-merge rerun
+  reproduced only the unrelated SC-017 calendar performance assertion twice
+  (`p95=92.78ms` and `201.96ms` versus the `50ms` threshold); neither that test
+  nor Feature-124 code was changed. Mandatory remote gates remained enabled.
 - Release/deploy receipt: [`v2026.07.23.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.9)
   deployed exact SHA `5d5b8428239f9f1439cefc63e11bd1b07e3f4279`; backup,
   restore rehearsal, migration, smoke/cleanup, worker/API/Temporal readiness

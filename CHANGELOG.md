@@ -58,6 +58,9 @@
 - Финальный deploy прошёл: backup/restore rehearsal, migration, smoke/cleanup,
   readiness и public health/ready gates успешны; production работает на
   `5d5b8428239f9f1439cefc63e11bd1b07e3f4279`.
+- Post-merge local rerun воспроизвёл внешний SC-017 calendar performance gate
+  (`p95=92.78ms` и `201.96ms` при пороге 50ms); код Feature 124 и этот тест не
+  изменялись, поэтому применён только документированный local-CI bypass.
 
 ## [2026.07.23.8] - 2026-07-23
 
