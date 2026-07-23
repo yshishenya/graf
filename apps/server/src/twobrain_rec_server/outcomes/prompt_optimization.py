@@ -1161,9 +1161,12 @@ def validate_judge_result(value: object) -> dict[str, object]:
         raise PromptOptimizationError("judge_result_invalid")
     if verdict not in {"pass", "fail"} or not isinstance(feedback, str) or len(feedback) > 4000:
         raise PromptOptimizationError("judge_result_invalid")
-    if (verdict == "pass") != (score >= 0.5):
-        raise PromptOptimizationError("judge_verdict_inconsistent")
-    return {"score": float(score), "verdict": verdict, "feedback": feedback}
+    # The numeric score is the authoritative gate input. Providers sometimes
+    # emit a stale textual verdict (for example score=0.75 with verdict=fail);
+    # preserve that complete raw response in the trace, but normalize the
+    # derived contract field so scoring stays deterministic.
+    normalized_verdict = "pass" if score >= 0.5 else "fail"
+    return {"score": float(score), "verdict": normalized_verdict, "feedback": feedback}
 
 
 def optimization_call_key(

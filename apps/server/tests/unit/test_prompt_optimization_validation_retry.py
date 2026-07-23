@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from twobrain_rec_server.outcomes.prompt_optimization import (
     PromptOptimizationAdapter,
+    validate_judge_result,
 )
 
 
@@ -34,3 +35,9 @@ def test_validation_retry_uses_distinct_observable_call_key() -> None:
     assert calls == ["example-1", "example-1:validation-retry-1"]
     assert call.validated_result == {"attempt": 2}
     assert result == {"attempt": 2}
+
+
+def test_judge_verdict_is_derived_from_numeric_score() -> None:
+    assert validate_judge_result(
+        {"score": 0.75, "verdict": "fail", "feedback": "bounded feedback"}
+    ) == {"score": 0.75, "verdict": "pass", "feedback": "bounded feedback"}
