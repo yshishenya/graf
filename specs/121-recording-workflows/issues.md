@@ -77,6 +77,12 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 | T101 | [#4501](https://github.com/yshishenya/crisp/issues/4501) | Legacy candidate projection and Temporal dispatch recovery |
 | T102 | [#4502](https://github.com/yshishenya/crisp/issues/4502) | Bounded owner candidate preview projection |
 
+T101 and T102 were implemented in [PR #4503](https://github.com/yshishenya/crisp/pull/4503),
+released as [`v2026.07.23.14`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.14),
+deployed at exact runtime SHA `1e14004836bc069522002615839e3985586012ff`, and
+closed after the production smoke/log receipt recorded in the Feature-121
+quickstart. No transcript or model content is included in this mapping.
+
 Issues must only be closed after their acceptance criteria and evidence are
 verified. Matching task checkboxes must only be marked complete after the same
 verification.

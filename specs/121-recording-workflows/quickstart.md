@@ -782,6 +782,17 @@ Local validation for the recovery slice:
   undispatched-row scanner; recovery of a lost start acknowledgement is an
   explicit retry of the same deterministic candidate/workflow ID.
 
-This receipt remains pending until the branch is merged, the next CalVer
-release is deployed at its exact SHA, and the production owner-list smoke is
-repeated without a 500. Evidence remains metadata-only.
+Production closeout for T101/T102 is complete:
+
+- Release [`v2026.07.23.14`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.14)
+  is deployed at exact `deployed_sha=runtime_sha`
+  `1e14004836bc069522002615839e3985586012ff`.
+- Backup and restore rehearsal passed at
+  `/opt/projects/2brain-rec/backups/20260723T181940Z`; migration head is
+  `0033_prompt_opt_maintenance`; Temporal, processing worker, media worker,
+  automatic dispatch, and public live/ready passed. Production smoke passed
+  with cleanup and no residue.
+- A post-deploy metadata-only log check found no new
+  `summary-candidates` 500, `Response content shorter than Content-Length`, or
+  `summary_generation` error. Accepted results and all retained observability
+  data remain untouched. Evidence remains metadata-only.

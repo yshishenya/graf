@@ -146,7 +146,7 @@ metadata-only evidence остаются подробной историей ре
   `required_post_deploy`; they are not claimed as part of this
   outcome-generation receipt.
 
-## Validation update (2026-07-23) — candidate recovery regression (pending release)
+## Validation update (2026-07-23) — candidate recovery regression (production closeout)
 
 - Production logs captured one metadata-only HTTP 500 on
   `GET /api/v1/cabinet/meetings/{uuid}/summary-candidates` (request id
@@ -160,7 +160,7 @@ metadata-only evidence остаются подробной историей ре
   strict model-output validation signal, not transcript loss or accepted-summary
   replacement. The old browser bundle mapped that bounded failure to the
   generic “Не удалось подготовить новый вариант…” fallback.
-- The pending T101/T102 hotfix filters null-candidate legacy provenance before
+- The T101/T102 hotfix filters null-candidate legacy provenance before
   projection, preserves accepted results across post-commit Temporal dispatch
   outages, reuses deterministic candidate/workflow IDs on explicit retry, and
   maps invalid/temporary failures to an actionable user message. It does not
@@ -168,6 +168,15 @@ metadata-only evidence остаются подробной историей ре
   observation, or Temporal History. Automatic background scanning of
   undispatched candidates remains a separate follow-up; this slice uses the
   explicit retry path.
+- Release [`v2026.07.23.14`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.14)
+  is deployed at the exact runtime SHA
+  `1e14004836bc069522002615839e3985586012ff`. Backup and restore rehearsal
+  passed at `/opt/projects/2brain-rec/backups/20260723T181940Z`; migration head
+  is `0033_prompt_opt_maintenance`; Temporal, processing, media worker,
+  automatic dispatch, and public live/ready all passed. The metadata-only
+  production smoke passed and post-deploy logs contain no new
+  `summary-candidates` 500, `Response content shorter than Content-Length`, or
+  `summary_generation` error. T101/T102 are closed after this evidence.
 
 ## Validation update (2026-07-21)
 
