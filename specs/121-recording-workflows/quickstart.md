@@ -448,7 +448,7 @@ invitation tokens, or private user identity.
 | 13 | PASS | Feature-120 export composition and deletion races block new inference/publication/acceptance, preserve retained observability truth, and expose one contextual More surface. |
 | 14 | PASS | The connected 12-state prototype, narrow native window, keyboard/focus, reduced-motion, increased-contrast, two-tab, modal/listbox, Russian-copy, and clean-room checks pass. Visual artifacts are in `prototype/design-qa*.png`; no real meeting or identity content is present. |
 | 15 | LIVE PASS | Production read-back confirmed one exact plaintext transcript across the retained Generation Call, Langfuse generation, and Temporal History; exact input/output, usage, cost, privacy, release, and correlation checks passed. The abandoned reconciler child completed and the response-bearing backlog returned to zero. |
-| 16 | LIVE PASS | Optional GEPA `0.1.4` adapter, immutable synthetic manifests, persisted fenced ledger, checkpoint restore, budget/deadline, held-out gating, exact unlabelled candidate, operator promotion, rollback, cancellation reconciliation, and bounded purge pass focused tests. The owner-approved production exercise used the private Langfuse prompt `graf/meeting-outcome/t057-synthetic` v3, immutable train/development/held-out manifests (one example each; hashes are recorded below), two operations-only workers, and the configured LiteLLM route. Run `da6ac03b-470a-4612-87fb-4210bc646706` reached candidate v4 with development 1.0 and held-out minimum 0.9, was approved/promoted, then rolled back to v3. A separate forced-crash run `b772ab2e-c021-4a33-8ce1-4796ba019197` killed worker `t057-worker-l` with exit 137 after checkpoint revision 1; the surviving worker resumed at activity attempt 2, advanced to revision 5, and completed the workflow. Its held-out score was 0.83, so the gate correctly rejected it (fail-closed). Both runs retained complete plaintext model-call content in Langfuse and complete plaintext `transcript_utf8` activity results in Temporal History; no transcript text is printed in this evidence. The stable-interceptor limitation remains documented, and no JEPA/DSPy dependency is present. |
+| 16 | LIVE PASS | Optional GEPA `0.1.4` adapter, immutable synthetic manifests, persisted fenced ledger, checkpoint restore, budget/deadline, held-out gating, exact unlabelled candidate, operator promotion, rollback, cancellation reconciliation, and bounded purge pass focused tests. The owner-approved production exercise used the private Langfuse prompt `graf/meeting-outcome/t057-synthetic` v3, immutable train/development/held-out manifests (one example each; hashes are recorded below), two operations-only workers, and the configured LiteLLM route. Combined run `9912c9b8-5433-4678-afb9-8446792b18ce` reached candidate v5 (development 0.8, held-out minimum 1.0), checkpoint revision 4, then killed `t057-worker-r` with exit 137; the surviving `t057-worker-s` completed approve → promote → rollback to v3. Separate run `b772ab2e-c021-4a33-8ce1-4796ba019197` proves in-flight activity retry/fencing: after checkpoint 1, the killed worker resumed at activity attempt 2 and advanced to revision 5; its held-out 0.83 was rejected by the immutable 0.9 gate (fail-closed). The earlier `da6ac03b-470a-4612-87fb-4210bc646706` independently records a successful v4 promotion/rollback. All three runs retain complete plaintext model-call content in Langfuse and complete plaintext `transcript_utf8` activity results in Temporal History; no transcript text is printed in this evidence. The stable-interceptor limitation remains documented, and no JEPA/DSPy dependency is present. |
 
 ### T057 live receipt (metadata-only)
 
@@ -466,16 +466,29 @@ invitation tokens, or private user identity.
   `t057-worker-l` exit 137; checkpoint revisions advanced 1 → 5 and resumed
   ledger rows reached activity attempt 2. Held-out minimum 0.83 was rejected by
   the immutable 0.9 gate, leaving no candidate to promote.
+- Combined crash/promotion/rollback run `9912c9b8-5433-4678-afb9-8446792b18ce`:
+  checkpoint revision 4, checkpoint hash
+  `6884deb5c4257fb7052f0e554331d5e66a5a50c14d598fb1ea20f4bd8a601a99`, 12
+  succeeded ledger calls, candidate v5, development 0.8, held-out minimum 1.0.
+  Worker `t057-worker-r` exited 137 after the checkpoint; `t057-worker-s`
+  completed the gated approve → promote → rollback sequence. The production
+  label was read back as v3 with the recorded config hash.
 - Langfuse trace IDs are `cfa0f784c0fa6674a1fb79b206b0ade7` (successful) and
   `bb7ab4bd1f893daffc3d6d710e2badc5` (crash recovery). The traces contain 23
   and 33 generation observations respectively; every generation has non-empty
   input and output, prompt/config metadata, and usage fields. Content is retained
   in the private project but intentionally omitted from this receipt.
+- Combined run Langfuse trace `cf2d0039497de44871811dfd02cbbab7` contains 25
+  observations, including 12 generations; all 12 have non-empty input, output,
+  model, usage details, prompt/config metadata, and run correlation metadata.
 - Temporal optimization histories contain 78 and 59 events respectively. Each
   has three plaintext activity results with the `transcript_utf8` field: evolution
   chunks plus held-out, with decoded plaintext byte counts (successful:
   196608+8417+35793; crash recovery: 196608+52001+35163). This is a read-back
   of the default Temporal converter, not an encrypted or redacted artifact.
+- Combined run Temporal History contains 74 events and two plaintext activity
+  results with `transcript_utf8` (decoded byte lengths `74683+35265`), read back
+  through the default converter without printing content.
 - The operator CLI does not purge these runs: per the MVP observability policy,
   Langfuse and Temporal plaintext history is retained and no GRAF-owned evidence
   was deleted during closeout.
