@@ -750,7 +750,6 @@ def _render_content_export_dialog(
                 <button type="button" class="quiet content-export-copy" data-export-copy>Скопировать текст</button>
               </div>
             </details>
-            <p class="truth-copy">Файл останется на компьютере после удаления встречи из GRAF.</p>
           </div>
           <footer class="content-export-footer">
             <p class="content-export-status" data-export-status role="status" aria-live="polite" aria-atomic="true"></p>
