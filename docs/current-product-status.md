@@ -9,8 +9,8 @@ metadata-only evidence остаются подробной историей ре
 ## Validation update (2026-07-23) — T057 prompt-optimization closeout
 
 - Feature implementation was deployed at SHA
-  `f6890b1aaf11fb0f7d9e836af370b17bce93dc76`; the current release merge is
-  `93cf18a9089ecfc18d0708972d09f1d45d2f2d76`, with migration head
+  `f9272f704f2a53f342210953aa559cd73c6080a3`; the current hotfix merge is
+  `a1bf34a36c1586b213cf49361eab5ec247445a67`, with migration head
   `0033_prompt_opt_maintenance`. The operations-only
   optimizer worker is isolated from the normal recording worker and uses the
   maintenance role/RLS context; Temporal/API/processing/media readiness,
@@ -49,6 +49,13 @@ metadata-only evidence остаются подробной историей ре
   operations worker log. The worker-thread heartbeat bridge is therefore
   covered on the live GEPA path without changing the plaintext observability
   policy.
+- Production hotfix `f9272f70` fixes the HTTP 500 observed after accepting a
+  generated outcome: LiteLLM result source refs are normalized with the
+  server-owned `evidence_kind=segment`, while older stored refs without that
+  field remain renderable. The production log had confirmed the exact
+  `OutcomeSourceReferenceView` validation failure; after deploy the API has no
+  new `ValidationError`/500 entries in the verification window. Existing rows
+  needing the compatibility fallback: `18`; no rows were deleted or rewritten.
 - Closeout CI after the live exercise: 608 macOS tests, ContractValidation PASS,
   2207 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1
   skipped, collection digest
