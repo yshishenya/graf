@@ -8,6 +8,13 @@
 
 **Input**: User request: "Implement all recording-related functions, design the interface and backend/frontend behavior in detail, study Krisp and internet best practices, describe everything first, create a prototype before implementation, use Langfuse from the first AI-enabled version, and make important asynchronous external work durable."
 
+> Historical contract note: Feature 121 deliberately simplified the meeting
+> prompt by removing the countdown, automatic expiry start, checkbox, and app
+> list. That temporary decision is superseded for verified native meeting
+> targets by Feature [124-restore-automatic-recording](../124-restore-automatic-recording/spec.md).
+> Keep the Feature-121 history intact, but treat Feature 124 as the current
+> owner of those restored recording behaviors.
+
 ## Product Scope Boundary
 
 This feature completes one coherent owner workflow around an audio meeting:
@@ -20,8 +27,9 @@ model.
 
 The macOS MVP remains app-owned, system-audio-first audio capture with explicit
 microphone capture. Bot participation, camera capture, screen-video recording,
-live coaching, a second audio-routing mode, and hidden automatic recording are
-outside this feature. They require separate product and privacy approval.
+live coaching, a second audio-routing mode, and generalized or unscoped hidden
+automatic recording are outside this feature. The verified target-scoped
+workflow is owned by Feature 124 and requires its own safety gates.
 
 Krisp is a clean-room workflow benchmark only. GRAF MUST use its own Russian
 copy, information architecture, visual expression, assets, controls, data
@@ -42,7 +50,11 @@ screen/state map is [ux-ia.md](./ux-ia.md).
 - Q: Does "all recording functions" include bot, camera, or screen-video capture? → A: No; complete the existing audio meeting lifecycle first and reserve those modes for separately approved slices.
 - Q: What is the safe sharing default? → A: Invite-only, summary-only, view access; broader audiences, content, and permissions require explicit owner action.
 - Q: How should summary regeneration handle owner edits? → A: Preserve accepted revisions and require an explicit replacement decision; never silently destroy edits.
-- Q: Is meeting detection allowed to start recording silently? → A: No; detect-and-ask is included, while policy-gated automatic start remains a separate approval.
+- Q: Is meeting detection allowed to start recording silently? → A: No; the
+  current contract is visible target-scoped detection. Feature 124 restores the
+  designed eight-second prompt/countdown, automatic start on expiry, immediate
+  start, skip, and per-target opt-in; arbitrary or unapproved audio remains
+  forbidden.
 - Q: Is Pause sufficient as the product privacy action? → A: Yes; do not add a second app-level microphone mute control.
 - Q: How much of the backend lifecycle should the normal UI expose? → A: One current human status and one next action; pipeline stages, retries, provenance, and policy details stay behind contextual disclosure.
 - Q: What is the meeting-detail IA? → A: Exactly two content tabs (`Итоги`, `Расшифровка`), a persistent player, Share, and a More menu; no permanent control-center rail or lifecycle stepper.
@@ -55,6 +67,69 @@ screen/state map is [ux-ia.md](./ux-ia.md).
   receives the complete request/transcript/raw response/validated result and
   Temporal History stores the complete transcript in plaintext. Feature 121
   does not encrypt, redact, mask, truncate, or delete those observability copies.
+
+### Session 2026-07-23 — candidate lifecycle and recovery
+
+- The first usable transcript may trigger one policy-owned `Авто` generation.
+  This is the only implicit generation. Every later format change or
+  regeneration is an explicit owner action.
+- Temporal activity retries cover transient worker/provider/prompt-control
+  failures, while an API-level `Попробовать ещё раз` explicitly re-dispatches
+  the same durable candidate when the initial start acknowledgement is
+  unavailable. The separate Langfuse delivery reconciler handles retained
+  response delivery. This slice does not run a background scanner for
+  undispatched candidates. None of these paths creates a second candidate,
+  repeats an ambiguous provider call, or replaces an accepted set.
+- Prompt/model/config changes, template edits, sharing changes, reloads, and
+  provider remaps never silently regenerate an existing meeting. A new request
+  pins the currently promoted Langfuse version and creates a new candidate.
+- A transcript/source revision change invalidates queued or generating work
+  before egress and prevents acceptance of a stale candidate. The accepted
+  pointer remains current; the owner may explicitly request a new candidate
+  from the new source revision.
+- Candidate revisions are retained. A ready candidate is previewable by its
+  owner, `Использовать` performs the atomic compare-and-swap acceptance, and
+  dismiss/reject does not delete history. Shared viewers and exports always
+  read the accepted pointer only.
+- Meeting reload, a second browser tab, or a new authorized owner device must
+  recover the server-persisted pending/ready candidate; browser session storage
+  is only a performance hint, never the source of truth. At most one current
+  candidate is promoted in the primary meeting view; older candidates remain
+  available in owner-only history.
+- A failed candidate exposes a bounded reason and whether retry is safe. Only
+  transient failures offer `Повторить`; schema-invalid, stale, deleted,
+  authorization, configuration, and ambiguous-provider failures explain the
+  next action without a blind retry.
+- There is at most one queued/generating candidate per meeting/source revision.
+  A request for the same pinned format reuses it; a request for another format
+  returns `409 summary_generation_in_progress` so the owner sees one clear
+  progress path instead of competing hidden work.
+- Explicit retry after bounded Temporal retry exhaustion reuses the failed
+  candidate and deterministic workflow ID, clears only the retryable failure
+  marker, and records a fresh Temporal run correlation. A structured-output
+  validation failure never reuses the failed candidate.
+
+### Session 2026-07-23 — legacy rows and dispatch recovery
+
+- Legacy deterministic `stored`/`blocked`/`cancelled` attempts remain durable
+  provenance, but a row without `candidate_id` is not a candidate and MUST NOT
+  be projected by the owner candidate list or preview API. This keeps the
+  accepted-summary pointer and the new candidate lifecycle separate during the
+  additive rollout.
+- Candidate creation commits its durable row before Temporal dispatch. If the
+  dispatch response is unavailable, the same candidate remains active with the
+  bounded `summary_generation_unavailable` marker; the API returns a retryable
+  dependency problem and a later explicit retry reuses the same candidate and
+  deterministic workflow ID. The accepted result is never changed, and an
+  ambiguous start is never converted into a new candidate or a terminal model
+  failure.
+- A ready candidate is returned as-is on duplicate format requests; the API
+  never starts a second Temporal run for a candidate that already has a stored
+  outcome set. A reused Temporal run ID is stored only when supplied, and a
+  missing run ID never erases an existing correlation.
+- Candidate prompt/config validation failures are terminal and bounded; they
+  do not spend all Temporal retry attempts. The owner receives a format or
+  refresh action rather than the generic retry message.
 
 ## User Scenarios & Testing
 
@@ -291,7 +366,11 @@ technology in desktop, browser, and embedded layouts.
 
 - **FR-001**: GRAF MUST expose microphone and system-audio readiness before a recording starts.
 - **FR-002**: GRAF MUST keep manual Start available whenever capture prerequisites and policy allow it.
-- **FR-003**: Meeting detection MUST be detect-and-ask by default, MUST NOT show an auto-start countdown, and MUST NOT silently start capture.
+- **FR-003**: Meeting detection MUST be detect-and-ask by default for a target
+  without a persisted target-scoped rule. For a verified native target, Feature
+  124 MUST show the visible eight-second countdown with immediate start, skip,
+  and per-target opt-in, and MUST start only after countdown expiry or an
+  explicit user action; it MUST never start for arbitrary or unapproved audio.
 - **FR-004**: Recording start MUST be idempotent and MUST NOT create two simultaneous local recordings from repeated controls.
 - **FR-005**: Active capture MUST show textual state, elapsed time, Pause, and one-action Stop locally; healthy source detail MUST stay compact and expand only on request or failure.
 - **FR-006**: Pause MUST suppress product-owned meeting-content capture for both sources and MUST record a privacy interval without fabricated audio or speech.
@@ -331,6 +410,24 @@ technology in desktop, browser, and embedded layouts.
 - **FR-031**: A template MUST define a bounded ordered set of supported sections, output language, and detail level, and MUST reject unsafe or unsupported content.
 - **FR-032**: Every generated summary MUST record template identity/version, source transcript/result revision, exact format-specific Langfuse prompt/config version and hash, output schema version, selected LiteLLM model route, and actual provider/model identity when returned.
 - **FR-033**: Regeneration MUST create a candidate revision and MUST NOT silently overwrite accepted notes or owner edits.
+- **FR-033a**: The first usable transcript MAY trigger one policy-owned `Авто`
+  generation. Subsequent format changes and regenerations MUST require an
+  explicit owner action; automatic retries MUST reuse the same candidate and
+  durable workflow identity and MUST never replace an accepted pointer.
+- **FR-033b**: A candidate MUST pin its source transcript/result revision,
+  template version, exact Langfuse prompt/config snapshot, schema, and request
+  actor. A source revision change MUST prevent stale candidate publication or
+  acceptance while preserving the accepted pointer; a new candidate requires
+  an explicit owner request.
+- **FR-033c**: Candidate state MUST be recoverable from the server after reload,
+  a second tab, or a new owner device. Browser storage MAY cache a poll URL but
+  MUST NOT be the only record. Owners MUST be able to preview a ready candidate
+  before acceptance; reject/dismiss MUST retain the revision for history.
+- **FR-033d**: User-visible candidate failures MUST expose a bounded reason,
+  retryability, and next action. Only transient dependency/worker failures MAY
+  offer retry; invalid structured output, stale source/template, deletion,
+  authorization, configuration, and ambiguous provider outcomes MUST NOT offer
+  a blind retry.
 - **FR-034**: A format change MUST generate a candidate while the accepted summary stays visible/current; only after the candidate succeeds may the owner choose `Использовать`, and dismissing or failing the candidate MUST preserve the accepted revision without an up-front replace/preserve question.
 - **FR-035**: Sharing a rendered summary MUST NOT grant access to a personal reusable template definition.
 
@@ -475,7 +572,9 @@ technology in desktop, browser, and embedded layouts.
 - Bot participation, camera capture, screen-video capture, live transcription overlays, and real-time coaching.
 - Reviving removed audio routing, virtual devices, or a second capture implementation.
 - Claiming third-party meeting-app mute interception; product Pause/Resume remains the accepted privacy control.
-- Policy-gated automatic recording; this slice includes detect-and-ask only.
+- Generalized or unscoped policy-gated automatic recording; the verified,
+  target-scoped workflow is owned by Feature 124 and is not removed by this
+  historical Feature-121 boundary.
 - A second app-level microphone mute control.
 - Global action-item management across meetings.
 - Collaborative comments and direct recipient editing of transcript, notes, or templates.

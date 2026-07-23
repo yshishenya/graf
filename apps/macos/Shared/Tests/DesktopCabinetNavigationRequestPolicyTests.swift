@@ -69,6 +69,20 @@ final class DesktopCabinetNavigationRequestPolicyTests: XCTestCase {
         }
     }
 
+    func testReloadsArtifactDownloadNavigationWithDesktopHeaders() throws {
+        let policy = try makePolicy()
+        let audioURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/cabinet/meetings/meeting-033/downloads/audio"))
+
+        switch policy.decision(forNavigationRequest: URLRequest(url: audioURL), isForMainFrame: true) {
+        case let .reload(reloaded):
+            XCTAssertEqual(reloaded.url, audioURL)
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Device-Id"), "device-033")
+        case .allow:
+            XCTFail("Expected artifact download navigation to be reloaded with desktop headers")
+        }
+    }
+
     func testAllowsMeetingDetailNavigationWhenHeadersAreAlreadyPresent() throws {
         let policy = try makePolicy()
         let detailURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033"))

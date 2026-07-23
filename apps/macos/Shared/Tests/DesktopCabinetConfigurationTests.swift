@@ -223,6 +223,152 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
         )
     }
 
+    func testAttachmentResponseBecomesNativeDownloadInsteadOfCabinetNavigation() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy(
+            routePolicy: DesktopCabinetRoutePolicy(
+                baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+            )
+        )
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/cabinet/meetings/meeting-033/downloads/audio")),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: [
+                "Content-Disposition": "attachment; filename=meeting-review.m4a",
+                "Content-Length": "42"
+            ]
+        ))
+
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: response, isForMainFrame: true),
+            .download
+        )
+    }
+
+    func testAttachmentResponseStillSurfacesAuthenticationFailure() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy(
+            routePolicy: DesktopCabinetRoutePolicy(
+                baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+            )
+        )
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/cabinet/meetings/meeting-033/downloads/audio")),
+            statusCode: 401,
+            httpVersion: nil,
+            headerFields: ["Content-Disposition": "attachment; filename=login.html"]
+        ))
+
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: response, isForMainFrame: true),
+            .cancel(.expiredSession)
+        )
+    }
+
+    func testArtifactResponseStillSurfacesWorkspaceReselection() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy(
+            routePolicy: DesktopCabinetRoutePolicy(
+                baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+            )
+        )
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/cabinet/meetings/meeting-033/downloads/audio")),
+            statusCode: 401,
+            httpVersion: nil,
+            headerFields: [
+                "X-GRAF-Cabinet-Recovery": "reselect-space",
+                "Content-Disposition": "attachment; filename=login.html"
+            ]
+        ))
+
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: response, isForMainFrame: true),
+            .cancel(.workspaceReselectionRequired)
+        )
+    }
+
+    func testAttachmentOnOrdinaryCabinetDocumentDoesNotBecomeDownload() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy(
+            routePolicy: DesktopCabinetRoutePolicy(
+                baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+            )
+        )
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033")),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Disposition": "attachment; filename=unexpected.html"]
+        ))
+
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: response, isForMainFrame: true),
+            .allow
+        )
+    }
+
+    func testArtifactFailuresDoNotReplaceTheMeetingDocument() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy(
+            routePolicy: DesktopCabinetRoutePolicy(
+                baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+            )
+        )
+        let artifactURL = try XCTUnwrap(
+            URL(string: "https://rec.2brain.dev/api/v1/cabinet/meetings/meeting-033/downloads/audio")
+        )
+
+        for statusCode in [403, 404, 409, 503] {
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: artifactURL,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/problem+json"]
+            ))
+
+            XCTAssertEqual(
+                policy.decision(forNavigationResponse: response, isForMainFrame: true),
+                .cancelResource,
+                "status=\(statusCode)"
+            )
+        }
+    }
+
+    func testArtifactSuccessWithoutAttachmentDoesNotReplaceTheMeetingDocument() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy(
+            routePolicy: DesktopCabinetRoutePolicy(
+                baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+            )
+        )
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/cabinet/meetings/meeting-033/downloads/audio")),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "audio/mp4"]
+        ))
+
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: response, isForMainFrame: true),
+            .cancelResource
+        )
+    }
+
+    func testOrdinaryDocumentFailureStillTransitionsToUnavailableState() throws {
+        let policy = DesktopCabinetNavigationResponsePolicy(
+            routePolicy: DesktopCabinetRoutePolicy(
+                baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+            )
+        )
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033")),
+            statusCode: 404,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+
+        XCTAssertEqual(
+            policy.decision(forNavigationResponse: response, isForMainFrame: true),
+            .cancel(.notFound)
+        )
+    }
+
     func testNavigationCancellationDoesNotOverwriteHTTPFailureState() {
         let cancelled = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
 

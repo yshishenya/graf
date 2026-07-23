@@ -149,17 +149,19 @@ closes a popover or dialog and MUST NOT stop recording.
 | Low disk safety gate | `Освободите место перед записью` → `Открыть хранилище` | Calculates the threshold without exposing it by default |
 | Workspace policy blocks | `Запись недоступна в этом рабочем пространстве` | Does not leak policy identifiers |
 | Offline | Quiet reassurance that recording works offline | Defers server work |
-| Meeting detected | Small nonmodal prompt with Start / Not now | Prompt expires without recording |
+| Meeting detected | Small nonmodal prompt with `Записать сейчас`, `Пропустить`, `Всегда писать это приложение`, and an eight-second countdown | Target identity, policy and capture-gate details |
 | Detection becomes stale | Prompt disappears; manual Start stays | No timeout error |
 | Duplicate Start | Button immediately becomes `Начинаем…` | Idempotently creates one session |
 | Recording already active | Current recording opens; no second Start exists | Rejects a second session |
 | User wants another microphone | Opens quiet `Микрофон` control | Uses macOS default otherwise |
 | Normal silence | Remains ready/healthy | Does not treat a quiet level as missing hardware |
 
-The current eight-second `MeetingDetectionPromptView` countdown and `Всегда
-писать это приложение` control violate this contract. Detect-and-ask never
-starts capture by itself; any future auto-record policy belongs to a separate
-approved settings flow.
+The paragraph above is the historical Feature-121 simplification and is
+superseded for verified native targets by Feature 124. The current
+`MeetingDetectionPromptView` intentionally restores the eight-second countdown,
+automatic start on expiry, immediate start, skip, and target-scoped
+`Всегда писать это приложение` opt-in. It still never starts from arbitrary
+audio, an unknown app, or a blocked capture/policy state.
 
 ### Active capture
 
@@ -240,6 +242,38 @@ destructive behavior documented by Krisp: generation creates a candidate and
 does not replace accepted or manually edited notes until the owner chooses
 `Использовать` after the new result exists.
 
+### Candidate lifecycle and regeneration matrix
+
+The user sees one calm current result and, only when relevant, one pending or
+ready alternative. The server retains every revision; the main page never
+becomes a version-management dashboard.
+
+| Situation | User action / visible state | Automatic behavior | Accepted result |
+|---|---|---|---|
+| First usable transcript, no accepted result | Quiet `Готовим итоги…` | One policy-owned `Авто` candidate | None yet; transcript stays usable |
+| First candidate succeeds | `Новый вариант готов` (or existing deterministic итог remains current) | No second hidden format/classifier call | Candidate is accepted only by the existing explicit initial policy; otherwise owner chooses `Использовать` |
+| Owner chooses another format | `Готовим формат «…»` | Reuse one durable candidate/workflow on retry | Remains current |
+| Candidate ready | `Новый вариант готов` with preview, `Использовать`, `Оставить текущие` | No auto-accept | Remains current until explicit accept |
+| Candidate transiently fails | `Не удалось подготовить…` + concrete retry | Retry same candidate only, bounded by workflow policy | Remains current |
+| Candidate invalid/stale/deleted/ambiguous | Reason + one recovery action, no blind retry | No automatic new candidate | Remains current |
+| Reload, second tab, or new owner device | Server restores pending/ready candidate | Session storage is only a cache | Unchanged |
+| Transcript/source revision changes | Candidate marked unusable; `Обновить расшифровку` or explicit new request | Cancel before egress/publication | Remains current |
+| Owner accepts ready candidate | One confirmation-free `Использовать` action | Atomic expected-pointer check | New set becomes current; old set is superseded |
+| Owner dismisses/rejects | Candidate leaves primary view; history remains owner-only | No deletion and no regeneration | Unchanged |
+| Prompt/model/template/share changes | No surprise UI change | Existing candidates keep pinned provenance | Unchanged |
+| Shared viewer opens meeting | Only accepted summary is rendered | Never exposes candidates or templates | Unchanged |
+
+The candidate list is tolerant of older outcome provenance: legacy rows without
+`candidate_id` are invisible in the owner candidate UI and cannot turn a page
+load into a generic error. A Temporal dispatch outage has one clear next step —
+`Попробовать ещё раз` — while the accepted summary remains visible and the
+server reuses the same candidate on retry.
+
+The selector therefore distinguishes `Текущие итоги: <format>` from
+`Готовим вариант: <format>`. Selecting the already-current format is a no-op;
+creating another version is an explicit `Создать новый вариант` action, not a
+hidden repeat request.
+
 ### Sharing
 
 The first Share surface answers only:
@@ -311,7 +345,8 @@ The interactive prototype MUST cover one connected flow with these 12 states:
 
 1. ready;
 2. one-permission recovery;
-3. detected meeting without countdown/autostart;
+3. detected meeting with the Feature-124 countdown/autostart contract for a
+   verified target, and no start for unknown or blocked activity;
 4. active recording;
 5. paused recording;
 6. degraded source while the other source continues;

@@ -444,9 +444,12 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("promptToggleTitle = \"Запрашивать запись\""))
         XCTAssertTrue(settingsSource.contains("Toggle(\"\", isOn: recordingPromptBinding)"))
         XCTAssertTrue(settingsSource.contains("ScrollView"))
-        XCTAssertFalse(settingsSource.contains("ForEach(promptCapableTargets"))
-        XCTAssertFalse(settingsSource.contains("selectAllAutoRecordTargets"))
-        XCTAssertFalse(settingsSource.contains("Всегда писать"))
+        XCTAssertTrue(settingsSource.contains("pageTitle = \"Автозапись\""))
+        XCTAssertTrue(settingsSource.contains("ForEach(promptCapableTargets"))
+        XCTAssertTrue(settingsSource.contains("selectAllAutoRecordTargets"))
+        XCTAssertTrue(settingsSource.contains("clearAutoRecordTargets"))
+        XCTAssertTrue(settingsSource.contains("autoRecordBinding(for: target.id)"))
+        XCTAssertTrue(settingsSource.contains("twoBrainRecMeetingTargetRegistryDidChange"))
         XCTAssertTrue(settingsSource.contains("SystemAudioAccessibilityIdentifier.meetingDetectionRecordingToggle"))
 
         let controlsSource = try String(
@@ -481,7 +484,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(source.contains("indicatorAvailable: meetingDetectionOneActionStopAvailable"))
     }
 
-    func testMeetingDetectionPromptAsksWithoutCountdownOrAutoStart() throws {
+    func testMeetingDetectionPromptRestoresCountdownAndAutoStart() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
                 .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
@@ -504,18 +507,28 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("Task { @MainActor [weak window]"))
         XCTAssertTrue(source.contains("meeting_detection.prompt_presented"))
         XCTAssertTrue(source.contains("meeting_detection.prompt_accepted"))
-        XCTAssertTrue(source.contains("Начать запись?"))
+        XCTAssertTrue(source.contains("TimelineView(.periodic"))
+        XCTAssertTrue(source.contains("private static let countdownSeconds: TimeInterval = 8"))
+        XCTAssertTrue(source.contains("autoStartTask"))
+        XCTAssertTrue(source.contains("Запись стартует автоматически"))
         XCTAssertTrue(source.contains("Режим: аудиозапись встречи"))
         XCTAssertTrue(source.contains("Источники: системный звук и микрофон"))
         XCTAssertTrue(source.contains("Политика: запись разрешена"))
         XCTAssertTrue(source.contains("Сигнал: приложение использует аудио встречи"))
-        XCTAssertTrue(source.contains("Начать"))
-        XCTAssertTrue(source.contains("Не сейчас"))
-        XCTAssertFalse(source.contains("countdownSeconds"))
-        XCTAssertFalse(source.contains("autoStartTask"))
-        XCTAssertFalse(source.contains("Запись стартует автоматически"))
-        XCTAssertFalse(source.contains("Всегда писать это приложение"))
-        XCTAssertFalse(source.contains("autoRecordEligible"))
+        XCTAssertTrue(source.contains("Всегда писать это приложение"))
+        XCTAssertTrue(source.contains("Пропустить"))
+        XCTAssertTrue(source.contains("autoRecordEligible"))
+        XCTAssertTrue(source.contains("autoRecordOptIn"))
+        XCTAssertTrue(source.contains("saveMeetingDetectionSettings()"))
+        XCTAssertTrue(source.contains("do {\n                    try await Task.sleep"))
+        XCTAssertTrue(source.contains("catch {\n                    return"))
+        XCTAssertTrue(source.contains("guard !Task.isCancelled else { return }"))
+        XCTAssertTrue(source.contains("var didHandleRecordingTrigger = false"))
+        XCTAssertTrue(source.contains("meetingDetectionPrompt == nil"))
+        XCTAssertTrue(source.contains("meetingDetectionTriggerInProgress"))
+        XCTAssertTrue(source.contains("didHandleRecordingTrigger = true"))
+        XCTAssertTrue(source.contains("meetingDetectionPrompt?.bundleID == bundleID"))
+        XCTAssertTrue(source.contains(".onDisappear"))
         XCTAssertFalse(source.contains(".sheet(item: $meetingDetectionPrompt)"))
     }
 

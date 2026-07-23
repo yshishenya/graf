@@ -571,6 +571,12 @@ def _render_meeting_detail_content(
             if review.content_exports is not None
             else ""
         ),
+        current_summary_format_template_id=(
+            str(review.template.template_id or "")
+        ),
+        current_summary_format_version=(
+            str(review.template.version or "")
+        ),
         summary_settings_href=_settings_path(embedded) + "#summary-formats",
         audio_download_available=(review.governance.download.state == "available"),
         outcomes=trusted_component_html(

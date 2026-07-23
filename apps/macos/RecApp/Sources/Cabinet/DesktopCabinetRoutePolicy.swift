@@ -5,6 +5,7 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingDetail
     case meetingShare
     case meetingDeletionReport
+    case artifactDownload
     case calendarSettings
     case meetingDetectionSettings
     case admin
@@ -40,6 +41,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedMeetingDetail = "allowed_meeting_detail"
     case allowedMeetingShare = "allowed_meeting_share"
     case allowedMeetingDeletionReport = "allowed_meeting_deletion_report"
+    case allowedArtifactDownload = "allowed_artifact_download"
     case allowedCalendarSettings = "allowed_calendar_settings"
     case allowedMeetingDetectionSettings = "allowed_meeting_detection_settings"
     case allowedAuthLogin = "allowed_auth_login"
@@ -182,6 +184,18 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedMeetingDeletionReport,
                 userMessage: "Meeting deletion report"
+            )
+        }
+        if isArtifactDownloadRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(
+                    path: path,
+                    meetingId: components[4],
+                    kind: .artifactDownload
+                ),
+                decision: .allow,
+                reason: .allowedArtifactDownload,
+                userMessage: "Download meeting artifact"
             )
         }
         if isCalendarSettingsRoute(components) {
@@ -340,6 +354,17 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
     private func isMeetingDetectionSettingsRoute(_ components: [String]) -> Bool {
         components == ["desktop", "settings", "meeting-detection"]
+    }
+
+    private func isArtifactDownloadRoute(_ components: [String]) -> Bool {
+        components.count == 7 &&
+            components[0] == "api" &&
+            components[1] == "v1" &&
+            components[2] == "cabinet" &&
+            components[3] == "meetings" &&
+            isSafeMeetingId(components[4]) &&
+            components[5] == "downloads" &&
+            ["audio", "transcript", "summary"].contains(components[6])
     }
 
     private func isFutureGovernanceRoute(_ components: [String]) -> Bool {

@@ -16,8 +16,10 @@ from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
 from twobrain_rec_server.outcomes.ai_service import (
+    OutcomeGenerationTerminalError,
     execute_candidate_generation,
     finalize_candidate_generation_failure,
+    mark_candidate_generation_terminal_failure,
     publish_candidate_generation_calls,
     resolve_candidate_prompt,
     snapshot_candidate_transcript,
@@ -32,6 +34,7 @@ from twobrain_rec_server.workflows.invitation_delivery_workflow import Invitatio
 from twobrain_rec_server.workflows.outcome_generation_workflow import (
     OutcomeGenerationWorkflow,
     OutcomeObservabilityReconcilerWorkflow,
+    TranscriptSnapshotError,
 )
 from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
 from twobrain_rec_server.workflows.temporal_client import (
@@ -130,34 +133,52 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
         await engine.dispose()
 
 
-async def resolve_outcome_prompt_config_activity(payload: dict[str, str]) -> dict[str, object]:
+async def resolve_outcome_prompt_config_activity(payload: dict[str, str]) -> dict[str, Any]:
     settings = get_settings()
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     try:
-        return await resolve_candidate_prompt(
-            sessionmaker,
-            settings=settings,
-            workspace_id=UUID(payload["workspace_id"]),
-            candidate_id=UUID(payload["candidate_id"]),
-        )
+        try:
+            return await resolve_candidate_prompt(
+                sessionmaker,
+                settings=settings,
+                workspace_id=UUID(payload["workspace_id"]),
+                candidate_id=UUID(payload["candidate_id"]),
+            )
+        except OutcomeGenerationTerminalError as exc:
+            await mark_candidate_generation_terminal_failure(
+                sessionmaker,
+                workspace_id=UUID(payload["workspace_id"]),
+                candidate_id=UUID(payload["candidate_id"]),
+                failure_code=str(exc),
+            )
+            raise
     finally:
         await engine.dispose()
 
 
 async def snapshot_outcome_transcript_metadata_activity(
     payload: dict[str, str],
-) -> dict[str, object]:
+) -> dict[str, Any]:
     settings = get_settings()
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     try:
-        metadata, _ = await snapshot_candidate_transcript(
-            sessionmaker,
-            workspace_id=UUID(payload["workspace_id"]),
-            candidate_id=UUID(payload["candidate_id"]),
-            settings=settings,
-        )
+        try:
+            metadata, _ = await snapshot_candidate_transcript(
+                sessionmaker,
+                workspace_id=UUID(payload["workspace_id"]),
+                candidate_id=UUID(payload["candidate_id"]),
+                settings=settings,
+            )
+        except (OutcomeGenerationTerminalError, TranscriptSnapshotError) as exc:
+            await mark_candidate_generation_terminal_failure(
+                sessionmaker,
+                workspace_id=UUID(payload["workspace_id"]),
+                candidate_id=UUID(payload["candidate_id"]),
+                failure_code=str(exc),
+            )
+            raise
         return metadata
     finally:
         await engine.dispose()
@@ -165,17 +186,26 @@ async def snapshot_outcome_transcript_metadata_activity(
 
 async def snapshot_outcome_transcript_chunk_activity(
     payload: dict[str, Any],
-) -> dict[str, object]:
+) -> dict[str, Any]:
     settings = get_settings()
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     try:
-        _, chunks = await snapshot_candidate_transcript(
-            sessionmaker,
-            workspace_id=UUID(str(payload["workspace_id"])),
-            candidate_id=UUID(str(payload["candidate_id"])),
-            settings=settings,
-        )
+        try:
+            _, chunks = await snapshot_candidate_transcript(
+                sessionmaker,
+                workspace_id=UUID(str(payload["workspace_id"])),
+                candidate_id=UUID(str(payload["candidate_id"])),
+                settings=settings,
+            )
+        except (OutcomeGenerationTerminalError, TranscriptSnapshotError) as exc:
+            await mark_candidate_generation_terminal_failure(
+                sessionmaker,
+                workspace_id=UUID(str(payload["workspace_id"])),
+                candidate_id=UUID(str(payload["candidate_id"])),
+                failure_code=str(exc),
+            )
+            raise
         index = int(payload["chunk_index"])
         if index < 0 or index >= len(chunks):
             raise ValueError("outcome transcript chunk index is invalid")
@@ -184,18 +214,27 @@ async def snapshot_outcome_transcript_chunk_activity(
         await engine.dispose()
 
 
-async def execute_outcome_generation_activity(payload: dict[str, Any]) -> dict[str, object]:
+async def execute_outcome_generation_activity(payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     try:
-        return await execute_candidate_generation(
-            sessionmaker,
-            workspace_id=UUID(str(payload["workspace_id"])),
-            candidate_id=UUID(str(payload["candidate_id"])),
-            expected_snapshot_hash=str(payload["snapshot_hash"]),
-            settings=settings,
-        )
+        try:
+            return await execute_candidate_generation(
+                sessionmaker,
+                workspace_id=UUID(str(payload["workspace_id"])),
+                candidate_id=UUID(str(payload["candidate_id"])),
+                expected_snapshot_hash=str(payload["snapshot_hash"]),
+                settings=settings,
+            )
+        except OutcomeGenerationTerminalError as exc:
+            await mark_candidate_generation_terminal_failure(
+                sessionmaker,
+                workspace_id=UUID(str(payload["workspace_id"])),
+                candidate_id=UUID(str(payload["candidate_id"])),
+                failure_code=str(exc),
+            )
+            raise
     finally:
         await engine.dispose()
 
@@ -211,13 +250,14 @@ async def finalize_outcome_generation_failure_activity(
             sessionmaker,
             workspace_id=UUID(str(payload["workspace_id"])),
             candidate_id=UUID(str(payload["candidate_id"])),
+            failure_code=str(payload.get("failure_code") or "summary_generation_retries_exhausted")[:120],
         )
         return {"candidate_id": str(payload["candidate_id"]), "status": "failed"}
     finally:
         await engine.dispose()
 
 
-async def publish_outcome_observability_activity(payload: dict[str, Any]) -> dict[str, object]:
+async def publish_outcome_observability_activity(payload: dict[str, Any]) -> dict[str, Any]:
     from temporalio import activity
 
     settings = get_settings()

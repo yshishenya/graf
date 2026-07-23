@@ -45,9 +45,16 @@ final class SystemAudioPermissionUXTests: XCTestCase {
     func testPermissionRecoveryActionsStaySeparateAndRussian() {
         XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки macOS")
         XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить снова")
+        XCTAssertEqual(DesktopPermissionOnboardingView.restartTitle, "Перезапустить GRAF")
+        XCTAssertTrue(DesktopPermissionOnboardingView.microphoneDeniedDetail.contains("повторный запрос"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.microphoneRestrictedDetail.contains("не может обойти"))
         XCTAssertNotEqual(
             DesktopPermissionOnboardingAccessibilityIdentifier.microphoneButton,
             DesktopPermissionOnboardingAccessibilityIdentifier.systemAudioButton
+        )
+        XCTAssertNotEqual(
+            DesktopPermissionOnboardingAccessibilityIdentifier.restartButton,
+            DesktopPermissionOnboardingAccessibilityIdentifier.finishButton
         )
     }
 

@@ -76,9 +76,13 @@ Current non-accepted product areas:
 - Desktop upload queue integration, Temporal workflows, MediaScribe processing,
   dashboard notes, server retention, deletion, and user rollout are not accepted
   yet.
-- Feature `011-assisted-auto-recording` is specified only. Detect-and-ask,
-  future auto-record, automatic naming, and assisted detection evidence are not
-  implemented yet.
+- Feature `011-assisted-auto-recording` remains a broad historical proposal;
+  its generalized auto-record and routed-audio assumptions are not accepted.
+  The narrower verified-native-target workflow is owned by Feature
+  `124-restore-automatic-recording`: `Автозапись` settings, per-app opt-in,
+  eight-second prompt countdown, automatic start on expiry, immediate start,
+  and `Пропустить` are protected behavior and must remain behind the existing
+  capture gates.
 - Feature `022-meeting-mute-truth` is a backlog privacy slice only. It must
   resolve canonical meeting-app mute truth, unsupported-target behavior, muted
   interval artifact truth, user-facing limitation copy, and QA target evidence
@@ -210,6 +214,11 @@ MVP includes:
 - Assisted auto-start for the internal MVP only when enabled by workspace
   policy, user-acknowledged during onboarding, and limited to approved meeting
   targets or explicit user-selected capture scopes.
+- Target-scoped automatic recording for verified native meeting apps: the
+  `Автозапись` settings page exposes the complete prompt-capable registry and
+  one reversible checkbox per app; the prompt offers `Записать сейчас`,
+  `Пропустить`, `Всегда писать это приложение`, and an eight-second countdown
+  that starts capture on expiry. This is not a global or arbitrary-audio mode.
 - Auto-stop configurable in settings; default auto-stop after 10 minutes of no routed meeting audio.
 - Audio recording mode.
 - Transcript-only mode.
@@ -1550,9 +1559,15 @@ MVP capture start policy:
 - Assisted auto-start must require an approved meeting target or explicit
   user-confirmed capture scope, current recording prerequisites, satisfied
   consent policy, and immediate visible local capture indication.
+- For a verified target without a persisted target-scoped rule, the prompt
+  remains visible during the eight-second countdown; the user may start
+  immediately, skip, or opt that exact app into future automatic recording.
+  Countdown expiry is the approved automatic-start action, not silent capture.
 - Assisted auto-start must never trigger from arbitrary system audio, media playback, notification sounds, music, videos, or non-approved apps.
 - If meeting-like activity is uncertain, the product must remain in `detecting` or ask the user; it must not silently start capture.
-- For MVP, assisted auto-start should prompt for confirmation unless the workspace is the internal-team dogfood workspace with explicit admin opt-in.
+- For MVP, assisted auto-start must use the Feature-124 prompt/countdown for a
+  verified target; a persisted target-scoped opt-in may bypass a new prompt,
+  but never bypasses policy, prerequisite, visibility, and Stop gates.
 - User-controlled private/do-not-record mode must suppress assisted auto-start.
 - Participant-facing notice is not required for internal-team MVP.
 - Silent recording must not be used as a product term or default behavior.

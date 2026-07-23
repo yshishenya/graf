@@ -7,6 +7,11 @@
 **Tests**: Required. This high-risk slice changes registry acceptance, detection
 identity resolution, migration state, and settings UX.
 
+**Current behavior owner**: Feature 124 restores and protects the runtime
+consumer of this catalog. Do not replace the common list or its auto-record row
+with a detect-only/diagnostic surface; the prompt countdown, automatic expiry
+start, immediate start, skip, and target-scoped checkbox are covered there.
+
 ## Phase 1: Contract And Safety Foundation
 
 - [X] T001 [P] Document the case-insensitive native identity and evidence-backed

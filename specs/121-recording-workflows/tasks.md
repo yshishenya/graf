@@ -54,18 +54,20 @@
 
 ### Tests For User Story 1
 
-- [X] T015 [P] [US1] Add failing readiness, silence-versus-unavailable, duplicate Start, and detect-and-ask-without-countdown/autostart tests in `apps/macos/Shared/Tests/CaptureControlV5Tests.swift`
+- [X] T015 [P] [US1] Add failing readiness, silence-versus-unavailable, duplicate Start, and Feature-121 baseline detect-and-ask tests in `apps/macos/Shared/Tests/CaptureControlV5Tests.swift`; the no-countdown assertion is historical and superseded by Feature 124.
 - [X] T016 [P] [US1] Add failing permission recovery and Russian accessibility tests in `apps/macos/Shared/Tests/SystemAudioPermissionUXTests.swift` and `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`
-- [X] T017 [P] [US1] Add failing meeting-detection no-auto-start and suppression tests in `apps/macos/Shared/Tests/MeetingDetectionPolicyTests.swift`
+- [X] T017 [P] [US1] Add failing meeting-detection baseline suppression tests in `apps/macos/Shared/Tests/MeetingDetectionPolicyTests.swift`; Feature 124 owns restored target-scoped auto-record behavior.
 
 ### Implementation For User Story 1
 
 - [X] T018 [US1] Project one current readiness state/primary action and quiet healthy source summary into `apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift`
 - [X] T019 [US1] Reuse existing permission services to present separate microphone and Screen/System Audio recovery actions in `apps/macos/RecApp/Sources/Capture/DesktopPermissionOnboardingView.swift`
-- [X] T020 [US1] Keep repeated Start idempotent, remove any second active Start affordance, and replace the eight-second auto-start/countdown plus in-prompt auto-record toggle with Start/Not now detect-and-ask in `apps/macos/RecApp/Sources/Capture/CaptureSessionController.swift` and `apps/macos/RecApp/App/TwoBrainRecApp.swift`
+- [X] T020 [US1] Keep repeated Start idempotent and remove any second active Start affordance. The historical replacement of the eight-second auto-start/countdown plus in-prompt auto-record toggle with Start/Not now is superseded for verified targets by Feature 124, which restores that contract in `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
 - [X] T021 [US1] Make T015–T017 pass and record quickstart scenarios 1–2 in `specs/121-recording-workflows/quickstart.md`
 
-**Checkpoint**: Manual Start and detect-and-ask are independently usable; no auto-record or new audio engine exists.
+**Checkpoint**: Manual Start and the Feature-121 detect-and-ask baseline are
+independently usable; Feature 124 separately owns the restored target-scoped
+auto-record path, and no new audio engine exists.
 
 ---
 
@@ -260,6 +262,14 @@
 - [X] T094 Update behavior/architecture/UX/QA status in `CHANGELOG.md` and `docs/current-product-status.md`
 - [X] T095 Stop for explicit user approval before commit, push, PR, deploy, release, or installed-app replacement
 - [X] T096 [P0] [US5] Restore the canonical accepted-summary pointer for legacy and newly generated baseline outcomes, make published review/share/export content read only that pointer while preserving non-publishable processing/failure truth, and add migration/runtime/UI-to-API-to-Temporal regression coverage in `apps/server/src/twobrain_rec_server/db/migrations/versions/0032_backfill_current_outcome_set.py`, `apps/server/src/twobrain_rec_server/outcomes/service.py`, `apps/server/src/twobrain_rec_server/cabinet/egress.py`, `apps/server/src/twobrain_rec_server/cabinet/queries.py`, `apps/server/tests/contract/test_current_outcome_set_backfill_contract.py`, `apps/server/tests/contract/test_summary_template_ui_contract.py`, `apps/server/tests/integration/test_cabinet_meeting_outcomes.py`, `apps/server/tests/integration/test_meeting_outcomes_generation.py`, `apps/server/tests/integration/test_transcript_export_egress.py`, and `apps/server/tests/unit/test_summary_candidate_revisions.py`
+
+- [X] T097 [P0] [US5] Make outcome-generation workflow result annotations compatible with Temporal's default converter (including replay of already-completed child histories), keep Langfuse span filtering sandbox-safe, and add an SDK-level child-completion regression test in `apps/server/src/twobrain_rec_server/workflows/outcome_generation_workflow.py`, `apps/server/src/twobrain_rec_server/observability/langfuse.py`, `apps/server/tests/integration/test_outcome_generation_workflow.py`, and `apps/server/tests/contract/test_langfuse_runtime_contract.py`.
+- [X] T098 [P1] [US5] Make owner candidate recovery server-authoritative and explain bounded failure reasons: add owner-only candidate listing/preview projection, retryability/next-action fields, selected-format pending UI, reload/new-device recovery, and preserve accepted/share truth in `apps/server/src/twobrain_rec_server/api/schemas.py`, `apps/server/src/twobrain_rec_server/api/cabinet.py`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`, and focused cabinet contracts.
+- [X] T099 [P1] [US5] Reconcile candidate regeneration business rules and UX scenario matrix (initial policy-owned Auto attempt, explicit later regeneration, source/prompt/config changes, candidate history, stale/deletion/ambiguous outcomes) in `specs/121-recording-workflows/spec.md`, `specs/121-recording-workflows/data-model.md`, and `specs/121-recording-workflows/ux-ia.md`, with quickstart evidence and no transcript-bearing committed fixtures.
+- [X] T100 [P0] [US5] Recover the known production outcome workflow without replaying inference, run focused and canonical CI, deploy the forward-compatible worker, and record metadata-only Temporal/Langfuse/Generation-Call smoke evidence plus CalVer release/rollback readiness in `specs/121-recording-workflows/quickstart.md`, `docs/current-product-status.md`, and `CHANGELOG.md`.
+- [X] T101 [P0] [US5] Exclude legacy deterministic attempts without `candidate_id` from the owner candidate projection, make post-commit Temporal dispatch failures retryable without losing the accepted result, preserve workflow run correlations across duplicate starts, and prevent ready candidates from being dispatched again in `apps/server/src/twobrain_rec_server/api/cabinet.py`, `apps/server/src/twobrain_rec_server/workflows/temporal_client.py`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, and the focused candidate/dispatch contracts.
+- [X] T102 [P1] [US5] Bound owner candidate preview projection to the public response contract and ignore malformed legacy categories/references without changing retained source content in `apps/server/src/twobrain_rec_server/api/cabinet.py` and the candidate contract suite.
+- [X] T103 [P0] [US5] Make invalid outcome responses and regeneration failures actionable: strengthen the Langfuse outcome prompt self-check, enforce exact transcript reference sequences, reuse only retryable candidate failures, bound concurrent candidates, project stable API/UI recovery actions, and prevent stale embedded HTML in `apps/server/src/twobrain_rec_server/cli/langfuse_prompts.py`, `apps/server/src/twobrain_rec_server/outcomes/prompts.py`, `apps/server/src/twobrain_rec_server/outcomes/ai_service.py`, `apps/server/src/twobrain_rec_server/api/cabinet.py`, `apps/server/src/twobrain_rec_server/api/schemas.py`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, `apps/server/src/twobrain_rec_server/cabinet/templates.py`, and focused tests.
 
 ---
 

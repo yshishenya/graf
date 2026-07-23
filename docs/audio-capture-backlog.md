@@ -497,7 +497,9 @@ load.
 
 - No capture cleanup.
 - No AEC.
-- No auto-start.
+- No auto-start from this readiness/onboarding slice. The separate, verified
+  native meeting-target auto-start contract is owned by Feature 124 and must
+  still use its eight-second prompt, target list, opt-in, and capture gates.
 - No broad redesign of the web cabinet.
 
 ### Acceptance Gates

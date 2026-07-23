@@ -109,7 +109,7 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
         switch decision.route.kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport:
             return true
-        case .calendarSettings, .meetingDetectionSettings, .admin, .authLogin, .authSignup,
+        case .artifactDownload, .calendarSettings, .meetingDetectionSettings, .admin, .authLogin, .authSignup,
              .authProvider, .authCallback, .unsupported, .external, .forbiddenAction:
             return false
         }
@@ -316,6 +316,25 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         return sourceDecision.decision == .allow && sourceDecision.route.kind == .meetingDetail
     }
 
+    public nonisolated static func allowsArtifactDownload(
+        targetURL: URL?,
+        sourceURL: URL?,
+        sourceIsMainFrame: Bool,
+        routePolicy: DesktopCabinetRoutePolicy
+    ) -> Bool {
+        guard sourceIsMainFrame, let targetURL, let sourceURL else { return false }
+        let targetDecision = routePolicy.decision(for: targetURL)
+        let sourceDecision = routePolicy.decision(for: sourceURL)
+        guard targetDecision.decision == .allow,
+              targetDecision.route.kind == .artifactDownload,
+              sourceDecision.decision == .allow,
+              sourceDecision.route.kind == .meetingDetail
+        else {
+            return false
+        }
+        return targetDecision.route.meetingId == sourceDecision.route.meetingId
+    }
+
     public nonisolated static func safeDownloadFilename(_ suggestedFilename: String) -> String {
         let filename = (suggestedFilename as NSString).lastPathComponent
         return filename.isEmpty || filename == "." || filename == ".." || filename == "/"
@@ -351,6 +370,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         case .authLogin, .authSignup, .authProvider, .authCallback:
             return .expiredSession
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .calendarSettings, .meetingDetectionSettings:
+            return .ready
+        case .artifactDownload:
             return .ready
         case .admin, .unsupported, .external, .forbiddenAction:
             return .blockedRoute
@@ -515,6 +536,20 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 decisionHandler(.allow)
                 return
             }
+            if routePolicy.decision(for: url).route.kind == .artifactDownload,
+               !EmbeddedCabinetWebView.allowsArtifactDownload(
+                   targetURL: url,
+                   sourceURL: artifactSourceURL(
+                       for: navigationAction,
+                       webViewURL: webView.url
+                   ),
+                   sourceIsMainFrame: navigationAction.sourceFrame.isMainFrame,
+                   routePolicy: routePolicy
+               ) {
+                cabinetState = .blockedRoute
+                decisionHandler(.cancel)
+                return
+            }
             if EmbeddedCabinetWebView.allowsBlobDownload(
                 requested: navigationAction.shouldPerformDownload,
                 targetURL: url,
@@ -544,12 +579,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 case .allow:
                     break
                 case let .reload(reloadedRequest):
-                    cabinetState = .loading
+                    if decision.route.kind != .artifactDownload {
+                        cabinetState = .loading
+                    }
                     webView.load(reloadedRequest)
                     decisionHandler(.cancel)
                     return
                 }
-                cabinetState = .loading
+                if decision.route.kind != .artifactDownload {
+                    cabinetState = .loading
+                }
                 decisionHandler(.allow)
             case .openExternally:
                 authContinuationActive = false
@@ -573,6 +612,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
 
         @MainActor
+        public func webView(
+            _ webView: WKWebView,
+            navigationResponse _: WKNavigationResponse,
+            didBecome download: WKDownload
+        ) {
+            downloadHostWindow = webView.window
+            download.delegate = self
+        }
+
+        @MainActor
         public func download(
             _ download: WKDownload,
             decideDestinationUsing _: URLResponse,
@@ -585,6 +634,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             )
             panel.canCreateDirectories = true
             panel.isExtensionHidden = false
+            panel.title = "Сохранить файл"
+            panel.message = "Выберите папку и имя файла."
+            panel.prompt = "Сохранить"
             let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
                 let destination = EmbeddedCabinetWebView.nativeSaveDestination(
                     response: response,
@@ -680,6 +732,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard routeDecision.decision == .allow else {
                 return
             }
+            if routeDecision.route.kind == .artifactDownload {
+                // A successful artifact response must never become the
+                // workspace document or overwrite the last useful route.
+                return
+            }
             updateAuthContinuation(for: routeDecision.route.kind)
             let finishedState = EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
             DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
@@ -701,12 +758,24 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
         ) {
-            switch DesktopCabinetNavigationResponsePolicy().decision(
+            switch DesktopCabinetNavigationResponsePolicy(routePolicy: routePolicy).decision(
                 forNavigationResponse: navigationResponse.response,
                 isForMainFrame: navigationResponse.isForMainFrame
             ) {
             case .allow:
                 decisionHandler(.allow)
+            case .download:
+                logNavigationEvent(
+                    "cabinet_download_response",
+                    detail: responseLogDetail(navigationResponse.response, state: .ready)
+                )
+                decisionHandler(.download)
+            case .cancelResource:
+                logNavigationEvent(
+                    "cabinet_download_response_blocked",
+                    detail: responseLogDetail(navigationResponse.response, state: cabinetState)
+                )
+                decisionHandler(.cancel)
             case let .cancel(state):
                 cabinetState = state
                 logNavigationEvent(
@@ -799,6 +868,27 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 .authProvider,
                 .authCallback
             ].contains(decision.route.kind)
+        }
+
+        private func artifactSourceURL(
+            for navigationAction: WKNavigationAction,
+            webViewURL: URL?
+        ) -> URL? {
+            if let sourceURL = navigationAction.sourceFrame.request.url {
+                let sourceDecision = routePolicy.decision(for: sourceURL)
+                if sourceDecision.decision == .allow,
+                   sourceDecision.route.kind == .meetingDetail {
+                    return sourceURL
+                }
+            }
+            if let webViewURL {
+                let documentDecision = routePolicy.decision(for: webViewURL)
+                if documentDecision.decision == .allow,
+                   documentDecision.route.kind == .meetingDetail {
+                    return webViewURL
+                }
+            }
+            return nil
         }
 
         private func updateAuthContinuation(for routeKind: DesktopCabinetRouteKind) {

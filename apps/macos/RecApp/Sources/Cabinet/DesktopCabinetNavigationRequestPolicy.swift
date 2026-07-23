@@ -45,6 +45,7 @@ public struct DesktopCabinetNavigationRequestPolicy: Equatable {
             kind == .meetingDetail ||
             kind == .meetingShare ||
             kind == .meetingDeletionReport ||
+            kind == .artifactDownload ||
             kind == .calendarSettings
     }
 

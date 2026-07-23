@@ -257,10 +257,12 @@ provenance open as focused contextual flows.
 **Decision**: Add one `OutcomeGenerationWorkflow` to the existing Temporal
 cluster and processing worker. The API first commits a queued candidate and
 generation attempt, then dispatches a deterministic
-`outcome-generation/<candidate_id>` workflow. A reconciler picks up committed
-rows that were not dispatched. Start with the existing processing task queue;
-split a worker or queue only after measured capacity, rollout, or credential
-isolation requires it.
+`outcome-generation/<candidate_id>` workflow. The current MVP recovery path is
+an explicit retry of that same durable row when dispatch acknowledgement is
+unavailable; a background scanner for undispatched rows is a separate
+operations slice and is not claimed by this feature. Start with the existing
+processing task queue; split a worker or queue only after measured capacity,
+rollout, or credential isolation requires it.
 
 Workflow input contains compact pinned request identity only. A metadata
 activity pins the canonical transcript hash and chunk count; chunk activities

@@ -91,8 +91,12 @@ accessible names and visible keyboard focus.
 ## Scenario 2: Detect-And-Ask And Duplicate Start
 
 1. Feed a supported synthetic meeting-detection candidate.
-2. Verify the prompt identifies safe app/context data and offers `Начать` and
-   `Не сейчас` without countdown, auto-start, or an in-prompt auto-record toggle.
+2. For the historical Feature-121 baseline, verify the prompt identifies safe
+   app/context data and preserves one deliberate Start/Not now flow. The
+   current verified-native-target contract is Feature 124: its prompt shows an
+   eight-second countdown, `Записать сейчас`, `Пропустить`, and `Всегда писать
+   это приложение`; expiry starts one recording and the checkbox persists only
+   that exact target for future detections.
 3. Trigger Start from two visible controls nearly simultaneously.
 4. Verify one recording session/package identity and no second Start control in
    starting/active state.
@@ -263,7 +267,8 @@ horizontal modal scroll, clipped warning, or English/debug implementation copy.
 ## Scenario 15: Plaintext Temporal History And Full-Content Langfuse Tracing
 
 1. Commit one synthetic queued candidate and interrupt dispatch before Temporal
-   accepts it; run reconciliation and confirm one deterministic workflow.
+   accepts it; invoke the explicit retry path and confirm one deterministic
+   workflow. A background undispatched-row scanner is outside this MVP slice.
 2. Restart the worker before, during, and after the provider activity; repeat
    activity delivery and confirm at most one publishable candidate.
 3. Exercise timeout, `429`, and transient `5xx`, then auth/configuration,
@@ -439,7 +444,7 @@ invitation tokens, or private user identity.
 
 | Scenarios | Result | Evidence |
 |---|---|---|
-| 1–2 | PASS | Native readiness, separate permission recovery, idempotent manual Start, and detect-and-ask without countdown/autostart are covered by `CaptureControlV5Tests`, `SystemAudioPermissionUXTests`, `AppControlAccessibilityTests`, and `MeetingDetectionPolicyTests`. |
+| 1–2 | Historical PASS + Feature-124 focused validation | Native readiness, separate permission recovery, idempotent manual Start, and the restored verified-target countdown/autostart/list contract are covered by Feature-124 focused tests; the old no-countdown claim remains only as Feature-121 history. |
 | 3–5 | PASS | Pause/resume/one-action Stop, degraded-source truth, crash/finalize/upload custody, and v5 manifest privacy are covered by `CaptureIndicatorTests`, `AppControlAccessibilityTests`, `DesktopUploadQueueV5Tests`, and `CanonicalRecordingManifestTests`. |
 | 5–6 | PASS | Native and server projections preserve one artifact-specific custody/processing lifecycle without a second queue. |
 | 7 | PASS | Browser and embedded desktop use one authorized two-tab meeting workspace with persistent playback, synchronized transcript/speaker behavior, and fail-closed denied/deleting states. |
@@ -600,11 +605,11 @@ The final repeated Ponytail verdict was `Lean already. Ship.`.
 Post-implementation `$speckit-analyze` rechecked 111 explicit FR/SC entries,
 95 dependency-ordered tasks, the constitution v4.0.0 gates, terminology,
 paths, and open-gate truth. Requirement coverage remains complete and the
-finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`. T050 and T089 now have
-production evidence; T057 remains an intentional external evidence gate rather
-than an uncovered requirement. The mandatory repository issue-canon validator
-passed after tracker closeout; 90 of 91 Feature-121 issues are complete and
-only T057/#4177 remains open.
+finding count is CRITICAL/HIGH/MEDIUM/LOW `0/0/0/0`. T050, T057, T089, and
+T100 now have production evidence; T057's synthetic-only boundary remains a
+rollout policy rather than an uncovered requirement. The mandatory repository
+issue-canon validator passed after tracker closeout; the T097–T100
+production-regression issues are closed after the receipt below.
 
 ### Native local-purge hotfix
 
@@ -678,13 +683,13 @@ rows, `0` runtime screenshots, and `0` diagnostic bundles; the desktop path
 was not executed, product analytics was disabled, and no analytics event path
 was invoked. This closes T050 and T089 with metadata-only committed evidence.
 
-### Open external rollout gate
+### Separate rollout limitations
 
-- **T057**: immutable owner-approved synthetic train/development/held-out
-  manifests, the human-labelled calibration pack, and a real two-worker
-  forced-crash GEPA promotion/rollback exercise are absent. Automated GEPA
-  contracts pass, but production prompt optimization remains disabled and no
-  live promotion/rollback claim is made.
+- Prompt optimization remains disabled for ordinary meeting traffic; the
+  completed T057 exercise covers only the owner-approved synthetic manifests
+  and its explicit GEPA gate. Public links, team-wide links, and external
+  invitations remain disabled until their separate product and policy gates
+  are accepted.
 
 Production outcome generation is configured and passed the live LiteLLM proof.
 Prompt optimization, public-link, team, and external-invitation rollout remain
@@ -693,3 +698,143 @@ false until their explicit gates are satisfied.
 T095 is satisfied by the owner's explicit advance approval in this task for
 commit, push, PR, merge, production deploy, release, and installed-app
 replacement after validation and review.
+
+### Outcome-generation regression hotfix (T097–T100)
+
+The 2026-07-23 production regression was isolated to Temporal's decoding of a
+completed observability child result annotated as `dict[str, object]`; the
+model request was never reached for the affected run. The forward-compatible
+fix changes workflow boundary results to `dict[str, Any]`, which also decodes
+the already-retained child completion payload during replay. Langfuse span
+filtering is dependency-free inside the callback so the Temporal sandbox does
+not import `urllib` through the SDK. The owner candidate projection now keeps
+server state authoritative after reload and reports bounded reason/retryability
+without exposing provider text; ready candidates have an owner-only preview.
+
+Local validation evidence before deployment:
+
+- `bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_openapi_contract_drift.py tests/contract/test_summary_template_ui_contract.py tests/unit/test_summary_candidate_revisions.py tests/integration/test_outcome_generation_workflow.py tests/contract/test_langfuse_runtime_contract.py` — 38 passed.
+- `infra/scripts/ci-local.sh` — 608 macOS tests passed; 2,214 parallel and 41 strict PostgreSQL tests passed; Ruff, Python compile, compose config, and deployment-evidence scan passed.
+- `Temporalio` default `DataConverter` round-trip for the child completion result passed; the canonical OpenAPI contract now matches `SlotState.template_id/version`.
+
+### Production forward-fix receipt — T100 (2026-07-23)
+
+- Final release `v2026.07.23.10` was deployed from
+  `codex/121-outcome-generation-fix` with `deployed_sha=runtime_sha`
+  `9cd7b5040a8213e58f52cf1d1cfd90059021d0a`; the earlier `028fdfb` was only
+  a superseded release candidate. Backup and restore rehearsal passed at
+  `/opt/projects/2brain-rec/backups/20260723T142743Z`; migration head was
+  `0033_prompt_opt_maintenance`; Temporal, processing, media worker,
+  automatic dispatch, public live/ready, and metadata-only production smoke
+  all passed.
+- The previously running parent
+  `outcome-generation/a65deb9a-e9ed-4048-ac7b-26e9f0657f68` (run
+  `019f8e11-3db5-72eb-a73d-db4893baca80`) replayed with the forward-compatible
+  worker and completed at `2026-07-23T14:36:08Z`. Its history grew to `46`
+  events and contained one plaintext transcript chunk of `20328` UTF-8 bytes;
+  the chunk hash matched the retained attempt hash
+  `ded0defcde2940b2fba9fc664ac8008d5062e8d64bf10465f732144681dbf942`.
+- Candidate `a65deb9a-e9ed-4048-ac7b-26e9f0657f68` is `accepted`. Its single
+  retained Generation Call is `completed/confirmed`, `call_sequence=1`,
+  `provider_attempt=1`, and model `gpt-5.6-luna`; transcript, request, raw
+  response, and validated-result hashes are present. The global
+  response-bearing backlog read back as `11` completed/confirmed rows, with no
+  pending export state.
+- Private Langfuse trace `a2c4ed95a65338818e00217318b19fc9` is in
+  `production` with `public=false`; it has `18` observations, exactly one
+  generation observation `4a87ed7b08da9f93`, prompt
+  `graf/meeting-outcome/project-sync` v2, and model `gpt-5.6-luna`. Input,
+  raw-response, and validated-result hashes matched the Generation Call; the
+  generation reported `7279` total tokens and Langfuse-calculated cost
+  `0.014114999999`.
+- From the forward-fix deployment window, decoder/sandbox markers
+  (`Failed decoding arguments`, `Unserializable type`, `SandboxRestrictions`,
+  `urllib`) were counted as `0` in API, worker, and Temporal logs. The replay
+  completed without a second Generation Call or another model request.
+- Rollback is forward-only for this retained history: do not deploy a worker
+  older than the `dict[str, Any]` boundary or remove the existing child/marker
+  compatibility path. The repository-wide deploy script still reports four
+  unrelated playback-normalization checks as `required_post_deploy`; no pass
+  claim for those separate scopes is included in this T100 receipt.
+
+Focused review follow-up PR [#4461](https://github.com/yshishenya/crisp/pull/4461)
+and release `v2026.07.23.10` carry this receipt. The evidence is metadata-only:
+no transcript text, model response, credentials, or private meeting content is
+committed.
+
+### Candidate projection and dispatch recovery — T101/T102
+
+Production read-only evidence for the reported user error found one HTTP 500
+on the owner candidate-list endpoint. The failing runtime attempted to project
+an older deterministic attempt with a null `candidate_id`; the retained
+accepted result and all `11` Generation Calls were unaffected. The same window
+contained `2` accepted and `6` `summary_response_invalid` AI candidates; those
+are strict model-output validation failures, not Temporal/LiteLLM transport
+loss. The old bundle mapped that bounded failure to the generic fallback copy.
+
+Local validation for the recovery slice:
+
+- `bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_summary_template_ui_contract.py tests/integration/test_outcome_generation_dispatch.py` — `21 passed`.
+- `infra/scripts/ci-local.sh` — `608` macOS tests, `2222 passed / 1 skipped` parallel PostgreSQL tests, `41 passed / 1 skipped` strict PostgreSQL tests; Ruff, Python compile, Compose config, and deployment-evidence scan passed.
+- Regression coverage includes null legacy rows, bounded preview projection,
+  Temporal dispatch outage/retry, ready-candidate no-replay, run-ID retention,
+  and worker/dispatch race preservation. The code does not add a background
+  undispatched-row scanner; recovery of a lost start acknowledgement is an
+  explicit retry of the same deterministic candidate/workflow ID.
+
+Production closeout for T101/T102 is complete:
+
+- Release [`v2026.07.23.14`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.14)
+  is deployed at exact `deployed_sha=runtime_sha`
+  `1e14004836bc069522002615839e3985586012ff`.
+- Backup and restore rehearsal passed at
+  `/opt/projects/2brain-rec/backups/20260723T181940Z`; migration head is
+  `0033_prompt_opt_maintenance`; Temporal, processing worker, media worker,
+  automatic dispatch, and public live/ready passed. Production smoke passed
+  with cleanup and no residue.
+- A post-deploy metadata-only log check found no new
+  `summary-candidates` 500, `Response content shorter than Content-Length`, or
+  `summary_generation` error. Accepted results and all retained observability
+  data remain untouched. Evidence remains metadata-only.
+
+### Invalid model response and actionable regeneration recovery — T103
+
+The follow-up investigation of the generic “Не удалось подготовить новый
+вариант” message found completed LiteLLM calls whose structured JSON failed the
+local outcome contract: category state did not match its items, an item used a
+section outside the selected format, or a source reference sequence did not
+match the pinned transcript snapshot. This was a bounded validation failure,
+not transcript loss or a Temporal/Langfuse transport failure. The retained
+Generation Call, Langfuse trace, and Temporal plaintext history remain the
+source of truth.
+
+T103 closes the path end to end:
+
+- all ten production `graf/meeting-outcome/*` Langfuse prompts are promoted at
+  version `3` and include a final self-check for state/item parity, allowed
+  sections, unique ordinals, and exact transcript reference pairs;
+- the worker rejects a mismatched reference sequence, reuses only retryable
+  candidate failures, keeps one active candidate per pinned source, and maps
+  prompt/source/content/concurrency failures to stable owner actions;
+- the embedded cabinet bundle exposes the exact recovery copy and the HTML
+  shell is `private, no-store` so an old WebView cannot retain the previous
+  generic fallback.
+
+Validation evidence:
+
+- focused unit/dispatch/contract tests: `14 passed`; Ruff, Python compile, JS
+  syntax and diff checks passed; macOS CI completed `622` tests and
+  `ContractValidation: PASS`;
+- release [`v2026.07.23.17`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.17)
+  deployed at exact runtime SHA
+  `da3a625d96491e99159c7a80ee69a82337daefb6`;
+- production backup/restore, RLS, migration head
+  `0033_prompt_opt_maintenance`, Temporal/worker readiness, smoke and cleanup
+  passed. Public `/api/v1/health/live` and `/api/v1/health/ready` returned
+  `200`; the deployed static bundle contains `result_invalid` and
+  `summary_request_unavailable` recovery paths.
+
+The local PostgreSQL portion of the canonical CI was not runnable because the
+developer machine had no Docker Engine; the remote production gate completed
+the database, readiness, and smoke checks. No transcript or model content is
+committed in this evidence.

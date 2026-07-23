@@ -8,6 +8,11 @@
 Live validation is post-enable QA; auto-record itself requires explicit user
 selection or “Выбрать все”.
 
+The current runtime consumer is Feature
+`124-restore-automatic-recording`: preserve the complete list, per-target
+preference, eight-second prompt countdown, automatic start on expiry,
+`Записать сейчас`, `Пропустить`, and `Всегда писать это приложение`.
+
 ## Evidence Sources
 
 - **R092** — released `2026.07.09.4` feature-092 baseline and its recorded evidence.

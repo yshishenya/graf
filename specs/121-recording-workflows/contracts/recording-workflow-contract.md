@@ -265,8 +265,12 @@ deployment-approved LiteLLM alias; `temperature` is required in `0..2`; and
 `max_completion_tokens` is required in `1..8192`. Schema name is a
 1–64-character identifier and the inlined schema is at most 48 KiB. Local
 validation additionally enforces allowed template categories, unique
-`(category, sequence)`, valid segment ownership, owner/due fields only where
-applicable, deletion/source revision, and the application cost/token ceiling.
+`(category, sequence)`, valid segment ownership, and exact
+`transcript_segment_id`/`sequence` pairs from the pinned transcript; owner/due
+fields only where applicable, deletion/source revision, and the application
+cost/token ceiling. The prompt contract requires the model to derive states
+after building items and to run the same category/reference self-check before
+returning JSON.
 Every `available` category must have at least one item and every `not_found` or
 `not_inferable` category must have none, preserving existing product truth.
 The schema determines structure; it does not grant authorization.
@@ -376,7 +380,10 @@ prompt.
 After the candidate and generation attempt commit, the server dispatches
 `OutcomeGenerationWorkflow` with deterministic workflow ID
 `outcome-generation/{candidate_id}`. Dispatch failure does not delete the row;
-the existing processing reconciler boundary retries undispatched queued rows.
+the owner receives a bounded retryable problem and an explicit retry reuses the
+same candidate/workflow identity. A background scanner for undispatched rows is
+not part of this MVP contract and must be specified separately before it is
+described as automatic recovery.
 
 Temporal workflow start input remains compact:
 
@@ -863,6 +870,8 @@ remains complete without JavaScript; HTMX enhances fragments and focus restore.
 | `template_version_conflict` | 409 | Stale personal template edit/selection. |
 | `summary_source_unavailable` | 409 | No eligible transcript/result revision. |
 | `summary_generation_in_progress` | 409 | Equivalent generation already active. |
+| `summary_prompt_invalid` | 409 | Promoted prompt/config violates the closed outcome contract. |
+| `summary_prompt_snapshot_corrupt` | 409 | Retained prompt snapshot fails its integrity/shape check. |
 | `summary_revision_conflict` | 409 | Accepted pointer changed before accept. |
 | `share_policy_denied` | 403 | Audience/content/capability prohibited. |
 | `share_recipient_not_found` | 404 | Generic unavailable recipient result. |

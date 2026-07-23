@@ -47,6 +47,37 @@ After installing, verify the local result with:
 open "/Applications/GRAF.app"
 ```
 
+## First Launch on a Mac Without Apple Developer Trust
+
+The no-account local package is not Developer ID signed or notarized. On a
+different Mac, Gatekeeper can show a warning such as «Файл graf-local.pkg не
+был открыт». This is an expected limitation of the channel, not a reason to
+disable macOS security globally.
+
+Use the supported one-time system confirmation:
+
+1. Close the warning dialog without moving the package to the Trash.
+2. Open **System Settings → Privacy & Security**.
+3. In **Security**, click **Open Anyway** for `graf-local.pkg`, authenticate if
+   macOS asks, and confirm the open action.
+4. Open the package again and install `GRAF.app` into `/Applications`.
+
+Do not use `sudo spctl --master-disable`, TCC reset commands, manual TCC database
+edits, or an audio-driver installer. The package-level signature remains
+unsigned in this no-account path even after the one-time confirmation.
+
+After the first launch:
+
+- Click **Разрешить микрофон** in GRAF while the state is «Нужно разрешение» and
+  accept the normal macOS prompt. The `.pkg` is not a microphone permission
+  target; GRAF must first request access as the running app.
+- If the state is «Отклонено», click **Открыть настройки macOS** and enable GRAF
+  in **Privacy & Security → Microphone**. GRAF does not promise a second prompt
+  after a denial.
+- Enable GRAF in **Privacy & Security → Screen & System Audio Recording**, return
+  to GRAF, and click **Перезапустить GRAF**. The old process must exit before the
+  new process can read the updated permission state.
+
 Local development may use ad-hoc app signing only when Developer Tools Security
 is enabled. If it is disabled, macOS can install the `.app` successfully but
 kill it through AMFI before app diagnostics are written. Check the local state
@@ -395,6 +426,34 @@ private key, secret, local secret path, meeting content, raw audio or transcript
   version `2026.07.21.3`, and enclosure length `3,669,703` bytes.
 - Bitwarden remains an offline recovery backup only. CI, the app and the public
   host never read it and never receive the private signing key.
+
+### T037 closeout receipt — `v2026.07.23.11` (2026-07-23)
+
+The Feature 124 macOS update was published through the approved private-repository
+Keychain recovery lane after exact tag/provenance and owner-only validation. The
+receipt is metadata-only and contains no private key, secret, meeting content,
+raw audio or transcript.
+
+- The immutable tag `v2026.07.23.11` points to merge
+  `05d66e582f77a4bfeed66057043e8269077d395a`; the [GitHub Release](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.11)
+  contains the ZIP, PKG, checksum, appcast, Russian notes and safe signing
+  attestation.
+- The public feed now reports `2026.07.23.11` and points to
+  `GRAF-2026.07.23.11.zip`. The ZIP is `3,734,800` bytes. Local and public
+  SHA-256 values are ZIP
+  `8abdb294667f5b696373b50aa3583ea0db0bd22b2b865bbad9c3914a85f789df`, PKG
+  `d8b93e40164347bfb62f71039fae51fd34dbb84c3c473d21c2268b3edaf2f025`, and
+  appcast
+  `1eaac01354991f3eedbf0b73e968cedf1fb1ec3641e25b4899b354b6cb1588e7`.
+- `validate-app-updates.sh` passed with owner-only trust, the ZIP passed
+  integrity validation, and both the appcast and archive passed Sparkle
+  signature verification. The previous `2026.07.22.6` archive remains in the
+  public directory; the previous appcast was retained as a recoverable backup
+  before the new feed was installed last.
+- The fresh metadata-only attestation reports `channel=macos-keychain`,
+  `state=ready`, `trustGeneration=1`, and the active manifest key id. This
+  remains an owner-only local-signing channel, not Developer ID/notarized public
+  distribution.
 
 The unused `v2026.07.21.2` tag was not rewritten; its release/public assets
 were not published after `origin/master` moved during preparation. The next

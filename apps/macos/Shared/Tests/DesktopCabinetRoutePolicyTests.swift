@@ -68,6 +68,25 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: try url("/sign-up/email/verify")).decision, .allow)
     }
 
+    func testAllowsServerMediatedMeetingArtifactDownloads() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+
+        for artifact in ["audio", "transcript", "summary"] {
+            let decision = policy.decision(
+                for: try url("/api/v1/cabinet/meetings/meeting-033/downloads/\(artifact)")
+            )
+            XCTAssertEqual(decision.decision, .allow, artifact)
+            XCTAssertEqual(decision.route.kind, .artifactDownload, artifact)
+            XCTAssertEqual(decision.route.meetingId, "meeting-033", artifact)
+            XCTAssertEqual(decision.reason, .allowedArtifactDownload, artifact)
+        }
+
+        let unknown = policy.decision(
+            for: try url("/api/v1/cabinet/meetings/meeting-033/downloads/package")
+        )
+        XCTAssertEqual(unknown.decision, .blockWithMessage)
+    }
+
     func testAllowsEmbeddedLogoutCompatibilityTarget() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
         let decision = policy.decision(for: try url("/desktop/meetings"))
@@ -199,6 +218,39 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             requested: true,
             targetURL: blob,
             sourceURL: try url("/login"),
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+    }
+
+    func testArtifactDownloadRequiresTheSameMeetingDetailAsTheSource() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let detail = try url("/desktop/meetings/meeting-033")
+        let otherDetail = try url("/desktop/meetings/meeting-034")
+        let download = try url("/api/v1/cabinet/meetings/meeting-033/downloads/audio")
+        let otherDownload = try url("/api/v1/cabinet/meetings/meeting-034/downloads/audio")
+
+        XCTAssertTrue(EmbeddedCabinetWebView.allowsArtifactDownload(
+            targetURL: download,
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsArtifactDownload(
+            targetURL: download,
+            sourceURL: otherDetail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsArtifactDownload(
+            targetURL: otherDownload,
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsArtifactDownload(
+            targetURL: download,
+            sourceURL: nil,
             sourceIsMainFrame: true,
             routePolicy: policy
         ))

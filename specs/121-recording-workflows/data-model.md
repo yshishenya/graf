@@ -208,10 +208,33 @@ Rules:
 - Deletion blocks new generation and prevents candidate acceptance.
 - Duplicate dispatch reuses `workflow_id`; duplicate activity delivery reuses
   `candidate_id` and cannot create a second publishable candidate.
+- Legacy deterministic attempts with a null `candidate_id` remain outside the
+  candidate projection contract. The owner list filters them before applying
+  the eight-row candidate bound.
+- Temporal dispatch is post-commit. A dispatch outage records only the bounded
+  `summary_generation_unavailable` marker on the active attempt; retrying the
+  same format reuses the candidate/workflow identity and never assumes that an
+  ambiguous start did not reach Temporal.
 - Langfuse export outage leaves the candidate ready and changes only the
   background export status; retry cannot repeat the model call. If no promoted
   version or verified snapshot can be resolved, the attempt enters
   `blocked_dependency` before model egress.
+- The first usable transcript may create one policy-owned `Авто` attempt;
+  later regeneration is explicit. A retry of a transient failure reuses the
+  same candidate/workflow identity, while a user-requested retry after a
+  terminal validation failure creates a new candidate and provider call.
+- Each attempt pins `source_result_id`/`media_revision_id`, template identity,
+  prompt/config/schema provenance, and request actor. A changed source blocks
+  publication/acceptance of the old attempt without changing the accepted
+  pointer. No prompt/model/template/share edit silently creates a new attempt.
+- Candidate list/review is owner-only and server-authoritative. The primary
+  meeting page may show one pending/ready candidate; all older attempts remain
+  retained for history and audit. Shared projections never read candidate
+  state.
+- User projection maps `failure_code` to a bounded `reason_code`,
+  `retryable`, and `next_action`; raw provider response/error text never enters
+  the cabinet response. `summary_response_invalid` is terminal by default and
+  does not receive an automatic retry.
 
 ## New Entity: Prompt Optimization Run
 

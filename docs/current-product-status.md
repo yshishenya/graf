@@ -35,6 +35,52 @@ metadata-only evidence остаются подробной историей ре
   maintenance remain separate required follow-up checks; sharing remains in
   the gated-disabled rollout described above.
 
+## Validation update (2026-07-23, Feature 124 release/production)
+
+- Feature `124-restore-automatic-recording` restores the previously designed
+  target-scoped meeting workflow: the `Автозапись` settings page with the full
+  verified native-app list and per-app checkboxes, prompt opt-in via `Всегда
+  писать это приложение`, the eight-second countdown, immediate
+  `Записать сейчас`, `Пропустить`, and automatic start on countdown expiry.
+  The implementation reuses Feature 092/119 registry and capture gates; it
+  does not revive the removed audio-routing implementation or enable arbitrary
+  audio auto-recording.
+- Feature 124 released as [`v2026.07.23.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.9)
+  and deployed to production at exact SHA
+  `5d5b8428239f9f1439cefc63e11bd1b07e3f4279`. The previous `.8` candidate
+  stopped fail-closed on an outdated migration lineage and is superseded; no
+  production rollout was claimed from that candidate.
+- Production deploy evidence is complete: backup and restore rehearsal passed,
+  migration head is `0033_prompt_opt_maintenance`, production smoke/cleanup,
+  API and worker readiness, Temporal readiness and automatic dispatch passed,
+  and the final verdict is `infra_smoke_ready`.
+- Production RLS read-only metadata verification passed: `77/77` covered tables
+  have RLS enabled and forced, `failed_table_names=none`, and live production
+  enforcement is enabled. Public `/api/v1/health/live` and
+  `/api/v1/health/ready` both returned HTTP 200.
+- The macOS update is now published as [`v2026.07.23.11`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.11)
+  from merge `05d66e582f77a4bfeed66057043e8269077d395a`. The public Sparkle
+  appcast reports `2026.07.23.11`; its ZIP, PKG and appcast were fetched again
+  over HTTPS, with SHA-256 values
+  `8abdb294667f5b696373b50aa3583ea0db0bd22b2b865bbad9c3914a85f789df`,
+  `d8b93e40164347bfb62f71039fae51fd34dbb84c3c473d21c2268b3edaf2f025` and
+  `1eaac01354991f3eedbf0b73e968cedf1fb1ec3641e25b4899b354b6cb1588e7`.
+  Owner-only update validation, ZIP integrity and both Sparkle signatures
+  passed; the previous `2026.07.22.6` archive remains available for rollback.
+  This channel intentionally uses the local Keychain signer and is not a
+  Developer ID-signed or notarized public distribution.
+- Post-review focused validation is complete: policy 16/16, capture 39/39
+  (including cancelled-countdown, prompt-disappearance and trigger-coalescing
+  regressions), accessibility 18/18, `ContractValidation: PASS`. The pre-merge
+  canonical local CI baseline passed with macOS 609/609, server 2191 passed / 1
+  skipped, strict PostgreSQL 41 passed / 1 skipped, lint/compile/compose/evidence
+  scans passing. A post-merge local rerun reproduced only the unrelated SC-017
+  calendar performance assertion twice (`p95=92.78ms` and `201.96ms` against a
+  `50ms` threshold); Feature-124 code and that performance test were not
+  changed. Release used the documented local-CI bypass for this
+  host-load-sensitive assertion; all mandatory remote release and production
+  gates passed.
+
 ## Validation update (2026-07-23) — deletion list feedback cleanup
 
 - Список встреч после подтвержденного удаления сразу убирает строку и закрывает
@@ -43,92 +89,11 @@ metadata-only evidence остаются подробной историей ре
   удаления остается рядом с подтверждением, а серверная lifecycle-очистка и
   retained observability-копии не изменены.
 
-## Validation update (2026-07-23) — T057 prompt-optimization closeout
-
-- Feature implementation was deployed at SHA
-  `f9272f704f2a53f342210953aa559cd73c6080a3`; the current hotfix merge is
-  `a1bf34a36c1586b213cf49361eab5ec247445a67`, with migration head
-  `0033_prompt_opt_maintenance`. The operations-only
-  optimizer worker is isolated from the normal recording worker and uses the
-  maintenance role/RLS context; Temporal/API/processing/media readiness,
-  smoke, migration, and restore rehearsal passed.
-- The private Langfuse source prompt `graf/meeting-outcome/t057-synthetic` is
-  production v3 with config hash
-  `561c8c7323561a1009442255f94130c1536433e531e15db873dec3f669360aec`.
-  Immutable synthetic train/development/held-out manifest hashes and the
-  calibration gate are recorded in Scenario 16 of the Feature-121 quickstart.
-- Combined owner run `9912c9b8-5433-4678-afb9-8446792b18ce` produced candidate
-  v5 (development `0.8`, held-out minimum `1.0`) at checkpoint revision `4`,
-  then killed `t057-worker-r` (exit 137); the surviving worker completed
-  explicit approve → promote → rollback. The production label was read back as
-  v3 with the expected config hash. Successful owner run
-  `da6ac03b-470a-4612-87fb-4210bc646706` independently records candidate v4
-  promotion/rollback. Forced-crash run
-  `b772ab2e-c021-4a33-8ce1-4796ba019197` killed `t057-worker-l` (exit 137) after
-  a checkpoint; the second worker resumed at activity attempt 2 and advanced
-  checkpoint revision `1 → 5`, then rejected a `0.83` held-out score through
-  the immutable `0.9` gate. This proves both recovery and fail-closed quality
-  behavior; no automatic promotion occurs on a failed gate.
-- Langfuse traces retain complete plaintext task/reflection/judge request and
-  response content, and Temporal History retains complete plaintext
-  `transcript_utf8` activity results through the default converter. Receipts
-  contain only counts, byte lengths, hashes, and correlation IDs; no transcript
-  text is committed. The combined run trace is
-  `cf2d0039497de44871811dfd02cbbab7` (25 observations, 12 generations with
-  non-empty input/output/model/usage and prompt/config metadata), and its
-  Temporal History has 74 events with two plaintext `transcript_utf8` results
-  (`74683+35265` bytes). No GRAF-owned optimizer evidence was purged during
-  this closeout, per the MVP observability policy.
-- The post-deploy heartbeat smoke
-  `d2738c12-5fb2-49da-8a74-e48b2ea76a75` reached development `1.0` and held-out
-  `1.0`, was explicitly rejected by the operator, and produced zero
-  `RuntimeWarning`, `_heartbeat_async`, or `never awaited` messages in the
-  operations worker log. The worker-thread heartbeat bridge is therefore
-  covered on the live GEPA path without changing the plaintext observability
-  policy.
-- Production hotfix `f9272f70` fixes the HTTP 500 observed after accepting a
-  generated outcome: LiteLLM result source refs are normalized with the
-  server-owned `evidence_kind=segment`, while older stored refs without that
-  field remain renderable. The production log had confirmed the exact
-  `OutcomeSourceReferenceView` validation failure; after deploy the API has no
-  new `ValidationError`/500 entries in the verification window. Existing rows
-  needing the compatibility fallback: `18`; no rows were deleted or rewritten.
-- Closeout CI after the live exercise: 608 macOS tests, ContractValidation PASS,
-  2207 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1
-  skipped, collection digest
-  `bd7ebd520e7d5a4e318b1d8820911d0f1a389b762fb71e365a500bb0607ac54c`, Ruff,
-  compile, Compose, and deployment-evidence scan PASS.
-
-## Validation update (2026-07-23) — accepted-summary pointer hotfix
-
-- Production regression T096 / issue #4253 исправлена в ветке
-  `codex/121-summary-pointer-hotfix`: accepted outcome теперь читается только
-  через `Meeting.current_outcome_set_id`, а legacy extractive rows получают
-  этот указатель additive-миграцией `0032_outcome_pointer` без выдумывания
-  template provenance.
-- Полный локальный gate прошёл: 608 macOS tests, `ContractValidation: PASS`,
-  2198 server tests passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1
-  skipped, collection digest
-  `02702796e56ab9e65a5a69a5f89720c4b512b4e25a5ca6ab6602780bf3bbdae1`, Ruff,
-  compile, Compose и deployment-evidence scan PASS.
-- Целевой Postgres regression прошёл `45 passed`: выбор формата сохраняет
-  rendered CAS pointer и запускает ровно один Temporal workflow; двухсессионная
-  проверка показывает, что deletion lock выигрывает у baseline generation;
-  stale export возвращает 409 без attachment и без смешанных байтов.
-- Production deploy использовал source SHA
-  `c013bdab27a8be1f705f4727f4bfca2c926c5e9a`; backup
-  `/opt/projects/2brain-rec/backups/20260723T011346Z`, migration head
-  `0032_outcome_pointer`, RLS/runtime identity, Temporal/worker readiness,
-  smoke/cleanup, automatic dispatch и public live/ready прошли. Все шесть
-  runtime services healthy. Pointer inventory: legacy accepted outcomes без
-  pointer `0`, active accepted pointers `32`, invalid pointers `0`; после
-  выкладки summary-candidate 409 `0`. Release receipt — `v2026.07.23.1`.
-
-## Validation update (2026-07-22)
-
-- Feature `121-recording-workflows` реализует единый спокойный recording flow:
+- Historical Feature `121-recording-workflows` реализует единый спокойный
+  recording flow:
   раздельное восстановление разрешений, ручной idempotent Start,
-  detect-and-ask без countdown/autostart, Pause/Resume/Stop, понятную custody и
+  detect-and-ask baseline for the non-restored workflow, Pause/Resume/Stop,
+  понятную custody и
   processing truth, две вкладки встречи с постоянным плеером, девять форматов
   итогов, личные шаблоны, internal sharing, приглашения, gated links и
   контекстные export/download/delete actions. Модель и параметры приходят из
@@ -165,10 +130,114 @@ metadata-only evidence остаются подробной историей ре
   history требуют forward-fix rollback. Expanded scan проверил 21 secret-
   файл, логи, non-ledger DB и committed content: все matches `0`;
   audio rows/screenshots/diagnostics `0`, analytics disabled/no event path.
-  T050 и T089 закрыты; открыта только T057 без owner-approved
-  immutable train/development/held-out manifests, human calibration pack и
-  real two-worker forced-crash GEPA promotion/rollback evidence. Prompt
-  optimization, public/team links и external invitations остаются выключены.
+  T050, T057 и T089 закрыты с metadata-only production evidence. Prompt
+  optimization для обычного трафика, public/team links и external invitations
+  остаются выключены по отдельным rollout-политикам.
+
+## Validation update (2026-07-23) — outcome-generation decoder and candidate UX hotfix
+
+- Production incident analysis isolated the failure to
+  `OutcomeObservabilityReconcilerWorkflow` returning `dict[str, object]`.
+  Temporal 1.30 rejected the already-completed child result during parent
+  replay (`Unserializable type during conversion`), leaving an accepted parent
+  workflow running even though no model call was pending. This is separate
+  from `summary_response_invalid`, where a valid LiteLLM response is rejected
+  by local category/source-reference validation.
+- The hotfix changes both outcome workflow result boundaries to
+  `dict[str, Any]` (compatible with retained histories), makes Langfuse span
+  filtering sandbox-safe, and adds owner-only server candidate recovery,
+  preview, bounded reason/retryability projection, and selected-format pending
+  UI. It does not delete or redact any transcript, Generation Call, Langfuse
+  observation, or Temporal History.
+- Production readiness is now **complete for T097–T100**. Focused review and
+  canonical CI passed; final release `v2026.07.23.10` was deployed at
+  runtime SHA `9cd7b5040a8213e58f52cf1d1cfd90059021d0a` (the earlier
+  `028fdfb` was a superseded release candidate). Backup/restore rehearsal passed at
+  `/opt/projects/2brain-rec/backups/20260723T142743Z`, migration head is
+  `0033_prompt_opt_maintenance`, and Temporal, processing, media worker,
+  automatic dispatch, public live/ready, and metadata-only production smoke
+  all passed.
+- The known parent
+  `outcome-generation/a65deb9a-e9ed-4048-ac7b-26e9f0657f68` (run
+  `019f8e11-3db5-72eb-a73d-db4893baca80`) replayed with the forward-compatible
+  worker and completed at `2026-07-23T14:36:08Z`. Its retained History
+  contains `46` events and one plaintext transcript chunk of `20328` UTF-8
+  bytes; the chunk hash matches the attempt hash
+  `ded0defcde2940b2fba9fc664ac8008d5062e8d64bf10465f732144681dbf942`.
+  Candidate state is `accepted`; its single Generation Call is
+  `completed/confirmed` with `provider_attempt=1`, `call_sequence=1`, and
+  `gpt-5.6-luna`. The response-bearing backlog is `11` completed/confirmed
+  rows with no pending exports.
+- Private Langfuse trace `a2c4ed95a65338818e00217318b19fc9` is `production` and
+  `public=false`, with `18` observations and exactly one generation
+  `4a87ed7b08da9f93` using `graf/meeting-outcome/project-sync` v2 and
+  `gpt-5.6-luna`. Generation Call and Langfuse request/raw-response/
+  validated-result hashes match; usage is `7279` total tokens and the reported
+  calculated cost is `0.014114999999`. Decoder/sandbox markers in API, worker,
+  and Temporal logs after the forward-fix were `0`; replay completed without a
+  second model call.
+- Rollback is forward-only for this retained history: a worker older than the
+  `dict[str, Any]` boundary must not be deployed and the existing child/marker
+  compatibility path must remain. The global deploy script keeps four
+  unrelated playback-normalization checks explicitly at
+  `required_post_deploy`; they are not claimed as part of this
+  outcome-generation receipt.
+
+## Validation update (2026-07-23) — candidate recovery regression (production closeout)
+
+- Production logs captured one metadata-only HTTP 500 on
+  `GET /api/v1/cabinet/meetings/{uuid}/summary-candidates` (request id
+  `74e15694-3786-4f7f-996f-0005a62e8d62`). The deployed runtime projected a
+  legacy deterministic attempt whose `candidate_id` was null, then failed while
+  building the owner candidate response; Uvicorn subsequently reported the
+  secondary `Response content shorter than Content-Length` transport error.
+- Production database counts at investigation time were `2 accepted` and `6
+  failed/summary_response_invalid` AI candidates; all `11` retained response
+  calls were `completed/confirmed`. The six invalid results are a separate
+  strict model-output validation signal, not transcript loss or accepted-summary
+  replacement. The old browser bundle mapped that bounded failure to the
+  generic “Не удалось подготовить новый вариант…” fallback.
+- The T101/T102 hotfix filters null-candidate legacy provenance before
+  projection, preserves accepted results across post-commit Temporal dispatch
+  outages, reuses deterministic candidate/workflow IDs on explicit retry, and
+  maps invalid/temporary failures to an actionable user message. It does not
+  alter or delete any retained transcript, Generation Call, Langfuse
+  observation, or Temporal History. Automatic background scanning of
+  undispatched candidates remains a separate follow-up; this slice uses the
+  explicit retry path.
+- Release [`v2026.07.23.14`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.14)
+  is deployed at the exact runtime SHA
+  `1e14004836bc069522002615839e3985586012ff`. Backup and restore rehearsal
+  passed at `/opt/projects/2brain-rec/backups/20260723T181940Z`; migration head
+  is `0033_prompt_opt_maintenance`; Temporal, processing, media worker,
+  automatic dispatch, and public live/ready all passed. The metadata-only
+  production smoke passed and post-deploy logs contain no new
+  `summary-candidates` 500, `Response content shorter than Content-Length`, or
+  `summary_generation` error. T101/T102 are closed after this evidence.
+
+## Validation update (2026-07-23) — T103 actionable outcome recovery
+
+- The reported generic regeneration error was traced to strict local rejection
+  of completed LiteLLM JSON: state/item parity, selected-section membership, or
+  exact transcript reference sequence could be invalid. The transcript was not
+  lost, and no Temporal/Langfuse transport failure was found. Full plaintext
+  transcript and model-call content remain retained in the existing
+  Generation Call, Langfuse, and Temporal observability paths.
+- PR [#4510](https://github.com/yshishenya/crisp/pull/4510) adds the prompt,
+  validator, candidate lifecycle, API projection, and embedded UI recovery
+  fixes. All ten production outcome prompts are at Langfuse production v3.
+  The public static bundle contains the new bounded reason/action mapping.
+- Release
+  [`v2026.07.23.17`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.17)
+  is deployed at exact runtime SHA
+  `da3a625d96491e99159c7a80ee69a82337daefb6`. Backup and restore rehearsal,
+  RLS, migration head `0033_prompt_opt_maintenance`, Temporal and processing
+  readiness, automatic dispatch, metadata-only production smoke and cleanup
+  all passed. The production containers are healthy and public
+  `/api/v1/health/live` and `/api/v1/health/ready` both returned HTTP 200.
+- The local server PostgreSQL CI lane was unavailable because Docker Engine was
+  not running on the developer machine; focused tests and the complete remote
+  production gate passed. Evidence contains no transcript or model content.
 
 ## Validation update (2026-07-21)
 
@@ -612,9 +681,11 @@ receipt не заявляются; они остаются отдельными 
   former v3 package format. Its separate-file assertions and role mapping are
   not the active local-artifact contract and cannot be copied into new capture
   code, UI or validation.
-- Feature `011-assisted-auto-recording` is specified but not planned or
-  implemented. It records the future detect-and-ask rollout, automatic naming
-  policy, and local-trust-shell/server-dashboard UI authority model.
+- Feature `011-assisted-auto-recording` remains a broad historical product
+  proposal and is not the owner of the current implementation. The narrower
+  verified-target workflow is now specified and restored by Feature 124;
+  generalized automatic recording and the original routed-audio assumptions
+  remain outside the accepted scope.
 - Feature `090-manual-media-upload-ui` is merged through
   [#3874](https://github.com/yshishenya/crisp/pull/3874) and follow-up review
   fixes in [#3877](https://github.com/yshishenya/crisp/pull/3877). The final
@@ -710,6 +781,11 @@ receipt не заявляются; они остаются отдельными 
   providers without safe active-tab evidence remain manual-only. Live app
   receipts are post-enable QA and are not yet claimed; production release and
   deploy evidence are still open.
+- Feature `124-restore-automatic-recording` is the current owner of the runtime
+  contract that consumes the Feature-119 list. Any future recording-workflow
+  refactor must preserve the list, target-scoped preference, prompt checkbox,
+  eight-second countdown, automatic expiry start, immediate start, and skip
+  actions, or open a new approved replacement feature first.
 - Feature `012-server-ingest-foundation` is implemented as the first backend
   foundation slice in this repository: FastAPI ingest service scaffold,
   local/prod Docker Compose stacks, Postgres/Alembic schema models, MinIO
@@ -1199,9 +1275,10 @@ receipt не заявляются; они остаются отдельными 
 - Production RLS coverage is accepted only for the `031` covered table
   inventory. Future tenant-owned tables and product surfaces still need their
   own ADR `003` classification, tests, and metadata-only evidence before merge.
-- Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
-  detect-and-ask, automatic naming, and future auto-record behavior have not
-  been implemented or accepted.
+- Feature `011-assisted-auto-recording` remains requirements-only only for its
+  broad/generalized scope. The verified-target detect-and-ask and
+  target-scoped auto-record behavior is owned by Feature 124; its local branch
+  implementation passed post-review validation but is not yet a release claim.
 - Signed/notarized production installer evidence remains separate from local
   ad-hoc development package evidence.
 - Feature `030-mvp-experience-design-system` now provides the MVP product
@@ -1330,7 +1407,9 @@ Keep separate unless the next spec explicitly changes scope:
   implemented, merged, released, and production-smoked in `048`. Remaining
   playback-related work is post-MVP scope such as compressed share audio,
   public links, waveform polish, native Swift controls, or editing.
-- Assisted auto-start and generalized meeting detection.
+- Generalized meeting detection and unrestricted assisted auto-start remain
+  deferred. Verified-target, target-scoped auto-record with the Feature-124
+  countdown/prompt contract is current and must not be removed as cleanup.
 - The former live speakerphone cleanup/AEC research is archived in
   `docs/audio-capture-backlog.md`. It is neither an active feature backlog nor
   a fallback for v5; new capture must keep the truthful one-timeline contract.
@@ -1348,8 +1427,10 @@ the current accepted implementation or `012` ingest slice.
   privacy, platform, and QA evidence. Accepted feature `022` covers
   product-owned Pause/Resume truth and keeps unsupported meeting targets
   fail-closed; it does not claim third-party Zoom/Telemost mute interception.
-- `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
-  naming, and any future auto-start behavior from the accepted requirements.
+- `011-assisted-auto-recording`: broad future work only. For the current
+  verified native target path, follow Feature 124 and preserve its settings,
+  per-target opt-in, eight-second automatic start, and visible skip/start
+  prompt contract.
 - Public-link and external-recipient sharing policy: add optional public links,
   expiration, external invitations, abuse controls, and admin/legal copy after
   the login-required 017 flow is accepted.

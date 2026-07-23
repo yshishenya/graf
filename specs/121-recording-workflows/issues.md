@@ -26,7 +26,7 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   successful promotion/rollback. All traces and Temporal histories retain
   complete plaintext content; the receipt contains hashes, sizes, and counts
   only.
-- Every implementation and validation task T006-T096 has exactly one canonical
+- Every implementation and validation task T006-T103 has exactly one canonical
   Russian issue in
   [feature:121](https://github.com/yshishenya/crisp/issues?q=is%3Aissue%20label%3Afeature%3A121).
 - The mapping is contiguous: T006 maps to
@@ -35,11 +35,12 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
   [#4215](https://github.com/yshishenya/crisp/issues/4215). Equivalently,
   `issue number = numeric task id + 4120`.
 - After merge, production deploy, public
-  [`v2026.07.23.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.3),
+  [`v2026.07.23.10`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.10),
   installed-app verification, and the production AI observability closeout,
-  91 completed issues have verified evidence. No Feature-121 issue remains open;
-  T096/#4253 is closed after the accepted outcome pointer hotfix was deployed and
-  verified.
+  all Feature-121 implementation and validation issues have verified evidence.
+  T097-T100 are closed by follow-up PRs [#4459](https://github.com/yshishenya/crisp/pull/4459)
+  and [#4461](https://github.com/yshishenya/crisp/pull/4461); the T100 receipt
+  is recorded in the Feature-121 quickstart and current-product status.
 - Implementation/release links: PR
   [#4235](https://github.com/yshishenya/crisp/pull/4235), native purge hotfix
   [#4242](https://github.com/yshishenya/crisp/pull/4242), release prep
@@ -69,6 +70,28 @@ Affected issue bodies were resynchronized after the clean repeated analysis;
 | T080-T086 | #4200-#4206 | Accessibility and Russian cross-surface UX |
 | T087-T095 | #4207-#4215 | Validation, review, and release boundary |
 | T096 | #4253 | Accepted-summary pointer production regression hotfix |
+| T097 | [#4320](https://github.com/yshishenya/crisp/issues/4320) | Temporal result and tracing sandbox regression hotfix |
+| T098 | [#4321](https://github.com/yshishenya/crisp/issues/4321) | Owner candidate recovery and bounded error UX |
+| T099 | [#4322](https://github.com/yshishenya/crisp/issues/4322) | Regeneration/version business logic matrix |
+| T100 | [#4323](https://github.com/yshishenya/crisp/issues/4323) | Production recovery and smoke evidence |
+| T101 | [#4501](https://github.com/yshishenya/crisp/issues/4501) | Legacy candidate projection and Temporal dispatch recovery |
+| T102 | [#4502](https://github.com/yshishenya/crisp/issues/4502) | Bounded owner candidate preview projection |
+| T103 | [#4509](https://github.com/yshishenya/crisp/issues/4509) | Actionable invalid outcome and regeneration recovery |
+
+T101 and T102 were implemented in [PR #4503](https://github.com/yshishenya/crisp/pull/4503),
+released as [`v2026.07.23.14`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.14),
+deployed at exact runtime SHA `1e14004836bc069522002615839e3985586012ff`, and
+closed after the production smoke/log receipt recorded in the Feature-121
+quickstart. No transcript or model content is included in this mapping.
+
+T103 was implemented in [PR #4510](https://github.com/yshishenya/crisp/pull/4510),
+released through [PR #4511](https://github.com/yshishenya/crisp/pull/4511) as
+[`v2026.07.23.17`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.17),
+and deployed at exact runtime SHA
+`da3a625d96491e99159c7a80ee69a82337daefb6`. Remote backup/restore, RLS,
+migration, readiness, smoke and cleanup evidence is recorded in
+`quickstart.md`; issue #4509 is closed. No transcript or model content is
+included in this mapping.
 
 Issues must only be closed after their acceptance criteria and evidence are
 verified. Matching task checkboxes must only be marked complete after the same

@@ -33,6 +33,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(source.contains("<string>pro.2brain.graf</string>"))
         XCTAssertTrue(source.contains("<string>GRAF</string>"))
         XCTAssertTrue(source.contains("NSMicrophoneUsageDescription"))
+        XCTAssertTrue(source.contains("NSAudioCaptureUsageDescription"))
         XCTAssertTrue(source.contains("NSScreenCaptureUsageDescription"))
         XCTAssertTrue(source.contains("pro.2brain.graf.desktop-app"))
         XCTAssertFalse(source.contains("start_selected=\"true\" start_enabled=\"true\""))
@@ -89,6 +90,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         let source = try Self.readRepositoryFile("apps/macos/Scripts/validate-app-updates.sh")
 
         XCTAssertTrue(source.contains("pro.2brain.graf"))
+        XCTAssertTrue(source.contains("NSAudioCaptureUsageDescription"))
         XCTAssertTrue(source.contains("Contents/Frameworks/Sparkle.framework"))
         XCTAssertTrue(source.contains("Sparkle license notice is missing"))
         XCTAssertTrue(source.contains("codesign --verify --deep --strict"))

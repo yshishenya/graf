@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from hashlib import sha256
+from typing import Any
 
 TRANSCRIPT_CHUNK_BYTES = 196_608
 SERIALIZED_PAYLOAD_BYTES = 262_144
@@ -21,7 +22,7 @@ def split_plaintext_transcript(
     max_chunk_bytes: int = TRANSCRIPT_CHUNK_BYTES,
     max_snapshot_bytes: int = TRANSCRIPT_MAX_BYTES,
     max_serialized_bytes: int = SERIALIZED_PAYLOAD_BYTES,
-) -> tuple[dict[str, object], list[dict[str, object]]]:
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     encoded = transcript.encode("utf-8")
     if len(encoded) > max_snapshot_bytes:
         raise TranscriptSnapshotError("outcome_transcript_oversize")
@@ -35,7 +36,7 @@ def split_plaintext_transcript(
         max_serialized_bytes=max_serialized_bytes,
     )
     chunk_count = len(texts)
-    chunks: list[dict[str, object]] = []
+    chunks: list[dict[str, Any]] = []
     for index, text in enumerate(texts):
         chunk = {
             "candidate_id": candidate_id,
@@ -59,8 +60,8 @@ def split_plaintext_transcript(
 
 
 def validate_plaintext_snapshot(
-    metadata: dict[str, object],
-    chunks: list[dict[str, object]],
+    metadata: dict[str, Any],
+    chunks: list[dict[str, Any]],
     *,
     max_chunk_bytes: int = TRANSCRIPT_CHUNK_BYTES,
     max_snapshot_bytes: int = TRANSCRIPT_MAX_BYTES,
@@ -207,7 +208,7 @@ if workflow is not None:
     @workflow.defn
     class OutcomeObservabilityReconcilerWorkflow:
         @workflow.run
-        async def run(self, payload: dict[str, str]) -> dict[str, object]:
+        async def run(self, payload: dict[str, str]) -> dict[str, Any]:
             cycles = 0
             while True:
                 state = await workflow.execute_activity(
@@ -226,7 +227,7 @@ if workflow is not None:
     @workflow.defn
     class OutcomeGenerationWorkflow:
         @workflow.run
-        async def run(self, payload: dict[str, str]) -> dict[str, object]:
+        async def run(self, payload: dict[str, str]) -> dict[str, Any]:
             reconciler_enabled = workflow.patched("outcome-observability-reconciler-v1")
             if reconciler_enabled:
                 info = workflow.info()
@@ -253,7 +254,7 @@ if workflow is not None:
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=outcome_generation_retry_policy(),
                 )
-                chunks: list[dict[str, object]] = []
+                chunks: list[dict[str, Any]] = []
                 for chunk_index in range(int(metadata["chunk_count"])):
                     chunk = await workflow.execute_activity(
                         "snapshot_outcome_transcript_chunk_activity",
@@ -274,6 +275,18 @@ if workflow is not None:
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=outcome_generation_retry_policy(),
                 )
+            except TranscriptSnapshotError as exc:
+                # This validation runs inside the deterministic workflow, not
+                # inside an activity wrapper. Preserve the bounded terminal
+                # code instead of projecting a malformed snapshot as a
+                # retryable provider failure.
+                await workflow.execute_activity(
+                    "finalize_outcome_generation_failure_activity",
+                    {**payload, "failure_code": str(exc)},
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=outcome_generation_retry_policy(),
+                )
+                raise
             except Exception:
                 await workflow.execute_activity(
                     "finalize_outcome_generation_failure_activity",
@@ -294,9 +307,9 @@ if workflow is not None:
 else:
 
     class OutcomeGenerationWorkflow:
-        async def run(self, payload: dict[str, str]) -> dict[str, object]:
+        async def run(self, payload: dict[str, str]) -> dict[str, Any]:
             return payload
 
     class OutcomeObservabilityReconcilerWorkflow:
-        async def run(self, payload: dict[str, str]) -> dict[str, object]:
+        async def run(self, payload: dict[str, str]) -> dict[str, Any]:
             return payload
