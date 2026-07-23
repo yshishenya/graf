@@ -148,6 +148,10 @@ def test_public_download_handoff_is_available(client) -> None:
     assert "Скачать GRAF" in response.text
     assert "Текущий установщик" in response.text
     assert "Скачайте пакет и откройте GRAF." in response.text
+    assert "Открыть всё равно" in response.text
+    assert "без подписи Developer ID и notarization" in response.text
+    assert "Не отключайте" in response.text
+    assert "защиту macOS целиком." in response.text
     assert "/static/public/downloads/graf-local.pkg?v=" in response.text
     assert "Как только установщик будет готов" not in response.text
     assert 'href="/login?next=/meetings"' in response.text

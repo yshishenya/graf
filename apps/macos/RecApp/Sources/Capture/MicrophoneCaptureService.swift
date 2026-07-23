@@ -346,7 +346,10 @@ public final class MicrophoneCaptureService: Sendable {
         inputDeviceId: String? = nil,
         inputDisplayName: String = "Default Microphone"
     ) async -> MicrophoneCaptureSession {
-        let state = await authorizer.requestPermission()
+        let currentState = authorizer.currentPermissionState()
+        let state = currentState == .unknown
+            ? await authorizer.requestPermission()
+            : currentState
         return MicrophoneCaptureSession(
             sessionId: sessionId,
             permissionState: state,
