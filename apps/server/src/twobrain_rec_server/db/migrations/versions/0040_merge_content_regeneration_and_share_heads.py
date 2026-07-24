@@ -18,6 +18,8 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Merge the two already-applied migration branches."""
+    # Alembic traverses the sibling 0032–0039 branch automatically from the
+    # production share head before recording this merge revision.
 
 
 def downgrade() -> None:

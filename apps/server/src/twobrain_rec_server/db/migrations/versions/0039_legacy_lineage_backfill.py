@@ -26,6 +26,7 @@ PREVIOUS_MAINTENANCE_OPERATIONS = (
     "playback_normalization_dispatch",
     "outcome_dispatch_reconciliation",
     "deletion_purge_reconciliation",
+    "prompt_optimization",
 )
 # Keep the operation name explicit for the RLS contract and migration audit:
 # processing_legacy_lineage_reconciliation
