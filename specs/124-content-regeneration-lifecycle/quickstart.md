@@ -273,6 +273,10 @@ containers.
 - Live RLS enforcement remains an explicit known limitation: the disposable
   RLS verifier and production migration/smoke gates passed, while a separate
   live RLS probe was not attempted.
+- После выкладки изменялись только `CHANGELOG.md`, release notes и Spec Kit
+  evidence; финальный `cd-remote.sh --dry-run` на closeout-ветке прошёл ещё раз.
+  Deployed runtime SHA поэтому остаётся `7e81c90a`; documentation-only commit
+  не требовал повторного production execute.
 
 ## Release and production gate
 
