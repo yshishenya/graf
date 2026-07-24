@@ -11,7 +11,9 @@ Share должен получать и показывать capability-сост�
 приглашение не должно быть доступно в модалке, пока
 `share_external_invitations_enabled` выключен. Если устаревший клиент всё же
 отправил запрос, сервер сохраняет fail-closed ответ с кодом политики, а клиент
-показывает этот код как понятное следующее действие.
+показывает этот код как понятное следующее действие. В текущем controlled
+rollout флаг планируется true только для exact-email summary-only приглашений;
+public links, contacts и referral остаются false.
 
 ### Evidence
 
@@ -336,10 +338,29 @@ Read-only threat-model review Feature 125 выявил несколько бло
 meeting binding, wildcard escaping, scope checks, public abuse-gate recheck и
 token-safe headers закрыты кодом и synthetic tests. Application-level
 throttling, first-class delivery `outcome-unknown`, one-time invitation
-exchange, membership-loss enforcement, calendar-source ownership, public-open
-audit и external/public/contact/referral rollout остаются незакрытыми. Поэтому
-внешний/public/contact/referral rollout не будет объявлен готовым только на
-основании того, что серверный feature flag можно установить.
+exchange, membership-loss enforcement и calendar-source ownership закрыты
+кодом и synthetic evidence для exact-email/internal пути. Public-open audit,
+contact/referral rollout и широкое participant distribution остаются
+незакрытыми. Поэтому только exact-email путь объявлен готовым; public/contact/
+referral rollout не следует включать на основании одного feature flag.
+
+### Rollout readiness evidence — 2026-07-24
+
+- Postal delivery is server-only, uses a generated persistent HMAC identity
+  secret and a separate credential-encryption key; no secret is passed to the
+  browser or desktop client.
+- Invitation delivery commits a `sending` fence before network egress. Provider
+  acceptance becomes `sent`; pre-egress/config failure becomes `failed`; timeout,
+  5xx or malformed provider response becomes `outcome_unknown` and is not
+  automatically resent.
+- Durable actor/device invitation throttling is 10 attempts per workspace and
+  device per hour; duplicate active invitations are fenced by the meeting,
+  normalized identity hash and partial unique index.
+- Token URL/log/referrer protections, exact verified-recipient acceptance,
+  bounded grant expiry and revoke/deletion rechecks are covered by contract and
+  integration evidence. The local suite uses a synthetic transport; no live
+  email was sent without an explicitly consented test recipient. Public links,
+  native Contacts/provider lookup and referral attribution remain disabled.
 
 ## 7. Источники
 

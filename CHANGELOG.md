@@ -16,6 +16,9 @@
   пригласившего и метаданными встречи, явный вход/регистрация, точная проверка
   подтверждённого email, отдельный grant-token с replay-safe хранением и
   bounded expiry без автоматического вступления в рабочую область.
+- Включён контролируемый exact-email B2C rollout: Postal и HMAC-секрет
+  identity подключаются только серверу, а публичные ссылки, Contacts и referral
+  attribution остаются выключенными.
 
 ### Изменено
 - Модалка Share теперь показывает реальную capability-политику, источник и
@@ -31,6 +34,9 @@
 - После синхронизации с актуальным `master` canonical OpenAPI-контракт
   дополнен всеми runtime `SummaryCandidateResponse.reason_code`; drift-тест
   снова проходит.
+- Добавлены отдельная проверка delivery state и загрузка share-identity HMAC
+  секрета из Docker secret-файла; production startup остаётся fail-closed при
+  отсутствии обязательной настройки.
 
 ### Безопасность
 - Добавлены meeting-bound search с экранированием LIKE-wildcards, bounded
@@ -52,13 +58,14 @@
   расширения вирусного rollout.
 
 ### Операции
-- Production deploy gated-disabled кандидата прошёл для merge SHA
+- Production deploy кандидата с контролируемым exact-email B2C rollout прошёл
+  для merge SHA
   `7a1c2ed13827cc42e35544b6f5da955785eb4e4f`: backup/restore rehearsal,
   migration head `0035_meeting_share_security`, disposable RLS probe,
-  runtime/worker readiness и production smoke — PASS. External email, public
-  links, native Contacts и referral attribution остаются выключенными до
-  delivery, identity, abuse, privacy/legal, retention и deletion evidence
-  gates.
+  runtime/worker readiness и production smoke — PASS. External email включён
+  только для exact-email summary-only пути после delivery, identity, abuse,
+  retention и deletion evidence gates; public links, native Contacts и referral
+  attribution остаются выключенными.
 - Локальный macOS artifact `2026.07.24.2` собран с `GRAF Local Code Signing`;
   package unsigned, Developer ID и notarization не заявляются.
 

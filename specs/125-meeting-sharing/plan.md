@@ -13,8 +13,10 @@ Feature 125 repairs the current Share dead end and turns the modal into a
 server-policy-aware access surface. The first implementation fixes internal B2B
 summary-only sharing and implements the B2C exact-email invitation path behind
 an operator gate: safe metadata email, explicit login/signup, exact verified
-identity, separate grant token, bounded expiry and revoke. Public links stay
-disabled. The plan also keeps native address-book, viral onboarding and referral
+identity, separate grant token, bounded expiry and revoke. The controlled
+exact-email path is now enabled in production after the delivery, secret,
+abuse, deletion and rollback evidence gates; public links stay disabled. The
+plan also keeps native address-book, viral onboarding and referral
 contracts separate from access delivery. The expanded viral design puts
 participant distribution and `Shared with me` first, followed by opt-in owner
 auto-share, recurring pre-read, team access and existing-grant channel or
@@ -42,9 +44,10 @@ storage models.
 
 **Release Gate**: PR/closeout requires the focused quickstart and
 `infra/scripts/ci-local.sh`. A production deploy is allowed only for the
-validated, gated-disabled slice after `cd-remote.sh --dry-run`, Russian release
-notes, rollback readiness and explicit user approval. External email, public
-links, native Contacts/provider lookup and referral attribution remain false.
+validated slice after `cd-remote.sh --dry-run`, Russian release notes, rollback
+readiness and explicit user approval. Exact-email external delivery is enabled
+only for the bounded recipient flow; public links, native Contacts/provider
+lookup and referral attribution remain false.
 
 **Target Platform**: browser cabinet and embedded macOS WebKit cabinet backed by the same server routes; native address-book picker is a later macOS client contract, not browser sync
 
@@ -52,9 +55,9 @@ links, native Contacts/provider lookup and referral attribution remain false.
 
 **Performance Goals**: internal recipient search p95 under 1 second for the bounded 20-result query in synthetic fixtures; no network request for disabled capabilities; Share modal remains responsive at the existing cabinet scale
 
-**Constraints**: fail closed; internal default is summary-only/view-only; external/public flags stay false by default; no raw meeting content, contact records, email delivery secret or bearer token in evidence/logs/analytics; no full address-book sync; 320 CSS px and 200% zoom; browser/embedded parity; no copied competitor UI
+**Constraints**: fail closed; internal and external defaults are summary-only/view-only; external/public flags stay false by default; no raw meeting content, contact records, email delivery secret or bearer token in evidence/logs/analytics; no full address-book sync; 320 CSS px and 200% zoom; browser/embedded parity; no copied competitor UI
 
-**Scale/Scope**: one meeting Share fragment, current workspace/meeting roster candidate search, existing grant/invitation/link lifecycle, existing summary route, synthetic security/UX tests; external/public/referral rollout remains independently gated
+**Scale/Scope**: one meeting Share fragment, current workspace/meeting roster candidate search, existing grant/invitation/link lifecycle, existing summary route, exact-email delivery, synthetic security/UX tests; public/contact/referral rollout remains independently gated
 
 ## Constitution Check
 
@@ -71,8 +74,9 @@ links, native Contacts/provider lookup and referral attribution remain false.
 - **Server authorization and deletion truth**: PASS with mandatory implementation
   checks. Existing access/deletion authorities remain canonical; accepted grants
   inherit bounded invitation expiry; deletion wins share races.
-- **External dependency safety**: PASS. External email/public links remain gated;
-  no new provider or secret is introduced.
+- **External dependency safety**: PASS. Exact-email delivery uses the existing
+  Postal provider with a server-only key and a generated HMAC identity secret;
+  public links remain gated and no new provider is introduced.
 - **Spec-driven delivery**: PASS. Specify, clarification scan, research, plan,
   data model, contracts, checklist, tasks, analyze, issue sync and implementation
   are required.
@@ -84,10 +88,12 @@ links, native Contacts/provider lookup and referral attribution remain false.
 
 PASS with conditions:
 
-1. No external/public/contact/referral rollout until the blockers in
-   [research.md](research.md#обязательные-blockers-перед-rollout) have evidence.
-2. Internal rollout remains limited to authenticated active identities and
-   summary-only view unless a later approved slice changes policy.
+1. Exact-email external delivery is enabled only after the delivery, abuse,
+   token, deletion and rollback evidence recorded in
+   [research.md](research.md#обязательные-blockers-перед-rollout); public,
+   contact and referral rollout remains disabled.
+2. Internal and external rollout remains limited to summary-only view unless a
+   later approved slice changes policy.
 3. No new persistence is introduced for contacts or referral attribution until
    retention/deletion and analytics contracts are approved.
 4. Token/header/log protections and accepted-grant expiry are blocking, not
@@ -120,9 +126,10 @@ failure remains visible.
 ### External/public safety
 
 When external delivery is disabled, no invitation POST is made. The typed value
-is preserved and the user sees a policy explanation. The endpoint remains
-fail-closed for stale/hostile clients. Public link creation/resolution keeps the
-existing gates and must add effective abuse-gate verification before rollout.
+is preserved and the user sees a policy explanation. When enabled, the endpoint
+accepts only exact email + summary-only/view-only scope and remains fail-closed
+for stale/hostile clients. Public link creation/resolution keeps the existing
+gates and remains disabled in this rollout.
 
 ### Viral and contact phases
 
@@ -148,13 +155,14 @@ when `Shared with me` is sufficient. Retry must never rotate a grant token.
    recipient-bound resolution, revoke/rotation/expiry/deletion and parallel
    duplicate actions.
 5. Run synthetic token/log/analytics negative tests, calendar side-effect tests,
-   and provider-disabled external invitation tests.
+   delivery-state tests and provider-disabled external invitation tests.
 6. Execute [quickstart.md](quickstart.md), including browser/embedded parity,
    keyboard, VoiceOver, 320 CSS px, 200% zoom, light/dark, reduced motion and
    increased contrast.
 7. Run `git diff --check` and `infra/scripts/ci-local.sh` before PR/closeout.
 8. Run Ponytail review, product-design audit and code/security review. Production
-   deploy is explicitly out of scope.
+   deploy is allowed only for the exact-email capability after the recorded
+   rollout gate; public/contact/referral deploy remains out of scope.
 
 ## Project Structure
 
@@ -230,7 +238,8 @@ email provider or a new database table in this slice.
 ### Phase 2 — B2C gated delivery and later extensions
 
 - B2C external invitation delivery state, exact-email onboarding and CTA behind
-  the operator gate;
+  the operator gate; the exact-email capability is enabled in the current
+  controlled production rollout, while broader viral extensions remain gated;
 - explicit share-to-eligible-participants action and `Shared with me` adoption
   loop, after idempotent distribution/run design;
 - owner opt-in auto-share, recurring pre-read and bounded action-item delivery;

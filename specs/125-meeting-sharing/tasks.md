@@ -11,7 +11,9 @@
 - Все данные тестов synthetic; реальные email, токены, transcript, audio и
   private contacts запрещены.
 - External/public/contact/referral tasks с пометкой `GATE` нельзя включать или
-  считать rollout-ready без независимого security/product approval.
+  считать rollout-ready без независимого security/product approval. Текущий
+  rollout разрешает только exact-email B2C; public/contact/referral остаются
+  выключенными.
 
 ## Phase 1 — Setup
 
@@ -93,18 +95,18 @@ not produce an unauthorized identity or side effect.
 
 ## Phase 6 — User Story 2: Получатель и внешнее приглашение (P1, GATE)
 
-**Story goal**: define a safe exact-email invitation and recipient onboarding
-path while keeping delivery disabled until all gates pass.
+**Story goal**: operate a safe exact-email invitation and recipient onboarding
+path while keeping public/contact/referral extensions disabled.
 
 **Independent test**: in a synthetic delivery environment, verify metadata-only
 email, exact-address acceptance, bounded grant expiry, generic wrong-recipient
 failure, explicit signup and no automatic workspace membership.
 
 - [X] T037 [P] [US2] Add contract tests for invitation lifecycle, exact verified address, safe email content and no workspace auto-join in `apps/server/tests/contract/test_recording_share_invitation_contract.py`
-- [ ] T038 [P] [US2] Add synthetic delivery state tests for pre-egress failure, provider-accepted `sent` and post-egress `outcome-unknown` in `apps/server/tests/integration/test_invitation_delivery_workflow.py`
+- [X] T038 [P] [US2] Add synthetic delivery state tests for pre-egress failure, provider-accepted `sent` and post-egress `outcome-unknown` in `apps/server/tests/integration/test_invitation_delivery_workflow.py`
 - [X] T039 [US2] Add metadata-only recipient value copy and explicit sign-in/create-GRAF CTA to `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html` and `apps/server/src/twobrain_rec_server/cabinet/rendering.py`
-- [ ] T040 [US2] Add independent delivery idempotency, abuse/quota, token-scrubbing and deletion/revoke gate evidence before changing `share_external_invitations_enabled` in `specs/125-meeting-sharing/checklists/security.md` and `specs/125-meeting-sharing/quickstart.md`
-- [X] T041 [US2] Do not enable external delivery in production; leave the feature flag false and record the unmet gates in `docs/current-product-status.md`
+- [X] T040 [US2] Add independent delivery idempotency, abuse/quota, token-scrubbing and deletion/revoke gate evidence before changing `share_external_invitations_enabled` in `specs/125-meeting-sharing/checklists/security.md` and `specs/125-meeting-sharing/quickstart.md`
+- [X] T041 [US2] Enable bounded exact-email external delivery with server-side Postal/HMAC settings while keeping public links, contacts and referral attribution disabled in `docs/current-product-status.md`
 
 ## Phase 7 — User Story 5: Добровольное знакомство с GRAF (P2, GATE)
 
@@ -134,7 +136,7 @@ server-side contact index.
 - [X] T049 [P] Update behavior/UX/security notes in `CHANGELOG.md` in Russian with the actual delivered scope and gated limitations
 - [X] T050 [P] Run product-design audit and clean-room review against the implemented Share modal in `specs/125-meeting-sharing/checklists/ux.md`
 - [X] T051 [P] Run Ponytail review and remove unnecessary dependencies/abstractions while preserving authorization, accessibility and evidence gates in `specs/125-meeting-sharing/plan.md`
-- [X] T052 Run the full Feature 125 quickstart, `git diff --check`, focused pytest and `infra/scripts/ci-local.sh`; attach synthetic evidence and keep external/public/contact/referral rollout disabled in `specs/125-meeting-sharing/quickstart.md`
+- [X] T052 Run the full Feature 125 quickstart, `git diff --check`, focused pytest and `infra/scripts/ci-local.sh`; attach synthetic evidence and keep public/contact/referral rollout disabled in `specs/125-meeting-sharing/quickstart.md`
 
 ## Dependencies and execution order
 
@@ -167,12 +169,13 @@ Parallel examples:
 
 ## Implementation strategy
 
-1. Complete foundational safety and keep external/public flags false.
+1. Complete foundational safety and keep public/contact/referral flags false.
 2. Deliver US1 internal summary-only Share as the MVP; validate independently.
 3. Add US3 recipient-bound link/revoke/expiry management; validate independently.
 4. Add US4 workspace/calendar suggestions without external identity leakage.
-5. Keep US2/US5/address-book tasks gated until security, delivery, privacy,
-   legal, retention and deletion evidence is approved.
+5. Enable only the exact-email portion of US2 after security, delivery,
+   privacy, retention and deletion evidence; keep US5/address-book/provider
+   extensions gated until their own approvals.
 6. Update `CHANGELOG.md`, run clean-room/product-design/Ponytail review and the
    repository gate. No implementation commit or deploy is created without
    explicit user approval after validation.
@@ -182,7 +185,7 @@ Parallel examples:
 | Requirement group | Covered by |
 |---|---|
 | FR-001–FR-005 capability, explicit Share, default summary/view | T012–T020 |
-| FR-006–FR-010 identity input, bounded search, disabled delivery, invitation lifecycle | T004–T008, T012–T020, T037–T041 |
+| FR-006–FR-010 identity input, bounded search, capability-gated delivery, invitation lifecycle | T004–T008, T012–T020, T037–T041 |
 | FR-011–FR-017 scope, egress separation, access management, privacy errors | T006–T010, T021–T028, T037–T040 |
 | FR-018–FR-023 audit, safe email, CTA/attribution, funnel and abuse limits | T005–T011, T037–T045 |
 | FR-024–FR-027 calendar/contact sources and permission states | T029–T036, T046–T048 |

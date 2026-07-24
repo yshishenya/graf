@@ -1,7 +1,8 @@
 # Contract: Meeting Sharing
 
 **Feature**: 125
-**Status**: design contract; external/public/contact/referral operations remain gated
+**Status**: exact-email external invitations enabled behind the operator flag;
+public/contact/referral operations remain gated
 
 ## 1. Server capability projection
 
@@ -124,14 +125,17 @@ existing public policy and TTL gates continue to apply. Rotation is owner-only,
 audited and rate-limited. Revoke invalidates both old and new tokens according
 to the current grant status.
 
-## 5. External invitation (gated)
+## 5. External invitation (operator-gated exact-email path)
 
 ```http
 POST /api/v1/cabinet/meetings/{meeting_id}/share-invitations
 ```
 
 This endpoint remains blocked while `share_external_invitations_enabled` is
-false. The UI must not call it in that state.
+false. The UI must not call it in that state. The current controlled rollout
+sets the flag true only with Postal delivery, the public base URL, the
+credential-encryption key and the generated share-identity HMAC secret
+available to `rec-api`; public links remain false.
 
 Request is limited to normalized address + summary-only, view-only scope. The
 domain service must enforce that restriction, invitation TTL, duplicate fence,

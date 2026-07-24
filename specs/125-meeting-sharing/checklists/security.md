@@ -31,8 +31,25 @@ testable before implementation and rollout
 - [x] External/public/contact/referral rollout and rollback gates are independent
 - [x] Deletion copy is bounded to GRAF-controlled systems and retained observability is named
 
+## Rollout gate evidence — 2026-07-24
+
+- Exact-email external delivery is enabled only through the operator flag and
+  requires Postal, public URL, credential-encryption key and a generated
+  persistent share-identity HMAC secret. The browser and macOS client receive
+  none of these secrets.
+- The delivery fence commits `sending` before egress; accepted provider
+  response is `sent`, pre-egress configuration failure is `failed`, and a
+  timeout/5xx/malformed response is `outcome_unknown` with no automatic resend.
+- Durable actor/device rate limiting allows at most 10 invitation attempts per
+  hour; duplicate active invitations are fenced by normalized identity hash,
+  meeting and a partial unique index.
+- Contract/integration evidence covers token URL/log/referrer scrubbing,
+  summary-only email content, exact verified-recipient acceptance, bounded
+  expiry, revoke and deletion rechecks. Public links, contacts and referral
+  attribution remain disabled.
+
 ## Notes
 
-All items pass as requirement-quality checks. Passing this checklist does not
-mean external/public rollout is approved; implementation evidence for the
-security blockers in [research.md](../research.md) remains mandatory.
+All items pass as requirement-quality checks. The evidence above approves only
+the bounded exact-email rollout; public links, contacts and referral remain
+separate gates.

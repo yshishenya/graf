@@ -44,6 +44,16 @@ from twobrain_rec_server.workflows.temporal_client import (
 )
 
 
+def invitation_delivery_failure_state(
+    error: EmailLoginDeliveryError,
+) -> tuple[str, str]:
+    """Keep pre-egress failures distinct from an unknown provider outcome."""
+    return (
+        "outcome_unknown" if error.outcome_unknown else "failed",
+        error.reason_code,
+    )
+
+
 async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str, str]:
     from temporalio import activity
 
@@ -490,8 +500,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     expires_at=invitation.expires_at,
                 )
             except EmailLoginDeliveryError as exc:
-                invitation.failure_code = exc.reason_code
-                invitation.status = "outcome_unknown" if exc.outcome_unknown else "failed"
+                invitation.status, invitation.failure_code = invitation_delivery_failure_state(exc)
                 invitation.encrypted_delivery_address = ""
                 await record_egress_audit_event(
                     db,

@@ -14,27 +14,29 @@ metadata-only evidence остаются подробной историей ре
   кандидаты объединяют active workspace directory и связанный календарный
   roster без побочного grant/delivery эффекта, а user grants получают
   recipient-bound URL с rotation/revoke и повторной проверкой membership.
-- B2C exact-email invitation flow реализован за operator flag: metadata-only
+- B2C exact-email invitation flow подготовлен к controlled rollout:
+  production enablement выполняется только deploy-gate после проверки API и
+  delivery-worker; до выкладки флаг остаётся выключенным. Flow — metadata-only
   email/landing, explicit login/signup, exact verified identity, отдельный
-  grant token с bounded replay-safe выдачей и без workspace auto-join. External
-  delivery, public links, native Contacts picker/provider lookup и referral
-  attribution остаются выключенными до delivery, identity, rate-limit/abuse,
-  privacy/legal, retention/deletion and analytics evidence gates. The current
-  branch is release-ready only for this gated-disabled behavior.
+  grant token с bounded replay-safe выдачей и без workspace auto-join. Postal,
+  credential-encryption key, persistent share-identity HMAC secret, durable
+  invitation rate-limit, delivery fence and revoke/deletion evidence are
+  provisioned and locally validated. Public links, native Contacts picker/provider
+  lookup и referral attribution остаются выключенными отдельными gates.
 - Validation: focused Share/access/workflow matrix 48 passed; separate
   wrong-account continuation and desktop share-route checks 4 passed;
   after synchronizing with `master`, `infra/scripts/ci-local.sh` passed macOS
-  (624 tests), PostgreSQL parallel (2,248 passed, 1 skipped) and strict
+  (624 tests), PostgreSQL parallel (2,254 passed, 1 skipped) and strict
   (41 passed, 1 skipped), lint, compile, RLS boundary, compose config and
   deployment evidence scan. No production public-link or external-delivery
   flag was enabled.
-- Production deploy: PASS for code SHA
+- Previous production deploy: PASS for code SHA
   `7a1c2ed13827cc42e35544b6f5da955785eb4e4f`; migration head
   `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
   probe, runtime/worker readiness, production smoke and automatic dispatch
   passed. Post-deploy automatic retry, backfill, range and normalization
-  maintenance remain separate required follow-up checks; sharing remains in
-  the gated-disabled rollout described above.
+  maintenance remain separate required follow-up checks; this change has not
+  yet changed the live production flag.
 - macOS local artifact `2026.07.24.2` прошёл production-build packaging и
   `codesign --verify --deep --strict`; использован local-only signer, без
   Developer ID и notarization.

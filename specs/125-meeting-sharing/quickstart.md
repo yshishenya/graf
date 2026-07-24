@@ -6,10 +6,11 @@ This guide validates the first safe delivery: internal authenticated
 summary-only sharing, capability-aware UI, calendar-backed internal suggestions,
 recipient-bound links, revoke/expiry and security negatives. The B2C exact-email
 path is implemented behind its operator gate with metadata-only delivery,
-exact-identity acceptance and replay-safe grant exchange. External email,
-public links, address-book permission and referral conversion remain disabled
-unless their independent gates are explicitly enabled in a synthetic
-environment.
+exact-identity acceptance and replay-safe grant exchange. Exact-email external
+delivery is prepared for the controlled production rollout; live enablement
+occurs only after the deploy-gate passes; public links,
+address-book permission and referral conversion remain disabled unless their
+independent gates are explicitly enabled in a synthetic environment.
 
 All names, addresses, meeting IDs and meeting content in this guide are
 synthetic. Do not use a real mailbox, token, transcript, audio file or private
@@ -25,10 +26,11 @@ specify --version
 ```
 
 Use the repository's normal test environment and fixtures. The default settings
-must keep the following false:
+must keep the following false; production overrides only the first flag after
+the external-delivery gate passes:
 
 ```text
-share_external_invitations_enabled=false
+share_external_invitations_enabled=false  # synthetic/default
 share_public_links_enabled=false
 share_team_audience_enabled=false
 ```
@@ -91,14 +93,17 @@ user and one unknown external address.
    the recipient can view summary but not transcript/playback/download/export.
 6. Revoke and confirm the next controlled request is blocked.
 
-### C. Disabled external capability
+### C. External exact-email capability
 
-1. Enter `external@example.test` while external invitations are disabled.
-2. Confirm no POST is made to `/share-invitations`.
-3. Confirm the value remains in the field and the status explains that external
-   invitations are unavailable, with an allowed internal alternative if one
-   exists.
-4. Confirm the UI does not expose a generic retry loop.
+1. In the synthetic environment, enter `recipient@example.test` and confirm the
+   request is summary-only/view-only and carries no meeting content.
+2. Confirm the delivery state distinguishes `sent` (Postal accepted the
+   request) from `outcome_unknown` (the network result was not confirmed).
+3. Confirm exact verified-email acceptance creates no workspace membership and
+   creates a separate bounded grant token.
+4. In a second synthetic run with external delivery disabled, confirm no POST
+   is made to `/share-invitations`, the value is preserved and the UI offers an
+   internal alternative.
 
 ### D. Lifecycle and race negatives
 
@@ -153,10 +158,11 @@ Before PR/closeout for this high-risk feature:
 infra/scripts/ci-local.sh
 ```
 
-For a release of this gated-disabled slice, run the documented CD dry-run first
-and attach validation evidence, Russian changelog and rollback readiness. Do
-not enable external email, public links, address-book/provider lookup or
-referral attribution as part of this release.
+For a release of this slice, run the documented CD dry-run first and attach
+validation evidence, Russian changelog and rollback readiness. Exact-email
+external delivery may be enabled only with the server-side Postal and HMAC
+secret settings; public links, address-book/provider lookup and referral
+attribution remain disabled.
 
 ## Validation record — 2026-07-24
 
@@ -165,7 +171,7 @@ referral attribution as part of this release.
 - `swift test --package-path apps/macos`: 624 passed, 0 failed;
   `ContractValidation`: pass; legacy-audio guard: pass.
 - `infra/scripts/ci-local.sh`: pass after synchronizing with `master` — macOS
-  624 passed; PostgreSQL 2,248 parallel + 41 strict passed, 2 skipped; Ruff,
+  624 passed; PostgreSQL 2,254 parallel + 41 strict passed, 2 skipped; Ruff,
   Python compile, RLS boundary, compose config and deployment evidence scan
   passed. The runtime OpenAPI drift found during merge was fixed by adding the
   five missing `SummaryCandidateResponse.reason_code` enum values and the
@@ -176,6 +182,13 @@ referral attribution as part of this release.
   probe, runtime/worker readiness, production smoke and automatic dispatch
   passed. Automatic retry, backfill, range and normalization maintenance are
   recorded by the deploy gate as required post-deploy follow-up checks.
+- External exact-email rollout readiness: provider configuration,
+  credential-encryption key,
+  generated share-identity HMAC secret, durable actor/device invitation limit,
+  at-most-once delivery fence, token-scrubbing and revoke/deletion evidence
+  passed locally. A live Postal send was intentionally not performed without
+  a consented test recipient. Public links, address-book/provider lookup and
+  referral attribution remain disabled.
 - macOS local artifact `2026.07.24.2` was built as
   `apps/macos/.build/installer/graf-local.pkg` with `GRAF Local Code Signing`;
   SHA-256 is `da4c07bbfa52b737a4b851844ae28d02940fab7a937c9e0e3e8a1f3fda272d40`;
@@ -183,4 +196,4 @@ referral attribution as part of this release.
 - Synthetic browser/embedded contract coverage includes both `/meetings/.../share`
   and `/desktop/.../share`; no meeting content, live credentials or real
   contacts were used. Live production public-link and external-delivery gates
-  remain disabled.
+  remain disabled until the controlled deploy is complete.
