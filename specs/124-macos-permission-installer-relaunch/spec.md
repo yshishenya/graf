@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-23
 
-**Status**: Release candidate in progress
+**Status**: Released as `v2026.07.24.2`
 
 **Input**: User description: "Исправить проблемы установки GRAF на Mac, выдачи разрешения микрофону и перезапуска после разрешения записи экрана и системного звука без Apple Developer account."
 

@@ -33,7 +33,7 @@ to the parallel automatic-recording slice.
 - [X] T013 [US2] Перед открытием панели микрофона повторно инициировать штатный AVFoundation permission flow для recovery после self-signed установки; сохранить normal request без повторного prompt после denial и добавить focused coverage.
 - [X] T090 [US4] Собрать `v2026.07.24.2` updater-enabled bootstrap с HTTPS `SUFeedURL`, активным `SUPublicEDKey`, сохранением `pro.2brain.graf` и локальной signing identity; проверить app metadata, strict nested signature и package checksum.
 - [X] T091 [US4] Проверить кандидат `v2026.07.24.2` против публичного предшественника `v2026.07.23.16` существующим `validate-app-updates.sh`, включая Sparkle continuity, designated requirement и монотонную CalVer.
-- [ ] T092 [US4] Довести release commit до актуального `master`, создать exact CalVer tag и draft GitHub Release с русскими notes, candidate ZIP/PKG и metadata-only Keychain attestation.
-- [ ] T093 [US4] Запустить защищённый `sign-graf-app-update.yml` из `master`; получить подписанный `GRAF-2026.07.24.2.zip`, appcast, checksum и cloud signing attestation без вывода приватного ключа.
-- [ ] T094 [US4] Опубликовать versioned ZIP/PKG и checksum в public runtime, заменить `graf-appcast.xml` последним, проверить HTTPS скачивание и Sparkle validator; сохранить предыдущий appcast/package для rollback.
-- [ ] T095 [US4] Закрыть release/deploy evidence: полный `infra/scripts/ci-local.sh`, `cd-remote.sh --dry-run/--execute`, GitHub Release и русская запись changelog о миграции `.1 → .2`.
+- [X] T092 [US4] Довести release commit до актуального `master`, создать exact CalVer tag и draft GitHub Release с русскими notes, candidate ZIP/PKG и metadata-only Keychain attestation.
+- [X] T093 [US4] Запустить защищённый `sign-graf-app-update.yml` из `master`; получить подписанный `GRAF-2026.07.24.2.zip`, appcast, checksum и cloud signing attestation без вывода приватного ключа.
+- [X] T094 [US4] Опубликовать versioned ZIP/PKG и checksum в public runtime, заменить `graf-appcast.xml` последним, проверить HTTPS скачивание и Sparkle validator; сохранить предыдущий appcast/package для rollback.
+- [X] T095 [US4] Закрыть release/deploy evidence: полный `infra/scripts/ci-local.sh`, `cd-remote.sh --dry-run/--execute`, GitHub Release и русская запись changelog о миграции `.1 → .2`.
