@@ -5,6 +5,8 @@
   designated requirement.
 - [x] `v2026.07.24.2` is strictly newer than the current public appcast and the
   old `v2026.07.24.1` bootstrap is documented as manual-only.
+- [ ] The entitlement-corrected `v2026.07.24.3` remains a same-identity,
+  strictly newer update from `v2026.07.24.2`.
 - [x] Candidate archive passes safe ZIP, nested-code, checksum and Sparkle
   continuity validation before publication.
 - [x] Protected signing workflow verifies the exact `master` tag, manifest,

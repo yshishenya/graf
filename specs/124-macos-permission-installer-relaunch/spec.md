@@ -4,7 +4,8 @@
 
 **Created**: 2026-07-23
 
-**Status**: Released as `v2026.07.24.2`
+**Status**: Released as `v2026.07.24.2`; entitlement follow-up pending
+`v2026.07.24.3`
 
 **Input**: User description: "Исправить проблемы установки GRAF на Mac, выдачи разрешения микрофону и перезапуска после разрешения записи экрана и системного звука без Apple Developer account."
 
@@ -64,6 +65,10 @@
 3. **Given** macOS ограничивает доступ политикой устройства, **When** GRAF
    проверяет состояние, **Then** приложение показывает «Ограничено», не обещает
    обход ограничения и оставляет запись заблокированной до изменения политики.
+4. **Given** GRAF впервые запускается на Mac без сохранённого решения по
+   микрофону, **When** пользователь нажимает действие разрешения, **Then** GRAF
+   регистрируется в штатном потоке доступа к микрофону и пользователь может
+   принять разрешение без ручного редактирования системных баз.
 
 ### User Story 3 - Разрешение системного звука и перезапуск (Priority: P1)
 
@@ -141,6 +146,9 @@ bundle identity и разрешений.
 - Микрофон был отклонён, но GRAF ещё не отображается в списке микрофона;
   приложение должно повторить нормальный API-запрос до первого отказа, после
   отказа — открыть настройки и объяснить следующий шаг.
+- Приложение запускается с Hardened Runtime, но в подписи отсутствует
+  необходимое объявление доступа к аудиовходу; сборка и публикация должны быть
+  остановлены до передачи пакета пользователю.
 - Пользователь изменил только один из двух доступов; каждый статус и recovery
   action остаются независимыми.
 - Системные настройки отправили запрос на завершение в момент, когда SwiftUI
@@ -197,6 +205,9 @@ bundle identity и разрешений.
 - **FR-018**: The first updater-enabled bootstrap MUST remain usable on the
   free owner-only channel with the documented manual Gatekeeper trust step;
   Developer ID and notarization remain separate public-distribution gates.
+- **FR-019**: Every distributed hardened-runtime GRAF app MUST declare the
+  macOS audio-input permission needed for microphone registration, and release
+  validation MUST reject an app bundle that omits it.
 
 ### Key Entities
 
@@ -239,6 +250,9 @@ bundle identity и разрешений.
 - **SC-009**: Users of the updater-enabled bootstrap can receive a later
   version without reinstalling the package; users of `v2026.07.24.1` are given
   one explicit manual migration step.
+- **SC-010**: On 4 of 4 clean first-run tests, the entitlement-corrected GRAF
+  build appears in the normal microphone permission flow and reaches `granted`
+  after one user approval without TCC reset or manual database edits.
 
 ## Assumptions
 
@@ -278,6 +292,12 @@ bundle identity и разрешений.
   metadata; `v2026.07.24.1` remains a manual-only migration source. The signed
   appcast is published only through the existing protected signer workflow and
   only after a safe release-operator Keychain attestation is available.
+- **2026-07-24**: A clean colleague-Mac retest showed that the published `.2`
+  bundle had the stable identifier and signing lineage but lacked the hardened-
+  runtime Audio Input entitlement. The follow-up keeps the same bundle identity,
+  update key and local signing lineage, adds the entitlement, and targets
+  `v2026.07.24.3`; the validator checks the new candidate while allowing the
+  one-time migration from `.2`.
 - **2026-07-23**: The restart fix stays inside the existing SwiftUI/AppKit
   lifecycle. It closes the onboarding sheet and aborts any active AppKit modal
   session before the existing bounded `terminateLater` cleanup replies to
