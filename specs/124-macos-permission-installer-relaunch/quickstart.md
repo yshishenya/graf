@@ -19,10 +19,14 @@ Inspect the staged app before sharing it:
 codesign --verify --deep --strict apps/macos/RecApp/.build/GRAF.app
 plutil -p apps/macos/RecApp/.build/GRAF.app/Contents/Info.plist \
   | grep -E 'CFBundleIdentifier|NSMicrophoneUsageDescription|NSAudioCaptureUsageDescription|NSScreenCaptureUsageDescription'
+codesign -d --entitlements :- apps/macos/RecApp/.build/GRAF.app 2>&1 \
+  | grep -F 'com.apple.security.device.audio-input'
 ```
 
 The no-account `.pkg` is expected to lack a package-level Developer ID
 signature. Do not call that artifact notarized or Gatekeeper-ready.
+The app signature must contain `com.apple.security.device.audio-input`; if it
+does not, stop distribution and rebuild the package.
 
 ## Colleague installation path
 

@@ -3,9 +3,10 @@
 **Execution order**: T001–T002 establish the installer contract, T003–T005
 implement permission and termination behavior, T006–T009 update executable
 evidence and product documentation, then T010–T013 validate the whole slice.
-T090–T095 establish and publish the Sparkle bootstrap/update channel. These
-IDs are the next unused Feature 124 issue IDs; lower IDs are already assigned
-to the parallel automatic-recording slice.
+T090–T095 establish and publish the Sparkle bootstrap/update channel. T096–T100
+close the post-release Hardened Runtime microphone-registration regression.
+These IDs are the next unused Feature 124 issue IDs; lower IDs are already
+assigned to the parallel automatic-recording slice.
 
 ## User Story 1 — установка на чужом Mac (P1)
 
@@ -33,7 +34,15 @@ to the parallel automatic-recording slice.
 - [X] T013 [US2] Перед открытием панели микрофона повторно инициировать штатный AVFoundation permission flow для recovery после self-signed установки; сохранить normal request без повторного prompt после denial и добавить focused coverage.
 - [X] T090 [US4] Собрать `v2026.07.24.2` updater-enabled bootstrap с HTTPS `SUFeedURL`, активным `SUPublicEDKey`, сохранением `pro.2brain.graf` и локальной signing identity; проверить app metadata, strict nested signature и package checksum.
 - [X] T091 [US4] Проверить кандидат `v2026.07.24.2` против публичного предшественника `v2026.07.23.16` существующим `validate-app-updates.sh`, включая Sparkle continuity, designated requirement и монотонную CalVer.
-- [ ] T092 [US4] Довести release commit до актуального `master`, создать exact CalVer tag и draft GitHub Release с русскими notes, candidate ZIP/PKG и metadata-only Keychain attestation.
-- [ ] T093 [US4] Запустить защищённый `sign-graf-app-update.yml` из `master`; получить подписанный `GRAF-2026.07.24.2.zip`, appcast, checksum и cloud signing attestation без вывода приватного ключа.
-- [ ] T094 [US4] Опубликовать versioned ZIP/PKG и checksum в public runtime, заменить `graf-appcast.xml` последним, проверить HTTPS скачивание и Sparkle validator; сохранить предыдущий appcast/package для rollback.
-- [ ] T095 [US4] Закрыть release/deploy evidence: полный `infra/scripts/ci-local.sh`, `cd-remote.sh --dry-run/--execute`, GitHub Release и русская запись changelog о миграции `.1 → .2`.
+- [X] T092 [US4] Довести release commit до актуального `master`, создать exact CalVer tag и draft GitHub Release с русскими notes, candidate ZIP/PKG и metadata-only Keychain attestation.
+- [X] T093 [US4] Запустить защищённый `sign-graf-app-update.yml` из `master`; получить подписанный `GRAF-2026.07.24.2.zip`, appcast, checksum и cloud signing attestation без вывода приватного ключа.
+- [X] T094 [US4] Опубликовать versioned ZIP/PKG и checksum в public runtime, заменить `graf-appcast.xml` последним, проверить HTTPS скачивание и Sparkle validator; сохранить предыдущий appcast/package для rollback.
+- [X] T095 [US4] Закрыть release/deploy evidence: полный `infra/scripts/ci-local.sh`, `cd-remote.sh --dry-run/--execute`, GitHub Release и русская запись changelog о миграции `.1 → .2`.
+
+## Post-release microphone registration correction
+
+- [X] T096 [US2] Добавить в `apps/macos/Shared/Tests/InstallerLifecycleEvidenceTests.swift` source-contract проверки Audio Input entitlement и fail-closed сообщения validator до изменения сборки.
+- [X] T097 [US2] Добавить `com.apple.security.device.audio-input` в подпись `GRAF.app` в `apps/macos/Installer/Scripts/build-local-installer.sh` и требовать его в `apps/macos/Scripts/validate-app-updates.sh` для teamless и team-identified сборок, сохранив отключение library validation только для teamless Sparkle.
+- [X] T098 [US1] Обновить `apps/macos/Installer/README.md`, `specs/124-macos-permission-installer-relaunch/research.md` и `quickstart.md` с проверкой entitlement и ограничением перехода `.2 → .3`.
+- [ ] T099 [US2] Выполнить focused tests, `sh -n`, локальную self-signed сборку и `apps/macos/Scripts/validate-app-updates.sh` против кандидата `.3` и предыдущего `.2`, подтвердив metadata-only evidence.
+- [ ] T100 [US4] Подготовить, подписать и опубликовать `v2026.07.24.3` через существующий Sparkle protected workflow, затем проверить публичные ZIP/PKG/appcast и обновление с `.2`.

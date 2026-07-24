@@ -9,5 +9,7 @@
 - [x] Screen/System Audio permission remains separate from microphone
   permission.
 - [x] Installed metadata contains privacy explanations for both capture paths.
+- [x] The hardened-runtime app signature declares the macOS Audio Input
+  entitlement required to register GRAF as a microphone client.
 - [x] Recording remains manual, locally visible, and unavailable until both
   permissions are actually granted.
