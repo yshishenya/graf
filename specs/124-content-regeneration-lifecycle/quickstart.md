@@ -209,6 +209,13 @@ The focused harness had one transient PostgreSQL startup failure during an
 earlier retry; the final isolated runs above passed and removed their test
 containers.
 
+- Release dry-run (`infra/scripts/cd-remote.sh --dry-run --branch
+  codex/124-content-regeneration-lifecycle-recovery`, 2026-07-24): **PASS**.
+  Target `2brain.dev:/opt/projects/2brain-rec`; the gate requires a clean
+  worktree, branch sync, pinned SHA, local CI, backup/restore rehearsal,
+  migration-head and runtime-secret checks, health/smoke, automatic retry and
+  guarded rollback evidence. Execute remains gated on these remote checks.
+
 ## Release and production gate
 
 Only after clean adversarial/Ponytail review, PR checks, migration/backup
