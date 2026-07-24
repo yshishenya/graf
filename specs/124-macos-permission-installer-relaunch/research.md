@@ -53,6 +53,24 @@
 
 ## Решения
 
+### Sparkle bootstrap and release channel
+
+- The repository already embeds Sparkle 2.9.4 and has a single active public
+  Ed25519 manifest. The smallest safe change is to configure the existing
+  installer with `GRAF_UPDATE_FEED_URL`; adding another updater or rotating the
+  key would break continuity.
+- A package built without the feed and public key cannot discover future
+  updates, even when the public appcast is valid. Therefore the first migration
+  is a manual updater-enabled bootstrap; later versions are delivered through
+  the signed appcast.
+- Sparkle release archives must preserve bundle id, local designated
+  requirement, active public key and strictly increasing CalVer. The protected
+  workflow stages versioned artifacts before the appcast and requires a safe
+  release-operator Keychain attestation.
+- The current no-account package remains a manual Gatekeeper channel. Sparkle
+  signatures protect update authenticity, but they do not create public
+  Gatekeeper trust or replace Developer ID/notarization.
+
 ### Gatekeeper
 
 Не добавлять отключение Gatekeeper, снятие quarantine как пользовательский
