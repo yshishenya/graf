@@ -146,7 +146,7 @@ pauses/backoffs polling and offers recovery without cancelling durable work.
 - [X] T079 Repeat focused/full validation and Arc until the exact diff is clean; append each correction loop to `specs/124-content-regeneration-lifecycle/quickstart.md`.
 - [X] T080 Prepare Russian CHANGELOG/release notes and CalVer with `./scripts/prepare-release.sh YYYY.MM.DD.N` in `CHANGELOG.md` and `docs/releases/`.
 - [X] T081 Run `infra/scripts/cd-remote.sh --dry-run --branch codex/124-content-regeneration-lifecycle-recovery` against the integrated release candidate and record the result in `specs/124-content-regeneration-lifecycle/quickstart.md`.
-- [ ] T082 After explicit approval, execute production rollout, smoke, rollback readiness and installed-app/server version verification using `infra/scripts/cd-remote.sh --execute --branch codex/124-content-regeneration-lifecycle-recovery`.
+- [X] T082 After explicit approval, execute production rollout, smoke, rollback readiness and installed-app/server version verification using `infra/scripts/cd-remote.sh --execute --branch codex/124-content-regeneration-lifecycle-recovery`; evidence is recorded in `specs/124-content-regeneration-lifecycle/quickstart.md` and `docs/releases/v2026.07.24.6.md`.
 - [ ] T083 Close PR/issues with Russian evidence, migration impact, known limitations and exact release/deploy identifiers in `CHANGELOG.md` and the GitHub PR.
 
 ## Dependencies and execution order

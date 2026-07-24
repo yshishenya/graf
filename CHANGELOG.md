@@ -9,25 +9,13 @@
 ## [Unreleased]
 
 ### Добавлено
-- Подготовлена интеграция Feature 124 с production baseline Feature 125; Alembic
-  теперь сводит обе ветки на merge-head `0040_merge_content_regen_share`.
+- _Пока нет записей._
 
 ### Изменено
-- Production rollout проверяется на совместимость с базой, оставшейся на
-  migration head `0037_auth_rate_limit_buckets`; первая попытка корректно
-  остановилась до изменения runtime из-за отсутствующей ветки миграций.
+- _Пока нет записей._
 
 ### Исправлено
-- Порядок HTMX-listener'ов кабинета сохраняет fencing устаревших ответов,
-  объявления счётчика и восстановление после потери авторизации.
-- Миграции жизненного цикла сохраняют `prompt_optimization` в RLS helper и
-  проверяют фактическую схему при переходе с production head `0037` на `0040`.
-- Operations maintenance worker получает LiteLLM и Langfuse только через
-  выделенные Docker secrets; при включённой генерации он больше не уходит в
-  restart loop из-за неполной конфигурации.
-- Deletion maintenance больше не читает истёкшие ORM-объекты после rollback:
-  идентификаторы жизненного цикла кэшируются, встречи переизвлекаются под
-  блокировкой, а повторная очистка не падает с `MissingGreenlet`.
+- _Пока нет записей._
 
 ### Безопасность
 - _Пока нет записей._
@@ -36,9 +24,7 @@
 - _Пока нет записей._
 
 ### Операции
-- Если legacy lineage markers блокируют downgrade `0039`, rollback сохраняет
-  безопасную merge-head схему `0040`, закрывает automatic dispatch и запускает
-  compatibility runtime; старый checkout не стартует против неизвестной схемы.
+- _Пока нет записей._
 
 ## [2026.07.24.6] - 2026-07-24
 
@@ -54,6 +40,9 @@
   preview/export contract.
 
 ### Изменено
+- Production baseline Feature 125 интегрирован с Feature 124: Alembic сводит
+  ветки на merge-head `0040_merge_content_regen_share` и совместим с исходным
+  production head `0037_auth_rate_limit_buckets`.
 - Feature 124: latest processing results are selected by immutable result
   version before import time; accepted content remains the only published
   pointer while manual refresh always creates an explicit new intent.
@@ -243,9 +232,16 @@
   privacy-safe browser/embedded evidence для 16 синтетических классов.
 
 ### Операции
-- Изменение не добавляет миграций, зависимостей, публичных API или native-кода
-  macOS. Проверка ограничена тестовыми данными и локальным контуром; релиз,
-  замена приложения и production deploy не выполнялись.
+- UI-срез Feature 122 не добавляет зависимостей или native-кода macOS.
+  Production execute Feature 124 выкатил runtime SHA
+  `7e81c90a948e9354316efd61d06e31f829991e9a` на migration head
+  `0040_merge_content_regen_share`, backup
+  `/opt/projects/2brain-rec/backups/20260724T160054Z`, smoke run
+  `feature124-postdeploy-20260724-1` (`infra_smoke_ready`) и health 200;
+  проверенное окно maintenance не содержит ошибок. Локальный owner-only GRAF
+  обновлён до `2026.07.24.6` через self-signed package с SHA-256
+  `069b6c2c06c2f609263e2f01af37dfc94f7dd6bae9e6d5ec5dbec1e17d814c84`;
+  публичный Developer ID/notarized Sparkle канал не заявляется.
 
 
 ## [2026.07.24.5] - 2026-07-24

@@ -249,22 +249,45 @@ containers.
   against runtime candidate `9d7d3125`. The dry-run emitted the complete
   clean-worktree, pinned-SHA, backup, restore, migration-head,
   runtime-readiness, smoke, dispatch, rollback, health and post-deploy
-  reconciliation step plan. Execute remains gated on the production evidence
-  below.
+  reconciliation step plan.
+- Production execute (`infra/scripts/cd-remote.sh --execute --branch
+  codex/124-content-regeneration-lifecycle-recovery`, 2026-07-24): **PASS**.
+  Deployed SHA is `7e81c90a948e9354316efd61d06e31f829991e9a`; backup is
+  `/opt/projects/2brain-rec/backups/20260724T160054Z` with dump SHA-256
+  `1c8f186f4a12d231487a9988104a34c6f341e417f79d00edfeb7b1ac0954d012`;
+  migration head is `0040_merge_content_regen_share`; public readiness/live
+  endpoints returned HTTP 200 and all seven containers were running with zero
+  restarts.
+- Post-deploy smoke (`run_id=feature124-postdeploy-20260724-1`) returned
+  `smoke_result=pass`, `readiness_verdict=infra_smoke_ready`, and cleanup pass
+  with no residue. Maintenance logs were sampled four times from
+  `2026-07-24T16:09:56Z` through `2026-07-24T16:10:41Z`; every sample had
+  `maintenance_error_count=0`, including no `MissingGreenlet` or traceback.
+- Local owner-only macOS update completed with package
+  `apps/macos/.build/installer/graf-local.pkg`, version `2026.07.24.6`,
+  SHA-256 `069b6c2c06c2f609263e2f01af37dfc94f7dd6bae9e6d5ec5dbec1e17d814c84`,
+  installed at `/Applications/GRAF.app`; bundle ID and strict code-signing
+  verification passed, and a launch smoke passed. The package is signed with
+  `GRAF Local Code Signing` only; no Developer ID/notarization/appcast claim
+  is made.
+- Live RLS enforcement remains an explicit known limitation: the disposable
+  RLS verifier and production migration/smoke gates passed, while a separate
+  live RLS probe was not attempted.
 
 ## Release and production gate
 
-Only after clean adversarial/Ponytail review, PR checks, migration/backup
-rehearsal and explicit approval:
+The following release gate was completed after clean adversarial/Ponytail
+review, PR checks, migration/backup rehearsal and explicit approval:
 
 ```sh
 infra/scripts/cd-remote.sh --dry-run --branch codex/124-content-regeneration-lifecycle-recovery
 infra/scripts/cd-remote.sh --execute --branch codex/124-content-regeneration-lifecycle-recovery
 ```
 
-Then capture health/smoke, rollback readiness, server/app version evidence and
-the CalVer tag/release. If live RLS or remote credentials are unavailable, report
-the exact blocker and do not claim production readiness.
+Health/smoke, rollback readiness, server/app version evidence and the CalVer
+release are recorded above. The live-RLS limitation is intentionally retained
+as a known limitation rather than being presented as a successful production
+probe.
 
 ## Evidence hygiene
 
