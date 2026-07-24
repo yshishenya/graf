@@ -188,10 +188,10 @@ suite does not waive the full repository gate.
 
 - Final repository gate (`infra/scripts/ci-local.sh`, 2026-07-24): **PASS**.
   macOS legacy guard/build/tests/contract validation passed; Swift tests were
-  **625 passed**. The final isolated server collection was **2,456** tests
-  with digest `a439b10395443ebe7f20c4e4e90c93430219abbe7554ab2425deca504dc2b032`;
-  the final server result was **2,413 passed, 1 skipped, 11 warnings** in
-  369.76s, and the strict lane was **41 passed, 1 skipped, 2 warnings**.
+  **625 passed**. The final isolated server collection was **2,457** tests
+  with digest `abe9ba85d5f658c66dd9b58f67d2210707dfd1023849e4019e1b00c00f0f406f`;
+  the final server result was **2,414 passed, 1 skipped, 11 warnings** in
+  366.78s, and the strict lane remained **41 passed, 1 skipped, 2 warnings**.
   Warnings are limited to pytest assert-rewrite, Starlette/httpx deprecation
   and the known SQLAlchemy table-cycle warning.
 - Final evidence scans: deployment evidence scan **PASS (7 files)**;
@@ -216,6 +216,11 @@ suite does not waive the full repository gate.
   The production-head migration test now asserts the resulting schema and
   final helper SQL; the focused migration/RLS set passed **18 tests, 2
   warnings**.
+- Rollback correction loop: when legacy lineage markers prevent downgrading
+  `0039`, the runtime now keeps the safe `0040` schema, closes automatic
+  dispatch and starts the compatibility runtime; it never starts the old
+  checkout against an unknown merge-head schema. The guard is covered by the
+  deployment-readiness fixture and the focused rollback set is green.
 
 The focused harness had one transient PostgreSQL startup failure during an
 earlier retry; the final isolated runs above passed and removed their test
@@ -231,7 +236,7 @@ containers.
   recovery branch is updated to the integrated commit.
 - Integrated release dry-run (`infra/scripts/cd-remote.sh --dry-run --branch
   codex/124-content-regeneration-lifecycle-recovery`, 2026-07-24): **PASS**
-  against recovery ref `9bba893663eba0a59a265d01055cd73f9ed644b6`. The dry-run
+  against runtime candidate `c60b9dbbf88e839fb39aaccc4b90d85a59d7a9d3`. The dry-run
   emitted the complete backup, restore, migration-head,
   runtime-readiness, smoke, dispatch and rollback step plan; execute remains
   gated on the release gate. Any later commit in this evidence section is

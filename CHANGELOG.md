@@ -30,7 +30,9 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Если legacy lineage markers блокируют downgrade `0039`, rollback сохраняет
+  безопасную merge-head схему `0040`, закрывает automatic dispatch и запускает
+  compatibility runtime; старый checkout не стартует против неизвестной схемы.
 
 ## [2026.07.24.6] - 2026-07-24
 
