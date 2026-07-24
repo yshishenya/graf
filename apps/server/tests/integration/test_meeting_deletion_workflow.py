@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
+import twobrain_rec_server.deletion.service as deletion_service
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, seed_cabinet_meetings
 from tests.fixtures.cabinet_access import set_artifact_policy
@@ -17,6 +18,7 @@ from twobrain_rec_server.db.models import (
     MeetingDeletionRequest,
     MeetingEgressAuditEvent,
     MeetingLifecycleAuditEvent,
+    PurgeJournal,
     RecordingCalendarContextLink,
     TemporaryUploadObject,
     TrackArtifact,
@@ -25,6 +27,51 @@ from twobrain_rec_server.db.models import (
 )
 
 BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
+
+
+def test_deletion_reconciler_reloads_meetings_after_rollback(client, monkeypatch) -> None:
+    """A failed item must not leave the next Meeting ORM row expired."""
+    seeds = seed_cabinet_meetings(client)
+
+    async def seed_journals() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            for meeting_id in (seeds.ready_id, seeds.processing_id):
+                meeting = await db.get(Meeting, meeting_id)
+                assert meeting is not None
+                db.add(
+                    PurgeJournal(
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        artifact_class="object_store",
+                        object_key=f"tests/reconcile/{meeting.id}",
+                        state="pending",
+                    )
+                )
+            await db.commit()
+
+    asyncio.run(seed_journals())
+    calls: list[UUID] = []
+
+    async def fail_first_item(db, *, meeting: Meeting, storage, limit: int = 20) -> bool:
+        calls.append(meeting.id)
+        if len(calls) == 1:
+            await db.rollback()
+            return False
+        return True
+
+    monkeypatch.setattr(deletion_service, "_reconcile_orphan_purge_journals", fail_first_item)
+
+    async def reconcile() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            return await deletion_service.reconcile_deletion_purges(
+                db,
+                storage=None,
+                limit=20,
+            )
+
+    assert asyncio.run(reconcile()) == 1
+    assert len(calls) == 2
+    assert set(calls) == {seeds.ready_id, seeds.processing_id}
 
 
 def test_manual_deletion_persists_request_audit_report_and_meeting_lifecycle(client) -> None:

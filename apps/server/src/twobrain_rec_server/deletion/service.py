@@ -133,11 +133,13 @@ async def request_meeting_deletion(
         raise ProblemDetail(
             status=422, code="invalid_deletion_confirmation", title="Invalid deletion confirmation"
         )
+    meeting_id = meeting.id
+    workspace_id = meeting.workspace_id
     locked_meeting = await db.scalar(
         select(Meeting)
         .where(
-            Meeting.id == meeting.id,
-            Meeting.workspace_id == meeting.workspace_id,
+            Meeting.id == meeting_id,
+            Meeting.workspace_id == workspace_id,
         )
         .with_for_update()
         .execution_options(populate_existing=True)
@@ -153,8 +155,8 @@ async def request_meeting_deletion(
         )
     active_request = await db.scalar(
         select(MeetingDeletionRequest)
-        .where(MeetingDeletionRequest.workspace_id == meeting.workspace_id)
-        .where(MeetingDeletionRequest.meeting_id == meeting.id)
+        .where(MeetingDeletionRequest.workspace_id == workspace_id)
+        .where(MeetingDeletionRequest.meeting_id == meeting_id)
         .where(MeetingDeletionRequest.state.notin_(TERMINAL_REQUEST_STATES))
         .order_by(desc(MeetingDeletionRequest.created_at))
     )
@@ -173,8 +175,8 @@ async def request_meeting_deletion(
     deletion_fence.requested_at = now
     await _flush_or_fail_closed(db)
     deletion_request = MeetingDeletionRequest(
-        workspace_id=meeting.workspace_id,
-        meeting_id=meeting.id,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
         requested_by_user_id=actor_user_id,
         requested_by_device_id=device_id,
         request_source=request_source.value,
@@ -192,11 +194,12 @@ async def request_meeting_deletion(
     )
     db.add(deletion_request)
     await _flush_or_fail_closed(db)
+    request_id = deletion_request.id
 
     audit = MeetingLifecycleAuditEvent(
-        workspace_id=meeting.workspace_id,
-        meeting_id=meeting.id,
-        deletion_request_id=deletion_request.id,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        deletion_request_id=request_id,
         actor_user_id=actor_user_id,
         device_id=device_id,
         event_type="deletion_requested",
@@ -226,14 +229,14 @@ async def request_meeting_deletion(
     local_purge_tasks = await create_local_purge_tasks_for_request(
         db,
         meeting=meeting,
-        deletion_request_id=deletion_request.id,
+        deletion_request_id=request_id,
         local_buffer_expiry_days=local_buffer_expiry_days,
     )
     outcomes_materialized, workflow_ids = await _mark_outcomes_deleting(db, meeting=meeting)
     post_egress_safe_reason = await _post_egress_safe_reason(db, meeting=meeting)
     initial_artifact_states = _initial_artifact_states(
         meeting,
-        deletion_request.id,
+        request_id,
         local_purge_requested=bool(local_purge_tasks),
         backup_expiry_days=backup_expiry_days,
         post_egress_safe_reason=post_egress_safe_reason,
@@ -241,9 +244,9 @@ async def request_meeting_deletion(
         calendar_context_accounted=calendar_context_artifact_count > 0,
     )
     report = MeetingDeletionReport(
-        workspace_id=meeting.workspace_id,
-        meeting_id=meeting.id,
-        deletion_request_id=deletion_request.id,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        deletion_request_id=request_id,
         overall_state=DeletionState.DELETING.value,
         summary_label="Deleting meeting",
         bounded_copy=BOUNDED_DELETE_COPY,
@@ -263,6 +266,7 @@ async def request_meeting_deletion(
     # not atomic; the tombstone must survive a later storage failure.
     db.add_all([*initial_artifact_states, report])
     await _flush_or_fail_closed(db)
+    report_id = report.id
     _ensure_storage_delete_capability(storage)
     await db.commit()
     await _request_temporal_cancellation(
@@ -274,28 +278,28 @@ async def request_meeting_deletion(
             db,
             meeting=meeting,
             storage=storage,
-            deletion_request_id=deletion_request.id,
+            deletion_request_id=request_id,
         )
     except Exception as exc:
         report = await db.scalar(
             select(MeetingDeletionReport)
-            .where(MeetingDeletionReport.id == report.id)
+            .where(MeetingDeletionReport.id == report_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
         deletion_request = await db.scalar(
             select(MeetingDeletionRequest)
-            .where(MeetingDeletionRequest.id == report.deletion_request_id)
+            .where(MeetingDeletionRequest.id == request_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         ) if report is not None else None
         if report is not None and report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
             await db.rollback()
             return DeletionRequestResponse(
-                request_id=report.deletion_request_id,
-                meeting_id=meeting.id,
+                request_id=request_id,
+                meeting_id=meeting_id,
                 lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
-                report_url=f"/api/v1/cabinet/meetings/{meeting.id}/deletion-report",
+                report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
             )
         if report is not None:
             report.overall_state = DeletionState.RETRYABLE_FAILED.value
@@ -315,21 +319,21 @@ async def request_meeting_deletion(
         raise
     report = await db.scalar(
         select(MeetingDeletionReport)
-        .where(MeetingDeletionReport.id == report.id)
+        .where(MeetingDeletionReport.id == report_id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
     if report is not None and report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
         await db.rollback()
         return DeletionRequestResponse(
-            request_id=report.deletion_request_id,
-            meeting_id=meeting.id,
+            request_id=request_id,
+            meeting_id=meeting_id,
             lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
-            report_url=f"/api/v1/cabinet/meetings/{meeting.id}/deletion-report",
+            report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
         )
     artifact_states = _initial_artifact_states(
         meeting,
-        deletion_request.id,
+        request_id,
         local_purge_requested=bool(local_purge_tasks),
         backup_expiry_days=backup_expiry_days,
         post_egress_safe_reason=post_egress_safe_reason,
@@ -340,7 +344,7 @@ async def request_meeting_deletion(
     )
     report = await db.scalar(
         select(MeetingDeletionReport)
-        .where(MeetingDeletionReport.id == report.id)
+        .where(MeetingDeletionReport.id == report_id)
         .with_for_update()
     )
     if report is None:
@@ -376,10 +380,10 @@ async def request_meeting_deletion(
     fence.completed_at = completed_at
     await db.commit()
     return DeletionRequestResponse(
-        request_id=deletion_request.id,
-        meeting_id=meeting.id,
+        request_id=request_id,
+        meeting_id=meeting_id,
         lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
-        report_url=f"/api/v1/cabinet/meetings/{meeting.id}/deletion-report",
+        report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
     )
 
 
@@ -400,9 +404,11 @@ async def retry_meeting_deletion(
     _allow_in_progress: bool = False,
     _automatic_reconciliation: bool = False,
 ) -> DeletionRequestResponse:
+    meeting_id = meeting.id
+    workspace_id = meeting.workspace_id
     locked_meeting = await db.scalar(
         select(Meeting)
-        .where(Meeting.workspace_id == meeting.workspace_id, Meeting.id == meeting.id)
+        .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -412,8 +418,8 @@ async def retry_meeting_deletion(
     report = await db.scalar(
         select(MeetingDeletionReport)
         .where(
-            MeetingDeletionReport.workspace_id == meeting.workspace_id,
-            MeetingDeletionReport.meeting_id == meeting.id,
+            MeetingDeletionReport.workspace_id == workspace_id,
+            MeetingDeletionReport.meeting_id == meeting_id,
         )
         .order_by(desc(MeetingDeletionReport.updated_at))
     )
@@ -436,8 +442,8 @@ async def retry_meeting_deletion(
     await db.scalars(
         select(LocalPurgeTaskModel)
         .where(
-            LocalPurgeTaskModel.workspace_id == meeting.workspace_id,
-            LocalPurgeTaskModel.meeting_id == meeting.id,
+            LocalPurgeTaskModel.workspace_id == workspace_id,
+            LocalPurgeTaskModel.meeting_id == meeting_id,
             LocalPurgeTaskModel.deletion_request_id == report_request_id,
         )
         .order_by(LocalPurgeTaskModel.id.asc())
@@ -446,8 +452,8 @@ async def retry_meeting_deletion(
     await db.scalar(
         select(MeetingDeletionArtifactState)
         .where(
-            MeetingDeletionArtifactState.workspace_id == meeting.workspace_id,
-            MeetingDeletionArtifactState.meeting_id == meeting.id,
+            MeetingDeletionArtifactState.workspace_id == workspace_id,
+            MeetingDeletionArtifactState.meeting_id == meeting_id,
             MeetingDeletionArtifactState.deletion_request_id == report_request_id,
             MeetingDeletionArtifactState.artifact_class
             == DeletionArtifactClass.LOCAL_DESKTOP_BUFFER.value,
@@ -471,9 +477,9 @@ async def retry_meeting_deletion(
     deletion_request = await db.scalar(
         select(MeetingDeletionRequest)
         .where(
-            MeetingDeletionRequest.id == report.deletion_request_id,
-            MeetingDeletionRequest.workspace_id == meeting.workspace_id,
-            MeetingDeletionRequest.meeting_id == meeting.id,
+            MeetingDeletionRequest.id == report_request_id,
+            MeetingDeletionRequest.workspace_id == workspace_id,
+            MeetingDeletionRequest.meeting_id == meeting_id,
         )
         .with_for_update()
     )
@@ -494,8 +500,8 @@ async def retry_meeting_deletion(
             await db.scalars(
                 select(PurgeJournal)
                 .where(
-                    PurgeJournal.workspace_id == meeting.workspace_id,
-                    PurgeJournal.meeting_id == meeting.id,
+                    PurgeJournal.workspace_id == workspace_id,
+                    PurgeJournal.meeting_id == meeting_id,
                     PurgeJournal.state == "terminal_unknown",
                 )
                 .with_for_update()
@@ -514,18 +520,18 @@ async def retry_meeting_deletion(
             db,
             meeting=meeting,
             storage=storage,
-            deletion_request_id=report.deletion_request_id,
+            deletion_request_id=report_request_id,
         )
     except Exception as exc:
         report = await db.scalar(
             select(MeetingDeletionReport)
-            .where(MeetingDeletionReport.id == report.id)
+            .where(MeetingDeletionReport.id == report_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
         deletion_request = await db.scalar(
             select(MeetingDeletionRequest)
-            .where(MeetingDeletionRequest.id == report.deletion_request_id)
+            .where(MeetingDeletionRequest.id == report_request_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         ) if report is not None else None
@@ -534,10 +540,10 @@ async def retry_meeting_deletion(
         if report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
             await db.rollback()
             return DeletionRequestResponse(
-                request_id=report.deletion_request_id,
-                meeting_id=meeting.id,
+                request_id=report_request_id,
+                meeting_id=meeting_id,
                 lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
-                report_url=f"/api/v1/cabinet/meetings/{meeting.id}/deletion-report",
+                report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
             )
         else:
             report.overall_state = DeletionState.RETRYABLE_FAILED.value
@@ -559,7 +565,7 @@ async def retry_meeting_deletion(
     # taking the report first while an ACK refresh takes the artifact first.
     meeting = await db.scalar(
         select(Meeting)
-        .where(Meeting.workspace_id == meeting.workspace_id, Meeting.id == meeting.id)
+        .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -569,9 +575,9 @@ async def retry_meeting_deletion(
         await db.scalars(
             select(LocalPurgeTaskModel)
             .where(
-                LocalPurgeTaskModel.workspace_id == meeting.workspace_id,
-                LocalPurgeTaskModel.meeting_id == meeting.id,
-                LocalPurgeTaskModel.deletion_request_id == report.deletion_request_id,
+                LocalPurgeTaskModel.workspace_id == workspace_id,
+                LocalPurgeTaskModel.meeting_id == meeting_id,
+                LocalPurgeTaskModel.deletion_request_id == report_request_id,
             )
             .order_by(LocalPurgeTaskModel.id.asc())
             .with_for_update()
@@ -581,9 +587,9 @@ async def retry_meeting_deletion(
         await db.scalars(
             select(MeetingDeletionArtifactState)
             .where(
-                MeetingDeletionArtifactState.workspace_id == meeting.workspace_id,
-                MeetingDeletionArtifactState.meeting_id == meeting.id,
-                MeetingDeletionArtifactState.deletion_request_id == report.deletion_request_id,
+                MeetingDeletionArtifactState.workspace_id == workspace_id,
+                MeetingDeletionArtifactState.meeting_id == meeting_id,
+                MeetingDeletionArtifactState.deletion_request_id == report_request_id,
             )
             .order_by(MeetingDeletionArtifactState.artifact_class.asc())
             .with_for_update()
@@ -591,7 +597,7 @@ async def retry_meeting_deletion(
     ).all()
     report = await db.scalar(
         select(MeetingDeletionReport)
-        .where(MeetingDeletionReport.id == report.id)
+        .where(MeetingDeletionReport.id == report_id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -600,9 +606,9 @@ async def retry_meeting_deletion(
     deletion_request = await db.scalar(
         select(MeetingDeletionRequest)
         .where(
-            MeetingDeletionRequest.id == report.deletion_request_id,
-            MeetingDeletionRequest.workspace_id == meeting.workspace_id,
-            MeetingDeletionRequest.meeting_id == meeting.id,
+            MeetingDeletionRequest.id == report_request_id,
+            MeetingDeletionRequest.workspace_id == workspace_id,
+            MeetingDeletionRequest.meeting_id == meeting_id,
         )
         .with_for_update()
         .execution_options(populate_existing=True)
@@ -616,17 +622,17 @@ async def retry_meeting_deletion(
     if report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
         await db.rollback()
         return DeletionRequestResponse(
-            request_id=report.deletion_request_id,
-            meeting_id=meeting.id,
+            request_id=report_request_id,
+            meeting_id=meeting_id,
             lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
-            report_url=f"/api/v1/cabinet/meetings/{meeting.id}/deletion-report",
+            report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
         )
     local_purge_state = (
         _aggregate_local_purge_state(local_purge_tasks) if local_purge_tasks else None
     )
     artifact_states = _initial_artifact_states(
         meeting,
-        report.deletion_request_id,
+        report_request_id,
         local_purge_requested=bool(local_purge_tasks),
         local_purge_state=local_purge_state,
         local_purge_reason=(
@@ -666,10 +672,10 @@ async def retry_meeting_deletion(
     fence.completed_at = completed_at
     await db.commit()
     return DeletionRequestResponse(
-        request_id=report.deletion_request_id,
-        meeting_id=meeting.id,
+        request_id=report_request_id,
+        meeting_id=meeting_id,
         lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
-        report_url=f"/api/v1/cabinet/meetings/{meeting.id}/deletion-report",
+        report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
     )
 
 
@@ -713,27 +719,35 @@ async def reconcile_deletion_purges(
             Meeting.id.in_(due_journal_meeting_ids),
         )
     )
-    meetings = list(
+    # Keep only immutable identifiers across iterations. A failed cleanup can
+    # roll back the session and expire every ORM instance, so carrying Meeting
+    # objects into the next iteration would trigger an implicit async refresh.
+    meeting_keys = list(
         (
-            await db.scalars(
-                select(Meeting)
-                .where(
-                    Meeting.id.in_(pending_meeting_ids),
-                )
+            await db.execute(
+                select(Meeting.id, Meeting.workspace_id)
+                .where(Meeting.id.in_(pending_meeting_ids))
                 .order_by(Meeting.deletion_requested_at.asc(), Meeting.id.asc())
                 .limit(limit)
                 .with_for_update(skip_locked=True)
-                .execution_options(populate_existing=True)
             )
         ).all()
     )
     reconciled = 0
-    for meeting in meetings:
+    for meeting_id, workspace_id in meeting_keys:
+        meeting = await db.scalar(
+            select(Meeting)
+            .where(Meeting.id == meeting_id, Meeting.workspace_id == workspace_id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+        if meeting is None:
+            continue
         report = await db.scalar(
             select(MeetingDeletionReport)
             .where(
-                MeetingDeletionReport.workspace_id == meeting.workspace_id,
-                MeetingDeletionReport.meeting_id == meeting.id,
+                MeetingDeletionReport.workspace_id == workspace_id,
+                MeetingDeletionReport.meeting_id == meeting_id,
             )
             .order_by(desc(MeetingDeletionReport.updated_at))
         )
