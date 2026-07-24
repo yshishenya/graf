@@ -97,7 +97,7 @@
 
 ### Операции
 - Post-review hardening Feature 125 выкатан в production на точном SHA
-  `3ae64665fdc55c54102e93e970a162a86649cff0`; migration head
+  `9a44d9af9c0bce0c4a75b6d497657492f44c818a`; migration head
   `0037_auth_rate_limit_buckets`, backup/restore rehearsal, RLS/runtime
   boundary, readiness, smoke и external-config gates прошли. Exact-email
   external invitations и email-login включены; public links, Contacts и

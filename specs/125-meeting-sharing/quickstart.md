@@ -233,13 +233,13 @@ attribution remain disabled.
 
 - `infra/scripts/cd-remote.sh --execute --branch
   codex/125-meeting-sharing-review-fixes`: pass. Production runtime SHA is
-  `3ae64665fdc55c54102e93e970a162a86649cff0`; migration head is
+  `9a44d9af9c0bce0c4a75b6d497657492f44c818a`; migration head is
   `0037_auth_rate_limit_buckets`.
 - Backup/restore rehearsal, RLS probe, database-role boundary, Temporal and
   processing-worker readiness, media-worker boundary, production smoke,
   automatic dispatch and final `health/live` plus `health/ready` checks passed.
   Backup reference:
-  `/opt/projects/2brain-rec/backups/20260724T113401Z`.
+  `/opt/projects/2brain-rec/backups/20260724T113944Z`.
 - Runtime configuration verification passed in both API and delivery worker:
   external invitations and email login are enabled, Postal is configured and
   the public base URL is configured. No live email was sent without a

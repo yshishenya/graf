@@ -9,13 +9,13 @@ metadata-only evidence остаются подробной историей ре
 ## Production closeout (2026-07-24) — Feature 125 post-review hardening
 
 - Post-review candidate deployed successfully at exact runtime SHA
-  `3ae64665fdc55c54102e93e970a162a86649cff0`. The remote working tree is
+  `9a44d9af9c0bce0c4a75b6d497657492f44c818a`. The remote working tree is
   clean; migration head is `0037_auth_rate_limit_buckets`.
 - CD backup/restore rehearsal, disposable RLS probe, runtime database-role
   checks, Temporal and processing-worker readiness, media-worker boundary,
   production smoke, automatic dispatch gate and final public live/ready
   checks passed. Backup reference:
-  `/opt/projects/2brain-rec/backups/20260724T113401Z`.
+  `/opt/projects/2brain-rec/backups/20260724T113944Z`.
 - Production external exact-email configuration is enabled and consistent in
   both API and delivery worker: `share_external_invitations_enabled=true`,
   `email_login_delivery_enabled=true`, Postal and public base URL configured.
