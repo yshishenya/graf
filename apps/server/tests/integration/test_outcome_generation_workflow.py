@@ -92,8 +92,47 @@ async def test_observability_outage_retries_without_replaying_model_inference(mo
     assert "publish_outcome_observability_activity" not in activity_names
     assert child_starts[0][0]["generation_workflow_id"] == "outcome-generation/candidate"
     assert child_starts[0][0]["generation_workflow_run_id"] == "run-1"
-    assert child_starts[0][1]["id"] == "outcome-observability/candidate"
+    assert child_starts[0][1]["id"] == "outcome-observability/candidate/run-1"
     assert child_starts[0][1]["parent_close_policy"].name == "ABANDON"
+
+
+@pytest.mark.anyio
+async def test_child_start_failure_is_projected_to_terminal_failure_activity(monkeypatch) -> None:
+    activity_names: list[str] = []
+    finalizer_payloads: list[dict] = []
+    child_starts: list[tuple[dict, dict]] = []
+
+    async def execute_activity(name, payload, **_kwargs):
+        activity_names.append(name)
+        if name == "finalize_outcome_generation_failure_activity":
+            finalizer_payloads.append(payload)
+            return {"candidate_id": payload["candidate_id"], "status": "failed"}
+        raise AssertionError(name)
+
+    runtime = _workflow_runtime(execute_activity, child_starts)
+
+    async def start_child_failure(*_args, **_kwargs):
+        raise RuntimeError("child_start_unavailable")
+
+    runtime.start_child_workflow = start_child_failure
+    monkeypatch.setattr(workflow_module, "workflow", runtime)
+    payload = {
+        "candidate_id": "candidate",
+        "meeting_id": "meeting",
+        "workspace_id": "workspace",
+        "source_result_id": "result",
+        "template_key": "graf-auto-v1",
+        "template_version": "1",
+        "prompt_name": "graf/meeting-outcome/auto",
+    }
+
+    with pytest.raises(RuntimeError, match="child_start_unavailable"):
+        await workflow_module.OutcomeGenerationWorkflow().run(payload)
+
+    assert activity_names == ["finalize_outcome_generation_failure_activity"]
+    assert finalizer_payloads == [
+        {**payload, "failure_code": "child_start_unavailable", "failure_reason": "child_start_unavailable"}
+    ]
 
 
 @pytest.mark.anyio

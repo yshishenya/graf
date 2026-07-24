@@ -81,6 +81,36 @@ def test_processing_pickup_without_temporal_blocks_safely(client) -> None:
     assert asyncio.run(reason_code()) == "blocked_temporal_unavailable"
 
 
+def test_processing_pickup_reopens_blocked_workflow_after_temporal_recovers(client) -> None:
+    finalized = create_finalized_meeting(client, "pickup-temporal-recovery")
+    meeting_id = finalized["meeting"]["meeting_id"]
+    first = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers=auth_headers(),
+        json={"meeting_id": meeting_id},
+    )
+    assert first.status_code == 202
+    client.app.state.temporal_client = FakeTemporalClient()
+
+    second = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers=auth_headers(),
+        json={"meeting_id": meeting_id},
+    )
+    assert second.status_code == 202
+    assert second.json()["started_count"] == 1
+
+    async def workflow_status() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await db.scalar(
+                select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == UUID(meeting_id))
+            )
+            assert workflow is not None
+            return workflow.status
+
+    assert asyncio.run(workflow_status()) == "workflow_started"
+
+
 def test_processing_pickup_reuses_workflow_started_by_finalize_autostart(client) -> None:
     client.app.state.temporal_client = FakeTemporalClient()
     enable_processing_autostart(client, client.app.state.temporal_client)

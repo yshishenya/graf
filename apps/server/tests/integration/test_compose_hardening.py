@@ -380,9 +380,21 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
         "twobrain_postgres_maintenance_password",
         "twobrain_minio_api_access_key",
         "twobrain_minio_api_secret_key",
+        "twobrain_litellm_api_key",
+        "twobrain_langfuse_public_key",
+        "twobrain_langfuse_secret_key",
     }
     assert "twobrain_mediascribe_api_key" not in secret_sources
     assert "twobrain_web_csrf_secret" not in secret_sources
+    assert service["environment"]["TWOBRAIN_LITELLM_API_KEY_FILE"] == (
+        "/run/secrets/twobrain_litellm_api_key"
+    )
+    assert service["environment"]["TWOBRAIN_LANGFUSE_PUBLIC_KEY_FILE"] == (
+        "/run/secrets/twobrain_langfuse_public_key"
+    )
+    assert service["environment"]["TWOBRAIN_LANGFUSE_SECRET_KEY_FILE"] == (
+        "/run/secrets/twobrain_langfuse_secret_key"
+    )
 
 
 def test_reprocess_runtime_is_explicit_hardened_and_scoped_to_recovery_secrets() -> None:
@@ -456,6 +468,8 @@ def test_production_api_autostarts_processing_and_worker_can_read_processing_sec
         "python",
         "/app/scripts/verify_processing_worker_ready.py",
     ]
+    assert worker["networks"] == ["rec-private", "postal-network"]
+    assert compose["networks"]["postal-network"]["external"] is True
 
 
 def test_private_group_runtime_secrets_are_only_mounted_by_group_enabled_services() -> None:

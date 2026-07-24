@@ -125,7 +125,7 @@ async def _consume_email_login_code(
         select(AuthCallbackState).where(
             AuthCallbackState.provider == provider,
             AuthCallbackState.state_nonce == state_nonce,
-        )
+        ).with_for_update()
     )
     flow = (
         "signup"

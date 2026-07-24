@@ -324,12 +324,13 @@ def run_checks() -> dict[str, Any]:
         checks,
         "ephemeral_js",
         "localStorage" not in js
-        and js.count("sessionStorage") == 3
+        and 'sessionStorage.removeItem("htmx-history-cache")' in js
+        and 'sessionStorage.removeItem("htmx-current-path-for-history")' in js
         and "sessionStorage.setItem(candidateStorageKey, JSON.stringify({" in js
         and "poll_url: candidate.poll_url" in js
         and "template: activeTemplate" in js
         and "htmx:afterSwap" in js,
-        "only the metadata-only pending candidate poll URL and template key survive a same-tab refresh",
+        "private fragment history is cleared while only the metadata-only pending candidate state survives a same-tab refresh",
     )
     _add_check(checks, "no_frontend_toolchain_markers", not _forbidden_found(css + "\n" + js, FORBIDDEN_FRONTEND_MARKERS), "static cabinet assets avoid excluded frontend stacks")
     _add_check(checks, "metadata_safe_html", not _forbidden_found(all_html, FORBIDDEN_EVIDENCE_MARKERS), "rendered synthetic evidence omits private markers")

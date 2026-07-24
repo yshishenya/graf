@@ -1,25 +1,77 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
+import twobrain_rec_server.deletion.service as deletion_service
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, seed_cabinet_meetings
 from tests.fixtures.cabinet_access import set_artifact_policy
 from twobrain_rec_server.db.models import (
+    DispatchIntent,
     Meeting,
     MeetingDeletionArtifactState,
     MeetingDeletionReport,
     MeetingDeletionRequest,
     MeetingEgressAuditEvent,
     MeetingLifecycleAuditEvent,
+    PurgeJournal,
     RecordingCalendarContextLink,
     TemporaryUploadObject,
     TrackArtifact,
+    UploadPart,
+    UploadSession,
 )
 
 BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
+
+
+def test_deletion_reconciler_reloads_meetings_after_rollback(client, monkeypatch) -> None:
+    """A failed item must not leave the next Meeting ORM row expired."""
+    seeds = seed_cabinet_meetings(client)
+
+    async def seed_journals() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            for meeting_id in (seeds.ready_id, seeds.processing_id):
+                meeting = await db.get(Meeting, meeting_id)
+                assert meeting is not None
+                db.add(
+                    PurgeJournal(
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        artifact_class="object_store",
+                        object_key=f"tests/reconcile/{meeting.id}",
+                        state="pending",
+                    )
+                )
+            await db.commit()
+
+    asyncio.run(seed_journals())
+    calls: list[UUID] = []
+
+    async def fail_first_item(db, *, meeting: Meeting, storage, limit: int = 20) -> bool:
+        calls.append(meeting.id)
+        if len(calls) == 1:
+            await db.rollback()
+            return False
+        return True
+
+    monkeypatch.setattr(deletion_service, "_reconcile_orphan_purge_journals", fail_first_item)
+
+    async def reconcile() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            return await deletion_service.reconcile_deletion_purges(
+                db,
+                storage=None,
+                limit=20,
+            )
+
+    assert asyncio.run(reconcile()) == 1
+    assert len(calls) == 2
+    assert set(calls) == {seeds.ready_id, seeds.processing_id}
 
 
 def test_manual_deletion_persists_request_audit_report_and_meeting_lifecycle(client) -> None:
@@ -33,8 +85,8 @@ def test_manual_deletion_persists_request_audit_report_and_meeting_lifecycle(cli
 
     assert response.status_code == 202
     persisted = asyncio.run(_load_deletion_rows(client, seeds.ready_id))
-    assert persisted["meeting"].deletion_state == "deleting"
-    assert persisted["request"].state == "deleting"
+    assert persisted["meeting"].deletion_state == "active_purge_complete"
+    assert persisted["request"].state == "active_purge_complete"
     assert persisted["request"].confirmation_boundary == BOUNDED_COPY
     assert persisted["audit"].event_type == "deletion_requested"
     assert persisted["report"].bounded_copy == BOUNDED_COPY
@@ -53,6 +105,56 @@ def test_manual_deletion_persists_request_audit_report_and_meeting_lifecycle(cli
         "backup",
         "post_egress_copy",
     }
+
+
+def test_manual_deletion_cancels_started_outcome_dispatch_and_keeps_workflow_reference(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    async def seed_started_intent() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.scalar(select(Meeting).where(Meeting.id == seeds.ready_id))
+            assert meeting is not None
+            workflow_id = f"outcome-generation/{uuid4()}"
+            db.add(
+                DispatchIntent(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    candidate_id=uuid4(),
+                    intent_kind="summary_generation",
+                    idempotency_key=f"delete-dispatch-{uuid4()}",
+                    state="started",
+                    reconciliation_state="started",
+                    payload_json={},
+                    deletion_epoch=int(meeting.deletion_epoch or 0),
+                    lease_expires_at=datetime.now(UTC) + timedelta(minutes=5),
+                    external_workflow_id=workflow_id,
+                    started_at=datetime.now(UTC),
+                )
+            )
+            await db.commit()
+            return workflow_id
+
+    workflow_id = asyncio.run(seed_started_intent())
+    response = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_COPY},
+    )
+    assert response.status_code == 202
+
+    async def load_intent() -> DispatchIntent:
+        async with client.app_state["sessionmaker"]() as db:
+            intent = await db.scalar(
+                select(DispatchIntent).where(DispatchIntent.meeting_id == seeds.ready_id)
+            )
+            assert intent is not None
+            return intent
+
+    intent = asyncio.run(load_intent())
+    assert intent.state == "cancelled"
+    assert intent.reconciliation_state == "cancelled"
+    assert intent.lease_expires_at is None
+    assert intent.external_workflow_id == workflow_id
 
 
 def test_098_deletion_report_accounts_for_calendar_context_artifact(client) -> None:
@@ -166,6 +268,59 @@ def test_manual_deletion_purges_server_audio_objects_and_upload_temps(client) ->
             }
 
     assert asyncio.run(purge_states()) == ({"purged"}, {"purged"})
+
+
+def test_manual_deletion_purges_part_only_upload_object(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    object_key = f"workspace/{seeds.ready_id}/part-only-object"
+
+    async def seed_part_only() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, seeds.ready_id)
+            assert meeting is not None
+            session = UploadSession(
+                meeting_id=meeting.id,
+                media_revision_id=None,
+                workspace_id=meeting.workspace_id,
+                device_id=meeting.device_id,
+                created_by_user_id=meeting.created_by_user_id,
+                upload_strategy="server_mediated",
+                status="pending",
+                processing_status="not_submitted",
+                expected_track_roles=["media"],
+                expected_track_sizes={},
+                max_package_bytes_snapshot=10_000,
+                max_track_bytes_snapshot=10_000,
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
+            db.add(session)
+            await db.flush()
+            db.add(
+                UploadPart(
+                    upload_session_id=session.id,
+                    track_role="media",
+                    part_number=0,
+                    byte_offset=0,
+                    byte_length=4,
+                    sha256="a" * 64,
+                    storage_object_key=object_key,
+                    status="accepted",
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_part_only())
+    storage = client.app.state["storage"]
+    storage.objects[object_key] = b"part"
+
+    response = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_COPY},
+    )
+
+    assert response.status_code == 202
+    assert object_key not in storage.objects
 
 
 def test_deletion_report_includes_safe_post_egress_limits_from_download_and_export_audit(

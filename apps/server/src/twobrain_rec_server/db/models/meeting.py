@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -40,6 +40,9 @@ class Meeting(Base):
     share_policy_state: Mapped[str] = mapped_column(String(64), default="not_available")
     download_policy_state: Mapped[str] = mapped_column(String(64), default="not_available")
     deletion_state: Mapped[str] = mapped_column(String(64), default="none")
+    # Monotonic tombstone fence.  Every asynchronous content operation snapshots
+    # this value and must re-check it before committing or publishing content.
+    deletion_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retention_delete_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

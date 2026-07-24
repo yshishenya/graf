@@ -30,9 +30,13 @@ def test_hx_deletion_request_returns_empty_success_body(client) -> None:
     assert response.status_code == 202
     assert response.headers["Vary"] == "HX-Request"
     assert response.headers["content-type"].startswith("text/html")
-    assert response.text == ""
-    assert "Запись удалена из списка." not in response.text
-    assert "Очистка данных GRAF продолжается." not in response.text
+    assert 'data-cabinet-fragment="deletion-feedback"' in response.text
+    assert 'role="status"' not in response.text
+    assert response.text.count("<p>") == 1
+    assert "<h2>" not in response.text
+    assert "Запись удалена из списка. Очистка данных GRAF продолжается." in response.text
+    assert "Запись удалена из списка." in response.text
+    assert "Очистка данных GRAF продолжается." in response.text
     assert "Отчет удаления" not in response.text
     assert "/deletion-report" not in response.text
     assert "storage_object_key" not in response.text
@@ -50,9 +54,13 @@ def test_hx_web_deletion_form_returns_empty_success_body(client) -> None:
     assert response.status_code == 202
     assert response.headers["Vary"] == "HX-Request"
     assert response.headers["content-type"].startswith("text/html")
-    assert response.text == ""
-    assert "Запись удалена из списка." not in response.text
-    assert "Очистка данных GRAF продолжается." not in response.text
+    assert 'data-cabinet-fragment="deletion-feedback"' in response.text
+    assert 'role="status"' not in response.text
+    assert response.text.count("<p>") == 1
+    assert "<h2>" not in response.text
+    assert "Запись удалена из списка. Очистка данных GRAF продолжается." in response.text
+    assert "Запись удалена из списка." in response.text
+    assert "Очистка данных GRAF продолжается." in response.text
     assert "Отчет удаления" not in response.text
     assert "/deletion-report" not in response.text
     assert "storage_object_key" not in response.text

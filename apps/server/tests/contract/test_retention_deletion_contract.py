@@ -38,7 +38,7 @@ def test_deletion_request_and_report_contract_exposes_no_private_content(client)
     assert response.status_code == 202
     body = response.json()
     assert body["meeting_id"] == str(seeds.ready_id)
-    assert body["lifecycle"]["state"] == "deleting"
+    assert body["lifecycle"]["state"] == "active_purge_complete"
     assert body["lifecycle"]["can_view_report"] is True
 
     report = client.get(

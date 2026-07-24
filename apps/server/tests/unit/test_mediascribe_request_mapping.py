@@ -9,6 +9,7 @@ from twobrain_rec_server.mediascribe.client import MediaScribeClient
 @pytest.mark.asyncio
 async def test_dual_track_request_uses_mic_and_incoming_without_mixed_or_silence_flags() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Idempotency-Key"] == "mediascribe-job-1"
         body = await request.aread()
         assert b'name="mic_file"' in body
         assert b'name="incoming_file"' in body
@@ -27,6 +28,7 @@ async def test_dual_track_request_uses_mic_and_incoming_without_mixed_or_silence
         incoming_file=BytesIO(b"incoming-audio"),
         diarize=True,
         summarize=False,
+        idempotency_key="mediascribe-job-1",
     )
     assert response.external_job_id == "job_mapping"
 

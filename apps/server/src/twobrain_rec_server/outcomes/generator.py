@@ -66,18 +66,22 @@ class LiteLLMGateway:
         *,
         snapshot: PromptSnapshot,
         messages: Sequence[Mapping[str, str]],
+        idempotency_key: str | None = None,
     ) -> LiteLLMGenerationResult:
         import httpx
 
         request = snapshot.litellm_request(messages)
         try:
             async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
+                headers = {
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                }
+                if idempotency_key:
+                    headers["Idempotency-Key"] = idempotency_key
                 response = await client.post(
                     self._url,
-                    headers={
-                        "Authorization": f"Bearer {self._api_key}",
-                        "Content-Type": "application/json",
-                    },
+                    headers=headers,
                     json=request,
                 )
         except (httpx.ConnectTimeout, httpx.ConnectError, httpx.PoolTimeout) as exc:

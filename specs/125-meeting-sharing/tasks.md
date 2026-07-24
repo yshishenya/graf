@@ -139,6 +139,20 @@ server-side contact index.
 - [X] T051 [P] Run Ponytail review and remove unnecessary dependencies/abstractions while preserving authorization, accessibility and evidence gates in `specs/125-meeting-sharing/plan.md`
 - [X] T052 Run the full Feature 125 quickstart, `git diff --check`, focused pytest and `infra/scripts/ci-local.sh`; attach synthetic evidence and keep public/contact/referral rollout disabled in `specs/125-meeting-sharing/quickstart.md`
 
+## Phase 10 — Post-review hardening
+
+- [X] T053 [P] Add a narrow `share_invitation_lookup` RLS context, migration indexes and PostgreSQL policy coverage in `apps/server/src/twobrain_rec_server/db/tenant_context.py`, `apps/server/src/twobrain_rec_server/db/migrations/versions/0036_share_invitation_auth_lookup.py`, and `apps/server/tests/contract/test_rls_policy_matrix_contract.py`
+- [X] T054 [P] Add durable keyed auth-code rate limits, RLS inventory and regression coverage in `apps/server/src/twobrain_rec_server/auth/rate_limit.py`, `apps/server/src/twobrain_rec_server/db/migrations/versions/0037_auth_rate_limit_buckets.py`, and `apps/server/tests/integration/test_web_owner_session_context.py`
+- [X] T055 [P] Close provider email-verification and callback/email-state race paths in `apps/server/src/twobrain_rec_server/auth/providers/base.py`, `apps/server/src/twobrain_rec_server/auth/callbacks.py`, `apps/server/src/twobrain_rec_server/auth/sessions.py`, and `apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py`
+- [X] T056 [P] Make Share load failures retryable, external invitation explicit, and recipient combobox keyboard-accessible in `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_share.html`, and `apps/server/tests/contract/test_recording_share_ui_contract.py`
+- [X] T057 [P] Add truthful B2B notification outcome and commit-before-Temporal delivery recovery in `apps/server/src/twobrain_rec_server/api/cabinet.py`, `apps/server/src/twobrain_rec_server/api/schemas.py`, and `apps/server/src/twobrain_rec_server/workflows/worker.py`
+- [X] T058 [P] Show linked calendar candidates on initial empty search without creating grants or consent side effects in `apps/server/src/twobrain_rec_server/cabinet/access.py` and `apps/server/tests/integration/test_meeting_share_links.py`
+- [X] T059 Run focused PostgreSQL/RLS/auth/Share checks, full `infra/scripts/ci-local.sh`, and repeat security, product, accessibility and Ponytail review; record only synthetic evidence in `specs/125-meeting-sharing/quickstart.md`
+
+## Phase 11 — Production delivery hotfix
+
+- [X] T060 Attach `rec-processing-worker` to the external Postal network and add a Compose regression assertion in `infra/docker-compose.yml` and `apps/server/tests/integration/test_compose_hardening.py`; rerun the Feature 125 quickstart, repository gate and production smoke without sending a live test email
+
 ## Dependencies and execution order
 
 ```text
@@ -155,7 +169,9 @@ T029–T036 (US4 internal/calendar)
    ├── T042–T045 (US5 gated referral)
    └── T046–T048 (US4 gated address-book/provider)
    ↓
-T049–T052 (polish and repository gate)
+   T049–T052 (polish and repository gate)
+   ↓
+   T053–T060 (post-review hardening and production delivery hotfix)
 ```
 
 Parallel examples:

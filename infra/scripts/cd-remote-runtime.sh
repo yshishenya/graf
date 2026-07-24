@@ -4,7 +4,7 @@ set -euo pipefail
 branch="${1:?branch is required}"
 expected_sha="${2:?expected sha is required}"
 previous_sha="${3:?previous sha is required}"
-compose=(docker compose -f infra/docker-compose.yml)
+compose=(docker compose --profile operations -f infra/docker-compose.yml)
 runtime_mutated=0
 deployment_complete=0
 dispatch_opened=0
@@ -14,6 +14,8 @@ temporal_container_baseline=""
 temporal_restart_baseline=""
 processing_worker_container_baseline=""
 processing_worker_restart_baseline=""
+maintenance_container_baseline=""
+maintenance_restart_baseline=""
 
 set -a
 . ./.env
@@ -192,17 +194,21 @@ print("external_invitation_worker_config_result=pass")
 }
 
 verify_processing_runtime_health() {
-  local temporal_container processing_worker_container temporal_networks
-  local temporal_restart_count processing_worker_restart_count
+  local temporal_container processing_worker_container maintenance_container temporal_networks
+  local temporal_restart_count processing_worker_restart_count maintenance_restart_count
   temporal_container="$("${compose[@]}" ps -q rec-temporal)"
   processing_worker_container="$("${compose[@]}" ps -q rec-processing-worker)"
+  maintenance_container="$("${compose[@]}" ps -q rec-maintenance)"
   temporal_restart_count="$(docker inspect "$temporal_container" --format '{{.RestartCount}}' 2>/dev/null)" \
     || return 1
   processing_worker_restart_count="$(docker inspect "$processing_worker_container" --format '{{.RestartCount}}' 2>/dev/null)" \
     || return 1
-  [[ -n "$temporal_container" && -n "$processing_worker_container" ]] \
+  maintenance_restart_count="$(docker inspect "$maintenance_container" --format '{{.RestartCount}}' 2>/dev/null)" \
+    || return 1
+  [[ -n "$temporal_container" && -n "$processing_worker_container" && -n "$maintenance_container" ]] \
     && [[ "$(docker inspect "$temporal_container" --format '{{.State.Health.Status}}')" == "healthy" ]] \
     && [[ "$(docker inspect "$processing_worker_container" --format '{{.State.Health.Status}}')" == "healthy" ]] \
+    && [[ "$(docker inspect "$maintenance_container" --format '{{.State.Status}}')" == "running" ]] \
     || return 1
   if [[ "$temporal_container" == "$temporal_container_baseline" ]]; then
     [[ "$temporal_restart_count" == "$temporal_restart_baseline" ]] || return 1
@@ -214,6 +220,11 @@ verify_processing_runtime_health() {
   else
     [[ "$processing_worker_restart_count" == "0" ]] || return 1
   fi
+  if [[ "$maintenance_container" == "$maintenance_container_baseline" ]]; then
+    [[ "$maintenance_restart_count" == "$maintenance_restart_baseline" ]] || return 1
+  else
+    [[ "$maintenance_restart_count" == "0" ]] || return 1
+  fi
   temporal_networks="$(docker inspect "$temporal_container" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}')"
   [[ "$(sed '/^$/d' <<<"$temporal_networks" | wc -l | tr -d ' ')" == "2" ]] \
     && grep -Fxq 'twobrain-rec-private' <<<"$temporal_networks" \
@@ -223,11 +234,15 @@ verify_processing_runtime_health() {
 capture_processing_runtime_baseline() {
   temporal_container_baseline="$("${compose[@]}" ps -q rec-temporal)"
   processing_worker_container_baseline="$("${compose[@]}" ps -q rec-processing-worker)"
+  maintenance_container_baseline="$("${compose[@]}" ps -q rec-maintenance)"
   if [[ -n "$temporal_container_baseline" ]]; then
     temporal_restart_baseline="$(docker inspect "$temporal_container_baseline" --format '{{.RestartCount}}')"
   fi
   if [[ -n "$processing_worker_container_baseline" ]]; then
     processing_worker_restart_baseline="$(docker inspect "$processing_worker_container_baseline" --format '{{.RestartCount}}')"
+  fi
+  if [[ -n "$maintenance_container_baseline" ]]; then
+    maintenance_restart_baseline="$(docker inspect "$maintenance_container_baseline" --format '{{.RestartCount}}')"
   fi
 }
 
@@ -323,7 +338,7 @@ restore_previous_services() {
       rollback_build_services+=("$service")
     fi
   done
-  for service in rec-api rec-migrate rec-minio rec-minio-init rec-temporal rec-processing-worker; do
+  for service in rec-api rec-migrate rec-minio rec-minio-init rec-temporal rec-processing-worker rec-maintenance; do
     if grep -Fxq "$service" <<<"$available_services"; then
       rollback_up_services+=("$service")
     fi
@@ -342,9 +357,9 @@ restore_compatibility_runtime() {
   local rollback_failed=0
   TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
     TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
-    "${compose[@]}" up -d --no-deps --no-build --force-recreate \
-    --wait --wait-timeout 240 \
-    rec-temporal rec-processing-worker rec-api >/dev/null 2>&1 || rollback_failed=1
+  "${compose[@]}" up -d --no-deps --no-build --force-recreate \
+  --wait --wait-timeout 240 \
+    rec-temporal rec-processing-worker rec-api rec-maintenance >/dev/null 2>&1 || rollback_failed=1
   verify_processing_runtime_health || rollback_failed=1
   verify_api_dispatch_gate false false || rollback_failed=1
   if [[ "$rollback_failed" == "0" ]]; then
@@ -415,7 +430,7 @@ restore_previous_safe_processing_runtime() {
 
   if [[ "$rollback_failed" == "0" ]]; then
     media_container="$("${compose[@]}" ps -aq rec-media-worker 2>/dev/null || true)"
-    "${compose[@]}" stop rec-media-worker rec-api rec-processing-worker rec-temporal \
+    "${compose[@]}" stop rec-media-worker rec-api rec-processing-worker rec-maintenance rec-temporal \
       >/dev/null 2>&1 || true
     [[ -z "$media_container" ]] \
       || docker rm -f "$media_container" >/dev/null 2>&1 \
@@ -436,7 +451,7 @@ restore_previous_safe_processing_runtime() {
   fi
 
   if [[ "$rollback_failed" == "0" ]]; then
-    "${compose[@]}" up -d --no-deps --no-build --force-recreate rec-processing-worker \
+    "${compose[@]}" up -d --no-deps --no-build --force-recreate rec-processing-worker rec-maintenance \
       >/dev/null 2>&1 || rollback_failed=1
   fi
   if [[ "$rollback_failed" == "0" ]]; then
@@ -483,7 +498,7 @@ restore_previous_runtime() {
   local rollback_failed=0 media_container current_schema truth_count
   echo "rollback_result=started"
   media_container="$("${compose[@]}" ps -q rec-media-worker 2>/dev/null || true)"
-  "${compose[@]}" stop rec-media-worker rec-api >/dev/null 2>&1 || true
+  "${compose[@]}" stop rec-media-worker rec-maintenance rec-api >/dev/null 2>&1 || true
   [[ -z "$media_container" ]] || docker rm -f "$media_container" >/dev/null 2>&1 || true
   current_schema="$("${compose[@]}" exec -T rec-postgres psql \
     -U twobrain_rec -d twobrain_rec -Atc 'select version_num from alembic_version' \
@@ -496,7 +511,17 @@ restore_previous_runtime() {
       || "$current_schema" == "$expected_schema_head" ) \
     && "$truth_count" == "0" ]]; then
     if [[ "$current_schema" == "$expected_schema_head" ]]; then
-      rollback_feature_database || rollback_failed=1
+      if ! rollback_feature_database; then
+        # Content lifecycle downgrades can intentionally refuse to remove
+        # legacy lineage markers. Keep the expanded schema and run the
+        # compatibility runtime instead of starting the old checkout against
+        # an incompatible merge-head schema.
+        echo "rollback_database_downgrade=blocked"
+        if restore_compatibility_runtime; then
+          return 0
+        fi
+        return 1
+      fi
     fi
     rollback_feature_storage || rollback_failed=1
     restore_previous_services || rollback_failed=1
@@ -710,7 +735,8 @@ TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
   rec-minio \
   rec-minio-init \
   rec-temporal \
-  rec-processing-worker
+  rec-processing-worker \
+  rec-maintenance
 
 if ! verify_processing_runtime_health; then
   echo "deploy_result=blocked"

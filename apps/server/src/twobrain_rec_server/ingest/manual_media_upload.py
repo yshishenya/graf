@@ -13,6 +13,7 @@ from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.calendar.matching import ensure_manual_upload_calendar_skip
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import RecordingCalendarContextLink
+from twobrain_rec_server.domain.media_filenames import media_filename_leaf
 from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind, TrackRole
 from twobrain_rec_server.ingest.finalize import finalize_upload
 from twobrain_rec_server.ingest.meetings import create_or_get_meeting
@@ -82,7 +83,7 @@ def _display_title_from_upload(*, title: str | None, filename: str | None) -> st
         return cleaned_title[:500]
     if not filename:
         return None
-    basename = filename.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    basename = media_filename_leaf(filename)
     return basename[:500] or None
 
 

@@ -24,7 +24,7 @@
     {{ calendar_context_chooser }}
     <section class="tab-panel{% if outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes"{% if not outcomes_selected %} hidden{% endif %}>
       {% if summary_controls_available %}
-      <div class="summary-format-toolbar" data-summary-format-controls data-meeting-id="{{ meeting_id }}" data-current-outcome-set-id="{{ current_outcome_set_id }}" data-current-summary-format-key="{{ current_summary_format_key }}" data-current-summary-format-template-id="{{ current_summary_format_template_id }}" data-current-summary-format-version="{{ current_summary_format_version }}">
+      <div class="summary-format-toolbar" data-summary-format-controls data-meeting-id="{{ meeting_id }}" data-current-outcome-set-id="{{ current_outcome_set_id }}" data-current-summary-format-key="{{ current_summary_format_key }}" data-current-summary-format-template-id="{{ current_summary_format_template_id }}" data-current-summary-format-version="{{ current_summary_format_version }}" data-current-template-id="{{ current_summary_format_id }}" data-current-template-key="{{ current_summary_format_key }}" data-current-template-version="{{ current_summary_format_version }}" data-current-template-name="{{ current_summary_format }}">
         <h2>Итоги</h2>
         <div class="summary-format-picker">
           <button type="button" class="summary-format-button" data-summary-format-button aria-haspopup="listbox" aria-controls="summary-format-listbox" aria-expanded="false">
@@ -39,6 +39,7 @@
             <button type="button" class="summary-format-all" role="option" aria-selected="false" data-summary-format-all aria-haspopup="dialog" aria-controls="summary-format-dialog">Все форматы…</button>
           </div>
         </div>
+        <button type="button" class="button quiet" data-summary-refresh-button>Обновить итоги</button>
       </div>
       {% endif %}
       <div class="summary-candidate-status" data-summary-candidate-status role="status" aria-live="polite" aria-atomic="true" hidden></div>

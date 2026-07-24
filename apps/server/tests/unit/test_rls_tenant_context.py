@@ -11,9 +11,11 @@ from twobrain_rec_server.db.tenant_context import (
     AuthCallbackLookupContext,
     AuthSessionLookupContext,
     MaintenanceTenantContext,
+    ShareInvitationLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
     auth_session_lookup_settings,
+    share_invitation_lookup_settings,
     tenant_context_from_scope,
     tenant_context_settings,
 )
@@ -133,4 +135,17 @@ def test_auth_session_lookup_context_sets_only_token_hash_and_kind() -> None:
     assert auth_session_lookup_settings(context) == {
         "app.context_kind": "auth_session_lookup",
         "app.auth_session_token_hash": "token-hash",
+    }
+
+
+def test_share_invitation_lookup_context_is_bound_to_workspace_and_nonce() -> None:
+    context = ShareInvitationLookupContext(
+        workspace_id=WORKSPACE_ID,
+        continuation_nonce="continuation-state",
+    )
+
+    assert share_invitation_lookup_settings(context) == {
+        "app.context_kind": "share_invitation_lookup",
+        "app.workspace_id": str(WORKSPACE_ID),
+        "app.share_invitation_continuation_nonce": "continuation-state",
     }

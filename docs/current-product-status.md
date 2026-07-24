@@ -6,6 +6,48 @@ Date: 2026-07-24
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
+## Production delivery hotfix (2026-07-24) — Feature 125
+
+- Исправлен production-блокер внешних приглашений: `rec-processing-worker`
+  имел Postal-конфигурацию и secret, но не был подключён к внешней Docker-сети
+  Postal, поэтому `postal-web` не резолвился и доставка завершалась
+  `outcome_unknown` до обращения к провайдеру.
+- Worker теперь подключён к `postal_postal-network` и
+  `twobrain-rec-private`; Compose contract test фиксирует этот обязательный
+  сетевой контракт. На production worker healthy, `postal-web` разрешается,
+  automatic dispatch и публичные health/readiness проверки прошли.
+- Hotfix выкачен на точный SHA
+  `7b601cf94b7f1a8183dc55e8651d2851c4b0eee7`; backup/restore reference:
+  `/opt/projects/2brain-rec/backups/20260724T121617Z`. Existing
+  `outcome_unknown` invitations intentionally не переотправляются автоматически,
+  чтобы не создать duplicate; для проверки нужно отменить старое приглашение и
+  создать новое явным действием.
+
+## Production closeout (2026-07-24) — Feature 125 post-review hardening
+
+- Post-review candidate deployed successfully at exact runtime SHA
+  `9a44d9af9c0bce0c4a75b6d497657492f44c818a`. The remote working tree is
+  clean; migration head is `0037_auth_rate_limit_buckets`.
+- CD backup/restore rehearsal, disposable RLS probe, runtime database-role
+  checks, Temporal and processing-worker readiness, media-worker boundary,
+  production smoke, automatic dispatch gate and final public live/ready
+  checks passed. Backup reference:
+  `/opt/projects/2brain-rec/backups/20260724T113944Z`.
+- Production external exact-email configuration is enabled and consistent in
+  both API and delivery worker: `share_external_invitations_enabled=true`,
+  `email_login_delivery_enabled=true`, Postal and public base URL configured.
+  The flow remains metadata-only, exact-email and summary-only; no workspace
+  auto-join is introduced.
+- macOS local artifact `2026.07.24.4` was rebuilt after the review at
+  [`graf-local-release-125-v4.pkg`](../apps/macos/.build/installer/graf-local-release-125-v4.pkg)
+  with SHA-256
+  `112a5f2419d8517a0ef5d9fde26ebac0564bf966d01897576ecb7878c2e5d936`.
+  It passes deep strict verification and uses a local-only signer; no
+  Developer ID or notarization is claimed.
+- Public links, native Contacts/provider lookup, referral attribution,
+  participant batch/Shared with me, recurring/channel distribution and
+  automatic workspace join remain separate gated slices.
+
 ## Validation update (2026-07-24) — Feature 125 Share candidate
 
 - Feature `125-meeting-sharing` исправляет B2B Share как authenticated

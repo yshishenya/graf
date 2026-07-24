@@ -88,11 +88,32 @@ def test_cabinet_manual_upload_uses_file_name_when_title_is_blank(client) -> Non
             "duration_seconds": "61",
             "local_recording_id": "cabinet-file-title-fallback",
         },
-        files={"file": ("/Users/private/Саша Трубишина CRM и т.д..m4a", deterministic_wav_bytes(80), "audio/mp4")},
+        files={"file": ("/Users/private/Саша Трубишина CRM и т.д..wave", deterministic_wav_bytes(80), "audio/wav")},
     )
 
     assert response.status_code == 202
-    assert response.json()["meeting"]["title"] == "Саша Трубишина CRM и т.д..m4a"
+    assert response.json()["meeting"]["title"] == "Саша Трубишина CRM и т.д..wave"
+    visible_title = "Саша Трубишина CRM и т.д."
+    listed = client.get(
+        "/api/v1/cabinet/meetings",
+        params={"q": visible_title},
+        headers=auth_headers(),
+    )
+    detail = client.get(
+        f"/api/v1/cabinet/meetings/{response.json()['meeting']['meeting_id']}",
+        headers=auth_headers(),
+    )
+    page = client.get("/meetings", params={"q": visible_title})
+
+    assert listed.status_code == 200
+    assert [item["title"] for item in listed.json()["items"]] == [
+        "Саша Трубишина CRM и т.д..wave"
+    ]
+    assert detail.status_code == 200
+    assert detail.json()["meeting"]["title"] == "Саша Трубишина CRM и т.д..wave"
+    assert page.status_code == 200
+    assert visible_title in page.text
+    assert "Загруженная запись" not in page.text
 
 
 def test_cabinet_manual_upload_requires_csrf_for_cookie_session(client) -> None:

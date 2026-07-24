@@ -11,6 +11,7 @@ from twobrain_rec_server.auth.email_delivery import (
     EmailLoginDeliveryError,
     PostalEmailLoginClient,
     send_email_login_code,
+    send_meeting_invitation,
 )
 from twobrain_rec_server.config import Settings
 
@@ -214,4 +215,15 @@ async def test_send_email_login_code_fails_closed_when_delivery_disabled() -> No
             recipient_email="owner@example.test",
             code="123456",
             ttl_seconds=900,
+        )
+
+
+@pytest.mark.anyio
+async def test_send_meeting_invitation_fails_closed_when_delivery_disabled() -> None:
+    with pytest.raises(EmailLoginDeliveryError, match="postal_delivery_disabled"):
+        await send_meeting_invitation(
+            settings=Settings(),
+            recipient_email="recipient@example.test",
+            acceptance_url="https://graf.example.test/meetings/synthetic-meeting",
+            delivery_key="synthetic-delivery-key",
         )

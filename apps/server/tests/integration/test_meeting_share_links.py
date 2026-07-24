@@ -254,6 +254,11 @@ def test_calendar_workspace_match_is_source_labelled_without_side_effects(client
         headers=auth_headers(),
         params={"query": "calendar.teammate"},
     )
+    initial_search = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/share-recipients",
+        headers=auth_headers(),
+        params={"query": ""},
+    )
 
     assert linked.status_code == 200
     assert search.status_code == 200
@@ -266,6 +271,8 @@ def test_calendar_workspace_match_is_source_labelled_without_side_effects(client
             "freshness": "current",
         }
     ]
+    assert initial_search.status_code == 200
+    assert initial_search.json()["items"] == search.json()["items"]
     assert _meeting_side_effect_counts(client, meeting_id) == before
 
 

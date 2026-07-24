@@ -439,6 +439,75 @@ def test_remote_deploy_rollback_never_deletes_099_truth_to_reach_old_code() -> N
     )
 
 
+def test_remote_rollback_uses_compatibility_runtime_when_legacy_lineage_blocks_downgrade(
+    tmp_path: Path,
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    restore_start = runtime.index("restore_previous_runtime()")
+    restore_end = runtime.index("rollback_on_exit()", restore_start)
+    restore_block = runtime[restore_start:restore_end]
+    trace_path = tmp_path / "rollback-trace"
+    fixture_script = f"""
+set -euo pipefail
+compose=(compose_stub)
+dispatch_opened=0
+previous_schema_head=0037_auth_rate_limit_buckets
+expected_schema_head=0040_merge_content_regen_share
+backup_reference=fixture-backup
+legacy_lineage_rows=1
+{restore_block}
+feature_truth_count() {{ printf '0\\n'; }}
+rollback_feature_database() {{
+  printf 'legacy_lineage_rows=%s\\n' "$legacy_lineage_rows" >>"$TRACE_PATH"
+  return 1
+}}
+rollback_feature_storage() {{ printf 'unsafe_storage_rollback\\n' >>"$TRACE_PATH"; return 0; }}
+restore_previous_services() {{ printf 'unsafe_previous_checkout\\n' >>"$TRACE_PATH"; return 0; }}
+restore_compatibility_runtime() {{
+  printf 'compatibility_runtime_started\\n' >>"$TRACE_PATH"
+  return 0
+}}
+compose_stub() {{
+  case "$1:${{2:-}}:${{3:-}}" in
+    ps:-q:rec-media-worker) return 0 ;;
+    stop:*) return 0 ;;
+    exec:-T:rec-postgres) printf '%s\\n' "$expected_schema_head" ;;
+    *) return 2 ;;
+  esac
+}}
+restore_previous_runtime
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TRACE_PATH": str(trace_path)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    trace = trace_path.read_text()
+    assert "legacy_lineage_rows=1" in trace
+    assert "rollback_database_downgrade=blocked" in result.stdout
+    assert "compatibility_runtime_started" in trace
+    assert "unsafe_storage_rollback" not in trace
+    assert "unsafe_previous_checkout" not in trace
+
+
+def test_remote_rollback_discovers_operations_profile_services() -> None:
+    from pathlib import Path
+
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+
+    assert "compose=(docker compose --profile operations -f infra/docker-compose.yml)" in runtime
+    assert '"${compose[@]}" config --services' in runtime
+    assert "rec-maintenance" in runtime
+    assert "rec-reprocess-maintenance" in runtime
+    assert "maintenance_container" in runtime
+    assert "maintenance_restart_count" in runtime
+    assert "{{.State.Status}}" in runtime
+
+
 def test_previous_safe_processing_fallback_executes_verified_single_network_restore(
     tmp_path: Path,
 ) -> None:

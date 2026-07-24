@@ -2,7 +2,6 @@
 
 <dialog class="manual-upload-dialog" data-manual-upload-dialog
   data-upload-endpoint="{{ upload_endpoint }}"
-  data-upload-refresh-url="{{ list_refresh_url }}"
   data-upload-detail-base="{{ detail_base_path }}"
   data-upload-available="{{ 'true' if upload_available else 'false' }}"
   data-upload-surface="{{ 'desktop_embedded' if embedded else 'standalone_browser' }}">
@@ -17,7 +16,7 @@
 
     {% if upload_available %}
     <div class="manual-upload-picker">
-      <input class="manual-upload-input" id="manual-upload-file-input" type="file" data-manual-upload-file accept=".wav,.wave,.rf64,.w64,.mp3,.aac,.adts,.flac,.ogg,.oga,.opus,.m4a,.mp4,.mov,.m4v,.webm,.mkv,.mka,audio/wav,audio/x-wav,audio/vnd.wave,audio/mpeg,audio/aac,audio/flac,audio/ogg,video/ogg,audio/mp4,video/mp4,video/quicktime,audio/webm,video/webm,audio/x-matroska,video/x-matroska" aria-describedby="manual-upload-drop-hint">
+      <input class="manual-upload-input" id="manual-upload-file-input" type="file" data-manual-upload-file accept="{{ media_accept }}" aria-describedby="manual-upload-drop-hint">
       <label class="manual-upload-dropzone" for="manual-upload-file-input" data-manual-upload-dropzone>
         <span class="manual-upload-dropzone__icon" aria-hidden="true">{{ icons.icon("upload") }}</span>
         <span class="manual-upload-dropzone__copy">

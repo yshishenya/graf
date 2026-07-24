@@ -9,6 +9,7 @@ from temporalio import activity
 from tests.fakes.auth_contexts import tenant_scope
 from tests.fixtures.processing import create_finalized_meeting, create_finalized_mixed_recording
 from twobrain_rec_server.db.models import (
+    MediaRevision,
     MediaScribeJob,
     ProcessingAuditEvent,
     ProcessingResult,
@@ -61,13 +62,15 @@ class FailedPollMediaScribeClient:
         )
 
 
-class AmbiguousV5SubmitClient:
+class RetryableV5SubmitClient:
     def __init__(self, reason_code: str) -> None:
         self.reason_code = reason_code
         self.submission_count = 0
+        self.idempotency_keys: list[str | None] = []
 
-    async def submit_single_track(self, **_kwargs):
+    async def submit_single_track(self, **kwargs):
         self.submission_count += 1
+        self.idempotency_keys.append(kwargs.get("idempotency_key"))
         raise MediaScribeClientError(self.reason_code, retryable=True)
 
 
@@ -78,12 +81,12 @@ def test_processing_failure_matrix_marks_auth_terminal_and_timeout_retryable(cli
     assert retryable == ("failed_retryable", "mediascribe_timeout")
 
 
-def test_v5_ambiguous_submit_blocks_without_automatic_second_job(client) -> None:
+def test_v5_timeout_retries_same_job_intent(client) -> None:
     finalized = create_finalized_mixed_recording(client, "failure-v5-ambiguous-submit")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
-    mediascribe_client = AmbiguousV5SubmitClient("mediascribe_timeout")
+    mediascribe_client = RetryableV5SubmitClient("mediascribe_timeout")
 
     async def run() -> tuple[int, str, str | None, str, str | None]:
         async with client.app_state["sessionmaker"]() as db:
@@ -104,8 +107,8 @@ def test_v5_ambiguous_submit_blocks_without_automatic_second_job(client) -> None
                         mediascribe_client=mediascribe_client,
                         workflow=workflow,
                     )
-                assert exc.value.reason_code == "blocked_mediascribe_submission_outcome_unknown"
-                assert not exc.value.retryable
+                assert exc.value.reason_code == "mediascribe_timeout"
+                assert exc.value.retryable
             persisted_workflow = await db.scalar(select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id))
             persisted_job = await db.scalar(select(MediaScribeJob).where(MediaScribeJob.meeting_id == meeting_id))
             assert persisted_workflow is not None
@@ -119,12 +122,13 @@ def test_v5_ambiguous_submit_blocks_without_automatic_second_job(client) -> None
             )
 
     assert asyncio.run(run()) == (
-        1,
-        "blocked",
-        "blocked_mediascribe_submission_outcome_unknown",
-        "blocked",
-        "blocked_mediascribe_submission_outcome_unknown",
+        2,
+        "failed_retryable",
+        "mediascribe_timeout",
+        "failed",
+        "mediascribe_timeout",
     )
+    assert mediascribe_client.idempotency_keys[0] == mediascribe_client.idempotency_keys[1]
 
 
 def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigured(client, monkeypatch) -> None:
@@ -145,6 +149,7 @@ def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigure
                 workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
+            await db.commit()
         scope = tenant_scope()
         result = await worker.run_processing_pipeline_activity(
             {
@@ -168,7 +173,134 @@ def test_worker_activity_persists_blocked_config_when_mediascribe_is_unconfigure
     )
 
 
-def test_result_import_validation_error_is_persisted_as_retryable_safe_reason(client) -> None:
+def test_legacy_worker_callback_cannot_select_newer_revision_workflow(client, monkeypatch) -> None:
+    finalized = create_finalized_meeting(client, "failure-stale-legacy-callback")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    monkeypatch.setattr(worker, "get_settings", lambda: client.app.state.settings)
+    monkeypatch.setattr(worker.MediaScribeClient, "from_settings", lambda _settings: object())
+    monkeypatch.setattr(activity, "heartbeat", lambda *_args, **_kwargs: None)
+
+    async def run() -> tuple[dict[str, str], str]:
+        async with client.app_state["sessionmaker"]() as db:
+            await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            db.add(
+                MediaRevision(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    local_media_revision_id="failure-stale-legacy-callback--new",
+                    revision_number=2,
+                    source_kind="reprocess",
+                    status="accepted",
+                    manifest_sha256="a" * 64,
+                    track_sha256_by_role={},
+                    duration_seconds=60,
+                    immutable=True,
+                )
+            )
+            await db.commit()
+        scope = tenant_scope()
+        result = await worker.run_processing_pipeline_activity(
+            {
+                "meeting_id": str(meeting_id),
+                "workspace_id": str(workspace_id),
+                "organization_id": str(scope.organization_id),
+                "user_id": str(scope.user_id),
+                "device_id": str(scope.device_id),
+            }
+        )
+        async with client.app_state["sessionmaker"]() as db:
+            persisted = await db.scalar(
+                select(ProcessingWorkflow).where(
+                    ProcessingWorkflow.media_revision_id == media_revision_id
+                )
+            )
+            assert persisted is not None
+            return result, persisted.status
+
+    assert asyncio.run(run()) == (
+        {
+            "meeting_id": str(meeting_id),
+            "processing_status": ProcessingStatus.CANCELED.value,
+            "reason_code": "processing_source_revision_stale",
+        },
+        ProcessingStatus.CANCELED.value,
+    )
+
+
+def test_unmarked_null_lineage_is_terminalized_when_new_revision_is_accepted(client, monkeypatch) -> None:
+    finalized = create_finalized_meeting(client, "failure-stale-unmarked-null-lineage")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    monkeypatch.setattr(worker, "get_settings", lambda: client.app.state.settings)
+    monkeypatch.setattr(worker.MediaScribeClient, "from_settings", lambda _settings: object())
+    monkeypatch.setattr(activity, "heartbeat", lambda *_args, **_kwargs: None)
+
+    async def run() -> tuple[dict[str, str], str]:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                ProcessingWorkflow(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    media_revision_id=None,
+                    source_fingerprint=f"meeting:{meeting_id}",
+                    workflow_id=f"processing/legacy-unmarked/{meeting_id}",
+                    status=ProcessingStatus.WORKFLOW_STARTED.value,
+                )
+            )
+            db.add(
+                MediaRevision(
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    local_media_revision_id="failure-stale-unmarked-null-lineage--new",
+                    revision_number=2,
+                    source_kind="reprocess",
+                    status="accepted",
+                    manifest_sha256="d" * 64,
+                    track_sha256_by_role={"media": "e" * 64},
+                    duration_seconds=60,
+                    immutable=True,
+                )
+            )
+            await db.commit()
+        scope = tenant_scope()
+        result = await worker.run_processing_pipeline_activity(
+            {
+                "meeting_id": str(meeting_id),
+                "workspace_id": str(workspace_id),
+                "organization_id": str(scope.organization_id),
+                "user_id": str(scope.user_id),
+                "device_id": str(scope.device_id),
+            }
+        )
+        async with client.app_state["sessionmaker"]() as db:
+            persisted = await db.scalar(
+                select(ProcessingWorkflow).where(
+                    ProcessingWorkflow.workflow_id == f"processing/legacy-unmarked/{meeting_id}"
+                )
+            )
+            assert persisted is not None
+            return result, persisted.status
+
+    assert asyncio.run(run()) == (
+        {
+            "meeting_id": str(meeting_id),
+            "processing_status": ProcessingStatus.CANCELED.value,
+            "reason_code": "processing_source_revision_stale",
+        },
+        ProcessingStatus.CANCELED.value,
+    )
+
+
+def test_result_import_validation_error_is_persisted_as_terminal_safe_reason(client) -> None:
     finalized = create_finalized_meeting(client, "failure-malformed-result")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
@@ -206,8 +338,8 @@ def test_result_import_validation_error_is_persisted_as_retryable_safe_reason(cl
             return result.status, persisted.status, persisted.last_reason_code
 
     assert asyncio.run(run()) == (
-        ProcessingStatus.FAILED_RETRYABLE,
-        "failed_retryable",
+        ProcessingStatus.FAILED_TERMINAL,
+        "failed_terminal",
         "mediascribe_malformed_response",
     )
 

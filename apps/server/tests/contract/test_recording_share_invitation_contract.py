@@ -49,7 +49,7 @@ def test_postal_delivery_commits_at_most_once_fence_before_network_egress() -> N
 
     reserved = activity.index('invitation.status = "sending"')
     committed = activity.index("await db.commit()", reserved)
-    sent = activity.index(".send_meeting_invitation(", committed)
+    sent = activity.index("await send_meeting_invitation(", committed)
     assert reserved < committed < sent
 
     recovery = activity.split('if invitation.status == "sending":', 1)[1].split(
@@ -57,7 +57,7 @@ def test_postal_delivery_commits_at_most_once_fence_before_network_egress() -> N
     )[0]
     assert 'invitation.status = "outcome_unknown"' in recovery
     assert 'invitation.failure_code = "postal_delivery_outcome_unknown"' in recovery
-    assert ".send_meeting_invitation(" not in recovery
+    assert "await send_meeting_invitation(" not in recovery
 
 
 def test_invitation_acceptance_uses_a_separate_grant_token_and_safe_onboarding_copy() -> None:

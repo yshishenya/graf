@@ -19,11 +19,12 @@
     <form class="share-recipient-form" method="get" action="/api/v1/cabinet/meetings/{{ meeting_id }}/share-recipients" data-share-recipient-form data-meeting-id="{{ meeting_id }}">
       <label for="share-recipient-{{ meeting_id }}">Человек или email</label>
       <div class="share-recipient-row">
-        <input id="share-recipient-{{ meeting_id }}" name="query" type="text" placeholder="Имя или email…" autocomplete="off" spellcheck="false" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-recipient-input>
+        <input id="share-recipient-{{ meeting_id }}" name="query" type="text" placeholder="Имя или email…" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="share-recipient-results-{{ meeting_id }}" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-recipient-input>
         <button type="submit">Найти</button>
       </div>
     </form>
-    <div class="share-recipient-results" id="share-recipient-results-{{ meeting_id }}" aria-label="Найденные люди" data-share-recipient-results hidden></div>
+    <div class="share-recipient-results" id="share-recipient-results-{{ meeting_id }}" role="listbox" aria-label="Найденные люди" data-share-recipient-results hidden></div>
+    <div class="share-recipient-confirmation-host" id="share-recipient-confirmation-{{ meeting_id }}" data-share-recipient-confirmation hidden></div>
 
     <details class="share-scope-disclosure">
       <summary>Что увидят: только итоги</summary>

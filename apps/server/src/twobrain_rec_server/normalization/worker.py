@@ -181,6 +181,7 @@ async def renew_normalization_activity_lease(
                 PlaybackNormalizationJob.workspace_id == tenant_scope.workspace_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if (
             job is None

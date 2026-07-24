@@ -204,3 +204,71 @@ attribution remain disabled.
   and `/desktop/.../share`; no meeting content, live credentials or real
   contacts were used. Live production public-link, Contacts/provider and
   referral gates remain disabled; exact-email is the only enabled external path.
+
+## Validation record — 2026-07-24 post-review hardening
+
+- Focused PostgreSQL/RLS/auth/Share regression matrix: `22 passed`; the
+  broader focused Feature 125 and security/access matrix also passed. The
+  checks cover the read-only invitation continuation context, durable auth-code
+  throttling, provider email-verification updates, Share retry/confirmation
+  states, notification outcome reporting and initial calendar suggestions.
+- `infra/scripts/ci-local.sh`: pass — macOS `624 passed`; PostgreSQL `2,260
+  passed, 1 skipped` in parallel and `41 passed, 1 skipped` in strict mode;
+  Ruff, Python compile, compose config and deployment-evidence scan passed.
+- Repeat security/code/Ponytail review: no critical findings. The lookup RLS
+  context is `USING`-only, rate-limit scopes use keyed HMAC, invitation rows
+  commit before Temporal dispatch, and unknown delivery outcomes do not trigger
+  an automatic duplicate email.
+- Product/accessibility review is complete at the static/contract level,
+  including error, retry, keyboard, combobox, focus-return and clean-room
+  checks. Screenshot-based authenticated browser review was not executable in
+  this environment because no authenticated local GRAF tab was available and
+  the production URL was blocked by the in-app browser policy; this is not
+  claimed as rendered visual evidence.
+- This section records the pre-deploy review evidence. The release CD gate has
+  since completed successfully; the production closeout below is now the source
+  of truth for the deployed SHA and migration head.
+
+## Production closeout — 2026-07-24
+
+- `infra/scripts/cd-remote.sh --execute --branch
+  codex/125-meeting-sharing-review-fixes`: pass. Production runtime SHA is
+  `9a44d9af9c0bce0c4a75b6d497657492f44c818a`; migration head is
+  `0037_auth_rate_limit_buckets`.
+- Backup/restore rehearsal, RLS probe, database-role boundary, Temporal and
+  processing-worker readiness, media-worker boundary, production smoke,
+  automatic dispatch and final `health/live` plus `health/ready` checks passed.
+  Backup reference:
+  `/opt/projects/2brain-rec/backups/20260724T113944Z`.
+- Runtime configuration verification passed in both API and delivery worker:
+  external invitations and email login are enabled, Postal is configured and
+  the public base URL is configured. No live email was sent without a
+  consented synthetic recipient.
+- The rebuilt macOS package is
+  `/Users/yshishenya/.codex/worktrees/fa7e/crisp/apps/macos/.build/installer/graf-local-release-125-v4.pkg`,
+  version `2026.07.24.4`, SHA-256
+  `112a5f2419d8517a0ef5d9fde26ebac0564bf966d01897576ecb7878c2e5d936`.
+  It is local-only signed/unsigned for distribution purposes; Developer ID,
+  notarization and public artifact publication are not claimed.
+
+## Production delivery incident follow-up — 2026-07-24
+
+- A metadata-only production check found that an external invitation could stay
+  queued in the UI and then become `outcome_unknown` without reaching the
+  mailbox. Worker logs showed DNS failure before the Postal request reached the
+  provider; no meeting content or email body was included in the investigation.
+- Root cause: `rec-processing-worker` had the Postal API settings and secret but
+  was not attached to the external `postal-network`, so `postal-web` was not
+  resolvable from that worker.
+- Fix: production Compose now attaches the worker to both `rec-private` and
+  `postal-network`; the Compose contract test asserts this boundary and that the
+  Postal network remains external.
+- The hotfix was deployed at exact SHA
+  `7b601cf94b7f1a8183dc55e8651d2851c4b0eee7` with backup
+  `/opt/projects/2brain-rec/backups/20260724T121617Z`; CD backup/restore, RLS,
+  migrations, readiness, smoke and automatic dispatch passed.
+- Post-deploy metadata-only checks confirmed the worker is healthy, joined to
+  `postal_postal-network` and `twobrain-rec-private`, and resolves `postal-web`.
+  No live email was sent by the operator. Existing `outcome_unknown` rows are
+  not resent automatically; cancel the old invitation and create a new explicit
+  invitation after the hotfix.

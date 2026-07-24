@@ -387,7 +387,7 @@ async def lock_shareable_meeting(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if meeting is None or (
+    if meeting is None or meeting.deleted_at is not None or (
         meeting.deletion_state or DeletionState.NONE.value
     ) != DeletionState.NONE.value:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
@@ -462,7 +462,9 @@ async def decide_meeting_access(
 ) -> AccessDecision:
     if meeting.workspace_id != workspace_id:
         return _denied_decision()
-    if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+    if meeting.deleted_at is not None or (
+        meeting.deletion_state or DeletionState.NONE.value
+    ) != DeletionState.NONE.value:
         return AccessDecision(
             state="deleted",
             label="Deleted",
@@ -1036,7 +1038,7 @@ async def search_share_recipients(
     limit: int = 20,
 ) -> list[ShareRecipientCandidate]:
     normalized_query = " ".join(query.strip().split())[:80]
-    if meeting_id is None or len(normalized_query) < 2:
+    if meeting_id is None or len(normalized_query) == 1:
         return []
     if viewer_user_id is not None and device_id is not None:
         await enforce_share_rate_limit(
@@ -1135,7 +1137,8 @@ async def search_share_recipients(
         for participant in participants
         if participant.email
         and (
-            _query_matches(participant.display_name, normalized_query)
+            not normalized_query
+            or _query_matches(participant.display_name, normalized_query)
             or _query_matches(participant.email, normalized_query)
         )
     }

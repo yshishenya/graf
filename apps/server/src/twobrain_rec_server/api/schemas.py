@@ -7,6 +7,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     StringConstraints,
     field_validator,
     model_validator,
@@ -830,6 +831,16 @@ class CreateUploadSessionRequest(BaseModel):
     manifest_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
+class CreateMediaRevisionUploadSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    local_media_revision_id: Annotated[SafeClientText, Field(min_length=1, max_length=300)]
+    source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.REPROCESS
+    duration_seconds: int = Field(gt=0)
+    expected_tracks: list[TrackRole] = Field(default_factory=list)
+    expected_track_sizes: dict[TrackRole, int] = Field(default_factory=dict)
+
+
 class UploadSessionResponse(BaseModel):
     session_id: UUID
     meeting_id: UUID
@@ -845,6 +856,13 @@ class UploadSessionResponse(BaseModel):
     mediascribe_job_id: None = None
     desktop_label: str | None = None
     desktop_truth_rule: str | None = None
+
+
+class MediaRevisionUploadSessionResponse(BaseModel):
+    """Durable reprocess upload handle pinned to one immutable revision."""
+
+    media_revision: MediaRevisionSummary
+    upload_session: UploadSessionResponse
 
 
 class DesktopSyncMeetingState(BaseModel):
@@ -1238,7 +1256,16 @@ SummaryCandidateState = Literal[
     "failed",
     "cancelled",
 ]
-SummaryCandidateProjectionState = Literal["generating", "ready", "accepted", "closed", "failed"]
+SummaryCandidateProjectionState = Literal[
+    "generating",
+    "ready",
+    "accepted",
+    "closed",
+    "failed",
+    "blocked",
+    "stale",
+    "expired",
+]
 SummaryCandidateReasonCode = Literal[
     "generating",
     "dismissed",
@@ -1356,6 +1383,44 @@ class CreateSummaryCandidateRequest(BaseModel):
     template_id: UUID | None = None
     template_version: int = Field(ge=1)
     expected_current_outcome_set_id: UUID | None = None
+    request_intent: Annotated[SafeClientText, Field(max_length=64)] = "manual_format"
+    request_intent_id: UUID | None = None
+
+    @field_validator("request_intent")
+    @classmethod
+    def validate_request_intent(cls, value: str) -> str:
+        if value not in {"manual_format", "manual_refresh"}:
+            raise ValueError("unsupported summary request intent")
+        return value
+
+    @model_validator(mode="after")
+    def require_refresh_intent_id(self) -> Self:
+        if self.request_intent == "manual_refresh" and self.request_intent_id is None:
+            raise ValueError("manual refresh requires request_intent_id")
+        if self.request_intent == "manual_format" and self.request_intent_id is not None:
+            raise ValueError("manual format must not include request_intent_id")
+        return self
+
+
+class SummaryCandidateProvenance(BaseModel):
+    source_result_id: UUID | None = None
+    media_revision_id: UUID | None = None
+    source_revision_label: Annotated[SafeClientText, Field(max_length=160)] | None = None
+    template_id: UUID | None = None
+    source_result_hash: Annotated[SafeClientText, Field(max_length=128)] | None = None
+    template_key: Annotated[SafeClientText, Field(max_length=120)] | None = None
+    template_version: int | None = Field(default=None, ge=1)
+    generator_version: Annotated[SafeClientText, Field(max_length=120)] | None = None
+
+
+class SummaryCandidatePreviewItem(BaseModel):
+    category: SummarySection
+    sequence: int = Field(default=0, ge=0)
+    text: str = ""
+    owner_text: str = ""
+    due_date_text: str = ""
+    truth_label: str = ""
+    source_refs: list[str] = Field(default_factory=list, max_length=32)
 
 
 class SummaryCandidateResponse(BaseModel):
@@ -1371,19 +1436,14 @@ class SummaryCandidateResponse(BaseModel):
     reason_code: SummaryCandidateReasonCode | None = None
     retryable: bool = False
     next_action: SummaryCandidateNextAction | None = None
+    format_name: Annotated[SafeClientText, Field(max_length=120)] | None = None
+    expires_at: datetime | None = None
+    preview: list["SummaryCandidatePreviewItem"] = Field(default_factory=list)
+    provenance: SummaryCandidateProvenance | None = None
 
 
 class SummaryCandidateListResponse(BaseModel):
     candidates: list[SummaryCandidateResponse] = Field(default_factory=list, max_length=8)
-
-
-class SummaryCandidatePreviewItem(BaseModel):
-    category: SummarySection
-    text: str = ""
-    owner_text: str = ""
-    due_date_text: str = ""
-    truth_label: str = ""
-    source_refs: list[str] = Field(default_factory=list, max_length=32)
 
 
 class SummaryCandidatePreviewResponse(BaseModel):
@@ -1572,6 +1632,7 @@ class CreateShareGrantRequest(BaseModel):
 class ShareGrantResponse(BaseModel):
     grant: ShareGrantView
     share_url: str
+    notification_status: Literal["sent", "not_available", "failed", "outcome_unknown", "not_attempted"] = "not_attempted"
 
 
 class CreateExportPackageRequest(BaseModel):
@@ -1678,6 +1739,7 @@ class SlotState(BaseModel):
     # state.  The key alone is not enough for personal template revisions.
     template_id: UUID | None = None
     version: int | None = Field(default=None, ge=1)
+    template_version: int | None = Field(default=None, ge=1)
 
 
 class MeetingFilterState(BaseModel):
@@ -1828,12 +1890,14 @@ class MeetingListItem(BaseModel):
     previous_recurring_meeting: PreviousRecurringMeetingView | None = None
     playback: PlaybackPreparationState = Field(default_factory=PlaybackPreparationState)
     future_slots: list[SlotState] = Field(default_factory=list)
+    _presentation_meeting_status: str | None = PrivateAttr(default=None)
 
 
 class MeetingListResponse(BaseModel):
     items: list[MeetingListItem]
     filters: MeetingFilterState
     generated_at: datetime
+    _has_more: bool = PrivateAttr(default=False)
 
 
 class MeetingProvenance(BaseModel):
