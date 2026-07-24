@@ -209,6 +209,13 @@ suite does not waive the full repository gate.
   release P1 where the merge had dropped the Feature 124 changelog entry;
   `CHANGELOG.md` was restored in commit `bad87292`. Final repeat review is
   required on the release candidate before deploy.
+- Migration correction loop: Arc found that the content migrations could
+  replace the production maintenance helper without `prompt_optimization`;
+  `0035` and `0039` now preserve that operation. The merge revision remains a
+  minimal no-op because Alembic traverses the sibling content branch itself.
+  The production-head migration test now asserts the resulting schema and
+  final helper SQL; the focused migration/RLS set passed **18 tests, 2
+  warnings**.
 
 The focused harness had one transient PostgreSQL startup failure during an
 earlier retry; the final isolated runs above passed and removed their test
@@ -224,10 +231,11 @@ containers.
   recovery branch is updated to the integrated commit.
 - Integrated release dry-run (`infra/scripts/cd-remote.sh --dry-run --branch
   codex/124-content-regeneration-lifecycle-recovery`, 2026-07-24): **PASS**
-  for pinned SHA `b4110f5ec81ca007d6be6a3fe610f00b86ef544e`; remote branch sync
-  points to the same SHA. The dry-run emitted the complete backup, restore,
-  migration-head, runtime-readiness, smoke, dispatch and rollback step plan;
-  execute remains gated on explicit release approval.
+  for pinned SHA `9c27886ee58e8c6c90fcb455097a34f0f338989d` (remote branch
+  points to the same commit). The
+  dry-run emitted the complete backup, restore, migration-head,
+  runtime-readiness, smoke, dispatch and rollback step plan; execute remains
+  gated on the release gate.
 
 ## Release and production gate
 
