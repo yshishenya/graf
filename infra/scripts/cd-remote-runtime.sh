@@ -511,7 +511,17 @@ restore_previous_runtime() {
       || "$current_schema" == "$expected_schema_head" ) \
     && "$truth_count" == "0" ]]; then
     if [[ "$current_schema" == "$expected_schema_head" ]]; then
-      rollback_feature_database || rollback_failed=1
+      if ! rollback_feature_database; then
+        # Content lifecycle downgrades can intentionally refuse to remove
+        # legacy lineage markers. Keep the expanded schema and run the
+        # compatibility runtime instead of starting the old checkout against
+        # an incompatible merge-head schema.
+        echo "rollback_database_downgrade=blocked"
+        if restore_compatibility_runtime; then
+          return 0
+        fi
+        return 1
+      fi
     fi
     rollback_feature_storage || rollback_failed=1
     restore_previous_services || rollback_failed=1
