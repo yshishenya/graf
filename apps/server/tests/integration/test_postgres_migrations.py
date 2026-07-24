@@ -153,6 +153,38 @@ def test_alembic_migration_files_exist_for_clean_database_path() -> None:
     assert (versions / "0004_mediascribe_processing_pipeline.py").exists()
     assert (versions / "0006_access_sharing_downloads.py").exists()
     assert SPEAKER_NAMES_MIGRATION.exists()
+    assert (versions / "0036_share_invitation_auth_lookup.py").exists()
+    assert (versions / "0037_auth_rate_limit_buckets.py").exists()
+    assert (versions / "0040_merge_content_regeneration_and_share_heads.py").exists()
+
+
+def test_production_share_head_upgrades_to_regeneration_merge(
+    postgres_clean_database_url: str,
+    monkeypatch,
+) -> None:
+    """A database deployed at the Feature 125 head must reach Feature 124 head."""
+
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
+    get_settings.cache_clear()
+    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
+    alembic_config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
+
+    command.upgrade(alembic_config, "0037_auth_rate_limit_buckets")
+    command.upgrade(alembic_config, "head")
+
+    async def inspect_head() -> list[str]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.connect() as connection:
+                return (
+                    await connection.scalars(text("select version_num from alembic_version"))
+                ).all()
+        finally:
+            await engine.dispose()
+
+    assert asyncio.run(inspect_head()) == ["0040_merge_content_regen_share"]
 
 
 def test_speaker_name_migration_is_tenant_scoped_and_unique() -> None:
@@ -174,6 +206,25 @@ def test_mediascribe_migration_names_workspace_unique_constraints_distinctly() -
 
     assert 'name="uq_mediascribe_jobs_workspace_meeting"' in migration
     assert 'name="uq_mediascribe_jobs_workspace_external_job"' in migration
+
+
+def test_content_regen_downgrade_restores_legacy_meeting_unique_constraints() -> None:
+    migration = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/db/migrations/versions/0032_content_regeneration_lineage.py"
+    ).read_text(encoding="utf-8")
+
+    assert "_restore_legacy_unique_constraints" in migration
+    assert "archive or deduplicate" in migration
+    assert all(
+        constraint in migration
+        for constraint in (
+            "processing_workflows_workspace_id_meeting_id_key",
+            "uq_mediascribe_jobs_workspace_meeting",
+            "processing_dependency_states_workspace_id_meeting_id_dependency",
+        )
+    )
+    assert "op.create_unique_constraint(constraint_name, table_name" in migration
 
 
 def test_alembic_revision_ids_fit_default_version_table_length() -> None:

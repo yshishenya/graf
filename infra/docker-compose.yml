@@ -624,7 +624,7 @@ services:
     build:
       context: ..
       dockerfile: infra/server/Dockerfile
-    restart: "no"
+    restart: unless-stopped
     init: true
     user: twobrain
     group_add:
@@ -650,6 +650,8 @@ services:
       TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_api_secret_key
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
     secrets:
       - source: twobrain_postgres_maintenance_password
         target: twobrain_postgres_password
@@ -663,12 +665,15 @@ services:
         uid: "100"
         gid: "101"
         mode: 0440
+    command: ["python", "-m", "twobrain_rec_server.workflows.maintenance_worker"]
     depends_on:
       rec-db-runtime-bootstrap:
         condition: service_completed_successfully
       rec-postgres:
         condition: service_healthy
       rec-minio:
+        condition: service_healthy
+      rec-temporal:
         condition: service_healthy
     logging:
       driver: json-file

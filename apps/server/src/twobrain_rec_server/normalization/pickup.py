@@ -40,8 +40,11 @@ from twobrain_rec_server.normalization.statuses import (
     NormalizationReason,
     TriggerKind,
 )
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 from twobrain_rec_server.workflows.temporal_client import (
+    cancel_workflow_best_effort,
     connect_temporal_client,
+    playback_normalization_workflow_id,
     start_playback_normalization_workflow,
 )
 
@@ -126,6 +129,7 @@ async def claim_due_normalization_job(
         select(PlaybackNormalizationJob)
         .where(PlaybackNormalizationJob.id == job_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if job is None:
         return NormalizationLeaseResult(claimed=False, reused=False)
@@ -176,6 +180,7 @@ async def _release_dispatch_lease(
         select(PlaybackNormalizationJob)
         .where(PlaybackNormalizationJob.id == job_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if job is None or (owner_sha256 is not None and job.lease_owner_sha256 != owner_sha256):
         return
@@ -226,6 +231,8 @@ async def dispatch_normalization_after_accepted_commit(
     )
     if not lease.claimed:
         return NormalizationDispatchResult(attempted=True, reused=lease.reused)
+    started = None
+    deterministic_workflow_id = playback_normalization_workflow_id(media_revision_id)
     try:
         job = await db.get(PlaybackNormalizationJob, job.id)
         if job is None:
@@ -249,12 +256,57 @@ async def dispatch_normalization_after_accepted_commit(
             profile_version=job.profile_version,
             validation_version=job.validation_version,
         )
+        job_id = job.id
+        meeting_id = job.meeting_id
+        await db.rollback()
+        meeting = await db.scalar(
+            select(Meeting)
+            .where(
+                Meeting.workspace_id == tenant_scope.workspace_id,
+                Meeting.id == meeting_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         job = await db.scalar(
             select(PlaybackNormalizationJob)
-            .where(PlaybackNormalizationJob.id == job.id)
+            .where(PlaybackNormalizationJob.id == job_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
-        if job is not None and started.run_id is not None:
+        handoff_valid = (
+            meeting is not None
+            and not meeting_is_deleted_or_deleting(meeting)
+            and job is not None
+            and job.state in {
+                JobState.QUEUED.value,
+                JobState.RUNNING.value,
+                JobState.PUBLISHING.value,
+                JobState.READY.value,
+            }
+            and (
+                job.state != JobState.QUEUED.value
+                or (
+                    job.lease_owner_sha256 == lease.owner_sha256
+                    and job.lease_expires_at is not None
+                    and _aware_utc(job.lease_expires_at) > current_time
+                )
+            )
+        )
+        meeting_invalid = meeting is None or meeting_is_deleted_or_deleting(meeting)
+        job_invalid = job is None or job.state not in {
+            JobState.QUEUED.value,
+            JobState.RUNNING.value,
+            JobState.PUBLISHING.value,
+            JobState.READY.value,
+        }
+        if not handoff_valid:
+            await db.rollback()
+            cancel_reused = meeting_invalid or job_invalid
+            if not started.reused or cancel_reused:
+                await cancel_workflow_best_effort(temporal_client, started.workflow_id)
+            return NormalizationDispatchResult(attempted=True)
+        if started.run_id is not None:
             job.workflow_run_id = started.run_id
         await db.commit()
         return NormalizationDispatchResult(
@@ -263,6 +315,11 @@ async def dispatch_normalization_after_accepted_commit(
             reused=started.reused,
         )
     except Exception:
+        if temporal_client is not None:
+            await cancel_workflow_best_effort(
+                temporal_client,
+                started.workflow_id if started is not None else deterministic_workflow_id,
+            )
         await _release_dispatch_lease(
             db,
             job_id=job.id,
@@ -668,18 +725,66 @@ async def _verify_ready_job(
     now: datetime,
 ) -> bool:
     require_database_context(db, allowed_context_kinds=frozenset({"worker"}))
-    canonical = (
-        await db.get(TrackArtifact, job.canonical_track_artifact_id)
-        if job.canonical_track_artifact_id is not None
-        else None
+    snapshot = await db.scalar(
+        select(PlaybackNormalizationJob)
+        .where(PlaybackNormalizationJob.id == job.id)
+        .execution_options(populate_existing=True)
     )
+    if snapshot is None or snapshot.state != JobState.READY.value:
+        return False
+    canonical = None
+    if snapshot.canonical_track_artifact_id is not None:
+        canonical = await db.scalar(
+            select(TrackArtifact)
+            .where(
+                TrackArtifact.workspace_id == snapshot.workspace_id,
+                TrackArtifact.meeting_id == snapshot.meeting_id,
+                TrackArtifact.id == snapshot.canonical_track_artifact_id,
+            )
+            .execution_options(populate_existing=True)
+        )
     present = canonical is not None and await _storage_object_exists(
         storage, canonical.storage_object_key
     )
     if not present:
-        await recover_missing_ready_normalization_job(db, job_id=job.id, now=now)
+        snapshot_id = snapshot.id
+        await db.rollback()
+        await recover_missing_ready_normalization_job(db, job_id=snapshot_id, now=now)
         return False
-    job.last_heartbeat_at = now
+
+    # Storage I/O happens without database locks. Recheck the lifecycle fence
+    # before touching the ready row so deletion cannot be followed by a stale
+    # heartbeat write or a ready-state resurrection.
+    await db.rollback()
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(
+            Meeting.workspace_id == snapshot.workspace_id,
+            Meeting.id == snapshot.meeting_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if meeting is None or meeting_is_deleted_or_deleting(meeting):
+        await db.rollback()
+        return False
+    current = await db.scalar(
+        select(PlaybackNormalizationJob)
+        .where(
+            PlaybackNormalizationJob.workspace_id == snapshot.workspace_id,
+            PlaybackNormalizationJob.id == snapshot.id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        current is None
+        or current.state != JobState.READY.value
+        or current.canonical_track_artifact_id != snapshot.canonical_track_artifact_id
+    ):
+        await db.rollback()
+        return False
+    current.last_heartbeat_at = now
     await db.commit()
     return True
 

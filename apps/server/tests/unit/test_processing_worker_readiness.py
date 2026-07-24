@@ -8,7 +8,13 @@ import pytest
 from temporalio.api.enums.v1 import TaskQueueType
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.domain.statuses import ProcessingStatus
+from twobrain_rec_server.mediascribe.client import MediaScribeClientError
 from twobrain_rec_server.workflows.temporal_client import processing_worker_identity
+from twobrain_rec_server.workflows.worker import (
+    _processing_status_for_client_error,
+    _processing_status_for_runtime_error,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 READINESS_SCRIPT = REPO_ROOT / "apps/server/scripts/verify_processing_worker_ready.py"
@@ -30,6 +36,23 @@ def test_processing_worker_identity_is_bounded_metadata_only() -> None:
     assert processing_worker_identity("container/$unsafe") == "graf-processing:container-unsafe"
     with pytest.raises(RuntimeError, match="hostname is unavailable"):
         processing_worker_identity("/$")
+
+
+def test_malformed_mediascribe_payload_is_terminal_even_if_client_marks_retryable() -> None:
+    error = MediaScribeClientError("mediascribe_malformed_response", retryable=True)
+
+    assert _processing_status_for_client_error(error) == ProcessingStatus.FAILED_TERMINAL
+
+
+def test_known_processing_runtime_failures_have_bounded_classification() -> None:
+    blocked = _processing_status_for_runtime_error(RuntimeError("blocked_missing_artifacts"))
+    retryable = _processing_status_for_runtime_error(
+        RuntimeError("processing_temp_storage_unavailable")
+    )
+
+    assert blocked == (ProcessingStatus.BLOCKED, False)
+    assert retryable == (ProcessingStatus.FAILED_RETRYABLE, True)
+    assert _processing_status_for_runtime_error(RuntimeError("unexpected_worker_bug")) is None
 
 
 @pytest.mark.anyio

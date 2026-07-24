@@ -17,14 +17,15 @@ MEDIA_REVISION_DELETION_SAFE_REASON = "Media revision identity retained as lifec
 ALLOWED_PROCESSING_TRANSITIONS = {
     ProcessingStatus.NOT_SUBMITTED: {ProcessingStatus.STARTING, ProcessingStatus.BLOCKED},
     ProcessingStatus.STARTING: {ProcessingStatus.WORKFLOW_STARTED, ProcessingStatus.BLOCKED},
-    ProcessingStatus.WORKFLOW_STARTED: {ProcessingStatus.SUBMITTING, ProcessingStatus.FAILED_RETRYABLE},
-    ProcessingStatus.SUBMITTING: {ProcessingStatus.SUBMITTED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL},
-    ProcessingStatus.SUBMITTED: {ProcessingStatus.POLLING, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL},
-    ProcessingStatus.POLLING: {ProcessingStatus.IMPORTING, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL},
-    ProcessingStatus.IMPORTING: {ProcessingStatus.PROCESSED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL},
+    ProcessingStatus.WORKFLOW_STARTED: {ProcessingStatus.SUBMITTING, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE},
+    ProcessingStatus.SUBMITTING: {ProcessingStatus.SUBMITTED, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL},
+    ProcessingStatus.SUBMITTED: {ProcessingStatus.POLLING, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL},
+    ProcessingStatus.POLLING: {ProcessingStatus.IMPORTING, ProcessingStatus.PROCESSED, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL},
+    ProcessingStatus.IMPORTING: {ProcessingStatus.PROCESSED, ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE, ProcessingStatus.FAILED_TERMINAL},
     ProcessingStatus.FAILED_RETRYABLE: {
         ProcessingStatus.SUBMITTING,
         ProcessingStatus.POLLING,
+        ProcessingStatus.BLOCKED,
         ProcessingStatus.FAILED_TERMINAL,
     },
 }
@@ -52,6 +53,8 @@ def classify_mediascribe_error(status_code: int | None, *, timeout: bool = False
         return FailureClassification(ProcessingStatus.FAILED_TERMINAL, reasons.MEDIASCRIBE_AUTH_FAILED, False)
     if status_code == 413:
         return FailureClassification(ProcessingStatus.FAILED_TERMINAL, reasons.MEDIASCRIBE_PAYLOAD_TOO_LARGE, False)
+    if status_code == 408:
+        return FailureClassification(ProcessingStatus.FAILED_RETRYABLE, reasons.MEDIASCRIBE_TIMEOUT, True)
     if status_code == 409:
         return FailureClassification(ProcessingStatus.FAILED_RETRYABLE, reasons.MEDIASCRIBE_RESULT_NOT_READY, True)
     if status_code == 429 or (status_code is not None and status_code >= 500):

@@ -497,6 +497,16 @@ async def cancel_invitation_delivery_workflow(
     return True
 
 
+async def cancel_workflow_best_effort(temporal_client: object, workflow_id: str) -> bool:
+    """Cancel a just-started workflow when its durable lifecycle fence lost."""
+    try:
+        handle = temporal_client.get_workflow_handle(workflow_id)
+        await handle.cancel()
+    except Exception:
+        return False
+    return True
+
+
 async def start_processing_workflow(
     *,
     temporal_client: object,

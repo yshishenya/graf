@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID
 
 from twobrain_rec_server.api.schemas import (
@@ -72,9 +72,15 @@ from twobrain_rec_server.db.models import (
     RecordingCalendarContextLink,
     TranscriptSegment,
 )
+from twobrain_rec_server.domain.media_filenames import (
+    LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSION_RE,
+    MEDIA_FILENAME_EXTENSION_RE,
+    clean_legacy_serialized_media_filename_title,
+    clean_media_filename_title,
+    media_filename_leaf,
+)
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
 from twobrain_rec_server.domain.statuses import (
-    DeletionState,
     MediaRevisionSourceKind,
     MeetingStatus,
     ProcessingAvailabilityStatus,
@@ -82,7 +88,8 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
     SummaryStatus,
 )
-from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY
+from twobrain_rec_server.outcomes.templates import built_in_template_for_version
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 
 if TYPE_CHECKING:
     from twobrain_rec_server.db.models import WorkspaceProviderLinkState
@@ -145,12 +152,43 @@ MEDIASCRIBE_SPEAKER_LABEL_RE = re.compile(r"^SPEAKER_\d{2,}$")
 SORT_LABELS: dict[str, str] = {
     "updated_desc": "Недавно обновлённые",
     "updated_asc": "Давно обновлённые",
-    "started_desc": "Новые по дате записи",
-    "started_asc": "Старые по дате записи",
+    "started_desc": "Сначала новые",
+    "started_asc": "Сначала старые",
     "duration_desc": "Сначала длинные",
     "duration_asc": "Сначала короткие",
     "title_asc": "По названию",
 }
+SHORT_MONTH_LABELS = (
+    "",
+    "янв",
+    "фев",
+    "мар",
+    "апр",
+    "май",
+    "июн",
+    "июл",
+    "авг",
+    "сен",
+    "окт",
+    "ноя",
+    "дек",
+)
+
+MeetingListTimeBasis = Literal["meeting", "updated"]
+
+
+@dataclass(frozen=True, slots=True)
+class MeetingListRowPresentation:
+    display_title: str
+    duration_label: str
+    time_label: str
+    media_kind: str
+    media_label: str
+    status_kind: str | None
+    status_label: str | None
+    progress_percent: int | None
+    open_accessible_name: str
+
 
 CALENDAR_CONTEXT_OWNER_REASON_LABELS: dict[str, str] = {
     "private_free_busy_skipped": "Приватное событие пропущено",
@@ -285,10 +323,6 @@ PROCESSING_STATUSES = {
     ProcessingStatus.IMPORTING.value,
 }
 
-KNOWN_MEDIA_EXTENSION_RE = re.compile(
-    r"\.(?:wav|mp3|m4a|aac|flac|ogg|mp4|mov|m4v|webm|mkv)$",
-    re.IGNORECASE,
-)
 GENERATED_MANUAL_UPLOAD_RE = re.compile(r"^manual[-_]upload(?:[-_][a-z0-9]+)+$", re.IGNORECASE)
 GENERATED_CAPTURE_TITLE_RE = re.compile(
     r"^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)"
@@ -1282,34 +1316,156 @@ def date_label(item: MeetingListItem) -> str:
     )
 
 
+def meeting_list_time_label(
+    value: datetime | None,
+    *,
+    timezone_offset_minutes: int | None,
+    time_basis: MeetingListTimeBasis,
+) -> str:
+    if value is None:
+        return "Без даты"
+    localized = _localized_datetime(
+        value,
+        timezone_offset_minutes=timezone_offset_minutes,
+    )
+    prefix = "Обновлено " if time_basis == "updated" else ""
+    return f"{prefix}{localized.day} {SHORT_MONTH_LABELS[localized.month]}, {localized:%H:%M}"
+
+
+def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasis) -> str:
+    value = item.updated_at if time_basis == "updated" else item.started_at
+    return meeting_list_time_label(
+        value,
+        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
+        time_basis=time_basis,
+    )
+
+
+def _localized_datetime(
+    value: datetime,
+    *,
+    timezone_offset_minutes: int | None,
+) -> datetime:
+    localized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if (
+        timezone_offset_minutes is not None
+        and -14 * 60 <= timezone_offset_minutes <= 14 * 60
+    ):
+        localized = localized.astimezone(
+            timezone(timedelta(minutes=timezone_offset_minutes))
+        )
+    return localized
+
+
 def short_date_label(
     value: datetime,
     *,
     timezone_offset_minutes: int | None = None,
 ) -> str:
-    localized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-    offset = timezone_offset_minutes
-    if offset is not None and -14 * 60 <= offset <= 14 * 60:
-        localized = localized.astimezone(timezone(timedelta(minutes=offset)))
-    months = {
-        1: "янв",
-        2: "фев",
-        3: "мар",
-        4: "апр",
-        5: "май",
-        6: "июн",
-        7: "июл",
-        8: "авг",
-        9: "сен",
-        10: "окт",
-        11: "ноя",
-        12: "дек",
-    }
-    return f"{localized.day} {months[localized.month]}"
+    localized = _localized_datetime(
+        value,
+        timezone_offset_minutes=timezone_offset_minutes,
+    )
+    return f"{localized.day} {SHORT_MONTH_LABELS[localized.month]}"
+
+
+def normalize_meeting_list_sort(
+    sort: str | None,
+    *,
+    fallback: str = "started_desc",
+) -> str:
+    normalized_fallback = fallback if fallback in SORT_LABELS else "started_desc"
+    return sort if sort in SORT_LABELS else normalized_fallback
 
 
 def sort_label(sort: str) -> str:
     return SORT_LABELS.get(sort, SORT_LABELS["updated_desc"])
+
+
+def meeting_list_row_presentation(
+    item: MeetingListItem,
+    *,
+    time_basis: MeetingListTimeBasis,
+) -> MeetingListRowPresentation:
+    time = meeting_time_label(item, time_basis=time_basis)
+    status_kind, status_copy, progress = _meeting_list_compact_status(item)
+    source_title = item.title.strip()
+    title = source_title or "Запись"
+    open_name = f"Открыть встречу {title}"
+    if title in {"Запись", "Загруженная запись"}:
+        open_name = f"{open_name}, {time}"
+    return MeetingListRowPresentation(
+        display_title=title,
+        duration_label=format_duration(item.duration_seconds),
+        time_label=time,
+        media_kind=meeting_media_kind(item),
+        media_label=meeting_media_label(item),
+        status_kind=status_kind,
+        status_label=status_copy,
+        progress_percent=progress,
+        open_accessible_name=open_name,
+    )
+
+
+def _meeting_list_compact_status(
+    item: MeetingListItem,
+) -> tuple[
+    str | None,
+    str | None,
+    int | None,
+]:
+    presentation_status = meeting_list_presentation_status(item)
+    if presentation_status == "deleted_future":
+        return "deleting", "Удаляется", None
+    if presentation_status in {"blocked", "failed", "unavailable"}:
+        return "failed", "Не удалось обработать", None
+    upload = item.upload
+    if item.calendar_context is not None and item.calendar_context.needs_owner_action:
+        return "calendar_choice", "Нужен выбор", None
+    if presentation_status == "local_only":
+        return "saved_local", "Сохранено на Mac", None
+
+    if upload is not None and upload.is_active:
+        progress = upload.progress_percent
+        trustworthy = (
+            progress is not None
+            and 0 <= progress < 100
+            and upload.total_bytes > 0
+            and 0 <= upload.uploaded_bytes <= upload.total_bytes
+        )
+        if trustworthy:
+            return (
+                "uploading_measured",
+                f"Отправляем {progress}%",
+                progress,
+            )
+        return "uploading", "Отправляем", None
+    if presentation_status == "uploading":
+        return "uploading", "Отправляем", None
+    if presentation_status in {"submitted", "processing"}:
+        return "processing", "Обрабатывается", None
+
+    openable = item.primary_action == "open" or presentation_status in {"ready", "partial"}
+    if openable and item.playback.state == "preparing":
+        return "audio_preparing", "Аудио готовится", None
+    if openable and item.playback.state in {"unavailable", "deleting", "deleted"}:
+        return "without_audio", "Без аудио", None
+    if presentation_status == "partial":
+        return "limited", "Готово с ограничениями", None
+    return None, None, None
+
+
+def meeting_list_presentation_status(item: MeetingListItem) -> MeetingReviewStatus:
+    if item.status == "deleted_future":
+        return item.status
+    if item._presentation_meeting_status in {
+        MeetingStatus.ABORTED.value,
+        MeetingStatus.EXPIRED.value,
+    }:
+        return "failed"
+    if item.upload is not None and item.upload.status in {"failed", "aborted", "expired"}:
+        return "failed"
+    return item.status
 
 
 def meeting_media_kind(item: MeetingListItem) -> str:
@@ -1339,6 +1495,29 @@ def meeting_media_label(item: MeetingListItem) -> str:
     }[meeting_media_kind(item)]
 
 
+def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
+    title = safe_title_candidate(meeting.title)
+    projected = safe_title(meeting, source=source)
+    if title is None:
+        return projected if projected == "Загруженная запись" else "Запись"
+    if (
+        meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
+        and GENERATED_CAPTURE_TITLE_RE.fullmatch(title)
+    ):
+        return "Запись"
+    if (
+        projected == "Запись без названия"
+        and meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
+    ):
+        return "Запись"
+    if (
+        meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
+        and MEDIA_FILENAME_EXTENSION_RE.search(title)
+    ):
+        return _clean_file_title(title)
+    return projected
+
+
 def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
     title = safe_title_candidate(meeting.title)
     if title:
@@ -1348,9 +1527,9 @@ def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
             return "Загруженная запись"
         if GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
             return _generated_recording_title(meeting) or "Запись без названия"
-        if KNOWN_MEDIA_EXTENSION_RE.search(title):
-            return _clean_file_title(title)
-        return title
+        if LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSION_RE.search(title):
+            return _clean_legacy_file_title(title)
+        return media_filename_leaf(title) or "Запись без названия"
 
     if source == "manual_upload" or GENERATED_MANUAL_UPLOAD_RE.fullmatch(
         meeting.local_recording_id or ""
@@ -1366,36 +1545,22 @@ def _authoritative_title(title: str) -> str:
 
 
 def _clean_file_title(title: str) -> str:
-    leaf_title = re.split(r"[/\\]", title)[-1]
-    without_extension = KNOWN_MEDIA_EXTENSION_RE.sub("", leaf_title)
-    normalized = re.sub(r"_+", " ", without_extension)
-    return re.sub(r"\s+", " ", normalized).strip() or "Загруженная запись"
+    return clean_media_filename_title(title) or "Загруженная запись"
+
+
+def _clean_legacy_file_title(title: str) -> str:
+    return clean_legacy_serialized_media_filename_title(title) or "Загруженная запись"
 
 
 def _generated_recording_title(meeting: Meeting) -> str | None:
     started_at = meeting.started_at
     if started_at is None:
         return None
-    if started_at.tzinfo is None:
-        started_at = started_at.replace(tzinfo=UTC)
-    offset = meeting.recording_display_timezone_offset_minutes
-    if offset is not None and -14 * 60 <= offset <= 14 * 60:
-        started_at = started_at.astimezone(timezone(timedelta(minutes=offset)))
-    months = {
-        1: "янв",
-        2: "фев",
-        3: "мар",
-        4: "апр",
-        5: "май",
-        6: "июн",
-        7: "июл",
-        8: "авг",
-        9: "сен",
-        10: "окт",
-        11: "ноя",
-        12: "дек",
-    }
-    return f"Запись {started_at.day} {months[started_at.month]}, {started_at:%H:%M}"
+    started_at = _localized_datetime(
+        started_at,
+        timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
+    )
+    return f"Запись {started_at.day} {SHORT_MONTH_LABELS[started_at.month]}, {started_at:%H:%M}"
 
 
 def safe_title_candidate(raw: str | None) -> str | None:
@@ -1456,7 +1621,7 @@ def review_status(
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
 ) -> MeetingReviewStatus:
-    if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+    if meeting_is_deleted_or_deleting(meeting):
         return "deleted_future"
     has_transcript = transcript_available(result)
     has_diarization = diarization_available(result)
@@ -1585,7 +1750,12 @@ def summary_template_slot(
         if outcome_set is not None and outcome_set.template_key
         else default_template_key
     )
-    definition = BUILT_IN_BY_KEY.get(template_key)
+    definition = built_in_template_for_version(
+        template_key,
+        outcome_set.template_version
+        if outcome_set is not None and outcome_set.template_version is not None
+        else 1,
+    )
     return SlotState(
         state="available",
         label=(
@@ -1596,6 +1766,11 @@ def summary_template_slot(
         reason=template_key,
         template_id=outcome_set.template_id if outcome_set is not None else None,
         version=(
+            outcome_set.template_version
+            if outcome_set is not None and outcome_set.template_version is not None
+            else definition.version if definition is not None else None
+        ),
+        template_version=(
             outcome_set.template_version
             if outcome_set is not None and outcome_set.template_version is not None
             else definition.version if definition is not None else None
@@ -1619,13 +1794,13 @@ def build_list_item(
     playback: PlaybackPreparationState | None = None,
 ) -> MeetingListItem:
     status = review_status(meeting, result=result, workflow=workflow)
-    source = _meeting_source(media_revision)
+    source = meeting_source(media_revision)
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
     notes_truth = notes_action_truth_state(
         status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
     )
-    return MeetingListItem(
+    item = MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting, source=source),
         started_at=meeting.started_at,
@@ -1660,6 +1835,8 @@ def build_list_item(
         previous_recurring_meeting=previous_recurring_meeting,
         playback=playback or PlaybackPreparationState(),
     )
+    item._presentation_meeting_status = meeting.status
+    return item
 
 
 def calendar_context_summary(
@@ -1723,7 +1900,7 @@ def primary_action_for_status(status: MeetingReviewStatus) -> str:
     return "unavailable"
 
 
-def _meeting_source(media_revision: MediaRevision | None) -> str:
+def meeting_source(media_revision: MediaRevision | None) -> str:
     if (
         media_revision is not None
         and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
@@ -1768,7 +1945,7 @@ def processing_state(
         diarization_available=has_diarization,
         summary_available=summary_available,
         updated_at=(workflow.updated_at if workflow is not None else meeting.updated_at),
-        next_action=next_action_for_status(status),
+        next_action=next_action_for_status(status, reason_code=reason_code),
     )
 
 
@@ -1790,12 +1967,22 @@ def stage_for_status(status: str, lifecycle_status: str) -> str | None:
     return None
 
 
-def next_action_for_status(status: str) -> str:
+def next_action_for_status(status: str, *, reason_code: str | None = None) -> str:
     if status in {"processing", "submitted", "uploading"}:
         return "wait"
     if status == "blocked":
         return "contact_operator"
     if status == "failed":
+        if reason_code in {
+            "mediascribe_timeout",
+            "mediascribe_rate_limited",
+            "mediascribe_server_error",
+            "mediascribe_submission_in_progress",
+            "mediascribe_result_not_ready",
+            "processing_temp_storage_unavailable",
+            "unknown_dependency_status",
+        }:
+            return "retry_future"
         return "contact_operator"
     if status == "local_only":
         return "open_desktop_queue"
@@ -1808,9 +1995,23 @@ def reason_label(reason_code: str | None) -> str | None:
     return {
         "no_recognizable_speech": "MediaScribe обработал запись, но транскрипт не создан: распознаваемая речь не найдена.",
         "invalid_audio_payload": "Файл записи не является декодируемым аудио или поврежден.",
-        "mediascribe_validation_failed": "Transcription service could not accept this media file.",
-        "blocked_config": "Processing is blocked by server configuration.",
-    }.get(reason_code, "Processing needs operator review.")
+        "mediascribe_validation_failed": "Сервис транскрипции отклонил файл: проверьте формат и повторите обработку.",
+        "mediascribe_payload_too_large": "Файл записи превышает допустимый размер.",
+        "mediascribe_auth_failed": "Сервис транскрипции отклонил доступ; повторить можно после проверки настройки сервера.",
+        "mediascribe_malformed_response": "Сервис транскрипции вернул некорректный ответ. Повторите обработку; если ошибка повторится, обратитесь к оператору.",
+        "mediascribe_timeout": "Сервис транскрипции не ответил вовремя. Повторная попытка будет выполнена автоматически.",
+        "mediascribe_rate_limited": "Сервис транскрипции временно ограничил запросы. Повторите позже.",
+        "mediascribe_server_error": "Сервис транскрипции временно недоступен. Повторите позже.",
+        "mediascribe_retries_exhausted": "Сервис транскрипции не восстановился после нескольких попыток. Повторите позже или обратитесь к оператору.",
+        "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
+        "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
+        "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
+        "blocked_mediascribe_submission_outcome_unknown": "Не удалось подтвердить результат отправки записи. Повторная отправка остановлена во избежание дубликата; обратитесь к оператору.",
+        "blocked_missing_artifacts": "Исходный файл записи недоступен. Повторите синхронизацию или загрузите запись заново.",
+        "blocked_config": "Обработка заблокирована настройкой сервера. Обратитесь к оператору.",
+        "processing_temp_storage_unavailable": "На сервере временно недоступно место для обработки. Повторите позже.",
+        "unknown_dependency_status": "Сервис транскрипции вернул неизвестный статус. Повторите позже.",
+    }.get(reason_code, "Обработка требует проверки оператором.")
 
 
 def transcript_state(

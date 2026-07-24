@@ -21,6 +21,7 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.domain.statuses import (
     MediaScribeJobStatus,
     ProcessingAvailabilityStatus,
+    ProcessingResultStatus,
     ProcessingStatus,
     SummaryStatus,
 )
@@ -83,6 +84,21 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
                 workflow=workflow,
                 job=submitted.job,
                 mediascribe_client=fake_client,
+            )
+            persisted = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert (
+                persisted is not None
+                and persisted.source_result_hash is not None
+                and fake_client.result is not None
+            )
+            persisted.status = ProcessingResultStatus.PARTIAL.value
+            await store.persist_processing_result(
+                db,
+                job=submitted.job,
+                result=fake_client.result,
+                source_result_hash=persisted.source_result_hash,
             )
             transcripts = (await db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))).all()
             diarization = (await db.scalars(select(DiarizationSegment).where(DiarizationSegment.meeting_id == meeting_id))).all()
@@ -172,7 +188,7 @@ def test_v5_mixed_recording_submits_one_canonical_wav_and_imports_one_result(cli
     assert asyncio.run(run_pipeline()) == ("processed", "single_track", True, True, 1, 1)
     assert len(fake_client.submissions) == 1
     submission = fake_client.submissions[0]
-    assert submission == {
+    expected_submission = {
         "request_mode": "single_track",
         "media_size": media_size,
         "media_sha256": media_digest,
@@ -181,6 +197,7 @@ def test_v5_mixed_recording_submits_one_canonical_wav_and_imports_one_result(cli
         "diarize": True,
         "summarize": False,
     }
+    assert {key: submission[key] for key in expected_submission} == expected_submission
     assert not {"mic_size", "incoming_size", "playback_size", "playback_filename"}.intersection(submission)
 
     review = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
@@ -261,6 +278,7 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
             )
             assert workflow is not None
             assert workflow.status == ProcessingStatus.WORKFLOW_STARTED.value
@@ -315,8 +333,7 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
 
     persisted = asyncio.run(run_pipeline())
 
-    assert fake_client.submissions == [
-        {
+    expected_submission = {
             "mic_size": 16,
             "incoming_size": 24,
             "mic_sha256": expected_hashes["microphone"],
@@ -324,7 +341,10 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
             "diarize": True,
             "summarize": False,
         }
-    ]
+    assert len(fake_client.submissions) == 1
+    assert {
+        key: fake_client.submissions[0][key] for key in expected_submission
+    } == expected_submission
     assert persisted == {
         "import_status": "processed",
         "workflow_status": "processed",

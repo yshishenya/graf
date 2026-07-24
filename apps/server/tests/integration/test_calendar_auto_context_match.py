@@ -1409,6 +1409,22 @@ def test_us3_start_decline_and_later_clear_remain_distinct_terminal_states(clien
     assert cleared.json()["context_state"] == "cleared_by_user"
     assert cleared.json()["reason_code"] == "user_cleared"
 
+    declined_detail = client.get(
+        f"/api/v1/cabinet/meetings/{declined_meeting.json()['meeting_id']}",
+        headers=auth_headers(),
+    )
+    cleared_detail = client.get(
+        f"/api/v1/cabinet/meetings/{clear_meeting_id}",
+        headers=auth_headers(),
+    )
+    assert declined_detail.status_code == cleared_detail.status_code == 200
+    assert declined_detail.json()["calendar_context"]["state"] == "declined_by_user"
+    assert declined_detail.json()["calendar_context"]["label"] == (
+        "Вы начали запись без календарного контекста"
+    )
+    assert cleared_detail.json()["calendar_context"]["state"] == "cleared_by_user"
+    assert cleared_detail.json()["calendar_context"]["label"] == "Контекст убран вами"
+
 
 def test_us3_concurrent_owner_selections_keep_one_authoritative_row_and_two_audits(
     client,

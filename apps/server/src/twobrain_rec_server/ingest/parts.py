@@ -1,15 +1,17 @@
 from contextlib import suppress
 from hashlib import sha256
 from io import BytesIO
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from anyio import to_thread
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.upload_stream import BoundedUploadBody
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.models import Meeting as MeetingModel
 from twobrain_rec_server.domain.statuses import TrackRole, UploadSessionStatus
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
@@ -22,10 +24,12 @@ from twobrain_rec_server.ingest.store import (
     load_upload_session_record,
     mark_temporary_upload_object_cleanup_status,
     persist_audit_event,
+    persist_orphan_cleanup_intents,
     persist_temporary_upload_object,
     persist_upload_part,
     persist_upload_session,
 )
+from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 from twobrain_rec_server.storage.object_keys import build_track_object_key
 
 
@@ -33,8 +37,10 @@ async def get_session_for_tenant(
     session_id: UUID,
     tenant_scope: TenantScope,
     db: AsyncSession | None = None,
+    *,
+    for_update: bool = False,
 ) -> UploadSessionRecord:
-    session = await load_upload_session_record(db, session_id)
+    session = await load_upload_session_record(db, session_id, for_update=for_update)
     if session is None:
         session = store_module.store.sessions.get(session_id)
     if session is None or session.workspace_id != tenant_scope.workspace_id:
@@ -44,6 +50,94 @@ async def get_session_for_tenant(
     if session.device_id != tenant_scope.device_id:
         raise ProblemDetail(status=403, code="device_scope_denied", title="Device scope denied")
     return session
+
+
+def _validate_part_against_session(
+    *,
+    settings: Settings,
+    session: UploadSessionRecord,
+    track_role: TrackRole,
+    byte_length: int,
+    byte_offset: int,
+) -> None:
+    """Validate a part against one authoritative session snapshot.
+
+    The caller runs this once before storage I/O and again while holding the
+    Meeting → UploadSession fence.  Keeping the checks in one helper prevents
+    a concurrent part from bypassing the range and package limits at commit.
+    """
+    try:
+        ensure_can_accept_part(session.status)
+    except ValueError as exc:
+        raise ProblemDetail(status=409, code="session_terminal", title="Upload session is terminal") from exc
+    if track_role not in set(session.expected_track_roles):
+        raise ProblemDetail(status=409, code="unexpected_track_role", title="Track role is not expected for this session")
+    if byte_length > settings.max_upload_part_bytes:
+        raise ProblemDetail(status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded")
+    try:
+        validate_track_bytes(settings, byte_length)
+    except IngestLimitViolation as exc:
+        raise ProblemDetail(
+            status=413,
+            code=exc.code,
+            title="Track byte limit exceeded",
+            detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
+        ) from exc
+
+    new_end = byte_offset + byte_length
+    expected_size = session.expected_track_sizes.get(track_role)
+    if expected_size is not None and new_end > expected_size:
+        raise ProblemDetail(status=409, code="expected_track_size_exceeded", title="Upload part exceeds expected track size")
+    accepted_track_bytes = 0
+    accepted_package_bytes = 0
+    for (part_role, _), accepted_part in session.parts.items():
+        accepted_package_bytes += accepted_part.byte_length
+        if part_role != track_role:
+            continue
+        accepted_track_bytes += accepted_part.byte_length
+        accepted_start = accepted_part.byte_offset
+        accepted_end = accepted_start + accepted_part.byte_length
+        if byte_offset < accepted_end and new_end > accepted_start:
+            raise ProblemDetail(status=409, code="range_overlap", title="Upload part overlaps an accepted range")
+    if accepted_track_bytes + byte_length > settings.max_track_bytes:
+        raise ProblemDetail(status=413, code="track_bytes_exceeded", title="Track byte limit exceeded")
+    if accepted_package_bytes + byte_length > settings.max_package_bytes:
+        raise ProblemDetail(status=413, code="package_bytes_exceeded", title="Package byte limit exceeded")
+
+
+async def _delete_or_record_uploaded_object(
+    *,
+    storage: object | None,
+    object_key: str,
+    db: AsyncSession | None,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    reason: str,
+) -> None:
+    if storage is None:
+        return
+    try:
+        delete_object_async = getattr(storage, "delete_object_async", None)
+        if delete_object_async is not None:
+            await delete_object_async(object_key)
+        elif hasattr(storage, "delete_object"):
+            await to_thread.run_sync(storage.delete_object, object_key)
+        else:
+            raise RuntimeError("storage delete unavailable")
+    except Exception:
+        if db is None:
+            raise
+        # The current transaction may contain a lifecycle row lock or an
+        # aborted write.  Roll it back before recording the independent purge
+        # intent so the object key survives the race.
+        await db.rollback()
+        await persist_orphan_cleanup_intents(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            object_keys=[object_key],
+            reason=reason,
+        )
 
 
 async def accept_part(
@@ -79,30 +173,14 @@ async def accept_part(
         close_upload_stream()
         raise ProblemDetail(status=400, code="invalid_byte_offset", title="Byte offset must be non-negative")
     try:
+        # Read a validation snapshot only. The Meeting → Session lock is
+        # acquired after storage I/O, so a slow upload cannot hold lifecycle
+        # rows; the final lock rechecks status and the part idempotency race.
         session = await get_session_for_tenant(session_id, tenant_scope, db)
         await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
     except Exception:
         close_upload_stream()
         raise
-    try:
-        ensure_can_accept_part(session.status)
-    except ValueError as exc:
-        close_upload_stream()
-        raise ProblemDetail(status=409, code="session_terminal", title="Upload session is terminal") from exc
-
-    try:
-        if byte_length > settings.max_upload_part_bytes:
-            close_upload_stream()
-            raise ProblemDetail(status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded")
-        validate_track_bytes(settings, byte_length)
-    except IngestLimitViolation as exc:
-        close_upload_stream()
-        raise ProblemDetail(
-            status=413,
-            code=exc.code,
-            title="Track byte limit exceeded",
-            detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
-        ) from exc
     if actual_sha != content_sha256:
         close_upload_stream()
         raise ProblemDetail(status=400, code="checksum_mismatch", title="Checksum mismatch")
@@ -128,43 +206,41 @@ async def accept_part(
         close_upload_stream()
         raise ProblemDetail(status=409, code=conflict_code, title=conflict_title)
 
-    if track_role not in set(session.expected_track_roles):
+    try:
+        _validate_part_against_session(
+            settings=settings,
+            session=session,
+            track_role=track_role,
+            byte_length=byte_length,
+            byte_offset=byte_offset,
+        )
+    except ProblemDetail:
         close_upload_stream()
-        raise ProblemDetail(status=409, code="unexpected_track_role", title="Track role is not expected for this session")
-
-    new_start = byte_offset
-    new_end = byte_offset + byte_length
-    expected_size = session.expected_track_sizes.get(track_role)
-    if expected_size is not None and new_end > expected_size:
-        close_upload_stream()
-        raise ProblemDetail(status=409, code="expected_track_size_exceeded", title="Upload part exceeds expected track size")
-    accepted_track_bytes = 0
-    accepted_package_bytes = 0
-    for (part_role, _), accepted_part in session.parts.items():
-        accepted_package_bytes += accepted_part.byte_length
-        if part_role == track_role:
-            accepted_track_bytes += accepted_part.byte_length
-            accepted_start = accepted_part.byte_offset
-            accepted_end = accepted_part.byte_offset + accepted_part.byte_length
-            if new_start < accepted_end and new_end > accepted_start:
-                close_upload_stream()
-                raise ProblemDetail(status=409, code="range_overlap", title="Upload part overlaps an accepted range")
-    if accepted_track_bytes + byte_length > settings.max_track_bytes:
-        close_upload_stream()
-        raise ProblemDetail(status=413, code="track_bytes_exceeded", title="Track byte limit exceeded")
-    if accepted_package_bytes + byte_length > settings.max_package_bytes:
-        close_upload_stream()
-        raise ProblemDetail(status=413, code="package_bytes_exceeded", title="Package byte limit exceeded")
+        raise
 
     meeting = store_module.store.meetings[session.meeting_id]
-    object_key = build_track_object_key(
+    deletion_epoch_at_start: int | None = None
+    if db is not None:
+        persisted_meeting = await db.scalar(
+            select(MeetingModel)
+            .where(
+                MeetingModel.id == meeting.id,
+                MeetingModel.workspace_id == tenant_scope.workspace_id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        if persisted_meeting is None or meeting_is_deleted_or_deleting(persisted_meeting):
+            close_upload_stream()
+            raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+        deletion_epoch_at_start = int(persisted_meeting.deletion_epoch or 0)
+    object_key = f"{build_track_object_key(
         organization_id=tenant_scope.organization_id,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting.id,
         upload_session_id=session.id,
         track_role=track_role,
         part_number=part_number,
-    )
+    )}/{uuid4().hex}"
     if storage is not None:
         try:
             ensure_bucket_async = getattr(storage, "ensure_bucket_async", None)
@@ -182,8 +258,166 @@ async def accept_part(
             else:
                 await to_thread.run_sync(storage.put_stream, object_key, upload_stream, byte_length)
         except Exception as exc:
+            try:
+                await _delete_or_record_uploaded_object(
+                    storage=storage,
+                    object_key=object_key,
+                    db=db,
+                    workspace_id=tenant_scope.workspace_id,
+                    meeting_id=meeting.id,
+                    reason="part_storage_write_failed",
+                )
+            except Exception as cleanup_exc:
+                close_upload_stream()
+                raise ProblemDetail(
+                    status=503,
+                    code="cleanup_journal_unavailable",
+                    title="Uploaded object cleanup could not be recorded",
+                ) from cleanup_exc
             close_upload_stream()
             raise ProblemDetail(status=503, code="storage_unavailable", title="Storage unavailable") from exc
+    if db is not None:
+        # The durable mutation fence is Meeting → Session. Object storage is
+        # already complete and uses a unique attempt key, so a losing
+        # concurrent part can be cleaned up without touching the winner.
+        persisted_meeting = await lock_meeting_fence(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            meeting_id=meeting.id,
+        )
+        if (
+            persisted_meeting is None
+            or meeting_is_deleted_or_deleting(persisted_meeting)
+            or int(persisted_meeting.deletion_epoch or 0) != deletion_epoch_at_start
+        ):
+            try:
+                await _delete_or_record_uploaded_object(
+                    storage=storage,
+                    object_key=object_key,
+                    db=db,
+                    workspace_id=tenant_scope.workspace_id,
+                    meeting_id=meeting.id,
+                    reason="part_rejected_after_deletion_epoch_race",
+                )
+            except Exception as cleanup_exc:
+                close_upload_stream()
+                raise ProblemDetail(
+                    status=503,
+                    code="cleanup_journal_unavailable",
+                    title="Uploaded object cleanup could not be recorded",
+                ) from cleanup_exc
+            close_upload_stream()
+            raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+        persisted_session = await load_upload_session_record(db, session.id, for_update=True)
+        if persisted_session is None:
+            try:
+                await _delete_or_record_uploaded_object(
+                    storage=storage,
+                    object_key=object_key,
+                    db=db,
+                    workspace_id=tenant_scope.workspace_id,
+                    meeting_id=meeting.id,
+                    reason="part_rejected_after_session_removed",
+                )
+            except Exception as cleanup_exc:
+                close_upload_stream()
+                raise ProblemDetail(
+                    status=503,
+                    code="cleanup_journal_unavailable",
+                    title="Uploaded object cleanup could not be recorded",
+                ) from cleanup_exc
+            close_upload_stream()
+            raise ProblemDetail(status=404, code="upload_session_not_found", title="Upload session not found")
+        if persisted_session.status not in {
+            UploadSessionStatus.PENDING.value,
+            UploadSessionStatus.UPLOADING.value,
+        }:
+            try:
+                await _delete_or_record_uploaded_object(
+                    storage=storage,
+                    object_key=object_key,
+                    db=db,
+                    workspace_id=tenant_scope.workspace_id,
+                    meeting_id=meeting.id,
+                    reason="part_rejected_after_session_terminalized",
+                )
+            except Exception as cleanup_exc:
+                close_upload_stream()
+                raise ProblemDetail(
+                    status=503,
+                    code="cleanup_journal_unavailable",
+                    title="Uploaded object cleanup could not be recorded",
+                ) from cleanup_exc
+            close_upload_stream()
+            code = "session_expired" if persisted_session.status == UploadSessionStatus.EXPIRED.value else "session_terminal"
+            raise ProblemDetail(status=409, code=code, title="Upload session is terminal")
+        current_existing = persisted_session.parts.get(part_key)
+        if current_existing is not None:
+            try:
+                await _delete_or_record_uploaded_object(
+                    storage=storage,
+                    object_key=object_key,
+                    db=db,
+                    workspace_id=tenant_scope.workspace_id,
+                    meeting_id=meeting.id,
+                    reason="part_rejected_after_concurrent_accept",
+                )
+            except Exception as cleanup_exc:
+                close_upload_stream()
+                raise ProblemDetail(
+                    status=503,
+                    code="cleanup_journal_unavailable",
+                    title="Uploaded object cleanup could not be recorded",
+                ) from cleanup_exc
+            close_upload_stream()
+            if (
+                current_existing.sha256 == content_sha256
+                and current_existing.byte_length == byte_length
+                and current_existing.byte_offset == byte_offset
+            ):
+                return current_existing
+            conflict_code = (
+                "checksum_conflict"
+                if current_existing.byte_offset == byte_offset
+                else "range_conflict"
+            )
+            raise ProblemDetail(
+                status=409,
+                code=conflict_code,
+                title=(
+                    "Checksum conflict"
+                    if conflict_code == "checksum_conflict"
+                    else "Upload part replay conflicts with accepted range"
+                ),
+            )
+        try:
+            _validate_part_against_session(
+                settings=settings,
+                session=persisted_session,
+                track_role=track_role,
+                byte_length=byte_length,
+                byte_offset=byte_offset,
+            )
+        except ProblemDetail:
+            try:
+                await _delete_or_record_uploaded_object(
+                    storage=storage,
+                    object_key=object_key,
+                    db=db,
+                    workspace_id=tenant_scope.workspace_id,
+                    meeting_id=meeting.id,
+                    reason="part_rejected_after_concurrent_range_validation",
+                )
+            except Exception as cleanup_exc:
+                close_upload_stream()
+                raise ProblemDetail(
+                    status=503,
+                    code="cleanup_journal_unavailable",
+                    title="Uploaded object cleanup could not be recorded",
+                ) from cleanup_exc
+            close_upload_stream()
+            raise
+        session = persisted_session
     part = UploadPartRecord(
         track_role=track_role,
         part_number=part_number,
@@ -222,6 +456,30 @@ async def accept_part(
                 failure_reason="db_persistence_failed_after_object_write",
                 last_error=type(exc).__name__,
             )
+        if db is not None:
+            try:
+                await db.rollback()
+                await persist_temporary_upload_object(
+                    db,
+                    session,
+                    part,
+                    cleanup_status="orphaned",
+                    failure_reason="db_persistence_failed_after_object_write",
+                    last_error=type(exc).__name__,
+                    commit=False,
+                )
+                await persist_orphan_cleanup_intents(
+                    db,
+                    workspace_id=tenant_scope.workspace_id,
+                    meeting_id=meeting.id,
+                    object_keys=[object_key],
+                    reason="db_persistence_failed_after_object_write",
+                    commit=False,
+                )
+                await db.commit()
+            except Exception:
+                with suppress(Exception):
+                    await db.rollback()
         raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
     finally:
         close_upload_stream()

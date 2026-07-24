@@ -67,6 +67,22 @@ MEETING_SHARE_SECURITY_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0035_meeting_share_security_hardening.py"
 )
+CONTENT_REGENERATION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0032_content_regeneration_lineage.py"
+)
+DELETION_PURGE_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0033_deletion_purge_journal.py"
+)
+LIFECYCLE_RECONCILIATION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0035_content_lifecycle_reconciliation.py"
+)
+LEGACY_LINEAGE_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0039_legacy_lineage_backfill.py"
+)
 SHARE_INVITATION_AUTH_LOOKUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0036_share_invitation_auth_lookup.py"
@@ -103,6 +119,10 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + MEETING_SPEAKER_MIGRATION.read_text(encoding="utf-8")
         + RECORDING_WORKFLOW_MIGRATION.read_text(encoding="utf-8")
         + MEETING_SHARE_SECURITY_MIGRATION.read_text(encoding="utf-8")
+        + CONTENT_REGENERATION_MIGRATION.read_text(encoding="utf-8")
+        + DELETION_PURGE_MIGRATION.read_text(encoding="utf-8")
+        + LIFECYCLE_RECONCILIATION_MIGRATION.read_text(encoding="utf-8")
+        + LEGACY_LINEAGE_MIGRATION.read_text(encoding="utf-8")
         + SHARE_INVITATION_AUTH_LOOKUP_MIGRATION.read_text(encoding="utf-8")
         + AUTH_RATE_LIMIT_MIGRATION.read_text(encoding="utf-8")
     )
@@ -124,6 +144,8 @@ def test_migration_and_contract_share_maintenance_operations() -> None:
         + PLAYBACK_NORMALIZATION_MIGRATION.read_text(encoding="utf-8")
         + PRODUCTION_SMOKE_SETUP_MIGRATION.read_text(encoding="utf-8")
         + PROMPT_OPTIMIZATION_MAINTENANCE_MIGRATION.read_text(encoding="utf-8")
+        + LIFECYCLE_RECONCILIATION_MIGRATION.read_text(encoding="utf-8")
+        + LEGACY_LINEAGE_MIGRATION.read_text(encoding="utf-8")
     )
 
     for operation_name in sorted(RLS_ALLOWED_MAINTENANCE_OPERATIONS):

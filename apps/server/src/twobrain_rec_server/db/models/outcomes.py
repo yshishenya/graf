@@ -1,7 +1,17 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -42,15 +52,39 @@ class SummaryTemplate(Base):
 class MeetingOutcomeSet(Base):
     __tablename__ = "meeting_outcome_sets"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_meeting_outcome_sets_candidate_generator_config",
+            "workspace_id",
+            "meeting_id",
+            text(
+                "coalesce(media_revision_id, "
+                "'00000000-0000-0000-0000-000000000000'::uuid)"
+            ),
+            "processing_result_id",
+            "generator_version",
+            text("coalesce(generator_config_hash, '')"),
+            "candidate_id",
+            unique=True,
+            postgresql_where=text("candidate_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_meeting_outcome_sets_legacy_generator_config",
             "workspace_id",
             "meeting_id",
             "media_revision_id",
             "processing_result_id",
             "generator_version",
-            name="uq_meeting_outcome_sets_current_generator",
+            "generator_config_hash",
+            unique=True,
+            postgresql_where=text("candidate_id IS NULL"),
         ),
         Index("ix_meeting_outcome_sets_meeting_status", "workspace_id", "meeting_id", "status"),
+        Index(
+            "ix_meeting_outcome_sets_source_fingerprint",
+            "workspace_id",
+            "meeting_id",
+            "source_fingerprint",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -58,6 +92,7 @@ class MeetingOutcomeSet(Base):
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     processing_result_id: Mapped[UUID] = mapped_column(ForeignKey("processing_results.id"), nullable=False)
+    candidate_id: Mapped[UUID | None] = mapped_column()
     status: Mapped[str] = mapped_column(String(64), default="queued")
     summary_state: Mapped[str] = mapped_column(String(64), default="processing")
     key_points_state: Mapped[str] = mapped_column(String(64), default="processing")
@@ -70,7 +105,11 @@ class MeetingOutcomeSet(Base):
     source_kind: Mapped[str] = mapped_column(String(64), default="extractive_generator")
     generator_kind: Mapped[str] = mapped_column(String(64), default="deterministic_extractive")
     generator_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    generator_config_hash: Mapped[str | None] = mapped_column(String(64))
     source_result_hash: Mapped[str | None] = mapped_column(String(128))
+    source_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    deletion_epoch_at_start: Mapped[int | None] = mapped_column(BigInteger)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     content_hash: Mapped[str | None] = mapped_column(String(128))
     template_id: Mapped[UUID | None] = mapped_column(ForeignKey("summary_templates.id"))
     template_key: Mapped[str | None] = mapped_column(String(120))
@@ -136,6 +175,11 @@ class MeetingOutcomeGenerationAttempt(Base):
             "generator_version",
         ),
         UniqueConstraint("candidate_id", name="uq_generation_attempt_candidate_id"),
+        UniqueConstraint(
+            "workspace_id",
+            "idempotency_key",
+            name="uq_generation_attempt_workspace_idempotency_key",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -147,6 +191,7 @@ class MeetingOutcomeGenerationAttempt(Base):
     status: Mapped[str] = mapped_column(String(64), default="queued")
     provider_kind: Mapped[str] = mapped_column(String(64), default="deterministic_extractive")
     generator_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    generator_config_hash: Mapped[str | None] = mapped_column(String(64))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
@@ -154,6 +199,13 @@ class MeetingOutcomeGenerationAttempt(Base):
     failure_source: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     candidate_id: Mapped[UUID | None] = mapped_column()
+    idempotency_key: Mapped[str | None] = mapped_column(String(240))
+    request_intent: Mapped[str] = mapped_column(String(64), default="automatic_baseline")
+    source_result_hash: Mapped[str | None] = mapped_column(String(128))
+    source_fingerprint: Mapped[str | None] = mapped_column(String(128))
+    deletion_epoch_at_start: Mapped[int | None] = mapped_column(BigInteger)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    display_format_name: Mapped[str | None] = mapped_column(String(120))
     source_result_id: Mapped[UUID | None] = mapped_column(ForeignKey("processing_results.id"))
     requested_by_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("user_identities.id")

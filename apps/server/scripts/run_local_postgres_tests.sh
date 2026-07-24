@@ -70,11 +70,19 @@ for start_attempt in 1 2; do
       sleep 0.25
     done
   fi
-  if [[ "$postgres_ready" == true ]] && docker exec "$postgres_container" \
-    psql --set=ON_ERROR_STOP=1 --username=twobrain_rec --dbname=postgres \
-    --command "create database \"${rls_database}\"" >/dev/null; then
-    postgres_initialized=true
-    break
+  if [[ "$postgres_ready" == true ]]; then
+    # pg_isready can report the socket during the short initdb handoff while
+    # PostgreSQL is still shutting down its bootstrap server. Retry the actual
+    # DDL probe before discarding an otherwise healthy disposable container.
+    for _db_attempt in {1..20}; do
+      if docker exec "$postgres_container" \
+        psql --set=ON_ERROR_STOP=1 --username=twobrain_rec --dbname=postgres \
+        --command "create database \"${rls_database}\"" >/dev/null; then
+        postgres_initialized=true
+        break 2
+      fi
+      sleep 0.25
+    done
   fi
   if [[ "$container_started" == true ]]; then
     docker rm --force --volumes "$postgres_container" >/dev/null 2>&1 || true

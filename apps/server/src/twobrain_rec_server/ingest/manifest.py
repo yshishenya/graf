@@ -39,6 +39,14 @@ def _expected_roles_for_source_kind(source_kind: MediaRevisionSourceKind | str) 
         return MIXED_RECORDING_V5_FINALIZE_ROLES
     if source_kind_value == MediaRevisionSourceKind.MANUAL_UPLOAD.value:
         return SINGLE_TRACK_FINALIZE_ROLES
+    if source_kind_value in {
+        MediaRevisionSourceKind.LOCAL_TRIM.value,
+        MediaRevisionSourceKind.REPLACE.value,
+        MediaRevisionSourceKind.RESTORE.value,
+        MediaRevisionSourceKind.REPROCESS.value,
+        MediaRevisionSourceKind.VIDEO_CAPTURE.value,
+    }:
+        return SINGLE_TRACK_FINALIZE_ROLES
     raise ManifestValidationError("unsupported media revision source kind")
 
 

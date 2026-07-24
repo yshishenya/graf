@@ -387,7 +387,7 @@ async def lock_shareable_meeting(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if meeting is None or (
+    if meeting is None or meeting.deleted_at is not None or (
         meeting.deletion_state or DeletionState.NONE.value
     ) != DeletionState.NONE.value:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
@@ -462,7 +462,9 @@ async def decide_meeting_access(
 ) -> AccessDecision:
     if meeting.workspace_id != workspace_id:
         return _denied_decision()
-    if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+    if meeting.deleted_at is not None or (
+        meeting.deletion_state or DeletionState.NONE.value
+    ) != DeletionState.NONE.value:
         return AccessDecision(
             state="deleted",
             label="Deleted",

@@ -439,6 +439,20 @@ def test_remote_deploy_rollback_never_deletes_099_truth_to_reach_old_code() -> N
     )
 
 
+def test_remote_rollback_discovers_operations_profile_services() -> None:
+    from pathlib import Path
+
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+
+    assert "compose=(docker compose --profile operations -f infra/docker-compose.yml)" in runtime
+    assert '"${compose[@]}" config --services' in runtime
+    assert "rec-maintenance" in runtime
+    assert "rec-reprocess-maintenance" in runtime
+    assert "maintenance_container" in runtime
+    assert "maintenance_restart_count" in runtime
+    assert "{{.State.Status}}" in runtime
+
+
 def test_previous_safe_processing_fallback_executes_verified_single_network_restore(
     tmp_path: Path,
 ) -> None:

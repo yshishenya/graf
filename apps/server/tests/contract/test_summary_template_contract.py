@@ -56,5 +56,7 @@ def test_candidate_request_has_optimistic_revision_and_no_observability_controls
         "template_id",
         "template_version",
         "expected_current_outcome_set_id",
+        "request_intent",
+        "request_intent_id",
     }
     assert not any("langfuse" in name or "temporal" in name for name in request["properties"])

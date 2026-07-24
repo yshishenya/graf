@@ -16,6 +16,7 @@ from twobrain_rec_server.cabinet.egress import artifact_egress_states, review_pl
 from twobrain_rec_server.cabinet.queries import latest_processing_result
 from twobrain_rec_server.db.models import Meeting, TrackArtifact
 from twobrain_rec_server.domain.statuses import DeletionState, RetentionPolicyState
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 
 
 class AdminFileAccessOutcome(StrEnum):
@@ -233,7 +234,7 @@ async def admin_file_summary(
             "download": decision.allowed and bool(available_downloads),
             "export": decision.allowed and package_available,
             "delete": context.actor_role in {"owner", "admin"}
-            and meeting.deletion_state in {None, "none"},
+            and not meeting_is_deleted_or_deleting(meeting),
         }
     return payload
 
@@ -285,7 +286,7 @@ async def _decision_for_meeting(
         actor_workspace_id=context.workspace_id,
         meeting_workspace_id=meeting.workspace_id,
         artifact_available=artifact_count > 0,
-        deletion_active=deletion_state != DeletionState.NONE.value
+        deletion_active=meeting_is_deleted_or_deleting(meeting)
         and not retention_or_lifecycle_block
         and not post_egress_limit,
         retention_or_lifecycle_block=retention_or_lifecycle_block,
