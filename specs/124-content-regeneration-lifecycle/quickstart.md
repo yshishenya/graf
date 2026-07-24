@@ -222,6 +222,12 @@ containers.
   `0040_merge_content_regen_share` and a regression proving an existing
   Feature 125 head upgrades to it. A new dry-run must be recorded after the
   recovery branch is updated to the integrated commit.
+- Integrated release dry-run (`infra/scripts/cd-remote.sh --dry-run --branch
+  codex/124-content-regeneration-lifecycle-recovery`, 2026-07-24): **PASS**
+  for pinned SHA `b4110f5ec81ca007d6be6a3fe610f00b86ef544e`; remote branch sync
+  points to the same SHA. The dry-run emitted the complete backup, restore,
+  migration-head, runtime-readiness, smoke, dispatch and rollback step plan;
+  execute remains gated on explicit release approval.
 
 ## Release and production gate
 
