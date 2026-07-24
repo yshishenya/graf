@@ -66,6 +66,117 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    func testMeetingDetailBackReturnsToListWhenWebHistoryIsNotAUsableMeetingRoute() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let detail = configuration.meetingDetailURL(meetingId: "meeting-033")
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        let external = try XCTUnwrap(URL(string: "https://accounts.example/login"))
+
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: detail,
+                backURL: login,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy
+            ),
+            .meetingsList
+        )
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: detail,
+                backURL: external,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy
+            ),
+            .meetingsList
+        )
+    }
+
+    func testMeetingDetailBackPreservesSafeMeetingHistoryAndListBackDisablesWithoutHistory() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let detail = configuration.meetingDetailURL(meetingId: "meeting-033")
+
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: detail,
+                backURL: configuration.meetingsURL(),
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy
+            ),
+            .history
+        )
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: configuration.meetingsURL(),
+                backURL: nil,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy
+            ),
+            .unavailable
+        )
+    }
+
+    func testExpiredSessionBackCannotRestoreProtectedCabinetDocument() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        let detail = configuration.meetingDetailURL(meetingId: "meeting-033")
+
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: login,
+                backURL: detail,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy,
+                sessionExpired: true
+            ),
+            .unavailable
+        )
+    }
+
+    func testOnlySafeGetDocumentsCanEnterNativeHistory() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let list = configuration.meetingsURL()
+        var getRequest = URLRequest(url: list)
+        getRequest.httpMethod = "GET"
+        var postRequest = URLRequest(url: list)
+        postRequest.httpMethod = "POST"
+
+        XCTAssertTrue(EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(getRequest, routePolicy: policy))
+        XCTAssertFalse(EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(postRequest, routePolicy: policy))
+    }
+
+    func testAuthCallbackCannotEnterNativeHistoryOrBackStack() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let callback = try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/auth/callback/yandex?code=one-time-code"))
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        var callbackRequest = URLRequest(url: callback)
+        callbackRequest.httpMethod = "GET"
+
+        XCTAssertFalse(EmbeddedCabinetNavigationPolicy.isSafeDocument(callback, routePolicy: policy))
+        XCTAssertFalse(EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(callbackRequest, routePolicy: policy))
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: login,
+                backURL: callback,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy,
+                sessionExpired: true
+            ),
+            .unavailable
+        )
+    }
+
+    func testNativeNavigationControlsExposeStableAccessibilityIdentifiers() {
+        XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationBack, "desktop-cabinet-navigation-back")
+        XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationForward, "desktop-cabinet-navigation-forward")
+        XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationReload, "desktop-cabinet-navigation-reload")
+    }
+
     @MainActor
     func testEmbeddedWebViewDoesNotReloadInitialRouteAfterInPageNavigation() throws {
         let initial = URLRequest(url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings")))
