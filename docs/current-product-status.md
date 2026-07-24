@@ -23,17 +23,21 @@ metadata-only evidence остаются подробной историей ре
   branch is release-ready only for this gated-disabled behavior.
 - Validation: focused Share/access/workflow matrix 48 passed; separate
   wrong-account continuation and desktop share-route checks 4 passed;
-  `infra/scripts/ci-local.sh` passed macOS (609 tests), PostgreSQL parallel
-  (2,230 passed, 1 skipped) and strict (41 passed, 1 skipped), lint, compile,
-  RLS boundary, compose config and deployment evidence scan. No production
-  public-link or external-delivery flag was enabled.
+  after synchronizing with `master`, `infra/scripts/ci-local.sh` passed macOS
+  (624 tests), PostgreSQL parallel (2,248 passed, 1 skipped) and strict
+  (41 passed, 1 skipped), lint, compile, RLS boundary, compose config and
+  deployment evidence scan. No production public-link or external-delivery
+  flag was enabled.
 - Production deploy: PASS for code SHA
-  `0594a5ca35de74ebea0efca0f0db85b6f37b2c4f`; migration head
+  `7a1c2ed13827cc42e35544b6f5da955785eb4e4f`; migration head
   `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
   probe, runtime/worker readiness, production smoke and automatic dispatch
   passed. Post-deploy automatic retry, backfill, range and normalization
   maintenance remain separate required follow-up checks; sharing remains in
   the gated-disabled rollout described above.
+- macOS local artifact `2026.07.24.2` прошёл production-build packaging и
+  `codesign --verify --deep --strict`; использован local-only signer, без
+  Developer ID и notarization.
 
 ## Validation update (2026-07-23, Feature 124 release/production)
 

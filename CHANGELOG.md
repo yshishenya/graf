@@ -28,6 +28,9 @@
 ### Исправлено
 - Устранён мёртвый внешний email-flow: при выключенной доставке UI не делает
   запрос приглашения, а сервер возвращает безопасный код политики.
+- После синхронизации с актуальным `master` canonical OpenAPI-контракт
+  дополнен всеми runtime `SummaryCandidateResponse.reason_code`; drift-тест
+  снова проходит.
 
 ### Безопасность
 - Добавлены meeting-bound search с экранированием LIKE-wildcards, bounded
@@ -49,14 +52,14 @@
   расширения вирусного rollout.
 
 ### Операции
-- Production deploy gated-disabled кандидата прошёл для SHA
-  `0594a5ca35de74ebea0efca0f0db85b6f37b2c4f`: backup/restore rehearsal,
+- Production deploy gated-disabled кандидата прошёл для merge SHA
+  `7a1c2ed13827cc42e35544b6f5da955785eb4e4f`: backup/restore rehearsal,
   migration head `0035_meeting_share_security`, disposable RLS probe,
   runtime/worker readiness и production smoke — PASS. External email, public
   links, native Contacts и referral attribution остаются выключенными до
   delivery, identity, abuse, privacy/legal, retention и deletion evidence
   gates.
-- Локальный macOS artifact `2026.07.24.1` собран с `GRAF Local Code Signing`;
+- Локальный macOS artifact `2026.07.24.2` собран с `GRAF Local Code Signing`;
   package unsigned, Developer ID и notarization не заявляются.
 
 ## [2026.07.23.17] - 2026-07-23

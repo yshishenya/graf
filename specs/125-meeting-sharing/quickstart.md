@@ -162,19 +162,23 @@ referral attribution as part of this release.
 
 - Focused Feature 125 share/access/workflow matrix: 48 passed; the separate
   wrong-account continuation and desktop share-route check: 4 passed.
-- `swift test --package-path apps/macos`: 609 passed, 0 failed;
+- `swift test --package-path apps/macos`: 624 passed, 0 failed;
   `ContractValidation`: pass; legacy-audio guard: pass.
-- `infra/scripts/ci-local.sh`: pass — macOS 609 passed; PostgreSQL 2,230
-  parallel + 41 strict passed, 2 skipped; Ruff, Python compile, RLS boundary,
-  compose config and deployment evidence scan passed.
+- `infra/scripts/ci-local.sh`: pass after synchronizing with `master` — macOS
+  624 passed; PostgreSQL 2,248 parallel + 41 strict passed, 2 skipped; Ruff,
+  Python compile, RLS boundary, compose config and deployment evidence scan
+  passed. The runtime OpenAPI drift found during merge was fixed by adding the
+  five missing `SummaryCandidateResponse.reason_code` enum values and the
+  focused drift test passed.
 - CD dry-run and execute: pass for branch `125-meeting-sharing` and deployed
-  code SHA `0594a5ca35de74ebea0efca0f0db85b6f37b2c4f`; migration head
+  merge SHA `7a1c2ed13827cc42e35544b6f5da955785eb4e4f`; migration head
   `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
   probe, runtime/worker readiness, production smoke and automatic dispatch
   passed. Automatic retry, backfill, range and normalization maintenance are
   recorded by the deploy gate as required post-deploy follow-up checks.
-- macOS local artifact `2026.07.24.1` was built as
+- macOS local artifact `2026.07.24.2` was built as
   `apps/macos/.build/installer/graf-local.pkg` with `GRAF Local Code Signing`;
+  SHA-256 is `da4c07bbfa52b737a4b851844ae28d02940fab7a937c9e0e3e8a1f3fda272d40`;
   the package is unsigned and has no Developer ID or notarization evidence.
 - Synthetic browser/embedded contract coverage includes both `/meetings/.../share`
   and `/desktop/.../share`; no meeting content, live credentials or real
