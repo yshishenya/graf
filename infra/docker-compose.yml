@@ -301,6 +301,7 @@ services:
           memory: 1g
     networks:
       - rec-private
+      - postal-network
 
   rec-prompt-optimization-worker:
     profiles: ["operations"]

@@ -456,6 +456,8 @@ def test_production_api_autostarts_processing_and_worker_can_read_processing_sec
         "python",
         "/app/scripts/verify_processing_worker_ready.py",
     ]
+    assert worker["networks"] == ["rec-private", "postal-network"]
+    assert compose["networks"]["postal-network"]["external"] is True
 
 
 def test_private_group_runtime_secrets_are_only_mounted_by_group_enabled_services() -> None:

@@ -149,6 +149,10 @@ server-side contact index.
 - [X] T058 [P] Show linked calendar candidates on initial empty search without creating grants or consent side effects in `apps/server/src/twobrain_rec_server/cabinet/access.py` and `apps/server/tests/integration/test_meeting_share_links.py`
 - [X] T059 Run focused PostgreSQL/RLS/auth/Share checks, full `infra/scripts/ci-local.sh`, and repeat security, product, accessibility and Ponytail review; record only synthetic evidence in `specs/125-meeting-sharing/quickstart.md`
 
+## Phase 11 — Production delivery hotfix
+
+- [ ] T060 Attach `rec-processing-worker` to the external Postal network and add a Compose regression assertion in `infra/docker-compose.yml` and `apps/server/tests/integration/test_compose_hardening.py`; rerun the Feature 125 quickstart, repository gate and production smoke without sending a live test email
+
 ## Dependencies and execution order
 
 ```text
@@ -165,7 +169,9 @@ T029–T036 (US4 internal/calendar)
    ├── T042–T045 (US5 gated referral)
    └── T046–T048 (US4 gated address-book/provider)
    ↓
-T049–T052 (polish and repository gate)
+   T049–T052 (polish and repository gate)
+   ↓
+   T053–T060 (post-review hardening and production delivery hotfix)
 ```
 
 Parallel examples:
