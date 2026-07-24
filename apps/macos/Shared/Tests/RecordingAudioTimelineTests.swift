@@ -76,16 +76,9 @@ final class RecordingAudioTimelineTests: XCTestCase {
         XCTAssertEqual(timeline.metrics.outputFrameCount, 0)
     }
 
-    func testAdmitsNativeSourcePresentationTimesOnlyAfterStableHostObservation() throws {
+    func testAdmitsNativeSourcePresentationTimesWithJitteryHostObservation() throws {
         let collector = TimelineCollector()
-        let timeline = RecordingAudioTimeline(
-            configuration: .init(
-                reorderWindowFrames: 0,
-                maximumSourceClockObservationLatencySeconds: 0.1,
-                maximumSourceClockObservationJitterSeconds: 0.02
-            ),
-            frameSink: collector.append
-        )
+        let timeline = RecordingAudioTimeline(configuration: .init(reorderWindowFrames: 0), frameSink: collector.append)
 
         try timeline.append(
             source: .microphone,
@@ -102,7 +95,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
                 samples: Array(repeating: 0.2, count: 480),
                 at: 100,
                 clockDomain: .sourcePresentationTime,
-                observedHostTimeSeconds: 100.015
+                observedHostTimeSeconds: 100.50
             )
         )
         try timeline.append(
@@ -111,7 +104,7 @@ final class RecordingAudioTimelineTests: XCTestCase {
                 samples: Array(repeating: 0.4, count: 480),
                 at: 100.01,
                 clockDomain: .sourcePresentationTime,
-                observedHostTimeSeconds: 100.022
+                observedHostTimeSeconds: 100.01
             )
         )
         try timeline.finish()
@@ -121,35 +114,18 @@ final class RecordingAudioTimelineTests: XCTestCase {
         XCTAssertEqual(collector.samples[480], 0.2, accuracy: 0.0001)
     }
 
-    func testRejectsNativeSourcePresentationTimeWithoutStableHostObservation() throws {
+    func testAdmitsNativeSourcePresentationTimeWithoutCallbackObservation() throws {
+        let collector = TimelineCollector()
         let timeline = RecordingAudioTimeline(
-            configuration: .init(
-                reorderWindowFrames: 0,
-                maximumSourceClockObservationLatencySeconds: 0.1,
-                maximumSourceClockObservationJitterSeconds: 0.01
-            )
+            configuration: .init(reorderWindowFrames: 0),
+            frameSink: collector.append
         )
-
-        XCTAssertThrowsError(
-            try timeline.append(
-                source: .microphone,
-                batch: batch(
-                    samples: Array(repeating: 0.1, count: 480),
-                    at: 100,
-                    clockDomain: .sourcePresentationTime
-                )
-            )
-        ) { error in
-            XCTAssertEqual(error as? RecordingAudioTimelineError, .sourceClockObservationMissing)
-        }
-
         try timeline.append(
             source: .microphone,
             batch: batch(
                 samples: Array(repeating: 0.1, count: 480),
                 at: 100,
-                clockDomain: .sourcePresentationTime,
-                observedHostTimeSeconds: 100.01
+                clockDomain: .sourcePresentationTime
             )
         )
         try timeline.append(
@@ -157,23 +133,140 @@ final class RecordingAudioTimelineTests: XCTestCase {
             batch: batch(
                 samples: Array(repeating: 0.1, count: 480),
                 at: 100,
-                clockDomain: .sourcePresentationTime,
-                observedHostTimeSeconds: 100.01
+                clockDomain: .sourcePresentationTime
             )
         )
-        XCTAssertThrowsError(
+        try timeline.append(
+            source: .microphone,
+            batch: batch(
+                samples: Array(repeating: 0.1, count: 480),
+                at: 100.01,
+                clockDomain: .sourcePresentationTime,
+                observedHostTimeSeconds: 100.51
+            )
+        )
+        try timeline.finish()
+
+        XCTAssertEqual(timeline.metrics.outputFrameCount, 960)
+        XCTAssertEqual(collector.samples.count, 960)
+    }
+
+    func testReorderedCallbackDoesNotMovePTSMarker() throws {
+        let collector = TimelineCollector()
+        let timeline = RecordingAudioTimeline(frameSink: collector.append)
+
+        try timeline.append(
+            source: .microphone,
+            batch: batch(
+                samples: Array(repeating: 0.4, count: 480),
+                at: 10,
+                clockDomain: .sourcePresentationTime
+            )
+        )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.2, count: 480),
+                at: 10,
+                clockDomain: .sourcePresentationTime
+            )
+        )
+        try timeline.append(
+            source: .microphone,
+            batch: batch(
+                samples: Array(repeating: 0.8, count: 480),
+                at: 10.01,
+                clockDomain: .sourcePresentationTime,
+                observedHostTimeSeconds: 10.51
+            )
+        )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.2, count: 480),
+                at: 10.01,
+                clockDomain: .sourcePresentationTime,
+                observedHostTimeSeconds: 10.02
+            )
+        )
+        try timeline.finish()
+
+        XCTAssertEqual(timeline.metrics.outputFrameCount, 960)
+        XCTAssertEqual(collector.samples[0], 0.3, accuracy: 0.0001)
+        XCTAssertEqual(collector.samples[479], 0.3, accuracy: 0.0001)
+        XCTAssertEqual(collector.samples[480], 0.5, accuracy: 0.0001)
+    }
+
+    func testDelayedSourceBatchArrivingWithinFiveHundredMillisecondsIsNotLate() throws {
+        let timeline = RecordingAudioTimeline()
+
+        try timeline.append(
+            source: .microphone,
+            batch: batch(
+                samples: Array(repeating: 0.4, count: 480),
+                at: 0,
+                clockDomain: .sourcePresentationTime
+            )
+        )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.2, count: 480),
+                at: 0,
+                clockDomain: .sourcePresentationTime
+            )
+        )
+
+        for index in 1...60 {
             try timeline.append(
                 source: .microphone,
                 batch: batch(
-                    samples: Array(repeating: 0.1, count: 480),
-                    at: 100.01,
-                    clockDomain: .sourcePresentationTime,
-                    observedHostTimeSeconds: 100.08
+                    samples: Array(repeating: 0.4, count: 480),
+                    at: Double(index) * 0.01,
+                    clockDomain: .sourcePresentationTime
                 )
             )
-        ) { error in
-            XCTAssertEqual(error as? RecordingAudioTimelineError, .sourceClockMappingUnstable)
         }
+
+        XCTAssertNoThrow(
+            try timeline.append(
+                source: .systemAudio,
+                batch: batch(
+                    samples: Array(repeating: 0.2, count: 480),
+                    at: 0.01,
+                    clockDomain: .sourcePresentationTime,
+                    observedHostTimeSeconds: 0.51
+                )
+            )
+        )
+        XCTAssertNoThrow(try timeline.finish())
+    }
+
+    func testSmallPTSDriftRemainsBoundedAndMeasurable() throws {
+        let timeline = RecordingAudioTimeline(
+            configuration: .init(
+                reorderWindowFrames: 9_600,
+                maximumKnownGapSeconds: 0.1
+            )
+        )
+
+        for index in 0..<100 {
+            let microphoneSeconds = Double(index) * 0.01
+            let systemSeconds = microphoneSeconds + 0.0001
+            try timeline.append(
+                source: .microphone,
+                batch: batch(samples: Array(repeating: 0.4, count: 480), at: microphoneSeconds)
+            )
+            try timeline.append(
+                source: .systemAudio,
+                batch: batch(samples: Array(repeating: 0.2, count: 480), at: systemSeconds)
+            )
+        }
+        try timeline.finish()
+
+        XCTAssertGreaterThan(timeline.metrics.gapFramesBySource[.systemAudio, default: 0], 0)
+        XCTAssertGreaterThan(timeline.metrics.outputFrameCount, 48_000)
+        XCTAssertLessThanOrEqual(timeline.metrics.outputFrameCount, 49_000)
     }
 
     func testRouteGenerationOrDroppedSourceFailsClosed() throws {

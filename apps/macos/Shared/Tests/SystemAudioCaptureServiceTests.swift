@@ -107,6 +107,40 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         _ = try await service.stop()
     }
 
+    func testSplitIncomingBatchPreservesPTSAndCallbackObservation() async throws {
+        let service = SystemAudioCaptureService(runtime: FakeSystemAudioRuntime())
+        _ = try await service.start(
+            sessionId: "timestamped-system-audio-split",
+            permissionState: .granted,
+            scopeApproval: approvedScope()
+        )
+        let original = RecordingAudioBatch(
+            samples: Array(repeating: 0.25, count: 960),
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: RecordingAudioPresentationTimestamp(
+                seconds: 321.25,
+                clockDomain: .sourcePresentationTime,
+                observedHostTimeSeconds: 321.75
+            ),
+            discontinuity: .none,
+            routeGeneration: 7
+        )
+
+        await service.appendIncomingBatch(original, observedAt: Date(timeIntervalSince1970: 11))
+        let first = try XCTUnwrap(service.incomingSampleSource.readTimestampedBatch(maximumFrameCount: 480))
+        let remainder = try XCTUnwrap(service.incomingSampleSource.readTimestampedBatch(maximumFrameCount: 480))
+
+        XCTAssertEqual(first.presentationTime, original.presentationTime)
+        XCTAssertEqual(remainder.presentationTime.seconds, 321.26, accuracy: 0.000001)
+        XCTAssertEqual(remainder.presentationTime.clockDomain, .sourcePresentationTime)
+        XCTAssertEqual(remainder.presentationTime.observedHostTimeSeconds, 321.75)
+        XCTAssertEqual(remainder.format, original.format)
+        XCTAssertEqual(remainder.routeGeneration, 7)
+        XCTAssertEqual(first.samples.count, 480)
+        XCTAssertEqual(remainder.samples.count, 480)
+        _ = try await service.stop()
+    }
+
     func testStopUsesBufferedRuntimeStatsWhenSamplesBypassActorAppend() async throws {
         let sampleSource = BufferedLocalRecordingSampleSource()
         let service = SystemAudioCaptureService(
