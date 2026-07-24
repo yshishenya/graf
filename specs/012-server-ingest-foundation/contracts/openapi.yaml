@@ -1423,6 +1423,129 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/meetings/{meeting_id}/media-revisions/upload-sessions:
+    post:
+      tags:
+      - ingest
+      summary: Create Media Revision Session
+      operationId: create_media_revision_session_api_v1_meetings__meeting_id__media_revisions_upload_sessions_post
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMediaRevisionUploadSessionRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaRevisionUploadSessionResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/upload-sessions/{session_id}/tracks/{track_role}/parts/{part_number}:
     put:
       tags:
@@ -5277,6 +5400,75 @@ paths:
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/files/{meeting_id}/orphan-purge-retry:
+    post:
+      tags:
+      - admin
+      summary: Retry Admin Orphan Purge Journal
+      operationId: retryAdminOrphanPurgeJournal
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Retryadminorphanpurgejournal
         '422':
           description: Validation Error
           content:
@@ -9794,6 +9986,39 @@ components:
       required:
       - artifact_classes
       title: CreateExportPackageRequest
+    CreateMediaRevisionUploadSessionRequest:
+      properties:
+        local_media_revision_id:
+          type: string
+          maxLength: 300
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Local Media Revision Id
+        source_kind:
+          $ref: '#/components/schemas/MediaRevisionSourceKind'
+          default: reprocess
+        duration_seconds:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Duration Seconds
+        expected_tracks:
+          items:
+            $ref: '#/components/schemas/TrackRole'
+          type: array
+          title: Expected Tracks
+        expected_track_sizes:
+          additionalProperties:
+            type: integer
+          propertyNames:
+            $ref: '#/components/schemas/TrackRole'
+          type: object
+          title: Expected Track Sizes
+      additionalProperties: false
+      type: object
+      required:
+      - local_media_revision_id
+      - duration_seconds
+      title: CreateMediaRevisionUploadSessionRequest
     CreateMeetingRequest:
       properties:
         local_recording_id:
@@ -9963,6 +10188,18 @@ components:
             format: uuid
           - type: 'null'
           title: Expected Current Outcome Set Id
+        request_intent:
+          type: string
+          maxLength: 64
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Request Intent
+          default: manual_format
+        request_intent_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Request Intent Id
       additionalProperties: false
       type: object
       required:
@@ -11191,6 +11428,18 @@ components:
           title: Track Sha256 By Role
       type: object
       title: MediaRevisionSummary
+    MediaRevisionUploadSessionResponse:
+      properties:
+        media_revision:
+          $ref: '#/components/schemas/MediaRevisionSummary'
+        upload_session:
+          $ref: '#/components/schemas/UploadSessionResponse'
+      type: object
+      required:
+      - media_revision
+      - upload_session
+      title: MediaRevisionUploadSessionResponse
+      description: Durable reprocess upload handle pinned to one immutable revision.
     MeetingAccessResponse:
       properties:
         meeting_id:
@@ -14061,6 +14310,12 @@ components:
             type: integer
           - type: 'null'
           title: Version
+        template_version:
+          anyOf:
+          - minimum: 1.0
+            type: integer
+          - type: 'null'
+          title: Template Version
       type: object
       required:
       - state
@@ -14181,6 +14436,10 @@ components:
           - questions
           - evidence
           title: Category
+        sequence:
+          type: integer
+          minimum: 0.0
+          title: Sequence
         text:
           type: string
           title: Text
@@ -14233,6 +14492,55 @@ components:
       - candidate_id
       - outcome_set_id
       title: SummaryCandidatePreviewResponse
+    SummaryCandidateProvenance:
+      properties:
+        source_result_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Source Result Id
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
+        template_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Template Id
+        source_result_hash:
+          anyOf:
+          - type: string
+            maxLength: 128
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Source Result Hash
+        template_key:
+          anyOf:
+          - type: string
+            maxLength: 120
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Template Key
+        template_version:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Template Version
+        generator_version:
+          anyOf:
+          - type: string
+            maxLength: 120
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Generator Version
+      type: object
+      title: SummaryCandidateProvenance
     SummaryCandidateResponse:
       properties:
         candidate_id:
@@ -14247,6 +14555,9 @@ components:
           - accepted
           - closed
           - failed
+          - blocked
+          - stale
+          - expired
           title: State
         current_outcome_set_id:
           anyOf:
@@ -14328,6 +14639,29 @@ components:
             - retry
           - type: 'null'
           title: Next Action
+        format_name:
+          anyOf:
+          - type: string
+            maxLength: 120
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Format Name
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        preview:
+          items:
+            $ref: '#/components/schemas/SummaryCandidatePreviewItem'
+          type: array
+          title: Preview
+        provenance:
+          anyOf:
+          - $ref: '#/components/schemas/SummaryCandidateProvenance'
+          - type: 'null'
+          title: Provenance
       type: object
       required:
       - candidate_id

@@ -46,6 +46,7 @@ from twobrain_rec_server.db.models import (
     RecordingCalendarContextLink,
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 
 SELECTABLE_CALENDAR_VISIBILITIES = {
     "available",
@@ -552,9 +553,12 @@ async def link_meeting_calendar_context(
             Meeting.created_by_user_id == tenant_scope.user_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    if meeting_is_deleted_or_deleting(meeting):
+        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
     choice = await _owner_event_choice_data(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -579,6 +583,7 @@ async def link_meeting_calendar_context(
             RecordingCalendarContextLink.meeting_id == meeting_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     link = existing or RecordingCalendarContextLink(
         workspace_id=tenant_scope.workspace_id,
@@ -664,9 +669,12 @@ async def unlink_meeting_calendar_context(
             Meeting.created_by_user_id == tenant_scope.user_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    if meeting_is_deleted_or_deleting(meeting):
+        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
     link = await db.scalar(
         select(RecordingCalendarContextLink)
         .where(
@@ -674,6 +682,7 @@ async def unlink_meeting_calendar_context(
             RecordingCalendarContextLink.meeting_id == meeting_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if link is None:
         link = RecordingCalendarContextLink(

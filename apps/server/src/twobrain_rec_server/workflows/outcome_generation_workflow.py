@@ -4,10 +4,20 @@ import json
 from datetime import timedelta
 from hashlib import sha256
 from typing import Any
+from string import ascii_letters, digits
 
 TRANSCRIPT_CHUNK_BYTES = 196_608
 SERIALIZED_PAYLOAD_BYTES = 262_144
 TRANSCRIPT_MAX_BYTES = 8_388_608
+_SAFE_FAILURE_CODE_CHARS = frozenset(ascii_letters + digits + "_:-.")
+
+
+def _safe_failure_code(exc: BaseException) -> str:
+    """Keep only bounded machine codes when projecting a workflow failure."""
+    value = exc.args[0] if exc.args and isinstance(exc.args[0], str) else ""
+    if 0 < len(value) <= 120 and set(value) <= _SAFE_FAILURE_CODE_CHARS:
+        return value
+    return "summary_generation_retries_exhausted"
 
 
 class TranscriptSnapshotError(ValueError):
@@ -287,10 +297,15 @@ if workflow is not None:
                     retry_policy=outcome_generation_retry_policy(),
                 )
                 raise
-            except Exception:
+            except Exception as exc:
+                failure_code = _safe_failure_code(exc)
                 await workflow.execute_activity(
                     "finalize_outcome_generation_failure_activity",
-                    payload,
+                    {
+                        **payload,
+                        "failure_code": failure_code,
+                        "failure_reason": failure_code,
+                    },
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=outcome_generation_retry_policy(),
                 )

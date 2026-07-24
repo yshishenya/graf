@@ -59,6 +59,15 @@ review: clean worktree, pinned SHA, backup/restore rehearsal, RLS gate,
 production approval, then `--execute` and smoke evidence. Product release uses
 CalVer `vYYYY.MM.DD.N` with Russian release notes.
 
+**Implementation status**: The revision-scoped upload/session API, immutable
+lineage, candidate/current outcome contract, source/deletion fences, generator
+provenance, durable dispatch/purge reconciliation and owner cabinet recovery
+paths are implemented. Automatic baseline generation intentionally uses the
+built-in `graf-auto-v1` template and its pinned version/config hash in this
+slice. Personal/workspace template defaults are explicit/manual only; changing
+template, model or generator configuration never silently regenerates an
+accepted outcome. Full history/compare/revert UI remains a follow-up.
+
 **Target Platform**: Linux server/worker and PostgreSQL/MinIO/Temporal runtime,
 authenticated browser cabinet and the same server-rendered surface embedded in
 the macOS app. Native macOS capture is a non-regression boundary.
@@ -108,6 +117,9 @@ per meeting without meeting-wide uniqueness collisions or unbounded UI polling.
   122; history/revert UI is explicitly deferred.
 - **Ponytail**: PASS. Reuse existing models/helpers and add only the smallest
   lineage, dispatch and preview boundaries needed to make the promises true.
+  Closeout review found no removable dependency, speculative abstraction or
+  standard-library replacement without weakening correctness or evidence;
+  net simplification opportunity: 0 lines.
 
 **After Phase 1 design**: re-check all gates against migrations, contracts,
 deletion evidence and the quickstart before tasks/analyze. Any unresolved

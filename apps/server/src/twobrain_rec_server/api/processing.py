@@ -57,6 +57,7 @@ async def trigger_processing_pickup(
         temporal_client=getattr(request.app.state, "temporal_client", None),
         tenant_scope=tenant_scope,
     )
+    await db.commit()
     return ProcessingPickupResponse(
         accepted=result.accepted,
         started_count=result.started_count,

@@ -17,11 +17,19 @@ from twobrain_rec_server.processing.lifecycle import classify_mediascribe_error
 
 
 class MediaScribeClientError(RuntimeError):
-    def __init__(self, reason_code: str, *, retryable: bool, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        reason_code: str,
+        *,
+        retryable: bool,
+        status_code: int | None = None,
+        egress_state: str = "not_sent",
+    ) -> None:
         super().__init__(reason_code)
         self.reason_code = reason_code
         self.retryable = retryable
         self.status_code = status_code
+        self.egress_state = egress_state
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +64,7 @@ class MediaScribeClient:
         incoming_file: BinaryIO,
         diarize: bool,
         summarize: bool,
+        idempotency_key: str | None = None,
     ) -> MediaScribeSubmitResponse:
         payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
         files = {
@@ -67,6 +76,7 @@ class MediaScribeClient:
             "/v1/audio/transcriptions/dual-track",
             data=payload,
             files=files,
+            idempotency_key=idempotency_key,
         )
         external_job_id = str(data.get("id") or data.get("job_id") or "")
         if not external_job_id:
@@ -85,6 +95,7 @@ class MediaScribeClient:
         summarize: bool,
         media_content_type: str | None = None,
         media_filename: str | None = None,
+        idempotency_key: str | None = None,
     ) -> MediaScribeSubmitResponse:
         payload = {"diarize": str(diarize).lower(), "summarize": str(summarize).lower()}
         media_type = _safe_media_content_type(media_content_type, _read_media_probe(media_file))
@@ -94,6 +105,7 @@ class MediaScribeClient:
             "/v1/audio/transcriptions",
             data=payload,
             files=files,
+            idempotency_key=idempotency_key,
         )
         external_job_id = str(data.get("id") or data.get("job_id") or "")
         if not external_job_id:
@@ -109,16 +121,21 @@ class MediaScribeClient:
         job = data.get("job")
         if not isinstance(job, dict):
             job = {}
+        raw_status = data.get("status") or job.get("status")
+        if not isinstance(raw_status, str) or not raw_status:
+            raise _malformed_response_error(egress_state="not_sent")
+        reported_job_id = data.get("id") or data.get("job_id") or job.get("id")
+        if reported_job_id is not None and str(reported_job_id) != external_job_id:
+            raise _malformed_response_error(egress_state="not_sent")
         try:
-            status = MediaScribeJobStatus(str(data.get("status") or job.get("status") or MediaScribeJobStatus.UPLOADED.value))
+            status = MediaScribeJobStatus(raw_status)
         except ValueError as exc:
-            raise _malformed_response_error() from exc
+            raise _malformed_response_error(egress_state="not_sent") from exc
         error_code = data.get("error_code") or job.get("error_code")
         error_origin = data.get("error_origin") or job.get("error_origin")
         reason_code = data.get("reason_code") or job.get("reason_code") or error_code
-        reported_job_id = data.get("id") or data.get("job_id") or job.get("id") or external_job_id
         return MediaScribePollResponse(
-            external_job_id=str(reported_job_id),
+            external_job_id=external_job_id,
             status=status,
             reason_code=str(reason_code) if reason_code else None,
             error_code=str(error_code) if error_code else None,
@@ -132,9 +149,18 @@ class MediaScribeClient:
         except ValidationError as exc:
             raise _malformed_response_error() from exc
 
-    async def _request_json(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        idempotency_key: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         timeout = httpx.Timeout(self.timeout_seconds)
         headers = {"X-API-Key": self.api_key}
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
         try:
             async with httpx.AsyncClient(
                 base_url=self.base_url,
@@ -145,28 +171,53 @@ class MediaScribeClient:
                 response = await client.request(method, path, **kwargs)
         except httpx.TimeoutException as exc:
             classification = classify_mediascribe_error(None, timeout=True)
-            raise MediaScribeClientError(classification.reason_code, retryable=True) from exc
+            raise MediaScribeClientError(
+                classification.reason_code,
+                retryable=True,
+                egress_state="unknown",
+            ) from exc
         except httpx.RequestError as exc:
             classification = classify_mediascribe_error(None)
-            raise MediaScribeClientError(classification.reason_code, retryable=True) from exc
+            raise MediaScribeClientError(
+                classification.reason_code,
+                retryable=True,
+                egress_state="unknown",
+            ) from exc
         if response.status_code >= 400:
             classification = classify_mediascribe_error(response.status_code)
             raise MediaScribeClientError(
                 classification.reason_code,
                 retryable=classification.retryable,
                 status_code=response.status_code,
+                egress_state=(
+                    "response_received"
+                    if response.status_code in {408, 429} or response.status_code >= 500
+                    else "not_sent"
+                ),
             )
         try:
             data = response.json()
         except ValueError as exc:
-            raise MediaScribeClientError("mediascribe_malformed_response", retryable=True) from exc
+            raise MediaScribeClientError(
+                "mediascribe_malformed_response",
+                retryable=True,
+                egress_state="unknown" if method == "POST" else "not_sent",
+            ) from exc
         if not isinstance(data, dict):
-            raise MediaScribeClientError("mediascribe_malformed_response", retryable=True)
+            raise MediaScribeClientError(
+                "mediascribe_malformed_response",
+                retryable=True,
+                egress_state="unknown" if method == "POST" else "not_sent",
+            )
         return data
 
 
-def _malformed_response_error() -> MediaScribeClientError:
-    return MediaScribeClientError("mediascribe_malformed_response", retryable=True)
+def _malformed_response_error(*, egress_state: str = "unknown") -> MediaScribeClientError:
+    return MediaScribeClientError(
+        "mediascribe_malformed_response",
+        retryable=True,
+        egress_state=egress_state,
+    )
 
 
 _MEDIA_TYPE_EXTENSION_BY_CONTENT_TYPE = {
@@ -244,31 +295,78 @@ def _normalize_result_payload(data: dict[str, Any], *, external_job_id: str) -> 
     job = data.get("job")
     if not isinstance(job, dict):
         job = {}
-    transcript_payload = _list_payload(data.get("transcript"))
-    transcript_status = data.get("transcript_status") or ("available" if transcript_payload else "unavailable")
+    if not any(
+        key in data
+        for key in (
+            "job",
+            "id",
+            "job_id",
+            "external_job_id",
+            "transcript_status",
+            "transcript",
+            "diarization",
+            "summary_status",
+            "summary",
+        )
+    ):
+        raise _malformed_response_error(egress_state="not_sent")
+    reported_job_id = data.get("external_job_id") or data.get("id") or data.get("job_id") or job.get("id")
+    if reported_job_id is not None and str(reported_job_id) != external_job_id:
+        raise _malformed_response_error(egress_state="not_sent")
+    transcript_payload = _list_payload(data.get("transcript"), field_name="transcript")
+    diarization_payload = _list_payload(data.get("diarization"), field_name="diarization")
+    transcript_status = data.get("transcript_status")
+    if transcript_status is None:
+        if not transcript_payload or "transcript" not in data:
+            raise _malformed_response_error(egress_state="not_sent")
+        transcript_status = "available"
     transcript_reason = data.get("transcript_reason")
+    if transcript_status == "available" and not transcript_payload:
+        raise _malformed_response_error(egress_state="not_sent")
+    if transcript_status == "unavailable" and (
+        transcript_payload or transcript_reason != "no_recognizable_speech"
+    ):
+        raise _malformed_response_error(egress_state="not_sent")
     normalized_transcript = (
         [_normalize_transcript_segment(index, item) for index, item in enumerate(transcript_payload)]
         if transcript_status == "available"
         else []
     )
     return {
-        "external_job_id": data.get("external_job_id") or data.get("id") or job.get("id") or external_job_id,
+        "external_job_id": external_job_id,
         "language": data.get("language") or job.get("language"),
         "transcript_status": transcript_status,
         "transcript_reason": transcript_reason,
         "failure_reason": transcript_reason if transcript_status == "unavailable" else None,
         "transcript": normalized_transcript,
-        "diarization": [_normalize_diarization_segment(index, item) for index, item in enumerate(_list_payload(data.get("diarization")))],
+        "diarization": [_normalize_diarization_segment(index, item) for index, item in enumerate(diarization_payload)],
         "summary_status": data.get("summary_status") or ("available" if data.get("summary") else "not_requested"),
         "result_version": data.get("result_version") or 1,
     }
 
 
-def _list_payload(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
+def _list_payload(value: Any, *, field_name: str) -> list[dict[str, Any]]:
+    if value is None:
         return []
-    return [item for item in value if isinstance(item, dict)]
+    if not isinstance(value, list):
+        raise _malformed_response_error(egress_state="not_sent")
+    if any(not isinstance(item, dict) for item in value):
+        raise _malformed_response_error(egress_state="not_sent")
+    for item in value:
+        _validate_segment_payload(item, field_name=field_name)
+    return value
+
+
+def _validate_segment_payload(item: dict[str, Any], *, field_name: str) -> None:
+    if not {"start", "start_seconds"}.intersection(item) or not {
+        "end",
+        "end_seconds",
+    }.intersection(item):
+        raise _malformed_response_error(egress_state="not_sent")
+    if not isinstance(item.get("text"), str) or not item.get("text", "").strip():
+        raise _malformed_response_error(egress_state="not_sent")
+    if field_name == "diarization" and not {"speaker_label", "speaker"}.intersection(item):
+        raise _malformed_response_error(egress_state="not_sent")
 
 
 def _normalize_transcript_segment(sequence: int, item: dict[str, Any]) -> dict[str, Any]:

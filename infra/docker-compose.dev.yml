@@ -60,6 +60,34 @@ services:
       rec-minio:
         condition: service_healthy
 
+  rec-maintenance:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../apps/server/.env.example
+    environment:
+      TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_api
+      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_api_dev_secret
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
+    command: ["python", "-m", "twobrain_rec_server.workflows.maintenance_worker"]
+    depends_on:
+      rec-migrate:
+        condition: service_completed_successfully
+      rec-temporal:
+        condition: service_healthy
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+
   rec-media-worker:
     build:
       context: ..

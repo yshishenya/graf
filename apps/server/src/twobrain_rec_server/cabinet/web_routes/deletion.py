@@ -119,6 +119,7 @@ async def meeting_deletion_request_page(
         actor_user_id=principal.user_id,
         device_id=principal.session_device_id,
         confirmation_boundary=confirmation_boundary,
+        local_buffer_expiry_days=request.app.state.settings.retention_local_buffer_expiry_days,
         storage=storage,
         temporal_client=getattr(request.app.state, "temporal_client", None),
     )

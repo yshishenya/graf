@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-23
 
-**Status**: Ready for implementation after Spec Kit analysis
+**Status**: Implementation complete; validation/release closeout in progress
 
 **Input**: User request: «Продумать всю бизнес-логику повторной генерации и версий транскрипта, диаризации и итогов, включая автоматические и ручные сценарии, сохранение/замену версий, пользовательские состояния, системную и техническую реализацию, затем доработать, провести повторные review и полный release/deploy closeout».
 

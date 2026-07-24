@@ -81,7 +81,6 @@ from twobrain_rec_server.domain.media_filenames import (
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
 from twobrain_rec_server.domain.statuses import (
-    DeletionState,
     MediaRevisionSourceKind,
     MeetingStatus,
     ProcessingAvailabilityStatus,
@@ -89,7 +88,8 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
     SummaryStatus,
 )
-from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY
+from twobrain_rec_server.outcomes.templates import built_in_template_for_version
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 
 if TYPE_CHECKING:
     from twobrain_rec_server.db.models import WorkspaceProviderLinkState
@@ -1621,7 +1621,7 @@ def review_status(
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
 ) -> MeetingReviewStatus:
-    if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+    if meeting_is_deleted_or_deleting(meeting):
         return "deleted_future"
     has_transcript = transcript_available(result)
     has_diarization = diarization_available(result)
@@ -1750,7 +1750,12 @@ def summary_template_slot(
         if outcome_set is not None and outcome_set.template_key
         else default_template_key
     )
-    definition = BUILT_IN_BY_KEY.get(template_key)
+    definition = built_in_template_for_version(
+        template_key,
+        outcome_set.template_version
+        if outcome_set is not None and outcome_set.template_version is not None
+        else 1,
+    )
     return SlotState(
         state="available",
         label=(
@@ -1761,6 +1766,11 @@ def summary_template_slot(
         reason=template_key,
         template_id=outcome_set.template_id if outcome_set is not None else None,
         version=(
+            outcome_set.template_version
+            if outcome_set is not None and outcome_set.template_version is not None
+            else definition.version if definition is not None else None
+        ),
+        template_version=(
             outcome_set.template_version
             if outcome_set is not None and outcome_set.template_version is not None
             else definition.version if definition is not None else None
@@ -1935,7 +1945,7 @@ def processing_state(
         diarization_available=has_diarization,
         summary_available=summary_available,
         updated_at=(workflow.updated_at if workflow is not None else meeting.updated_at),
-        next_action=next_action_for_status(status),
+        next_action=next_action_for_status(status, reason_code=reason_code),
     )
 
 
@@ -1957,12 +1967,22 @@ def stage_for_status(status: str, lifecycle_status: str) -> str | None:
     return None
 
 
-def next_action_for_status(status: str) -> str:
+def next_action_for_status(status: str, *, reason_code: str | None = None) -> str:
     if status in {"processing", "submitted", "uploading"}:
         return "wait"
     if status == "blocked":
         return "contact_operator"
     if status == "failed":
+        if reason_code in {
+            "mediascribe_timeout",
+            "mediascribe_rate_limited",
+            "mediascribe_server_error",
+            "mediascribe_submission_in_progress",
+            "mediascribe_result_not_ready",
+            "processing_temp_storage_unavailable",
+            "unknown_dependency_status",
+        }:
+            return "retry_future"
         return "contact_operator"
     if status == "local_only":
         return "open_desktop_queue"
@@ -1975,9 +1995,23 @@ def reason_label(reason_code: str | None) -> str | None:
     return {
         "no_recognizable_speech": "MediaScribe обработал запись, но транскрипт не создан: распознаваемая речь не найдена.",
         "invalid_audio_payload": "Файл записи не является декодируемым аудио или поврежден.",
-        "mediascribe_validation_failed": "Transcription service could not accept this media file.",
-        "blocked_config": "Processing is blocked by server configuration.",
-    }.get(reason_code, "Processing needs operator review.")
+        "mediascribe_validation_failed": "Сервис транскрипции отклонил файл: проверьте формат и повторите обработку.",
+        "mediascribe_payload_too_large": "Файл записи превышает допустимый размер.",
+        "mediascribe_auth_failed": "Сервис транскрипции отклонил доступ; повторить можно после проверки настройки сервера.",
+        "mediascribe_malformed_response": "Сервис транскрипции вернул некорректный ответ. Повторите обработку; если ошибка повторится, обратитесь к оператору.",
+        "mediascribe_timeout": "Сервис транскрипции не ответил вовремя. Повторная попытка будет выполнена автоматически.",
+        "mediascribe_rate_limited": "Сервис транскрипции временно ограничил запросы. Повторите позже.",
+        "mediascribe_server_error": "Сервис транскрипции временно недоступен. Повторите позже.",
+        "mediascribe_retries_exhausted": "Сервис транскрипции не восстановился после нескольких попыток. Повторите позже или обратитесь к оператору.",
+        "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
+        "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
+        "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
+        "blocked_mediascribe_submission_outcome_unknown": "Не удалось подтвердить результат отправки записи. Повторная отправка остановлена во избежание дубликата; обратитесь к оператору.",
+        "blocked_missing_artifacts": "Исходный файл записи недоступен. Повторите синхронизацию или загрузите запись заново.",
+        "blocked_config": "Обработка заблокирована настройкой сервера. Обратитесь к оператору.",
+        "processing_temp_storage_unavailable": "На сервере временно недоступно место для обработки. Повторите позже.",
+        "unknown_dependency_status": "Сервис транскрипции вернул неизвестный статус. Повторите позже.",
+    }.get(reason_code, "Обработка требует проверки оператором.")
 
 
 def transcript_state(

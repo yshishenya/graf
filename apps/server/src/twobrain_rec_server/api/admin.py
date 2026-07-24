@@ -51,7 +51,11 @@ from twobrain_rec_server.cabinet.queries import latest_processing_result
 from twobrain_rec_server.db.models import Meeting
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
-from twobrain_rec_server.deletion.service import deletion_report_response, request_meeting_deletion
+from twobrain_rec_server.deletion.service import (
+    deletion_report_response,
+    request_meeting_deletion,
+    retry_orphan_purge_journals,
+)
 from twobrain_rec_server.domain.statuses import DeletionReasonCode, DeletionRequestSource
 from twobrain_rec_server.meeting_detection.admin_review import (
     add_diagnostic_only_draft,
@@ -730,6 +734,7 @@ async def create_admin_meeting_deletion(
         actor_user_id=principal.user_id,
         device_id=device.device_id,
         confirmation_boundary=BOUNDED_DELETE_COPY,
+        local_buffer_expiry_days=request.app.state.settings.retention_local_buffer_expiry_days,
         request_source=DeletionRequestSource.ADMIN,
         reason_code=payload.reason_code,
         storage=storage,
@@ -753,6 +758,28 @@ async def get_admin_meeting_deletion_report(
     context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
     meeting = await _load_admin_meeting(db, context.workspace_id, meeting_id)
     return await deletion_report_response(db, meeting=meeting)
+
+
+@router.post(
+    "/files/{meeting_id}/orphan-purge-retry",
+    status_code=202,
+    operation_id="retryAdminOrphanPurgeJournal",
+    dependencies=[WebCSRFDependency],
+)
+async def retry_admin_orphan_purge_journal(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
+    db: AsyncSession | None = DbDependency,
+) -> dict[str, object]:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="admin_store_unavailable", title="Admin store unavailable"
+        )
+    context = await load_admin_workspace_context(db, tenant_scope=tenant_scope, principal=principal)
+    meeting = await _load_admin_meeting(db, context.workspace_id, meeting_id)
+    return await retry_orphan_purge_journals(db, meeting=meeting, storage=storage)
 
 
 @router.get("/usage", operation_id="getAdminUsage")

@@ -150,15 +150,13 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
         def connect(self) -> ConnectionContext:
             return ConnectionContext(self.version)
 
-    await require_schema_head(Engine("0035_meeting_share_security"))
-    with pytest.raises(RuntimeError, match="schema head is unavailable"):
-        await require_schema_head(Engine("0034_share_grant_token_replay"))
+    await require_schema_head(Engine("0039_legacy_lineage_backfill"))
     with pytest.raises(RuntimeError, match="schema head is unavailable"):
         await require_schema_head(Engine("0021_media_revision_upload_contract"))
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0035_meeting_share_security"
+    assert packaged_schema_head() == "0039_legacy_lineage_backfill"
 
 
 @pytest.mark.anyio

@@ -96,10 +96,12 @@ from twobrain_rec_server.domain.media_filenames import MEDIA_FILENAME_EXTENSION_
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionSourceKind,
+    MediaRevisionStatus,
+    ProcessingResultStatus,
     UploadSessionStatus,
 )
 from twobrain_rec_server.outcomes.service import load_outcome_items
-from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY
+from twobrain_rec_server.outcomes.templates import built_in_template_for_version
 
 WEB_STATUS_FILTER_GROUPS: dict[MeetingReviewStatus, frozenset[MeetingReviewStatus]] = {
     "processing": frozenset({"local_only", "uploading", "processing", "submitted"}),
@@ -268,6 +270,7 @@ async def list_cabinet_meetings(
     )
     query = select(Meeting).where(
         Meeting.workspace_id == workspace_id,
+        Meeting.deleted_at.is_(None),
         or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == DeletionState.NONE.value),
     )
     if (
@@ -893,12 +896,11 @@ async def get_cabinet_meeting_review(
     default_summary_template_name = None
     workspace = await db.scalar(select(Workspace).where(Workspace.id == workspace_id))
     if workspace is not None:
-        default_definition = BUILT_IN_BY_KEY.get(workspace.default_summary_template_key)
-        if (
-            workspace.default_summary_template_id is None
-            and default_definition is not None
-            and default_definition.version == workspace.default_summary_template_version
-        ):
+        default_definition = built_in_template_for_version(
+            workspace.default_summary_template_key,
+            workspace.default_summary_template_version,
+        )
+        if workspace.default_summary_template_id is None and default_definition is not None:
             default_summary_template_key = default_definition.key
         elif workspace.default_summary_template_id is not None:
             personal_default = await db.scalar(
@@ -1234,8 +1236,11 @@ async def _latest_workflow(
         ProcessingWorkflow.workspace_id == workspace_id,
         ProcessingWorkflow.meeting_id == meeting_id,
     )
-    if media_revision_id is not None:
-        query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
+    query = query.where(
+        ProcessingWorkflow.media_revision_id == media_revision_id
+        if media_revision_id is not None
+        else ProcessingWorkflow.media_revision_id.is_(None)
+    )
     return await db.scalar(query.order_by(ProcessingWorkflow.updated_at.desc()))
 
 
@@ -1249,11 +1254,19 @@ async def _latest_result(
     query = select(ProcessingResult).where(
         ProcessingResult.workspace_id == workspace_id,
         ProcessingResult.meeting_id == meeting_id,
+        ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
     )
-    if media_revision_id is not None:
-        query = query.where(ProcessingResult.media_revision_id == media_revision_id)
+    query = query.where(
+        ProcessingResult.media_revision_id == media_revision_id
+        if media_revision_id is not None
+        else ProcessingResult.media_revision_id.is_(None)
+    )
     return await db.scalar(
-        query.order_by(ProcessingResult.imported_at.desc(), ProcessingResult.created_at.desc())
+        query.order_by(
+            nullslast(ProcessingResult.imported_at.desc()),
+            ProcessingResult.created_at.desc(),
+            ProcessingResult.id.desc(),
+        )
     )
 
 
@@ -1263,11 +1276,37 @@ async def _latest_media_revision(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> MediaRevision | None:
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == meeting_id,
+        )
+    )
+    if meeting is not None and meeting.current_outcome_set_id is not None:
+        published_outcome = await current_outcome_set(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            processing_result_id=None,
+        )
+        if published_outcome is None or published_outcome.media_revision_id is None:
+            return None
+        return await db.scalar(
+            select(MediaRevision).where(
+                MediaRevision.id == published_outcome.media_revision_id,
+                MediaRevision.workspace_id == workspace_id,
+                MediaRevision.meeting_id == meeting_id,
+                MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+                MediaRevision.immutable.is_(True),
+            )
+        )
     return await db.scalar(
         select(MediaRevision)
         .where(
             MediaRevision.workspace_id == workspace_id,
             MediaRevision.meeting_id == meeting_id,
+            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+            MediaRevision.immutable.is_(True),
         )
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
     )
@@ -1312,6 +1351,29 @@ async def latest_processing_result(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> ProcessingResult | None:
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == meeting_id,
+        )
+    )
+    if meeting is not None and meeting.current_outcome_set_id is not None:
+        published_outcome = await current_outcome_set(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            processing_result_id=None,
+        )
+        if published_outcome is None:
+            return None
+        return await db.scalar(
+            select(ProcessingResult).where(
+                ProcessingResult.id == published_outcome.processing_result_id,
+                ProcessingResult.workspace_id == workspace_id,
+                ProcessingResult.meeting_id == meeting_id,
+                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+            )
+        )
     media_revision = await _latest_media_revision(
         db, workspace_id=workspace_id, meeting_id=meeting_id
     )

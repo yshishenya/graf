@@ -15,7 +15,7 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from anyio import to_thread
-from sqlalchemy import and_, exists, func, or_, select, update
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +40,7 @@ from twobrain_rec_server.ingest.media_revisions import (
     authoritative_track_roles,
     source_fingerprint_sha256,
 )
+from twobrain_rec_server.ingest.store import persist_orphan_cleanup_intents
 from twobrain_rec_server.normalization.audit import add_normalization_audit_event
 from twobrain_rec_server.normalization.media import (
     MAX_DECODE_PROGRESS_BYTES,
@@ -90,6 +91,7 @@ from twobrain_rec_server.normalization.statuses import (
     reason_class,
     retry_failure_schedule,
 )
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 from twobrain_rec_server.storage.object_keys import build_playback_attempt_object_key
 from twobrain_rec_server.workflows.temporal_client import (
     playback_normalization_workflow_id,
@@ -820,6 +822,7 @@ async def _load_or_create_backfill_run(
             PlaybackBackfillRun.profile_version == CANONICAL_PROFILE_VERSION,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if run is not None:
         return run
@@ -841,6 +844,7 @@ async def _load_or_create_backfill_run(
                 PlaybackBackfillRun.profile_version == CANONICAL_PROFILE_VERSION,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if run is None:
             raise
@@ -1166,6 +1170,42 @@ async def inventory_playback_backfill_page(
     )
 
     for row in page:
+        locked_meeting = await db.scalar(
+            select(Meeting)
+            .where(Meeting.workspace_id == workspace_id, Meeting.id == row.meeting_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if locked_meeting is None or meeting_is_deleted_or_deleting(locked_meeting):
+            continue
+        locked_revision = await db.scalar(
+            select(MediaRevision)
+            .where(
+                MediaRevision.workspace_id == workspace_id,
+                MediaRevision.id == row.media_revision_id,
+                MediaRevision.meeting_id == row.meeting_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if locked_revision is None or locked_revision.status != MediaRevisionStatus.ACCEPTED.value:
+            continue
+        existing_job = await db.scalar(
+            select(PlaybackNormalizationJob)
+            .where(
+                PlaybackNormalizationJob.workspace_id == workspace_id,
+                PlaybackNormalizationJob.media_revision_id == row.media_revision_id,
+                PlaybackNormalizationJob.profile_version == CANONICAL_PROFILE_VERSION,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if existing_job is not None:
+            # The page query is intentionally a cheap snapshot. A finalize or
+            # another backfill worker may have created the unique profile job
+            # before this row acquired its Meeting fence; treat that winner as
+            # already inventoried instead of retrying the whole page.
+            continue
         manifest_sha256 = str(row.manifest_sha256)
         expected_sha256_by_role = dict(row.track_sha256_by_role or {})
         fingerprint = source_fingerprint_sha256(
@@ -1539,6 +1579,7 @@ async def record_normalization_failure(
         select(PlaybackNormalizationJob)
         .where(PlaybackNormalizationJob.id == job_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if job is None:
         raise ValueError("normalization job not found")
@@ -1568,6 +1609,7 @@ async def record_normalization_failure(
         .order_by(PlaybackNormalizationAttempt.attempt_number.desc())
         .limit(1)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if attempt is not None:
         ensure_attempt_transition(AttemptState(attempt.state), AttemptState.CLEANUP_PENDING)
@@ -1692,6 +1734,7 @@ async def activate_due_normalization_retry(
         select(PlaybackNormalizationJob)
         .where(PlaybackNormalizationJob.id == job_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if job is None or job.state != JobState.RETRY_WAIT.value or job.next_attempt_at is None:
         return False
@@ -1784,6 +1827,7 @@ async def cleanup_normalization_attempt(
         select(PlaybackNormalizationAttempt)
         .where(PlaybackNormalizationAttempt.id == attempt_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if attempt is None or attempt.state == AttemptState.PUBLISHED.value:
         return False
@@ -1809,6 +1853,8 @@ async def cleanup_normalization_attempt(
         attempt.state = AttemptState.CLEANUP_PENDING.value
     attempt.cleanup_reason = attempt.cleanup_reason or cleanup_reason
     object_key = attempt.storage_object_key
+    workspace_id = attempt.workspace_id
+    meeting_id = attempt.meeting_id
     await db.commit()
 
     try:
@@ -1816,10 +1862,18 @@ async def cleanup_normalization_attempt(
         await _delete_storage_object(storage, object_key)
     except Exception:
         await db.rollback()
+        await persist_orphan_cleanup_intents(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            object_keys=(object_key,),
+            reason="normalization_cleanup_failed",
+        )
         pending = await db.scalar(
             select(PlaybackNormalizationAttempt)
             .where(PlaybackNormalizationAttempt.id == attempt_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if pending is not None and pending.state in {
             AttemptState.CLEANUP_PENDING.value,
@@ -1843,6 +1897,7 @@ async def cleanup_normalization_attempt(
         select(PlaybackNormalizationAttempt)
         .where(PlaybackNormalizationAttempt.id == attempt_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if refreshed is None or refreshed.state == AttemptState.PUBLISHED.value:
         return False
@@ -1889,6 +1944,7 @@ async def recover_expired_normalization_job(
         select(PlaybackNormalizationJob)
         .where(PlaybackNormalizationJob.id == job_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if (
         job is None
@@ -1922,19 +1978,54 @@ async def recover_missing_ready_normalization_job(
     require_database_context(db, allowed_context_kinds=frozenset({"worker"}))
 
     current_time = now or datetime.now(UTC)
-    job = await db.scalar(
+    snapshot = await db.scalar(
         select(PlaybackNormalizationJob)
         .where(PlaybackNormalizationJob.id == job_id)
+        .execution_options(populate_existing=True)
+    )
+    if snapshot is None:
+        return False
+
+    # Deletion and publication share Meeting as the lifecycle fence. Lock it
+    # before the normalization job and its canonical artifact so a late ready
+    # verifier cannot resurrect a purged derivative.
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(
+            Meeting.workspace_id == snapshot.workspace_id,
+            Meeting.id == snapshot.meeting_id,
+        )
         .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if meeting is None or meeting_is_deleted_or_deleting(meeting):
+        await db.rollback()
+        return False
+    job = await db.scalar(
+        select(PlaybackNormalizationJob)
+        .where(
+            PlaybackNormalizationJob.workspace_id == snapshot.workspace_id,
+            PlaybackNormalizationJob.id == job_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if job is None or job.state != JobState.READY.value:
+        await db.rollback()
         return False
-    canonical = (
-        await db.get(TrackArtifact, job.canonical_track_artifact_id)
-        if job.canonical_track_artifact_id is not None
-        else None
-    )
-    if canonical is not None:
+    canonical = None
+    if job.canonical_track_artifact_id is not None:
+        canonical = await db.scalar(
+            select(TrackArtifact)
+            .where(
+                TrackArtifact.workspace_id == job.workspace_id,
+                TrackArtifact.meeting_id == job.meeting_id,
+                TrackArtifact.id == job.canonical_track_artifact_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    if canonical is not None and canonical.status not in {"purged", "deleted"}:
         _supersede_playback_artifact(canonical)
     ensure_job_transition(
         JobState.READY,
@@ -1988,7 +2079,7 @@ async def _prepare_attempt(
     )
     if meeting is None:
         raise RuntimeError("source_missing")
-    if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+    if meeting_is_deleted_or_deleting(meeting):
         raise NormalizationExecutionDeferred("meeting deletion blocks normalization")
     job = await db.scalar(
         select(PlaybackNormalizationJob)
@@ -2355,23 +2446,16 @@ async def _execute_normalization_job(
             )
         _ensure_normalized_output_matches_file(output_path, output)
 
-        # Deletion locks the same meeting row before it enumerates and removes
-        # object keys. Keep that lock through the upload and durable state
-        # transition so a completed deletion can never be followed by a late
-        # worker upload. The no-op UPDATE retains the PostgreSQL write lock.
-        lock_result = await db.execute(
-            update(Meeting)
+        # Fence ownership before storage I/O, then commit to release the
+        # lifecycle locks. A deletion may race the upload; the post-upload
+        # Meeting → Job → Attempt fence below deletes the late object instead
+        # of holding a database lock across an unbounded storage call.
+        meeting = await db.scalar(
+            select(Meeting)
             .where(
                 Meeting.id == prepared.job.meeting_id,
                 Meeting.workspace_id == prepared.job.workspace_id,
             )
-            .values(updated_at=Meeting.updated_at)
-        )
-        if lock_result.rowcount != 1:
-            raise NormalizationExecutionDeferred("normalization meeting is unavailable")
-        meeting = await db.scalar(
-            select(Meeting)
-            .where(Meeting.id == prepared.job.meeting_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
@@ -2379,17 +2463,18 @@ async def _execute_normalization_job(
         job = await db.scalar(
             select(PlaybackNormalizationJob)
             .where(PlaybackNormalizationJob.id == prepared.job.id)
+            .with_for_update()
             .execution_options(populate_existing=True)
         )
         attempt = await db.scalar(
             select(PlaybackNormalizationAttempt)
             .where(PlaybackNormalizationAttempt.id == prepared.attempt.id)
+            .with_for_update()
             .execution_options(populate_existing=True)
         )
         if (
             meeting is None
-            or (meeting.deletion_state or DeletionState.NONE.value)
-            != DeletionState.NONE.value
+            or meeting_is_deleted_or_deleting(meeting)
             or attempt is None
             or job is None
             or attempt.state != AttemptState.LOCAL_PREPARING.value
@@ -2403,6 +2488,7 @@ async def _execute_normalization_job(
             raise NormalizationExecutionDeferred(
                 "normalization activity no longer owns the durable attempt"
             )
+        await db.commit()
         await _upload_verified_output(
             storage,
             object_key=prepared.attempt.storage_object_key,
@@ -2410,6 +2496,15 @@ async def _execute_normalization_job(
             output=output,
         )
         current_time = datetime.now(UTC)
+        meeting = await db.scalar(
+            select(Meeting)
+            .where(
+                Meeting.id == prepared.job.meeting_id,
+                Meeting.workspace_id == prepared.job.workspace_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         job = await db.scalar(
             select(PlaybackNormalizationJob)
             .where(PlaybackNormalizationJob.id == prepared.job.id)
@@ -2422,8 +2517,29 @@ async def _execute_normalization_job(
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        if attempt is None or job is None:
-            raise RuntimeError("database_unavailable")
+        if (
+            meeting is None
+            or meeting_is_deleted_or_deleting(meeting)
+            or attempt is None
+            or job is None
+        ):
+            late_workspace_id = prepared.job.workspace_id
+            late_meeting_id = prepared.job.meeting_id
+            late_object_key = prepared.attempt.storage_object_key
+            await db.rollback()
+            try:
+                await _delete_storage_object(storage, late_object_key)
+            except Exception:
+                await persist_orphan_cleanup_intents(
+                    db,
+                    workspace_id=late_workspace_id,
+                    meeting_id=late_meeting_id,
+                    object_keys=(late_object_key,),
+                    reason="normalization_late_object_cleanup_failed",
+                )
+            raise NormalizationExecutionDeferred(
+                "normalization activity no longer owns the durable attempt"
+            )
         if (
             attempt.state != AttemptState.LOCAL_PREPARING.value
             or job.state != JobState.RUNNING.value
@@ -2432,10 +2548,20 @@ async def _execute_normalization_job(
             or job.lease_expires_at is None
             or _aware_utc(job.lease_expires_at) <= current_time
         ):
+            late_workspace_id = prepared.job.workspace_id
+            late_meeting_id = prepared.job.meeting_id
+            late_object_key = attempt.storage_object_key
+            await db.rollback()
             try:
-                await _delete_storage_object(storage, attempt.storage_object_key)
-            finally:
-                await db.rollback()
+                await _delete_storage_object(storage, late_object_key)
+            except Exception:
+                await persist_orphan_cleanup_intents(
+                    db,
+                    workspace_id=late_workspace_id,
+                    meeting_id=late_meeting_id,
+                    object_keys=(late_object_key,),
+                    reason="normalization_late_object_cleanup_failed",
+                )
             raise NormalizationExecutionDeferred(
                 "normalization activity no longer owns the durable attempt"
             )
@@ -2667,7 +2793,7 @@ async def publish_uploaded_attempt(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+    if meeting_is_deleted_or_deleting(meeting):
         if attempt is not None:
             await _discard_unowned_attempt(
                 db=db,
@@ -2703,7 +2829,10 @@ async def publish_uploaded_attempt(
         raise NormalizationExecutionDeferred("normalization activity no longer owns publication")
 
     revision = await db.scalar(
-        select(MediaRevision).where(MediaRevision.id == job.media_revision_id).with_for_update()
+        select(MediaRevision)
+        .where(MediaRevision.id == job.media_revision_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if revision is None:
         raise RuntimeError("source_missing")

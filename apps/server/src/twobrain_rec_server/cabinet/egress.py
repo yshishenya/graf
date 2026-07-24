@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
@@ -9,7 +10,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from anyio import to_thread
-from sqlalchemy import select
+from sqlalchemy import nullslast, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,7 +62,6 @@ from twobrain_rec_server.domain.statuses import (
     OutcomeSetStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
-    SummaryStatus,
     TrackRole,
 )
 from twobrain_rec_server.normalization.media import MAX_OUTPUT_BYTES
@@ -71,6 +71,7 @@ from twobrain_rec_server.normalization.statuses import (
     JobState,
 )
 from twobrain_rec_server.observability.redaction import redact_mapping
+from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 
 ALLOWED_AUDIT_KEYS = {
     "artifact_class",
@@ -95,6 +96,7 @@ ALLOWED_AUDIT_KEYS = {
     "renderer_version",
     "turn_policy_version",
 }
+STORAGE_MATERIALIZATION_TIMEOUT_SECONDS = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +125,25 @@ class ReviewAudioBuildError(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+async def _refresh_egress_access(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    access: AccessDecision,
+    actor_user_id: UUID,
+) -> AccessDecision:
+    # Admin file routes already proved workspace membership and intentionally
+    # use an operator decision; re-evaluate ordinary user ACLs only.
+    if access.state == "admin":
+        return access
+    return await decide_meeting_access(
+        db,
+        meeting,
+        workspace_id=meeting.workspace_id,
+        viewer_user_id=actor_user_id,
+    )
 
 
 async def content_export_capabilities(
@@ -179,7 +200,8 @@ async def content_export_capabilities(
         db,
         workspace_id=meeting.workspace_id,
         meeting_id=meeting.id,
-        processing_result_id=result.id if result is not None else None,
+        processing_result_id=None,
+        include_non_publishable=True,
     )
     outcome_matches_result = (
         outcome_set is not None
@@ -213,9 +235,29 @@ async def content_export_capabilities(
     else:
         summary = ContentExportReadiness(state="failed", reason="stored_summary_failed")
 
+    result_source_hash = (
+        result.source_result_hash
+        or sha256(f"legacy-processing-result:{result.id}".encode()).hexdigest()
+        if result is not None
+        else None
+    )
+    outcome_source_hash = (
+        outcome_set.source_result_hash or result_source_hash
+        if outcome_set is not None
+        else None
+    )
+    summary_matches_transcript = (
+        outcome_set is not None
+        and result is not None
+        and outcome_set.processing_result_id == result.id
+        and outcome_set.media_revision_id == result.media_revision_id
+        and outcome_source_hash == result_source_hash
+    )
     combined = (
         ContentExportReadiness(state="available")
-        if transcript.state == "available" and summary.state in {"available", "partial"}
+        if transcript.state == "available"
+        and summary.state in {"available", "partial"}
+        and summary_matches_transcript
         else ContentExportReadiness(state="missing", reason="combined_components_unavailable")
     )
     return ContentExportCapabilityResponse(
@@ -258,6 +300,11 @@ async def create_content_export(
         "renderer_version": RENDERER_VERSION,
         "turn_policy_version": TURN_POLICY_VERSION,
     }
+    # Snapshot the monotonic deletion fence while holding the meeting row lock,
+    # then release it before rendering so deletion can win the final recheck.
+    meeting = await _lock_export_meeting(db, meeting)
+    deletion_epoch_at_start = int(meeting.deletion_epoch or 0)
+    await db.commit()
     if meeting_deletion_active(meeting):
         await _record_content_export_denied(
             db,
@@ -361,11 +408,8 @@ async def create_content_export(
     # invert the required deletion-wins recheck.
     meeting = await _lock_export_meeting(db, meeting)
     await db.refresh(result)
-    final_access = await decide_meeting_access(
-        db,
-        meeting,
-        workspace_id=meeting.workspace_id,
-        viewer_user_id=actor_user_id,
+    final_access = await _refresh_egress_access(
+        db, meeting=meeting, access=access, actor_user_id=actor_user_id
     )
     final_capabilities = await content_export_capabilities(
         db, meeting=meeting, access=final_access, result=result
@@ -388,7 +432,7 @@ async def create_content_export(
             and final_outcome.generator_version == snapshot.summary.generator_version
         )
     denial: tuple[int, str, str] | None = None
-    if meeting_deletion_active(meeting):
+    if meeting_deletion_active(meeting) or int(meeting.deletion_epoch or 0) != deletion_epoch_at_start:
         denial = (409, "meeting_deletion_active", "Meeting deletion is in progress")
     elif not final_access.can_view:
         denial = (404, "meeting_not_found", "Meeting not found")
@@ -441,26 +485,107 @@ async def current_outcome_set(
     workspace_id: UUID,
     meeting_id: UUID,
     processing_result_id: UUID | None,
+    include_non_publishable: bool = False,
 ) -> MeetingOutcomeSet | None:
-    return await db.scalar(
-        select(MeetingOutcomeSet)
-        .join(Meeting, Meeting.current_outcome_set_id == MeetingOutcomeSet.id)
-        .where(
+    meeting = await db.scalar(
+        select(Meeting).where(
             Meeting.workspace_id == workspace_id,
             Meeting.id == meeting_id,
+        )
+    )
+    if meeting is None:
+        return None
+    legacy_fallback = meeting.current_outcome_set_id is None
+    if not legacy_fallback:
+        outcomes = [
+            await db.scalar(
+                select(MeetingOutcomeSet)
+                .where(
+                    MeetingOutcomeSet.id == meeting.current_outcome_set_id,
+                    MeetingOutcomeSet.workspace_id == workspace_id,
+                    MeetingOutcomeSet.meeting_id == meeting_id,
+                    MeetingOutcomeSet.lifecycle_state == "active",
+                )
+                .execution_options(populate_existing=True)
+            )
+        ]
+    else:
+        # ponytail: keep pre-pointer rows readable during rollout; new accepted
+        # outcomes always set the pointer and never use this fallback.
+        outcome_query = select(MeetingOutcomeSet).where(
             MeetingOutcomeSet.workspace_id == workspace_id,
             MeetingOutcomeSet.meeting_id == meeting_id,
+            MeetingOutcomeSet.candidate_id.is_(None),
             MeetingOutcomeSet.lifecycle_state == "active",
-            MeetingOutcomeSet.revision_state == "accepted",
-            MeetingOutcomeSet.status.in_(
-                {
-                    OutcomeSetStatus.AVAILABLE.value,
-                    OutcomeSetStatus.PARTIAL.value,
-                }
+            or_(
+                MeetingOutcomeSet.revision_state.is_(None),
+                MeetingOutcomeSet.revision_state == "accepted",
             ),
         )
-        .execution_options(populate_existing=True)
+        if not include_non_publishable:
+            outcome_query = outcome_query.where(
+                MeetingOutcomeSet.status.in_(
+                    {OutcomeSetStatus.AVAILABLE.value, OutcomeSetStatus.PARTIAL.value}
+                )
+            )
+        outcomes = (
+            await db.scalars(
+                outcome_query
+                .order_by(MeetingOutcomeSet.created_at.desc())
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+        outcomes = sorted(
+            outcomes,
+            key=lambda row: (
+                0
+                if row.status in {OutcomeSetStatus.AVAILABLE.value, OutcomeSetStatus.PARTIAL.value}
+                else 1
+                if row.status in {OutcomeSetStatus.QUEUED.value, OutcomeSetStatus.GENERATING.value}
+                else 2,
+                -(row.generated_at or row.created_at).timestamp(),
+            ),
+        )
+    outcome = outcomes[0] if outcomes else None
+    if outcome is None:
+        return None
+    if outcome.revision_state not in (None, "accepted"):
+        return None
+    result = await db.scalar(
+        select(ProcessingResult).where(
+            ProcessingResult.id == outcome.processing_result_id,
+            ProcessingResult.workspace_id == workspace_id,
+            ProcessingResult.meeting_id == meeting_id,
+            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+        )
     )
+    if result is None:
+        return None
+    if processing_result_id is not None and result.id != processing_result_id:
+        return None
+    if outcome.media_revision_id != result.media_revision_id:
+        return None
+    # Legacy rows may predate the source-result hash. Keep the fallback local:
+    # GET paths must not mutate immutable accepted history or flush synthetic
+    # values as a side effect of rendering/exporting a meeting.
+    result_source_hash = result.source_result_hash or sha256(
+        f"legacy-processing-result:{result.id}".encode()
+    ).hexdigest()
+    outcome_source_hash = outcome.source_result_hash or result_source_hash
+    if outcome_source_hash != result_source_hash:
+        return None
+    if not include_non_publishable and meeting.current_outcome_set_id is None:
+        if outcome.status not in {
+            OutcomeSetStatus.AVAILABLE.value,
+            OutcomeSetStatus.PARTIAL.value,
+        }:
+            return None
+    elif not include_non_publishable and outcome.status not in {
+        OutcomeSetStatus.AVAILABLE.value,
+        OutcomeSetStatus.PARTIAL.value,
+    }:
+        return None
+    return outcome
 
 
 async def _processing_result_is_current(
@@ -469,6 +594,14 @@ async def _processing_result_is_current(
     meeting: Meeting,
     result: ProcessingResult,
 ) -> bool:
+    if meeting.current_outcome_set_id is not None:
+        published_outcome = await current_outcome_set(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            processing_result_id=None,
+        )
+        return published_outcome is not None and published_outcome.processing_result_id == result.id
     latest_revision = await db.scalar(
         select(MediaRevision)
         .where(
@@ -479,7 +612,26 @@ async def _processing_result_is_current(
         .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
         .execution_options(populate_existing=True)
     )
-    if latest_revision is None or result.media_revision_id != latest_revision.id:
+    if latest_revision is None:
+        if result.media_revision_id is not None:
+            return False
+        latest_result = await db.scalar(
+            select(ProcessingResult)
+            .where(
+                ProcessingResult.workspace_id == meeting.workspace_id,
+                ProcessingResult.meeting_id == meeting.id,
+                ProcessingResult.media_revision_id.is_(None),
+                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+            )
+            .order_by(
+                nullslast(ProcessingResult.imported_at.desc()),
+                ProcessingResult.created_at.desc(),
+                ProcessingResult.id.desc(),
+            )
+            .execution_options(populate_existing=True)
+        )
+        return latest_result is not None and latest_result.id == result.id
+    if result.media_revision_id != latest_revision.id:
         return False
     latest_result = await db.scalar(
         select(ProcessingResult)
@@ -487,8 +639,13 @@ async def _processing_result_is_current(
             ProcessingResult.workspace_id == meeting.workspace_id,
             ProcessingResult.meeting_id == meeting.id,
             ProcessingResult.media_revision_id == latest_revision.id,
+            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
         )
-        .order_by(ProcessingResult.result_version.desc(), ProcessingResult.updated_at.desc())
+        .order_by(
+            nullslast(ProcessingResult.imported_at.desc()),
+            ProcessingResult.created_at.desc(),
+            ProcessingResult.id.desc(),
+        )
         .execution_options(populate_existing=True)
     )
     return latest_result is not None and latest_result.id == result.id
@@ -588,10 +745,16 @@ async def artifact_egress_states(
     audio_artifacts = await stored_audio_artifacts(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
     )
+    published_outcome = await current_outcome_set(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        processing_result_id=result.id if result is not None else None,
+    )
     states = [
         _audio_state(policy.audio_download, access, audio_artifacts),
         _transcript_state(policy.transcript_download, access, result),
-        _summary_state(policy.summary_download, access, result),
+        _summary_state(policy.summary_download, access, result, published_outcome),
     ]
     package_state = _package_state(policy.package_export, access, states)
     return states + [package_state]
@@ -694,7 +857,7 @@ async def review_playback_state(
     storage: object | None = None,
 ) -> PlaybackPreparationState:
     deletion_state = meeting.deletion_state or DeletionState.NONE.value
-    if deletion_state != DeletionState.NONE.value:
+    if meeting_deletion_active(meeting):
         deleted = deletion_state == DeletionState.COMPLETE.value or meeting.deleted_at is not None
         return PlaybackPreparationState(
             state="deleted" if deleted else "deleting",
@@ -810,6 +973,30 @@ async def _latest_accepted_media_revision(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> MediaRevision | None:
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == meeting_id,
+        )
+    )
+    if meeting is not None and meeting.current_outcome_set_id is not None:
+        current = await current_outcome_set(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            processing_result_id=None,
+        )
+        if current is None or current.media_revision_id is None:
+            return None
+        return await db.scalar(
+            select(MediaRevision).where(
+                MediaRevision.id == current.media_revision_id,
+                MediaRevision.workspace_id == workspace_id,
+                MediaRevision.meeting_id == meeting_id,
+                MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+                MediaRevision.immutable.is_(True),
+            )
+        )
     return await db.scalar(
         select(MediaRevision)
         .where(
@@ -916,6 +1103,17 @@ async def download_artifact(
     actor_user_id: UUID,
     device_id: UUID,
 ) -> DownloadArtifact:
+    locked_meeting = await lock_meeting_fence(
+        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+    )
+    if locked_meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    meeting = locked_meeting
+    if result is not None:
+        await db.refresh(result)
+    access = await _refresh_egress_access(
+        db, meeting=meeting, access=access, actor_user_id=actor_user_id
+    )
     if meeting_deletion_active(meeting):
         await record_egress_audit_event(
             db,
@@ -933,6 +1131,20 @@ async def download_artifact(
         raise ProblemDetail(
             status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
         )
+    if result is not None and not await _processing_result_is_current(
+        db, meeting=meeting, result=result
+    ):
+        await _record_content_export_denied(
+            db,
+            meeting=meeting,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            artifact_class=artifact_class,
+            reason="export_revision_stale",
+            metadata={"artifact_class": artifact_class, "outcome": "denied"},
+        )
+        await db.commit()
+        raise ProblemDetail(status=409, code="export_revision_stale", title="Export revision is stale")
     states = {
         state.artifact_class: state
         for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result)
@@ -984,8 +1196,11 @@ async def download_artifact(
                 offset=0,
                 length=playback.byte_length,
             )
+            # Materialize the bounded review artifact while the meeting row
+            # lock is held; deletion cannot advance its tombstone mid-stream.
+            body = await _materialize_storage_stream(body, expected_length=playback.byte_length)
         except ReviewAudioBuildError as exc:
-            status = 503 if exc.reason == "storage_unavailable" else 409
+            status = 503 if exc.reason in {"storage_unavailable", "storage_timeout"} else 409
             code = "storage_unavailable" if status == 503 else "audio_unavailable"
             title = "Storage unavailable" if status == 503 else "Audio unavailable"
             await record_egress_audit_event(
@@ -1061,6 +1276,15 @@ async def playback_artifact(
     device_id: UUID,
     range_header: str | None = None,
 ) -> PlaybackArtifact:
+    locked_meeting = await lock_meeting_fence(
+        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+    )
+    if locked_meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    meeting = locked_meeting
+    access = await _refresh_egress_access(
+        db, meeting=meeting, access=access, actor_user_id=actor_user_id
+    )
     if meeting_deletion_active(meeting):
         await _record_playback_denied(
             db,
@@ -1069,6 +1293,7 @@ async def playback_artifact(
             device_id=device_id,
             reason="meeting_deletion_active",
         )
+        await db.commit()
         raise ProblemDetail(
             status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
         )
@@ -1094,7 +1319,7 @@ async def playback_artifact(
         )
     except ReviewAudioBuildError as exc:
         reason = exc.reason if isinstance(exc, ReviewAudioBuildError) else "storage_unavailable"
-        status = 503 if reason == "storage_unavailable" else 409
+        status = 503 if reason in {"storage_unavailable", "storage_timeout"} else 409
         code = "storage_unavailable" if status == 503 else "review_audio_unavailable"
         title = "Storage unavailable" if status == 503 else "Review audio unavailable"
         await _record_playback_denied(
@@ -1131,9 +1356,12 @@ async def playback_artifact(
             offset=offset,
             length=length,
         )
+        response_body = iter(
+            (await _materialize_storage_stream(response_body, expected_length=length),)
+        )
     except (KeyError, ReviewAudioBuildError) as exc:
         reason = exc.reason if isinstance(exc, ReviewAudioBuildError) else "storage_unavailable"
-        status = 503 if reason == "storage_unavailable" else 409
+        status = 503 if reason in {"storage_unavailable", "storage_timeout"} else 409
         code = "storage_unavailable" if status == 503 else "review_audio_unavailable"
         title = "Storage unavailable" if status == 503 else "Review audio unavailable"
         await _record_playback_denied(
@@ -1231,6 +1459,21 @@ async def _stream_storage_object(
         raise ReviewAudioBuildError("storage_unavailable") from exc
 
 
+async def _materialize_storage_stream(
+    body: Iterator[bytes], *, expected_length: int
+) -> bytes:
+    try:
+        async with asyncio.timeout(STORAGE_MATERIALIZATION_TIMEOUT_SECONDS):
+            materialized = await to_thread.run_sync(lambda: b"".join(body))
+    except TimeoutError as exc:
+        raise ReviewAudioBuildError("storage_timeout") from exc
+    except Exception as exc:
+        raise ReviewAudioBuildError("storage_unavailable") from exc
+    if len(materialized) != expected_length:
+        raise ReviewAudioBuildError("storage_object_size_mismatch")
+    return materialized
+
+
 def _playback_response_for_range(
     total_length: int,
     range_header: str | None,
@@ -1325,6 +1568,9 @@ async def create_export_package(
     device_id: UUID,
 ) -> ExportPackageResponse:
     meeting = await _lock_export_meeting(db, meeting)
+    access = await _refresh_egress_access(
+        db, meeting=meeting, access=access, actor_user_id=actor_user_id
+    )
     if meeting_deletion_active(meeting):
         await record_egress_audit_event(
             db,
@@ -1338,6 +1584,7 @@ async def create_export_package(
             policy_reason="meeting_deletion_active",
             metadata={"artifact_class": "package", "outcome": "denied"},
         )
+        await db.commit()
         raise ProblemDetail(
             status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
         )
@@ -1459,6 +1706,10 @@ async def export_package_bytes(
     actor_user_id: UUID,
     device_id: UUID,
 ) -> DownloadArtifact:
+    meeting = await _lock_export_meeting(db, meeting)
+    access = await _refresh_egress_access(
+        db, meeting=meeting, access=access, actor_user_id=actor_user_id
+    )
     if meeting_deletion_active(meeting):
         await record_egress_audit_event(
             db,
@@ -1472,6 +1723,7 @@ async def export_package_bytes(
             policy_reason="meeting_deletion_active",
             metadata={"artifact_class": "package", "outcome": "denied"},
         )
+        await db.commit()
         raise ProblemDetail(
             status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
         )
@@ -1487,6 +1739,21 @@ async def export_package_bytes(
     )
     if package is None:
         raise ProblemDetail(status=404, code="export_not_found", title="Export not found")
+    if package.expires_at is not None and package.expires_at <= datetime.now(UTC):
+        await record_egress_audit_event(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            event_type="export_denied",
+            artifact_class="package",
+            outcome="denied",
+            policy_reason="export_expired",
+            metadata={"artifact_class": "package", "export_id": str(package.id)},
+        )
+        await db.commit()
+        raise ProblemDetail(status=410, code="export_expired", title="Export has expired")
     body = json.dumps(package.manifest_json, ensure_ascii=False, sort_keys=True).encode("utf-8")
     await record_egress_audit_event(
         db,
@@ -1548,7 +1815,7 @@ async def activity_response(
 
 
 def meeting_deletion_active(meeting: Meeting) -> bool:
-    return (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value
+    return meeting_is_deleted_or_deleting(meeting)
 
 
 async def _lock_export_meeting(db: AsyncSession, meeting: Meeting) -> Meeting:
@@ -1650,14 +1917,17 @@ def _transcript_state(
 
 
 def _summary_state(
-    policy_value: str, access: AccessDecision, result: ProcessingResult | None
+    policy_value: str,
+    access: AccessDecision,
+    result: ProcessingResult | None,
+    outcome_set: MeetingOutcomeSet | None = None,
 ) -> ArtifactEgressState:
     blocked = _policy_blocked_state("summary", policy_value, access)
     if blocked is not None:
         return blocked
     if (
         result is not None
-        and result.summary_status == SummaryStatus.AVAILABLE.value
+        and outcome_set is not None
         and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
         and result.segment_count > 0
     ):

@@ -98,8 +98,7 @@ def test_one_hour_synthetic_recording_orchestration_stays_under_budget(client) -
     assert benchmark == {"imported": True, "workflow_count": 1, "job_count": 1, "result_count": 1}
     assert finalize_to_visible_seconds < 60
     assert total_product_owned_seconds < 180
-    assert fake_mediascribe.submissions == [
-        {
+    expected_submission = {
             "mic_size": 16,
             "incoming_size": 24,
             "mic_sha256": finalized["tracks"][1]["sha256"],
@@ -107,4 +106,7 @@ def test_one_hour_synthetic_recording_orchestration_stays_under_budget(client) -
             "diarize": True,
             "summarize": False,
         }
-    ]
+    assert len(fake_mediascribe.submissions) == 1
+    assert {
+        key: fake_mediascribe.submissions[0][key] for key in expected_submission
+    } == expected_submission

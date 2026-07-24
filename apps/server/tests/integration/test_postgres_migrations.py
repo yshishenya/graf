@@ -176,6 +176,25 @@ def test_mediascribe_migration_names_workspace_unique_constraints_distinctly() -
     assert 'name="uq_mediascribe_jobs_workspace_external_job"' in migration
 
 
+def test_content_regen_downgrade_restores_legacy_meeting_unique_constraints() -> None:
+    migration = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/db/migrations/versions/0032_content_regeneration_lineage.py"
+    ).read_text(encoding="utf-8")
+
+    assert "_restore_legacy_unique_constraints" in migration
+    assert "archive or deduplicate" in migration
+    assert all(
+        constraint in migration
+        for constraint in (
+            "processing_workflows_workspace_id_meeting_id_key",
+            "uq_mediascribe_jobs_workspace_meeting",
+            "processing_dependency_states_workspace_id_meeting_id_dependency",
+        )
+    )
+    assert "op.create_unique_constraint(constraint_name, table_name" in migration
+
+
 def test_alembic_revision_ids_fit_default_version_table_length() -> None:
     versions = ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions"
 

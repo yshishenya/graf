@@ -60,6 +60,9 @@ Tables:
 - `retention_policy_snapshots`
 - `local_purge_tasks`
 - `meeting_lifecycle_audit_events`
+- `dispatch_intents`
+- `meeting_deletion_fences`
+- `meeting_purge_journal`
 - `meeting_outcome_sets`
 - `meeting_outcome_items`
 - `meeting_outcome_generation_attempts`

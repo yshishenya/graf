@@ -17,6 +17,7 @@ from twobrain_rec_server.domain.statuses import (
     OutcomeGeneratorKind,
     OutcomeSetStatus,
 )
+from twobrain_rec_server.processing.fences import is_expired
 
 OUTCOME_GENERATOR_VERSION = "outcomes-extractive-v1"
 
@@ -36,17 +37,24 @@ async def get_current_outcome_set(
     meeting_id: UUID,
     media_revision_id: UUID | None,
     processing_result_id: UUID,
+    candidate_id: UUID | None = None,
     generator_version: str = OUTCOME_GENERATOR_VERSION,
+    generator_config_hash: str | None = None,
 ) -> MeetingOutcomeSet | None:
-    result = await session.execute(
-        select(MeetingOutcomeSet).where(
-            MeetingOutcomeSet.workspace_id == workspace_id,
-            MeetingOutcomeSet.meeting_id == meeting_id,
-            MeetingOutcomeSet.media_revision_id == media_revision_id,
-            MeetingOutcomeSet.processing_result_id == processing_result_id,
-            MeetingOutcomeSet.generator_version == generator_version,
+    conditions = [
+        MeetingOutcomeSet.workspace_id == workspace_id,
+        MeetingOutcomeSet.meeting_id == meeting_id,
+        MeetingOutcomeSet.media_revision_id == media_revision_id,
+        MeetingOutcomeSet.processing_result_id == processing_result_id,
+        MeetingOutcomeSet.generator_version == generator_version,
+        MeetingOutcomeSet.candidate_id == candidate_id,
+    ]
+    if generator_config_hash is not None:
+        conditions.append(
+            (MeetingOutcomeSet.generator_config_hash == generator_config_hash)
+            | MeetingOutcomeSet.generator_config_hash.is_(None)
         )
-    )
+    result = await session.execute(select(MeetingOutcomeSet).where(*conditions))
     return result.scalar_one_or_none()
 
 
@@ -57,10 +65,15 @@ async def create_outcome_set(
     meeting_id: UUID,
     media_revision_id: UUID | None,
     processing_result_id: UUID,
+    candidate_id: UUID | None = None,
     source_result_hash: str | None = None,
+    source_fingerprint: str | None = None,
+    generator_config_hash: str | None = None,
+    deletion_epoch_at_start: int | None = None,
     generator_version: str = OUTCOME_GENERATOR_VERSION,
     status: str = OutcomeSetStatus.QUEUED.value,
     started_at: datetime | None = None,
+    expires_at: datetime | None = None,
 ) -> MeetingOutcomeSet:
     current = await get_current_outcome_set(
         session,
@@ -68,7 +81,9 @@ async def create_outcome_set(
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
         processing_result_id=processing_result_id,
+        candidate_id=candidate_id,
         generator_version=generator_version,
+        generator_config_hash=generator_config_hash,
     )
     if current is not None:
         return current
@@ -77,10 +92,15 @@ async def create_outcome_set(
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
         processing_result_id=processing_result_id,
+        candidate_id=candidate_id,
         source_result_hash=source_result_hash,
+        source_fingerprint=source_fingerprint,
+        generator_config_hash=generator_config_hash,
+        deletion_epoch_at_start=deletion_epoch_at_start,
         generator_version=generator_version,
         status=status,
         started_at=started_at,
+        expires_at=expires_at,
     )
     session.add(outcome_set)
     await session.flush()
@@ -132,6 +152,18 @@ async def record_generation_attempt(
     failure_reason: str | None = None,
     failure_source: str | None = None,
     metadata_json: dict | None = None,
+    candidate_id: UUID | None = None,
+    idempotency_key: str | None = None,
+    request_intent: str = "automatic_baseline",
+    source_result_id: UUID | None = None,
+    source_result_hash: str | None = None,
+    source_fingerprint: str | None = None,
+    generator_config_hash: str | None = None,
+    deletion_epoch_at_start: int | None = None,
+    expires_at: datetime | None = None,
+    display_format_name: str | None = None,
+    template_key: str | None = None,
+    template_version: int | None = None,
 ) -> MeetingOutcomeGenerationAttempt:
     attempt = MeetingOutcomeGenerationAttempt(
         workspace_id=workspace_id,
@@ -148,6 +180,18 @@ async def record_generation_attempt(
         failure_reason=failure_reason,
         failure_source=failure_source,
         metadata_json=metadata_json or {},
+        candidate_id=candidate_id,
+        idempotency_key=idempotency_key,
+        request_intent=request_intent,
+        source_result_id=source_result_id,
+        source_result_hash=source_result_hash,
+        source_fingerprint=source_fingerprint,
+        generator_config_hash=generator_config_hash,
+        deletion_epoch_at_start=deletion_epoch_at_start,
+        expires_at=expires_at,
+        display_format_name=display_format_name,
+        template_key=template_key,
+        template_version=template_version,
     )
     session.add(attempt)
     await session.flush()
@@ -168,6 +212,8 @@ def category_states(outcome_set: MeetingOutcomeSet) -> dict[str, str]:
 
 
 def should_reuse_outcome_set(outcome_set: MeetingOutcomeSet, *, transcript_is_available: bool) -> bool:
+    if is_expired(outcome_set.expires_at):
+        return False
     if outcome_set.status in REUSABLE_OUTCOME_SET_STATUSES:
         return True
     return not transcript_is_available

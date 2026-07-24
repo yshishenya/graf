@@ -19,6 +19,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.outcomes.ai_service import create_summary_candidate
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
+from twobrain_rec_server.db.models import SummaryTemplate
 
 SERVER_ROOT = Path(__file__).resolve().parents[2]
 CABINET_JS = SERVER_ROOT / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
@@ -76,6 +77,9 @@ def test_candidate_ui_preserves_current_notes_until_explicit_accept() -> None:
     assert 'text: "Использовать"' in script
     assert 'text: "Оставить текущие"' in script
     assert "expected_current_outcome_set_id: currentOutcomeSetId" in script
+    assert "Обновить итоги" in script
+    assert "request_intent_id" in script
+    assert "manual_refresh" in script
     assert '/${candidate.candidate_id}/${accept ? "accept" : "reject"}' in script
     assert "window.location.reload()" in script
     assert "JSON.stringify({" in script
@@ -653,6 +657,42 @@ def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
     assert hidden.status_code in {403, 404}
 
 
+def test_candidate_ui_restores_template_provenance_before_retry() -> None:
+    script = CABINET_JS.read_text(encoding="utf-8")
+
+    assert "templateFromCandidate" in script
+    assert "provenance.template_key" in script
+    assert "provenance.template_version" in script
+    assert "provenance.template_id" in script
+    assert "resumed.template?.key" in script
+    assert "Источник: текущая расшифровка" in script
+    assert "summary-candidate-source" in script
+
+
+def test_candidate_ui_ignores_stale_loads_and_retries_existing_poll() -> None:
+    script = CABINET_JS.read_text(encoding="utf-8")
+
+    assert "let candidateRequestGeneration = 0" in script
+    assert "const generation = ++candidateRequestGeneration" in script
+    assert "const initialCandidateLoadGeneration = candidateRequestGeneration" in script
+    assert "if (initialCandidateLoadGeneration !== candidateRequestGeneration) return" in script
+    assert "const refreshGeneration = ++candidateRequestGeneration" in script
+    assert "candidateRequestInFlightGeneration" in script
+    assert "if (generation !== candidateRequestGeneration) return" in script
+
+    poll_source = script[
+        script.index("const pollCandidate") : script.index("const requestCandidate")
+    ]
+    assert 'text: "Проверить снова"' in poll_source
+    assert "resumeCandidatePolling(candidate, generation)" in poll_source
+    assert "retryCandidateAction(code)" not in poll_source
+
+    # A new manual generation remains an explicit terminal-state action, not a
+    # recovery path for a transient poll failure.
+    assert 'requestIntent: "manual_refresh"' in script
+    assert 'candidate.state === "blocked"' in script
+
+
 def test_summary_selector_keyboard_focus_and_candidate_projection_are_simple(client) -> None:
     script = CABINET_JS.read_text(encoding="utf-8")
     schema = client.get("/openapi.json").json()["components"]["schemas"]
@@ -662,7 +702,7 @@ def test_summary_selector_keyboard_focus_and_candidate_projection_are_simple(cli
     assert 'button.focus({ preventScroll: true })' in script
     assert "trapModalFocus(dialog, event)" in script
     states = set(schema["SummaryCandidateResponse"]["properties"]["state"]["enum"])
-    assert states == {"generating", "ready", "accepted", "closed", "failed"}
+    assert states == {"generating", "ready", "accepted", "closed", "failed", "blocked", "stale", "expired"}
     assert states.isdisjoint({"queued", "blocked_dependency", "candidate", "cancelled"})
 
 
@@ -792,6 +832,52 @@ def test_workspace_default_rejects_personal_formats(client) -> None:
     assert workspace.default_summary_template_key == "graf-auto-v1"
     assert workspace.default_summary_template_id is None
     assert workspace.default_summary_template_version == 1
+
+
+def test_duplicate_personal_template_respects_active_template_limit(client) -> None:
+    async def seed_templates() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    SummaryTemplate(
+                        workspace_id=WORKSPACE_ID,
+                        owner_user_id=USER_ID,
+                        template_key=f"limit-{index}",
+                        kind="personal",
+                        name=f"Формат {index}",
+                        purpose="Проверка лимита",
+                        sections_json=["summary"],
+                        output_language="ru",
+                        detail_level="standard",
+                        version=1,
+                        status="active",
+                    )
+                    for index in range(100)
+                ]
+            )
+            await db.commit()
+
+    client.portal.call(seed_templates)
+    async def load_source_id() -> object:
+        async with client.app_state["sessionmaker"]() as db:
+            source = await db.scalar(
+                select(SummaryTemplate.id).where(
+                    SummaryTemplate.workspace_id == WORKSPACE_ID,
+                    SummaryTemplate.owner_user_id == USER_ID,
+                    SummaryTemplate.status == "active",
+                )
+            )
+            assert source is not None
+            return source
+
+    source_id = client.portal.call(load_source_id)
+    response = client.post(
+        f"/api/v1/cabinet/summary-templates/{source_id}/duplicate",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "summary_template_limit"
 
 
 def test_default_format_contract_is_migrated_and_explicit(client) -> None:

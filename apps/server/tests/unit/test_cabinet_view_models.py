@@ -2152,6 +2152,19 @@ def test_processing_state_uses_safe_reason_and_next_action() -> None:
     assert "private-workflow" not in state.model_dump_json()
 
 
+def test_processing_failure_copy_covers_retryable_and_terminal_provider_reasons() -> None:
+    assert "Повтор" in view_models.reason_label("mediascribe_timeout")
+    assert view_models.next_action_for_status(
+        "failed", reason_code="mediascribe_rate_limited"
+    ) == "retry_future"
+    assert "некорректный ответ" in view_models.reason_label(
+        "mediascribe_malformed_response"
+    )
+    assert view_models.next_action_for_status(
+        "failed", reason_code="mediascribe_malformed_response"
+    ) == "contact_operator"
+
+
 def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments() -> None:
     meeting = _meeting()
     result_id = uuid4()

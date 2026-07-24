@@ -234,9 +234,10 @@ Late work after `requested` is blocked even if the provider reports success.
 ## Migration/backfill rules
 
 1. Expand schema with nullable lineage/fence/dispatch fields.
-2. Backfill legacy workflow/job rows to a `legacy` source/run identity and mark
-   their exact known result hash where available.
-3. Reconcile duplicate/ambiguous rows before enforcing new uniqueness.
+2. Backfill legacy workflow/job rows to a `legacy:<run-id>` source/run identity
+   and mark their exact known result hash where available.
+3. Reconcile only rows with one fully attested accepted revision; block
+   duplicate/ambiguous rows before enforcing new uniqueness.
 4. New writes use revision-scoped constraints and pointer-only projections.
 5. After a verified compatibility window, enforce non-null fields for new rows
    and remove fallback-to-meeting lookup from stores.

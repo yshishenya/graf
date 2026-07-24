@@ -596,6 +596,11 @@ def _render_meeting_detail_content(
         ),
         summary_formats=BUILT_IN_TEMPLATES,
         current_summary_format_key=current_summary_format_key,
+        current_summary_format_version=str(
+            review.template.template_version
+            or (current_summary_format.version if current_summary_format is not None else "")
+        ),
+        current_summary_format_id=str(review.template.template_id or ""),
         current_summary_format=(
             current_summary_format.name
             if current_summary_format is not None
@@ -608,9 +613,6 @@ def _render_meeting_detail_content(
         ),
         current_summary_format_template_id=(
             str(review.template.template_id or "")
-        ),
-        current_summary_format_version=(
-            str(review.template.version or "")
         ),
         summary_settings_href=_settings_path(embedded) + "#summary-formats",
         audio_download_available=(review.governance.download.state == "available"),

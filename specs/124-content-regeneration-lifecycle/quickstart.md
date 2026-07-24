@@ -9,7 +9,8 @@ credentials or signed URLs in output.
 From the repository root:
 
 ```sh
-.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
+SPECIFY_FEATURE_DIRECTORY=specs/124-content-regeneration-lifecycle \
+  .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
 ```
 
 Use the server virtual environment and the isolated local PostgreSQL harness
@@ -22,10 +23,11 @@ provided by `scripts/run_local_postgres_tests.sh`.
 Run the focused processing/model tests:
 
 ```sh
-cd apps/server
-GRAF_TEST_WORKERS=1 bash ../../scripts/run_local_postgres_tests.sh \
-  --focused tests/unit/test_processing_store.py \
-  tests/integration/test_processing_*.py -q
+GRAF_TEST_WORKERS=1 bash apps/server/scripts/run_local_postgres_tests.sh \
+  --focused tests/unit/test_processing_fences.py \
+  tests/integration/test_processing_result_idempotency.py \
+  tests/integration/test_processing_pickup.py \
+  tests/integration/test_processing_worker_restart.py -q
 ```
 
 Expected evidence:
@@ -38,9 +40,10 @@ Expected evidence:
 ### B. Baseline and manual candidate idempotency
 
 ```sh
-GRAF_TEST_WORKERS=1 bash ../../scripts/run_local_postgres_tests.sh \
-  --focused tests/unit/test_outcomes_service.py \
-  tests/integration/test_outcome_*.py -q
+GRAF_TEST_WORKERS=1 bash apps/server/scripts/run_local_postgres_tests.sh \
+  --focused tests/unit/test_summary_candidate_revisions.py \
+  tests/integration/test_meeting_outcomes_generation.py \
+  tests/integration/test_outcome_generation_dispatch.py -q
 ```
 
 Expected evidence:
@@ -53,9 +56,10 @@ Expected evidence:
 ### C. Owner preview and stale accept
 
 ```sh
-GRAF_TEST_WORKERS=1 bash ../../scripts/run_local_postgres_tests.sh \
-  --focused tests/integration/test_cabinet_summary_candidates.py \
-  tests/contract/test_cabinet_candidate_preview_contract.py -q
+GRAF_TEST_WORKERS=1 bash apps/server/scripts/run_local_postgres_tests.sh \
+  --focused tests/integration/test_cabinet_meeting_outcomes.py \
+  tests/integration/test_transcript_export_egress.py \
+  tests/contract/test_summary_template_ui_contract.py -q
 ```
 
 Expected evidence:
@@ -68,9 +72,10 @@ Expected evidence:
 ### D. Durable dispatch and recovery
 
 ```sh
-GRAF_TEST_WORKERS=1 bash ../../scripts/run_local_postgres_tests.sh \
-  --focused tests/integration/test_generation_dispatch_reconciliation.py \
-  tests/unit/test_outcome_generation_workflow.py -q
+GRAF_TEST_WORKERS=1 bash apps/server/scripts/run_local_postgres_tests.sh \
+  --focused tests/integration/test_outcome_generation_dispatch.py \
+  tests/integration/test_processing_worker_restart.py \
+  tests/integration/test_outcome_generation_workflow.py -q
 ```
 
 Inject a Temporal start failure after the candidate commit. Expected evidence:
@@ -81,9 +86,11 @@ next action.
 ### E. Deletion races and retention
 
 ```sh
-GRAF_TEST_WORKERS=1 bash ../../scripts/run_local_postgres_tests.sh \
-  --focused tests/integration/test_deletion_generation_races.py \
-  tests/unit/test_deletion_service.py -q
+GRAF_TEST_WORKERS=1 bash apps/server/scripts/run_local_postgres_tests.sh \
+  --focused tests/integration/test_recording_workflow_deletion_races.py \
+  tests/integration/test_meeting_outcomes_deletion.py \
+  tests/integration/test_local_purge_coordination.py \
+  tests/integration/test_retention_policy_execution.py -q
 ```
 
 Expected evidence:
@@ -99,11 +106,11 @@ Expected evidence:
 ### F. Cabinet UX and accessibility contracts
 
 ```sh
-cd apps/server
-node --check src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js
-GRAF_TEST_WORKERS=1 bash ../../scripts/run_local_postgres_tests.sh \
+node --check apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js
+GRAF_TEST_WORKERS=1 bash apps/server/scripts/run_local_postgres_tests.sh \
   --focused tests/contract/test_cabinet_static_assets_contract.py \
-  tests/contract/test_cabinet_candidate_preview_contract.py -q
+  tests/contract/test_summary_template_ui_contract.py \
+  tests/integration/test_cabinet_meeting_outcomes.py -q
 ```
 
 Expected evidence:
@@ -126,10 +133,84 @@ infra/scripts/ci-local.sh
 Record the exact result, test counts and warnings in this file. A green focused
 suite does not waive the full repository gate.
 
+## Implementation evidence (2026-07-24)
+
+- Revision-scoped reprocess API: `POST
+  /api/v1/meetings/{meeting_id}/media-revisions/upload-sessions`; the same
+  idempotency key returns the same pending revision/session, while an accepted
+  immutable revision cannot be rewritten.
+- Migrations `0032`–`0039` apply the lineage, purge journal, candidate expiry,
+  reconciliation, generator-provenance, isolated candidate-outcome and
+  MediaScribe submission-claim schema changes. Migration `0037` also binds legacy NULL source hashes to the
+  immutable processing-result identity without fabricating generator config;
+  its downgrade is intentionally guarded until candidate rows and generator
+  duplicates are archived/deduplicated. Migration `0032` restores the legacy
+  meeting-wide uniqueness constraints on downgrade and blocks if revision
+  history contains duplicate groups that cannot fit the old schema. Migration
+  `0039` marks pre-revision workflow/job rows with `legacy:<run-id>`; the
+  reconciler relinks only one fully attested revision and blocks ambiguous
+  rows. Legacy rows may poll an already-submitted provider job, but never
+  submit a newer revision under a NULL lineage identity.
+- Focused PostgreSQL coverage for reprocess, cabinet outcomes, generation,
+  deletion, dispatch, result idempotency, source-fence regression, malformed
+  provider responses, bounded runtime retries, deployment rollback discovery
+  and view models is green; the final count is recorded below after the full
+  repository gate. The final focused correction loop for export, OpenAPI and
+  stale-session races was **6 passed, 2 warnings**.
+- Source-fence unit regression: **3 passed, 2 warnings** in 4.22s. A changed
+  source result rejects accept without mutating the current pointer and marks
+  the attempt stale.
+- Static checks passed after the final source/provenance changes: Ruff,
+  Python compileall, JavaScript syntax check and `git diff --check`.
+- Automatic baseline policy is deliberately fixed to built-in `graf-auto-v1`
+  plus a stable configuration hash. Personal/workspace template changes are
+  explicit actions and never silently rewrite accepted content.
+- Request-time candidate dedupe deliberately does not call Langfuse: active
+  attempts keep their identity while the worker pins a verified prompt/model
+  snapshot before egress. A deployment therefore never mutates or re-keys an
+  active attempt; `Обновить итоги` uses a unique explicit refresh intent when
+  the owner wants a new snapshot.
+- Deterministic baseline generator exceptions are terminal rather than
+  repeatedly retried on every reopen; an operator/manual re-run creates a new
+  lineage after the defect or prerequisite is fixed.
+- Expired candidates are durable terminal lineage: the outcome set and every
+  linked nonterminal generation attempt are marked `expired` with bounded
+  failure metadata before the replacement candidate is created.
+- Adversarial correction loop: the first full server run exposed seven
+  contract/race regressions. They were fixed at the shared egress/lifecycle
+  boundaries, then the focused PostgreSQL loop passed **6/6** and the final
+  full CI was rerun from a clean isolated database.
+
+- Final repository gate (`infra/scripts/ci-local.sh`, 2026-07-24): **PASS**.
+  macOS legacy guard/build/tests/contract validation passed; Swift tests were
+  **608 passed**. The isolated server collection was **2,376** tests with
+  digest `3d1c7c9e6b354668900399bf17928e334ea7b5cdf8024dfdc75d8123591aefa7`;
+  the final server result was **2,333 passed, 1 skipped, 5 warnings in
+  1335.34s**, with the parallel PostgreSQL phase passing in 1339s. Warnings
+  are limited to pytest assert-rewrite, Starlette/httpx deprecation and the
+  known SQLAlchemy table-cycle warning.
+- Final evidence scans: deployment evidence scan **PASS (7 files)**;
+  production Compose config **PASS**; deployment/test shell syntax **PASS**;
+  disposable RLS verifier regression **1 passed, 2 warnings**; metadata-only
+  no-secret cabinet/admin contract suite **26 passed, 2 warnings**. Running
+  the standalone RLS verifier without a configured database correctly reports
+  `postgres_test_database_required`; live production RLS remains uninspected
+  and is a release gate, not a claim of production readiness.
+- Ponytail review: **Lean already. Ship.** No removable dependency,
+  speculative abstraction or standard-library replacement was found without
+  weakening lifecycle fences or evidence; net simplification opportunity is
+  **0 lines**.
+- Arc review: **APPROVED**; no P0/P1/P2 findings. The optional P3 empty-preview
+  wording was changed to `Предпросмотр недоступен для этого варианта`.
+
+The focused harness had one transient PostgreSQL startup failure during an
+earlier retry; the final isolated runs above passed and removed their test
+containers.
+
 ## Release and production gate
 
-Only after clean Arc/ponytail review, PR checks, migration/backup rehearsal and
-explicit approval:
+Only after clean adversarial/Ponytail review, PR checks, migration/backup
+rehearsal and explicit approval:
 
 ```sh
 infra/scripts/cd-remote.sh --dry-run --branch 124-content-regeneration-lifecycle

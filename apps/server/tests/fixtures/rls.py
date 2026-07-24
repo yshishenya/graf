@@ -36,6 +36,9 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "retention_policy_snapshots",
     "local_purge_tasks",
     "meeting_lifecycle_audit_events",
+    "dispatch_intents",
+    "meeting_deletion_fences",
+    "meeting_purge_journal",
     "meeting_outcome_sets",
     "meeting_outcome_items",
     "meeting_outcome_generation_attempts",
@@ -106,4 +109,7 @@ RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "playback_normalization_inventory",
     "playback_normalization_dispatch",
     "prompt_optimization",
+    "outcome_dispatch_reconciliation",
+    "deletion_purge_reconciliation",
+    "processing_legacy_lineage_reconciliation",
 }

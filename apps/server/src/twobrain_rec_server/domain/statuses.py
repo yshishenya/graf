@@ -143,6 +143,7 @@ class ProcessingStatus(StrEnum):
 
 class MediaScribeJobStatus(StrEnum):
     NOT_SUBMITTED = "not_submitted"
+    SUBMITTING = "submitting"
     SUBMITTED = "submitted"
     UPLOADED = "uploaded"
     TRANSCRIBING = "transcribing"
@@ -245,6 +246,7 @@ class OutcomeGenerationAttemptStatus(StrEnum):
     FAILED_RETRYABLE = "failed_retryable"
     FAILED_TERMINAL = "failed_terminal"
     UNSAFE = "unsafe"
+    EXPIRED = "expired"
 
 
 class ProcessingDependencyName(StrEnum):

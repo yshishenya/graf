@@ -53,6 +53,11 @@
     "summary_revision_conflict",
     "summary_transcript_snapshot_invalid",
     "summary_transcript_too_large",
+    "meeting_deleting",
+    "meeting_deletion_active",
+    "meeting_deleted",
+    "summary_candidate_expired",
+    "summary_source_revision_stale",
   ]);
   const sharingActionProblemCodes = new Set([
     "grantee_not_found",
@@ -1247,6 +1252,7 @@
     document.querySelectorAll("[data-summary-format-controls]").forEach((controls) => {
       if (controls.dataset.summaryFormatReady === "true") return;
       const button = controls.querySelector("[data-summary-format-button]");
+      const refreshButton = controls.querySelector("[data-summary-refresh-button]");
       const listbox = controls.querySelector("[data-summary-format-listbox]");
       const pendingLabel = controls.querySelector("[data-summary-pending-format-label]");
       const status = document.querySelector("[data-summary-candidate-status]");
@@ -1257,6 +1263,13 @@
       let currentOutcomeSetId = controls.dataset.currentOutcomeSetId || null;
       let activeTemplate = null;
       let pollingTimer = null;
+      let pollAttempts = 0;
+      let pollDeadline = 0;
+      let pollDelay = 1500;
+      let activeRequestIntent = "manual_format";
+      let activeRequestIntentId = null;
+      let candidateRequestGeneration = 0;
+      let candidateRequestInFlightGeneration = null;
       if (!button || !listbox) return;
       controls.dataset.summaryFormatReady = "true";
       const options = () => Array.from(listbox.querySelectorAll('[role="option"]'));
@@ -1273,6 +1286,7 @@
       };
       const setBusy = (busy) => {
         button.disabled = busy;
+        if (refreshButton) refreshButton.disabled = busy;
         controls.setAttribute("aria-busy", busy ? "true" : "false");
       };
       const showStatus = (message, state = "generating", actions = []) => {
@@ -1334,9 +1348,30 @@
         meeting_deleting: "Встреча удаляется. Новый вариант создать нельзя.",
         meeting_deleted: "Встреча удалена.",
         cancelled: "Подготовка нового варианта отменена.",
-        dismissed: "Вариант закрыт. Текущие итоги сохранены."
+        dismissed: "Вариант закрыт. Текущие итоги сохранены.",
+        meeting_deletion_active: "Встреча удаляется. Новый вариант больше недоступен.",
+        summary_candidate_expired: "Вариант устарел. Текущие итоги сохранены.",
+        summary_same_format_noop: "Этот формат уже выбран. Нажмите «Обновить итоги», чтобы создать новый вариант.",
+        summary_template_unavailable: "Выбранный формат больше недоступен. Выберите другой активный формат.",
+        summary_refresh_intent_missing: "Не удалось подтвердить обновление. Выберите «Обновить итоги» ещё раз.",
+        summary_source_revision_stale: "Расшифровка изменилась. Текущие итоги сохранены."
       }[code] || "Не удалось подготовить новый вариант. Текущие итоги сохранены.");
       const retryCandidateAction = (candidate = {}) => {
+        if (typeof candidate === "string") {
+          if ([
+            "meeting_deleting", "meeting_deletion_active", "meeting_deleted",
+            "summary_candidate_expired", "summary_candidate_not_found",
+            "summary_candidate_state_invalid", "summary_candidate_unavailable",
+            "summary_resolution_forbidden", "summary_revision_conflict",
+            "summary_same_format_noop", "summary_source_revision_stale"
+          ].includes(candidate)) {
+            return { text: "Обновить страницу", action: () => window.location.reload(), primary: true };
+          }
+          if (candidate === "summary_template_unavailable") {
+            return { text: "Выбрать формат", action: openFormatPicker, primary: true };
+          }
+          return { text: "Обновить итоги", action: requestCurrentRefresh, primary: true };
+        }
         if (activeTemplate && (candidate.retryable || candidate.next_action === "new_candidate")) {
           return { text: "Попробовать ещё раз", action: () => requestCandidate(activeTemplate), primary: true };
         }
@@ -1377,6 +1412,43 @@
           return { text: "Попробовать ещё раз", action: () => requestCandidate(template), primary: true };
         }
         return null;
+      };
+      const openFormatPicker = () => {
+        if (dialog instanceof HTMLDialogElement) {
+          dialog.showModal();
+          dialog.querySelector("[data-summary-format-option]")?.focus({ preventScroll: true });
+        } else {
+          open();
+        }
+      };
+      const retryTerminalCandidateAction = (code = "") => retryCandidateAction(code);
+      const templateFromCandidate = (candidate) => {
+        const provenance = candidate?.provenance;
+        const candidateKey = provenance?.template_key || candidate?.template_key || "";
+        const candidateId = provenance?.template_id || candidate?.template_id || null;
+        const candidateVersion = Number(provenance?.template_version || candidate?.template_version || "1");
+        if (!candidateKey || !Number.isInteger(candidateVersion)) return null;
+        const option = options().find((item) => (
+          item.dataset.templateKey === candidateKey
+          && Number(item.dataset.templateVersion || "1") === candidateVersion
+          && (item.dataset.templateId || null) === candidateId
+        ));
+        if (option) return templateFrom(option);
+        return {
+          id: candidateId,
+          key: candidateKey,
+          version: candidateVersion,
+          name: candidate?.format_name || candidate?.template_name || candidateKey
+        };
+      };
+      const resumeCandidatePolling = (candidate, generation = candidateRequestGeneration) => {
+        if (generation !== candidateRequestGeneration) return;
+        pollAttempts = 0;
+        pollDeadline = Date.now() + 5 * 60 * 1000;
+        pollDelay = 1500;
+        setBusy(true);
+        showStatus("Проверяем новый вариант. Текущие итоги остаются на месте.");
+        schedulePoll(candidate, generation);
       };
       const mutate = async (url, method, body) => {
         const response = await fetch(url, {
@@ -1448,7 +1520,8 @@
           // The candidate actions remain usable if the optional preview is unavailable.
         }
       };
-      const resolveCandidate = async (candidate, accept) => {
+      const resolveCandidate = async (candidate, accept, generation = candidateRequestGeneration) => {
+        if (generation !== candidateRequestGeneration) return;
         setBusy(true);
         try {
           const resolved = await mutate(
@@ -1456,17 +1529,21 @@
             "POST",
             { expected_current_outcome_set_id: currentOutcomeSetId }
           );
+          if (generation !== candidateRequestGeneration) return;
           currentOutcomeSetId = resolved.current_outcome_set_id || currentOutcomeSetId;
           if (accept) window.location.reload();
           else if (status) status.hidden = true;
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
-          showStatus(candidateErrorCopy(error instanceof Error ? error.message : ""), "failed");
+          if (generation !== candidateRequestGeneration) return;
+          const code = error instanceof Error ? error.message : "";
+          showStatus(candidateErrorCopy(code), "failed", [retryCandidateAction(code)]);
         } finally {
-          setBusy(false);
+          if (generation === candidateRequestGeneration) setBusy(false);
         }
       };
-      const renderCandidate = (candidate) => {
+      const renderCandidate = (candidate, generation = candidateRequestGeneration) => {
+        if (generation !== candidateRequestGeneration) return false;
         if (candidate.state === "generating") {
           clearPreview();
           if (candidate.reason_code === "temporary_unavailable") {
@@ -1480,7 +1557,12 @@
           }
           window.sessionStorage.setItem(candidateStorageKey, JSON.stringify({
             poll_url: candidate.poll_url,
-            template: activeTemplate
+            template: activeTemplate,
+            requestIntent: activeRequestIntent,
+            requestIntentId: activeRequestIntentId,
+            pollAttempts,
+            pollDeadline,
+            pollDelay
           }));
           if (pendingLabel) {
             pendingLabel.hidden = false;
@@ -1488,9 +1570,7 @@
               ? `Готовим вариант: ${activeTemplate.name}`
               : "Готовим новый вариант";
           }
-          showStatus(activeTemplate?.name
-            ? `Готовим формат «${activeTemplate.name}». Текущие итоги остаются на месте.`
-            : "Готовим новый вариант. Текущие итоги остаются на месте.");
+          showStatus(`Готовим формат «${candidate.format_name || activeTemplate?.name || "итогов"}». Текущие итоги остаются на месте.`);
           return;
         }
         window.clearTimeout(pollingTimer);
@@ -1498,80 +1578,311 @@
         pollingTimer = null;
         setBusy(false);
         if (pendingLabel) pendingLabel.hidden = true;
+        const renderPreview = () => {
+          if (!status) return;
+          const preview = document.createElement("section");
+          preview.className = "summary-candidate-preview";
+          preview.setAttribute("aria-label", "Предпросмотр нового варианта итогов");
+          const heading = document.createElement("strong");
+          heading.textContent = "Предпросмотр";
+          const source = document.createElement("p");
+          source.className = "summary-candidate-source";
+          source.textContent = candidate?.provenance?.source_result_id
+            ? "Источник: текущая расшифровка"
+            : "Источник: подтверждённая расшифровка недоступна";
+          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 8) : [];
+          if (previewItems.length) {
+            const list = document.createElement("ul");
+            previewItems.forEach((item) => {
+              const entry = document.createElement("li");
+              entry.textContent = `${item.category || "Итог"}: ${item.text || item.truth_label || "Без текста"}`;
+              list.append(entry);
+            });
+            preview.append(heading, source, list);
+          } else {
+            const empty = document.createElement("p");
+            empty.textContent = "Предпросмотр недоступен для этого варианта.";
+            preview.append(heading, source, empty);
+          }
+          status.append(preview);
+        };
         if (candidate.state === "ready") {
-          loadPreview(candidate);
-          showStatus("Новый вариант готов. Текущие итоги сохранены.", "ready", [
-            { text: "Оставить текущие", action: () => resolveCandidate(candidate, false) },
-            { text: "Использовать", action: () => resolveCandidate(candidate, true), primary: true }
+          const preview = Array.isArray(candidate.preview) && candidate.preview.length
+            ? ` Вариант содержит ${candidate.preview.length} пунктов.`
+            : "";
+          showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов.${preview} Текущие итоги сохранены.`, "ready", [
+            { text: "Оставить текущие", action: () => resolveCandidate(candidate, false, generation) },
+            { text: "Использовать", action: () => resolveCandidate(candidate, true, generation), primary: true }
           ]);
+          renderPreview();
           return;
         }
         if (candidate.state === "accepted") {
           window.location.reload();
           return;
         }
-        const retry = retryCandidateAction(candidate);
-        clearPreview();
-        showStatus(candidateErrorCopy(candidate.reason_code), "failed", retry ? [retry] : []);
+        if (candidate.state === "expired") {
+          showStatus("Вариант устарел. Текущие итоги сохранены — запустите генерацию ещё раз.", "failed", [
+            retryCandidateAction()
+          ]);
+          return;
+        }
+        if (candidate.state === "stale") {
+          showStatus("Расшифровка изменилась, поэтому вариант закрыт. Текущие итоги сохранены.", "failed", [
+            retryCandidateAction()
+          ]);
+          return;
+        }
+        if (candidate.state === "blocked") {
+          showStatus("Сервис генерации временно недоступен. Текущие итоги сохранены.", "failed", [
+            retryCandidateAction()
+          ]);
+          return;
+        }
+        if (candidate.state === "closed") {
+          showStatus("Вариант закрыт, текущие итоги сохранены.", "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+          return;
+        }
+        showStatus("Не удалось подготовить новый вариант. Текущие итоги сохранены.", "failed", [
+          retryCandidateAction()
+        ]);
+        return true;
       };
-      const pollCandidate = async (candidate) => {
+      const schedulePoll = (candidate, generation = candidateRequestGeneration) => {
+        if (generation !== candidateRequestGeneration) return;
+        window.clearTimeout(pollingTimer);
+        pollingTimer = null;
+        if (document.hidden) {
+          setBusy(false);
+          showStatus("Проверка приостановлена в фоне. Она продолжится при возвращении.", "generating", [
+            { text: "Продолжить", action: () => resumeCandidatePolling(candidate, generation), primary: true }
+          ]);
+          return;
+        }
+        if (document.hidden || pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
+          if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
+            setBusy(false);
+            showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "failed", [
+              { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
+              { text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }
+            ]);
+          }
+          return;
+        }
+        pollingTimer = window.setTimeout(() => {
+          pollingTimer = null;
+          pollCandidate(candidate, generation);
+        }, pollDelay);
+      };
+      const pollCandidate = async (candidate, generation = candidateRequestGeneration) => {
+        if (generation !== candidateRequestGeneration) return;
+        if (document.hidden) {
+          pollingTimer = null;
+          setBusy(false);
+          showStatus("Проверка приостановлена в фоне. Она продолжится при возвращении.", "generating", [
+            { text: "Продолжить", action: () => resumeCandidatePolling(candidate, generation), primary: true }
+          ]);
+          return;
+        }
+        pollAttempts += 1;
         try {
           const response = await fetch(candidate.poll_url, { credentials: "same-origin", cache: "no-store" });
           if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
             throw meetingDetailRecoveredError();
           }
-          if (!response.ok) throw new Error("summary_poll_failed");
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.code || (response.status === 404
+              ? "summary_candidate_not_found"
+              : "summary_poll_failed"));
+          }
           const next = await response.json();
-          renderCandidate(next);
+          if (generation !== candidateRequestGeneration) return;
+          renderCandidate(next, generation);
           if (next.state === "generating") {
-            pollingTimer = window.setTimeout(() => pollCandidate(next), 1200);
+            pollDelay = Math.min(10000, Math.round(pollDelay * 1.5));
+            schedulePoll(next, generation);
           }
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
+          if (generation !== candidateRequestGeneration) return;
+          pollingTimer = null;
           setBusy(false);
-          if (pendingLabel) pendingLabel.hidden = true;
-          const code = error instanceof Error ? error.message : "summary_poll_unavailable";
-          const retry = ["summary_poll_unavailable", "summary_request_unavailable"].includes(code)
-            ? retryCandidateAction({ retryable: true })
-            : candidateErrorAction(code, activeTemplate);
-          showStatus(candidateErrorCopy(code), "failed", retry ? [retry] : []);
+          const code = error instanceof Error ? error.message : "";
+          const retry = code === "summary_poll_failed"
+            ? {
+                text: "Проверить снова",
+                action: () => resumeCandidatePolling(candidate, generation),
+                primary: true
+              }
+            : retryTerminalCandidateAction(code);
+          showStatus(
+            code === "summary_poll_failed"
+              ? "Не удалось обновить новый вариант. Текущие итоги сохранены."
+              : candidateErrorCopy(code),
+            "failed",
+            [retry, ...(code === "summary_poll_failed"
+              ? [{ text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }]
+              : [])]
+          );
         }
       };
-      const requestCandidate = async (template) => {
+      const requestCandidate = async (template, {
+        requestIntent = "manual_format",
+        requestIntentId = null
+      } = {}) => {
         if (!template || !meetingId) return;
+        const generation = ++candidateRequestGeneration;
+        candidateRequestInFlightGeneration = generation;
         activeTemplate = template;
+        activeRequestIntent = requestIntent;
+        activeRequestIntentId = requestIntentId;
+        const currentTemplateKey = controls.dataset.currentTemplateKey || "";
+        const currentTemplateVersion = Number(controls.dataset.currentTemplateVersion || "1");
+        if (
+          requestIntent === "manual_format"
+          && template.key === currentTemplateKey
+          && template.version === currentTemplateVersion
+        ) {
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          showStatus(
+            "Этот формат уже выбран. Нажмите «Обновить итоги», чтобы создать новый вариант.",
+            "ready",
+            [{
+              text: "Обновить итоги",
+              action: () => requestCurrentRefresh(),
+              primary: true
+            }]
+          );
+          return;
+        }
         setBusy(true);
         if (pendingLabel) {
           pendingLabel.hidden = false;
           pendingLabel.textContent = `Готовим вариант: ${template.name}`;
         }
         showStatus(`Готовим формат «${template.name}». Текущие итоги остаются на месте.`);
+        const body = {
+          template_key: template.key,
+          template_id: template.id || null,
+          template_version: template.version,
+          expected_current_outcome_set_id: currentOutcomeSetId,
+          request_intent: requestIntent
+        };
+        if (requestIntentId) body.request_intent_id = requestIntentId;
         try {
           const candidate = await mutate(
             `/api/v1/cabinet/meetings/${meetingId}/summary-candidates`,
             "POST",
-            {
-              template_key: template.key,
-              template_id: template.id || null,
-              template_version: template.version,
-              expected_current_outcome_set_id: currentOutcomeSetId
-            }
+            body
           );
-          renderCandidate(candidate);
           if (candidate.state === "generating") {
-            pollingTimer = window.setTimeout(() => pollCandidate(candidate), 1200);
+            pollAttempts = 0;
+            pollDeadline = Date.now() + 5 * 60 * 1000;
+            pollDelay = 1500;
           }
+          if (generation !== candidateRequestGeneration) return;
+          renderCandidate(candidate, generation);
+          if (candidate.state === "generating") schedulePoll(candidate, generation);
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
+          if (generation !== candidateRequestGeneration) return;
           setBusy(false);
           if (pendingLabel) pendingLabel.hidden = true;
-          const code = error instanceof Error && error.message && error.message !== "summary_request_failed"
-            ? error.message
-            : "summary_request_unavailable";
-          const action = candidateErrorAction(code, template);
-          showStatus(candidateErrorCopy(code), "failed", action ? [action] : []);
+          const code = error instanceof Error ? error.message : "";
+          showStatus(candidateErrorCopy(code), "failed", [retryCandidateAction(code)]);
+        } finally {
+          if (generation === candidateRequestGeneration) candidateRequestInFlightGeneration = null;
         }
       };
+      const currentTemplate = async () => {
+        const key = controls.dataset.currentTemplateKey || "";
+        const version = Number(controls.dataset.currentTemplateVersion || "1");
+        const name = controls.dataset.currentTemplateName || "итогов";
+        const local = options().find((option) => option.dataset.templateKey === key);
+        if (local) return templateFrom(local);
+        try {
+          const response = await fetch("/api/v1/cabinet/summary-templates", {
+            credentials: "same-origin",
+            cache: "no-store"
+          });
+          if (response.ok) {
+            const payload = await response.json();
+            const template = [...(payload.recommended || []), ...(payload.personal || [])]
+              .find((candidate) => candidate.template_key === key);
+            if (template) {
+              return {
+                id: template.template_id || null,
+                key: template.template_key,
+                version: Number(template.version),
+                name: template.name
+              };
+            }
+          }
+        } catch (_error) {
+          // The picker still provides active alternatives when refresh lookup fails.
+        }
+        return { id: controls.dataset.currentTemplateId || null, key, version, name };
+      };
+      const requestCurrentRefresh = async () => {
+        // Invalidate an in-flight history load before resolving the current template.
+        const refreshGeneration = ++candidateRequestGeneration;
+        candidateRequestInFlightGeneration = refreshGeneration;
+        const template = await currentTemplate();
+        if (refreshGeneration !== candidateRequestGeneration) return;
+        if (!template.key) {
+          candidateRequestInFlightGeneration = null;
+          openFormatPicker();
+          return;
+        }
+        const intentId = typeof window.crypto?.randomUUID === "function"
+          ? window.crypto.randomUUID()
+          : (() => {
+              const bytes = new Uint8Array(16);
+              if (typeof window.crypto?.getRandomValues === "function") {
+                window.crypto.getRandomValues(bytes);
+              } else {
+                for (let index = 0; index < bytes.length; index += 1) {
+                  bytes[index] = Math.floor(Math.random() * 256);
+                }
+              }
+              bytes[6] = (bytes[6] & 0x0f) | 0x40;
+              bytes[8] = (bytes[8] & 0x3f) | 0x80;
+              const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+              return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+            })();
+        await requestCandidate(template, {
+          requestIntent: "manual_refresh",
+          requestIntentId: intentId
+        });
+      };
+      refreshButton?.addEventListener("click", requestCurrentRefresh);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && pollingTimer === null && candidateRequestInFlightGeneration === null) {
+          const stored = window.sessionStorage.getItem(candidateStorageKey);
+          if (!stored) return;
+          try {
+            const resumed = JSON.parse(stored);
+            if (resumed?.poll_url) {
+              activeTemplate = resumed.template?.key && Number.isInteger(resumed.template?.version)
+                ? resumed.template
+                : null;
+              activeRequestIntent = resumed.requestIntent || "manual_format";
+              activeRequestIntentId = resumed.requestIntentId || null;
+              pollAttempts = Number(resumed.pollAttempts || 0);
+              pollDeadline = Number(resumed.pollDeadline || (Date.now() + 5 * 60 * 1000));
+              pollDelay = Number(resumed.pollDelay || 1500);
+              setBusy(true);
+              schedulePoll({ poll_url: resumed.poll_url }, candidateRequestGeneration);
+            }
+          } catch (_error) {
+            // The normal request path will recreate the durable candidate state.
+          }
+        }
+      });
       const isCurrentFormat = (template) => {
         if (!template || !currentOutcomeSetId) return false;
         const currentKey = controls.dataset.currentSummaryFormatKey || "";
@@ -1603,23 +1914,6 @@
         version: Number(option.dataset.templateVersion || "1"),
         name: option.dataset.templateName || option.textContent.trim()
       });
-      const templateFromCandidate = (candidate) => {
-        const candidateKey = candidate.template_key || "";
-        const candidateId = candidate.template_id || null;
-        const candidateVersion = Number(candidate.template_version || "1");
-        const option = options().find((item) => (
-          item.dataset.templateKey === candidateKey
-          && Number(item.dataset.templateVersion || "1") === candidateVersion
-          && (item.dataset.templateId || null) === candidateId
-        ));
-        if (option) return templateFrom(option);
-        return candidateKey ? {
-          id: candidateId,
-          key: candidateKey,
-          version: candidateVersion,
-          name: candidate.template_name || "Личный формат"
-        } : null;
-      };
       const applyServerCandidate = (candidate) => {
         currentOutcomeSetId = candidate.current_outcome_set_id || currentOutcomeSetId;
         activeTemplate = templateFromCandidate(candidate);
@@ -1734,6 +2028,11 @@
           // A pre-121 URL-only value can still be polled; server state remains authoritative.
         }
         activeTemplate = resumed.template || null;
+        activeRequestIntent = resumed.requestIntent || "manual_format";
+        activeRequestIntentId = resumed.requestIntentId || null;
+        pollAttempts = Number(resumed.pollAttempts || 0);
+        pollDeadline = Number(resumed.pollDeadline || (Date.now() + 5 * 60 * 1000));
+        pollDelay = Number(resumed.pollDelay || 1500);
         setBusy(true);
         showStatus("Проверяем новый вариант. Текущие итоги остаются на месте.");
         pollCandidate({ poll_url: resumed.poll_url });
@@ -1743,7 +2042,7 @@
         credentials: "same-origin",
         cache: "no-store"
       }).then((response) => response.ok ? response.json() : null).then((payload) => {
-        const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
+        const candidates = Array.isArray(payload) ? payload : (Array.isArray(payload?.candidates) ? payload.candidates : []);
         const current = candidates.find((candidate) => ["generating", "ready"].includes(candidate.state));
         if (current) {
           window.clearTimeout(pollingTimer);

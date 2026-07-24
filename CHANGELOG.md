@@ -9,7 +9,11 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature 124: immutable media-revision lineage and a revision-scoped reprocess
+  upload session with idempotency and immutable accepted-source protection.
+- Feature 124: candidate/current outcome lifecycle with owner preview and
+  explicit accept/reject, source/deletion fences, generator provenance, durable
+  dispatch recovery and retryable GRAF-controlled purge reconciliation.
 
 ### Изменено
 - Feature 122: экран «Мои встречи» получил одну спокойную иерархию — заголовок,
