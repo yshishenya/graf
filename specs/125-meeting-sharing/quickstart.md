@@ -204,3 +204,28 @@ attribution remain disabled.
   and `/desktop/.../share`; no meeting content, live credentials or real
   contacts were used. Live production public-link, Contacts/provider and
   referral gates remain disabled; exact-email is the only enabled external path.
+
+## Validation record — 2026-07-24 post-review hardening
+
+- Focused PostgreSQL/RLS/auth/Share regression matrix: `22 passed`; the
+  broader focused Feature 125 and security/access matrix also passed. The
+  checks cover the read-only invitation continuation context, durable auth-code
+  throttling, provider email-verification updates, Share retry/confirmation
+  states, notification outcome reporting and initial calendar suggestions.
+- `infra/scripts/ci-local.sh`: pass — macOS `624 passed`; PostgreSQL `2,260
+  passed, 1 skipped` in parallel and `41 passed, 1 skipped` in strict mode;
+  Ruff, Python compile, compose config and deployment-evidence scan passed.
+- Repeat security/code/Ponytail review: no critical findings. The lookup RLS
+  context is `USING`-only, rate-limit scopes use keyed HMAC, invitation rows
+  commit before Temporal dispatch, and unknown delivery outcomes do not trigger
+  an automatic duplicate email.
+- Product/accessibility review is complete at the static/contract level,
+  including error, retry, keyboard, combobox, focus-return and clean-room
+  checks. Screenshot-based authenticated browser review was not executable in
+  this environment because no authenticated local GRAF tab was available and
+  the production URL was blocked by the in-app browser policy; this is not
+  claimed as rendered visual evidence.
+- This record validates the post-review candidate before release/deploy only. Migrations
+  `0036_share_inv_auth_lookup` and `0037_auth_rate_limit_buckets` are not called
+  production-deployed until the release CD gate completes; the previous
+  production record above remains the source of truth for deployed SHA/head.

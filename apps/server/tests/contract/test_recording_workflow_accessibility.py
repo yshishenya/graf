@@ -42,9 +42,11 @@ def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> Non
     assert 'aria-modal="true"' in share
     assert 'data-share-recipient-input' in share
     assert 'data-share-recipient-results' in share
+    assert 'data-share-recipient-confirmation' in share
     assert 'aria-label="Найденные люди"' in share
-    assert 'role="combobox"' not in share
-    assert 'role="listbox"' not in share
+    assert 'role="combobox"' in share
+    assert 'role="listbox"' in share
+    assert 'aria-activedescendant' in script
     assert 'aria-labelledby="meeting-details-title"' in governance
     assert 'aria-modal="true"' in governance
     assert 'aria-haspopup="menu"' in rendering
@@ -57,10 +59,10 @@ def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> Non
     assert 'tabindex="1"' not in "".join((share, governance, policy))
     assert "const modalFocusTargets" in script
     assert "const trapModalFocus" in script
-    assert 'results?.querySelectorAll("button")' in script
+    assert "results?.querySelectorAll('[role=\"option\"]')" in script
     assert 'button.setAttribute("aria-label"' in script
-    assert 'button.setAttribute("role", "option")' not in script
-    assert 'button.setAttribute("aria-selected", "false")' not in script
+    assert 'button.setAttribute("role", "option")' in script
+    assert 'button.setAttribute("aria-selected", "false")' in script
     assert 'event.key !== "Tab"' in script
     assert "opener.focus({ preventScroll: true })" in script
     assert "returnFocus.focus({ preventScroll: true })" in script

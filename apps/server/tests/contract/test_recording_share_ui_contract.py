@@ -14,6 +14,9 @@ def test_share_fragment_is_simple_first_and_accessible() -> None:
     assert 'id="meeting-share-dialog"' in source
     assert "data-share-dialog open" not in source
     assert 'data-share-recipient-input' in source
+    assert 'role="combobox"' in source
+    assert 'aria-controls="share-recipient-results-{{ meeting_id }}"' in source
+    assert 'role="listbox"' in source
     assert "Найти" in source
     assert "Скопировать ссылку" in JS.read_text(encoding="utf-8")
     assert "Открыть доступ к итогам" in JS.read_text(encoding="utf-8")
@@ -21,6 +24,7 @@ def test_share_fragment_is_simple_first_and_accessible() -> None:
     assert "Что увидят: только итоги" in source
     assert "Отозвать" in source
     assert "data-share-recipient-results" in source
+    assert "data-share-recipient-confirmation" in source
     assert "data-share-revoke-url" in source
     assert "data-share-rotate-url" in source
     assert "data-share-capability-state" in source
@@ -36,4 +40,9 @@ def test_share_focus_and_isolated_styles_are_registered() -> None:
     assert 'event.key !== "Tab"' in javascript
     assert "content_scope: \"summary_only\"" in javascript
     assert "data-share-revoke-url" in javascript
+    assert "renderExternalInvitationConfirmation" in javascript
+    assert "setConfirmationVisible" in javascript
+    assert "Отправить приглашение" in javascript
+    assert "shareRequestErrorMessage" in javascript
+    assert "Повторить" in javascript
     assert ".share-dialog" in CSS.read_text(encoding="utf-8")

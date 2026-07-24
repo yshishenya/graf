@@ -1572,6 +1572,7 @@ class CreateShareGrantRequest(BaseModel):
 class ShareGrantResponse(BaseModel):
     grant: ShareGrantView
     share_url: str
+    notification_status: Literal["sent", "not_available", "failed", "outcome_unknown", "not_attempted"] = "not_attempted"
 
 
 class CreateExportPackageRequest(BaseModel):

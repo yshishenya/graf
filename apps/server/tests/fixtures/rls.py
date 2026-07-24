@@ -9,6 +9,7 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "workspace_provider_link_states",
     "auth_callback_states",
     "auth_audit_events",
+    "auth_rate_limit_buckets",
     "workspace_consent_copy",
     "meetings",
     "media_revisions",

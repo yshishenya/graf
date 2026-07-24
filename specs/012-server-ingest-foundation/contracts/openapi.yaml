@@ -13820,6 +13820,16 @@ components:
         share_url:
           type: string
           title: Share Url
+        notification_status:
+          type: string
+          enum:
+          - sent
+          - not_available
+          - failed
+          - outcome_unknown
+          - not_attempted
+          title: Notification Status
+          default: not_attempted
       type: object
       required:
       - grant

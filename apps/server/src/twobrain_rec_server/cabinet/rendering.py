@@ -662,7 +662,11 @@ def _render_meeting_workspace_actions(
     embedded: bool,
     more_actions_available: bool,
 ) -> str:
-    share_disabled = " disabled" if review.governance.share.state != "available" else ""
+    share_disabled = (
+        " disabled aria-disabled=\"true\" title=\"Поделиться пока недоступно по политике встречи\""
+        if review.governance.share.state != "available"
+        else " aria-haspopup=\"dialog\" aria-expanded=\"false\""
+    )
     share_url = f"{_base_path(embedded)}/{review.meeting.meeting_id}/share"
     more_action = ""
     if more_actions_available:

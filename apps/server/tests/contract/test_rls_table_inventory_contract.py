@@ -68,6 +68,10 @@ MEETING_SHARE_SECURITY_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0035_meeting_share_security_hardening.py"
 )
+AUTH_RATE_LIMIT_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0037_auth_rate_limit_buckets.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -143,6 +147,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         MEETING_SHARE_SECURITY_MIGRATION,
         "meeting_share_security_migration",
     )
+    auth_rate_limit_migration = _load_migration_module(
+        AUTH_RATE_LIMIT_MIGRATION,
+        "auth_rate_limit_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -164,6 +172,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(recording_workflow_migration.TENANT_TABLE_POLICIES)
         | set(recording_workflow_migration.GLOBAL_OPERATOR_TABLES)
         | set(meeting_share_security_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(auth_rate_limit_migration.AUTH_RATE_LIMIT_TABLES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

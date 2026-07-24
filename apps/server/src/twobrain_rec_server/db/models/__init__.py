@@ -29,6 +29,7 @@ from twobrain_rec_server.db.models.deletion import (
 from twobrain_rec_server.db.models.federated_auth import (
     AuthAuditEvent,
     AuthCallbackState,
+    AuthRateLimitBucket,
     AuthSession,
     AuthSessionDeviceBinding,
     ExternalIdentity,
@@ -159,6 +160,7 @@ __all__ = [
     "WorkspaceUsageDaily",
     "AuthAuditEvent",
     "AuthCallbackState",
+    "AuthRateLimitBucket",
     "AuthSession",
     "AuthSessionDeviceBinding",
     "CalendarAuditEvent",

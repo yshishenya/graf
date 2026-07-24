@@ -19,6 +19,7 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.policy import read_auth_providers
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
+from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
 from twobrain_rec_server.auth.sessions import (
     create_callback_state,
     issue_callback_nonce,
@@ -50,6 +51,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
 )
 from twobrain_rec_server.db.models import AuthSession
 from twobrain_rec_server.db.tenant_context import (
+    ShareInvitationLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context,
@@ -69,6 +71,14 @@ LoginCodeForm = Form(..., max_length=32)
 LoginStateForm = Form(..., max_length=160)
 LoginNextForm = Form(default="/meetings", alias="next", max_length=512)
 LogoutNextForm = Form(default="/login?next=/meetings", alias="next", max_length=512)
+
+
+def _auth_rate_limit_headers(retry_after: int) -> dict[str, str]:
+    return {"Retry-After": str(max(1, retry_after))}
+
+
+def _request_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 def _parse_share_invitation_next(next_path: str) -> tuple[UUID, str] | None:
@@ -103,7 +113,13 @@ async def _active_share_invitation_next(
     if target is None:
         return None
     workspace_id, state = target
-    await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
+    await apply_tenant_context(
+        db,
+        ShareInvitationLookupContext(
+            workspace_id=workspace_id,
+            continuation_nonce=state,
+        ),
+    )
     if not await share_invitation_continuation_matches(
         db,
         workspace_id=workspace_id,
@@ -248,6 +264,36 @@ async def browser_email_login_start(
             ),
             status_code=400,
         )
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=resolved_workspace_id,
+        scopes=(
+            ("email_code_start_address", normalized_email),
+            ("email_code_start_ip", _request_ip(request)),
+            *(
+                (("email_code_start_invitation", invitation_context[1]),)
+                if invitation_context is not None
+                else ()
+            ),
+        ),
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="auth_rate_limited",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=429,
+            headers=_auth_rate_limit_headers(retry_after),
+        )
     workspace, user = await _resolve_email_login_user(
         db,
         workspace_id=resolved_workspace_id,
@@ -383,6 +429,30 @@ async def browser_email_signup_start(
             ),
             status_code=400,
         )
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=resolved_workspace_id,
+        scopes=(
+            ("email_code_start_address", normalized_email),
+            ("email_code_start_ip", _request_ip(request)),
+        ),
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        return HTMLResponse(
+            render_signup_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="auth_rate_limited",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=429,
+            headers=_auth_rate_limit_headers(retry_after),
+        )
     workspace = await _resolve_email_workspace(db, workspace_id=resolved_workspace_id)
     if workspace is None:
         return HTMLResponse(
@@ -517,6 +587,32 @@ async def browser_email_login_verify(
             ),
             status_code=400,
         )
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=resolved_workspace_id,
+        scopes=(
+            ("email_code_verify_address", normalized_email or ""),
+            ("email_code_verify_ip", _request_ip(request)),
+            ("email_code_verify_state", state),
+        ),
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        return HTMLResponse(
+            render_email_code_page(
+                email=normalized_email,
+                state_nonce=state,
+                next_path=safe_next,
+                error="auth_rate_limited",
+                flow="share_invitation" if invitation_flow else "login",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=429,
+            headers=_auth_rate_limit_headers(retry_after),
+        )
     result = await _consume_email_login_code(
         db,
         request=request,
@@ -644,6 +740,32 @@ async def browser_email_signup_verify(
                 ),
             ),
             status_code=400,
+        )
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=resolved_workspace_id,
+        scopes=(
+            ("email_code_verify_address", normalized_email or ""),
+            ("email_code_verify_ip", _request_ip(request)),
+            ("email_code_verify_state", state),
+        ),
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        return HTMLResponse(
+            render_email_code_page(
+                email=normalized_email,
+                state_nonce=state,
+                next_path=safe_next,
+                error="auth_rate_limited",
+                flow="signup",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=429,
+            headers=_auth_rate_limit_headers(retry_after),
         )
     result = await _consume_email_login_code(
         db,

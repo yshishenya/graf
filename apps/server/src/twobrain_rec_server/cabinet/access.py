@@ -1036,7 +1036,7 @@ async def search_share_recipients(
     limit: int = 20,
 ) -> list[ShareRecipientCandidate]:
     normalized_query = " ".join(query.strip().split())[:80]
-    if meeting_id is None or len(normalized_query) < 2:
+    if meeting_id is None or len(normalized_query) == 1:
         return []
     if viewer_user_id is not None and device_id is not None:
         await enforce_share_rate_limit(
@@ -1135,7 +1135,8 @@ async def search_share_recipients(
         for participant in participants
         if participant.email
         and (
-            _query_matches(participant.display_name, normalized_query)
+            not normalized_query
+            or _query_matches(participant.display_name, normalized_query)
             or _query_matches(participant.email, normalized_query)
         )
     }

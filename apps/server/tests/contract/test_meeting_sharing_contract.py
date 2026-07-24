@@ -33,6 +33,20 @@ def test_share_client_keeps_external_disabled_flow_inert_and_handles_returned_ur
     assert "cache: \"no-store\"" in source
 
 
+def test_internal_share_notification_is_token_free_and_reports_outcome() -> None:
+    source = (REPO_ROOT / "apps/server/src/twobrain_rec_server/api/cabinet.py").read_text(
+        encoding="utf-8"
+    )
+    helper = source.split("async def _send_internal_share_notification", 1)[1].split(
+        "async def get_public_share_db_session", 1
+    )[0]
+
+    assert "send_meeting_invitation" in helper
+    assert "/meetings/{meeting.id}" in helper
+    assert "raw_token" not in helper
+    assert 'notification_status="not_attempted"' in source
+
+
 def test_share_token_paths_are_redacted_and_non_indexable() -> None:
     source = LOGGING.read_text(encoding="utf-8")
 

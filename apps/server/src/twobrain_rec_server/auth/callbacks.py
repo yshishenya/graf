@@ -195,7 +195,7 @@ async def _create_scoped_user(
     *,
     provider: str,
     provider_subject: str,
-    profile: dict[str, str | None],
+    profile: dict[str, str | bool | None],
     role: str | None = None,
 ) -> UserIdentity:
     try:
@@ -234,7 +234,7 @@ async def _create_scoped_user(
                     email=profile.get("email"),
                     phone=profile.get("phone"),
                     display_name=profile.get("display_name"),
-                    is_verified=True,
+                    is_verified=bool(profile.get("email")) and bool(profile.get("is_verified")),
                     subject_issued_at=datetime.now(UTC),
                     last_seen_at=datetime.now(UTC),
                     meta={},
@@ -243,6 +243,25 @@ async def _create_scoped_user(
             await db.flush()
     except IntegrityError as exc:
         if _is_external_identity_unique_conflict(exc):
+            existing_identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.provider == provider,
+                    ExternalIdentity.provider_subject == provider_subject,
+                )
+            )
+            if existing_identity is not None:
+                existing_user = await db.get(UserIdentity, existing_identity.user_id)
+                if existing_user is not None and existing_user.organization_id == organization_id:
+                    await apply_tenant_context(
+                        db,
+                        WorkspaceAuthContext(
+                            workspace_id=workspace_id,
+                            organization_id=organization_id,
+                            user_id=existing_user.id,
+                            context_kind="auth_bootstrap",
+                        ),
+                    )
+                    return existing_user
             raise CallbackFlowError(
                 "identity_subject_conflict",
                 "identity already linked to an account in another organization",
@@ -326,6 +345,7 @@ async def _get_or_create_user_from_provider_claims(
     email: str | None,
     phone: str | None,
     display_name: str | None,
+    is_verified: bool,
 ) -> UserIdentity:
     user = await _user_by_external_identity(
         db,
@@ -345,6 +365,24 @@ async def _get_or_create_user_from_provider_claims(
                 context_kind="auth_bootstrap",
             ),
         )
+        identity = await db.scalar(
+            select(ExternalIdentity).where(
+                ExternalIdentity.provider == provider,
+                ExternalIdentity.provider_subject == provider_subject,
+                ExternalIdentity.user_id == user.id,
+            )
+        )
+        if identity is not None:
+            previous_email = identity.email
+            identity.email = email or previous_email
+            identity.phone = phone or identity.phone
+            identity.provider_username = provider_username or identity.provider_username
+            identity.display_name = display_name or identity.display_name
+            if email and email != previous_email:
+                identity.is_verified = is_verified
+            elif email and is_verified:
+                identity.is_verified = True
+            identity.last_seen_at = datetime.now(UTC)
         await create_matching_join_offers_after_login(
             db,
             organization_id=organization_id,
@@ -377,6 +415,7 @@ async def _get_or_create_user_from_provider_claims(
         "email": email,
         "phone": phone,
         "display_name": display_name,
+        "is_verified": bool(email) and is_verified,
     }
     user = await _create_scoped_user(
         db,
@@ -569,6 +608,7 @@ async def resolve_callback_to_user(
             email=identity.email,
             phone=identity.phone,
             display_name=identity.display_name,
+            is_verified=identity.is_verified,
         )
     except CallbackFlowError as exc:
         await _mark_state_error(state, exc.code, now=now)

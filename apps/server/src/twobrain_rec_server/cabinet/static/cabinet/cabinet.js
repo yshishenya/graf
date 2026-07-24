@@ -2453,21 +2453,32 @@
       const status = dialog.querySelector("[data-share-status]");
       const form = dialog.querySelector("[data-share-recipient-form]");
       const results = dialog.querySelector("[data-share-recipient-results]");
+      const confirmationHost = dialog.querySelector("[data-share-recipient-confirmation]");
       const viewers = dialog.querySelector("[data-share-viewers]");
       const recipientInput = form?.querySelector("[data-share-recipient-input]");
       const meetingId = form?.dataset.meetingId || "";
       const externalInvitationsEnabled = dialog.dataset.shareExternalInvitations === "available";
       const setResultsVisible = (visible) => {
         if (results) results.hidden = !visible;
+        recipientInput?.setAttribute("aria-expanded", visible ? "true" : "false");
+        if (!visible) recipientInput?.removeAttribute("aria-activedescendant");
+      };
+      const setConfirmationVisible = (visible) => {
+        if (confirmationHost) confirmationHost.hidden = !visible;
       };
       const focusResult = (option) => {
         if (!(option instanceof HTMLElement)) return;
-        option.focus({ preventScroll: true });
+        results?.querySelectorAll('[role="option"]').forEach((item) => {
+          item.setAttribute("aria-selected", item === option ? "true" : "false");
+        });
+        recipientInput?.setAttribute("aria-activedescendant", option.id);
+        recipientInput?.focus({ preventScroll: true });
       };
       const focusResultOption = (current, offset) => {
-        const options = Array.from(results?.querySelectorAll("button") || []);
+        const options = Array.from(results?.querySelectorAll('[role="option"]') || []);
         if (!options.length) return;
-        const index = options.indexOf(current);
+        const currentIndex = options.indexOf(current);
+        const index = currentIndex === -1 ? (offset > 0 ? -1 : 0) : currentIndex;
         focusResult(options[(index + offset + options.length) % options.length]);
       };
       const setStatus = (message, tone = "neutral") => {
@@ -2516,6 +2527,7 @@
         const maskedLocal = local.length <= 2 ? `${local[0]}*` : `${local[0]}***${local[local.length - 1]}`;
         return `${maskedLocal}@${domain}`;
       };
+      const isLikelyEmail = (address) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address);
       const mutate = async (url, options) => {
         const response = await fetch(url, {
           credentials: "same-origin",
@@ -2697,8 +2709,16 @@
             })
           });
           setResultsVisible(false);
+          setConfirmationVisible(false);
+          recipientInput?.focus({ preventScroll: true });
           appendViewerRow(label, payload);
-          setStatus(`Доступ к итогам открыт: ${label}. Ссылка готова для копирования.`, "success");
+          const notificationMessage = {
+            sent: " Участнику также отправлено письмо.",
+            failed: " Письмо не отправлено — скопируйте ссылку вручную.",
+            outcome_unknown: " Статус письма не подтверждён — скопируйте ссылку вручную.",
+            not_available: " Письмо не отправлено: у участника нет подтверждённого email."
+          }[payload?.notification_status] || "";
+          setStatus(`Доступ к итогам открыт: ${label}. Ссылка готова для копирования.${notificationMessage}`, "success");
         } catch (error) {
           setStatus(shareErrorMessage(error?.code || error?.message), "error");
         } finally {
@@ -2707,6 +2727,7 @@
       };
       const close = () => {
         dialog.close();
+        opener?.setAttribute("aria-expanded", "false");
         if (opener instanceof HTMLElement) opener.focus({ preventScroll: true });
       };
       dialog.querySelector("[data-share-dialog-close]")?.addEventListener("click", close);
@@ -2720,13 +2741,70 @@
       dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
       let searchSequence = 0;
       let searchController = null;
+      const sendExternalInvitation = async (address, button) => {
+        if (button?.disabled) return;
+        if (button) button.disabled = true;
+        try {
+          const invitation = await mutate(`/api/v1/cabinet/meetings/${meetingId}/share-invitations`, {
+            method: "POST",
+            body: JSON.stringify({
+              address,
+              content_scope: "summary_only",
+              can_download: false,
+              can_export: false
+            })
+          });
+          setResultsVisible(false);
+          setConfirmationVisible(false);
+          recipientInput?.focus({ preventScroll: true });
+          appendInvitationRow(invitation, maskInvitationAddress(address));
+          setStatus("Приглашение поставлено в отправку. Доставка может занять несколько минут.", "success");
+        } catch (error) {
+          setStatus(shareErrorMessage(error?.code || error?.message), "error");
+          if (button?.isConnected) button.disabled = false;
+        }
+      };
+      const renderExternalInvitationConfirmation = (address) => {
+        if (!confirmationHost) return;
+        setResultsVisible(false);
+        confirmationHost.replaceChildren();
+        const prompt = document.createElement("div");
+        prompt.className = "share-recipient-confirmation";
+        const title = document.createElement("strong");
+        title.textContent = `Отправить приглашение на ${maskInvitationAddress(address)}?`;
+        const note = document.createElement("small");
+        note.className = "muted";
+        note.textContent = "Получатель создаст аккаунт или войдёт по ссылке и увидит только итоги встречи.";
+        const actions = document.createElement("span");
+        actions.className = "share-viewer-row__actions";
+        const confirm = document.createElement("button");
+        confirm.type = "button";
+        confirm.id = `share-external-send-${meetingId}`;
+        confirm.textContent = "Отправить приглашение";
+        confirm.addEventListener("click", () => sendExternalInvitation(address, confirm));
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.textContent = "Изменить адрес";
+        cancel.addEventListener("click", () => {
+          setConfirmationVisible(false);
+          setResultsVisible(false);
+          recipientInput?.focus({ preventScroll: true });
+        });
+        actions.append(confirm, cancel);
+        prompt.append(title, note, actions);
+        confirmationHost.append(prompt);
+        setConfirmationVisible(true);
+        setStatus("Проверьте адрес перед отправкой.");
+        confirm.focus({ preventScroll: true });
+      };
       form?.addEventListener("submit", async (event) => {
         event.preventDefault();
         const query = recipientInput?.value.trim() || "";
-        if (query.length < 2) {
+        if (query.length === 1) {
           setStatus("Введите имя или email.", "error");
           return;
         }
+        setConfirmationVisible(false);
         setResultsVisible(false);
         setStatus("Ищем…");
         const sequence = ++searchSequence;
@@ -2752,7 +2830,10 @@
             items.forEach((item) => {
               const button = document.createElement("button");
               button.type = "button";
+              button.tabIndex = -1;
               button.id = `share-recipient-option-${meetingId}-${item.user_id}`;
+              button.setAttribute("role", "option");
+              button.setAttribute("aria-selected", "false");
               const label = document.createElement("strong");
               label.textContent = item.display_label;
               const source = document.createElement("small");
@@ -2776,20 +2857,14 @@
               setStatus(shareErrorMessage("share_invitations_disabled"), "error");
               return;
             }
-            const invitation = await mutate(`/api/v1/cabinet/meetings/${meetingId}/share-invitations`, {
-              method: "POST",
-              body: JSON.stringify({
-                address: query,
-                content_scope: "summary_only",
-                can_download: false,
-                can_export: false
-              })
-            });
-            appendInvitationRow(invitation, maskInvitationAddress(query));
-            setStatus("Приглашение поставлено в отправку. Доставка может занять несколько минут.", "success");
+            if (!isLikelyEmail(query)) {
+              setStatus("Проверьте адрес электронной почты.", "error");
+              return;
+            }
+            renderExternalInvitationConfirmation(query);
             return;
           }
-          setStatus("Никого не нашли. Проверьте имя.", "error");
+          setStatus(query ? "Никого не нашли. Проверьте имя." : "Выберите участника или начните вводить имя.", query ? "error" : "neutral");
         } catch (error) {
           if (error?.name === "AbortError") return;
           setStatus(shareErrorMessage(error?.code || error?.message), "error");
@@ -2801,13 +2876,36 @@
         searchSequence += 1;
         searchController?.abort();
         searchController = null;
+        setConfirmationVisible(false);
         setResultsVisible(false);
         setStatus(recipientInput.value.trim() ? "Нажмите «Найти»." : "");
       });
+      recipientInput?.addEventListener("focus", () => {
+        if (results && !recipientInput.value.trim() && !results.dataset.initialSuggestionsLoaded) {
+          results.dataset.initialSuggestionsLoaded = "true";
+          form?.requestSubmit();
+        }
+      }, { once: true });
       recipientInput?.addEventListener("keydown", (event) => {
-        if (event.key === "ArrowDown" && !results?.hidden) {
+        if (!results || results.hidden) return;
+        const activeId = recipientInput.getAttribute("aria-activedescendant") || "";
+        const active = activeId ? document.getElementById(activeId) : null;
+        if (event.key === "ArrowDown") {
           event.preventDefault();
-          focusResult(results.querySelector("button"));
+          focusResultOption(active, 1);
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          focusResultOption(active, -1);
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          focusResult(results.querySelector('[role="option"]'));
+        } else if (event.key === "End") {
+          event.preventDefault();
+          const options = results.querySelectorAll('[role="option"]');
+          focusResult(options[options.length - 1]);
+        } else if (event.key === "Enter" && active) {
+          event.preventDefault();
+          active.click();
         } else if (event.key === "Escape" && !results?.hidden) {
           event.preventDefault();
           event.stopPropagation();
@@ -2815,12 +2913,15 @@
         }
       });
       results?.addEventListener("keydown", (event) => {
-        const option = event.target.closest?.("button");
+        const option = event.target.closest?.('[role="option"]');
         if (!option) return;
         if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
           event.preventDefault();
-          if (event.key === "Home") focusResult(results.querySelector("button"));
-          else if (event.key === "End") focusResult(results.querySelector("button:last-of-type"));
+          if (event.key === "Home") focusResult(results.querySelector('[role="option"]'));
+          else if (event.key === "End") {
+            const options = results.querySelectorAll('[role="option"]');
+            focusResult(options[options.length - 1]);
+          }
           else focusResultOption(option, event.key === "ArrowDown" ? 1 : -1);
         } else if (event.key === "Escape") {
           event.preventDefault();
@@ -2856,8 +2957,66 @@
     initCalendarSettings();
   };
 
+  const shareRequestSource = (event) => {
+    const source = event.detail?.elt || event.target;
+    if (source instanceof Element && source.matches("[data-share-dialog-open]")) return source;
+    return document.querySelector("[data-share-dialog-open][data-share-request-pending='true']");
+  };
+  const shareRequestErrorMessage = (status) => {
+    if (status === 401 || status === 403) return "Сессия страницы устарела. Обновите страницу и войдите снова.";
+    if (status === 404) return "Встреча или доступ к ней больше недоступны.";
+    if (status === 429) return "Слишком много запросов. Попробуйте открыть окно позже.";
+    return "Не удалось открыть окно «Поделиться». Проверьте соединение и попробуйте ещё раз.";
+  };
+  const resetShareRequestSource = (source) => {
+    source.removeAttribute("aria-busy");
+    source.disabled = false;
+    delete source.dataset.shareRequestPending;
+  };
+  const showShareRequestError = (source, status = 0) => {
+    if (source.dataset.shareRequestPending !== "true") return;
+    resetShareRequestSource(source);
+    const host = document.querySelector("#meeting-share-host");
+    if (!host) return;
+    host.replaceChildren();
+    const shell = document.createElement("div");
+    shell.className = "share-load-error";
+    shell.setAttribute("role", "alert");
+    const message = document.createElement("p");
+    message.textContent = shareRequestErrorMessage(status);
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Повторить";
+    retry.addEventListener("click", () => source.click());
+    shell.append(message, retry);
+    host.append(shell);
+  };
+  document.body.addEventListener("htmx:beforeRequest", (event) => {
+    const source = shareRequestSource(event);
+    if (!source) return;
+    source.setAttribute("aria-busy", "true");
+    source.disabled = true;
+    source.dataset.shareRequestPending = "true";
+  });
+  document.body.addEventListener("htmx:afterRequest", (event) => {
+    const source = shareRequestSource(event);
+    if (!source || event.detail?.successful) return;
+    showShareRequestError(source, event.detail?.xhr?.status || 0);
+  });
+  ["htmx:sendError", "htmx:timeout", "htmx:swapError"].forEach((eventName) => {
+    document.body.addEventListener(eventName, (event) => {
+      const source = shareRequestSource(event);
+      if (source) showShareRequestError(source);
+    });
+  });
+
   document.body.addEventListener("htmx:afterSwap", (event) => {
     const target = event.detail?.target;
+    const source = shareRequestSource(event);
+    if (source && target instanceof Element && target.id === "meeting-share-host") {
+      resetShareRequestSource(source);
+      source.setAttribute("aria-expanded", "true");
+    }
     if (target instanceof Element && (target.id === "meeting-list-region" || target.matches("[data-meeting-list]"))) {
       target.querySelectorAll("[data-meeting-select]").forEach((input) => {
         input.checked = false;

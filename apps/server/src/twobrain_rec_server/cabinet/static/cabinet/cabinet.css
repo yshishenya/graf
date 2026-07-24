@@ -3929,7 +3929,14 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .share-recipient-results button { min-height: 40px; }
 .share-recipient-results { display: grid; gap: 6px; margin-top: 8px; }
 .share-recipient-results[hidden] { display: none; }
+.share-recipient-confirmation-host[hidden] { display: none; }
 .share-recipient-results button { display: grid; gap: 3px; justify-content: start; align-items: start; width: 100%; text-align: left; }
+.share-recipient-confirmation,
+.share-load-error { display: grid; gap: 8px; border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px; }
+.share-recipient-confirmation > strong,
+.share-recipient-confirmation > small { overflow-wrap: anywhere; }
+.share-recipient-confirmation .share-viewer-row__actions { justify-content: flex-start; }
+.share-load-error p { margin: 0; }
 .share-recipient-option__action { color: var(--accent); font-size: 12px; font-weight: 700; }
 .share-recipient-results [role="option"][aria-selected="true"] {
   border-color: var(--focus-ring);

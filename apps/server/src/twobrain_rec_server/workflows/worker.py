@@ -8,7 +8,10 @@ from uuid import UUID
 from sqlalchemy import select
 
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.auth.email_delivery import EmailLoginDeliveryError, PostalEmailLoginClient
+from twobrain_rec_server.auth.email_delivery import (
+    EmailLoginDeliveryError,
+    send_meeting_invitation,
+)
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.models import Meeting, MeetingShareInvitation, UserIdentity
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
@@ -489,7 +492,8 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                 return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
             inviter = await db.get(UserIdentity, invitation.invited_by_user_id)
             try:
-                await PostalEmailLoginClient.from_settings(settings).send_meeting_invitation(
+                await send_meeting_invitation(
+                    settings=settings,
                     recipient_email=address,
                     acceptance_url=acceptance_url,
                     delivery_key=str(invitation.id),

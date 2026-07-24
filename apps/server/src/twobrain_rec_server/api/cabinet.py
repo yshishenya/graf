@@ -70,6 +70,7 @@ from twobrain_rec_server.api.upload_stream import (
     MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA,
     read_manual_media_upload_body,
 )
+from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
@@ -161,6 +162,53 @@ PrincipalDependency = Depends(get_principal)
 DeviceDependency = Depends(get_device_context)
 WebCSRFDependency = Depends(require_web_csrf)
 DbDependency = Depends(get_request_db_session)
+
+
+async def _send_internal_share_notification(
+    db: AsyncSession,
+    *,
+    request: Request,
+    meeting: Meeting,
+    grant: MeetingShareGrant,
+    recipient_user_id: UUID | None,
+    inviter_user_id: UUID,
+) -> str:
+    if grant.audience_type != "user" or recipient_user_id is None:
+        return "not_attempted"
+    recipient_email = await db.scalar(
+        select(ExternalIdentity.email)
+        .where(
+            ExternalIdentity.user_id == recipient_user_id,
+            ExternalIdentity.email.is_not(None),
+            ExternalIdentity.is_verified.is_(True),
+        )
+        .order_by(ExternalIdentity.created_at.asc())
+    )
+    if not recipient_email:
+        return "not_available"
+    inviter = await db.get(UserIdentity, inviter_user_id)
+    public_base_url = request.app.state.settings.public_base_url
+    if public_base_url is None:
+        return "not_available"
+    try:
+        await email_delivery.send_meeting_invitation(
+            settings=request.app.state.settings,
+            recipient_email=recipient_email,
+            acceptance_url=(
+                f"{str(public_base_url).rstrip('/')}/meetings/{meeting.id}"
+            ),
+            delivery_key=str(grant.id),
+            inviter_name=inviter.display_name if inviter is not None else None,
+            meeting_title=meeting.title,
+            occurred_at=meeting.started_at or meeting.created_at,
+            duration_seconds=meeting.duration_seconds,
+            expires_at=grant.expires_at,
+        )
+    except email_delivery.EmailLoginDeliveryError as exc:
+        return "outcome_unknown" if exc.outcome_unknown else "failed"
+    return "sent"
+
+
 async def get_public_share_db_session(
     request: Request,
     workspace_id: Annotated[UUID, Query()],
@@ -1585,6 +1633,19 @@ async def create_meeting_share_grant_route(
         broader_audience_enabled=broader_audience_enabled,
     )
     await db.commit()
+    notification_status = await _send_internal_share_notification(
+        db,
+        request=request,
+        meeting=meeting,
+        grant=grant,
+        recipient_user_id=payload.audience_id,
+        inviter_user_id=principal.user_id,
+    )
+    grant.metadata_json = {
+        **(grant.metadata_json or {}),
+        "internal_notification_status": notification_status,
+    }
+    await db.commit()
     _mark_share_secret_response(response)
     return ShareGrantResponse(
         grant=grant_view(grant, display_name="Authenticated user"),
@@ -1601,6 +1662,7 @@ async def create_meeting_share_grant_route(
                 )
             )
         ),
+        notification_status=notification_status,
     )
 
 
@@ -1747,6 +1809,7 @@ async def rotate_meeting_share_link_route(
                 f"?workspace_id={tenant_scope.workspace_id}"
             )
         ),
+        notification_status="not_attempted",
     )
 
 
@@ -1795,20 +1858,36 @@ async def create_meeting_share_invitation_route(
         encryption_key=settings.credential_encryption_key_file.read_bytes().strip(),
         ttl_seconds=settings.share_invitation_ttl_seconds,
     )
-    temporal_client = getattr(request.app.state, "temporal_client", None)
-    if temporal_client is None:
-        temporal_client = await connect_temporal_client(settings)
+    should_start_delivery = invitation.status == "pending"
+    # Commit the invitation before starting Temporal. A worker uses its own
+    # transaction and must never race an uncommitted invitation row.
+    await db.commit()
+    if not should_start_delivery:
+        return MeetingShareInvitationResponse(
+            invitation_id=invitation.id,
+            status=invitation.status,
+            expires_at=invitation.expires_at,
+        )
     try:
+        temporal_client = getattr(request.app.state, "temporal_client", None)
+        if temporal_client is None:
+            temporal_client = await connect_temporal_client(settings)
         await start_invitation_delivery_workflow(
             temporal_client=temporal_client,
             settings=settings,
             invitation_id=invitation.id,
             workspace_id=tenant_scope.workspace_id,
         )
-    except Exception:
-        await db.rollback()
-        raise
-    await db.commit()
+    except Exception as exc:
+        invitation.status = "outcome_unknown"
+        invitation.failure_code = "delivery_workflow_start_unknown"
+        await db.commit()
+        raise ProblemDetail(
+            status=503,
+            code="postal_delivery_outcome_unknown",
+            title="Delivery outcome is unknown",
+            detail="The invitation was saved, but its delivery workflow did not start. Check the invitation status before retrying.",
+        ) from exc
     return MeetingShareInvitationResponse(
         invitation_id=invitation.id,
         status=invitation.status,

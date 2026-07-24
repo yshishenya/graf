@@ -74,6 +74,17 @@ class MeetingShareInvitation(Base):
             unique=True,
             postgresql_where=text("status IN ('pending', 'sending', 'sent')"),
         ),
+        Index(
+            "ix_meeting_share_invitations_token_hash",
+            "workspace_id",
+            "token_hash",
+        ),
+        Index(
+            "ix_meeting_share_invitations_continuation_nonce",
+            "workspace_id",
+            "continuation_nonce",
+            postgresql_where=text("continuation_nonce IS NOT NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)

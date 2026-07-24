@@ -547,6 +547,20 @@ def test_browser_email_login_start_rejects_unknown_email_without_code(client) ->
     assert "Код для локальной проверки" not in response.text
 
 
+def test_browser_email_login_start_is_durably_rate_limited(client) -> None:
+    payload = {"email": "rate-limited-owner@example.test", "next": "/meetings"}
+
+    for _ in range(3):
+        response = client.post("/login/email/start", data=payload)
+        assert response.status_code == 400
+
+    blocked = client.post("/login/email/start", data=payload)
+
+    assert blocked.status_code == 429
+    assert blocked.headers["Retry-After"]
+    assert "Слишком много попыток" in blocked.text
+
+
 def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_meetings(client) -> None:
     seed_cabinet_meetings(client)
     client.portal.call(_link_owner_email_identity, client)

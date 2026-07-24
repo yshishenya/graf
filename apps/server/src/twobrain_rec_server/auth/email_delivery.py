@@ -256,6 +256,33 @@ async def send_workspace_invitation_review_notice(
     await client.send_workspace_invitation_review_notice(recipient_email=recipient_email)
 
 
+async def send_meeting_invitation(
+    *,
+    settings: Settings,
+    recipient_email: str,
+    acceptance_url: str,
+    delivery_key: str,
+    inviter_name: str | None = None,
+    meeting_title: str | None = None,
+    occurred_at: datetime | None = None,
+    duration_seconds: int | None = None,
+    expires_at: datetime | None = None,
+) -> None:
+    if not settings.email_login_delivery_enabled:
+        raise EmailLoginDeliveryError("postal_delivery_disabled", retryable=False)
+    client = PostalEmailLoginClient.from_settings(settings)
+    await client.send_meeting_invitation(
+        recipient_email=recipient_email,
+        acceptance_url=acceptance_url,
+        delivery_key=delivery_key,
+        inviter_name=inviter_name,
+        meeting_title=meeting_title,
+        occurred_at=occurred_at,
+        duration_seconds=duration_seconds,
+        expires_at=expires_at,
+    )
+
+
 def _plain_login_code_body(*, code: str, ttl_minutes: int) -> str:
     return (
         "Подтвердите вход в GRAF\n\n"

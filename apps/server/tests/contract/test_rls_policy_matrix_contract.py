@@ -67,6 +67,14 @@ MEETING_SHARE_SECURITY_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0035_meeting_share_security_hardening.py"
 )
+SHARE_INVITATION_AUTH_LOOKUP_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0036_share_invitation_auth_lookup.py"
+)
+AUTH_RATE_LIMIT_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0037_auth_rate_limit_buckets.py"
+)
 PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
@@ -95,6 +103,8 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + MEETING_SPEAKER_MIGRATION.read_text(encoding="utf-8")
         + RECORDING_WORKFLOW_MIGRATION.read_text(encoding="utf-8")
         + MEETING_SHARE_SECURITY_MIGRATION.read_text(encoding="utf-8")
+        + SHARE_INVITATION_AUTH_LOOKUP_MIGRATION.read_text(encoding="utf-8")
+        + AUTH_RATE_LIMIT_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):
@@ -118,6 +128,16 @@ def test_migration_and_contract_share_maintenance_operations() -> None:
 
     for operation_name in sorted(RLS_ALLOWED_MAINTENANCE_OPERATIONS):
         assert operation_name in migration_text
+
+
+def test_invitation_lookup_context_is_read_only() -> None:
+    migration_text = SHARE_INVITATION_AUTH_LOOKUP_MIGRATION.read_text(encoding="utf-8")
+    check_expression = migration_text.split("check_expression =", maxsplit=1)[1].split(
+        "op.execute", maxsplit=1
+    )[0]
+
+    assert "SHARE_INVITATION_LOOKUP_POLICY" not in check_expression
+    assert "SHARE_INVITATION_LOOKUP_POLICY" in migration_text
 
 
 def _load_migration_module() -> ModuleType:
