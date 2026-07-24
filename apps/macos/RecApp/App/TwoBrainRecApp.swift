@@ -337,7 +337,7 @@ private struct ContentView: View {
                     Task { await requestStartupSystemAudioPermission() }
                 },
                 onOpenMicrophoneSettings: {
-                    openPermissionSettings(DesktopPermissionOnboardingSettings.microphoneURL)
+                    Task { await openMicrophonePermissionSettings() }
                 },
                 onOpenSystemAudioSettings: {
                     permissionRestartRequired = true
@@ -505,6 +505,17 @@ private struct ContentView: View {
             permissionRestartRequired = true
         }
         refreshPermissionOnboarding(reason: "system_audio_permission_requested", presentIfNeeded: false)
+    }
+
+    @MainActor
+    private func openMicrophonePermissionSettings() async {
+        guard !permissionOnboardingRequestInProgress else { return }
+        permissionOnboardingRequestInProgress = true
+        defer { permissionOnboardingRequestInProgress = false }
+
+        _ = await microphoneCaptureService.requestPermissionForSettings()
+        openPermissionSettings(DesktopPermissionOnboardingSettings.microphoneURL)
+        refreshPermissionOnboarding(reason: "microphone_settings_opened", presentIfNeeded: false)
     }
 
     @MainActor

@@ -358,6 +358,13 @@ public final class MicrophoneCaptureService: Sendable {
         )
     }
 
+    /// Re-register the native microphone request before opening macOS settings.
+    /// This is explicit recovery only; normal preflight still avoids a second
+    /// prompt after a denial.
+    public func requestPermissionForSettings() async -> CapturePermissionState {
+        await authorizer.requestPermission()
+    }
+
     public func availableRecordingMicrophoneInputs() -> [PhysicalAudioDevice] {
         inputProvider.availableInputs()
     }

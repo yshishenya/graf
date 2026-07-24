@@ -2,7 +2,7 @@
 
 **Execution order**: T001–T002 establish the installer contract, T003–T005
 implement permission and termination behavior, T006–T009 update executable
-evidence and product documentation, then T010–T012 validate the whole slice.
+evidence and product documentation, then T010–T013 validate the whole slice.
 
 ## User Story 1 — установка на чужом Mac (P1)
 
@@ -27,3 +27,4 @@ evidence and product documentation, then T010–T012 validate the whole slice.
 - [X] T010 Проверить формат shell scripts (`sh -n`), focused Swift tests для AppControl/SystemAudio/Installer/Packaging и server tests для public download page.
 - [X] T011 Собрать локальный self-signed package существующей identity, проверить `codesign --verify --deep --strict`, bundle id и privacy descriptions; не устанавливать tracked public binary и не менять TCC.
 - [X] T012 Запустить `infra/scripts/ci-local.sh`, проверить `git diff --check`, отсутствие новых driver/TCC paths и metadata-only evidence; после успешной проверки пометить закрытые задачи `[X]`.
+- [X] T013 [US2] Перед открытием панели микрофона повторно инициировать штатный AVFoundation permission flow для recovery после self-signed установки; сохранить normal request без повторного prompt после denial и добавить focused coverage.
