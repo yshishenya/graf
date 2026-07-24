@@ -5,7 +5,7 @@ Feature: `124-macos-permission-installer-relaunch`
 ## Lane
 
 - Risk / validation lane: `high-risk-feature`.
-- Release gate: high-risk feature release/deploy completed as `v2026.07.24.2`;
+- Release gate: high-risk feature release/deploy completed as `v2026.07.24.3`;
   Apple Developer enrollment,
   Developer ID and notarization не требуются для native microphone TCC flow и
   в этот кандидат не включены.
@@ -20,16 +20,16 @@ Feature: `124-macos-permission-installer-relaunch`
 | Focused macOS XCTest | pass | 56 selected tests, 0 failures: onboarding, microphone service, installer metadata, packaging and UX |
 | Full macOS XCTest | pass | 625 tests, 0 failures |
 | macOS contract validation | pass | `ContractValidation: PASS` |
-| Local package build | pass | Version `2026.07.24.2`, explicit `GRAF Local Code Signing` path; updater-enabled package contains the configured HTTPS feed and active public key |
-| App metadata/signature inspection | pass | Bundle id `pro.2brain.graf`; `NSMicrophoneUsageDescription`, `NSAudioCaptureUsageDescription`, `NSScreenCaptureUsageDescription`; strict app signature; package-level signature absent as expected for no-account channel |
-| Update validator | pass | `validate-app-updates.sh` accepted `v2026.07.24.2` against `v2026.07.23.16` with configured updater, in-app continuity, designated-requirement continuity, safe ZIP and signed appcast |
+| Local package build | pass | Version `2026.07.24.3`, explicit `GRAF Local Code Signing` path; updater-enabled package contains the configured HTTPS feed and active public key |
+| App metadata/signature inspection | pass | Bundle id `pro.2brain.graf`; `NSMicrophoneUsageDescription`, `NSAudioCaptureUsageDescription`, `NSScreenCaptureUsageDescription`; strict app signature; hardened-runtime `com.apple.security.device.audio-input=true`; package-level signature absent as expected for no-account channel |
+| Update validator | pass | `validate-app-updates.sh` accepted `v2026.07.24.3` against `v2026.07.24.2` with configured updater, in-app continuity, designated-requirement continuity, safe ZIP and signed appcast |
 | Native relaunch path | pass | Explicit restart records a relaunch request, clears modal state, preserves bounded cleanup, and opens a fresh app instance via `NSWorkspace` from `applicationWillTerminate` |
 | Public download tests | pass | 17 focused server/contract tests, 0 failures |
-| Remote production deploy | pass | `cd-remote.sh --execute` deployed commit `d41dc28f68a4f49808f209fe5a706a36082b3410` from `codex/124-microphone-settings-recovery`; backup/restore, migrations, runtime/worker readiness and production smoke passed |
-| Public package deployment | pass | Public bootstrap SHA256 is `d770700cb63d59c1ad5e59e3d811e36e260e5091da8f962e4089e588693ec3ee`; previous package retained at the documented runtime backup |
-| Sparkle release publication | pass | Protected workflow run `30086545135` signed `v2026.07.24.2`; public ZIP SHA256 `a5a79e522da6a5296fb6b43e9d9392358d286332e6fb36a1ccab27913912068f`, appcast SHA256 `20348ffc2dee977fefe58cb5c115e6ed95c475c63d3a4c3a999246853b7ad02f`; the previous appcast is retained as `graf-appcast.xml.pre-v2026.07.24.2` |
+| Remote production deploy | pass | `cd-remote.sh --execute --skip-local-ci` restored the compatible runtime at `c14a291dd8abdca2b2e042924fd9f50764db3611`; backup `20260724T115334Z`, migration head `0037_auth_rate_limit_buckets`, runtime/worker readiness and production smoke passed |
+| Public package deployment | pass | `GRAF-2026.07.24.3.pkg` and stable `graf-local.pkg` match SHA256 `eabe0a36798592a0ed58238f449c24089c5ed40d47d8764a1074fa6a4fe49b73`; previous package and appcast were retained before replacement |
+| Sparkle release publication | pass | Protected workflow run `30090039617` signed `v2026.07.24.3`; public ZIP SHA256 `ef7c1b31765f83a2b872c83ba71cc8c6c37bf97b08799059784478a62b999446`, appcast SHA256 `06b3b922caac1fa234e4126f376baeee3be8519ba4a2bbd2cbea2cc01d286fc1`; public appcast and archive signatures verified after HTTPS fetch |
 | Full local CI | pass | 625 macOS tests, 2255 parallel server tests, 41 strict tests, 2 expected skips overall; lint, compile, compose and deployment-evidence scans passed |
-| GitHub issue canon | pass | Canonical issues created, commented with evidence and closed for T001–T013 and T090–T095; `validate_issue_canon.py` passed after closeout |
+| GitHub issue canon | pass | Canonical issues T096–T098 and T100 were commented with evidence and closed; T099/#4528 remains open for colleague clean-Mac smoke; `validate_issue_canon.py` passed |
 
 ## Manual validation boundary
 
