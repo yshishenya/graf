@@ -1,6 +1,9 @@
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
+
+import pytest
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
@@ -9,6 +12,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingAccessState,
     MeetingCalendarContextSummary,
     MeetingListItem,
+    MeetingUploadProgressState,
     PlaybackPreparationState,
     SlotState,
 )
@@ -23,8 +27,13 @@ from twobrain_rec_server.db.models import (
     RecordingCalendarContextLink,
     TranscriptSegment,
 )
+from twobrain_rec_server.domain.media_filenames import (
+    LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSIONS,
+    SUPPORTED_MEDIA_FILENAME_EXTENSIONS,
+)
 from twobrain_rec_server.domain.statuses import (
     MediaRevisionSourceKind,
+    MeetingStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     ProcessingStatus,
@@ -260,6 +269,11 @@ def _list_item(
     recording_display_timezone_offset_minutes: int | None = None,
     transcript_available: bool = False,
     artifacts: list[ArtifactEgressState] | None = None,
+    status: str = "ready",
+    primary_action: str = "open",
+    upload: MeetingUploadProgressState | None = None,
+    calendar_context: MeetingCalendarContextSummary | None = None,
+    playback: PlaybackPreparationState | None = None,
 ) -> MeetingListItem:
     return MeetingListItem(
         meeting_id=uuid4(),
@@ -269,10 +283,10 @@ def _list_item(
         recording_display_timezone_offset_minutes=recording_display_timezone_offset_minutes,
         duration_seconds=65,
         source=source,
-        status="ready",
-        status_label="Ready",
+        status=status,
+        status_label=status,
         status_reason=None,
-        primary_action="open",
+        primary_action=primary_action,
         transcript_available=transcript_available,
         diarization_available=False,
         notes_available=False,
@@ -281,6 +295,9 @@ def _list_item(
         artifacts=artifacts or [],
         governance=_governance(),
         future_slots=[SlotState(state="planned", label="Star", reason="Synthetic.")],
+        upload=upload,
+        calendar_context=calendar_context,
+        playback=playback or PlaybackPreparationState(),
     )
 
 
@@ -307,12 +324,298 @@ def test_common_display_helpers_for_meeting_rows() -> None:
     assert view_models.meeting_media_kind(upload) == "upload"
     assert view_models.meeting_media_label(upload) == "медиа"
     assert view_models.format_duration(65) == "1 мин"
-    assert view_models.date_label(audio) == "16 июн"
-    assert view_models.sort_label("duration_asc") == "Сначала короткие"
-    assert view_models.sort_label("unknown") == "Недавно обновлённые"
+    assert view_models.normalize_meeting_list_sort("duration_asc") == "duration_asc"
+    assert view_models.normalize_meeting_list_sort("unknown") == "started_desc"
+    assert (
+        view_models.normalize_meeting_list_sort("unknown", fallback="updated_desc")
+        == "updated_desc"
+    )
 
 
-def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fallbacks() -> None:
+def test_meeting_list_row_presentation_is_immutable_and_keeps_one_status_slot() -> None:
+    item = _list_item(title="Запись")
+    item.updated_at = datetime(2026, 6, 16, 11, 30, tzinfo=UTC)
+    item.playback.state = "available"
+    item.playback.reason_code = "canonical_ready"
+    item.playback.label = "Аудио готово"
+    item.playback.can_play = True
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+    updated = view_models.meeting_list_row_presentation(item, time_basis="updated")
+
+    assert presentation.display_title == "Запись"
+    assert presentation.duration_label == "1 мин"
+    assert presentation.time_label == "16 июн, 08:00"
+    assert presentation.status_kind is None
+    assert presentation.status_label is None
+    assert presentation.progress_percent is None
+    assert presentation.open_accessible_name == "Открыть встречу Запись, 16 июн, 08:00"
+    assert updated.time_label == "Обновлено 16 июн, 11:30"
+    with pytest.raises(FrozenInstanceError):
+        presentation.display_title = "Другое"  # type: ignore[misc]
+
+
+def test_meeting_list_row_presentation_never_relabels_meeting_time_as_update_time() -> None:
+    item = _list_item(title="Планирование")
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="updated")
+
+    assert presentation.time_label == "Без даты"
+
+
+def test_meeting_list_row_presentation_preserves_authoritative_generated_looking_title() -> None:
+    item = _list_item(title="Запись 21 июл, 19:22")
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert presentation.display_title == "Запись 21 июл, 19:22"
+    assert presentation.open_accessible_name == "Открыть встречу Запись 21 июл, 19:22"
+
+
+def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_source() -> None:
+    generated = _meeting()
+    generated.title = "Current display system audio - 2026-07-13 12:14"
+    generated.started_at = datetime(2026, 7, 13, 9, 14, tzinfo=UTC)
+    generated.recording_display_timezone_offset_minutes = 180
+    upload = _meeting()
+    upload.title = "manual-upload-mrc4escf-hbo5nhsk"
+    derived = _meeting()
+    derived.title = "Quarterly_sync.mp3"
+    derived.title_source = "file_name_derived"
+
+    assert view_models.meeting_list_title(generated) == "Запись"
+    assert view_models.meeting_list_title(upload, source="manual_upload") == "Загруженная запись"
+    assert view_models.meeting_list_title(derived, source="manual_upload") == "Quarterly sync"
+    assert generated.title == "Current display system audio - 2026-07-13 12:14"
+
+
+@pytest.mark.parametrize("title_source", sorted(view_models.AUTHORITATIVE_TITLE_SOURCES))
+def test_meeting_list_title_preserves_authoritative_fallback_looking_title(
+    title_source: str,
+) -> None:
+    meeting = _meeting()
+    meeting.title = "Запись без названия"
+    meeting.title_source = title_source
+
+    assert view_models.meeting_list_title(meeting) == "Запись без названия"
+
+    item = _list_item(title=view_models.meeting_list_title(meeting))
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+    assert presentation.display_title == "Запись без названия"
+    assert presentation.open_accessible_name == "Открыть встречу Запись без названия"
+
+
+@pytest.mark.parametrize(
+    ("item", "kind", "label", "progress"),
+    [
+        (
+            _list_item(status="deleted_future"),
+            "deleting",
+            "Удаляется",
+            None,
+        ),
+        (
+            _list_item(
+                status="failed",
+                calendar_context=MeetingCalendarContextSummary(
+                    state="ambiguous",
+                    label="Нужно выбрать встречу",
+                    needs_owner_action=True,
+                ),
+            ),
+            "failed",
+            "Не удалось обработать",
+            None,
+        ),
+        (
+            _list_item(
+                status="submitted",
+                primary_action="wait",
+                upload=MeetingUploadProgressState(
+                    status="expired",
+                    label="Нужна помощь",
+                    uploaded_bytes=10,
+                    total_bytes=100,
+                    is_active=False,
+                ),
+            ),
+            "failed",
+            "Не удалось обработать",
+            None,
+        ),
+        (
+            _list_item(
+                calendar_context=MeetingCalendarContextSummary(
+                    state="ambiguous",
+                    label="Нужно выбрать встречу",
+                    needs_owner_action=True,
+                ),
+                playback=PlaybackPreparationState(
+                    state="available",
+                    reason_code="canonical_ready",
+                    label="Аудио готово",
+                    can_play=True,
+                ),
+            ),
+            "calendar_choice",
+            "Нужен выбор",
+            None,
+        ),
+        (
+            _list_item(status="local_only", primary_action="wait"),
+            "saved_local",
+            "Сохранено на Mac",
+            None,
+        ),
+        (
+            _list_item(
+                status="uploading",
+                primary_action="wait",
+                upload=MeetingUploadProgressState(
+                    status="uploading",
+                    label="Отправляем",
+                    uploaded_bytes=40,
+                    total_bytes=100,
+                    progress_percent=40,
+                    is_active=True,
+                ),
+            ),
+            "uploading_measured",
+            "Отправляем 40%",
+            40,
+        ),
+        (
+            _list_item(
+                status="uploading",
+                primary_action="wait",
+                upload=MeetingUploadProgressState(
+                    status="uploading",
+                    label="Отправляем",
+                    uploaded_bytes=100,
+                    total_bytes=100,
+                    progress_percent=100,
+                    is_active=True,
+                ),
+            ),
+            "uploading",
+            "Отправляем",
+            None,
+        ),
+        (
+            _list_item(status="processing", primary_action="wait"),
+            "processing",
+            "Обрабатывается",
+            None,
+        ),
+        (
+            _list_item(
+                playback=PlaybackPreparationState(
+                    state="preparing",
+                    reason_code="normalization_running",
+                    label="Аудио готовится автоматически",
+                )
+            ),
+            "audio_preparing",
+            "Аудио готовится",
+            None,
+        ),
+        (
+            _list_item(
+                playback=PlaybackPreparationState(
+                    state="unavailable",
+                    reason_code="no_audio",
+                    label="Аудио недоступно",
+                )
+            ),
+            "without_audio",
+            "Без аудио",
+            None,
+        ),
+        (
+            _list_item(
+                status="partial",
+                playback=PlaybackPreparationState(
+                    state="available",
+                    reason_code="canonical_ready",
+                    label="Аудио готово",
+                    can_play=True,
+                ),
+            ),
+            "limited",
+            "Готово с ограничениями",
+            None,
+        ),
+        (
+            _list_item(
+                playback=PlaybackPreparationState(
+                    state="available",
+                    reason_code="canonical_ready",
+                    label="Аудио готово",
+                    can_play=True,
+                )
+            ),
+            None,
+            None,
+            None,
+        ),
+    ],
+)
+def test_meeting_list_status_projection_uses_one_total_precedence(
+    item: MeetingListItem,
+    kind: str | None,
+    label: str | None,
+    progress: int | None,
+) -> None:
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert presentation.status_kind == kind
+    assert presentation.status_label == label
+    assert presentation.progress_percent == progress
+
+
+@pytest.mark.parametrize("upload_status", ["failed", "aborted", "expired"])
+def test_meeting_list_presentation_status_projects_terminal_uploads_as_failed(
+    upload_status: str,
+) -> None:
+    upload = MeetingUploadProgressState(
+        status=upload_status,
+        label="Нужна помощь",
+        uploaded_bytes=10,
+        total_bytes=100,
+        is_active=False,
+    )
+
+    item = _list_item(status="uploading", primary_action="wait", upload=upload)
+    deleting_item = _list_item(status="deleted_future", primary_action="wait", upload=upload)
+
+    assert view_models.meeting_list_presentation_status(item) == "failed"
+    assert view_models.meeting_list_presentation_status(deleting_item) == "deleted_future"
+
+
+@pytest.mark.parametrize("calendar_state", ["matched_auto", "matched_user", "no_context", "cleared_by_user"])
+def test_meeting_list_ready_state_suppresses_playback_and_calendar_normality(
+    calendar_state: str,
+) -> None:
+    item = _list_item(
+        calendar_context=MeetingCalendarContextSummary(
+            state=calendar_state,
+            label="Обычная календарная истина",
+            needs_owner_action=False,
+        ),
+        playback=PlaybackPreparationState(
+            state="available",
+            reason_code="canonical_ready",
+            label="Аудио готово",
+            can_play=True,
+        ),
+    )
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert presentation.status_label is None
+
+
+def test_recording_time_labels_use_started_at_with_truthful_fallbacks() -> None:
     recorded = _list_item(started_at=datetime(2026, 6, 26, 23, 30, tzinfo=UTC))
     timezone_shifted = _list_item(
         started_at=datetime(2026, 6, 27, 2, 30, tzinfo=timezone(timedelta(hours=3)))
@@ -323,12 +626,25 @@ def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fall
     )
     legacy = _list_item(title="legacy-no-recording-date", started_at=None)
 
-    assert view_models.date_label(recorded) == "26 июн"
-    assert view_models.date_label(timezone_shifted) == "27 июн"
-    assert view_models.date_label(offset_shifted) == "27 июн"
-    assert view_models.date_label(legacy) == "Без даты"
-    assert view_models.sort_label("started_desc") == "Новые по дате записи"
-    assert view_models.sort_label("started_asc") == "Старые по дате записи"
+    assert view_models.meeting_time_label(recorded, time_basis="meeting") == "26 июн, 23:30"
+    assert view_models.meeting_time_label(timezone_shifted, time_basis="meeting") == "27 июн, 02:30"
+    assert view_models.meeting_time_label(offset_shifted, time_basis="meeting") == "27 июн, 00:30"
+    assert view_models.meeting_time_label(legacy, time_basis="meeting") == "Без даты"
+
+
+def test_meeting_list_time_label_is_shared_with_visible_search_projection() -> None:
+    value = datetime(2026, 7, 13, 23, 30, tzinfo=UTC)
+
+    assert view_models.meeting_list_time_label(
+        value,
+        timezone_offset_minutes=180,
+        time_basis="meeting",
+    ) == "14 июл, 02:30"
+    assert view_models.meeting_list_time_label(
+        value,
+        timezone_offset_minutes=180,
+        time_basis="updated",
+    ) == "Обновлено 14 июл, 02:30"
 
 
 def test_safe_title_uses_legacy_local_recording_fallback_without_control_characters() -> None:
@@ -380,24 +696,33 @@ def test_safe_title_keeps_only_the_file_name_when_legacy_title_contains_a_path()
     assert view_models.safe_title(windows_path) == "Team sync"
 
 
-def test_safe_title_strips_every_explicit_manual_upload_extension() -> None:
-    for extension in (
-        "wav",
-        "mp3",
-        "m4a",
-        "aac",
-        "flac",
-        "ogg",
-        "mp4",
-        "mov",
-        "m4v",
-        "webm",
-        "mkv",
-    ):
+def test_safe_title_preserves_the_legacy_serialized_extension_contract() -> None:
+    for extension in LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSIONS:
         meeting = _meeting()
         meeting.title = f"Team_sync.{extension}"
 
         assert view_models.safe_title(meeting) == "Team sync"
+
+
+def test_safe_title_scrubs_paths_without_expanding_serialized_extension_cleanup() -> None:
+    for extension in SUPPORTED_MEDIA_FILENAME_EXTENSIONS:
+        meeting = _meeting()
+        meeting.title = f"/Users/example/private/Team_sync.{extension}"
+
+        expected = (
+            "Team sync"
+            if extension in LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSIONS
+            else f"Team_sync.{extension}"
+        )
+        assert view_models.safe_title(meeting) == expected
+
+
+def test_meeting_list_title_cleans_every_supported_media_extension() -> None:
+    for extension in SUPPORTED_MEDIA_FILENAME_EXTENSIONS:
+        meeting = _meeting()
+        meeting.title = f"/Users/example/private/Team_sync.{extension}"
+
+        assert view_models.meeting_list_title(meeting) == "Team sync"
 
 
 def test_meeting_list_presentation_humanizes_generated_titles_files_and_durations() -> None:
@@ -508,6 +833,14 @@ def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
         )
         == "failed"
     )
+    for terminal_status in (MeetingStatus.ABORTED, MeetingStatus.EXPIRED):
+        terminal = _meeting(ProcessingStatus.NOT_SUBMITTED)
+        terminal.status = terminal_status.value
+        assert view_models.review_status(terminal, result=None, workflow=None) == "submitted"
+        item = view_models.build_list_item(terminal, result=None, workflow=None)
+        assert item.status == "submitted"
+        assert item.model_dump()["status"] == "submitted"
+        assert view_models.meeting_list_presentation_status(item) == "failed"
 
 
 def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() -> None:

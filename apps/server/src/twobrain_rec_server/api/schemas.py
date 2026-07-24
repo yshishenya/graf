@@ -7,6 +7,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     StringConstraints,
     field_validator,
     model_validator,
@@ -1828,12 +1829,14 @@ class MeetingListItem(BaseModel):
     previous_recurring_meeting: PreviousRecurringMeetingView | None = None
     playback: PlaybackPreparationState = Field(default_factory=PlaybackPreparationState)
     future_slots: list[SlotState] = Field(default_factory=list)
+    _presentation_meeting_status: str | None = PrivateAttr(default=None)
 
 
 class MeetingListResponse(BaseModel):
     items: list[MeetingListItem]
     filters: MeetingFilterState
     generated_at: datetime
+    _has_more: bool = PrivateAttr(default=False)
 
 
 class MeetingProvenance(BaseModel):

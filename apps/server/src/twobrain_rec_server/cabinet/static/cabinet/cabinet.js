@@ -5,8 +5,94 @@
   let pendingDeleteRows = [];
   let deleteReturnFocus = null;
   let deleteReturnMeetingId = "";
+  let deleteFocusFallbackIds = [];
+  let listRefreshFocusMeetingIds = [];
+  let listRefreshShouldRestoreFocus = false;
+  let listRefreshFocusOrigin = null;
   let playbackRecoveryTimer = null;
   let playbackRecoveryRequest = null;
+  const selectedMeetingIds = new Set();
+  const announcedUploadProgressBuckets = new Map();
+  const announcedUploadProgressMetadata = new Map();
+  const uploadProgressTrackingTtlMs = 5 * 60 * 1000;
+  let uploadProgressTrackingPruneTimer = null;
+  let meetingResultCountShouldAnnounce = false;
+  let meetingResultCountHadRefinement = false;
+  let meetingResultCountAnnouncementVersion = 0;
+  let meetingListRequestGeneration = 0;
+  let activeMeetingListRequests = 0;
+  const authoritativeMeetingListRequests = new WeakSet();
+  const authoritativeMeetingListRequestGenerations = new WeakMap();
+  const progressPollRequestGenerations = new WeakMap();
+  const meetingListRequestFocusRecoveries = new WeakMap();
+  const handledMeetingListAuthorizationRequests = new WeakSet();
+  const observedDetachedMeetingListRequests = new WeakSet();
+  let scrubManualUploadPrivateState = () => false;
+  const accessLossProblemCodes = new Set([
+    "auth_session_rejected",
+    "device_quarantined",
+    "device_revoked",
+    "device_untrusted",
+    "workspace_scope_denied",
+  ]);
+  const detailActionProblemCodes = new Set([
+    "csrf_token_invalid",
+    "csrf_token_missing",
+    "export_forbidden",
+    "export_policy_denied",
+    "speaker_not_found",
+  ]);
+  const summaryActionProblemCodes = new Set([
+    "summary_candidate_not_found",
+    "summary_candidate_state_invalid",
+    "summary_candidate_unavailable",
+    "summary_dispatch_state_invalid",
+    "summary_generation_forbidden",
+    "summary_generation_unavailable",
+    "summary_resolution_forbidden",
+    "summary_revision_conflict",
+    "summary_transcript_snapshot_invalid",
+    "summary_transcript_too_large",
+  ]);
+  const sharingActionProblemCodes = new Set([
+    "grantee_not_found",
+    "invalid_share_audience",
+    "invitation_delivery_unavailable",
+    "meeting_not_found",
+    "public_share_scope_invalid",
+    "share_expiry_required",
+    "share_forbidden",
+    "share_grant_not_found",
+    "share_invitations_disabled",
+    "share_not_found",
+    "share_policy_blocked",
+    "share_team_audience_unavailable",
+  ]);
+
+  const meetingDetailRecoveredError = () => {
+    const error = new Error("meeting_detail_recovered");
+    error.meetingDetailRecovered = true;
+    return error;
+  };
+
+  const isMeetingDetailRecoveredError = (error) => error?.meetingDetailRecovered === true;
+
+  const clearMeetingHistoryCache = () => {
+    try {
+      sessionStorage.removeItem("htmx-history-cache");
+    } catch {
+      // The page still blocks new history snapshots when storage is unavailable.
+    }
+  };
+
+  const neutralizePrivateLocation = (neutralPath) => {
+    try {
+      history.replaceState(null, "", neutralPath);
+    } catch {
+      window.location.replace(neutralPath);
+    }
+  };
+  clearMeetingHistoryCache();
 
   const plural = (value, one, few, many) => {
     const mod10 = value % 10;
@@ -18,32 +104,190 @@
 
   const currentList = () => document.querySelector("[data-meeting-list]");
   const allRows = () => Array.from(currentList()?.querySelectorAll("[data-meeting-row]") || []);
-  const selectedRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]")?.checked);
+  const rowPrimaryFocusTarget = (row) => row?.querySelector("[data-meeting-open]") || null;
+  const selectableRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]"));
+  const selectedRows = () => selectableRows().filter((row) => row.querySelector("[data-meeting-select]")?.checked);
   const deletingLabel = (value) => `Вы удаляете ${value} ${plural(value, "запись", "записи", "записей")}.`;
 
-  const listInteractionIsActive = () => {
-    const region = document.querySelector("#meeting-list-region");
-    if (!region) return false;
-    const modalIsOpen = document.querySelector("[data-delete-dialog][open], [data-meeting-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open], [data-meeting-context-panel=details][open]");
-    return Boolean(modalIsOpen) || region.contains(document.activeElement) || region.matches(":hover") || selectedRows().length > 0;
+  const publishDeletionFeedback = (message, state = "warning") => {
+    const target = document.querySelector("#delete-feedback-region");
+    if (!target) return;
+    const feedback = document.createElement("section");
+    feedback.className = "cabinet-fragment cabinet-deletion-feedback";
+    feedback.dataset.cabinetFragment = "deletion-feedback";
+    feedback.dataset.state = state;
+    const copy = document.createElement("p");
+    copy.textContent = message;
+    feedback.append(copy);
+    target.replaceChildren(feedback);
   };
 
-  const setRowContextualAvailability = (row, visible) => {
-    row?.querySelectorAll("[data-row-contextual]").forEach((control) => {
-      control.setAttribute("aria-hidden", visible ? "false" : "true");
-      control.tabIndex = visible ? 0 : -1;
+  const pruneUploadProgressTracking = () => {
+    const cutoff = Date.now() - uploadProgressTrackingTtlMs;
+    announcedUploadProgressMetadata.forEach((metadata, meetingId) => {
+      if (Number.isFinite(metadata?.lastSeenAt) && metadata.lastSeenAt >= cutoff) return;
+      announcedUploadProgressMetadata.delete(meetingId);
+      announcedUploadProgressBuckets.delete(meetingId);
     });
+  };
+
+  const scheduleUploadProgressTrackingPrune = () => {
+    if (uploadProgressTrackingPruneTimer !== null) return;
+    uploadProgressTrackingPruneTimer = globalThis.setTimeout(() => {
+      uploadProgressTrackingPruneTimer = null;
+      pruneUploadProgressTracking();
+      if (announcedUploadProgressMetadata.size) scheduleUploadProgressTrackingPrune();
+    }, uploadProgressTrackingTtlMs);
+  };
+
+  const rememberUploadProgressMetadata = (meetingId, title) => {
+    announcedUploadProgressMetadata.set(meetingId, { title, lastSeenAt: Date.now() });
+    scheduleUploadProgressTrackingPrune();
+  };
+
+  const announceUploadProgress = () => {
+    pruneUploadProgressTracking();
+    const announcer = document.querySelector("[data-upload-progress-announcer]");
+    if (!announcer) return;
+    const rows = allRows();
+    const rowsByMeetingId = new Map(rows.map((row) => [row.dataset.meetingId || "", row]));
+    const activeMeetingIds = new Set();
+    const messages = [];
+    rows.forEach((row) => {
+      const status = row.querySelector("[data-upload-progress-active][data-upload-progress-percent]");
+      const compactStatus = row.querySelector(".meeting-status[data-status-kind]");
+      const meetingId = row.dataset.meetingId || "";
+      const percent = Number.parseInt(status?.dataset.uploadProgressPercent || "", 10);
+      if (!meetingId) return;
+      if (!status || !Number.isFinite(percent)) {
+        if (compactStatus?.dataset.statusKind === "uploading") {
+          activeMeetingIds.add(meetingId);
+          const title = row.querySelector(".row-title")?.textContent?.trim()
+            || announcedUploadProgressMetadata.get(meetingId)?.title
+            || "Встреча";
+          rememberUploadProgressMetadata(meetingId, title);
+          const previousState = announcedUploadProgressBuckets.get(meetingId);
+          if (Number.isFinite(previousState?.bucket)) {
+            messages.push(`${title}: ${compactStatus.textContent.trim()}`);
+          }
+          announcedUploadProgressBuckets.set(meetingId, { bucket: null });
+        }
+        return;
+      }
+      activeMeetingIds.add(meetingId);
+      const title = row.querySelector(".row-title")?.textContent?.trim()
+        || announcedUploadProgressMetadata.get(meetingId)?.title
+        || "Встреча";
+      rememberUploadProgressMetadata(meetingId, title);
+      const bucket = Math.floor(Math.max(0, Math.min(99, percent)) / 10) * 10;
+      const previousBucket = announcedUploadProgressBuckets.get(meetingId)?.bucket;
+      if (previousBucket !== undefined && previousBucket !== bucket) {
+        messages.push(`${title}: ${status.textContent.trim()}`);
+      }
+      announcedUploadProgressBuckets.set(meetingId, { bucket });
+    });
+    Array.from(announcedUploadProgressBuckets.keys()).forEach((meetingId) => {
+      if (activeMeetingIds.has(meetingId)) return;
+      const row = rowsByMeetingId.get(meetingId);
+      if (!row) return;
+      const status = row?.querySelector(".meeting-status[data-status-kind]");
+      if (status?.dataset.statusKind === "uploading") return;
+      if (row && status?.textContent?.trim()) {
+        const title = row.querySelector(".row-title")?.textContent?.trim()
+          || announcedUploadProgressMetadata.get(meetingId)?.title
+          || "Встреча";
+        messages.push(`${title}: ${status.textContent.trim()}`);
+      } else if (row) {
+        const title = row.querySelector(".row-title")?.textContent?.trim()
+          || announcedUploadProgressMetadata.get(meetingId)?.title
+          || "Встреча";
+        messages.push(`${title}: Отправка завершена`);
+      }
+      announcedUploadProgressBuckets.delete(meetingId);
+      announcedUploadProgressMetadata.delete(meetingId);
+    });
+    announcer.textContent = messages.join(". ");
+  };
+
+  const announceMeetingResultCount = () => {
+    if (!meetingResultCountShouldAnnounce) return;
+    meetingResultCountShouldAnnounce = false;
+    const announcer = document.querySelector("[data-meeting-result-announcer]");
+    const count = document.querySelector("[data-meeting-result-count]")?.textContent?.trim() || "";
+    const resultIsComplete = document.querySelector("[data-list-current-content]")
+      ?.dataset.meetingResultComplete === "true";
+    if (!announcer) return;
+    meetingResultCountAnnouncementVersion += 1;
+    const announcementVersion = meetingResultCountAnnouncementVersion;
+    const message = count || (meetingResultCountHadRefinement
+      ? resultIsComplete
+        ? "Показаны все встречи"
+        : "Показана первая часть встреч без поиска и фильтров"
+      : "");
+    meetingResultCountHadRefinement = false;
+    if (!message) return;
+    announcer.textContent = "";
+    window.requestAnimationFrame(() => {
+      if (
+        announcer.isConnected
+        && announcementVersion === meetingResultCountAnnouncementVersion
+      ) announcer.textContent = message;
+    });
+  };
+
+  const clearMeetingListAnnouncements = () => {
+    meetingResultCountShouldAnnounce = false;
+    meetingResultCountHadRefinement = false;
+    meetingResultCountAnnouncementVersion += 1;
+    document.querySelector("[data-upload-progress-announcer]")?.replaceChildren();
+    document.querySelector("[data-upload-activity-announcer]")?.replaceChildren();
+    document.querySelector("[data-meeting-result-announcer]")?.replaceChildren();
+    announcedUploadProgressBuckets.clear();
+    announcedUploadProgressMetadata.clear();
+    if (uploadProgressTrackingPruneTimer !== null) {
+      globalThis.clearTimeout(uploadProgressTrackingPruneTimer);
+      uploadProgressTrackingPruneTimer = null;
+    }
+  };
+
+  const listInteractionIsActive = () => {
+    return Boolean(document.querySelector(
+      "[data-delete-dialog][open], [data-meeting-delete-dialog][open], [data-manual-upload-dialog][open], [data-content-export-dialog][open]",
+    ));
   };
 
   const isUsableFocusTarget = (target) => target instanceof HTMLElement &&
     target.isConnected &&
     target.closest("[hidden], [aria-hidden='true']") === null;
 
-  const restoreMeetingActionFocus = (target) => {
-    const visibleTarget = isUsableFocusTarget(target)
-      ? target
-      : document.querySelector('[data-meeting-panel-open="more"]');
-    visibleTarget?.focus({ preventScroll: true });
+  const restoreListRefreshFocus = (recovery = null, { force = false } = {}) => {
+    if (!listRefreshShouldRestoreFocus) return false;
+    const active = document.activeElement;
+    const userMovedFocus = !force
+      && active instanceof HTMLElement
+      && active.isConnected
+      && active !== document.body
+      && active !== document.documentElement
+      && active !== listRefreshFocusOrigin;
+    if (userMovedFocus) {
+      listRefreshFocusMeetingIds = [];
+      listRefreshShouldRestoreFocus = false;
+      listRefreshFocusOrigin = null;
+      return false;
+    }
+    const focusRow = listRefreshFocusMeetingIds
+      .map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))
+      .find(Boolean);
+    let focusTarget = rowPrimaryFocusTarget(focusRow) || document.querySelector("[data-list-title]");
+    if (recovery instanceof HTMLElement) {
+      focusTarget = recovery.querySelector("[data-list-retry], [data-list-sign-in]") || recovery;
+      if (focusTarget === recovery) recovery.tabIndex = -1;
+    }
+    focusTarget?.focus({ preventScroll: true });
+    listRefreshFocusMeetingIds = [];
+    listRefreshShouldRestoreFocus = false;
+    listRefreshFocusOrigin = null;
+    return true;
   };
 
   const modalFocusTargets = (dialog) => Array.from(dialog.querySelectorAll(
@@ -70,27 +314,465 @@
   const updateSelection = () => {
     const list = currentList();
     const toolbar = document.querySelector("[data-selection-toolbar]");
-    const listTitle = document.querySelector("[data-list-title]");
     const countLabel = document.querySelector("[data-selection-count]");
     const selectionToggle = document.querySelector("[data-selection-toggle]");
+    const selectionToggleLabel = document.querySelector("[data-selection-toggle-label]");
     if (!list || !toolbar || !countLabel) return;
     const rows = selectedRows();
-    const total = allRows().length;
+    const total = selectableRows().length;
     const allSelected = total > 0 && rows.length === total;
-    countLabel.textContent = `Выбрано ${rows.length} / ${total}`;
+    const toolbarOwnedFocus = rows.length === 0
+      && document.activeElement instanceof HTMLElement
+      && toolbar.contains(document.activeElement);
+    if (toolbarOwnedFocus) {
+      (rowPrimaryFocusTarget(allRows()[0]) || document.querySelector("[data-list-title]"))
+        ?.focus({ preventScroll: true });
+    }
+    selectedMeetingIds.clear();
+    rows.forEach((row) => selectedMeetingIds.add(row.dataset.meetingId));
+    countLabel.textContent = `Выбрано: ${rows.length}`;
     toolbar.hidden = rows.length === 0;
-    toolbar.dataset.selectionState = allSelected ? "all" : "partial";
     if (selectionToggle) {
       selectionToggle.checked = allSelected;
       selectionToggle.indeterminate = rows.length > 0 && !allSelected;
-      selectionToggle.setAttribute("aria-label", allSelected ? "Снять выбор" : "Выбрать все видимые записи");
+      selectionToggle.setAttribute(
+        "aria-label",
+        allSelected ? "Снять выбор со всех видимых встреч" : "Выбрать все видимые встречи",
+      );
     }
-    if (listTitle) listTitle.hidden = rows.length > 0;
+    if (selectionToggleLabel) {
+      selectionToggleLabel.textContent = allSelected ? "Снять выбор" : "Выбрать все";
+    }
     allRows().forEach((row) => {
       const selected = row.querySelector("[data-meeting-select]")?.checked === true;
       row.classList.toggle("is-selected", selected);
-      if (selected) setRowContextualAvailability(row, true);
     });
+  };
+
+  const reconcileMeetingSelection = () => {
+    allRows().forEach((row) => {
+      const checkbox = row.querySelector("[data-meeting-select]");
+      if (checkbox) checkbox.checked = selectedMeetingIds.has(row.dataset.meetingId);
+    });
+    updateSelection();
+  };
+
+  const scrubSessionMeetingMetadata = (neutralPath) => {
+    const manualUploadWasOpen = scrubManualUploadPrivateState({ authorizationLost: true });
+    const deleteDialogWasOpen = document.querySelector("[data-delete-dialog]")?.hasAttribute("open") === true;
+    if (
+      deleteDialogWasOpen
+      || pendingDeleteRows.length
+      || deleteReturnFocus
+      || deleteReturnMeetingId
+      || deleteFocusFallbackIds.length
+    ) closeDeleteDialog({ restoreFocus: false });
+    clearMeetingListAnnouncements();
+    document.querySelector(".upcoming")?.remove();
+    document.querySelector("[data-upload-activity-list]")?.replaceChildren();
+    document.querySelector("#delete-feedback-region")?.replaceChildren();
+    const search = document.querySelector("#meeting-search");
+    if (search) search.value = "";
+    clearMeetingHistoryCache();
+    try {
+      sessionStorage.removeItem("htmx-current-path-for-history");
+    } catch {
+      // The neutral URL still replaces the private query when storage is unavailable.
+    }
+    neutralizePrivateLocation(neutralPath);
+    return manualUploadWasOpen || deleteDialogWasOpen;
+  };
+
+  const renderMeetingListRecovery = (kind, requestEvent = null) => {
+    const authorizationLost = ["session", "workspace", "access"].includes(kind);
+    if (authorizationLost) meetingListRequestGeneration += 1;
+    const target = document.querySelector("#meeting-list-region");
+    if (!target) return;
+    const copy = {
+      offline: {
+        title: "Нет подключения",
+        description: "Запись на Mac продолжает работать.",
+        action: "Повторить",
+      },
+      service: {
+        title: "Не удалось загрузить встречи",
+        description: "Попробуйте ещё раз.",
+        action: "Повторить",
+      },
+      session: {
+        title: "Нужно войти снова",
+        description: "Сессия завершилась.",
+        action: "Войти",
+      },
+      workspace: {
+        title: "Нужно выбрать пространство",
+        description: "Доступ к выбранному пространству больше не подтверждён.",
+        action: "Войти и выбрать пространство",
+      },
+      access: {
+        title: "Нет доступа к встречам",
+        description: "Обратитесь к владельцу рабочего пространства.",
+        action: null,
+      },
+    }[kind];
+    if (!copy) return;
+    const recovery = document.createElement("section");
+    recovery.className = "list-recovery-state";
+    recovery.setAttribute("role", "status");
+    recovery.setAttribute("aria-live", "polite");
+    const title = document.createElement("strong");
+    title.textContent = copy.title;
+    const description = document.createElement("span");
+    description.textContent = copy.description;
+    const listPath = location.pathname.startsWith("/desktop/")
+      ? "/desktop/meetings"
+      : "/meetings";
+    recovery.append(title, description);
+    if (copy.action) {
+      const requiresSignIn = kind === "session" || kind === "workspace";
+      const action = document.createElement(requiresSignIn ? "a" : "button");
+      action.className = "button quiet list-recovery-action";
+      action.textContent = copy.action;
+      if (requiresSignIn) {
+        action.href = `/login?next=${encodeURIComponent(listPath)}`;
+        action.setAttribute("data-list-sign-in", "");
+      } else {
+        action.type = "button";
+        action.setAttribute("data-list-retry", "");
+      }
+      recovery.append(action);
+    }
+    let manualUploadWasOpen = false;
+    if (["session", "workspace", "access"].includes(kind)) {
+      manualUploadWasOpen = scrubSessionMeetingMetadata(listPath);
+      selectedMeetingIds.clear();
+    } else {
+      clearMeetingListAnnouncements();
+    }
+    target.removeAttribute("aria-busy");
+    let loading = target.querySelector("[data-list-loading-state]");
+    let current = target.querySelector("[data-list-current-content]");
+    if (!loading || !current) {
+      loading = document.createElement("div");
+      loading.className = "list-loading-state";
+      loading.setAttribute("data-list-loading-state", "");
+      loading.setAttribute("role", "status");
+      loading.setAttribute("aria-live", "polite");
+      loading.hidden = true;
+      loading.textContent = "Загружаем встречи…";
+      current = document.createElement("div");
+      current.setAttribute("data-list-current-content", "");
+      target.replaceChildren(loading, current);
+    }
+    loading.hidden = true;
+    current.hidden = false;
+    current.replaceChildren(recovery);
+    const toolbar = document.querySelector("[data-selection-toolbar]");
+    if (toolbar) toolbar.hidden = true;
+    if (
+      !restoreMeetingListRequestFocus(requestEvent, recovery, { force: authorizationLost })
+      && !restoreListRefreshFocus(recovery, { force: authorizationLost })
+      && manualUploadWasOpen
+    ) {
+      const focusTarget = recovery.querySelector("[data-list-retry], [data-list-sign-in]") || recovery;
+      if (focusTarget === recovery) recovery.tabIndex = -1;
+      focusTarget.focus({ preventScroll: true });
+    }
+    return recovery;
+  };
+
+  const showMeetingListLoading = () => {
+    const target = document.querySelector("#meeting-list-region");
+    const loading = target?.querySelector("[data-list-loading-state]");
+    const current = target?.querySelector("[data-list-current-content]");
+    if (!target || !loading || !current) return;
+    target.setAttribute("aria-busy", "true");
+    loading.hidden = false;
+    if (document.activeElement instanceof HTMLElement
+      && document.activeElement.closest("[data-list-retry]")) {
+      loading.tabIndex = -1;
+      loading.focus({ preventScroll: true });
+    }
+    current.hidden = true;
+    const toolbar = document.querySelector("[data-selection-toolbar]");
+    if (toolbar) toolbar.hidden = true;
+  };
+
+  const requestTargetsMeetingList = (event) => {
+    const source = event.detail?.elt || event.target;
+    const target = event.detail?.target;
+    return target?.id === "meeting-list-region" ||
+      (source instanceof Element && Boolean(source.closest(".cabinet-list-controls, [data-list-retry]")));
+  };
+
+  const requestIsMeetingListProgressPoll = (event) => {
+    const source = event.detail?.requestConfig?.elt || event.detail?.elt || event.target;
+    return source instanceof Element && source.matches("[data-upload-progress-poll]");
+  };
+
+  const beginAuthoritativeMeetingListRequest = (event) => {
+    const request = event.detail?.xhr;
+    if (!request || typeof request !== "object" || authoritativeMeetingListRequests.has(request)) return;
+    meetingListRequestGeneration += 1;
+    activeMeetingListRequests += 1;
+    authoritativeMeetingListRequests.add(request);
+    authoritativeMeetingListRequestGenerations.set(request, meetingListRequestGeneration);
+  };
+
+  const finishAuthoritativeMeetingListRequest = (event) => {
+    const request = event.detail?.xhr;
+    if (!request || !authoritativeMeetingListRequests.delete(request)) return;
+    activeMeetingListRequests = Math.max(0, activeMeetingListRequests - 1);
+  };
+
+  const rememberProgressPollGeneration = (event) => {
+    const request = event.detail?.xhr;
+    if (request && typeof request === "object") {
+      progressPollRequestGenerations.set(request, meetingListRequestGeneration);
+    }
+  };
+
+  const rememberMeetingListRequestFocus = (event) => {
+    const request = event.detail?.xhr;
+    const active = document.activeElement;
+    if (!request || typeof request !== "object") return;
+    const previousSnapshot = meetingListRequestFocusRecoveries.get(request);
+    if (
+      previousSnapshot?.kind === "retry"
+      && active instanceof HTMLElement
+      && active.closest("[data-list-loading-state]")
+    ) return;
+    meetingListRequestFocusRecoveries.delete(request);
+    if (!(active instanceof HTMLElement)) return;
+    const row = active.closest("[data-meeting-row]");
+    const meetingId = row?.dataset.meetingId || "";
+    if (row && meetingId) {
+      let selector = "";
+      if (active !== row) {
+        selector = [
+          "[data-meeting-open]",
+          "[data-meeting-select]",
+          "[data-row-delete]",
+          ".calendar-context-list-action",
+        ].find((candidate) => active.matches(candidate)) || "";
+        if (!selector) return;
+      }
+      meetingListRequestFocusRecoveries.set(request, {
+        kind: "row",
+        meetingIds: [meetingId],
+        origin: active,
+        selector,
+      });
+      return;
+    }
+    if (active.closest("[data-selection-toolbar]")) {
+      const selector = [
+        "[data-selection-toggle]",
+        "[data-clear-selection]",
+        "[data-selection-delete]",
+      ].find((candidate) => active.matches(candidate)) || "";
+      meetingListRequestFocusRecoveries.set(request, {
+        kind: "toolbar",
+        meetingIds: Array.from(selectedMeetingIds),
+        origin: active,
+        selector,
+      });
+      return;
+    }
+    if (active.closest("[data-list-retry]")) {
+      meetingListRequestFocusRecoveries.set(request, {
+        kind: "retry",
+        meetingIds: [],
+        origin: active,
+        selector: "",
+      });
+    }
+  };
+
+  const restoreMeetingListRequestFocus = (event, recovery = null, { force = false } = {}) => {
+    const request = event?.detail?.xhr;
+    if (!request || typeof request !== "object") return false;
+    const snapshot = meetingListRequestFocusRecoveries.get(request);
+    if (!snapshot) return false;
+    meetingListRequestFocusRecoveries.delete(request);
+    const active = document.activeElement;
+    const retryLoadingOwnsFocus = snapshot.kind === "retry"
+      && active instanceof HTMLElement
+      && Boolean(active.closest("[data-list-loading-state]"));
+    const userMovedFocus = !force
+      && isUsableFocusTarget(active)
+      && active !== document.body
+      && active !== document.documentElement
+      && active !== snapshot.origin
+      && !retryLoadingOwnsFocus;
+    if (userMovedFocus) return false;
+    let focusTarget = null;
+    if (snapshot.kind === "toolbar") {
+      const toolbar = document.querySelector("[data-selection-toolbar]");
+      focusTarget = toolbar?.querySelector(
+        snapshot.selector || "[data-selection-toggle], [data-clear-selection], [data-selection-delete]",
+      );
+      if (!isUsableFocusTarget(focusTarget)) focusTarget = null;
+    } else {
+      const row = snapshot.meetingIds
+        .map((meetingId) => allRows().find((candidate) => candidate.dataset.meetingId === meetingId))
+        .find(Boolean);
+      focusTarget = row
+        ? (snapshot.selector ? row.querySelector(snapshot.selector) : null)
+          || rowPrimaryFocusTarget(row)
+        : null;
+    }
+    if (recovery instanceof HTMLElement) {
+      focusTarget = recovery.querySelector("[data-list-retry], [data-list-sign-in]") || recovery;
+      if (focusTarget === recovery) recovery.tabIndex = -1;
+    }
+    focusTarget ||= document.querySelector("[data-list-title]");
+    focusTarget?.focus({ preventScroll: true });
+    return Boolean(focusTarget);
+  };
+
+  const progressPollIsStale = (event) => {
+    const request = event.detail?.xhr;
+    const startedAt = request && typeof request === "object"
+      ? progressPollRequestGenerations.get(request)
+      : undefined;
+    return activeMeetingListRequests > 0
+      || (startedAt !== undefined && startedAt !== meetingListRequestGeneration);
+  };
+
+  const authoritativeMeetingListRequestIsStale = (event) => {
+    const request = event.detail?.xhr;
+    const startedAt = request && typeof request === "object"
+      ? authoritativeMeetingListRequestGenerations.get(request)
+      : undefined;
+    return startedAt !== undefined && startedAt !== meetingListRequestGeneration;
+  };
+
+  const authorizationRecoveryKind = (
+    status,
+    recoveryHeader = "",
+    problemCode = "",
+    unknownForbiddenMeansAccess = false,
+  ) => {
+    if (status === 401) return "session";
+    if (status !== 403) return "";
+    if (recoveryHeader === "reselect-space") return "workspace";
+    if (problemCode === "auth_session_invalid") return "session";
+    if (
+      problemCode === "workspace_scope_denied"
+      && location.pathname.startsWith("/desktop/")
+    ) return "workspace";
+    if (unknownForbiddenMeansAccess || accessLossProblemCodes.has(problemCode)) return "access";
+    return "";
+  };
+
+  const responseProblemCode = async (response) => {
+    try {
+      const payload = await response.clone().json();
+      return typeof payload.code === "string" ? payload.code : "";
+    } catch {
+      return "";
+    }
+  };
+
+  const xhrProblemCode = (xhr) => {
+    try {
+      const payload = JSON.parse(xhr?.responseText || "{}");
+      return typeof payload.code === "string" ? payload.code : "";
+    } catch {
+      return "";
+    }
+  };
+
+  const isShareRequest = (source, target) => (
+    (source instanceof Element && source.closest("[data-share-dialog-open]"))
+    || (target instanceof Element && (
+      target.id === "meeting-share-host" || target.closest("#meeting-share-host, [data-share-dialog]")
+    ))
+  );
+
+  const meetingListAuthorizationRecoveryKind = (event) => {
+    const xhr = event.detail?.xhr;
+    const status = Number(xhr?.status || 0);
+    if (status !== 401 && status !== 403) return "";
+    return authorizationRecoveryKind(
+      status,
+      xhr?.getResponseHeader?.("X-GRAF-Cabinet-Recovery") || "",
+      status === 403 ? xhrProblemCode(xhr) : "",
+      true,
+    );
+  };
+
+  const handleMeetingListRequestError = (event) => {
+    if (!requestTargetsMeetingList(event)) return;
+    const authorizationRecovery = meetingListAuthorizationRecoveryKind(event);
+    const ignored = requestIsMeetingListProgressPoll(event)
+      ? progressPollIsStale(event) || listInteractionIsActive()
+      : authoritativeMeetingListRequestIsStale(event);
+    finishAuthoritativeMeetingListRequest(event);
+    if (authorizationRecovery) {
+      const request = event.detail?.xhr;
+      if (request && handledMeetingListAuthorizationRequests.has(request)) return;
+      if (request && typeof request === "object") handledMeetingListAuthorizationRequests.add(request);
+      rememberMeetingListRequestFocus(event);
+      renderMeetingListRecovery(authorizationRecovery, event);
+      return;
+    }
+    if (ignored) return;
+    rememberMeetingListRequestFocus(event);
+    const xhr = event.detail?.xhr;
+    const status = Number(xhr?.status || 0);
+    if (status >= 400 && status < 500 && status !== 401 && status !== 403) {
+      meetingResultCountShouldAnnounce = false;
+      meetingResultCountHadRefinement = false;
+      const target = document.querySelector("#meeting-list-region");
+      target?.removeAttribute("aria-busy");
+      const loading = target?.querySelector("[data-list-loading-state]");
+      const current = target?.querySelector("[data-list-current-content]");
+      if (loading) loading.hidden = true;
+      if (current) current.hidden = false;
+      restoreMeetingListRequestFocus(event, current?.querySelector(".list-recovery-state"));
+      restoreListRefreshFocus();
+      return;
+    }
+    const kind = navigator.onLine ? "service" : "offline";
+    renderMeetingListRecovery(kind, event);
+  };
+
+  const observeDetachedMeetingListRequest = (event) => {
+    const request = event.detail?.xhr;
+    const source = event.detail?.elt || event.target;
+    if (
+      !request
+      || typeof request !== "object"
+      || typeof request.addEventListener !== "function"
+      || !(source instanceof Element)
+      || observedDetachedMeetingListRequests.has(request)
+    ) return;
+    observedDetachedMeetingListRequests.add(request);
+    request.addEventListener("readystatechange", () => {
+      if (
+        request.readyState !== 4
+        || ![401, 403].includes(Number(request.status))
+        || source.isConnected !== false
+      ) return;
+      handleMeetingListRequestError(event);
+    });
+  };
+
+  const captureDeletionFocusFallback = (rows) => {
+    const orderedRows = allRows();
+    const deletingIds = new Set(rows.map((row) => row.dataset.meetingId));
+    const anchorRow = orderedRows.find((row) => row.dataset.meetingId === deleteReturnMeetingId)
+      || rows[0];
+    const anchorIndex = orderedRows.indexOf(anchorRow);
+    const nextRow = orderedRows.slice(anchorIndex + 1).find(
+      (row) => !deletingIds.has(row.dataset.meetingId),
+    );
+    const previousRow = orderedRows.slice(0, Math.max(anchorIndex, 0)).reverse().find(
+      (row) => !deletingIds.has(row.dataset.meetingId),
+    );
+    deleteFocusFallbackIds = [nextRow?.dataset.meetingId, previousRow?.dataset.meetingId].filter(Boolean);
   };
 
   const openDeleteDialog = (rows) => {
@@ -103,6 +785,8 @@
     deleteReturnMeetingId = deleteReturnFocus?.closest("[data-meeting-row]")?.dataset.meetingId || "";
     pendingDeleteRows = rows.filter(Boolean);
     if (!pendingDeleteRows.length) return;
+    captureDeletionFocusFallback(pendingDeleteRows);
+    document.querySelector("#delete-feedback-region")?.replaceChildren();
     if (error) error.hidden = true;
     if (title) title.textContent = pendingDeleteRows.length === 1 ? dialog.dataset.titleOne : dialog.dataset.titleMany;
     if (count) count.textContent = deletingLabel(pendingDeleteRows.length);
@@ -119,17 +803,23 @@
     else dialog.removeAttribute("open");
     const currentReturnRow = allRows().find((row) => row.dataset.meetingId === deleteReturnMeetingId);
     const rowDeleteControl = currentReturnRow?.querySelector("[data-row-delete]");
+    const fallbackRow = deleteFocusFallbackIds
+      .map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))
+      .find(Boolean);
+    const fallbackControl = rowPrimaryFocusTarget(fallbackRow);
     const returnControl = isUsableFocusTarget(deleteReturnFocus)
       ? deleteReturnFocus
       : isUsableFocusTarget(rowDeleteControl) ? rowDeleteControl : null;
     if (restoreFocus && returnControl) {
-      setRowContextualAvailability(currentReturnRow, true);
       returnControl.focus({ preventScroll: true });
+    } else if (restoreFocus && fallbackControl) {
+      fallbackControl.focus({ preventScroll: true });
     } else if (restoreFocus) {
       document.querySelector("[data-list-title]")?.focus({ preventScroll: true });
     }
     deleteReturnFocus = null;
     deleteReturnMeetingId = "";
+    deleteFocusFallbackIds = [];
   };
 
   const submitDeletionForm = async (form) => {
@@ -143,7 +833,57 @@
       credentials: "same-origin",
       headers
     });
+    const problemCode = [403, 404].includes(response.status)
+      ? await responseProblemCode(response)
+      : "";
+    if (response.status === 404 && problemCode === "meeting_not_found") return "missing";
+    const recoveryKind = authorizationRecoveryKind(
+      response.status,
+      response.headers.get("X-GRAF-Cabinet-Recovery") || "",
+      problemCode,
+    );
+    if (recoveryKind) return recoveryKind;
     if (!response.ok) throw new Error("deletion_request_failed");
+    const responseDocument = new DOMParser().parseFromString(await response.text(), "text/html");
+    const feedback = responseDocument.querySelector("[data-cabinet-fragment='deletion-feedback']");
+    if (!feedback) throw new Error("deletion_feedback_missing");
+    return "";
+  };
+
+  const requestMeetingListRefresh = ({ focusMeetingIds = [], restoreFocus = false } = {}) => {
+    const form = document.querySelector(".cabinet-list-controls");
+    if (!(form instanceof HTMLFormElement)) return false;
+    listRefreshFocusMeetingIds = focusMeetingIds.filter(Boolean);
+    listRefreshShouldRestoreFocus = restoreFocus;
+    listRefreshFocusOrigin = restoreFocus && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    form.requestSubmit();
+    return true;
+  };
+
+  const syncMeetingListRefinementState = (form) => {
+    const status = form?.querySelector("#meeting-status");
+    const access = form?.querySelector("#meeting-access");
+    const search = form?.querySelector("#meeting-search");
+    const sort = form?.querySelector("#meeting-sort");
+    const filterDisclosure = form?.querySelector("[data-filter-disclosure]");
+    const reset = form?.querySelector("[data-filter-reset]");
+    const activeFilterCount = Number(Boolean(status?.value)) + Number(Boolean(access?.value));
+    filterDisclosure?.classList.toggle("is-active", activeFilterCount > 0);
+    const filterSummary = filterDisclosure?.querySelector("summary");
+    const visibleFilterLabel = filterSummary?.querySelector(".cabinet-control-label");
+    const filterLabel = activeFilterCount > 0 ? `Фильтры: ${activeFilterCount}` : "Фильтры";
+    if (filterSummary) filterSummary.setAttribute("aria-label", filterLabel);
+    if (visibleFilterLabel) visibleFilterLabel.textContent = filterLabel;
+    if (reset) reset.hidden = !(search?.value.trim() || activeFilterCount > 0);
+    const sortLabel = sort?.selectedOptions[0]?.textContent?.trim();
+    if (sortLabel) {
+      const visibleSortLabel = form?.querySelector("[data-sort-disclosure] .cabinet-control-label");
+      if (visibleSortLabel) visibleSortLabel.textContent = sortLabel;
+      form?.querySelector("[data-sort-disclosure] > summary")
+        ?.setAttribute("aria-label", `Сортировка: ${sortLabel}`);
+    }
   };
 
   const initMeetingList = () => {
@@ -158,15 +898,85 @@
       closeDeleteDialog();
     });
     document.body.addEventListener("htmx:beforeRequest", (event) => {
-      const source = event.detail?.elt || event.target;
-      if (source instanceof Element && source.matches("[data-upload-progress-poll]") && listInteractionIsActive()) {
-        event.preventDefault();
+      const isProgressPoll = requestIsMeetingListProgressPoll(event);
+      if (isProgressPoll) {
+        if (activeMeetingListRequests > 0 || listInteractionIsActive()) {
+          event.preventDefault();
+          return;
+        }
+        observeDetachedMeetingListRequest(event);
+        rememberProgressPollGeneration(event);
+        rememberMeetingListRequestFocus(event);
+        return;
+      }
+      if (requestTargetsMeetingList(event)) {
+        beginAuthoritativeMeetingListRequest(event);
+        observeDetachedMeetingListRequest(event);
+        rememberMeetingListRequestFocus(event);
+        const triggeringEvent = event.detail?.requestConfig?.triggeringEvent;
+        const triggeringTarget = triggeringEvent?.target;
+        const refinementSelector = "#meeting-search, #meeting-status, #meeting-access, [data-filter-reset]";
+        const requestShouldAnnounce = (
+          triggeringTarget instanceof Element
+          && Boolean(triggeringTarget.closest(refinementSelector))
+        ) || (
+          triggeringEvent?.type === "submit"
+          && document.activeElement instanceof Element
+          && Boolean(document.activeElement.closest(refinementSelector))
+        );
+        if (requestShouldAnnounce) {
+          meetingResultCountShouldAnnounce = true;
+          meetingResultCountHadRefinement ||= Boolean(
+            document.querySelector("[data-meeting-result-count]"),
+          );
+        }
+        showMeetingListLoading();
       }
     });
+    document.body.addEventListener("htmx:beforeSwap", (event) => {
+      if (!requestTargetsMeetingList(event)) return;
+      if (meetingListAuthorizationRecoveryKind(event)) return;
+      const staleProgressPoll = requestIsMeetingListProgressPoll(event)
+        && (progressPollIsStale(event) || listInteractionIsActive());
+      const staleAuthoritativeRequest = !requestIsMeetingListProgressPoll(event)
+        && authoritativeMeetingListRequestIsStale(event);
+      if (staleProgressPoll || staleAuthoritativeRequest) {
+        event.preventDefault();
+        if (event.detail) event.detail.shouldSwap = false;
+        return;
+      }
+      rememberMeetingListRequestFocus(event);
+    });
+    document.body.addEventListener("htmx:afterRequest", finishAuthoritativeMeetingListRequest);
+    document.body.addEventListener("htmx:sendError", handleMeetingListRequestError);
+    document.body.addEventListener("htmx:timeout", handleMeetingListRequestError);
+    document.body.addEventListener("htmx:responseError", handleMeetingListRequestError);
     document.body.addEventListener("change", (event) => {
       if (event.target.closest("[data-meeting-select]")) updateSelection();
     });
     document.body.addEventListener("click", async (event) => {
+      const reset = event.target.closest("[data-filter-reset]");
+      if (reset) {
+        event.preventDefault();
+        const form = reset.closest("form") || document.querySelector(".cabinet-list-controls");
+        if (!(form instanceof HTMLFormElement)) return;
+        const search = form.querySelector("#meeting-search");
+        const status = form.querySelector("#meeting-status");
+        const access = form.querySelector("#meeting-access");
+        if (search) search.value = "";
+        if (status) status.value = "";
+        if (access) access.value = "";
+        syncMeetingListRefinementState(form);
+        requestMeetingListRefresh({ restoreFocus: true });
+        return;
+      }
+      if (event.target.closest("[data-list-retry]")) {
+        const form = document.querySelector(".cabinet-list-controls");
+        if (form instanceof HTMLFormElement) {
+          form.requestSubmit();
+        }
+        return;
+      }
       const deleteButton = event.target.closest("[data-row-delete]");
       if (deleteButton) {
         openDeleteDialog([deleteButton.closest("[data-meeting-row]")]);
@@ -181,10 +991,10 @@
         allRows().forEach((row) => {
           const checkbox = row.querySelector("[data-meeting-select]");
           if (checkbox) checkbox.checked = false;
-          setRowContextualAvailability(row, row.contains(document.activeElement));
         });
         updateSelection();
-        (returnRow?.isConnected ? returnRow : document.querySelector("[data-list-title]"))?.focus({ preventScroll: true });
+        ((returnRow?.isConnected ? rowPrimaryFocusTarget(returnRow) : null)
+          || document.querySelector("[data-list-title]"))?.focus({ preventScroll: true });
         return;
       }
       if (event.target.closest("[data-delete-cancel]")) {
@@ -193,14 +1003,17 @@
       }
       const selectionToggle = event.target.closest("[data-selection-toggle]");
       if (selectionToggle) {
-        const rows = allRows();
+        const rows = selectableRows();
         const shouldSelectAll = selectedRows().length !== rows.length;
         rows.forEach((row) => {
           const checkbox = row.querySelector("[data-meeting-select]");
           if (checkbox) checkbox.checked = shouldSelectAll;
         });
         updateSelection();
-        if (!shouldSelectAll) rows[0]?.focus({ preventScroll: true });
+        if (!shouldSelectAll) {
+          (rowPrimaryFocusTarget(rows[0]) || document.querySelector("[data-list-title]"))
+            ?.focus({ preventScroll: true });
+        }
         return;
       }
       const confirm = event.target.closest("[data-delete-confirm]");
@@ -209,9 +1022,12 @@
         const dialog = document.querySelector("[data-delete-dialog]");
         const error = dialog?.querySelector("[data-delete-error]");
         if (error) error.hidden = true;
+        document.querySelector("#delete-feedback-region")?.replaceChildren();
         confirm.disabled = true;
         confirm.textContent = "Удаляем…";
         const failedRows = [];
+        let deletedCount = 0;
+        let missingCount = 0;
         for (const row of pendingDeleteRows) {
           const form = row.querySelector("[data-row-delete-form]");
           if (!form) {
@@ -219,10 +1035,24 @@
             continue;
           }
           try {
-            await submitDeletionForm(form);
+            const deletionResult = await submitDeletionForm(form);
+            if (deletionResult === "missing") {
+              selectedMeetingIds.delete(row.dataset.meetingId);
+              row.replaceChildren();
+              row.removeAttribute("data-meeting-id");
+              row.remove();
+              missingCount += 1;
+              continue;
+            }
+            if (deletionResult) {
+              closeDeleteDialog({ restoreFocus: false });
+              renderMeetingListRecovery(deletionResult);
+              return;
+            }
             const checkbox = row.querySelector("[data-meeting-select]");
             if (checkbox) checkbox.checked = false;
             row.remove();
+            deletedCount += 1;
           } catch (_err) {
             failedRows.push(row);
           }
@@ -232,74 +1062,45 @@
         updateSelection();
         if (failedRows.length && error) {
           const failures = failedRows.length;
-          error.textContent = failures === 1 ? "Не удалось удалить одну запись. Попробуйте ещё раз." : `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте ещё раз.`;
+          const failureMessage = `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте ещё раз.`;
+          error.textContent = failureMessage;
           error.hidden = false;
           pendingDeleteRows = failedRows;
+          confirm.textContent = "Повторить";
+          publishDeletionFeedback(failureMessage, "error");
+          if (deletedCount + missingCount > 0) requestMeetingListRefresh();
           return;
         }
-        closeDeleteDialog();
+        if (deletedCount > 0) {
+          publishDeletionFeedback(
+            "Запись удалена из списка. Очистка данных GRAF продолжается.",
+            "success",
+          );
+        } else if (missingCount > 0) {
+          publishDeletionFeedback("Встреча больше недоступна. Список обновлён.");
+        }
+        const refreshFocusMeetingIds = [...deleteFocusFallbackIds];
+        closeDeleteDialog({ restoreFocus: false });
+        if (deletedCount + missingCount > 0 && requestMeetingListRefresh({
+          focusMeetingIds: refreshFocusMeetingIds,
+          restoreFocus: true,
+        })) return;
+        document.querySelector("[data-list-title]")?.focus({ preventScroll: true });
         return;
       }
       const row = event.target.closest("[data-meeting-row]");
-      if (!row || event.target.closest("a,button,input")) return;
-      const checkbox = row.querySelector("[data-meeting-select]");
-      if (!checkbox) return;
-      checkbox.checked = !checkbox.checked;
-      updateSelection();
+      if (!row || event.target.closest("a,button,input,.row-select-hit")) return;
+      const primaryLink = row.querySelector("[data-meeting-open]");
+      primaryLink?.click();
     });
-    document.body.addEventListener("pointerover", (event) => {
-      const row = event.target.closest?.("[data-meeting-row]");
-      if (row) setRowContextualAvailability(row, true);
-    });
-    document.body.addEventListener("pointerout", (event) => {
-      const row = event.target.closest?.("[data-meeting-row]");
-      if (!row || row.contains(event.relatedTarget)) return;
-      const selected = row.querySelector("[data-meeting-select]")?.checked === true;
-      if (!selected && !row.contains(document.activeElement)) setRowContextualAvailability(row, false);
-    });
-    document.body.addEventListener("focusin", (event) => {
-      const row = event.target.closest?.("[data-meeting-row]");
-      if (row) setRowContextualAvailability(row, true);
-    });
-    document.body.addEventListener("focusout", (event) => {
-      const row = event.target.closest?.("[data-meeting-row]");
-      if (!row) return;
-      window.setTimeout(() => {
-        const selected = row.querySelector("[data-meeting-select]")?.checked === true;
-        if (!selected && !row.contains(document.activeElement)) setRowContextualAvailability(row, false);
-      }, 0);
-    });
-    allRows().forEach((row) => setRowContextualAvailability(row, false));
-    updateSelection();
+    reconcileMeetingSelection();
   };
 
   const initListDisclosures = () => {
     const form = document.querySelector(".cabinet-list-controls");
     if (form && form.dataset.refinementReady !== "true") {
       form.dataset.refinementReady = "true";
-      const syncRefinementState = () => {
-        const status = form.querySelector("#meeting-status");
-        const access = form.querySelector("#meeting-access");
-        const search = form.querySelector("#meeting-search");
-        const sort = form.querySelector("#meeting-sort");
-        const filterDisclosure = form.querySelector("[data-filter-disclosure]");
-        const filterCount = filterDisclosure?.querySelector(".cabinet-control-count");
-        const reset = form.querySelector("[data-filter-reset]");
-        const activeFilterCount = Number(Boolean(status?.value)) + Number(Boolean(access?.value));
-        filterDisclosure?.classList.toggle("is-active", activeFilterCount > 0);
-        if (filterCount) {
-          filterCount.hidden = activeFilterCount === 0;
-          filterCount.textContent = String(activeFilterCount);
-          filterCount.setAttribute("aria-label", `Активных фильтров: ${activeFilterCount}`);
-        }
-        if (reset) reset.hidden = !(search?.value.trim() || activeFilterCount > 0);
-        const sortLabel = sort?.selectedOptions[0]?.textContent?.trim();
-        if (sortLabel) {
-          const visibleSortLabel = document.querySelector("[data-current-sort-label]");
-          if (visibleSortLabel) visibleSortLabel.textContent = sortLabel;
-          form.querySelector("[data-sort-disclosure] > summary")?.setAttribute("aria-label", `Сортировка: ${sortLabel}`);
-        }
-      };
+      const syncRefinementState = () => syncMeetingListRefinementState(form);
       form.addEventListener("input", syncRefinementState);
       form.addEventListener("change", syncRefinementState);
       syncRefinementState();
@@ -588,6 +1389,9 @@
           },
           body: body === undefined ? undefined : JSON.stringify(body)
         });
+        if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
+          throw meetingDetailRecoveredError();
+        }
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           const error = new Error(payload.code || (response.status >= 500 ? "summary_request_unavailable" : "summary_request_failed"));
@@ -656,9 +1460,8 @@
           if (accept) window.location.reload();
           else if (status) status.hidden = true;
         } catch (error) {
-          const code = error instanceof Error ? error.message : "";
-          const action = candidateErrorAction(code, activeTemplate);
-          showStatus(candidateErrorCopy(code), "failed", action ? [action] : []);
+          if (isMeetingDetailRecoveredError(error)) return;
+          showStatus(candidateErrorCopy(error instanceof Error ? error.message : ""), "failed");
         } finally {
           setBusy(false);
         }
@@ -714,18 +1517,17 @@
       const pollCandidate = async (candidate) => {
         try {
           const response = await fetch(candidate.poll_url, { credentials: "same-origin", cache: "no-store" });
-          const payload = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            const error = new Error(payload.code || (response.status >= 500 ? "summary_poll_unavailable" : "summary_candidate_not_found"));
-            error.status = response.status;
-            throw error;
+          if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
+            throw meetingDetailRecoveredError();
           }
-          const next = payload;
+          if (!response.ok) throw new Error("summary_poll_failed");
+          const next = await response.json();
           renderCandidate(next);
           if (next.state === "generating") {
             pollingTimer = window.setTimeout(() => pollCandidate(next), 1200);
           }
         } catch (error) {
+          if (isMeetingDetailRecoveredError(error)) return;
           setBusy(false);
           if (pendingLabel) pendingLabel.hidden = true;
           const code = error instanceof Error ? error.message : "summary_poll_unavailable";
@@ -760,6 +1562,7 @@
             pollingTimer = window.setTimeout(() => pollCandidate(candidate), 1200);
           }
         } catch (error) {
+          if (isMeetingDetailRecoveredError(error)) return;
           setBusy(false);
           if (pendingLabel) pendingLabel.hidden = true;
           const code = error instanceof Error && error.message && error.message !== "summary_request_failed"
@@ -1550,10 +2353,31 @@
     media.src = url;
   });
 
-  const refreshMeetingList = async (refreshUrl) => {
+  const currentMeetingListUrl = () => {
+    const fallback = `${window.location.pathname}${window.location.search}`;
+    const form = document.querySelector(".cabinet-list-controls");
+    if (!(form instanceof HTMLFormElement)) return fallback;
+    try {
+      const url = new URL(form.action || fallback, window.location.href);
+      const current = new URL(fallback, window.location.href);
+      const params = new URLSearchParams(current.search);
+      new URLSearchParams(url.search).forEach((value, key) => params.set(key, value));
+      new FormData(form).forEach((value, key) => {
+        if (typeof value !== "string") return;
+        params.delete(key);
+        if (value) params.append(key, value);
+      });
+      url.search = params.toString();
+      return `${url.pathname}${url.search}`;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const refreshMeetingList = async () => {
     const target = document.querySelector("#meeting-list-region");
     if (!target || !window.htmx?.ajax) return;
-    const url = refreshUrl || `${window.location.pathname}${window.location.search}`;
+    const url = currentMeetingListUrl();
     try {
       await window.htmx.ajax("GET", url, {
         target: "#meeting-list-region",
@@ -1586,6 +2410,7 @@
     let selectedFile = null;
     let lastTrigger = null;
     let uploadCounter = 0;
+    const activeUploadActivities = new Set();
 
     const setValidation = (message = "", tone = "neutral") => {
       if (!validation) return;
@@ -1596,7 +2421,13 @@
 
     const syncReady = () => {
       const duration = Number.parseInt(durationInput?.value || "0", 10);
-      const ready = Boolean(selectedFile && Number.isFinite(duration) && duration > 0 && csrfToken);
+      const ready = Boolean(
+        dialog.dataset.uploadAvailable === "true"
+          && selectedFile
+          && Number.isFinite(duration)
+          && duration > 0
+          && csrfToken,
+      );
       if (submit) submit.disabled = !ready;
     };
 
@@ -1617,6 +2448,7 @@
     const resetDraft = () => {
       selectedFile = null;
       if (fileInput) fileInput.value = "";
+      if (titleInput) titleInput.value = "";
       if (durationInput) durationInput.value = "";
       if (localIdInput) localIdInput.value = "";
       resetFilePreview();
@@ -1630,12 +2462,18 @@
       host = document.createElement("div");
       host.className = "upload-activity-list";
       host.dataset.uploadActivityList = "";
-      host.setAttribute("aria-live", "polite");
       const listRegion = document.querySelector("#meeting-list-region");
       const toolbar = document.querySelector(".meeting-toolbar");
       if (listRegion?.parentNode) listRegion.parentNode.insertBefore(host, listRegion);
       else toolbar?.after(host);
       return host;
+    };
+
+    const announceUploadActivity = (activity, message) => {
+      const announcer = document.querySelector("[data-upload-activity-announcer]");
+      if (!announcer || !message) return;
+      const title = activity.titleLabel?.textContent?.trim() || "Загрузка";
+      announcer.textContent = `${title}: ${message}`;
     };
 
     const updateActivityControls = (activity) => {
@@ -1654,33 +2492,82 @@
     };
 
     const setActivityProgress = (activity, value, determinate = true) => {
-      const percent = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+      const percent = Math.max(0, Math.min(99, Number.isFinite(value) ? value : 0));
+      activity.progressDeterminate = determinate;
       activity.progress?.classList.toggle("is-indeterminate", !determinate);
       if (determinate) {
+        if (activity.progress) activity.progress.hidden = false;
         activity.progress?.setAttribute("aria-valuenow", String(percent));
         if (activity.progressBar) activity.progressBar.style.width = `${percent}%`;
         if (activity.percentLabel) {
           activity.percentLabel.textContent = `${percent}%`;
           activity.percentLabel.hidden = false;
         }
+        const bucket = Math.floor(percent / 10) * 10;
+        if (bucket >= 10 && bucket !== activity.announcedProgressBucket) {
+          activity.announcedProgressBucket = bucket;
+          announceUploadActivity(activity, `Загружаем ${bucket}%`);
+        }
       } else {
+        if (activity.progress) activity.progress.hidden = true;
         activity.progress?.removeAttribute("aria-valuenow");
-        if (activity.progressBar) activity.progressBar.style.width = "36%";
+        if (activity.progressBar) activity.progressBar.style.width = "0";
         if (activity.percentLabel) {
-          activity.percentLabel.textContent = "…";
-          activity.percentLabel.hidden = false;
+          activity.percentLabel.textContent = "";
+          activity.percentLabel.hidden = true;
         }
       }
     };
 
     const setActivityState = (activity, state, message, tone = "neutral") => {
+      const previousState = activity.state;
       activity.state = state;
+      if (!activity.row) return;
       activity.row.dataset.uploadActivityState = state;
       if (activity.status) {
         activity.status.textContent = message;
         activity.status.dataset.tone = tone;
       }
+      const progressActive = state === "uploading" && activity.progressDeterminate !== false;
+      if (activity.progress) {
+        activity.progress.hidden = !progressActive;
+        if (!progressActive) {
+          activity.progress.classList.remove("is-indeterminate");
+          activity.progress.removeAttribute("aria-valuenow");
+        }
+      }
+      if (activity.progressBar && !progressActive) activity.progressBar.style.width = "0";
+      if (activity.percentLabel && !progressActive) {
+        activity.percentLabel.textContent = "";
+        activity.percentLabel.hidden = true;
+      }
+      if (state !== previousState) announceUploadActivity(activity, message);
       updateActivityControls(activity);
+    };
+
+    const clearUploadActivityPayload = (activity) => {
+      activity.file = null;
+      activity.title = "";
+      activity.duration = 0;
+      activity.localId = "";
+    };
+
+    const scrubUploadActivities = () => {
+      activeUploadActivities.forEach((activity) => {
+        const xhr = activity.xhr;
+        activity.xhr = null;
+        if (xhr && !activity.accepted) {
+          xhr.onload = null;
+          xhr.onerror = null;
+          xhr.onabort = null;
+          xhr.upload.onprogress = null;
+          xhr.abort();
+        }
+        clearUploadActivityPayload(activity);
+        activity.row?.replaceChildren();
+        activity.row = null;
+      });
+      activeUploadActivities.clear();
     };
 
     const createUploadActivity = ({ file, title, duration, localId }) => {
@@ -1696,11 +2583,11 @@
           <strong data-upload-activity-title></strong>
           <span data-upload-activity-meta></span>
           <span data-upload-activity-status></span>
-          <span class="upload-activity-progress" role="progressbar" aria-label="Прогресс загрузки" aria-valuemin="0" aria-valuemax="100">
+          <span class="upload-activity-progress" role="progressbar" aria-label="Прогресс загрузки" aria-valuemin="0" aria-valuemax="100" hidden>
             <span data-upload-activity-progress-bar></span>
           </span>
         </div>
-        <span class="upload-activity-percent" data-upload-activity-percent>0%</span>
+        <span class="upload-activity-percent" data-upload-activity-percent hidden></span>
         <div class="upload-activity-actions" aria-label="Управление загрузкой">
           <button class="upload-activity-action" type="button" data-upload-activity-cancel>Отменить</button>
           <button class="upload-activity-action" type="button" data-upload-activity-retry hidden>Повторить</button>
@@ -1723,6 +2610,8 @@
         accepted: false,
         recoveryMode: null,
         detailHref: "",
+        progressDeterminate: true,
+        announcedProgressBucket: null,
         titleLabel: row.querySelector("[data-upload-activity-title]"),
         meta: row.querySelector("[data-upload-activity-meta]"),
         status: row.querySelector("[data-upload-activity-status]"),
@@ -1739,6 +2628,7 @@
       if (activity.meta) {
         activity.meta.textContent = `${file.name || "Файл"} · ${formatBytes(file.size)} · ${duration} сек.`;
       }
+      activeUploadActivities.add(activity);
       row.addEventListener("click", (event) => {
         if (!(event.target instanceof Element)) return;
         if (event.target.closest("[data-upload-activity-cancel]")) {
@@ -1777,15 +2667,16 @@
       activity.xhr = xhr;
       activity.accepted = false;
       activity.recoveryMode = null;
-      setActivityProgress(activity, 0, true);
+      activity.announcedProgressBucket = null;
       setActivityState(activity, "uploading", continued ? "Продолжаем загрузку…" : "Загружаем файл…");
+      setActivityProgress(activity, 0, true);
 
       xhr.upload.onprogress = (event) => {
         if (!event.lengthComputable) {
           setActivityProgress(activity, 0, false);
           return;
         }
-        const percent = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
+        const percent = Math.max(0, Math.min(99, Math.round((event.loaded / event.total) * 100)));
         setActivityProgress(activity, percent, true);
         setActivityState(activity, "uploading", "Загружаем файл…");
       };
@@ -1799,7 +2690,6 @@
         }
         if (xhr.status >= 200 && xhr.status < 300) {
           activity.accepted = true;
-          setActivityProgress(activity, 100, true);
           const meetingId = payload.meeting?.meeting_id;
           if (meetingId) {
             activity.detailHref = `${dialog.dataset.uploadDetailBase || "/meetings"}/${meetingId}`;
@@ -1814,10 +2704,20 @@
               : "Файл принят. Обработка ещё не запущена. Проверьте статус встречи.",
             workflowStarted ? "success" : "warning"
           );
-          await refreshMeetingList(dialog.dataset.uploadRefreshUrl);
+          clearUploadActivityPayload(activity);
+          await refreshMeetingList();
           return;
         }
         const failureCode = typeof payload.code === "string" ? payload.code : "";
+        const recoveryKind = authorizationRecoveryKind(
+          xhr.status,
+          xhr.getResponseHeader("X-GRAF-Cabinet-Recovery") || "",
+          failureCode,
+        );
+        if (recoveryKind) {
+          renderMeetingListRecovery(recoveryKind);
+          return;
+        }
         activity.recoveryMode = authUploadFailure(failureCode)
           ? "auth"
           : conflictUploadFailure(failureCode) ? "conflict" : null;
@@ -1885,10 +2785,29 @@
       focusDialogElement(focusTarget);
     };
 
-    const closeDialog = () => {
+    const closeDialog = ({ restoreFocus = true } = {}) => {
       if (typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
-      focusDialogElement(lastTrigger);
+      if (restoreFocus) focusDialogElement(lastTrigger);
+    };
+
+    scrubManualUploadPrivateState = ({ authorizationLost = false } = {}) => {
+      const wasOpen = dialog.open || dialog.hasAttribute("open");
+      if (authorizationLost) dialog.dataset.uploadAvailable = "false";
+      scrubUploadActivities();
+      resetDraft();
+      if (wasOpen) closeDialog({ restoreFocus: false });
+      if (authorizationLost) {
+        document.querySelectorAll("[data-manual-upload-open]").forEach((trigger) => {
+          if (trigger instanceof HTMLButtonElement) trigger.disabled = true;
+          trigger.setAttribute(
+            "aria-label",
+            "Загрузить запись — недоступно. Войдите снова.",
+          );
+        });
+      }
+      lastTrigger = null;
+      return wasOpen;
     };
 
     dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
@@ -2012,22 +2931,149 @@
     playbackRecoveryTimer = null;
   };
 
-  const renderPlaybackTerminalState = (detail) => {
-    detail.dataset.playbackPollActive = "false";
-    detail.removeAttribute("data-playback-poll-url");
+  const renderMeetingDetailRecovery = (detail, kind) => {
     stopPlaybackRecoveryPolling();
-    const terminal = document.createElement("section");
-    terminal.className = "playback-terminal-state";
-    terminal.dataset.playbackState = "unavailable";
-    terminal.setAttribute("role", "status");
-    terminal.setAttribute("tabindex", "-1");
-    const title = document.createElement("strong");
-    title.textContent = "Запись больше недоступна";
+    const listPath = location.pathname.startsWith("/desktop/")
+      ? "/desktop/meetings"
+      : "/meetings";
+    const copy = {
+      session: ["Нужно войти снова", "Сессия завершилась.", "Войти"],
+      workspace: ["Нужно выбрать пространство", "Доступ к выбранному пространству больше не подтверждён.", "Войти и выбрать пространство"],
+      unavailable: ["Встреча больше недоступна", "Эта страница больше не может показывать запись.", "К списку встреч"],
+    }[kind] || ["Встреча больше недоступна", "Эта страница больше не может показывать запись.", "К списку встреч"];
+    const recovery = document.createElement("main");
+    recovery.id = "cabinet-main";
+    recovery.className = "cabinet-main";
+    recovery.tabIndex = -1;
+    const state = document.createElement("section");
+    state.className = "empty-state cabinet-card";
+    state.setAttribute("role", "status");
+    state.setAttribute("aria-live", "polite");
+    const title = document.createElement("h1");
+    title.id = "meeting-detail-recovery-title";
+    title.textContent = copy[0];
     const body = document.createElement("span");
-    body.textContent = "Эта страница больше не может показывать запись.";
-    terminal.append(title, body);
-    detail.replaceChildren(terminal);
-    terminal.focus();
+    body.textContent = copy[1];
+    const action = document.createElement("a");
+    action.className = "new-button";
+    action.textContent = copy[2];
+    const requiresSignIn = kind === "session" || kind === "workspace";
+    action.href = requiresSignIn
+      ? `/login?next=${encodeURIComponent(listPath)}`
+      : listPath;
+    state.setAttribute("aria-labelledby", title.id);
+    state.append(title, body, action);
+    recovery.append(state);
+    detail.replaceWith(recovery);
+    document.title = `${copy[0]} - GRAF`;
+    clearMeetingHistoryCache();
+    try {
+      sessionStorage.removeItem("htmx-current-path-for-history");
+    } catch {
+      // The neutral URL still replaces the private detail path when storage is unavailable.
+    }
+    neutralizePrivateLocation(listPath);
+    recovery.focus({ preventScroll: true });
+  };
+
+  const renderShareRequestError = (detail) => {
+    const host = detail.querySelector("#meeting-share-host");
+    if (!host) return;
+    const status = document.createElement("p");
+    status.className = "truth-copy meeting-share-action-error";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    status.textContent = "Не удалось открыть настройки доступа. Проверьте разрешения и попробуйте ещё раз.";
+    host.replaceChildren(status);
+  };
+
+  const meetingDetailRecoveryKindFromXhr = (xhr, { preserveDetail = false } = {}) => {
+    const status = Number(xhr?.status || 0);
+    const problemCode = [403, 404, 410].includes(status) ? xhrProblemCode(xhr) : "";
+    if (detailActionProblemCodes.has(problemCode)) return "";
+    if (preserveDetail && (sharingActionProblemCodes.has(problemCode) || [404, 410].includes(status))) return "";
+    if ([404, 410].includes(status)) return "unavailable";
+    if (status === 401 || status === 403) {
+      return authorizationRecoveryKind(
+        status,
+        xhr?.getResponseHeader?.("X-GRAF-Cabinet-Recovery") || "",
+        problemCode,
+        true,
+      );
+    }
+    try {
+      if (xhr?.responseURL && new URL(xhr.responseURL, window.location.href).pathname === "/login") {
+        return "session";
+      }
+    } catch {
+      // An invalid response URL cannot authorize retaining private detail content.
+    }
+    return "";
+  };
+
+  const recoverMeetingDetailFromResponse = async (response, { actionProblemCodes = new Set() } = {}) => {
+    const detail = document.querySelector("[data-playback-poll-url]");
+    if (!detail) return false;
+    let recoveryKind = "";
+    if (response.redirected) {
+      try {
+        if (new URL(response.url, window.location.href).pathname === "/login") {
+          recoveryKind = "session";
+        }
+      } catch {
+        recoveryKind = "session";
+      }
+    }
+    const problemCode = [403, 404, 410].includes(response.status)
+      ? await responseProblemCode(response)
+      : "";
+    if (!recoveryKind && (detailActionProblemCodes.has(problemCode) || actionProblemCodes.has(problemCode))) return false;
+    if (!recoveryKind && [404, 410].includes(response.status)) recoveryKind = "unavailable";
+    else if (!recoveryKind && (response.status === 401 || response.status === 403)) {
+      recoveryKind = authorizationRecoveryKind(
+        response.status,
+        response.headers.get("X-GRAF-Cabinet-Recovery") || "",
+        problemCode,
+        true,
+      );
+    }
+    if (!recoveryKind) return false;
+    renderMeetingDetailRecovery(detail, recoveryKind);
+    return true;
+  };
+
+  const initMeetingDetailAuthorizationRecovery = () => {
+    const detail = document.querySelector("[data-playback-poll-url]");
+    if (!detail || document.body.dataset.meetingDetailRecoveryReady === "true") return;
+    document.body.dataset.meetingDetailRecoveryReady = "true";
+    const recoverFromHtmx = (event) => {
+      const currentDetail = document.querySelector("[data-playback-poll-url]");
+      if (!currentDetail) return;
+      const source = event.detail?.elt || event.target;
+      const target = event.detail?.target;
+      const belongsToDetail = target === currentDetail
+        || (target instanceof Element && currentDetail.contains(target))
+        || (source instanceof Element && currentDetail.contains(source));
+      if (!belongsToDetail) return;
+      const shareRequest = isShareRequest(source, target);
+      const recoveryKind = meetingDetailRecoveryKindFromXhr(
+        event.detail?.xhr,
+        { preserveDetail: shareRequest },
+      );
+      if (!recoveryKind) {
+        if (shareRequest && Number(event.detail?.xhr?.status || 0) >= 400) {
+          event.preventDefault();
+          if (event.detail) event.detail.shouldSwap = false;
+          renderShareRequestError(currentDetail);
+        }
+        return;
+      }
+      event.preventDefault();
+      if (event.detail) event.detail.shouldSwap = false;
+      renderMeetingDetailRecovery(currentDetail, recoveryKind);
+    };
+    document.body.addEventListener("htmx:beforeSwap", recoverFromHtmx);
+    document.body.addEventListener("htmx:responseError", recoverFromHtmx);
   };
 
   const playbackRecoveryCopy = "Не удалось обновить статус. GRAF попробует снова автоматически.";
@@ -2064,11 +3110,9 @@
     });
     try {
       const response = await playbackRecoveryRequest;
-      if (response.status === 404 || response.status === 410) {
-        renderPlaybackTerminalState(detail);
-        return;
-      }
-      if (!response.ok || response.redirected) {
+      if (!detail.isConnected) return;
+      if (await recoverMeetingDetailFromResponse(response)) return;
+      if (!response.ok) {
         showPlaybackRecoveryNotice(detail);
         return;
       }
@@ -2206,6 +3250,7 @@
             credentials: "same-origin",
             headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {}
           });
+          if (await recoverMeetingDetailFromResponse(response)) return;
           if (!response.ok) throw new Error("speaker_name_save_failed");
           window.location.reload();
         } catch {
@@ -2340,6 +3385,7 @@
         },
         body: JSON.stringify(buildPayload(requestedFormat))
       });
+      if (await recoverMeetingDetailFromResponse(response)) return null;
       if (!response.ok) {
         const problem = await response.json().catch(() => ({}));
         throw new Error(problem.code || "export_failed");
@@ -2372,6 +3418,7 @@
       setStatus("Готовим файл…", "progress");
       try {
         const response = await requestExport();
+        if (!response) return;
         const blob = await response.blob();
         const disposition = response.headers.get("Content-Disposition") || "";
         const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "graf-export." + format.value;
@@ -2404,14 +3451,17 @@
       try {
         if (!navigator.clipboard?.writeText) throw new Error("clipboard_unavailable");
         const response = await requestExport("txt");
+        if (!response) return;
         await navigator.clipboard.writeText(await response.text());
         setStatus("Текст скопирован.", "success");
       } catch (error) {
         const code = error instanceof Error ? error.message : "export_failed";
         setStatus(errorMessage(code), "error");
       } finally {
-        setBusy(false);
-        copy.focus({ preventScroll: true });
+        if (copy.isConnected) {
+          setBusy(false);
+          copy.focus({ preventScroll: true });
+        }
       }
     });
   };
@@ -2527,12 +3577,10 @@
             ...(options?.headers || {})
           }
         });
-        if (!response.ok) {
-          const problem = await response.json().catch(() => ({}));
-          const error = new Error(problem.code || String(response.status));
-          error.code = problem.code || String(response.status);
-          throw error;
+        if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: sharingActionProblemCodes })) {
+          throw meetingDetailRecoveredError();
         }
+        if (!response.ok) throw new Error(String(response.status));
         return response.status === 204 ? null : response.json();
       };
       const copyShareUrl = async (shareUrl) => {
@@ -2697,12 +3745,10 @@
             })
           });
           setResultsVisible(false);
-          appendViewerRow(label, payload);
-          setStatus(`Доступ к итогам открыт: ${label}. Ссылка готова для копирования.`, "success");
+          setStatus(`Доступ к итогам открыт: ${label}`, "success");
         } catch (error) {
-          setStatus(shareErrorMessage(error?.code || error?.message), "error");
-        } finally {
-          if (button?.isConnected) button.disabled = false;
+          if (isMeetingDetailRecoveredError(error)) return;
+          setStatus("Не удалось открыть доступ. Попробуйте ещё раз.", "error");
         }
       };
       const close = () => {
@@ -2738,12 +3784,10 @@
             cache: "no-store",
             signal: searchController.signal
           });
-          if (!response.ok) {
-            const problem = await response.json().catch(() => ({}));
-            const error = new Error(problem.code || String(response.status));
-            error.code = problem.code || String(response.status);
-            throw error;
+          if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: sharingActionProblemCodes })) {
+            throw meetingDetailRecoveredError();
           }
+          if (!response.ok) throw new Error(String(response.status));
           const payload = await response.json();
           if (sequence !== searchSequence) return;
           const items = Array.isArray(payload.items) ? payload.items : [];
@@ -2791,10 +3835,8 @@
           }
           setStatus("Никого не нашли. Проверьте имя.", "error");
         } catch (error) {
-          if (error?.name === "AbortError") return;
-          setStatus(shareErrorMessage(error?.code || error?.message), "error");
-        } finally {
-          if (sequence === searchSequence) searchController = null;
+          if (isMeetingDetailRecoveredError(error)) return;
+          setStatus("Не удалось пригласить. Попробуйте ещё раз.", "error");
         }
       });
       recipientInput?.addEventListener("input", () => {
@@ -2842,6 +3884,7 @@
     initListDisclosures();
     initCodeForms();
     initMeetingList();
+    announceUploadProgress();
     initManualUpload();
     initDetailTabs();
     initSummaryFormats();
@@ -2849,6 +3892,7 @@
     initMeetingContextPanels();
     initShareDialogs();
     initPlayback();
+    initMeetingDetailAuthorizationRecovery();
     initPlaybackRecoveryPolling();
     initSpeakerNameForms();
     initContentExport();
@@ -2859,14 +3903,45 @@
   document.body.addEventListener("htmx:afterSwap", (event) => {
     const target = event.detail?.target;
     if (target instanceof Element && (target.id === "meeting-list-region" || target.matches("[data-meeting-list]"))) {
-      target.querySelectorAll("[data-meeting-select]").forEach((input) => {
-        input.checked = false;
-      });
-      target.querySelectorAll("[data-meeting-row]").forEach((row) => setRowContextualAvailability(row, false));
-      updateSelection();
+      if (pendingDeleteRows.length) {
+        const pendingMeetingIds = new Set(pendingDeleteRows.map((row) => row.dataset.meetingId));
+        pendingDeleteRows = allRows().filter((row) => pendingMeetingIds.has(row.dataset.meetingId));
+        if (!pendingDeleteRows.length) {
+          closeDeleteDialog();
+        } else {
+          const deleteDialog = document.querySelector("[data-delete-dialog]");
+          const title = deleteDialog?.querySelector("[data-delete-title]");
+          const count = deleteDialog?.querySelector("[data-delete-count]");
+          const error = deleteDialog?.querySelector("[data-delete-error]");
+          const confirm = deleteDialog?.querySelector("[data-delete-confirm]");
+          const failures = pendingDeleteRows.length;
+          if (title) {
+            title.textContent = failures === 1
+              ? deleteDialog.dataset.titleOne
+              : deleteDialog.dataset.titleMany;
+          }
+          if (count) count.textContent = deletingLabel(failures);
+          if (error) {
+            error.textContent = `Не удалось удалить ${failures} ${plural(
+              failures,
+              "запись",
+              "записи",
+              "записей",
+            )}. Попробуйте ещё раз.`;
+            error.hidden = false;
+          }
+          if (confirm) confirm.textContent = "Повторить";
+        }
+      }
+      reconcileMeetingSelection();
+      announceMeetingResultCount();
+      restoreMeetingListRequestFocus(event);
+      restoreListRefreshFocus();
     }
     initCabinet();
   });
+
+  window.addEventListener("pageshow", updateSelection);
 
   initCabinet();
 

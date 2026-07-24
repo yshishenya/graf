@@ -61,6 +61,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _authorized_lifecycle_meeting,
     _csrf_token_for_principal,
     _is_hx_request,
+    _normalize_web_meeting_status_filter,
     _request_path_with_query,
 )
 from twobrain_rec_server.deletion.service import deletion_report_response
@@ -113,21 +114,42 @@ async def embedded_meeting_list_page(
         visible_title_search=True,
         access=access,
         sort=sort,
+        unknown_sort_fallback="started_desc",
+        normalize_response_sort=True,
         limit=limit,
     )
+    raw_status = request.query_params.get("status")
+    canonical_status = _normalize_web_meeting_status_filter(raw_status)
+    status_was_normalized = (
+        isinstance(raw_status, str)
+        and raw_status != ""
+        and canonical_status != raw_status
+    )
+    sort_was_normalized = sort != response.filters.sort
+    needs_url_normalization = sort_was_normalized or status_was_normalized
+    canonical_path = _request_path_with_query(
+        request,
+        sort_override=response.filters.sort if sort_was_normalized else None,
+        status_override=status if status_was_normalized else None,
+    ) if needs_url_normalization else _request_path_with_query(request)
+    if needs_url_normalization and not _is_hx_request(request):
+        return RedirectResponse(url=canonical_path, status_code=303)
     if _is_hx_request(request):
-        return cabinet_html_response(
+        result = cabinet_html_response(
             render_meeting_list_fragment(
-                response, embedded=True, poll_url=_request_path_with_query(request)
+                response, embedded=True, poll_url=canonical_path
             ),
             hx_request=True,
         )
+        if needs_url_normalization:
+            result.headers["HX-Replace-Url"] = canonical_path
+        return result
     return cabinet_html_response(
         render_meeting_list_page(
             response,
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
-            poll_url=_request_path_with_query(request),
+            poll_url=canonical_path,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "embedded_desktop_webview",

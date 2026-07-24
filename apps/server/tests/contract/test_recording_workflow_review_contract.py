@@ -79,7 +79,7 @@ def test_browser_and_embedded_denied_meeting_render_only_generic_unavailable_sta
     for response in pages:
         assert response.status_code == 404
         html = response.text
-        assert "Страница недоступна" in html
+        assert "Встреча больше недоступна" in html
         assert "Foreign private meeting" not in html
         assert "foreign-private-recording" not in html
         assert SAFE_TRANSCRIPT_TEXT not in html
