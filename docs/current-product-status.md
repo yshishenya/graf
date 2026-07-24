@@ -1,10 +1,49 @@
 # Текущий статус продукта
 
-Date: 2026-07-23
+Date: 2026-07-24
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Validation update (2026-07-24) — Feature 125 Share candidate
+
+- Feature `125-meeting-sharing` исправляет B2B Share как authenticated
+  summary-only сценарий: capability-aware модалка obeys server policy and only
+  calls the external email endpoint when the exact-email capability is enabled;
+  поиск привязан к встрече и праву владельца,
+  кандидаты объединяют active workspace directory и связанный календарный
+  roster без побочного grant/delivery эффекта, а user grants получают
+  recipient-bound URL с rotation/revoke и повторной проверкой membership.
+- B2C exact-email invitation flow включён в controlled rollout: deploy-gate
+  подтвердил одинаковую production-конфигурацию API и delivery-worker. Flow —
+  metadata-only email/landing, единый email/provider-вход с автоматическим
+  созданием personal account при первом входе, exact verified identity,
+  отдельный grant token с bounded replay-safe выдачей и без workspace auto-join. Postal,
+  credential-encryption key, persistent share-identity HMAC secret, durable
+  invitation rate-limit, delivery fence and revoke/deletion evidence are
+  provisioned and validated in production. Postal network route is reachable;
+  no live email was sent without a consented test recipient. Public links,
+  native Contacts picker/provider
+  lookup и referral attribution остаются выключенными отдельными gates.
+- Validation: focused Share/access/auth matrix 50 passed; the targeted
+  invitation-auth/provider-workspace regression passed separately;
+  `infra/scripts/ci-local.sh` passed macOS (624 tests), PostgreSQL parallel
+  (2,255 passed, 1 skipped) and strict (41 passed, 1 skipped), lint, compile,
+  RLS boundary, compose config and deployment evidence scan. Production
+  exact-email is enabled; public links, Contacts and referral remain disabled.
+- Production deploy: PASS for code SHA
+  `2db3d4ccd2541fbc7701b5803ef8049d2c2cc709`; migration head
+  `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
+  probe, runtime/worker readiness, production smoke and automatic dispatch
+  passed. Post-deploy automatic retry, backfill, range and normalization
+  maintenance remain separate required follow-up checks. External config gates
+  passed in API and worker; live health endpoints and Postal network reachability
+  passed without sending an email.
+- macOS local artifact `2026.07.24.3` прошёл production-build packaging и
+  `codesign --verify --deep --strict`; SHA-256
+  `4cb73bdc94d8d18aba3597794d34fc1abfb9f0276f3f9351bac9445dbf51a197`;
+  использован local-only signer, без Developer ID и notarization.
 
 ## Validation update (2026-07-23, Feature 124 release/production)
 
@@ -51,6 +90,14 @@ metadata-only evidence остаются подробной историей ре
   changed. Release used the documented local-CI bypass for this
   host-load-sensitive assertion; all mandatory remote release and production
   gates passed.
+
+## Validation update (2026-07-23) — deletion list feedback cleanup
+
+- Список встреч после подтвержденного удаления сразу убирает строку и закрывает
+  диалог. Постоянный success/cleanup-баннер внизу списка удален: он не менял
+  следующего действия пользователя и оставлял лишнее пространство. Ошибка
+  удаления остается рядом с подтверждением, а серверная lifecycle-очистка и
+  retained observability-копии не изменены.
 
 - Historical Feature `121-recording-workflows` реализует единый спокойный
   recording flow:

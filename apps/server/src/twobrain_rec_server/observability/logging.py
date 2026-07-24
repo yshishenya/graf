@@ -11,6 +11,9 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.observability.redaction import redact_mapping
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+SHARE_TOKEN_PATH_RE = re.compile(
+    r"(/(?:api/v1/cabinet/(?:share|public-shares|share-invitations)|share|share-invitations)/)[^/?]+"
+)
 LOG_RECORD_BASE_FIELDS = frozenset(logging.makeLogRecord({}).__dict__)
 
 
@@ -20,7 +23,12 @@ def sanitize_request_id(value: str) -> str:
 
 
 def template_path(path: str) -> str:
+    path = SHARE_TOKEN_PATH_RE.sub(r"\1{share_token}", path)
     return UUID_RE.sub("{uuid}", path)
+
+
+def is_share_token_path(path: str) -> bool:
+    return bool(SHARE_TOKEN_PATH_RE.search(path))
 
 
 class JsonFormatter(logging.Formatter):
@@ -67,6 +75,11 @@ async def request_logging_middleware(
     )
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
+    if is_share_token_path(request.url.path):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
     logger.info(
         "request.end",
         extra={

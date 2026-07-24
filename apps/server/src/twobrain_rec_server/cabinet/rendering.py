@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from html import escape
+from urllib.parse import urlencode
 
 from twobrain_rec_server.api.schemas import (
     MeetingListItem,
@@ -130,6 +131,12 @@ def render_share_invitation_accept_page(
     share_token: str,
     workspace_id: str,
     csrf_token: str | None,
+    meeting_title: str | None = None,
+    meeting_occurred_at: datetime | None = None,
+    meeting_duration_seconds: int | None = None,
+    invitation_expires_at: datetime | None = None,
+    authenticated: bool = False,
+    post_login_next_path: str = "/meetings",
 ) -> str:
     return _page_shell(
         "Приглашение на встречу",
@@ -140,6 +147,33 @@ def render_share_invitation_accept_page(
             f"/api/v1/cabinet/share-invitations/{share_token}/accept"
             f"?workspace_id={workspace_id}"
         ),
+        invitation_available=meeting_title is not None,
+        meeting_title=meeting_title,
+        meeting_occurred_at=meeting_occurred_at,
+        meeting_duration_seconds=meeting_duration_seconds,
+        invitation_expires_at=invitation_expires_at,
+        authenticated=authenticated,
+        login_href=f"/login?{urlencode({'next': post_login_next_path})}",
+    )
+
+
+def render_shared_meeting_summary_page(
+    *,
+    meeting_title: str,
+    occurred_at: datetime,
+    duration_seconds: int,
+    summary_sections: list[dict[str, object]],
+    authenticated: bool = False,
+) -> str:
+    return _page_shell(
+        "Итоги встречи",
+        embedded=False,
+        content_template="cabinet/pages/shared_meeting_summary_content.html",
+        meeting_title=meeting_title,
+        occurred_at=occurred_at,
+        duration_seconds=duration_seconds,
+        summary_sections=summary_sections,
+        authenticated=authenticated,
     )
 
 
@@ -509,6 +543,7 @@ def _render_meeting_detail_content(
         top_actions=trusted_component_html(
             _render_meeting_workspace_actions(
                 review,
+                embedded=embedded,
                 more_actions_available=more_actions_available,
             ),
             source="meeting_detail.top_actions",
@@ -624,10 +659,11 @@ def _meeting_details_available(review: MeetingReviewResponse) -> bool:
 def _render_meeting_workspace_actions(
     review: MeetingReviewResponse,
     *,
+    embedded: bool,
     more_actions_available: bool,
 ) -> str:
     share_disabled = " disabled" if review.governance.share.state != "available" else ""
-    share_url = f"/meetings/{review.meeting.meeting_id}/share"
+    share_url = f"{_base_path(embedded)}/{review.meeting.meeting_id}/share"
     more_action = ""
     if more_actions_available:
         more_action = """

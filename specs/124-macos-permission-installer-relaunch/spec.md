@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-23
 
-**Status**: Ready for implementation planning
+**Status**: Release candidate in progress
 
 **Input**: User description: "Исправить проблемы установки GRAF на Mac, выдачи разрешения микрофону и перезапуска после разрешения записи экрана и системного звука без Apple Developer account."
 
@@ -99,6 +99,34 @@
    GRAF становится активным, **Then** статус перечитывается, модальное окно не
    закрывает проблему ложным «Готово», а следующий recovery-шаг остаётся видимым.
 
+### User Story 4 - Обновление после первой установки (Priority: P1)
+
+Как пользователь, который уже установил GRAF, я хочу получать следующие версии
+через встроенную проверку обновлений, чтобы не скачивать установщик вручную на
+каждый фикс.
+
+**Why this priority**: Версия без настроенного Sparkle не может обнаружить даже
+корректно подписанное будущее обновление и оставляет пользователя на ручном
+канале.
+
+**Independent Test**: Установить updater-enabled bootstrap на Mac, проверить
+адрес feed и public key в `GRAF.app`, затем подать более новую версию через
+подписанный appcast и убедиться, что GRAF предлагает обновление с сохранением
+bundle identity и разрешений.
+
+**Acceptance Scenarios**:
+
+1. **Given** пользователь установил `v2026.07.24.2` или более новую bootstrap
+   версию, **When** Sparkle выполняет плановую или ручную проверку, **Then** он
+   использует публичный HTTPS appcast и проверяет Ed25519-подпись до распаковки.
+2. **Given** пользователь установил старую updater-disabled `v2026.07.24.1`,
+   **When** он хочет включить обновления, **Then** ему честно предлагается один
+   последний ручной install updater-enabled bootstrap, после чего обновления
+   идут через Sparkle.
+3. **Given** опубликованная версия имеет другой bundle id, signing lineage,
+   public key или не монотонный CalVer, **When** release validator проверяет её,
+   **Then** публикация останавливается до замены артефакта.
+
 ## Edge Cases
 
 - Gatekeeper блокирует повторное открытие пакета после первой неудачной попытки;
@@ -157,6 +185,18 @@
 - **FR-014**: Release and user-facing documentation MUST distinguish the free
   local/self-signed path from public Developer ID signing, notarization and
   Gatekeeper-ready distribution.
+- **FR-015**: An updater-enabled bootstrap MUST include the public HTTPS Sparkle
+  feed and the active Ed25519 public key; scheduled checks MAY be enabled, but
+  installation MUST remain user-controlled.
+- **FR-016**: A Sparkle update MUST retain `pro.2brain.graf`, `GRAF.app`, the
+  existing signing lineage and the active update key, and MUST have a strictly
+  greater CalVer than every staged predecessor.
+- **FR-017**: Release publication MUST upload and verify versioned ZIP/PKG
+  artifacts before replacing `graf-appcast.xml`; the old feed remains last-good
+  until the new signed feed is publicly readable and validated.
+- **FR-018**: The first updater-enabled bootstrap MUST remain usable on the
+  free owner-only channel with the documented manual Gatekeeper trust step;
+  Developer ID and notarization remain separate public-distribution gates.
 
 ### Key Entities
 
@@ -190,6 +230,15 @@
 - **SC-006**: Focused macOS tests, installer checks and the repository validation
   gate pass without adding a privileged audio component, TCC mutation or new
   runtime dependency.
+- **SC-007**: A clean installation of the updater-enabled bootstrap exposes the
+  configured feed and active public key, and the update validator accepts its
+  in-app continuity with the previous local identity.
+- **SC-008**: A published signed appcast is fetched over HTTPS and passes XML,
+  checksum, signature, monotonic-version and bundle-identity validation before
+  it is presented as the current update channel.
+- **SC-009**: Users of the updater-enabled bootstrap can receive a later
+  version without reinstalling the package; users of `v2026.07.24.1` are given
+  one explicit manual migration step.
 
 ## Assumptions
 
@@ -200,6 +249,9 @@
   Developer ID and notarization path and is out of scope here.
 - The existing bundle identifier, package layout, SwiftUI/AppKit lifecycle,
   permission services and focused XCTest target are reused.
+- The existing Sparkle 2.9.4 integration, active public signing manifest and
+  protected release workflow are reused; no new updater or key generation is
+  introduced.
 - Validation evidence records only metadata and permission state labels; it does
   not include raw audio, transcript text, credentials or private meeting data.
 
@@ -221,6 +273,11 @@
 - **2026-07-23**: The public package is not replaced or deployed by this slice.
   The implementation makes the local artifact and download instructions honest
   and usable; release publication remains a separately approved operation.
+- **2026-07-24**: The user explicitly approved the follow-up release/deploy
+  slice. The public bootstrap is upgraded to `v2026.07.24.2` with Sparkle feed
+  metadata; `v2026.07.24.1` remains a manual-only migration source. The signed
+  appcast is published only through the existing protected signer workflow and
+  only after a safe release-operator Keychain attestation is available.
 - **2026-07-23**: The restart fix stays inside the existing SwiftUI/AppKit
   lifecycle. It closes the onboarding sheet and aborts any active AppKit modal
   session before the existing bounded `terminateLater` cleanup replies to

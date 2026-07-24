@@ -15,6 +15,7 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import (
     DESKTOP_CALENDAR_AUTH_COOKIE_PATH,
+    get_optional_principal,
     get_principal,
     get_web_owner_tenant_scope,
     require_web_csrf,
@@ -30,6 +31,7 @@ from twobrain_rec_server.db.tenant_context import (
 
 WebTenantDependency = Depends(get_web_owner_tenant_scope)
 PrincipalDependency = Depends(get_principal)
+OptionalPrincipalDependency = Depends(get_optional_principal)
 WebCSRFDependency = Depends(require_web_csrf)
 StorageDependency = Depends(get_request_storage)
 CabinetSearchQuery = Query(default=None, max_length=120)

@@ -14,11 +14,16 @@ def test_share_fragment_is_simple_first_and_accessible() -> None:
     assert 'id="meeting-share-dialog"' in source
     assert "data-share-dialog open" not in source
     assert 'data-share-recipient-input' in source
-    assert "Пригласить" in source
+    assert "Найти" in source
+    assert "Скопировать ссылку" in JS.read_text(encoding="utf-8")
+    assert "Открыть доступ к итогам" in JS.read_text(encoding="utf-8")
+    assert "Календарь и рабочая область" in JS.read_text(encoding="utf-8")
     assert "Что увидят: только итоги" in source
     assert "Отозвать" in source
     assert "data-share-recipient-results" in source
     assert "data-share-revoke-url" in source
+    assert "data-share-rotate-url" in source
+    assert "data-share-capability-state" in source
     assert "Матрица ролей" not in source
     assert "can_download" not in source
     assert "can_export" not in source

@@ -123,6 +123,10 @@ cleanup_runtime_files() {
     /tmp/twobrain-rec-media-worker-env.txt
 }
 
+share_identity_hash_secret_file="${TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_SECRET_FILE:-./secrets/graf_share_identity_hash_secret}"
+ensure_generated_secret "$share_identity_hash_secret_file" 32
+echo "share_identity_hash_secret_provision_result=pass"
+
 verify_api_dispatch_gate() {
   local expected_capability="$1"
   local expected_dispatch="$2"
@@ -138,6 +142,53 @@ verify_api_dispatch_gate() {
     && grep -Fxq \
       "TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=$expected_dispatch" \
       /tmp/twobrain-rec-api-env.txt
+}
+
+verify_external_invitation_runtime() {
+  if [[ "${TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED:-false}" != "true" ]]; then
+    echo "external_invitation_config_result=disabled"
+    return 0
+  fi
+  local receipt
+  receipt="$("${compose[@]}" exec -T rec-api python -c '
+from twobrain_rec_server.config import get_settings
+
+settings = get_settings()
+assert settings.share_external_invitations_enabled is True
+assert settings.email_login_delivery_enabled is True
+assert settings.postal_api_url is not None
+assert settings.public_base_url is not None
+assert settings.credential_encryption_key_file is not None
+assert settings.share_identity_hash_secret_file is not None
+assert len(settings.share_identity_hash_secret) >= 32
+print("external_invitation_config_result=pass")
+')"
+  if ! grep -Fxq 'external_invitation_config_result=pass' <<<"$receipt"; then
+    echo "deploy_result=blocked"
+    echo "reason=external_invitation_config_invalid"
+    exit 1
+  fi
+  local worker_receipt
+  worker_receipt="$("${compose[@]}" exec -T rec-processing-worker python -c '
+from twobrain_rec_server.config import get_settings
+
+settings = get_settings()
+assert settings.share_external_invitations_enabled is True
+assert settings.email_login_delivery_enabled is True
+assert settings.postal_api_url is not None
+assert settings.public_base_url is not None
+assert settings.credential_encryption_key_file is not None
+assert settings.share_identity_hash_secret_file is not None
+assert len(settings.share_identity_hash_secret) >= 32
+print("external_invitation_worker_config_result=pass")
+')"
+  if ! grep -Fxq 'external_invitation_worker_config_result=pass' <<<"$worker_receipt"; then
+    echo "deploy_result=blocked"
+    echo "reason=external_invitation_worker_config_invalid"
+    exit 1
+  fi
+  echo "external_invitation_config_result=pass"
+  echo "external_invitation_worker_config_result=pass"
 }
 
 verify_processing_runtime_health() {
@@ -511,6 +562,7 @@ echo "runtime_secret_group_result=pass"
 
 for runtime_service_secret in \
   "${GRAF_CREDENTIAL_ENCRYPTION_KEY_SECRET_FILE:-./secrets/graf_credential_encryption_key}" \
+  "$share_identity_hash_secret_file" \
   "${TWOBRAIN_WEB_CSRF_SECRET_FILE:-./secrets/twobrain_web_csrf_secret}" \
   "${TWOBRAIN_POSTAL_API_SECRET_FILE:-./secrets/twobrain_postal_api_key}" \
   "${TWOBRAIN_YANDEX_CLIENT_SECRET_FILE:-./secrets/twobrain_yandex_client_secret}" \
@@ -667,6 +719,8 @@ if ! verify_processing_runtime_health; then
 fi
 echo "temporal_readiness_result=pass"
 echo "processing_worker_readiness_result=pass"
+
+verify_external_invitation_runtime
 
 if ! verify_api_dispatch_gate false false; then
   echo "deploy_result=blocked"

@@ -1,10 +1,31 @@
 <main id="cabinet-main" class="main" tabindex="-1">
   <section class="panel compact-panel" aria-labelledby="share-invitation-title">
-    <h1 id="share-invitation-title">Вам открыли итоги встречи</h1>
-    <p>Доступ появится только у аккаунта с тем же подтверждённым email.</p>
-    <form method="post" action="{{ accept_action }}">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-      <button type="submit" class="button">Принять приглашение</button>
-    </form>
+    {% if invitation_available %}
+      <h1 id="share-invitation-title">Вам открыли итоги встречи</h1>
+      <p>Проверьте встречу и войдите с email, на который пришло приглашение.</p>
+      <div class="panel compact-panel" aria-label="Сведения о встрече">
+        <strong>{{ meeting_title }}</strong>
+        <p class="muted">
+          {% if meeting_occurred_at %}{{ meeting_occurred_at.strftime("%d.%m.%Y, %H:%M UTC") }}{% endif %}
+          {% if meeting_duration_seconds is not none %} · {{ (meeting_duration_seconds // 60) }} мин{% endif %}
+        </p>
+        <p class="muted">Доступ: только итоги · до {{ invitation_expires_at.strftime("%d.%m.%Y") }}</p>
+      </div>
+      <p class="muted">Приглашение не добавляет вас в рабочую область и не открывает аудио, расшифровку или внутренние данные встречи.</p>
+      {% if authenticated %}
+        <form method="post" action="{{ accept_action }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <button type="submit" class="button">Открыть итоги</button>
+        </form>
+      {% else %}
+        <a class="button" href="{{ login_href }}">Войти и открыть итоги</a>
+      {% endif %}
+    {% else %}
+      <h1 id="share-invitation-title">Приглашение недоступно</h1>
+      <p>Ссылка уже использована, отозвана или срок её действия истёк.</p>
+    {% endif %}
+    {% if invitation_available %}
+      <p class="muted">Если аккаунта GRAF ещё нет, он создастся автоматически после подтверждения email.</p>
+    {% endif %}
   </section>
 </main>

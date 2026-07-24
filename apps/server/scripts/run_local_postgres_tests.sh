@@ -57,8 +57,13 @@ for start_attempt in 1 2; do
   fi
   if [[ "$container_started" == true ]]; then
     for _attempt in {1..120}; do
-      if docker exec "$postgres_container" \
-        pg_isready --username=twobrain_rec --dbname=postgres >/dev/null 2>&1; then
+      # `pg_isready` can succeed against the temporary post-init server before
+      # the entrypoint starts the final postmaster. Wait for the stable marker
+      # first so the database creation below cannot race that shutdown.
+      if docker logs "$postgres_container" 2>&1 \
+        | grep -q "PostgreSQL init process complete; ready for start up." \
+        && docker exec "$postgres_container" \
+          pg_isready --username=twobrain_rec --dbname=postgres >/dev/null 2>&1; then
         postgres_ready=true
         break
       fi

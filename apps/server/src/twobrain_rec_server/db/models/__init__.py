@@ -59,6 +59,7 @@ from twobrain_rec_server.db.models.meeting_access import (
     MeetingEgressAuditEvent,
     MeetingShareGrant,
     MeetingShareInvitation,
+    MeetingShareRateLimitBucket,
 )
 from twobrain_rec_server.db.models.meeting_detection import (
     MeetingDetectionCandidate,
@@ -121,6 +122,7 @@ __all__ = [
     "MeetingLifecycleAuditEvent",
     "MeetingShareGrant",
     "MeetingShareInvitation",
+    "MeetingShareRateLimitBucket",
     "MeetingSpeakerName",
     "MeetingOutcomeGenerationAttempt",
     "MeetingOutcomeItem",

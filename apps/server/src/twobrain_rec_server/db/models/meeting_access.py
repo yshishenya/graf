@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     UniqueConstraint,
     text,
@@ -83,6 +84,11 @@ class MeetingShareInvitation(Base):
     )
     normalized_address_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     encrypted_delivery_address: Mapped[str] = mapped_column(String, nullable=False)
+    grant_token_ciphertext: Mapped[str | None] = mapped_column(String)
+    continuation_nonce: Mapped[str | None] = mapped_column(String(128))
+    continuation_token_ciphertext: Mapped[str | None] = mapped_column(String)
+    continuation_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    continuation_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     content_scope: Mapped[str] = mapped_column(
         String(32), nullable=False, default="summary_only"
     )
@@ -100,6 +106,32 @@ class MeetingShareInvitation(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class MeetingShareRateLimitBucket(Base):
+    """Durable actor/device buckets for authenticated share operations."""
+
+    __tablename__ = "meeting_share_rate_limit_buckets"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "user_id",
+            "device_id",
+            "action_key",
+            name="uq_meeting_share_rate_limit_scope",
+        ),
+        Index("ix_meeting_share_rate_limit_blocked_until", "blocked_until"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
+    action_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class MeetingArtifactPolicy(Base):

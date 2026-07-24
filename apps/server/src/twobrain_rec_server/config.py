@@ -209,6 +209,8 @@ class Settings(BaseSettings):
     upload_session_ttl_seconds: PositiveInt = Field(default=86_400)
     auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
     web_csrf_secret: str = "twobrain_rec_dev_web_csrf_secret"
+    share_identity_hash_secret: str = "twobrain_rec_dev_share_identity_hash_secret"
+    share_identity_hash_secret_file: Path | None = None
     auth_callback_state_ttl_seconds: PositiveInt = Field(default=900)
     legacy_header_auth_enabled: bool = False
     retention_meeting_delete_after_days: PositiveInt | None = Field(default=365)
@@ -249,6 +251,7 @@ class Settings(BaseSettings):
         "postal_host_header",
         "credential_encryption_key_file",
         "web_csrf_secret_file",
+        "share_identity_hash_secret_file",
         "support_incident_github_token_file",
         "langfuse_public_key_file",
         "langfuse_secret_key_file",
@@ -460,6 +463,21 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def load_share_identity_hash_secret(self) -> "Settings":
+        if (
+            not self.share_external_invitations_enabled
+            or self.share_identity_hash_secret_file is None
+        ):
+            return self
+        if not self.share_identity_hash_secret_file.is_file():
+            raise ValueError("share identity hash secret file is missing or unreadable")
+        secret = self.share_identity_hash_secret_file.read_text(encoding="utf-8").strip()
+        if not secret:
+            raise ValueError("share identity hash secret file must be non-empty")
+        self.share_identity_hash_secret = secret
+        return self
+
+    @model_validator(mode="after")
     def validate_recording_sharing_safety(self) -> "Settings":
         if self.share_team_audience_enabled:
             raise ValueError(
@@ -579,6 +597,11 @@ class Settings(BaseSettings):
             "smoke_credential_file": self.smoke_credential_file,
             "mediascribe_api_key_file": self.mediascribe_api_key_file,
             "credential_encryption_key_file": self.credential_encryption_key_file,
+            "share_identity_hash_secret_file": (
+                self.share_identity_hash_secret_file
+                if self.share_external_invitations_enabled
+                else None
+            ),
             "web_csrf_secret_file": (
                 self.web_csrf_secret_file if self.web_runtime_enabled else None
             ),
@@ -626,6 +649,11 @@ class Settings(BaseSettings):
             and self.credential_encryption_key_file.read_text(encoding="utf-8").strip() == ""
         ):
             raise ValueError("production credential encryption key file must be non-empty")
+        if self.share_external_invitations_enabled and (
+            self.share_identity_hash_secret_file is None
+            or self.share_identity_hash_secret_file.read_text(encoding="utf-8").strip() == ""
+        ):
+            raise ValueError("production share identity hash secret file must be non-empty")
         if (
             self.support_incident_github_token_file is not None
             and self.support_incident_github_token_file.read_text(encoding="utf-8").strip() == ""
@@ -731,6 +759,14 @@ class Settings(BaseSettings):
             self.web_csrf_secret in dev_secrets or len(self.web_csrf_secret) < 32
         ):
             raise ValueError("production web_csrf_secret must be explicit and non-placeholder")
+        if self.share_external_invitations_enabled and (
+            self.share_identity_hash_secret in dev_secrets
+            or self.share_identity_hash_secret.startswith("twobrain_rec_dev_")
+            or len(self.share_identity_hash_secret) < 32
+        ):
+            raise ValueError(
+                "production share_identity_hash_secret must be explicit when external invitations are enabled"
+            )
         root_markers = ("root", "admin")
         if any(marker in self.minio_access_key.lower() for marker in root_markers):
             raise ValueError("production MinIO API access key must not be a root/admin credential")

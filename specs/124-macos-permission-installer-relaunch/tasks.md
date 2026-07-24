@@ -2,7 +2,10 @@
 
 **Execution order**: T001–T002 establish the installer contract, T003–T005
 implement permission and termination behavior, T006–T009 update executable
-evidence and product documentation, then T010–T012 validate the whole slice.
+evidence and product documentation, then T010–T013 validate the whole slice.
+T090–T095 establish and publish the Sparkle bootstrap/update channel. These
+IDs are the next unused Feature 124 issue IDs; lower IDs are already assigned
+to the parallel automatic-recording slice.
 
 ## User Story 1 — установка на чужом Mac (P1)
 
@@ -27,3 +30,10 @@ evidence and product documentation, then T010–T012 validate the whole slice.
 - [X] T010 Проверить формат shell scripts (`sh -n`), focused Swift tests для AppControl/SystemAudio/Installer/Packaging и server tests для public download page.
 - [X] T011 Собрать локальный self-signed package существующей identity, проверить `codesign --verify --deep --strict`, bundle id и privacy descriptions; не устанавливать tracked public binary и не менять TCC.
 - [X] T012 Запустить `infra/scripts/ci-local.sh`, проверить `git diff --check`, отсутствие новых driver/TCC paths и metadata-only evidence; после успешной проверки пометить закрытые задачи `[X]`.
+- [X] T013 [US2] Перед открытием панели микрофона повторно инициировать штатный AVFoundation permission flow для recovery после self-signed установки; сохранить normal request без повторного prompt после denial и добавить focused coverage.
+- [X] T090 [US4] Собрать `v2026.07.24.2` updater-enabled bootstrap с HTTPS `SUFeedURL`, активным `SUPublicEDKey`, сохранением `pro.2brain.graf` и локальной signing identity; проверить app metadata, strict nested signature и package checksum.
+- [X] T091 [US4] Проверить кандидат `v2026.07.24.2` против публичного предшественника `v2026.07.23.16` существующим `validate-app-updates.sh`, включая Sparkle continuity, designated requirement и монотонную CalVer.
+- [ ] T092 [US4] Довести release commit до актуального `master`, создать exact CalVer tag и draft GitHub Release с русскими notes, candidate ZIP/PKG и metadata-only Keychain attestation.
+- [ ] T093 [US4] Запустить защищённый `sign-graf-app-update.yml` из `master`; получить подписанный `GRAF-2026.07.24.2.zip`, appcast, checksum и cloud signing attestation без вывода приватного ключа.
+- [ ] T094 [US4] Опубликовать versioned ZIP/PKG и checksum в public runtime, заменить `graf-appcast.xml` последним, проверить HTTPS скачивание и Sparkle validator; сохранить предыдущий appcast/package для rollback.
+- [ ] T095 [US4] Закрыть release/deploy evidence: полный `infra/scripts/ci-local.sh`, `cd-remote.sh --dry-run/--execute`, GitHub Release и русская запись changelog о миграции `.1 → .2`.

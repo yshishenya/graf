@@ -467,7 +467,7 @@ def _expected_upload_total_bytes(expected_track_sizes: object) -> int:
         return 0
     total = 0
     for value in expected_track_sizes.values():
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             total += max(0, int(value))
     return total
 
@@ -499,6 +499,8 @@ async def get_cabinet_meeting_review(
     viewer_user_id: UUID,
     storage: object | None = None,
     include_calendar_correction_candidates: bool = False,
+    external_invitations_enabled: bool = False,
+    invitation_encryption_key: bytes | None = None,
 ) -> MeetingReviewResponse | None:
     meeting = await db.scalar(
         select(Meeting).where(
@@ -649,7 +651,13 @@ async def get_cabinet_meeting_review(
         diarization_segments=diarization_segments,
         dependency=dependency,
         access=decision.to_schema(),
-        share=await share_panel_state(db, meeting, decision),
+        share=await share_panel_state(
+            db,
+            meeting,
+            decision,
+            external_invitations_enabled=external_invitations_enabled,
+            invitation_encryption_key=invitation_encryption_key,
+        ),
         artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
         content_exports=await content_export_capabilities(
             db, meeting=meeting, access=decision, result=result

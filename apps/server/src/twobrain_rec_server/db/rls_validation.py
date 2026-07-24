@@ -58,6 +58,7 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "summary_templates",
         "generation_calls",
         "meeting_share_invitations",
+        "meeting_share_rate_limit_buckets",
         "calendar_sources",
         "calendar_credential_envelopes",
         "external_calendars",

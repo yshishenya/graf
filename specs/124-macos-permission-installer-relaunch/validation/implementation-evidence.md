@@ -5,8 +5,9 @@ Feature: `124-macos-permission-installer-relaunch`
 ## Lane
 
 - Risk / validation lane: `high-risk-feature`.
-- Release gate: `no deploy`; Apple Developer enrollment, public package
-  replacement and release publication не выполнялись.
+- Release gate: high-risk feature release candidate; Apple Developer enrollment,
+  Developer ID and notarization не требуются для native microphone TCC flow и
+  в этот кандидат не включены.
 - Evidence metadata-only: без audio, transcript, credentials, raw TCC database
   or private meeting content.
 
@@ -15,16 +16,18 @@ Feature: `124-macos-permission-installer-relaunch`
 | Check | Result | Evidence |
 | --- | --- | --- |
 | Shell syntax | pass | `sh -n` for installer, install-user-app, update validator and permission-retention scripts |
-| Focused macOS XCTest | pass | 55 selected tests, 0 failures: onboarding, microphone service, installer metadata, packaging and UX |
-| Full macOS XCTest | pass | 609 tests, 0 failures |
+| Focused macOS XCTest | pass | 56 selected tests, 0 failures: onboarding, microphone service, installer metadata, packaging and UX |
+| Full macOS XCTest | pass | 625 tests, 0 failures |
 | macOS contract validation | pass | `ContractValidation: PASS` |
-| Local package build | pass | Version `2026.07.23.8`, explicit `GRAF Local Code Signing` path, no tracked/public binary replacement |
+| Local package build | pass | Version `2026.07.24.1`, explicit `GRAF Local Code Signing` path; tracked public package source synchronized with the candidate |
 | App metadata/signature inspection | pass | Bundle id `pro.2brain.graf`; `NSMicrophoneUsageDescription`, `NSAudioCaptureUsageDescription`, `NSScreenCaptureUsageDescription`; strict app signature; package-level signature absent as expected for no-account channel |
 | Update validator | pass | `validate-app-updates.sh` accepted the staged app as local identity with updater disabled |
 | Native relaunch path | pass | Explicit restart records a relaunch request, clears modal state, preserves bounded cleanup, and opens a fresh app instance via `NSWorkspace` from `applicationWillTerminate` |
 | Public download tests | pass | 17 focused server/contract tests, 0 failures |
-| Full local CI | pass | 2208 parallel server tests passed, 41 strict tests passed, 2 skips overall (one in each server phase); lint, compile, compose and deployment-evidence scans passed |
-| GitHub issue canon | pass | Canonical issues created, commented with evidence and closed for T001–T012; `validate_issue_canon.py` passed before closeout |
+| Remote production deploy | pass | `cd-remote.sh --execute` deployed commit `e485c45e` from `codex/124-microphone-settings-recovery`; backup/restore, migrations, runtime/worker readiness and production smoke passed |
+| Public package deployment | pass | Download URL returned HTTP 200 with `3545079` bytes; served SHA256 matched the built candidate; previous package retained as a rollback backup |
+| Full local CI | pass | 2254 parallel server tests passed, 41 strict tests passed, 2 skips overall (one in each server phase); lint, compile, compose and deployment-evidence scans passed |
+| GitHub issue canon | pass | Canonical issues created, commented with evidence and closed for T001–T013; `validate_issue_canon.py` passed before closeout |
 
 ## Manual validation boundary
 
@@ -45,5 +48,7 @@ permissions. The code and instructions are ready for that controlled smoke:
 - Apple Developer account, Developer ID certificates, notarization or stapling;
 - `spctl --master-disable`, TCC reset/database edits, PPPC profiles or drivers;
 - installation into `/Applications` during this validation;
-- replacement or deployment of `apps/server/.../downloads/graf-local.pkg`;
-- production deploy or GitHub Release.
+- clean external-Mac download/permission smoke on the colleague's Mac; the candidate still uses
+  local self-signing and must be manually trusted in Finder on the external Mac;
+  no TCC reset, database edit, PPPC profile or driver workaround is part of the
+  release.

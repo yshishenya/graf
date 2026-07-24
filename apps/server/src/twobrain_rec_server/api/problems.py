@@ -167,7 +167,13 @@ def _is_browser_cabinet_path(path: str) -> bool:
     return (
         path in {"/meetings", "/desktop/meetings"}
         or path.startswith(
-            ("/meetings/", "/desktop/meetings/", "/share-invitations/")
+            (
+                "/meetings/",
+                "/desktop/meetings/",
+                "/share/",
+                "/share-invitations/",
+                "/api/v1/cabinet/share/",
+            )
         )
     )
 
@@ -180,6 +186,17 @@ def _wants_html(request: Request) -> bool:
     return "text/html" in request.headers.get("accept", "").lower()
 
 
+def _safe_browser_login_next(request: Request) -> str:
+    if request.url.path.startswith(
+        ("/share/", "/share-invitations/", "/api/v1/cabinet/share/")
+    ):
+        return "/meetings"
+    next_path = request.url.path
+    if request.url.query:
+        next_path = f"{next_path}?{request.url.query}"
+    return next_path
+
+
 async def problem_exception_handler(request: Request, exc: ProblemDetail) -> JSONResponse | RedirectResponse:
     if exc.status == 401 and _is_browser_admin_path(request.url.path):
         next_path = request.url.path
@@ -190,11 +207,8 @@ async def problem_exception_handler(request: Request, exc: ProblemDetail) -> JSO
             status_code=303,
         )
     if exc.status in {401, 403} and _is_browser_cabinet_path(request.url.path) and _wants_html(request):
-        next_path = request.url.path
-        if request.url.query:
-            next_path = f"{next_path}?{request.url.query}"
         return RedirectResponse(
-            "/login?" + urlencode({"next": next_path, "error": exc.code}),
+            "/login?" + urlencode({"next": _safe_browser_login_next(request), "error": exc.code}),
             status_code=303,
         )
     return problem_response(exc, request)

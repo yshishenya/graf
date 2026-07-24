@@ -81,6 +81,7 @@ async def get_request_db_session(
         yield None
         return
     async with sessionmaker() as session:
+        session.info["share_rate_limit_sessionmaker"] = sessionmaker
         await apply_tenant_scope(session, tenant_scope)
         yield session
 
