@@ -9,12 +9,17 @@
 Исправить три связанных пользовательских разрыва в macOS MVP: честно провести
 пользователя через Gatekeeper no-account канала, корректно восстановить
 микрофон после отказа и сделать перезапуск после Screen/System Audio
-разрешения bounded и совместимым с SwiftUI/AppKit modal lifecycle. Используем
+разрешения bounded и совместимым с SwiftUI/AppKit modal lifecycle. Дополнительно
+обеспечить, чтобы hardened-runtime подпись объявляла Audio Input entitlement,
+иначе macOS не регистрирует приложение как клиента микрофона даже после сброса
+TCC. Используем
 существующие native API и package scripts: добавляем недостающее описание
 system-audio capture, разделяем recovery действия по состояниям TCC, закрываем
 активную modal session перед существующим `terminateLater` cleanup и обновляем
-инструкции публичной страницы. Developer ID, notarization и публикация пакета
-в эту работу не входят.
+инструкции публичной страницы. По явному запросу пользователя follow-up release
+также публикует updater-enabled bootstrap и подписанный Sparkle appcast через
+существующий protected workflow; Developer ID и notarization в owner-only канал
+не входят.
 
 ## Technical Context
 
@@ -34,8 +39,10 @@ onboarding, capture privacy metadata, installer trust instructions, and app
 termination behavior. It must pass the full Spec Kit flow and focused macOS
 validation before the repository gate.
 
-**Release Gate**: `no deploy`. The tracked/public package is not replaced, and
-no remote deployment or release is authorized by this request.
+**Release Gate**: `release/deploy`. The entitlement correction is published as
+the same-identity CalVer patch `v2026.07.24.3`: protected Sparkle signing,
+versioned public artifacts, last-good appcast replacement, and remote smoke.
+Developer ID/notarization remain out of scope for this owner-only channel.
 
 **Target Platform**: macOS 14.5+ Apple Silicon; public server download page is
 updated only as user-facing documentation in source
@@ -73,8 +80,17 @@ truthful and retain the bounded termination safety gate.
 3. Run shell syntax checks and build a local self-signed package with the
    existing identity; inspect app and package signatures without modifying TCC.
 4. Run public download page tests and `infra/scripts/ci-local.sh`.
-5. Do not run `cd-remote.sh`, replace the tracked binary download, create a
-   release, or claim public Gatekeeper readiness in this slice.
+5. Build `v2026.07.24.3` with the public feed and active manifest key; verify
+   Sparkle metadata, same local designated requirement, and package integrity.
+6. Run the protected `sign-graf-app-update.yml` workflow from the exact current
+   `master` tag, using a metadata-only Keychain attestation from the release
+   operator; never copy a private key into the repository or local evidence.
+7. Run `infra/scripts/ci-local.sh`, then `cd-remote.sh --dry-run` and
+   `cd-remote.sh --execute` when the release candidate gate is satisfied.
+8. Upload versioned ZIP/PKG and checksums first, replace the public appcast last,
+   fetch every public artifact, and verify rollback evidence and Sparkle
+   continuity. Do not claim Developer ID/notarization or universal Gatekeeper
+   trust.
 
 ## Project Structure
 
@@ -121,6 +137,9 @@ audio component.
 
 - Add the missing system-audio privacy description to the generated app
   `Info.plist`.
+- Sign the app bundle with `com.apple.security.device.audio-input` for both
+  teamless local and team-identified builds; keep library validation disabled
+  only for teamless Sparkle builds.
 - Extend the existing update/app validation and installer evidence tests so a
   package without the required metadata fails before distribution.
 - Update `apps/macos/Installer/README.md` and the public download handoff with
@@ -154,8 +173,19 @@ audio component.
 - Inspect app metadata/signature and ensure no driver/TCC mutation was added.
 - Run the no-account quickstart on an available disposable macOS profile if
   possible, then run `infra/scripts/ci-local.sh`.
-- Mark implementation tasks complete only after their evidence exists; do not
-  publish the package or deploy the server.
+- Mark implementation tasks complete only after their evidence exists.
+
+### Phase 5 — Sparkle bootstrap and release publication
+
+- Build the bootstrap with `GRAF_UPDATE_FEED_URL` and the public key from
+  `UpdateSigningKey.json`; the package remains manually trusted on new Macs.
+- Validate the candidate against the previous GRAF archive with the existing
+  same-identity, monotonic-version and archive-safety checks.
+- Keep the release tag at the exact current `origin/master` commit, let the
+  protected GitHub environment sign the appcast, and require the matching
+  Keychain attestation before publication.
+- Publish versioned artifacts before `graf-appcast.xml`; preserve the prior
+  package/appcast for rollback and record only metadata-only evidence.
 
 ## Complexity Tracking
 

@@ -122,6 +122,13 @@ same display name is signing drift and may make macOS ask for permissions
 again. Do not commit exported certificates, private keys, passwords, or
 generated signed packages.
 
+The app bundle also declares the Hardened Runtime Audio Input entitlement
+(`com.apple.security.device.audio-input`). This declaration is required for
+macOS to register GRAF as a microphone client; `NSMicrophoneUsageDescription`
+alone is not enough for a hardened-runtime build. The update validator rejects
+an app bundle that is missing this entitlement, including a local self-signed
+build.
+
 This local self-signed path is not public release readiness. It does not create
 an Apple Developer TeamIdentifier, Developer ID signature, notarization ticket,
 or stapled Gatekeeper-ready installer.

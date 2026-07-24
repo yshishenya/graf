@@ -49,6 +49,16 @@ final class MicrophoneCaptureServiceTests: XCTestCase {
         XCTAssertEqual(session.permissionState, .denied)
     }
 
+    func testRequestPermissionForSettingsReRegistersAfterDenial() async {
+        let service = MicrophoneCaptureService(
+            authorizer: FakeMicrophoneAuthorizer(current: .denied, requested: .granted)
+        )
+
+        let state = await service.requestPermissionForSettings()
+
+        XCTAssertEqual(state, .granted)
+    }
+
     func testRecordingMicrophoneSelectionAcceptsDefaultFallbackAsDiagnosticSafe() {
         let selection = RecordingMicrophoneSelection(
             selectionId: "selection-default",

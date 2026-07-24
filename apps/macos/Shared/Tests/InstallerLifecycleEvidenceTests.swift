@@ -35,6 +35,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(source.contains("NSMicrophoneUsageDescription"))
         XCTAssertTrue(source.contains("NSAudioCaptureUsageDescription"))
         XCTAssertTrue(source.contains("NSScreenCaptureUsageDescription"))
+        XCTAssertTrue(source.contains("com.apple.security.device.audio-input"))
         XCTAssertTrue(source.contains("pro.2brain.graf.desktop-app"))
         XCTAssertFalse(source.contains("start_selected=\"true\" start_enabled=\"true\""))
     }
@@ -80,6 +81,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         let validator = try Self.readRepositoryFile("apps/macos/Scripts/validate-app-updates.sh")
 
         XCTAssertTrue(installer.contains("com.apple.security.cs.disable-library-validation"))
+        XCTAssertTrue(installer.contains("com.apple.security.device.audio-input"))
         XCTAssertTrue(installer.contains(#"--entitlements "$APP_ENTITLEMENTS""#))
         XCTAssertTrue(installer.contains("TeamIdentifier"))
         XCTAssertTrue(validator.contains("teamless signing requires disabled library validation"))
@@ -91,6 +93,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
 
         XCTAssertTrue(source.contains("pro.2brain.graf"))
         XCTAssertTrue(source.contains("NSAudioCaptureUsageDescription"))
+        XCTAssertTrue(source.contains("app signing must declare hardened-runtime audio input entitlement"))
         XCTAssertTrue(source.contains("Contents/Frameworks/Sparkle.framework"))
         XCTAssertTrue(source.contains("Sparkle license notice is missing"))
         XCTAssertTrue(source.contains("codesign --verify --deep --strict"))

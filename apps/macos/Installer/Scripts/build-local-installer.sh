@@ -333,20 +333,23 @@ sign_nested_code "$SPARKLE_FRAMEWORK"
 SPARKLE_SIGNATURE=$(codesign -dv --verbose=4 "$SPARKLE_FRAMEWORK" 2>&1)
 SPARKLE_TEAM_IDENTIFIER=$(printf '%s\n' "$SPARKLE_SIGNATURE" | sed -n 's/^TeamIdentifier=//p' | head -n 1)
 [ "$SPARKLE_TEAM_IDENTIFIER" != "not set" ] || SPARKLE_TEAM_IDENTIFIER=
-APP_ENTITLEMENTS=
+APP_ENTITLEMENTS="$BUILD_DIR/app-signing.entitlements"
+LIBRARY_VALIDATION_ENTITLEMENT=
 if [ -z "$SPARKLE_TEAM_IDENTIFIER" ]; then
-  APP_ENTITLEMENTS="$BUILD_DIR/teamless-signing.entitlements"
-  cat > "$APP_ENTITLEMENTS" <<'EOF'
+  LIBRARY_VALIDATION_ENTITLEMENT='  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>'
+fi
+cat > "$APP_ENTITLEMENTS" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>com.apple.security.cs.disable-library-validation</key>
+  <key>com.apple.security.device.audio-input</key>
   <true/>
+$LIBRARY_VALIDATION_ENTITLEMENT
 </dict>
 </plist>
 EOF
-fi
 
 if [ -z "$APP_SIGN_IDENTITY" ] && [ "$DEVELOPER_TOOLS_ENABLED" = "1" ]; then
   echo "Using ad-hoc app signing for local development because Developer Tools Security is enabled." >&2

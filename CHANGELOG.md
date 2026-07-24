@@ -30,6 +30,80 @@
 
 
 ### Добавлено
+- В Feature 125 переработан Share для внутреннего summary-only доступа:
+  поиск по workspace и связанному календарю, отдельные recipient-bound ссылки,
+  копирование/ротация и отзыв доступа.
+- Подготовлен и включён контролируемый B2C exact-email flow: безопасное письмо
+  с метаданными встречи, единый email-вход с автоматическим созданием personal
+  account, exact verified identity, отдельный grant token, bounded expiry и без
+  автоматического вступления в workspace.
+
+### Изменено
+- Модалка Share показывает реальную capability-политику, source/freshness
+  кандидата, явное действие «Открыть доступ к итогам», retry после ошибок и
+  доступный keyboard combobox с начальными календарными подсказками.
+- B2B-доступ повторно проверяет active membership; B2C-доставка различает
+  подтверждённую отправку и `outcome_unknown`, а B2B notification использует
+  token-free URL.
+
+### Исправлено
+- Закрыты гонки invitation/auth state и provider email verification; добавлены
+  узкий read-only `share_invitation_lookup` RLS-контекст, durable auth-code
+  rate limits и commit-before-Temporal delivery recovery без автоматического
+  дубля письма.
+- OpenAPI/RLS contracts и synthetic regression coverage синхронизированы с
+  runtime, а production exact-email configuration проверена в API и worker.
+
+### Безопасность
+- Meeting-bound search, bounded invitation/grant TTL, revoke/rotation,
+  exact-recipient replay safety, token-safe paths и
+  `no-store`/`no-referrer`/`noindex` headers сохраняют summary-only границу.
+
+### Документы
+- Добавлены Spec Kit-артефакты Feature 125 с исследованием Krisp, Read.ai,
+  Fathom, Fireflies, Otter, календаря и native address-book design.
+- Зафиксированы следующие gated slices: participant distribution,
+  `Shared with me`, auto-share, recurring pre-read, team access, public links,
+  Contacts/provider lookup и referral attribution.
+
+### Операции
+- Production runtime выкатан на точном SHA
+  `9a44d9af9c0bce0c4a75b6d497657492f44c818a`, migration head
+  `0037_auth_rate_limit_buckets`; backup/restore, RLS/runtime boundary,
+  readiness, smoke и automatic dispatch прошли.
+- Exact-email invitations и email-login включены; public links, Contacts и
+  referral attribution остаются выключенными отдельными gates.
+- Локальный macOS artifact `2026.07.24.4` собран с `GRAF Local Code Signing`;
+  package unsigned, Developer ID и notarization не заявляются.
+
+## [2026.07.24.3] - 2026-07-24
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Исправлена регистрация микрофона на чистых Mac: hardened-runtime подпись
+  GRAF теперь содержит Audio Input entitlement, а release validator отклоняет
+  пакет без него. Исправление выйдет в `v2026.07.24.3`; переход с `.2` сохраняет
+  bundle identity, локальную signing lineage и Sparkle trust.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.24.2] - 2026-07-24
+
+
+### Добавлено
 - Исправлен invite-auth flow: авторизованный получатель сразу возвращается к
   summary, а новый получатель проходит единый email-вход; personal GRAF account
   создаётся автоматически после кода, без отдельного `/sign-up`. Добавлены
@@ -53,28 +127,24 @@
 - B2B-доступ повторно проверяет активное членство при каждом обращении, а
   повторное действие владельца не ротирует ссылку молча; B2C-доставка различает
   подтверждённую отправку и `outcome_unknown`.
-- После ревью Share получил узкий PostgreSQL-контекст для продолжения приглашения,
-  durable throttling email-кода по адресу/IP/state, блокировки одноразовых auth
-  state и проверку provider email; B2B grant теперь сообщает результат письма,
-  а уведомление использует token-free ссылку.
+- В macOS release channel добавлен updater-enabled bootstrap `2026.07.24.2`:
+  после одной ручной установки новые версии GRAF будут приходить через Sparkle
+  из подписанного HTTPS appcast; установленная `2026.07.24.1` требует одной
+  финальной ручной миграции.
 
 ### Исправлено
 - Устранён мёртвый внешний email-flow: при выключенной доставке UI не делает
   запрос приглашения, а сервер возвращает безопасный код политики.
-- Исправлен silent failure кнопки Share: ошибки загрузки, таймауты и stale auth
-  показывают понятное сообщение и «Повторить»; внешний email сначала проходит
-  явное подтверждение, а combobox поддерживает initial calendar suggestions и
-  клавиатурную навигацию без лишних действий.
-- Исправлена гонка запуска invitation delivery: строка приглашения сначала
-  фиксируется commit, затем запускается Temporal; при неизвестном результате
-  состояние сохраняется как `outcome_unknown` без безопасного автоматического
-  дубля письма.
 - После синхронизации с актуальным `master` canonical OpenAPI-контракт
   дополнен всеми runtime `SummaryCandidateResponse.reason_code`; drift-тест
   снова проходит.
 - Добавлены отдельная проверка delivery state и загрузка share-identity HMAC
   секрета из Docker secret-файла; production startup остаётся fail-closed при
   отсутствии обязательной настройки.
+
+- Восстановление микрофона перед открытием настроек теперь повторно инициирует
+  штатный запрос AVFoundation; при ранее отклонённом доступе macOS по-прежнему
+  требует включить GRAF вручную, а автоматический повторный prompt не запускается.
 
 ### Безопасность
 - Добавлены meeting-bound search с экранированием LIKE-wildcards, bounded
@@ -96,12 +166,6 @@
   расширения вирусного rollout.
 
 ### Операции
-- Post-review hardening Feature 125 выкатан в production на точном SHA
-  `9a44d9af9c0bce0c4a75b6d497657492f44c818a`; migration head
-  `0037_auth_rate_limit_buckets`, backup/restore rehearsal, RLS/runtime
-  boundary, readiness, smoke и external-config gates прошли. Exact-email
-  external invitations и email-login включены; public links, Contacts и
-  referral attribution остаются выключены.
 - Production deploy кандидата с контролируемым exact-email B2C rollout прошёл
   для merge SHA
   `cffcfb86cd3edbdb91cc37e8f1e0b8c04bd39d66`: backup/restore rehearsal,
@@ -111,8 +175,11 @@
   только для exact-email summary-only пути после delivery, identity, abuse,
   retention и deletion evidence gates; public links, native Contacts и referral
   attribution остаются выключенными.
-- Локальный macOS artifact `2026.07.24.4` собран с `GRAF Local Code Signing`;
+- Локальный macOS artifact `2026.07.24.3` собран с `GRAF Local Code Signing`;
   package unsigned, Developer ID и notarization не заявляются.
+- Публикация Sparkle-канала выполняется через существующий protected signer:
+  сначала размещаются versioned ZIP/PKG/checksum, а `graf-appcast.xml` меняется
+  последним после публичной проверки.
 
 ## [2026.07.23.17] - 2026-07-23
 
