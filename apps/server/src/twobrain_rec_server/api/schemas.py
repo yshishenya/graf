@@ -1405,6 +1405,7 @@ class CreateSummaryCandidateRequest(BaseModel):
 class SummaryCandidateProvenance(BaseModel):
     source_result_id: UUID | None = None
     media_revision_id: UUID | None = None
+    source_revision_label: Annotated[SafeClientText, Field(max_length=160)] | None = None
     template_id: UUID | None = None
     source_result_hash: Annotated[SafeClientText, Field(max_length=128)] | None = None
     template_key: Annotated[SafeClientText, Field(max_length=120)] | None = None

@@ -46,8 +46,7 @@ def render_deletion_report_fragment(
 
 
 def render_deletion_feedback_fragment() -> str:
-    """Keep the HX deletion response body empty; the client removes the row."""
-    return ""
+    return render_template("cabinet/fragments/deletion_feedback.html")
 
 
 def _render_deletion_report_content(

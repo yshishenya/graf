@@ -14440,6 +14440,7 @@ components:
           type: integer
           minimum: 0.0
           title: Sequence
+          default: 0
         text:
           type: string
           title: Text
@@ -14506,6 +14507,13 @@ components:
             format: uuid
           - type: 'null'
           title: Media Revision Id
+        source_revision_label:
+          anyOf:
+          - type: string
+            maxLength: 160
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Source Revision Label
         template_id:
           anyOf:
           - type: string
@@ -14661,7 +14669,6 @@ components:
           anyOf:
           - $ref: '#/components/schemas/SummaryCandidateProvenance'
           - type: 'null'
-          title: Provenance
       type: object
       required:
       - candidate_id

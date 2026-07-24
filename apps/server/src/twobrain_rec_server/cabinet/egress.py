@@ -227,13 +227,10 @@ async def content_export_capabilities(
             state="available" if outcome_set.status == "available" else "partial",
             reason=None if outcome_set.status == "available" else "stored_summary_partial",
         )
-    elif outcome_set.status in {
-        OutcomeSetStatus.QUEUED.value,
-        OutcomeSetStatus.GENERATING.value,
-    }:
-        summary = ContentExportReadiness(state="processing", reason="stored_summary_processing")
     else:
-        summary = ContentExportReadiness(state="failed", reason="stored_summary_failed")
+        # Non-publishable outcome rows may remain durable for diagnostics, but
+        # content export exposes only a downloadable, immutable result.
+        summary = ContentExportReadiness(state="missing", reason="stored_summary_not_publishable")
 
     result_source_hash = (
         result.source_result_hash
@@ -260,12 +257,18 @@ async def content_export_capabilities(
         and summary_matches_transcript
         else ContentExportReadiness(state="missing", reason="combined_components_unavailable")
     )
+    published_outcome_set_id = (
+        outcome_set.id
+        if outcome_set is not None
+        and outcome_set.status in {"available", "partial"}
+        else None
+    )
     return ContentExportCapabilityResponse(
         processing_result_id=result.id if result else None,
         # Keep the accepted pointer as the UI CAS token even when a newer
         # processing result makes the stored summary temporarily stale.
         # Export readiness remains fail-closed via ``stored_summary_revision_stale``.
-        outcome_set_id=outcome_set.id if outcome_set is not None else None,
+        outcome_set_id=published_outcome_set_id,
         transcript=transcript,
         summary=summary,
         combined=combined,
@@ -369,6 +372,18 @@ async def create_content_export(
         )
         generated = await to_thread.run_sync(render_content_export, snapshot)
     except ProblemDetail as exc:
+        if exc.code == "export_revision_stale":
+            await _record_content_export_denied(
+                db,
+                meeting=meeting,
+                actor_user_id=actor_user_id,
+                device_id=device_id,
+                artifact_class=artifact_class,
+                reason=exc.code,
+                metadata=audit_base,
+            )
+            await db.commit()
+            raise
         await record_egress_audit_event(
             db,
             workspace_id=meeting.workspace_id,
@@ -415,7 +430,12 @@ async def create_content_export(
         db, meeting=meeting, access=final_access, result=result
     )
     final_readiness = getattr(final_capabilities, selection.content_scope)
-    revision_current = await _processing_result_is_current(db, meeting=meeting, result=result)
+    revision_current = await _processing_result_is_current(
+        db,
+        meeting=meeting,
+        result=result,
+        allow_latest_revision=selection.content_scope == "transcript",
+    )
     selected_outcome_current = True
     if selection.outcome_set_id is not None:
         final_outcome = await current_outcome_set(
@@ -593,8 +613,9 @@ async def _processing_result_is_current(
     *,
     meeting: Meeting,
     result: ProcessingResult,
+    allow_latest_revision: bool = False,
 ) -> bool:
-    if meeting.current_outcome_set_id is not None:
+    if meeting.current_outcome_set_id is not None and not allow_latest_revision:
         published_outcome = await current_outcome_set(
             db,
             workspace_id=meeting.workspace_id,
@@ -624,6 +645,7 @@ async def _processing_result_is_current(
                 ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
             )
             .order_by(
+                ProcessingResult.result_version.desc(),
                 nullslast(ProcessingResult.imported_at.desc()),
                 ProcessingResult.created_at.desc(),
                 ProcessingResult.id.desc(),
@@ -642,6 +664,7 @@ async def _processing_result_is_current(
             ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
         )
         .order_by(
+            ProcessingResult.result_version.desc(),
             nullslast(ProcessingResult.imported_at.desc()),
             ProcessingResult.created_at.desc(),
             ProcessingResult.id.desc(),

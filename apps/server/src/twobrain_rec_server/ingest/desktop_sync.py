@@ -284,6 +284,7 @@ async def _latest_processing_result(
             ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
         )
         .order_by(
+            ProcessingResult.result_version.desc(),
             nullslast(ProcessingResult.imported_at.desc()),
             ProcessingResult.created_at.desc(),
             ProcessingResult.id.desc(),

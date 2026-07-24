@@ -46,6 +46,55 @@ async def ensure_dispatch_intent(
     )
     if existing is not None:
         return existing
+    # A manual retry reuses the candidate identity but rotates its dispatch
+    # key. Reuse the one durable intent for that candidate instead of creating
+    # a second row that terminal reconciliation could overlook.
+    existing = await db.scalar(
+        select(DispatchIntent)
+        .where(
+            DispatchIntent.workspace_id == workspace_id,
+            DispatchIntent.candidate_id == candidate_id,
+        )
+        .order_by(DispatchIntent.created_at.desc())
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if existing is not None:
+        attempt = await db.scalar(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(
+                MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
+                MeetingOutcomeGenerationAttempt.candidate_id == candidate_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if existing.idempotency_key != idempotency_key:
+            existing.idempotency_key = idempotency_key
+        if attempt is not None and attempt.status in {
+            "queued",
+            "generating",
+            "blocked_dependency",
+        } and existing.state in {"completed", "cancelled", "terminal_failed"}:
+            existing.state = "created"
+            existing.reconciliation_state = "pending"
+            existing.attempt_count = 0
+            existing.failure_code = None
+            existing.lease_expires_at = None
+            existing.next_attempt_at = datetime.now(UTC)
+            existing.external_workflow_id = None
+            existing.external_run_id = None
+            existing.started_at = None
+            existing.completed_at = None
+        if meeting_is_deleted_or_deleting(meeting):
+            existing.state = "cancelled"
+            existing.reconciliation_state = "cancelled"
+            existing.next_attempt_at = None
+        if payload is not None:
+            existing.payload_json = payload
+        existing.source_fingerprint = source_fingerprint
+        await db.flush()
+        return existing
     state = "cancelled" if meeting_is_deleted_or_deleting(meeting) else "created"
     intent = DispatchIntent(
         workspace_id=workspace_id,
@@ -196,35 +245,41 @@ async def finalize_dispatch_for_candidate(
     failure_code: str | None = None,
 ) -> DispatchIntent | None:
     """Close durable dispatch state when generation reaches a terminal state."""
-    intent = await db.scalar(
-        select(DispatchIntent)
-        .where(
-            DispatchIntent.workspace_id == workspace_id,
-            DispatchIntent.candidate_id == candidate_id,
+    intents = (
+        await db.scalars(
+            select(DispatchIntent)
+            .where(
+                DispatchIntent.workspace_id == workspace_id,
+                DispatchIntent.candidate_id == candidate_id,
+            )
+            .order_by(DispatchIntent.created_at.desc(), DispatchIntent.id.desc())
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if intent is None or intent.state in {"completed", "terminal_failed", "cancelled"}:
-        return intent
+    ).all()
+    if not intents:
+        return None
     now = datetime.now(UTC)
-    if outcome == "completed":
-        intent.state = "completed"
-        intent.reconciliation_state = "completed"
-        intent.failure_code = None
-    elif outcome == "cancelled":
-        intent.state = "cancelled"
-        intent.reconciliation_state = "cancelled"
-        intent.failure_code = failure_code
-    else:
-        intent.state = "terminal_failed"
-        intent.reconciliation_state = "terminal"
-        intent.failure_code = failure_code or "summary_generation_failed"
-    intent.lease_expires_at = None
-    intent.next_attempt_at = None
-    intent.completed_at = now
-    intent.last_reconciled_at = now
-    return intent
+    for intent in intents:
+        if intent.state in {"completed", "terminal_failed", "cancelled"}:
+            continue
+        if outcome == "completed":
+            intent.state = "completed"
+            intent.reconciliation_state = "completed"
+            intent.failure_code = None
+        elif outcome == "cancelled":
+            intent.state = "cancelled"
+            intent.reconciliation_state = "cancelled"
+            intent.failure_code = failure_code
+        else:
+            intent.state = "terminal_failed"
+            intent.reconciliation_state = "terminal"
+            intent.failure_code = failure_code or "summary_generation_failed"
+        intent.lease_expires_at = None
+        intent.next_attempt_at = None
+        intent.completed_at = now
+        intent.last_reconciled_at = now
+    return intents[0]
 
 
 async def list_due_dispatch_intents(
@@ -402,7 +457,7 @@ async def reconcile_dispatch_intent(
             ),
             timeout=DISPATCH_START_TIMEOUT_SECONDS,
         )
-    except Exception:
+    except Exception as dispatch_error:
         await _cancel_started_workflow(
             temporal_client,
             outcome_generation_workflow_id(attempt.candidate_id),
@@ -482,7 +537,7 @@ async def reconcile_dispatch_intent(
             else:
                 await db.rollback()
             return False
-        await mark_dispatch_failure(
+        failure_intent = await mark_dispatch_failure(
             db,
             workspace_id=intent.workspace_id,
             idempotency_key=intent.idempotency_key,
@@ -490,8 +545,21 @@ async def reconcile_dispatch_intent(
             retryable=True,
             increment_attempt=False,
         )
-        current_attempt.status = "blocked_dependency"
-        current_attempt.failure_code = "summary_dispatch_unavailable"
+        if failure_intent is not None and failure_intent.state == "terminal_failed":
+            current_attempt.status = "failed"
+            current_attempt.failure_code = "summary_dispatch_retries_exhausted"
+            current_attempt.failure_reason = (
+                current_attempt.failure_reason or "summary_dispatch_retries_exhausted"
+            )
+            current_attempt.failure_source = "temporal_dispatch"
+            current_attempt.ended_at = current_attempt.ended_at or datetime.now(UTC)
+        elif current_attempt.status in {"queued", "blocked_dependency"} or current_attempt.failure_source != "worker":
+            if isinstance(dispatch_error, asyncio.TimeoutError):
+                current_attempt.status = "blocked_dependency"
+                current_attempt.failure_code = "summary_dispatch_unavailable"
+            else:
+                current_attempt.failure_code = "summary_generation_unavailable"
+            current_attempt.failure_source = "temporal_dispatch"
         await db.commit()
         return False
     meeting = await db.scalar(

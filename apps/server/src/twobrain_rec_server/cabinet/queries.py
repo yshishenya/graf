@@ -1263,6 +1263,7 @@ async def _latest_result(
     )
     return await db.scalar(
         query.order_by(
+            ProcessingResult.result_version.desc(),
             nullslast(ProcessingResult.imported_at.desc()),
             ProcessingResult.created_at.desc(),
             ProcessingResult.id.desc(),
@@ -1275,6 +1276,7 @@ async def _latest_media_revision(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    prefer_latest: bool = False,
 ) -> MediaRevision | None:
     meeting = await db.scalar(
         select(Meeting).where(
@@ -1282,7 +1284,7 @@ async def _latest_media_revision(
             Meeting.id == meeting_id,
         )
     )
-    if meeting is not None and meeting.current_outcome_set_id is not None:
+    if not prefer_latest and meeting is not None and meeting.current_outcome_set_id is not None:
         published_outcome = await current_outcome_set(
             db,
             workspace_id=workspace_id,
@@ -1350,6 +1352,7 @@ async def latest_processing_result(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    prefer_latest: bool = False,
 ) -> ProcessingResult | None:
     meeting = await db.scalar(
         select(Meeting).where(
@@ -1357,7 +1360,7 @@ async def latest_processing_result(
             Meeting.id == meeting_id,
         )
     )
-    if meeting is not None and meeting.current_outcome_set_id is not None:
+    if not prefer_latest and meeting is not None and meeting.current_outcome_set_id is not None:
         published_outcome = await current_outcome_set(
             db,
             workspace_id=workspace_id,
@@ -1375,7 +1378,10 @@ async def latest_processing_result(
             )
         )
     media_revision = await _latest_media_revision(
-        db, workspace_id=workspace_id, meeting_id=meeting_id
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        prefer_latest=prefer_latest,
     )
     return await _latest_result(
         db,

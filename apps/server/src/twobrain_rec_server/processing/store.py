@@ -1427,6 +1427,7 @@ async def latest_processing_result(
         query = query.where(ProcessingResult.media_revision_id.is_(None))
     return await db.scalar(
         query.order_by(
+            ProcessingResult.result_version.desc(),
             ProcessingResult.imported_at.desc().nullslast(),
             ProcessingResult.created_at.desc(),
             ProcessingResult.id.desc(),

@@ -154,9 +154,9 @@ suite does not waive the full repository gate.
 - Focused PostgreSQL coverage for reprocess, cabinet outcomes, generation,
   deletion, dispatch, result idempotency, source-fence regression, malformed
   provider responses, bounded runtime retries, deployment rollback discovery
-  and view models is green; the final count is recorded below after the full
-  repository gate. The final focused correction loop for export, OpenAPI and
-  stale-session races was **6 passed, 2 warnings**.
+  and view models is green. The final lifecycle regression set was **100
+  passed, 2 warnings**; the final Temporal/observability correction set was
+  **14 passed, 2 warnings**.
 - Source-fence unit regression: **3 passed, 2 warnings** in 4.22s. A changed
   source result rejects accept without mutating the current pointer and marks
   the attempt stale.
@@ -177,18 +177,20 @@ suite does not waive the full repository gate.
   linked nonterminal generation attempt are marked `expired` with bounded
   failure metadata before the replacement candidate is created.
 - Adversarial correction loop: the first full server run exposed seven
-  contract/race regressions. They were fixed at the shared egress/lifecycle
-  boundaries, then the focused PostgreSQL loop passed **6/6** and the final
-  full CI was rerun from a clean isolated database.
+  contract/race regressions. Follow-up Arc review found and closed transport
+  polling/mutation recovery, expired-preview exposure, result-version
+  ordering, stale source reads and Temporal child-start finalization. Each
+  correction was followed by a focused test and the full CI was rerun from a
+  clean isolated database.
 
 - Final repository gate (`infra/scripts/ci-local.sh`, 2026-07-24): **PASS**.
   macOS legacy guard/build/tests/contract validation passed; Swift tests were
-  **608 passed**. The isolated server collection was **2,376** tests with
-  digest `3d1c7c9e6b354668900399bf17928e334ea7b5cdf8024dfdc75d8123591aefa7`;
-  the final server result was **2,333 passed, 1 skipped, 5 warnings in
-  1335.34s**, with the parallel PostgreSQL phase passing in 1339s. Warnings
-  are limited to pytest assert-rewrite, Starlette/httpx deprecation and the
-  known SQLAlchemy table-cycle warning.
+  **625 passed**. The final isolated server collection was **2,450** tests
+  with digest `a226dc77b49ef18dc28e77d71ea165b2c0b638a5729edc9042c2be1dc241d6b5`;
+  the final server result was **2,407 passed, 1 skipped, 11 warnings** in
+  340.48s, and the strict lane was **41 passed, 1 skipped, 2 warnings**.
+  Warnings are limited to pytest assert-rewrite, Starlette/httpx deprecation
+  and the known SQLAlchemy table-cycle warning.
 - Final evidence scans: deployment evidence scan **PASS (7 files)**;
   production Compose config **PASS**; deployment/test shell syntax **PASS**;
   disposable RLS verifier regression **1 passed, 2 warnings**; metadata-only
@@ -200,8 +202,8 @@ suite does not waive the full repository gate.
   speculative abstraction or standard-library replacement was found without
   weakening lifecycle fences or evidence; net simplification opportunity is
   **0 lines**.
-- Arc review: **APPROVED**; no P0/P1/P2 findings. The optional P3 empty-preview
-  wording was changed to `Предпросмотр недоступен для этого варианта`.
+- Arc review correction loop: **P0/P1/P2 findings closed**. The final review
+  confirmation is recorded with the commit/PR evidence after the last CI run.
 
 The focused harness had one transient PostgreSQL startup failure during an
 earlier retry; the final isolated runs above passed and removed their test
@@ -213,8 +215,8 @@ Only after clean adversarial/Ponytail review, PR checks, migration/backup
 rehearsal and explicit approval:
 
 ```sh
-infra/scripts/cd-remote.sh --dry-run --branch 124-content-regeneration-lifecycle
-infra/scripts/cd-remote.sh --execute --branch 124-content-regeneration-lifecycle
+infra/scripts/cd-remote.sh --dry-run --branch codex/124-content-regeneration-lifecycle-recovery
+infra/scripts/cd-remote.sh --execute --branch codex/124-content-regeneration-lifecycle-recovery
 ```
 
 Then capture health/smoke, rollback readiness, server/app version evidence and

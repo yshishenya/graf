@@ -14,8 +14,14 @@
 - Feature 124: candidate/current outcome lifecycle with owner preview and
   explicit accept/reject, source/deletion fences, generator provenance, durable
   dispatch recovery and retryable GRAF-controlled purge reconciliation.
+- Feature 124: bounded regeneration recovery for retryable provider/Temporal
+  failures, durable candidate expiry, source revision labels and a current-only
+  preview/export contract.
 
 ### Изменено
+- Feature 124: latest processing results are selected by immutable result
+  version before import time; accepted content remains the only published
+  pointer while manual refresh always creates an explicit new intent.
 - Feature 122: экран «Мои встречи» получил одну спокойную иерархию — заголовок,
   поиск, сгруппированные фильтры, явную сортировку, загрузку и семантический
   список с фиксированными зонами названия, длительности, статуса, действий и
@@ -29,6 +35,9 @@
   списка и не сдвигает название или дату строки.
 
 ### Исправлено
+- Feature 124: stale source reads, expired candidate previews, polling races,
+  duplicate dispatch intents and Temporal child-start failures now fail closed
+  with a bounded user recovery action.
 - Успешный `303` после переименования спикера больше не принимается за потерю
   сессии: приватная карточка очищается только при редиректе на `/login` или
   подтверждённой потере доступа. Ошибки конкретного действия

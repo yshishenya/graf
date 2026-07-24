@@ -9,8 +9,8 @@ from sqlalchemy import func, nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from twobrain_rec_server.db.models import (
-    Meeting,
     MediaRevision,
+    Meeting,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
@@ -86,6 +86,7 @@ async def ensure_outcomes_for_meeting(
         )
         result = await db.scalar(
             result_query.order_by(
+                ProcessingResult.result_version.desc(),
                 nullslast(ProcessingResult.imported_at.desc()),
                 ProcessingResult.created_at.desc(),
                 ProcessingResult.id.desc(),
@@ -131,8 +132,8 @@ async def ensure_outcomes_for_processing_result(
             ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
         )
         .order_by(
-            nullslast(ProcessingResult.imported_at.desc()),
             ProcessingResult.result_version.desc(),
+            nullslast(ProcessingResult.imported_at.desc()),
             ProcessingResult.created_at.desc(),
             ProcessingResult.id.desc(),
         )
@@ -391,6 +392,8 @@ async def _accept_initial_outcome_set(
         meeting.deleted_at is not None
         or meeting.deletion_state not in {None, "none"}
         or meeting.current_outcome_set_id not in {None, outcome_set.id}
+        or outcome_set.candidate_id is not None
+        or outcome_set.revision_state in {"candidate", "rejected", "stale", "expired"}
     ):
         return
     outcome_set.revision_state = "accepted"

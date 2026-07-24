@@ -60,7 +60,7 @@ def test_outcome_generation_is_idempotent_and_stores_source_evidence(client) -> 
     assert {item.category for item in items} >= {"summary", "key_points", "evidence"}
 
 
-def test_first_baseline_outcome_becomes_the_accepted_meeting_revision(client) -> None:
+def test_first_baseline_outcome_remains_an_unpublished_candidate(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
 
@@ -86,11 +86,6 @@ def test_first_baseline_outcome_becomes_the_accepted_meeting_revision(client) ->
                 outcome_set.detail_level,
             )
 
-            meeting.current_outcome_set_id = None
-            outcome_set.revision_state = None
-            outcome_set.accepted_at = None
-            await db.commit()
-
             repaired = await service.ensure_outcomes_for_processing_result(db, result=result)
             await db.commit()
             return first, (
@@ -105,16 +100,16 @@ def test_first_baseline_outcome_becomes_the_accepted_meeting_revision(client) ->
                 repaired.detail_level,
             ), outcome_set.id
 
-    first, repaired, outcome_set_id = asyncio.run(generate_and_repair())
+    first, repaired, _outcome_set_id = asyncio.run(generate_and_repair())
 
     expected = (
-        outcome_set_id,
-        "accepted",
-        True,
+        None,
+        "candidate",
+        False,
         None,
         None,
-        None,
-        None,
+        "graf-auto-v1",
+        1,
         None,
         None,
     )
@@ -152,7 +147,7 @@ def test_deletion_state_is_checked_under_the_meeting_lock_before_outcome_mutatio
             assert not blocked.done(), "generation must wait for the Meeting deletion lock"
             await locker.commit()
 
-            with pytest.raises(RuntimeError, match="meeting_deletion_active"):
+            with pytest.raises(RuntimeError, match="meeting_deleting"):
                 await asyncio.wait_for(blocked, timeout=5)
             rows = (
                 await worker.scalars(
@@ -714,3 +709,61 @@ def test_slow_temporal_start_is_bounded_and_retryable(client, monkeypatch) -> No
     assert state == "retryable_failed"
     assert attempt_state == "blocked_dependency"
     assert failure_code == "summary_dispatch_unavailable"
+
+
+def test_temporal_dispatch_retry_exhaustion_closes_candidate_for_manual_retry(client, monkeypatch) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "dispatch-retry-exhaustion")
+    import twobrain_rec_server.outcomes.ai_service as ai_service
+    import twobrain_rec_server.outcomes.dispatch as dispatch
+    import twobrain_rec_server.workflows.temporal_client as temporal_client
+
+    async def fail_start(**_kwargs):
+        raise RuntimeError("simulated Temporal outage")
+
+    monkeypatch.setattr(temporal_client, "start_outcome_generation_workflow", fail_start)
+
+    async def exercise() -> tuple[str, str, str | None]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            attempt = await ai_service.create_summary_candidate(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                requested_by_user_id=USER_ID,
+                template_key="graf-meeting-minutes-v1",
+                template_id=None,
+                template_version=1,
+                expected_current_outcome_set_id=meeting.current_outcome_set_id,
+            )
+            intent = await dispatch.ensure_dispatch_intent(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting=meeting,
+                candidate_id=attempt.candidate_id,
+                idempotency_key=attempt.idempotency_key or f"candidate:{attempt.candidate_id}",
+                source_fingerprint=attempt.source_fingerprint,
+            )
+            intent.attempt_count = dispatch.MAX_DISPATCH_ATTEMPTS - 1
+            await db.commit()
+            await dispatch.reconcile_dispatch_intent(
+                db,
+                intent=intent,
+                settings=client.app.state.settings,
+                temporal_client=object(),
+            )
+            persisted_intent = await db.scalar(
+                select(DispatchIntent).where(DispatchIntent.id == intent.id)
+            )
+            persisted_attempt = await db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.candidate_id == attempt.candidate_id
+                )
+            )
+            assert persisted_intent is not None and persisted_attempt is not None
+            return persisted_intent.state, persisted_attempt.status, persisted_attempt.failure_code
+
+    state, attempt_state, failure_code = asyncio.run(exercise())
+    assert state == "terminal_failed"
+    assert attempt_state == "failed"
+    assert failure_code == "summary_dispatch_retries_exhausted"

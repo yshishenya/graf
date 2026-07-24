@@ -851,7 +851,7 @@
     if (!response.ok) throw new Error("deletion_request_failed");
     const responseDocument = new DOMParser().parseFromString(await response.text(), "text/html");
     const feedback = responseDocument.querySelector("[data-cabinet-fragment='deletion-feedback']");
-    if (!feedback) throw new Error("deletion_feedback_missing");
+    if (!feedback) return "";
     return "";
   };
 
@@ -1297,10 +1297,15 @@
         const copy = document.createElement("span");
         copy.textContent = message;
         status.append(copy);
-        if (!actions.length) return;
+        const validActions = actions.filter((item) => (
+          item
+          && typeof item.text === "string"
+          && typeof item.action === "function"
+        ));
+        if (!validActions.length) return;
         const actionRow = document.createElement("div");
         actionRow.className = "summary-candidate-actions";
-        actions.forEach(({ text, action, primary = false }) => {
+        validActions.forEach(({ text, action, primary = false }) => {
           const actionButton = document.createElement("button");
           actionButton.type = "button";
           actionButton.textContent = text;
@@ -1363,7 +1368,8 @@
             "summary_candidate_expired", "summary_candidate_not_found",
             "summary_candidate_state_invalid", "summary_candidate_unavailable",
             "summary_resolution_forbidden", "summary_revision_conflict",
-            "summary_same_format_noop", "summary_source_revision_stale"
+            "summary_same_format_noop", "summary_source_revision_stale",
+            "summary_generation_in_progress"
           ].includes(candidate)) {
             return { text: "Обновить страницу", action: () => window.location.reload(), primary: true };
           }
@@ -1372,15 +1378,48 @@
           }
           return { text: "Обновить итоги", action: requestCurrentRefresh, primary: true };
         }
-        if (activeTemplate && (candidate.retryable || candidate.next_action === "new_candidate")) {
-          return { text: "Попробовать ещё раз", action: () => requestCandidate(activeTemplate), primary: true };
+        if (candidate.next_action === "new_candidate") {
+          const template = templateFromCandidate(candidate) || activeTemplate;
+          return {
+            text: "Создать новый вариант",
+            action: () => template && requestCandidate(template, {
+              requestIntent: "manual_refresh",
+              requestIntentId: newRequestIntentId()
+            }),
+            primary: true
+          };
+        }
+        if (candidate.retryable) {
+          const template = templateFromCandidate(candidate) || activeTemplate;
+          return {
+            text: "Попробовать ещё раз",
+            action: () => template && requestCandidate(template, {
+              requestIntent: "manual_refresh",
+              requestIntentId: newRequestIntentId()
+            }),
+            primary: true
+          };
         }
         if (candidate.next_action === "refresh" || candidate.next_action === "refresh_status") {
           return { text: "Обновить страницу", action: () => window.location.reload(), primary: true };
         }
         return null;
       };
-      const candidateErrorAction = (code, template) => {
+      const candidateErrorAction = (code, template, error = null) => {
+        const transientTransportFailure = !code
+          || error?.name === "TypeError"
+          || error?.status >= 500
+          || [408, 425, 429].includes(error?.status);
+        if (transientTransportFailure) {
+          return {
+            text: "Попробовать ещё раз",
+            action: () => template && requestCandidate(template, {
+              requestIntent: "manual_refresh",
+              requestIntentId: newRequestIntentId()
+            }),
+            primary: true
+          };
+        }
         if ([
           "summary_revision_conflict",
           "summary_transcript_changed",
@@ -1403,13 +1442,24 @@
         }
         if ([
           "summary_generation_unavailable",
+          "summary_dispatch_unavailable",
+          "summary_dispatch_retries_exhausted",
           "summary_request_unavailable",
           "summary_poll_unavailable",
           "langfuse_prompt_unavailable",
           "prompt_snapshot_export_unavailable",
-          "litellm_endpoint_unavailable"
+          "litellm_endpoint_unavailable",
+          "litellm_unavailable",
+          "litellm_retryable_response"
         ].includes(code)) {
-          return { text: "Попробовать ещё раз", action: () => requestCandidate(template), primary: true };
+          return {
+            text: "Попробовать ещё раз",
+            action: () => template && requestCandidate(template, {
+              requestIntent: "manual_refresh",
+              requestIntentId: newRequestIntentId()
+            }),
+            primary: true
+          };
         }
         return null;
       };
@@ -1423,10 +1473,12 @@
       };
       const retryTerminalCandidateAction = (code = "") => retryCandidateAction(code);
       const templateFromCandidate = (candidate) => {
-        const provenance = candidate?.provenance;
-        const candidateKey = provenance?.template_key || candidate?.template_key || "";
-        const candidateId = provenance?.template_id || candidate?.template_id || null;
-        const candidateVersion = Number(provenance?.template_version || candidate?.template_version || "1");
+        if (!candidate) return null;
+        const safeCandidate = candidate || {};
+        const provenance = safeCandidate.provenance || {};
+        const candidateKey = provenance.template_key || safeCandidate.template_key || "";
+        const candidateId = provenance.template_id || safeCandidate.template_id || null;
+        const candidateVersion = Number(provenance.template_version || candidate.template_version || "1");
         if (!candidateKey || !Number.isInteger(candidateVersion)) return null;
         const option = options().find((item) => (
           item.dataset.templateKey === candidateKey
@@ -1477,47 +1529,24 @@
         preview.hidden = true;
         preview.replaceChildren();
       };
-      const loadPreview = async (candidate) => {
+      const loadPreview = async (candidate, generation = candidateRequestGeneration) => {
+        if (generation !== candidateRequestGeneration) return null;
         clearPreview();
-        if (!preview || candidate.state !== "ready") return;
+        if (candidate.state !== "ready") return null;
         try {
           const response = await fetch(
             `/api/v1/cabinet/meetings/${meetingId}/summary-candidates/${candidate.candidate_id}/preview`,
             { credentials: "same-origin", cache: "no-store" }
           );
-          if (!response.ok) return;
+          if (!response.ok) return null;
           const body = await response.json();
-          if (!Array.isArray(body.items) || !body.items.length) return;
-          const heading = document.createElement("strong");
-          heading.textContent = "Предпросмотр нового варианта";
-          const list = document.createElement("ul");
-          const categoryLabels = {
-            summary: "Итоги",
-            key_points: "Ключевые пункты",
-            decisions: "Решения",
-            action_items: "Действия",
-            followups: "Дальше",
-            risks: "Риски",
-            questions: "Вопросы",
-            evidence: "Основания"
-          };
-          body.items.forEach((item) => {
-            const row = document.createElement("li");
-            const details = [
-              item.text || item.owner_text || "",
-              item.owner_text && item.text ? `Ответственный: ${item.owner_text}` : "",
-              item.due_date_text ? `Срок: ${item.due_date_text}` : ""
-            ].filter(Boolean);
-            row.textContent = [categoryLabels[item.category] || "", ...details]
-              .filter(Boolean)
-              .join(" — ");
-            if (row.textContent) list.append(row);
-          });
-          if (!list.children.length) return;
-          preview.append(heading, list);
-          preview.hidden = false;
+          if (generation !== candidateRequestGeneration) return null;
+          const items = Array.isArray(body.items)
+            ? body.items.filter((item) => item && typeof item === "object").slice(0, 24)
+            : [];
+          return items.length ? items : null;
         } catch (_error) {
-          // The candidate actions remain usable if the optional preview is unavailable.
+          return null;
         }
       };
       const resolveCandidate = async (candidate, accept, generation = candidateRequestGeneration) => {
@@ -1587,8 +1616,11 @@
           heading.textContent = "Предпросмотр";
           const source = document.createElement("p");
           source.className = "summary-candidate-source";
+          const sourceLabel = candidate?.provenance?.source_revision_label
+            ? `Источник: ${candidate.provenance.source_revision_label}`
+            : "Источник: текущая расшифровка";
           source.textContent = candidate?.provenance?.source_result_id
-            ? "Источник: текущая расшифровка"
+            ? sourceLabel
             : "Источник: подтверждённая расшифровка недоступна";
           const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 8) : [];
           if (previewItems.length) {
@@ -1607,10 +1639,31 @@
           status.append(preview);
         };
         if (candidate.state === "ready") {
-          const preview = Array.isArray(candidate.preview) && candidate.preview.length
-            ? ` Вариант содержит ${candidate.preview.length} пунктов.`
-            : "";
-          showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов.${preview} Текущие итоги сохранены.`, "ready", [
+          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
+          if (!previewItems.length) {
+            clearPreview();
+            setBusy(true);
+            showStatus(
+              `Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Загружаем предпросмотр…`,
+              "generating",
+            );
+            void loadPreview(candidate, generation).then((loadedPreview) => {
+              if (generation !== candidateRequestGeneration) return;
+              setBusy(false);
+              if (!loadedPreview?.length) {
+                showStatus(
+                  "Предпросмотр пока недоступен. Текущие итоги сохранены.",
+                  "failed",
+                  [{ text: "Обновить страницу", action: () => window.location.reload(), primary: true }],
+                );
+                return;
+              }
+              renderCandidate({ ...candidate, preview: loadedPreview }, generation);
+            });
+            return;
+          }
+          const previewCopy = ` Вариант содержит ${previewItems.length} пунктов.`;
+          showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов.${previewCopy} Текущие итоги сохранены.`, "ready", [
             { text: "Оставить текущие", action: () => resolveCandidate(candidate, false, generation) },
             { text: "Использовать", action: () => resolveCandidate(candidate, true, generation), primary: true }
           ]);
@@ -1622,32 +1675,45 @@
           return;
         }
         if (candidate.state === "expired") {
+          const retry = retryCandidateAction(candidate) || {
+            text: "Обновить страницу", action: () => window.location.reload(), primary: true
+          };
           showStatus("Вариант устарел. Текущие итоги сохранены — запустите генерацию ещё раз.", "failed", [
-            retryCandidateAction()
+            retry
           ]);
           return;
         }
         if (candidate.state === "stale") {
+          const retry = retryCandidateAction(candidate) || {
+            text: "Обновить страницу", action: () => window.location.reload(), primary: true
+          };
           showStatus("Расшифровка изменилась, поэтому вариант закрыт. Текущие итоги сохранены.", "failed", [
-            retryCandidateAction()
+            retry
           ]);
           return;
         }
         if (candidate.state === "blocked") {
+          const retry = retryCandidateAction(candidate) || {
+            text: "Обновить страницу", action: () => window.location.reload(), primary: true
+          };
           showStatus("Сервис генерации временно недоступен. Текущие итоги сохранены.", "failed", [
-            retryCandidateAction()
+            retry
           ]);
           return;
         }
         if (candidate.state === "closed") {
+          const retry = retryCandidateAction(candidate) || {
+            text: "Обновить страницу", action: () => window.location.reload(), primary: true
+          };
           showStatus("Вариант закрыт, текущие итоги сохранены.", "failed", [
-            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+            retry
           ]);
           return;
         }
-        showStatus("Не удалось подготовить новый вариант. Текущие итоги сохранены.", "failed", [
-          retryCandidateAction()
-        ]);
+        const retry = retryCandidateAction(candidate) || {
+          text: "Обновить страницу", action: () => window.location.reload(), primary: true
+        };
+        showStatus("Не удалось подготовить новый вариант. Текущие итоги сохранены.", "failed", [retry]);
         return true;
       };
       const schedulePoll = (candidate, generation = candidateRequestGeneration) => {
@@ -1694,9 +1760,11 @@
           }
           if (!response.ok) {
             const payload = await response.json().catch(() => ({}));
-            throw new Error(payload.code || (response.status === 404
+            const error = new Error(payload.code || (response.status === 404
               ? "summary_candidate_not_found"
               : "summary_poll_failed"));
+            error.status = response.status;
+            throw error;
           }
           const next = await response.json();
           if (generation !== candidateRequestGeneration) return;
@@ -1711,7 +1779,13 @@
           pollingTimer = null;
           setBusy(false);
           const code = error instanceof Error ? error.message : "";
-          const retry = code === "summary_poll_failed"
+          const transientPollFailure = !code
+            || code === "summary_poll_failed"
+            || code === "summary_poll_unavailable"
+            || code === "summary_request_unavailable"
+            || error?.status >= 500
+            || [408, 425, 429].includes(error?.status);
+          const retry = transientPollFailure
             ? {
                 text: "Проверить снова",
                 action: () => resumeCandidatePolling(candidate, generation),
@@ -1719,11 +1793,11 @@
               }
             : retryTerminalCandidateAction(code);
           showStatus(
-            code === "summary_poll_failed"
+            transientPollFailure
               ? "Не удалось обновить новый вариант. Текущие итоги сохранены."
               : candidateErrorCopy(code),
             "failed",
-            [retry, ...(code === "summary_poll_failed"
+            [retry, ...(transientPollFailure
               ? [{ text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }]
               : [])]
           );
@@ -1793,7 +1867,11 @@
           setBusy(false);
           if (pendingLabel) pendingLabel.hidden = true;
           const code = error instanceof Error ? error.message : "";
-          showStatus(candidateErrorCopy(code), "failed", [retryCandidateAction(code)]);
+          const retry = code === "summary_template_unavailable"
+            ? retryCandidateAction(code)
+            : candidateErrorAction(code, activeTemplate, error)
+              || { text: "Обновить страницу", action: () => window.location.reload(), primary: true };
+          showStatus(candidateErrorCopy(code), "failed", [retry]);
         } finally {
           if (generation === candidateRequestGeneration) candidateRequestInFlightGeneration = null;
         }
@@ -1838,7 +1916,12 @@
           openFormatPicker();
           return;
         }
-        const intentId = typeof window.crypto?.randomUUID === "function"
+        await requestCandidate(template, {
+          requestIntent: "manual_refresh",
+          requestIntentId: newRequestIntentId()
+        });
+      };
+      const newRequestIntentId = () => typeof window.crypto?.randomUUID === "function"
           ? window.crypto.randomUUID()
           : (() => {
               const bytes = new Uint8Array(16);
@@ -1854,11 +1937,10 @@
               const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
               return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
             })();
-        await requestCandidate(template, {
-          requestIntent: "manual_refresh",
-          requestIntentId: intentId
-        });
-      };
+      const requestTemplateVariant = (template) => requestCandidate(template, {
+        requestIntent: "manual_refresh",
+        requestIntentId: newRequestIntentId()
+      });
       refreshButton?.addEventListener("click", requestCurrentRefresh);
       document.addEventListener("visibilitychange", () => {
         if (!document.hidden && pollingTimer === null && candidateRequestInFlightGeneration === null) {
@@ -1903,7 +1985,7 @@
           "ready",
           [{
             text: "Создать новый вариант",
-            action: () => requestCandidate(template),
+            action: () => requestCurrentRefresh(),
             primary: true
           }]
         );
@@ -1959,7 +2041,7 @@
           showCurrentFormatAction(template);
           return;
         }
-        requestCandidate(template);
+        requestTemplateVariant(template);
       });
       const allFormats = listbox.querySelector("[data-summary-format-all]");
       const closeDialog = () => {
@@ -2010,7 +2092,7 @@
           showCurrentFormatAction(template);
           return;
         }
-        requestCandidate(template);
+        requestTemplateVariant(template);
       });
       document.addEventListener("click", (event) => {
         if (!listbox.hidden && event.target instanceof Node && !controls.contains(event.target)) {
@@ -2038,12 +2120,24 @@
         pollCandidate({ poll_url: resumed.poll_url });
         return true;
       };
+      const initialCandidateLoadGeneration = candidateRequestGeneration;
       fetch(`/api/v1/cabinet/meetings/${meetingId}/summary-candidates`, {
         credentials: "same-origin",
         cache: "no-store"
       }).then((response) => response.ok ? response.json() : null).then((payload) => {
+        if (initialCandidateLoadGeneration !== candidateRequestGeneration) return;
         const candidates = Array.isArray(payload) ? payload : (Array.isArray(payload?.candidates) ? payload.candidates : []);
-        const current = candidates.find((candidate) => ["generating", "ready"].includes(candidate.state));
+        const acceptedIndex = candidates.findIndex((candidate) => (
+          candidate.state === "accepted"
+          && candidate.outcome_set_id
+          && candidate.outcome_set_id === candidate.current_outcome_set_id
+        ));
+        const current = candidates.find((candidate, index) => [
+          "generating", "ready", "blocked"
+        ].includes(candidate.state) || (
+          ["failed", "stale", "expired"].includes(candidate.state)
+          && (acceptedIndex < 0 || index < acceptedIndex)
+        ));
         if (current) {
           window.clearTimeout(pollingTimer);
           applyServerCandidate(current);

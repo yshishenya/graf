@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import nullslast, or_, select
+from sqlalchemy import and_, nullslast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from twobrain_rec_server.config import Settings
@@ -78,6 +78,7 @@ ZERO_UUID = UUID(int=0)
 _ACTIVE_CANDIDATE_STATUSES = ("queued", "generating", "blocked_dependency")
 _RETRYABLE_CANDIDATE_FAILURES = frozenset(
     {
+        "summary_dispatch_retries_exhausted",
         "summary_generation_retries_exhausted",
         "summary_generation_unavailable",
         "langfuse_prompt_unavailable",
@@ -180,6 +181,7 @@ async def create_summary_candidate(
         result_query = result_query.where(ProcessingResult.media_revision_id.is_(None))
     result = await db.scalar(
         result_query.order_by(
+            ProcessingResult.result_version.desc(),
             nullslast(ProcessingResult.imported_at.desc()),
             ProcessingResult.created_at.desc(),
             ProcessingResult.id.desc(),
@@ -268,8 +270,13 @@ async def create_summary_candidate(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+    superseded_accepted = False
     if exact_attempt is not None:
-        if (
+        superseded_accepted = (
+            exact_attempt.status == "accepted"
+            and exact_attempt.outcome_set_id != meeting.current_outcome_set_id
+        )
+        if not superseded_accepted and (
             exact_attempt.status in ACTIVE_CANDIDATE_STATUSES | {"candidate"}
             and is_expired(exact_attempt.expires_at, now=now)
         ):
@@ -279,7 +286,11 @@ async def create_summary_candidate(
                 attempt=exact_attempt,
                 ended_at=now,
             )
-        return exact_attempt
+        if not superseded_accepted and not (
+            exact_attempt.status == "failed"
+            and exact_attempt.failure_code in _RETRYABLE_CANDIDATE_FAILURES
+        ):
+            return exact_attempt
     if template is not None and template.status != "active":
         # Archived/deleted templates remain valid only for an exact replay of
         # their pinned candidate; they cannot start a new intent, even when a
@@ -318,12 +329,11 @@ async def create_summary_candidate(
             attempt=expired_attempt,
             ended_at=now,
         )
-    # A refresh request gets a new intent id, but the paid work is still the
-    # same durable input/configuration.  Reuse one active attempt across
-    # intent ids before checking the caller's stale pointer; otherwise a
-    # polling retry can enqueue a second provider job.  The pinned provider
-    # snapshot may update ``generator_config_hash`` after this request, so the
-    # immutable template/source fields are the dedupe identity here.
+    # A refresh request gets a new intent id. If equivalent work is already
+    # active, reuse it before checking the caller's stale pointer; otherwise a
+    # polling retry can enqueue a second paid provider job. The worker may pin
+    # a remote prompt/model snapshot after this request, so the mutable
+    # ``generator_config_hash`` is provenance, not an active-row lookup key.
     active_equivalent = await db.scalar(
         select(MeetingOutcomeGenerationAttempt)
         .where(
@@ -349,6 +359,44 @@ async def create_summary_candidate(
         )
         if active_dispatch is None or active_dispatch.state != "terminal_failed":
             return active_equivalent
+    other_active_attempts = (
+        await db.scalars(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(
+                MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                MeetingOutcomeGenerationAttempt.candidate_id.is_not(None),
+                MeetingOutcomeGenerationAttempt.processing_result_id == result.id,
+                MeetingOutcomeGenerationAttempt.status.in_(ACTIVE_CANDIDATE_STATUSES),
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    for other_attempt in other_active_attempts:
+        if is_expired(other_attempt.expires_at, now=now):
+            await _expire_attempt_projection(
+                db,
+                workspace_id=workspace_id,
+                attempt=other_attempt,
+                ended_at=now,
+            )
+            continue
+        same_template = (
+            other_attempt.template_id == template_id
+            and other_attempt.template_key == template_key
+            and other_attempt.template_version == template_version
+        )
+        if same_template:
+            continue
+        other_dispatch = await db.scalar(
+            select(DispatchIntent).where(
+                DispatchIntent.workspace_id == workspace_id,
+                DispatchIntent.candidate_id == other_attempt.candidate_id,
+            )
+        )
+        if other_dispatch is None or other_dispatch.state != "terminal_failed":
+            raise OutcomeGenerationTerminalError("summary_generation_in_progress")
     if meeting.current_outcome_set_id != expected_current_outcome_set_id:
         raise OutcomeGenerationTerminalError("summary_revision_conflict")
     if request_intent == "manual_format" and meeting.current_outcome_set_id is not None:
@@ -369,30 +417,59 @@ async def create_summary_candidate(
             and current_outcome.template_id == template_id
         ):
             raise OutcomeGenerationTerminalError("summary_same_format_noop")
+    durable_reuse_conditions = [
+        (
+            (MeetingOutcomeGenerationAttempt.status == "candidate")
+            & (
+                MeetingOutcomeGenerationAttempt.expires_at.is_(None)
+                | (MeetingOutcomeGenerationAttempt.expires_at > now)
+            )
+        )
+    ]
+    if request_intent != "manual_refresh":
+        durable_reuse_conditions.append(
+            (MeetingOutcomeGenerationAttempt.status == "accepted")
+            & (
+                MeetingOutcomeGenerationAttempt.outcome_set_id
+                == meeting.current_outcome_set_id
+            )
+        )
+    durable_reusable = await db.scalar(
+        select(MeetingOutcomeGenerationAttempt)
+        .where(
+            *active_identity,
+            or_(*durable_reuse_conditions),
+        )
+        .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if durable_reusable is not None:
+        return durable_reusable
+    reusable_conditions = [
+        MeetingOutcomeGenerationAttempt.status.in_({"queued", "generating"}),
+        (
+            (MeetingOutcomeGenerationAttempt.status == "candidate")
+            & (
+                MeetingOutcomeGenerationAttempt.expires_at.is_(None)
+                | (MeetingOutcomeGenerationAttempt.expires_at > now)
+            )
+        ),
+    ]
+    if request_intent != "manual_refresh":
+        reusable_conditions.append(
+            (MeetingOutcomeGenerationAttempt.status == "accepted")
+            & (
+                MeetingOutcomeGenerationAttempt.outcome_set_id
+                == meeting.current_outcome_set_id
+            )
+        )
     reusable = await db.scalar(
         select(MeetingOutcomeGenerationAttempt)
         .where(
             MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
             key_lineage,
-            (
-                MeetingOutcomeGenerationAttempt.status.in_(
-                    {"queued", "generating"}
-                )
-                | (
-                    (MeetingOutcomeGenerationAttempt.status == "accepted")
-                    & (
-                        MeetingOutcomeGenerationAttempt.outcome_set_id
-                        == meeting.current_outcome_set_id
-                    )
-                )
-                | (
-                    (MeetingOutcomeGenerationAttempt.status == "candidate")
-                    & (
-                        MeetingOutcomeGenerationAttempt.expires_at.is_(None)
-                        | (MeetingOutcomeGenerationAttempt.expires_at > now)
-                    )
-                )
-            ),
+            or_(*reusable_conditions),
         )
         .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
     )
@@ -442,6 +519,18 @@ async def create_summary_candidate(
         .where(
             MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
             key_lineage,
+            and_(
+                or_(
+                    MeetingOutcomeGenerationAttempt.status != "accepted",
+                    MeetingOutcomeGenerationAttempt.outcome_set_id
+                    == meeting.current_outcome_set_id,
+                ),
+                or_(
+                    MeetingOutcomeGenerationAttempt.status != "failed",
+                    MeetingOutcomeGenerationAttempt.failure_code.is_(None),
+                    ~MeetingOutcomeGenerationAttempt.failure_code.in_(_RETRYABLE_CANDIDATE_FAILURES),
+                ),
+            ),
         )
         .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
     )
@@ -450,6 +539,56 @@ async def create_summary_candidate(
         # replay the latest existing attempt instead of creating another implicit
         # retry key. New explicit refreshes derive a different base key.
         return previous_attempt
+    retryable_failed_attempt = await db.scalar(
+        select(MeetingOutcomeGenerationAttempt)
+        .where(
+            MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
+            MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            MeetingOutcomeGenerationAttempt.candidate_id.is_not(None),
+            MeetingOutcomeGenerationAttempt.processing_result_id == result.id,
+            MeetingOutcomeGenerationAttempt.media_revision_id == result.media_revision_id,
+            MeetingOutcomeGenerationAttempt.generator_version == AI_GENERATOR_VERSION,
+            MeetingOutcomeGenerationAttempt.source_result_hash == result.source_result_hash,
+            MeetingOutcomeGenerationAttempt.source_fingerprint == source_fingerprint,
+            MeetingOutcomeGenerationAttempt.template_id == template_id,
+            MeetingOutcomeGenerationAttempt.template_key == template_key,
+            MeetingOutcomeGenerationAttempt.template_version == template_version,
+            MeetingOutcomeGenerationAttempt.outcome_set_id.is_(None),
+            MeetingOutcomeGenerationAttempt.status == "failed",
+            MeetingOutcomeGenerationAttempt.failure_code.in_(_RETRYABLE_CANDIDATE_FAILURES),
+        )
+        .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if retryable_failed_attempt is not None:
+        retryable_failed_attempt.status = "queued"
+        retryable_failed_attempt.failure_code = None
+        retryable_failed_attempt.failure_source = None
+        retryable_failed_attempt.failure_reason = None
+        retryable_failed_attempt.ended_at = None
+        retryable_failed_attempt.workflow_run_id = None
+        retryable_failed_attempt.expires_at = now + timedelta(hours=24)
+        retryable_failed_attempt.request_intent = request_intent
+        retryable_failed_attempt.idempotency_key = f"{base_idempotency_key}:retry:{uuid4().hex}"
+        metadata = dict(retryable_failed_attempt.metadata_json or {})
+        if request_intent_id is not None:
+            metadata["request_intent_id"] = str(request_intent_id)
+        retryable_failed_attempt.metadata_json = metadata
+        await db.flush()
+        return retryable_failed_attempt
+    candidate_idempotency_key = idempotency_key
+    if (
+        superseded_accepted
+        or (
+            exact_attempt is not None
+            and exact_attempt.status == "failed"
+            and exact_attempt.failure_code in _RETRYABLE_CANDIDATE_FAILURES
+        )
+    ):
+        # Preserve the old audit row and make the replacement a distinct
+        # durable lineage instead of colliding with the idempotency constraint.
+        candidate_idempotency_key = f"{idempotency_key}:retry:{uuid4().hex}"
     candidate_id = uuid4()
     attempt = MeetingOutcomeGenerationAttempt(
         workspace_id=workspace_id,
@@ -462,7 +601,7 @@ async def create_summary_candidate(
         generator_version=AI_GENERATOR_VERSION,
         generator_config_hash=generator_config_hash,
         candidate_id=candidate_id,
-        idempotency_key=idempotency_key,
+        idempotency_key=candidate_idempotency_key,
         request_intent=request_intent,
         source_result_hash=result.source_result_hash,
         source_fingerprint=source_fingerprint,
@@ -1859,6 +1998,7 @@ async def resolve_summary_candidate(
         )
     latest_result = await db.scalar(
         latest_result_query.order_by(
+            ProcessingResult.result_version.desc(),
             nullslast(ProcessingResult.imported_at.desc()),
             ProcessingResult.created_at.desc(),
             ProcessingResult.id.desc(),
@@ -2065,6 +2205,7 @@ async def _ensure_candidate_source_fence(
         result_query = result_query.where(ProcessingResult.media_revision_id == expected_revision_id)
     latest_result = await db.scalar(
         result_query.order_by(
+            ProcessingResult.result_version.desc(),
             nullslast(ProcessingResult.imported_at.desc()),
             ProcessingResult.created_at.desc(),
             ProcessingResult.id.desc(),

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from hashlib import sha256
-from typing import Any
 from string import ascii_letters, digits
+from typing import Any
 
 TRANSCRIPT_CHUNK_BYTES = 196_608
 SERIALIZED_PAYLOAD_BYTES = 262_144
@@ -239,19 +239,23 @@ if workflow is not None:
         @workflow.run
         async def run(self, payload: dict[str, str]) -> dict[str, Any]:
             reconciler_enabled = workflow.patched("outcome-observability-reconciler-v1")
-            if reconciler_enabled:
-                info = workflow.info()
-                await workflow.start_child_workflow(
-                    OutcomeObservabilityReconcilerWorkflow.run,
-                    {
-                        **payload,
-                        "generation_workflow_id": info.workflow_id,
-                        "generation_workflow_run_id": info.run_id,
-                    },
-                    id=f"outcome-observability/{payload['candidate_id']}",
-                    parent_close_policy=ParentClosePolicy.ABANDON,
-                )
             try:
+                if reconciler_enabled:
+                    info = workflow.info()
+                    await workflow.start_child_workflow(
+                        OutcomeObservabilityReconcilerWorkflow.run,
+                        {
+                            **payload,
+                            "generation_workflow_id": info.workflow_id,
+                            "generation_workflow_run_id": info.run_id,
+                        },
+                        # Parent retries get a new run ID while an abandoned
+                        # reconciler may still be draining. Keep child IDs
+                        # unique per parent run; the publish activity is durable
+                        # and idempotent on the candidate/call locks.
+                        id=f"outcome-observability/{payload['candidate_id']}/{info.run_id}",
+                        parent_close_policy=ParentClosePolicy.ABANDON,
+                    )
                 resolved = await workflow.execute_activity(
                     "resolve_outcome_prompt_config_activity",
                     payload,
