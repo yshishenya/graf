@@ -154,9 +154,10 @@ suite does not waive the full repository gate.
 - Focused PostgreSQL coverage for reprocess, cabinet outcomes, generation,
   deletion, dispatch, result idempotency, source-fence regression, malformed
   provider responses, bounded runtime retries, deployment rollback discovery
-  and view models is green. The final lifecycle regression set was **100
-  passed, 2 warnings**; the final Temporal/observability correction set was
-  **14 passed, 2 warnings**.
+  and view models is green: **103 passed, 2 warnings**. The focused
+  candidate/outcome/export/template/static regression set is **122 passed, 2
+  warnings**; the Temporal/observability correction set is **14 passed, 2
+  warnings**.
 - Source-fence unit regression: **3 passed, 2 warnings** in 4.22s. A changed
   source result rejects accept without mutating the current pointer and marks
   the attempt stale.
@@ -179,16 +180,18 @@ suite does not waive the full repository gate.
 - Adversarial correction loop: the first full server run exposed seven
   contract/race regressions. Follow-up Arc review found and closed transport
   polling/mutation recovery, expired-preview exposure, result-version
-  ordering, stale source reads and Temporal child-start finalization. Each
-  correction was followed by a focused test and the full CI was rerun from a
-  clean isolated database.
+  ordering, stale source reads and Temporal child-start finalization. The
+  production-baseline merge then exposed listener registration order in the
+  cabinet; `initCabinet()` now registers meeting-list fencing before share
+  listeners. Each correction was followed by a focused test and the full CI
+  was rerun from a clean isolated database.
 
 - Final repository gate (`infra/scripts/ci-local.sh`, 2026-07-24): **PASS**.
   macOS legacy guard/build/tests/contract validation passed; Swift tests were
-  **625 passed**. The final isolated server collection was **2,450** tests
-  with digest `a226dc77b49ef18dc28e77d71ea165b2c0b638a5729edc9042c2be1dc241d6b5`;
-  the final server result was **2,407 passed, 1 skipped, 11 warnings** in
-  340.48s, and the strict lane was **41 passed, 1 skipped, 2 warnings**.
+  **625 passed**. The final isolated server collection was **2,456** tests
+  with digest `a439b10395443ebe7f20c4e4e90c93430219abbe7554ab2425deca504dc2b032`;
+  the final server result was **2,413 passed, 1 skipped, 11 warnings** in
+  369.76s, and the strict lane was **41 passed, 1 skipped, 2 warnings**.
   Warnings are limited to pytest assert-rewrite, Starlette/httpx deprecation
   and the known SQLAlchemy table-cycle warning.
 - Final evidence scans: deployment evidence scan **PASS (7 files)**;
@@ -202,19 +205,23 @@ suite does not waive the full repository gate.
   speculative abstraction or standard-library replacement was found without
   weakening lifecycle fences or evidence; net simplification opportunity is
   **0 lines**.
-- Arc review correction loop: **P0/P1/P2 findings closed**. The final review
-  confirmation is recorded with the commit/PR evidence after the last CI run.
+- Arc review correction loop: the production-baseline pass found and closed a
+  release P1 where the merge had dropped the Feature 124 changelog entry;
+  `CHANGELOG.md` was restored in commit `bad87292`. Final repeat review is
+  required on the release candidate before deploy.
 
 The focused harness had one transient PostgreSQL startup failure during an
 earlier retry; the final isolated runs above passed and removed their test
 containers.
 
-- Release dry-run (`infra/scripts/cd-remote.sh --dry-run --branch
-  codex/124-content-regeneration-lifecycle-recovery`, 2026-07-24): **PASS**.
-  Target `2brain.dev:/opt/projects/2brain-rec`; the gate requires a clean
-  worktree, branch sync, pinned SHA, local CI, backup/restore rehearsal,
-  migration-head and runtime-secret checks, health/smoke, automatic retry and
-  guarded rollback evidence. Execute remains gated on these remote checks.
+- The first production execute against the pre-merge Feature 124 branch
+  stopped safely at the migration gate because production was already at
+  `0037_auth_rate_limit_buckets`, which that branch did not contain. Runtime
+  rollback was attempted and the remote checkout returned to its previous
+  SHA; no schema change was applied. The integrated candidate adds
+  `0040_merge_content_regen_share` and a regression proving an existing
+  Feature 125 head upgrades to it. A new dry-run must be recorded after the
+  recovery branch is updated to the integrated commit.
 
 ## Release and production gate
 
