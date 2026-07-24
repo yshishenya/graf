@@ -9,6 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.24.3] - 2026-07-24
+
+
+### Добавлено
 - Исправлен invite-auth flow: авторизованный получатель сразу возвращается к
   summary, а новый получатель проходит единый email-вход; personal GRAF account
   создаётся автоматически после кода, без отдельного `/sign-up`. Добавлены
@@ -75,6 +96,12 @@
   расширения вирусного rollout.
 
 ### Операции
+- Post-review hardening Feature 125 выкатан в production на точном SHA
+  `e4fb9082e3b998d584b250b717c1b42cbbfa46b6`; migration head
+  `0037_auth_rate_limit_buckets`, backup/restore rehearsal, RLS/runtime
+  boundary, readiness, smoke и external-config gates прошли. Exact-email
+  external invitations и email-login включены; public links, Contacts и
+  referral attribution остаются выключены.
 - Production deploy кандидата с контролируемым exact-email B2C rollout прошёл
   для merge SHA
   `cffcfb86cd3edbdb91cc37e8f1e0b8c04bd39d66`: backup/restore rehearsal,

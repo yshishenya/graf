@@ -225,7 +225,28 @@ attribution remain disabled.
   this environment because no authenticated local GRAF tab was available and
   the production URL was blocked by the in-app browser policy; this is not
   claimed as rendered visual evidence.
-- This record validates the post-review candidate before release/deploy only. Migrations
-  `0036_share_inv_auth_lookup` and `0037_auth_rate_limit_buckets` are not called
-  production-deployed until the release CD gate completes; the previous
-  production record above remains the source of truth for deployed SHA/head.
+- This section records the pre-deploy review evidence. The release CD gate has
+  since completed successfully; the production closeout below is now the source
+  of truth for the deployed SHA and migration head.
+
+## Production closeout — 2026-07-24
+
+- `infra/scripts/cd-remote.sh --execute --branch
+  codex/125-meeting-sharing-review-fixes`: pass. Production runtime SHA is
+  `e4fb9082e3b998d584b250b717c1b42cbbfa46b6`; migration head is
+  `0037_auth_rate_limit_buckets`.
+- Backup/restore rehearsal, RLS probe, database-role boundary, Temporal and
+  processing-worker readiness, media-worker boundary, production smoke,
+  automatic dispatch and final `health/live` plus `health/ready` checks passed.
+  Backup reference:
+  `/opt/projects/2brain-rec/backups/20260724T111915Z`.
+- Runtime configuration verification passed in both API and delivery worker:
+  external invitations and email login are enabled, Postal is configured and
+  the public base URL is configured. No live email was sent without a
+  consented synthetic recipient.
+- The rebuilt macOS package is
+  `/Users/yshishenya/.codex/worktrees/fa7e/crisp/apps/macos/.build/installer/graf-local-review-fixes.pkg`,
+  version `2026.07.24.3`, SHA-256
+  `f69c69438a1128e7cec335fcdeddbb7c2b9a242a249c237f5ebe6fe0e964a52a`.
+  It is local-only signed/unsigned for distribution purposes; Developer ID,
+  notarization and public artifact publication are not claimed.

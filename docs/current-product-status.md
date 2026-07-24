@@ -6,6 +6,31 @@ Date: 2026-07-24
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
+## Production closeout (2026-07-24) — Feature 125 post-review hardening
+
+- Post-review candidate deployed successfully at exact runtime SHA
+  `e4fb9082e3b998d584b250b717c1b42cbbfa46b6`. The remote working tree is
+  clean; migration head is `0037_auth_rate_limit_buckets`.
+- CD backup/restore rehearsal, disposable RLS probe, runtime database-role
+  checks, Temporal and processing-worker readiness, media-worker boundary,
+  production smoke, automatic dispatch gate and final public live/ready
+  checks passed. Backup reference:
+  `/opt/projects/2brain-rec/backups/20260724T111915Z`.
+- Production external exact-email configuration is enabled and consistent in
+  both API and delivery worker: `share_external_invitations_enabled=true`,
+  `email_login_delivery_enabled=true`, Postal and public base URL configured.
+  The flow remains metadata-only, exact-email and summary-only; no workspace
+  auto-join is introduced.
+- macOS local artifact `2026.07.24.3` was rebuilt after the review at
+  [`graf-local-review-fixes.pkg`](../apps/macos/.build/installer/graf-local-review-fixes.pkg)
+  with SHA-256
+  `f69c69438a1128e7cec335fcdeddbb7c2b9a242a249c237f5ebe6fe0e964a52a`.
+  It passes deep strict verification and uses a local-only signer; no
+  Developer ID or notarization is claimed.
+- Public links, native Contacts/provider lookup, referral attribution,
+  participant batch/Shared with me, recurring/channel distribution and
+  automatic workspace join remain separate gated slices.
+
 ## Validation update (2026-07-24) — Feature 125 Share candidate
 
 - Feature `125-meeting-sharing` исправляет B2B Share как authenticated
