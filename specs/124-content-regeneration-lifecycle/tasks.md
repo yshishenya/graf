@@ -144,8 +144,8 @@ pauses/backoffs polling and offers recovery without cancelling durable work.
 - [X] T077 Run `$ponytail-review` and simplify unnecessary code without weakening fences or evidence in `specs/124-content-regeneration-lifecycle/plan.md`.
 - [X] T078 Run complete Arc review against the merge base and fix every actionable finding in the implementation files named by the review.
 - [X] T079 Repeat focused/full validation and Arc until the exact diff is clean; append each correction loop to `specs/124-content-regeneration-lifecycle/quickstart.md`.
-- [ ] T080 Prepare Russian CHANGELOG/release notes and CalVer with `./scripts/prepare-release.sh YYYY.MM.DD.N` in `CHANGELOG.md` and `docs/releases/`.
-- [ ] T081 Run `infra/scripts/cd-remote.sh --dry-run --branch 124-content-regeneration-lifecycle` and record the result in `specs/124-content-regeneration-lifecycle/quickstart.md`.
+- [X] T080 Prepare Russian CHANGELOG/release notes and CalVer with `./scripts/prepare-release.sh YYYY.MM.DD.N` in `CHANGELOG.md` and `docs/releases/`.
+- [ ] T081 Run `infra/scripts/cd-remote.sh --dry-run --branch codex/124-content-regeneration-lifecycle-recovery` and record the result in `specs/124-content-regeneration-lifecycle/quickstart.md`.
 - [ ] T082 After explicit approval, execute production rollout, smoke, rollback readiness and installed-app/server version verification using `infra/scripts/cd-remote.sh --execute --branch 124-content-regeneration-lifecycle`.
 - [ ] T083 Close PR/issues with Russian evidence, migration impact, known limitations and exact release/deploy identifiers in `CHANGELOG.md` and the GitHub PR.
 

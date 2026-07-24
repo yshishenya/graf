@@ -9,6 +9,27 @@
 ## [Unreleased]
 
 ### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.07.24.6] - 2026-07-24
+
+
+### Добавлено
 - Feature 124: immutable media-revision lineage and a revision-scoped reprocess
   upload session with idempotency and immutable accepted-source protection.
 - Feature 124: candidate/current outcome lifecycle with owner preview and
