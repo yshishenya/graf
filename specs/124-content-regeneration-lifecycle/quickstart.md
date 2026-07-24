@@ -236,7 +236,7 @@ containers.
   recovery branch is updated to the integrated commit.
 - Integrated release dry-run (`infra/scripts/cd-remote.sh --dry-run --branch
   codex/124-content-regeneration-lifecycle-recovery`, 2026-07-24): **PASS**
-  against runtime candidate `c60b9dbbf88e839fb39aaccc4b90d85a59d7a9d3`. The dry-run
+  against runtime candidate `6a86156d311ad6265c2ad6607f57e4fe8b2523fd`. The dry-run
   emitted the complete backup, restore, migration-head,
   runtime-readiness, smoke, dispatch and rollback step plan; execute remains
   gated on the release gate. Any later commit in this evidence section is
