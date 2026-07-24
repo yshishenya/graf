@@ -233,20 +233,20 @@ attribution remain disabled.
 
 - `infra/scripts/cd-remote.sh --execute --branch
   codex/125-meeting-sharing-review-fixes`: pass. Production runtime SHA is
-  `e4fb9082e3b998d584b250b717c1b42cbbfa46b6`; migration head is
+  `3ae64665fdc55c54102e93e970a162a86649cff0`; migration head is
   `0037_auth_rate_limit_buckets`.
 - Backup/restore rehearsal, RLS probe, database-role boundary, Temporal and
   processing-worker readiness, media-worker boundary, production smoke,
   automatic dispatch and final `health/live` plus `health/ready` checks passed.
   Backup reference:
-  `/opt/projects/2brain-rec/backups/20260724T111915Z`.
+  `/opt/projects/2brain-rec/backups/20260724T113401Z`.
 - Runtime configuration verification passed in both API and delivery worker:
   external invitations and email login are enabled, Postal is configured and
   the public base URL is configured. No live email was sent without a
   consented synthetic recipient.
 - The rebuilt macOS package is
-  `/Users/yshishenya/.codex/worktrees/fa7e/crisp/apps/macos/.build/installer/graf-local-review-fixes.pkg`,
-  version `2026.07.24.3`, SHA-256
-  `f69c69438a1128e7cec335fcdeddbb7c2b9a242a249c237f5ebe6fe0e964a52a`.
+  `/Users/yshishenya/.codex/worktrees/fa7e/crisp/apps/macos/.build/installer/graf-local-release-125-v4.pkg`,
+  version `2026.07.24.4`, SHA-256
+  `112a5f2419d8517a0ef5d9fde26ebac0564bf966d01897576ecb7878c2e5d936`.
   It is local-only signed/unsigned for distribution purposes; Developer ID,
   notarization and public artifact publication are not claimed.

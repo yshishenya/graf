@@ -26,7 +26,7 @@
 ### Операции
 - _Пока нет записей._
 
-## [2026.07.24.3] - 2026-07-24
+## [2026.07.24.4] - 2026-07-24
 
 
 ### Добавлено
@@ -97,7 +97,7 @@
 
 ### Операции
 - Post-review hardening Feature 125 выкатан в production на точном SHA
-  `e4fb9082e3b998d584b250b717c1b42cbbfa46b6`; migration head
+  `3ae64665fdc55c54102e93e970a162a86649cff0`; migration head
   `0037_auth_rate_limit_buckets`, backup/restore rehearsal, RLS/runtime
   boundary, readiness, smoke и external-config gates прошли. Exact-email
   external invitations и email-login включены; public links, Contacts и
@@ -111,7 +111,7 @@
   только для exact-email summary-only пути после delivery, identity, abuse,
   retention и deletion evidence gates; public links, native Contacts и referral
   attribution остаются выключенными.
-- Локальный macOS artifact `2026.07.24.3` собран с `GRAF Local Code Signing`;
+- Локальный macOS artifact `2026.07.24.4` собран с `GRAF Local Code Signing`;
   package unsigned, Developer ID и notarization не заявляются.
 
 ## [2026.07.23.17] - 2026-07-23
