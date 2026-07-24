@@ -22,6 +22,9 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "playback_normalization_inventory",
         "playback_normalization_dispatch",
         "prompt_optimization",
+        "outcome_dispatch_reconciliation",
+        "deletion_purge_reconciliation",
+        "processing_legacy_lineage_reconciliation",
     }
 )
 

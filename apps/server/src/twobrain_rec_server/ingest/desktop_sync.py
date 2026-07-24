@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -42,9 +42,12 @@ from twobrain_rec_server.ingest.store import (
     UploadSessionRecord,
     load_active_upload_session_for_meeting,
     load_meeting_record,
+    load_upload_session_record,
     persist_meeting,
     persist_upload_session,
+    restore_meeting_after_upload_session_lifecycle,
 )
+from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 
 
 def _utc_aware(value: datetime) -> datetime:
@@ -101,6 +104,8 @@ async def _load_deletion_state(db: AsyncSession | None, meeting_id: object) -> D
     model = await db.get(MeetingModel, meeting_id)
     if model is None:
         return DeletionState.NONE
+    if model.deleted_at is not None:
+        return DeletionState.DELETING
     return _safe_deletion_state(model.deletion_state)
 
 
@@ -256,15 +261,9 @@ async def _latest_processing_workflow(
     query = base_query
     if media_revision_id is not None:
         query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
-    workflow = await db.scalar(query.order_by(desc(ProcessingWorkflow.updated_at), desc(ProcessingWorkflow.created_at)))
-    if workflow is None and media_revision_id is not None:
-        workflow = await db.scalar(
-            base_query.where(ProcessingWorkflow.media_revision_id.is_(None)).order_by(
-                desc(ProcessingWorkflow.updated_at),
-                desc(ProcessingWorkflow.created_at),
-            )
-        )
-    return workflow
+    else:
+        query = query.where(ProcessingWorkflow.media_revision_id.is_(None))
+    return await db.scalar(query.order_by(desc(ProcessingWorkflow.updated_at), desc(ProcessingWorkflow.created_at)))
 
 
 async def _latest_processing_result(
@@ -282,8 +281,14 @@ async def _latest_processing_result(
             ProcessingResult.workspace_id == workspace_id,
             ProcessingResult.meeting_id == meeting_id,
             ProcessingResult.media_revision_id == media_revision_id,
+            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
         )
-        .order_by(desc(ProcessingResult.imported_at), desc(ProcessingResult.created_at))
+        .order_by(
+            ProcessingResult.result_version.desc(),
+            nullslast(ProcessingResult.imported_at.desc()),
+            ProcessingResult.created_at.desc(),
+            ProcessingResult.id.desc(),
+        )
     )
 
 
@@ -569,25 +574,102 @@ async def _mark_expired_if_needed(
     meeting: object,
     session: UploadSessionRecord | None,
 ) -> DesktopSyncConflict:
-    if session is None or session.status == UploadSessionStatus.EXPIRED:
-        if session is None:
-            return DesktopSyncConflict()
-        return DesktopSyncConflict(
-            state=SyncConflictState.UPLOAD_SESSION_EXPIRED,
-            reason="upload_session_expired",
-            next_action="create_upload_session",
-        )
-    if _utc_aware(session.expires_at) > datetime.now(UTC):
+    if session is None:
         return DesktopSyncConflict()
+    if db is None:
+        if session.status == UploadSessionStatus.EXPIRED:
+            return DesktopSyncConflict(
+                state=SyncConflictState.UPLOAD_SESSION_EXPIRED,
+                reason="upload_session_expired",
+                next_action="create_upload_session",
+            )
+        if _utc_aware(session.expires_at) > datetime.now(UTC):
+            return DesktopSyncConflict()
+    response_meeting = meeting
+    response_session = session
+    if db is not None:
+        persisted_meeting = await lock_meeting_fence(
+            db,
+            workspace_id=session.workspace_id,
+            meeting_id=session.meeting_id,
+        )
+        if persisted_meeting is None or meeting_is_deleted_or_deleting(persisted_meeting):
+            return _conflict(
+                SyncConflictState.SERVER_MEETING_DELETED,
+                reason="server_meeting_deleted",
+                next_action="stop_upload",
+            )
+        authoritative_meeting = await load_meeting_record(db, meeting_id=persisted_meeting.id)
+        if authoritative_meeting is None:
+            return _conflict(
+                SyncConflictState.DEPENDENCY_UNAVAILABLE,
+                reason="meeting_unavailable",
+                next_action="retry_later",
+            )
+        meeting = authoritative_meeting
+        _copy_meeting_state(response_meeting, meeting)
+        current = await load_upload_session_record(db, session.id, for_update=True)
+        if current is None:
+            return _conflict(
+                SyncConflictState.DEPENDENCY_UNAVAILABLE,
+                reason="upload_session_unavailable",
+                next_action="retry_later",
+            )
+        session = current
+        if session.status in {
+            UploadSessionStatus.FINALIZED,
+            UploadSessionStatus.DEGRADED,
+            UploadSessionStatus.FAILED,
+            UploadSessionStatus.ABORTED,
+            UploadSessionStatus.EXPIRED,
+        }:
+            _copy_upload_session_state(response_session, session)
+            return DesktopSyncConflict()
+        if _utc_aware(session.expires_at) > datetime.now(UTC):
+            _copy_upload_session_state(response_session, session)
+            return DesktopSyncConflict()
     session.status = UploadSessionStatus.EXPIRED
-    meeting.status = MeetingStatus.EXPIRED
-    await persist_meeting(db, meeting)
-    await persist_upload_session(db, session)
+    restored = await restore_meeting_after_upload_session_lifecycle(
+        db,
+        meeting=meeting,
+        session=session,
+    )
+    if not restored:
+        meeting.status = MeetingStatus.EXPIRED
+    await persist_meeting(db, meeting, commit=False)
+    await persist_upload_session(db, session, commit=False)
+    if db is not None:
+        await db.commit()
+    if response_session is not session:
+        _copy_upload_session_state(response_session, session)
+    _copy_meeting_state(response_meeting, meeting)
     return DesktopSyncConflict(
         state=SyncConflictState.UPLOAD_SESSION_EXPIRED,
         reason="upload_session_expired",
         next_action="create_upload_session",
     )
+
+
+def _copy_upload_session_state(target: UploadSessionRecord, source: UploadSessionRecord) -> None:
+    target.status = source.status
+    target.processing_status = source.processing_status
+    target.finalized_at = source.finalized_at
+    target.parts = source.parts
+
+
+def _copy_meeting_state(target: object, source: object | None) -> None:
+    if source is None:
+        return
+    for field in (
+        "status",
+        "processing_status",
+        "media_revision_id",
+        "local_media_revision_id",
+        "media_revision_number",
+        "media_revision_status",
+        "media_revision_source_kind",
+    ):
+        setattr(target, field, getattr(source, field))
 
 
 async def get_desktop_recording_sync_state(
@@ -614,6 +696,23 @@ async def get_desktop_recording_sync_state(
             metadata_safety=CustodyMetadataSafety.METADATA_ONLY.value,
         )
     expected_revision_id = normalize_initial_local_media_revision_id(local_recording_id, local_media_revision_id)
+    session: UploadSessionRecord | None = None
+    dependency_conflict = DesktopSyncConflict()
+    try:
+        session = await load_active_upload_session_for_meeting(db, meeting.id)
+    except Exception:
+        dependency_conflict = _conflict(
+            SyncConflictState.DEPENDENCY_UNAVAILABLE,
+            reason="sync_state_dependency_unavailable",
+            next_action="retry_later",
+        )
+    session_conflict = (
+        DesktopSyncConflict()
+        if dependency_conflict.state != SyncConflictState.NONE
+        else await _mark_expired_if_needed(db=db, meeting=meeting, session=session)
+    )
+    # Expiry may restore a previous accepted revision. Compute all
+    # revision-scoped projections only after that authoritative mutation.
     deletion_state = await _load_deletion_state(db, meeting.id)
     access_state, access_conflict = _access_conflict(tenant_scope=tenant_scope, meeting=meeting)
     metadata_conflict = _metadata_conflict(
@@ -643,21 +742,6 @@ async def get_desktop_recording_sync_state(
     review_status = _desktop_review_status(meeting=meeting, result=review_result, workflow=review_workflow)
     transcript_ready = _transcript_available(review_result)
     diarization_ready = _diarization_available(review_result)
-    session: UploadSessionRecord | None = None
-    dependency_conflict = DesktopSyncConflict()
-    try:
-        session = await load_active_upload_session_for_meeting(db, meeting.id)
-    except Exception:
-        dependency_conflict = _conflict(
-            SyncConflictState.DEPENDENCY_UNAVAILABLE,
-            reason="sync_state_dependency_unavailable",
-            next_action="retry_later",
-        )
-    session_conflict = (
-        DesktopSyncConflict()
-        if dependency_conflict.state != SyncConflictState.NONE
-        else await _mark_expired_if_needed(db=db, meeting=meeting, session=session)
-    )
     session_device_conflict = _session_device_conflict(tenant_scope=tenant_scope, session=session)
     conflict = _first_blocking_conflict(
         access_conflict,
@@ -689,7 +773,7 @@ async def get_desktop_recording_sync_state(
         media_revision=MediaRevisionSummary(
             media_revision_id=meeting.media_revision_id,
             local_media_revision_id=meeting.local_media_revision_id,
-            revision_number=1,
+            revision_number=getattr(meeting, "media_revision_number", 1),
             source_kind=meeting.media_revision_source_kind,
             status=meeting.media_revision_status,
         ),

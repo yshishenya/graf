@@ -55,6 +55,8 @@ def test_admin_metrics_expose_only_aggregate_backfill_backlog_age_and_reasons(cl
         "oldest_backlog_age_seconds",
         "retry_cycle_buckets",
         "cleanup_pending_count",
+        "purge_journal_terminal_unknown_count",
+        "purge_journal_terminal_unknown_orphan_count",
         "last_safe_heartbeat_at",
         "backfill_progress",
     }
@@ -69,6 +71,8 @@ def test_admin_metrics_expose_only_aggregate_backfill_backlog_age_and_reasons(cl
     assert summary["oldest_backlog_age_seconds"] >= 0
     assert summary["retry_cycle_buckets"] == {"0": 2, "1": 0, "2": 0, "3_plus": 0}
     assert summary["cleanup_pending_count"] == 0
+    assert summary["purge_journal_terminal_unknown_count"] == 0
+    assert summary["purge_journal_terminal_unknown_orphan_count"] == 0
     assert summary["last_safe_heartbeat_at"] is None
     assert set(summary["backfill_progress"]) == {
         "evaluated",
@@ -109,6 +113,8 @@ def test_metrics_view_model_keeps_aggregate_normalization_summary() -> None:
         "oldest_backlog_age_seconds": 0,
         "retry_cycle_buckets": {"0": 4, "1": 0, "2": 0, "3_plus": 0},
         "cleanup_pending_count": 0,
+        "purge_journal_terminal_unknown_count": 0,
+        "purge_journal_terminal_unknown_orphan_count": 0,
         "last_safe_heartbeat_at": None,
         "backfill_progress": {
             "evaluated": 4,

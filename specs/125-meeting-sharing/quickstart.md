@@ -274,7 +274,6 @@ attribution remain disabled.
   No live email was sent by the operator. Existing `outcome_unknown` rows are
   not resent automatically; cancel the old invitation and create a new explicit
   invitation after the hotfix.
-
 ## Candidate validation — 2026-07-24 magic-link slice
 
 - Focused synthetic magic-link, RLS, account-bootstrap, email-template and Share
@@ -284,7 +283,7 @@ attribution remain disabled.
   Ruff, Python compile, JavaScript syntax, Compose config and deployment-evidence
   scan passed. The live destructive RLS probe was not run in this local
   environment (`postgres_test_database_required`); this did not fail the gate.
-- The candidate migration head is `0038_share_account_created_email`; it is not
+- The candidate migration head is `0041_share_account_created_email`; it is not
   deployed. No live mailbox delivery was sent. Email assertions use synthetic
   recipients and verify masked addresses, safe meeting metadata, post-commit
   notification state, replay rejection and no duplicate send after an unknown

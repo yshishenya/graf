@@ -140,7 +140,7 @@ def _safe_timestamp(value: object) -> str:
 
 
 def _safe_value(key: str, value: object) -> str | int | bool:
-    if isinstance(value, (dict, list, tuple, set)) or value is None:
+    if isinstance(value, dict | list | tuple | set) or value is None:
         _reject()
     if key in COUNTER_KEYS:
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:

@@ -55,11 +55,11 @@ def test_feature_104_main_window_has_responsive_accessible_dom_contract() -> Non
     assert 'width="243" height="90" alt="{{ name }}"' in sections
     for marker in [
         'aria-label="Поиск встреч"',
-        'placeholder="Поиск встреч…"',
-        'aria-label="Фильтры"',
+        'placeholder="Поиск встреч"',
+        'aria-label="{{ filter_label }}"',
         'aria-label="Сортировка: {{ sort_label }}"',
         'aria-label="Загрузить запись"',
-        "<span>Загрузить</span>",
-        'aria-label="Действия с выбранными записями"',
+        "<span>Загрузить запись</span>",
+        'aria-label="Действия с выбранными встречами"',
     ]:
         assert marker in meeting_list

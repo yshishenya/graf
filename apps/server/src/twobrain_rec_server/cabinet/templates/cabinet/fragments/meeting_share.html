@@ -19,7 +19,7 @@
     <form class="share-recipient-form" method="get" action="/api/v1/cabinet/meetings/{{ meeting_id }}/share-recipients" data-share-recipient-form data-meeting-id="{{ meeting_id }}">
       <label for="share-recipient-{{ meeting_id }}">Кому отправить</label>
       <div class="share-recipient-row">
-        <input id="share-recipient-{{ meeting_id }}" name="query" type="text" placeholder="Имя или email" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="share-recipient-results-{{ meeting_id }}" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-recipient-input>
+        <input id="share-recipient-{{ meeting_id }}" name="query" type="text" placeholder="Имя или email…" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="share-recipient-results-{{ meeting_id }}" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-recipient-input>
         <button type="submit">Найти</button>
       </div>
     </form>

@@ -12,6 +12,7 @@ from twobrain_rec_server.db.models import (
     PlaybackBackfillRun,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
+    PurgeJournal,
     WorkspaceMembership,
     WorkspaceUsageDaily,
 )
@@ -251,6 +252,29 @@ async def _playback_normalization_metrics(
         )
         or 0
     )
+    purge_journal_terminal_unknown_count = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(PurgeJournal)
+            .where(
+                PurgeJournal.workspace_id == workspace_id,
+                PurgeJournal.state == "terminal_unknown",
+            )
+        )
+        or 0
+    )
+    purge_journal_terminal_unknown_orphan_count = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(PurgeJournal)
+            .where(
+                PurgeJournal.workspace_id == workspace_id,
+                PurgeJournal.state == "terminal_unknown",
+                PurgeJournal.deletion_request_id.is_(None),
+            )
+        )
+        or 0
+    )
     last_safe_heartbeat_at = await db.scalar(
         select(func.max(PlaybackNormalizationJob.last_heartbeat_at)).where(
             PlaybackNormalizationJob.workspace_id == workspace_id
@@ -297,6 +321,8 @@ async def _playback_normalization_metrics(
         "oldest_backlog_age_seconds": oldest_age_seconds,
         "retry_cycle_buckets": retry_cycle_buckets,
         "cleanup_pending_count": cleanup_pending_count,
+        "purge_journal_terminal_unknown_count": purge_journal_terminal_unknown_count,
+        "purge_journal_terminal_unknown_orphan_count": purge_journal_terminal_unknown_orphan_count,
         "last_safe_heartbeat_at": (
             last_safe_heartbeat_at.isoformat() if last_safe_heartbeat_at is not None else None
         ),

@@ -156,13 +156,12 @@ server-side contact index.
 ## Phase 12 — Magic-link acceptance and Share UX
 
 - [X] T061 [P] Update the Feature 125 specification, plan, contract, security/UX checklists and quickstart for explicit magic-link acceptance, automatic personal-account bootstrap and post-commit account-created email in `specs/125-meeting-sharing/`
-- [X] T062 Add encrypted recipient-address retention and notification delivery state to `apps/server/src/twobrain_rec_server/db/models/meeting_access.py`, `apps/server/src/twobrain_rec_server/db/migrations/versions/0038_share_account_created_email.py`, and `apps/server/src/twobrain_rec_server/cabinet/access.py`
+- [X] T062 Add encrypted recipient-address retention and notification delivery state to `apps/server/src/twobrain_rec_server/db/models/meeting_access.py`, `apps/server/src/twobrain_rec_server/db/migrations/versions/0041_share_account_created_email.py`, and `apps/server/src/twobrain_rec_server/cabinet/access.py`
 - [X] T063 Add the account-created Postal template and deterministic Temporal workflow/activity with retry-safe reservation in `apps/server/src/twobrain_rec_server/auth/email_delivery.py`, `apps/server/src/twobrain_rec_server/workflows/invitation_delivery_workflow.py`, `apps/server/src/twobrain_rec_server/workflows/temporal_client.py`, and `apps/server/src/twobrain_rec_server/workflows/worker.py`
 - [X] T064 Replace anonymous invitation email-code handoff with CSRF-bound magic-link acceptance, automatic personal-account/session bootstrap, summary open and notification dispatch in `apps/server/src/twobrain_rec_server/cabinet/web_routes/browser.py`, `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html`
 - [X] T065 Refine the Share modal copy, hierarchy, confirmation state and delivery status while preserving the existing GRAF UI tokens, native dialog, keyboard combobox, focus restore and browser/embedded parity in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_share.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
 - [X] T066 Add synthetic regression coverage for magic-link CSRF/replay/exact-recipient behavior, automatic account creation, account-created email content/delivery state, migration/model contracts and Share modal accessibility/copy in `apps/server/tests/`
 - [X] T067 Run focused Feature 125 checks, `git diff --check`, `infra/scripts/ci-local.sh`, security/UX/code/Ponytail reviews and update `CHANGELOG.md` with validation evidence; do not commit or deploy without explicit approval
-
 ## Dependencies and execution order
 
 ```text

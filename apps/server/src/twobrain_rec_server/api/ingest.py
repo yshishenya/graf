@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     AbortUploadRequest,
+    CreateMediaRevisionUploadSessionRequest,
     CreateMeetingRequest,
     CreateUploadSessionRequest,
     DesktopRecordingSyncStateResponse,
@@ -14,6 +15,7 @@ from twobrain_rec_server.api.schemas import (
     FinalizeUploadResponse,
     ManualMediaUploadResponse,
     MediaRevisionSummary,
+    MediaRevisionUploadSessionResponse,
     MeetingCalendarContextSummary,
     MeetingResponse,
     MissingRange,
@@ -46,7 +48,10 @@ from twobrain_rec_server.ingest.parts import accept_part
 from twobrain_rec_server.ingest.policy import IngestLimitViolation
 from twobrain_rec_server.ingest.processing_dispatch import dispatch_processing_after_finalize
 from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
-from twobrain_rec_server.ingest.sessions import create_upload_session
+from twobrain_rec_server.ingest.sessions import (
+    create_media_revision_upload_session,
+    create_upload_session,
+)
 from twobrain_rec_server.ingest.status import get_upload_session_status
 from twobrain_rec_server.normalization.pickup import (
     dispatch_normalization_after_accepted_commit,
@@ -110,7 +115,7 @@ def meeting_response(
     media_revision = MediaRevisionSummary(
         media_revision_id=meeting.media_revision_id,
         local_media_revision_id=meeting.local_media_revision_id,
-        revision_number=1,
+        revision_number=getattr(meeting, "media_revision_number", 1),
         source_kind=meeting.media_revision_source_kind,
         status=meeting.media_revision_status,
     )
@@ -170,6 +175,18 @@ def session_response(session: object) -> UploadSessionResponse:
         processing_status=session.processing_status,
         desktop_label=desktop.label,
         desktop_truth_rule=desktop.truth_rule,
+    )
+
+
+def media_revision_summary(revision: object) -> MediaRevisionSummary:
+    return MediaRevisionSummary(
+        media_revision_id=revision.id,
+        local_media_revision_id=revision.local_media_revision_id,
+        revision_number=revision.revision_number,
+        source_kind=revision.source_kind,
+        status=revision.status,
+        manifest_sha256=revision.manifest_sha256,
+        track_sha256_by_role=revision.track_sha256_by_role or {},
     )
 
 
@@ -303,6 +320,39 @@ async def create_session(
     )
     await commit_if_available(db)
     return session_response(session)
+
+
+@router.post(
+    "/meetings/{meeting_id}/media-revisions/upload-sessions",
+    response_model=MediaRevisionUploadSessionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def create_media_revision_session(
+    meeting_id: UUID,
+    payload: CreateMediaRevisionUploadSessionRequest,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> MediaRevisionUploadSessionResponse:
+    revision, session = await create_media_revision_upload_session(
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        db=db,
+        meeting_id=meeting_id,
+        local_media_revision_id=payload.local_media_revision_id,
+        source_kind=payload.source_kind,
+        duration_seconds=payload.duration_seconds,
+        expected_track_roles=payload.expected_tracks or None,
+        expected_track_sizes=payload.expected_track_sizes,
+        idempotency_key=idempotency_key,
+    )
+    await commit_if_available(db)
+    return MediaRevisionUploadSessionResponse(
+        media_revision=media_revision_summary(revision),
+        upload_session=session_response(session),
+    )
 
 
 @router.put(

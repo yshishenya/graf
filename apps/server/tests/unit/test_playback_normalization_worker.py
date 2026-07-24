@@ -150,7 +150,9 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
         def connect(self) -> ConnectionContext:
             return ConnectionContext(self.version)
 
-    await require_schema_head(Engine("0038_share_account_created_email"))
+    await require_schema_head(Engine("0041_share_account_created_email"))
+    with pytest.raises(RuntimeError, match="schema head is unavailable"):
+        await require_schema_head(Engine("0037_auth_rate_limit_buckets"))
     with pytest.raises(RuntimeError, match="schema head is unavailable"):
         await require_schema_head(Engine("0034_share_grant_token_replay"))
     with pytest.raises(RuntimeError, match="schema head is unavailable"):
@@ -158,7 +160,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0038_share_account_created_email"
+    assert packaged_schema_head() == "0041_share_account_created_email"
 
 
 @pytest.mark.anyio

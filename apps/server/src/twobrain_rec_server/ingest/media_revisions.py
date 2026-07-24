@@ -17,13 +17,21 @@ class MediaRevisionFingerprintConflict(ValueError):
     pass
 
 
+def _is_sha256(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
 async def _load_media_revision(
     db: AsyncSession,
     media_revision_id: UUID,
     *,
     for_update: bool,
 ) -> MediaRevision | None:
-    statement = select(MediaRevision).where(MediaRevision.id == media_revision_id)
+    statement = (
+        select(MediaRevision)
+        .where(MediaRevision.id == media_revision_id)
+        .execution_options(populate_existing=True)
+    )
     if for_update:
         statement = statement.with_for_update()
     result = await db.execute(statement)
@@ -77,6 +85,11 @@ def authoritative_track_roles(
     if source_kind_value in {
         MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value,
         MediaRevisionSourceKind.MANUAL_UPLOAD.value,
+        MediaRevisionSourceKind.LOCAL_TRIM.value,
+        MediaRevisionSourceKind.REPLACE.value,
+        MediaRevisionSourceKind.RESTORE.value,
+        MediaRevisionSourceKind.REPROCESS.value,
+        MediaRevisionSourceKind.VIDEO_CAPTURE.value,
     }:
         return ("media",)
     raise ValueError("unsupported media revision source kind")
@@ -124,6 +137,38 @@ def source_fingerprint_sha256(
         sort_keys=True,
     ).encode("utf-8")
     return sha256(encoded).hexdigest()
+
+
+def source_fingerprint_for_revision(revision: MediaRevision) -> str:
+    """Return a fingerprint only for an immutable, fully attested revision.
+
+    Revision-scoped processing and generation must fail closed.  The
+    ``revision:<id>`` fallback is intentionally not valid here; it is kept
+    only for explicit legacy rows that have no media revision at all.
+    """
+    if (
+        revision.status != MediaRevisionStatus.ACCEPTED.value
+        or not revision.immutable
+        or not _is_sha256(revision.manifest_sha256)
+    ):
+        raise ValueError("media revision is not an immutable accepted source")
+    digests = revision.track_sha256_by_role or {}
+    try:
+        authoritative = authoritative_track_sha256_by_role(
+            source_kind=revision.source_kind,
+            digests_by_role=digests,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("media revision is missing authoritative source digests") from exc
+    if any(not _is_sha256(digest) for digest in authoritative.values()):
+        raise ValueError("media revision has invalid authoritative source digests")
+    return source_fingerprint_sha256(
+        media_revision_id=revision.id,
+        source_kind=revision.source_kind,
+        manifest_sha256=revision.manifest_sha256,
+        track_sha256_by_role=digests,
+        duration_seconds=revision.duration_seconds,
+    )
 
 
 def ensure_media_revision_fingerprint_is_immutable(

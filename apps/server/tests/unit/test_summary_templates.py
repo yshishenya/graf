@@ -4,9 +4,14 @@ import pytest
 from pydantic import ValidationError
 
 from twobrain_rec_server.api.schemas import CreateSummaryTemplateRequest
+from twobrain_rec_server.cabinet.view_models import summary_template_slot
+from twobrain_rec_server.db.models import MeetingOutcomeSet
 from twobrain_rec_server.outcomes.templates import (
+    BUILT_IN_BY_KEY,
     BUILT_IN_TEMPLATES,
     OUTCOME_CATEGORIES,
+    SummaryTemplateDefinition,
+    built_in_template_for_version,
     prompt_name_for_template,
 )
 
@@ -59,3 +64,27 @@ def test_personal_template_is_structured_and_bounded() -> None:
                 output_language="ru",
                 detail_level="standard",
             )
+
+
+def test_historical_builtin_version_remains_renderable_after_catalog_upgrade(monkeypatch) -> None:
+    original = BUILT_IN_BY_KEY["graf-auto-v1"]
+    monkeypatch.setitem(
+        BUILT_IN_BY_KEY,
+        "graf-auto-v1",
+        SummaryTemplateDefinition(
+            key="graf-auto-v1",
+            name="Авто (обновлённый каталог)",
+            purpose=original.purpose,
+            sections=("summary",),
+            prompt_name=original.prompt_name,
+            version=2,
+        ),
+    )
+
+    historical = built_in_template_for_version("graf-auto-v1", 1)
+    assert historical == original
+    slot = summary_template_slot(
+        MeetingOutcomeSet(template_key="graf-auto-v1", template_version=1)
+    )
+    assert slot.label == original.name
+    assert slot.template_version == 1

@@ -16,8 +16,9 @@ public enum RecordingAudioInput: String, CaseIterable, Hashable, Sendable {
 public enum RecordingAudioClockDomain: String, Equatable, Sendable {
     case hostTime
     case wallClock
-    /// A producer-owned media PTS. It cannot enter the shared timeline until a
-    /// callback-time host-clock observation proves that it tracks host time.
+    /// A producer-owned media PTS. The active native capture path treats this
+    /// media timestamp as the source position; callback-time host-clock
+    /// observations are optional telemetry and never redefine that position.
     case sourcePresentationTime
 }
 
@@ -105,29 +106,24 @@ public struct RecordingAudioTimelineMetrics: Equatable, Sendable {
 }
 
 public struct RecordingAudioTimelineConfiguration: Equatable, Sendable {
-    /// A small look-behind window permits the two real-time callbacks to arrive
-    /// in a different order without moving already-emitted canonical frames.
+    /// A bounded one-second look-behind window covers the accepted 500 ms
+    /// callback-delay scenario plus scheduling margin without deriving time
+    /// from callback order or retaining an unbounded source queue.
     public let reorderWindowFrames: Int64
     public let maximumKnownGapSeconds: Double
     public let maximumBufferedFramesPerSource: Int64
     public let outputChunkFrameCount: Int
-    public let maximumSourceClockObservationLatencySeconds: Double
-    public let maximumSourceClockObservationJitterSeconds: Double
 
     public init(
-        reorderWindowFrames: Int = 9_600,
+        reorderWindowFrames: Int = 48_000,
         maximumKnownGapSeconds: Double = 15,
         maximumBufferedFramesPerSource: Int = 48_000 * 20,
-        outputChunkFrameCount: Int = 4_096,
-        maximumSourceClockObservationLatencySeconds: Double = 2,
-        maximumSourceClockObservationJitterSeconds: Double = 0.1
+        outputChunkFrameCount: Int = 4_096
     ) {
         self.reorderWindowFrames = Int64(max(0, reorderWindowFrames))
         self.maximumKnownGapSeconds = maximumKnownGapSeconds
         self.maximumBufferedFramesPerSource = Int64(max(1, maximumBufferedFramesPerSource))
         self.outputChunkFrameCount = max(1, outputChunkFrameCount)
-        self.maximumSourceClockObservationLatencySeconds = maximumSourceClockObservationLatencySeconds
-        self.maximumSourceClockObservationJitterSeconds = maximumSourceClockObservationJitterSeconds
     }
 }
 
@@ -136,8 +132,6 @@ public enum RecordingAudioTimelineError: Error, Equatable {
     case invalidFormat
     case invalidSamples
     case uncomparablePresentationTimes
-    case sourceClockObservationMissing
-    case sourceClockMappingUnstable
     case routeGenerationChanged
     case sourceOverflow
     case gapExceedsBound
@@ -162,7 +156,6 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
     private var observedRouteGenerations: [RecordingAudioInput: Int] = [:]
     private var bootstrapSourceEndSeconds: [RecordingAudioInput: Double] = [:]
     private var bootstrapBufferedCanonicalFrames: [RecordingAudioInput: Int64] = [:]
-    private var sourceClockObservations: [RecordingAudioInput: SourceClockObservation] = [:]
     private var epoch: RecordingAudioPresentationTimestamp?
     private var emittedThroughFrame: Int64 = 0
     private var finished = false
@@ -180,7 +173,7 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         guard !finished else { throw RecordingAudioTimelineError.alreadyFinished }
         try validate(batch)
         try validateDiscontinuity(batch)
-        let normalizedBatch = try normalizePresentationTime(source: source, batch: batch)
+        let normalizedBatch = normalizePresentationTime(batch: batch)
         try validateClockDomain(normalizedBatch.presentationTime)
         try validateRouteGeneration(source, batch: normalizedBatch)
 
@@ -290,53 +283,31 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             throw RecordingAudioTimelineError.invalidSamples
         }
         guard configuration.maximumKnownGapSeconds.isFinite,
-              configuration.maximumKnownGapSeconds >= 0,
-              configuration.maximumSourceClockObservationLatencySeconds.isFinite,
-              configuration.maximumSourceClockObservationLatencySeconds >= 0,
-              configuration.maximumSourceClockObservationJitterSeconds.isFinite,
-              configuration.maximumSourceClockObservationJitterSeconds >= 0
+              configuration.maximumKnownGapSeconds >= 0
         else {
             throw RecordingAudioTimelineError.invalidFormat
         }
     }
 
-    /// CoreMedia's CMTime carries media time but not the producer's CMClock.
-    /// A native callback therefore marks it as sourcePresentationTime and this
-    /// method admits it only after the PTS is observed close to, and stable
-    /// against, the one process host clock. The raw PTS is then safe to compare
-    /// with the other admitted native source without deriving time from drain
-    /// order or wall clock.
+    /// CoreMedia's PTS is the position of the captured media. The callback host
+    /// clock is sampled after delivery and therefore includes queue latency;
+    /// using it as a per-batch clock mapping would move audio whenever the
+    /// callback queue is delayed. Normalize the native producer label without
+    /// changing its seconds, while retaining the optional observation for
+    /// metadata-only diagnostics.
     private func normalizePresentationTime(
-        source: RecordingAudioInput,
         batch: RecordingAudioBatch
-    ) throws -> RecordingAudioBatch {
+    ) -> RecordingAudioBatch {
         guard batch.presentationTime.clockDomain == .sourcePresentationTime else {
             return batch
         }
-        guard let observedHostTimeSeconds = batch.presentationTime.observedHostTimeSeconds else {
-            throw RecordingAudioTimelineError.sourceClockObservationMissing
-        }
-        let observedLatency = observedHostTimeSeconds - batch.presentationTime.seconds
-        guard observedLatency.isFinite,
-              abs(observedLatency) <= configuration.maximumSourceClockObservationLatencySeconds
-        else {
-            throw RecordingAudioTimelineError.sourceClockMappingUnstable
-        }
-        if let previous = sourceClockObservations[source],
-           abs(previous.observedLatencySeconds - observedLatency) >
-            configuration.maximumSourceClockObservationJitterSeconds {
-            throw RecordingAudioTimelineError.sourceClockMappingUnstable
-        }
-        sourceClockObservations[source] = SourceClockObservation(
-            observedLatencySeconds: observedLatency
-        )
         return RecordingAudioBatch(
             samples: batch.samples,
             format: batch.format,
             presentationTime: RecordingAudioPresentationTimestamp(
                 seconds: batch.presentationTime.seconds,
                 clockDomain: .hostTime,
-                observedHostTimeSeconds: observedHostTimeSeconds
+                observedHostTimeSeconds: batch.presentationTime.observedHostTimeSeconds
             ),
             discontinuity: batch.discontinuity,
             routeGeneration: batch.routeGeneration
@@ -515,10 +486,6 @@ private struct TimelineSegment {
     var endFrameIndex: Int64 {
         startFrameIndex + Int64(samples.count)
     }
-}
-
-private struct SourceClockObservation {
-    let observedLatencySeconds: Double
 }
 
 private final class SourceState {

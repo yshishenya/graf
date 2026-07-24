@@ -153,6 +153,108 @@ def test_alembic_migration_files_exist_for_clean_database_path() -> None:
     assert (versions / "0004_mediascribe_processing_pipeline.py").exists()
     assert (versions / "0006_access_sharing_downloads.py").exists()
     assert SPEAKER_NAMES_MIGRATION.exists()
+    assert (versions / "0036_share_invitation_auth_lookup.py").exists()
+    assert (versions / "0037_auth_rate_limit_buckets.py").exists()
+    assert (versions / "0040_merge_content_regeneration_and_share_heads.py").exists()
+    assert (versions / "0041_share_account_created_email.py").exists()
+
+
+def test_production_share_head_upgrades_to_regeneration_merge(
+    postgres_clean_database_url: str,
+    monkeypatch,
+) -> None:
+    """A database deployed at the Feature 125 head must reach Feature 124 head."""
+
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
+    get_settings.cache_clear()
+    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
+    alembic_config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
+
+    command.upgrade(alembic_config, "0037_auth_rate_limit_buckets")
+    command.upgrade(alembic_config, "head")
+
+    async def inspect_schema() -> tuple[list[str], set[str], set[tuple[str, str]], str]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.connect() as connection:
+                versions = (
+                    await connection.scalars(text("select version_num from alembic_version"))
+                ).all()
+                tables = set(
+                    (
+                        await connection.scalars(
+                            text(
+                                "select table_name from information_schema.tables "
+                                "where table_schema = 'public'"
+                            )
+                        )
+                    ).all()
+                )
+                columns = {
+                    (row.table_name, row.column_name)
+                    for row in (
+                        await connection.execute(
+                            text(
+                                "select table_name, column_name "
+                                "from information_schema.columns "
+                                "where table_schema = 'public'"
+                            )
+                        )
+                    ).all()
+                }
+                maintenance_helper = await connection.scalar(
+                    text("select pg_get_functiondef('rec_maintenance_allowed()'::regprocedure)")
+                )
+                return versions, tables, columns, str(maintenance_helper)
+        finally:
+            await engine.dispose()
+
+    versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
+    assert versions == ["0041_share_account_created_email"]
+    assert {
+        "dispatch_intents",
+        "meeting_deletion_fences",
+        "meeting_purge_journal",
+    }.issubset(tables)
+    required_columns = {
+        "meetings": {"deletion_epoch"},
+        "processing_workflows": {"purpose", "source_fingerprint", "deletion_epoch_at_start"},
+        "processing_results": {"processing_workflow_id", "deletion_epoch_at_start"},
+        "mediascribe_jobs": {
+            "idempotency_key",
+            "source_fingerprint",
+            "deletion_epoch_at_start",
+            "submission_claim_token",
+            "submission_claimed_at",
+        },
+        "meeting_outcome_sets": {
+            "source_fingerprint",
+            "deletion_epoch_at_start",
+            "expires_at",
+            "generator_config_hash",
+            "candidate_id",
+        },
+        "meeting_outcome_generation_attempts": {
+            "idempotency_key",
+            "request_intent",
+            "source_result_hash",
+            "source_fingerprint",
+            "deletion_epoch_at_start",
+            "expires_at",
+            "display_format_name",
+            "generator_config_hash",
+        },
+        "dispatch_intents": {"reconciliation_state", "last_reconciled_at"},
+    }
+    assert all(
+        (table_name, column_name) in columns
+        for table_name, column_names in required_columns.items()
+        for column_name in column_names
+    )
+    assert "prompt_optimization" in maintenance_helper
+    assert "processing_legacy_lineage_reconciliation" in maintenance_helper
 
 
 def test_speaker_name_migration_is_tenant_scoped_and_unique() -> None:
@@ -174,6 +276,25 @@ def test_mediascribe_migration_names_workspace_unique_constraints_distinctly() -
 
     assert 'name="uq_mediascribe_jobs_workspace_meeting"' in migration
     assert 'name="uq_mediascribe_jobs_workspace_external_job"' in migration
+
+
+def test_content_regen_downgrade_restores_legacy_meeting_unique_constraints() -> None:
+    migration = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/db/migrations/versions/0032_content_regeneration_lineage.py"
+    ).read_text(encoding="utf-8")
+
+    assert "_restore_legacy_unique_constraints" in migration
+    assert "archive or deduplicate" in migration
+    assert all(
+        constraint in migration
+        for constraint in (
+            "processing_workflows_workspace_id_meeting_id_key",
+            "uq_mediascribe_jobs_workspace_meeting",
+            "processing_dependency_states_workspace_id_meeting_id_dependency",
+        )
+    )
+    assert "op.create_unique_constraint(constraint_name, table_name" in migration
 
 
 def test_alembic_revision_ids_fit_default_version_table_length() -> None:

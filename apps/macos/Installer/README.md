@@ -129,6 +129,31 @@ alone is not enough for a hardened-runtime build. The update validator rejects
 an app bundle that is missing this entitlement, including a local self-signed
 build.
 
+### Proven Microphone-Permission Troubleshooting Sequence
+
+When GRAF is absent from **Privacy & Security → Microphone**, especially after
+reinstallation or a TCC reset, use this order:
+
+1. Verify the path actually launched by Finder/Dock, then inspect its bundle
+   identifier, version, usage descriptions, signature, designated requirement,
+   and entitlements. Do not diagnose a staging copy when `/Applications/GRAF.app`
+   is the running app.
+2. For a hardened-runtime build, require
+   `com.apple.security.device.audio-input=true`. A TCC reset, manual TCC
+   database edit, or dragging the app into System Settings cannot add a missing
+   entitlement; rebuild and sign the app instead.
+3. Preserve `pro.2brain.graf`, `/Applications/GRAF.app`, and the same signing
+   lineage across updates. A changed identity can make macOS treat the update
+   as a new client and ask for permissions again.
+4. Only after the bundle is correct, debug the native permission lifecycle:
+   request microphone access while status is unknown; for denied/restricted,
+   send the user to the Microphone panel and keep capture disabled until access
+   is granted. Do not promise a second prompt after denial.
+5. For a release, validate the candidate against the previous app, publish the
+   versioned ZIP/PKG/checksum first, replace `graf-appcast.xml` last, fetch all
+   public HTTPS artifacts again, verify SHA-256/ZIP/Sparkle signatures, and run
+   a clean-Mac smoke as a separate acceptance gate.
+
 This local self-signed path is not public release readiness. It does not create
 an Apple Developer TeamIdentifier, Developer ID signature, notarization ticket,
 or stapled Gatekeeper-ready installer.
