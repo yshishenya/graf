@@ -45,4 +45,4 @@ assigned to the parallel automatic-recording slice.
 - [X] T097 [US2] Добавить `com.apple.security.device.audio-input` в подпись `GRAF.app` в `apps/macos/Installer/Scripts/build-local-installer.sh` и требовать его в `apps/macos/Scripts/validate-app-updates.sh` для teamless и team-identified сборок, сохранив отключение library validation только для teamless Sparkle.
 - [X] T098 [US1] Обновить `apps/macos/Installer/README.md`, `specs/124-macos-permission-installer-relaunch/research.md` и `quickstart.md` с проверкой entitlement и ограничением перехода `.2 → .3`.
 - [ ] T099 [US2] Выполнить focused tests, `sh -n`, локальную self-signed сборку и `apps/macos/Scripts/validate-app-updates.sh` против кандидата `.3` и предыдущего `.2`, подтвердив metadata-only evidence.
-- [ ] T100 [US4] Подготовить, подписать и опубликовать `v2026.07.24.3` через существующий Sparkle protected workflow, затем проверить публичные ZIP/PKG/appcast и обновление с `.2`.
+- [X] T100 [US4] Подготовить, подписать и опубликовать `v2026.07.24.3` через существующий Sparkle protected workflow, затем проверить публичные ZIP/PKG/appcast и обновление с `.2`.

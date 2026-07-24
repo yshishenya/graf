@@ -38,7 +38,7 @@
 ### Исправлено
 - Исправлена регистрация микрофона на чистых Mac: hardened-runtime подпись
   GRAF теперь содержит Audio Input entitlement, а release validator отклоняет
-  пакет без него. Исправление выйдет в `v2026.07.24.3`; переход с `.2` сохраняет
+  пакет без него. Исправление опубликовано в `v2026.07.24.3`; переход с `.2` сохраняет
   bundle identity, локальную signing lineage и Sparkle trust.
 
 ### Безопасность
@@ -48,7 +48,13 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Sparkle ZIP/PKG и подписанный appcast `v2026.07.24.3` опубликованы на
+  `rec.2brain.pro`; предыдущий appcast и пакет сохранены для rollback. Публичный
+  HTTPS fetch подтвердил SHA-256, ZIP integrity и EdDSA signatures.
+- Production smoke после восстановления совместимого server runtime прошёл;
+  миграционный head `0037_auth_rate_limit_buckets`, readiness и cleanup
+  подтверждены. Чистая установка на Mac коллеги остаётся отдельным ручным
+  smoke-gate.
 
 ## [2026.07.24.2] - 2026-07-24
 
