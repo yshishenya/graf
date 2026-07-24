@@ -220,7 +220,7 @@ async def share_invitation_accept_page(
     share_token: str,
     workspace_id: Annotated[UUID, Query()],
     principal: AuthenticatedPrincipal | None = OptionalPrincipalDependency,
-) -> HTMLResponse:
+) -> Response:
     preview = None
     continuation_nonce = None
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
@@ -241,7 +241,7 @@ async def share_invitation_accept_page(
                 raw_token=share_token,
             )
             key_file = request.app.state.settings.credential_encryption_key_file
-            if preview is not None and principal is None and key_file is not None:
+            if preview is not None and key_file is not None:
                 continuation_nonce = await create_share_invitation_continuation(
                     session,
                     workspace_id=workspace_id,
@@ -249,6 +249,14 @@ async def share_invitation_accept_page(
                     encryption_key=key_file.read_bytes().strip(),
                 )
             await session.commit()
+    if preview is not None and principal is not None and continuation_nonce is not None:
+        return RedirectResponse(
+            url=(
+                f"/share-invitations/continue?workspace_id={workspace_id}"
+                f"&state={continuation_nonce}"
+            ),
+            status_code=303,
+        )
     post_login_next_path = "/meetings"
     if continuation_nonce is not None:
         post_login_next_path = (

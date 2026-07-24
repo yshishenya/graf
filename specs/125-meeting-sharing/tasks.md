@@ -100,11 +100,12 @@ path while keeping public/contact/referral extensions disabled.
 
 **Independent test**: in a synthetic delivery environment, verify metadata-only
 email, exact-address acceptance, bounded grant expiry, generic wrong-recipient
-failure, explicit signup and no automatic workspace membership.
+failure, one-step email auth with automatic personal-account bootstrap and no
+automatic workspace membership.
 
 - [X] T037 [P] [US2] Add contract tests for invitation lifecycle, exact verified address, safe email content and no workspace auto-join in `apps/server/tests/contract/test_recording_share_invitation_contract.py`
 - [X] T038 [P] [US2] Add synthetic delivery state tests for pre-egress failure, provider-accepted `sent` and post-egress `outcome-unknown` in `apps/server/tests/integration/test_invitation_delivery_workflow.py`
-- [X] T039 [US2] Add metadata-only recipient value copy and explicit sign-in/create-GRAF CTA to `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html` and `apps/server/src/twobrain_rec_server/cabinet/rendering.py`
+- [X] T039 [US2] Add metadata-only recipient value copy and one-step sign-in CTA with automatic first-account bootstrap to `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html`, `apps/server/src/twobrain_rec_server/cabinet/rendering.py` and browser auth routes
 - [X] T040 [US2] Add independent delivery idempotency, abuse/quota, token-scrubbing and deletion/revoke gate evidence before changing `share_external_invitations_enabled` in `specs/125-meeting-sharing/checklists/security.md` and `specs/125-meeting-sharing/quickstart.md`
 - [X] T041 [US2] Enable bounded exact-email external delivery with server-side Postal/HMAC settings while keeping public links, contacts and referral attribution disabled in `docs/current-product-status.md`
 

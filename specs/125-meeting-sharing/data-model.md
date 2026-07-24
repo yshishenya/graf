@@ -154,8 +154,9 @@ Future gated entity, separate from access tokens:
 - created/converted/invalidated timestamps;
 - bounded source channel, never raw email/title/transcript.
 
-Clicks are not conversions. A conversion requires explicit signup plus a
-permitted value event, is idempotent, and cannot create another grant or account.
+Clicks are not conversions. A conversion requires an explicit auth completion
+(including the invite flow's one-step account bootstrap) plus a permitted value
+event, is idempotent, and cannot create another grant or account.
 Until its storage/retention contract is approved, only aggregate metadata events
 through the existing analytics gate may be used.
 

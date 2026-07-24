@@ -12,8 +12,9 @@
 Feature 125 repairs the current Share dead end and turns the modal into a
 server-policy-aware access surface. The first implementation fixes internal B2B
 summary-only sharing and implements the B2C exact-email invitation path behind
-an operator gate: safe metadata email, explicit login/signup, exact verified
-identity, separate grant token, bounded expiry and revoke. The controlled
+an operator gate: safe metadata email, one-step email/provider auth with
+automatic personal-account bootstrap on first auth, exact verified identity,
+separate grant token, bounded expiry and revoke. The controlled
 exact-email path is now enabled in production after the delivery, secret,
 abuse, deletion and rollback evidence gates; public links stay disabled. The
 plan also keeps native address-book, viral onboarding and referral

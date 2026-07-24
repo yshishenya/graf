@@ -36,7 +36,7 @@ def test_logged_out_invitation_shows_safe_preview_without_bearer_in_login_target
 
     assert response.status_code == 200
     assert "synthetic-token" not in response.text
-    assert "next=%2Fmeetings" in response.text
+    assert "/sign-up?" not in response.text
 
 
 def test_postal_delivery_commits_at_most_once_fence_before_network_egress() -> None:
@@ -82,7 +82,9 @@ def test_invitation_acceptance_uses_a_separate_grant_token_and_safe_onboarding_c
         invitation_expires_at=datetime(2026, 7, 30, 10, 0, tzinfo=UTC),
     )
     assert "Планирование релиза" in rendered
-    assert "Создать аккаунт GRAF" in rendered
+    assert "Войти и открыть итоги" in rendered
+    assert "Если аккаунта GRAF ещё нет, он создастся автоматически" in rendered
+    assert "Создать аккаунт GRAF" not in rendered
     assert "не добавляет вас в рабочую область" in rendered
     assert "транскрипт" not in rendered.lower()
     assert "audio" not in rendered.lower()

@@ -2,7 +2,7 @@
   <section class="panel compact-panel" aria-labelledby="share-invitation-title">
     {% if invitation_available %}
       <h1 id="share-invitation-title">Вам открыли итоги встречи</h1>
-      <p>Проверьте встречу и продолжите через аккаунт GRAF с подтверждённым email.</p>
+      <p>Проверьте встречу и войдите с email, на который пришло приглашение.</p>
       <div class="panel compact-panel" aria-label="Сведения о встрече">
         <strong>{{ meeting_title }}</strong>
         <p class="muted">
@@ -18,17 +18,14 @@
           <button type="submit" class="button">Открыть итоги</button>
         </form>
       {% else %}
-        <p>Войдите или создайте аккаунт, чтобы подтвердить email и открыть итоги.</p>
+        <a class="button" href="{{ login_href }}">Войти и открыть итоги</a>
       {% endif %}
     {% else %}
       <h1 id="share-invitation-title">Приглашение недоступно</h1>
       <p>Ссылка уже использована, отозвана или срок её действия истёк.</p>
     {% endif %}
-    <p class="muted">Нужен другой аккаунт?</p>
-    <p>
-      <a href="{{ login_href }}">Войти с другим аккаунтом</a>
-      ·
-      <a href="{{ signup_href }}">Создать аккаунт GRAF</a>
-    </p>
+    {% if invitation_available %}
+      <p class="muted">Если аккаунта GRAF ещё нет, он создастся автоматически после подтверждения email.</p>
+    {% endif %}
   </section>
 </main>

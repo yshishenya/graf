@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Form, Query, Request
@@ -22,6 +23,7 @@ from twobrain_rec_server.auth.sessions import (
     create_callback_state,
     issue_callback_nonce,
 )
+from twobrain_rec_server.cabinet.access import share_invitation_continuation_matches
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
@@ -69,6 +71,49 @@ LoginNextForm = Form(default="/meetings", alias="next", max_length=512)
 LogoutNextForm = Form(default="/login?next=/meetings", alias="next", max_length=512)
 
 
+def _parse_share_invitation_next(next_path: str) -> tuple[UUID, str] | None:
+    try:
+        parsed = urlsplit(next_path)
+    except ValueError:
+        return None
+    if parsed.path != "/share-invitations/continue" or parsed.scheme or parsed.netloc:
+        return None
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    workspace_values = query.get("workspace_id", [])
+    state_values = query.get("state", [])
+    if len(workspace_values) != 1 or len(state_values) != 1:
+        return None
+    state = state_values[0]
+    if not 16 <= len(state) <= 128:
+        return None
+    try:
+        workspace_id = UUID(workspace_values[0])
+    except ValueError:
+        return None
+    return workspace_id, state
+
+
+async def _active_share_invitation_next(
+    db: AsyncSession,
+    next_path: str,
+    *,
+    address: str | None = None,
+) -> tuple[UUID, str] | None:
+    target = _parse_share_invitation_next(next_path)
+    if target is None:
+        return None
+    workspace_id, state = target
+    await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=workspace_id))
+    if not await share_invitation_continuation_matches(
+        db,
+        workspace_id=workspace_id,
+        nonce=state,
+        address=address,
+    ):
+        return None
+    return target
+
+
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
 async def browser_login_page(
     request: Request,
@@ -88,6 +133,7 @@ async def browser_login_page(
             providers=providers,
             next_path=safe_next,
             error=load_error,
+            invitation_flow=_parse_share_invitation_next(safe_next) is not None,
             product_analytics_provider=build_request_browser_provider_context(request, "login_signup"),
         )
     )
@@ -127,7 +173,34 @@ async def browser_email_login_start(
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
+    if db is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_dependency_unavailable",
+            title="Authentication DB dependency unavailable",
+        )
+    invitation_target = _parse_share_invitation_next(safe_next)
+    invitation_context = await _active_share_invitation_next(db, safe_next)
+    invitation_flow = invitation_target is not None
+    if invitation_flow and invitation_context is None:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=None,
+                providers=[],
+                next_path=safe_next,
+                error="share_invitation_unavailable",
+                invitation_flow=True,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=400,
+        )
+    resolved_workspace_id = (
+        invitation_context[0]
+        if invitation_context is not None
+        else _resolve_browser_login_workspace_id(request)
+    )
     if resolved_workspace_id is None:
         return HTMLResponse(
             render_login_page(
@@ -135,17 +208,12 @@ async def browser_email_login_start(
                 providers=[],
                 next_path=safe_next,
                 error="workspace_required",
+                invitation_flow=invitation_flow,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "login_signup"
                 ),
             ),
             status_code=400,
-        )
-    if db is None:
-        raise ProblemDetail(
-            status=503,
-            code="auth_dependency_unavailable",
-            title="Authentication DB dependency unavailable",
         )
     normalized_email = _normalize_email(email)
     if normalized_email is None:
@@ -155,6 +223,25 @@ async def browser_email_login_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_invalid",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=400,
+        )
+    if invitation_context is not None and await _active_share_invitation_next(
+        db,
+        safe_next,
+        address=normalized_email,
+    ) is None:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="share_invitation_email_required",
+                invitation_flow=True,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "login_signup"
                 ),
@@ -166,7 +253,7 @@ async def browser_email_login_start(
         workspace_id=resolved_workspace_id,
         email=normalized_email,
     )
-    if workspace is None or user is None:
+    if workspace is None or (user is None and invitation_context is None):
         if workspace is not None:
             await _record_email_login_audit(
                 db,
@@ -182,6 +269,7 @@ async def browser_email_login_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_start_unavailable",
+                invitation_flow=invitation_flow,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "login_signup"
                 ),
@@ -225,6 +313,7 @@ async def browser_email_login_start(
                     providers=[],
                     next_path=safe_next,
                     error="email_delivery_unavailable",
+                    invitation_flow=invitation_flow,
                     product_analytics_provider=build_request_browser_provider_context(
                         request, "login_signup"
                     ),
@@ -244,6 +333,7 @@ async def browser_email_login_start(
             state_nonce=state.state_nonce,
             next_path=safe_next,
             dev_code=dev_code,
+            flow="share_invitation" if invitation_context is not None else "login",
             product_analytics_provider=build_request_browser_provider_context(
                 request, "login_signup"
             ),
@@ -384,7 +474,6 @@ async def browser_email_login_verify(
     db: AsyncSession | None = LoginDbDependency,
 ):
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     normalized_email = _normalize_email(email)
     if db is None:
         raise ProblemDetail(
@@ -392,6 +481,28 @@ async def browser_email_login_verify(
             code="auth_dependency_unavailable",
             title="Authentication DB dependency unavailable",
         )
+    invitation_target = _parse_share_invitation_next(safe_next)
+    invitation_context = await _active_share_invitation_next(db, safe_next)
+    invitation_flow = invitation_target is not None
+    if invitation_flow and invitation_context is None:
+        return HTMLResponse(
+            render_email_code_page(
+                email=normalized_email or "",
+                state_nonce=state,
+                next_path=safe_next,
+                error="share_invitation_unavailable",
+                flow="share_invitation",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=400,
+        )
+    resolved_workspace_id = (
+        invitation_context[0]
+        if invitation_context is not None
+        else _resolve_browser_login_workspace_id(request)
+    )
     if resolved_workspace_id is None or normalized_email is None:
         return HTMLResponse(
             render_email_code_page(
@@ -399,6 +510,7 @@ async def browser_email_login_verify(
                 state_nonce=state,
                 next_path=safe_next,
                 error="email_code_invalid",
+                flow="share_invitation" if invitation_flow else "login",
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "login_signup"
                 ),
@@ -413,6 +525,7 @@ async def browser_email_login_verify(
         code=code,
         state_nonce=state,
         next_path=safe_next,
+        allow_registration=invitation_context is not None,
     )
     if isinstance(result, HTMLResponse):
         return result
@@ -567,7 +680,44 @@ async def browser_login_provider_start(
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse | RedirectResponse:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
+    invitation_target = _parse_share_invitation_next(safe_next)
+    invitation_context = None
+    if invitation_target is not None:
+        if db is None:
+            return HTMLResponse(
+                render_login_page(
+                    workspace_id=None,
+                    providers=[],
+                    next_path=safe_next,
+                    error="auth_dependency_unavailable",
+                    invitation_flow=True,
+                    product_analytics_provider=build_request_browser_provider_context(
+                        request, "login_signup"
+                    ),
+                ),
+                status_code=503,
+            )
+        invitation_context = await _active_share_invitation_next(db, safe_next)
+        if invitation_context is None:
+            return HTMLResponse(
+                render_login_page(
+                    workspace_id=None,
+                    providers=[],
+                    next_path=safe_next,
+                    error="share_invitation_unavailable",
+                    invitation_flow=True,
+                    product_analytics_provider=build_request_browser_provider_context(
+                        request, "login_signup"
+                    ),
+                ),
+                status_code=400,
+            )
+    resolved_workspace_id = (
+        invitation_context[0]
+        if invitation_context is not None
+        else _resolve_browser_login_workspace_id(request)
+    )
+    invitation_flow = invitation_target is not None
     if resolved_workspace_id is None:
         return HTMLResponse(
             render_login_page(
@@ -575,6 +725,7 @@ async def browser_login_provider_start(
                 providers=[],
                 next_path=safe_next,
                 error="workspace_required",
+                invitation_flow=invitation_flow,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "login_signup"
                 ),
@@ -595,6 +746,7 @@ async def browser_login_provider_start(
                 providers=providers,
                 next_path=safe_next,
                 error="provider_future",
+                invitation_flow=invitation_flow,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "login_signup"
                 ),
@@ -608,6 +760,7 @@ async def browser_login_provider_start(
                 providers=[],
                 next_path=safe_next,
                 error="auth_dependency_unavailable",
+                invitation_flow=invitation_flow,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "login_signup"
                 ),
@@ -646,6 +799,7 @@ async def browser_login_provider_start(
                     providers=providers,
                     next_path=safe_next,
                     error="provider_disabled",
+                    invitation_flow=invitation_flow,
                     product_analytics_provider=build_request_browser_provider_context(
                         request, "login_signup"
                     ),
@@ -659,6 +813,7 @@ async def browser_login_provider_start(
                 providers=providers,
                 next_path=safe_next,
                 error="provider_missing",
+                invitation_flow=invitation_flow,
                 product_analytics_provider=build_request_browser_provider_context(
                     request, "login_signup"
                 ),
@@ -717,6 +872,15 @@ async def _load_browser_auth_page_context(
     resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     providers = []
     load_error = error
+    if _parse_share_invitation_next(safe_next) is not None:
+        if db is None:
+            load_error = load_error or "auth_dependency_unavailable"
+        else:
+            invitation_context = await _active_share_invitation_next(db, safe_next)
+            if invitation_context is not None:
+                resolved_workspace_id = invitation_context[0]
+            else:
+                load_error = load_error or "share_invitation_unavailable"
     if resolved_workspace_id is not None and db is not None:
         try:
             providers = await _load_browser_login_providers(db, resolved_workspace_id)

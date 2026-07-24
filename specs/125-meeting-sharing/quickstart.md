@@ -6,7 +6,8 @@ This guide validates the first safe delivery: internal authenticated
 summary-only sharing, capability-aware UI, calendar-backed internal suggestions,
 recipient-bound links, revoke/expiry and security negatives. The B2C exact-email
 path is implemented behind its operator gate with metadata-only delivery,
-exact-identity acceptance and replay-safe grant exchange. Exact-email external
+exact-identity acceptance, one-step auth/automatic first-account bootstrap and
+replay-safe grant exchange. Exact-email external
 delivery is enabled in the controlled production rollout after the deploy-gate
 passed; public links,
 address-book permission and referral conversion remain disabled unless their
@@ -101,7 +102,11 @@ user and one unknown external address.
    request) from `outcome_unknown` (the network result was not confirmed).
 3. Confirm exact verified-email acceptance creates no workspace membership and
    creates a separate bounded grant token.
-4. In a second synthetic run with external delivery disabled, confirm no POST
+4. For a new synthetic recipient, open the invitation, choose the single email
+   login action, enter the one-time code and confirm the personal account is
+   created automatically before the browser returns to the invitation and opens
+   summary. No separate `/sign-up` step is shown or required.
+5. In a second synthetic run with external delivery disabled, confirm no POST
    is made to `/share-invitations`, the value is preserved and the UI offers an
    internal alternative.
 

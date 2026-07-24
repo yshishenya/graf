@@ -89,6 +89,7 @@ def render_login_page(
     providers: list,
     next_path: str = "/meetings",
     error: str | None = None,
+    invitation_flow: bool = False,
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
@@ -98,6 +99,7 @@ def render_login_page(
         providers=_login_provider_actions(providers, next_path=safe_next),
         next_path=safe_next,
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
+        invitation_flow=invitation_flow,
         error_message=_login_error_message(error),
     )
     return _standalone_page("Вход", content, product_analytics_provider=product_analytics_provider)
@@ -142,11 +144,21 @@ def render_email_code_page(
     verify_path = "/sign-up/email/verify" if flow == "signup" else "/login/email/verify"
     resend_path = "/sign-up/email/start" if flow == "signup" else "/login/email/start"
     back_path = "/sign-up" if flow == "signup" else "/login"
-    page_title = "Подтвердите почту" if flow == "signup" else "Подтвердите вход"
+    invitation_flow = flow == "share_invitation"
+    page_title = (
+        "Откройте итоги встречи"
+        if invitation_flow
+        else ("Подтвердите почту" if flow == "signup" else "Подтвердите вход")
+    )
     subtitle = (
-        f"Проверьте {email}: мы отправили 6-значный код для создания аккаунта."
-        if flow == "signup"
-        else f"Проверьте {email}: мы отправили 6-значный код для входа."
+        f"Проверьте {email}: мы отправили 6-значный код. Если аккаунта GRAF ещё нет, "
+        "он создастся автоматически."
+        if invitation_flow
+        else (
+            f"Проверьте {email}: мы отправили 6-значный код для создания аккаунта."
+            if flow == "signup"
+            else f"Проверьте {email}: мы отправили 6-значный код для входа."
+        )
     )
     content = render_template(
         "cabinet/auth/email_code.html",
@@ -211,6 +223,8 @@ def _login_error_message(error: str | None) -> str | None:
         "workspace_enrollment_required": "Регистрация в этом кабинете закрыта. Попросите администратора выслать приглашение.",
         "email_code_invalid": "Код не подошел. Проверьте письмо и попробуйте еще раз.",
         "email_code_expired": "Код истек. Запросите новый код.",
+        "share_invitation_email_required": "Введите email, на который пришло приглашение.",
+        "share_invitation_unavailable": "Приглашение больше недоступно. Запросите новое.",
         "share_recipient_mismatch": "Этот аккаунт не совпадает с приглашённым адресом. Войдите с другим аккаунтом.",
     }
     return messages.get(error, "Не удалось открыть сессию кабинета. Попробуйте войти снова.")

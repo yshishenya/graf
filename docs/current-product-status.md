@@ -17,9 +17,9 @@ metadata-only evidence остаются подробной историей ре
   recipient-bound URL с rotation/revoke и повторной проверкой membership.
 - B2C exact-email invitation flow включён в controlled rollout: deploy-gate
   подтвердил одинаковую production-конфигурацию API и delivery-worker. Flow —
-  metadata-only email/landing, explicit login/signup, exact verified identity,
-  отдельный
-  grant token с bounded replay-safe выдачей и без workspace auto-join. Postal,
+  metadata-only email/landing, единый email/provider-вход с автоматическим
+  созданием personal account при первом входе, exact verified identity,
+  отдельный grant token с bounded replay-safe выдачей и без workspace auto-join. Postal,
   credential-encryption key, persistent share-identity HMAC secret, durable
   invitation rate-limit, delivery fence and revoke/deletion evidence are
   provisioned and validated in production. Postal network route is reachable;
