@@ -12,9 +12,9 @@
 Feature 125 repairs the current Share dead end and turns the modal into a
 server-policy-aware access surface. The first implementation fixes internal B2B
 summary-only sharing and implements the B2C exact-email invitation path behind
-an operator gate: safe metadata email, one-step email/provider auth with
-automatic personal-account bootstrap on first auth, exact verified identity,
-separate grant token, bounded expiry and revoke. The controlled
+an operator gate: safe metadata email, one-click magic-link acceptance with
+automatic personal-account bootstrap, exact invited identity, separate grant
+token, bounded expiry and revoke. The controlled
 exact-email path is now enabled in production after the delivery, secret,
 abuse, deletion and rollback evidence gates; public links stay disabled. The
 plan also keeps native address-book, viral onboarding and referral
@@ -37,7 +37,7 @@ storage models.
 
 **Primary Dependencies**: FastAPI, Pydantic, SQLAlchemy async, Jinja2, native HTML dialog, existing Temporal/email/calendar/access services; no new dependency
 
-**Storage**: Existing PostgreSQL tables `meeting_share_grants`, `meeting_share_invitations`, workspace identity/membership, calendar snapshots/participants and metadata-only egress audit; one encrypted invitation column may store the separate grant-token material for idempotent acceptance replay
+**Storage**: Existing PostgreSQL tables `meeting_share_grants`, `meeting_share_invitations`, workspace identity/membership, calendar snapshots/participants and metadata-only egress audit; encrypted invitation fields retain only the short-lived recipient exchange material and separate grant-token material needed for acceptance replay
 
 **Testing**: pytest unit, contract and integration suites; static contract checks; synthetic manual browser/embedded matrix; `infra/scripts/ci-local.sh`
 
@@ -218,6 +218,23 @@ share component, a second permission service, a contact-sync subsystem, a new
 email provider or a new database table in this slice.
 
 ## Implementation phases
+
+### Phase 12 — Magic-link acceptance and account-created notification
+
+- replace the invitation-only email-code handoff with an explicit, CSRF-bound
+  magic-link POST that consumes the existing invitation continuation exactly once;
+- retain the invited address only as encrypted delivery material until acceptance,
+  revoke or expiry so the link can bootstrap the exact recipient without putting
+  email in the URL or client state;
+- create/reuse the recipient personal account, issue the browser session and open
+  the summary in the same response; do not add workspace membership;
+- queue an idempotent account-created email after commit with links to `/meetings`
+  and `/settings`, and keep notification delivery state separate from access;
+- simplify the Share modal around recipient, default summary-only scope, explicit
+  one-step invite confirmation and understandable delivery states while preserving
+  existing GRAF cabinet tokens, focus management and browser/embedded parity;
+- keep standard non-invitation email login code-based, and keep public links,
+  Contacts/provider lookup and referral attribution gated.
 
 ### Phase 0 — Repair and hard safety invariants
 

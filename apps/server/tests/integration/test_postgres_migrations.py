@@ -156,6 +156,7 @@ def test_alembic_migration_files_exist_for_clean_database_path() -> None:
     assert (versions / "0036_share_invitation_auth_lookup.py").exists()
     assert (versions / "0037_auth_rate_limit_buckets.py").exists()
     assert (versions / "0040_merge_content_regeneration_and_share_heads.py").exists()
+    assert (versions / "0041_share_account_created_email.py").exists()
 
 
 def test_production_share_head_upgrades_to_regeneration_merge(
@@ -211,7 +212,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             await engine.dispose()
 
     versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
-    assert versions == ["0040_merge_content_regen_share"]
+    assert versions == ["0041_share_account_created_email"]
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",

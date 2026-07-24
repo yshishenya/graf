@@ -2,22 +2,22 @@
   <section class="share-dialog__surface">
     <header class="share-dialog__header">
       <div>
-        <h2 id="share-dialog-title">Поделиться встречей</h2>
-        <p>Выберите участника и пригласите его к просмотру итогов — по умолчанию он увидит только итоги.</p>
+        <h2 id="share-dialog-title">Поделиться итогами</h2>
+        <p>Пригласить человека можно одним действием — он получит доступ только к итогам этой встречи.</p>
       </div>
       <button type="button" class="icon-control" aria-label="Закрыть" data-share-dialog-close>×</button>
     </header>
 
     <div class="share-dialog__capability" data-share-capability-state="{{ share.capability_state }}" aria-live="polite">
-      <strong>По умолчанию — только итоги</strong>
-      <p>Пригласить участника можно одним действием: он получит отдельный доступ на просмотр, который можно отозвать в любой момент.</p>
+      <strong>Итоги · просмотр</strong>
+      <p>Без аудио, расшифровки и скачивания. Доступ можно отозвать в любой момент.</p>
       {% if share.external_invitation_state == "disabled" %}
         <p class="muted" data-share-external-disabled>Внешняя отправка email пока отключена. Найдите участника рабочей области или подключённого календаря.</p>
       {% endif %}
     </div>
 
     <form class="share-recipient-form" method="get" action="/api/v1/cabinet/meetings/{{ meeting_id }}/share-recipients" data-share-recipient-form data-meeting-id="{{ meeting_id }}">
-      <label for="share-recipient-{{ meeting_id }}">Человек или email</label>
+      <label for="share-recipient-{{ meeting_id }}">Кому отправить</label>
       <div class="share-recipient-row">
         <input id="share-recipient-{{ meeting_id }}" name="query" type="text" placeholder="Имя или email…" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="share-recipient-results-{{ meeting_id }}" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-recipient-input>
         <button type="submit">Найти</button>
@@ -27,12 +27,12 @@
     <div class="share-recipient-confirmation-host" id="share-recipient-confirmation-{{ meeting_id }}" data-share-recipient-confirmation hidden></div>
 
     <details class="share-scope-disclosure">
-      <summary>Что увидят: только итоги</summary>
-      <p>Расшифровка, аудио, участники и внутренние данные встречи не открываются.</p>
+      <summary>Что увидит получатель</summary>
+      <p>Только итоги встречи. Расшифровка, аудио, участники и внутренние данные не открываются.</p>
     </details>
 
     <div class="share-viewers" aria-live="polite" data-share-viewers>
-      <h3>Уже имеют доступ</h3>
+        <h3>Доступ уже есть</h3>
       {% if share and share.active_grants %}
         {% for grant in share.active_grants %}
           <div class="share-viewer-row" data-share-viewer-row>
@@ -54,10 +54,10 @@
           <span>
             <strong>{{ invitation.display_label or "Приглашение" }}</strong>
             <small class="muted">
-              {% if invitation.status == "pending" %}Готовится к отправке
-              {% elif invitation.status == "sending" %}Отправляется
-              {% elif invitation.status == "sent" %}Отправлено
-              {% elif invitation.status == "outcome_unknown" %}Доставка не подтверждена — не отправляйте повторно сразу
+              {% if invitation.status == "pending" %}Письмо готовится к отправке
+              {% elif invitation.status == "sending" %}Письмо отправляется
+              {% elif invitation.status == "sent" %}Письмо передано в отправку
+              {% elif invitation.status == "outcome_unknown" %}Письмо не подтверждено — не отправляйте повторно сразу
               {% else %}{{ invitation.status }}{% endif %}
               · до {{ invitation.expires_at.strftime("%d.%m.%Y") }}
             </small>

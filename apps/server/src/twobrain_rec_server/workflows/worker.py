@@ -11,10 +11,16 @@ from sqlalchemy import select
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.email_delivery import (
     EmailLoginDeliveryError,
+    send_account_created_email,
     send_meeting_invitation,
 )
 from twobrain_rec_server.config import get_settings
-from twobrain_rec_server.db.models import Meeting, MeetingShareInvitation, UserIdentity
+from twobrain_rec_server.db.models import (
+    ExternalIdentity,
+    Meeting,
+    MeetingShareInvitation,
+    UserIdentity,
+)
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import (
     MaintenanceTenantContext,
@@ -46,7 +52,10 @@ from twobrain_rec_server.processing.submit import (
     submit_to_mediascribe,
 )
 from twobrain_rec_server.storage.minio_client import get_storage
-from twobrain_rec_server.workflows.invitation_delivery_workflow import InvitationDeliveryWorkflow
+from twobrain_rec_server.workflows.invitation_delivery_workflow import (
+    AccountCreatedEmailWorkflow,
+    InvitationDeliveryWorkflow,
+)
 from twobrain_rec_server.workflows.outcome_generation_workflow import (
     OutcomeGenerationWorkflow,
     OutcomeObservabilityReconcilerWorkflow,
@@ -542,6 +551,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                 reserved.status = "cancelled"
                 reserved.failure_code = reason
                 reserved.encrypted_delivery_address = ""
+                reserved.encrypted_recipient_address = None
                 await record_egress_audit_event(
                     db,
                     workspace_id=workspace_id,
@@ -594,6 +604,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                 invitation.status = "outcome_unknown"
                 invitation.failure_code = "postal_delivery_outcome_unknown"
                 invitation.encrypted_delivery_address = ""
+                invitation.encrypted_recipient_address = None
                 await record_egress_audit_event(
                     db,
                     workspace_id=workspace_id,
@@ -632,6 +643,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
             if invitation.expires_at <= datetime.now(UTC):
                 invitation.status = "expired"
                 invitation.encrypted_delivery_address = ""
+                invitation.encrypted_recipient_address = None
                 await db.commit()
                 return {"invitation_id": str(invitation_id), "status": "expired"}
             try:
@@ -643,6 +655,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                 invitation.status = "failed"
                 invitation.failure_code = exc.code
                 invitation.encrypted_delivery_address = ""
+                invitation.encrypted_recipient_address = None
                 await record_egress_audit_event(
                     db,
                     workspace_id=workspace_id,
@@ -718,6 +731,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
             except EmailLoginDeliveryError as exc:
                 invitation.status, invitation.failure_code = invitation_delivery_failure_state(exc)
                 invitation.encrypted_delivery_address = ""
+                invitation.encrypted_recipient_address = None
                 await record_egress_audit_event(
                     db,
                     workspace_id=workspace_id,
@@ -745,6 +759,244 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                 actor_user_id=invitation.invited_by_user_id,
                 device_id=None,
                 event_type="share_invitation_sent",
+                outcome="allowed",
+                policy_reason="postal_delivery_accepted",
+            )
+            await db.commit()
+            return {"invitation_id": str(invitation_id), "status": "sent"}
+    finally:
+        await engine.dispose()
+
+
+async def send_account_created_email_activity(payload: dict[str, str]) -> dict[str, str]:
+    from temporalio.exceptions import ApplicationError
+
+    from twobrain_rec_server.api.problems import ProblemDetail
+    from twobrain_rec_server.cabinet.access import lock_shareable_meeting
+    from twobrain_rec_server.cabinet.egress import record_egress_audit_event
+    from twobrain_rec_server.db.tenant_context import (
+        TenantDatabaseContext,
+        WorkspaceAuthContext,
+        apply_tenant_context,
+    )
+
+    settings = get_settings()
+    invitation_id = UUID(payload["invitation_id"])
+    workspace_id = UUID(payload["workspace_id"])
+    organization_id = UUID(payload["organization_id"])
+    user_id = UUID(payload["user_id"])
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    tenant_context = TenantDatabaseContext(
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        user_id=UUID(int=0),
+        context_kind="worker",
+    )
+
+    async def set_delivery_state(
+        db,
+        invitation: MeetingShareInvitation,
+        *,
+        status: str,
+        failure_code: str | None = None,
+        event_type: str,
+        outcome: str,
+    ) -> None:
+        invitation.account_created_email_status = status
+        invitation.account_created_email_failure_code = failure_code
+        await record_egress_audit_event(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=invitation.meeting_id,
+            actor_user_id=user_id,
+            device_id=None,
+            event_type=event_type,
+            outcome=outcome,
+            policy_reason=failure_code or "postal_delivery_accepted",
+        )
+        await db.commit()
+
+    try:
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, tenant_context)
+            invitation = await db.get(MeetingShareInvitation, invitation_id)
+            if invitation is None or invitation.workspace_id != workspace_id:
+                raise ApplicationError("invitation_not_committed", non_retryable=False)
+            if invitation.account_created_email_status == "sending":
+                try:
+                    await lock_shareable_meeting(
+                        db,
+                        workspace_id=workspace_id,
+                        meeting_id=invitation.meeting_id,
+                    )
+                except ProblemDetail:
+                    return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
+                invitation = await db.scalar(
+                    select(MeetingShareInvitation)
+                    .where(
+                        MeetingShareInvitation.id == invitation_id,
+                        MeetingShareInvitation.workspace_id == workspace_id,
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                if invitation is None:
+                    raise ApplicationError("invitation_not_committed", non_retryable=False)
+                if invitation.account_created_email_status != "sending":
+                    return {
+                        "invitation_id": str(invitation_id),
+                        "status": invitation.account_created_email_status,
+                    }
+                await set_delivery_state(
+                    db,
+                    invitation,
+                    status="outcome_unknown",
+                    failure_code="postal_delivery_outcome_unknown",
+                    event_type="share_account_created_email_outcome_unknown",
+                    outcome="failed",
+                )
+                return {"invitation_id": str(invitation_id), "status": "outcome_unknown"}
+            if invitation.account_created_email_status != "pending":
+                return {
+                    "invitation_id": str(invitation_id),
+                    "status": invitation.account_created_email_status,
+                }
+            try:
+                await lock_shareable_meeting(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=invitation.meeting_id,
+                )
+            except ProblemDetail:
+                await set_delivery_state(
+                    db,
+                    invitation,
+                    status="failed",
+                    failure_code="meeting_unavailable_before_delivery",
+                    event_type="share_account_created_email_failed",
+                    outcome="failed",
+                )
+                return {"invitation_id": str(invitation_id), "status": "failed"}
+            invitation = await db.scalar(
+                select(MeetingShareInvitation)
+                .where(
+                    MeetingShareInvitation.id == invitation_id,
+                    MeetingShareInvitation.workspace_id == workspace_id,
+                    MeetingShareInvitation.account_created_email_status == "pending",
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if invitation is None:
+                return {"invitation_id": str(invitation_id), "status": "not_found"}
+            meeting = await db.get(Meeting, invitation.meeting_id)
+            await apply_tenant_context(
+                db,
+                WorkspaceAuthContext(
+                    workspace_id=workspace_id,
+                    organization_id=organization_id,
+                    context_kind="auth_bootstrap",
+                ),
+            )
+            identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.user_id == user_id,
+                    ExternalIdentity.is_verified.is_(True),
+                    ExternalIdentity.email.is_not(None),
+                )
+            )
+            await apply_tenant_context(db, tenant_context)
+            if meeting is None or identity is None or not identity.email:
+                await set_delivery_state(
+                    db,
+                    invitation,
+                    status="failed",
+                    failure_code="account_email_identity_missing",
+                    event_type="share_account_created_email_failed",
+                    outcome="failed",
+                )
+                return {"invitation_id": str(invitation_id), "status": "failed"}
+            invitation.account_created_email_status = "sending"
+            invitation.account_created_email_failure_code = None
+            await record_egress_audit_event(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=invitation.meeting_id,
+                actor_user_id=user_id,
+                device_id=None,
+                event_type="share_account_created_email_delivery_started",
+                outcome="prepared",
+                policy_reason="postal_delivery_attempt_reserved",
+            )
+            await db.commit()
+
+            await apply_tenant_context(db, tenant_context)
+            try:
+                await lock_shareable_meeting(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=invitation.meeting_id,
+                )
+            except ProblemDetail:
+                invitation = await db.get(MeetingShareInvitation, invitation_id)
+                if invitation is not None:
+                    await set_delivery_state(
+                        db,
+                        invitation,
+                        status="failed",
+                        failure_code="meeting_unavailable_after_reservation",
+                        event_type="share_account_created_email_failed",
+                        outcome="failed",
+                    )
+                return {"invitation_id": str(invitation_id), "status": "failed"}
+            invitation = await db.scalar(
+                select(MeetingShareInvitation)
+                .where(
+                    MeetingShareInvitation.id == invitation_id,
+                    MeetingShareInvitation.workspace_id == workspace_id,
+                    MeetingShareInvitation.account_created_email_status == "sending",
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            meeting = await db.get(Meeting, invitation.meeting_id) if invitation else None
+            if invitation is None or meeting is None:
+                return {"invitation_id": str(invitation_id), "status": "not_found"}
+            try:
+                base_url = str(settings.public_base_url).rstrip("/")
+                await send_account_created_email(
+                    settings=settings,
+                    recipient_email=str(identity.email),
+                    meeting_title=meeting.title,
+                    graf_url=f"{base_url}/meetings",
+                    settings_url=f"{base_url}/settings",
+                    delivery_key=f"account-created:{invitation.id}",
+                )
+            except EmailLoginDeliveryError as exc:
+                await set_delivery_state(
+                    db,
+                    invitation,
+                    status="outcome_unknown" if exc.outcome_unknown else "failed",
+                    failure_code=exc.reason_code,
+                    event_type=(
+                        "share_account_created_email_outcome_unknown"
+                        if exc.outcome_unknown
+                        else "share_account_created_email_failed"
+                    ),
+                    outcome="failed",
+                )
+                raise ApplicationError(exc.reason_code, non_retryable=True) from exc
+            invitation.account_created_email_status = "sent"
+            invitation.account_created_email_sent_at = datetime.now(UTC)
+            invitation.account_created_email_failure_code = None
+            await record_egress_audit_event(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=invitation.meeting_id,
+                actor_user_id=user_id,
+                device_id=None,
+                event_type="share_account_created_email_sent",
                 outcome="allowed",
                 policy_reason="postal_delivery_accepted",
             )
@@ -888,14 +1140,18 @@ async def run_worker() -> None:
     invitation_activity = activity.defn(name="deliver_meeting_invitation_activity")(
         deliver_meeting_invitation_activity
     )
+    account_created_email_activity = activity.defn(
+        name="send_account_created_email_activity"
+    )(send_account_created_email_activity)
     processing_worker = Worker(
         processing_client,
         task_queue=settings.temporal_task_queue,
         workflows=[
             MediaScribeProcessingWorkflow,
             InvitationDeliveryWorkflow,
+            AccountCreatedEmailWorkflow,
         ],
-        activities=[processing_activity, invitation_activity],
+        activities=[processing_activity, invitation_activity, account_created_email_activity],
         identity=processing_worker_identity(),
     )
     workers = [processing_worker]

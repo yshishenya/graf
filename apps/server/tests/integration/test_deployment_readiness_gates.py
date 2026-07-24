@@ -452,7 +452,7 @@ set -euo pipefail
 compose=(compose_stub)
 dispatch_opened=0
 previous_schema_head=0037_auth_rate_limit_buckets
-expected_schema_head=0040_merge_content_regen_share
+expected_schema_head=0041_share_account_created_email
 backup_reference=fixture-backup
 legacy_lineage_rows=1
 {restore_block}

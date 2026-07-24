@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import secrets
+from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
+from twobrain_rec_server.auth.sessions import hash_token, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import (
+    ensure_personal_workspace,
     list_active_workspaces,
     list_workspace_join_offers,
 )
@@ -20,10 +24,12 @@ from twobrain_rec_server.cabinet.access import (
     consume_share_invitation_continuation,
     create_share_invitation_continuation,
     finalize_share_invitation_continuation,
+    hash_share_token,
     invitation_address_hashes,
     narrow_summary_projection,
     normalize_invitation_address,
     share_invitation_preview,
+    share_invitation_recipient_address,
 )
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
@@ -44,6 +50,13 @@ from twobrain_rec_server.cabinet.review_policy_rendering import render_meeting_s
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
 )
+from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
+    _ensure_email_registration_user,
+    _record_email_login_audit,
+    _resolve_email_browser_device,
+    _resolve_email_login_user,
+    _set_browser_auth_cookie,
+)
 from twobrain_rec_server.cabinet.web_routes.support import (
     CabinetAccessFilter,
     CabinetLimitQuery,
@@ -60,13 +73,28 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _normalize_web_meeting_status_filter,
     _request_path_with_query,
 )
-from twobrain_rec_server.db.models import ExternalIdentity, Meeting, MeetingOutcomeItem
-from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
+from twobrain_rec_server.db.models import (
+    AuthSessionDeviceBinding,
+    ExternalIdentity,
+    Meeting,
+    MeetingOutcomeItem,
+    MeetingShareInvitation,
+)
+from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
+    apply_tenant_context,
+)
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
+from twobrain_rec_server.workflows.temporal_client import (
+    connect_temporal_client,
+    start_account_created_email_workflow,
+)
 
 router = APIRouter(tags=["cabinet-web"])
+MAGIC_LINK_CSRF_COOKIE_NAME = "graf_share_magic_csrf"
+MAGIC_LINK_CSRF_TTL_SECONDS = 15 * 60
 
 
 def _meeting_unavailable_response(
@@ -79,6 +107,47 @@ def _meeting_unavailable_response(
     return cabinet_html_response(
         render_meeting_unavailable_page(csrf_token=csrf_token),
         status_code=404,
+    )
+
+
+async def _render_shared_summary_for_grant(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> str:
+    meeting = await session.get(Meeting, meeting_id)
+    if meeting is None or meeting.workspace_id != workspace_id:
+        raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+    items = (
+        (
+            await session.scalars(
+                select(MeetingOutcomeItem)
+                .where(
+                    MeetingOutcomeItem.workspace_id == workspace_id,
+                    MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
+                    MeetingOutcomeItem.state == "available",
+                )
+                .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+            )
+        ).all()
+        if meeting.current_outcome_set_id is not None
+        else []
+    )
+    projection = narrow_summary_projection(
+        meeting_label=meeting.title or "Встреча",
+        occurred_at=meeting.started_at or meeting.created_at,
+        duration_seconds=meeting.duration_seconds,
+        summary_sections=[
+            {"category": item.category, "text": item.text or ""} for item in items
+        ],
+    )
+    return render_shared_meeting_summary_page(
+        meeting_title=str(projection["meeting_label"]),
+        occurred_at=projection["occurred_at"],
+        duration_seconds=int(projection["duration_seconds"]),
+        summary_sections=projection["summary_sections"],
+        authenticated=True,
     )
 
 
@@ -168,41 +237,14 @@ async def share_invitation_continuation(
             nonce=state,
         ):
             raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
-        meeting = await session.get(Meeting, grant.meeting_id)
-        if meeting is None:
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
-        items = (
-            (
-                await session.scalars(
-                    select(MeetingOutcomeItem)
-                    .where(
-                        MeetingOutcomeItem.workspace_id == workspace_id,
-                        MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
-                        MeetingOutcomeItem.state == "available",
-                    )
-                    .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
-                )
-            ).all()
-            if meeting.current_outcome_set_id is not None
-            else []
-        )
-        projection = narrow_summary_projection(
-            meeting_label=meeting.title or "Встреча",
-            occurred_at=meeting.started_at or meeting.created_at,
-            duration_seconds=meeting.duration_seconds,
-            summary_sections=[
-                {"category": item.category, "text": item.text or ""} for item in items
-            ],
+        summary_html = await _render_shared_summary_for_grant(
+            session,
+            workspace_id=workspace_id,
+            meeting_id=grant.meeting_id,
         )
         await session.commit()
     response = cabinet_html_response(
-        render_shared_meeting_summary_page(
-            meeting_title=str(projection["meeting_label"]),
-            occurred_at=projection["occurred_at"],
-            duration_seconds=int(projection["duration_seconds"]),
-            summary_sections=projection["summary_sections"],
-            authenticated=True,
-        )
+        summary_html
     )
     response.headers.update(
         {
@@ -215,6 +257,289 @@ async def share_invitation_continuation(
     return response
 
 
+async def _mark_account_created_email_dispatch_failure(
+    *,
+    sessionmaker,
+    invitation_id: UUID,
+    workspace_id: UUID,
+    status: str,
+    failure_code: str,
+) -> None:
+    async with sessionmaker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=UUID(int=0),
+                workspace_id=workspace_id,
+                user_id=UUID(int=0),
+                context_kind="worker",
+            ),
+        )
+        invitation = await session.get(MeetingShareInvitation, invitation_id)
+        if invitation is not None and invitation.account_created_email_status == "pending":
+            invitation.account_created_email_status = status
+            invitation.account_created_email_failure_code = failure_code
+            await session.commit()
+
+
+async def _dispatch_account_created_email(
+    request: Request,
+    *,
+    sessionmaker,
+    invitation_id: UUID,
+    workspace_id: UUID,
+    organization_id: UUID,
+    user_id: UUID,
+) -> None:
+    settings = request.app.state.settings
+    if not settings.email_login_delivery_enabled:
+        await _mark_account_created_email_dispatch_failure(
+            sessionmaker=sessionmaker,
+            invitation_id=invitation_id,
+            workspace_id=workspace_id,
+            status="failed",
+            failure_code="postal_delivery_disabled",
+        )
+        return
+    try:
+        temporal_client = getattr(request.app.state, "temporal_client", None)
+        if temporal_client is None:
+            temporal_client = await connect_temporal_client(settings)
+        await start_account_created_email_workflow(
+            temporal_client=temporal_client,
+            settings=settings,
+            invitation_id=invitation_id,
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+    except Exception:
+        await _mark_account_created_email_dispatch_failure(
+            sessionmaker=sessionmaker,
+            invitation_id=invitation_id,
+            workspace_id=workspace_id,
+            status="outcome_unknown",
+            failure_code="account_created_email_workflow_start_unknown",
+        )
+
+
+@router.post(
+    "/share-invitations/continue/magic",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def share_invitation_magic_link(
+    request: Request,
+    workspace_id: Annotated[UUID, Query()],
+    state: Annotated[str, Form(min_length=16, max_length=128)],
+    magic_csrf: Annotated[str, Form(min_length=16, max_length=128)],
+) -> Response:
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    key_file = request.app.state.settings.credential_encryption_key_file
+    cookie_token = request.cookies.get(MAGIC_LINK_CSRF_COOKIE_NAME)
+    if (
+        sessionmaker is None
+        or key_file is None
+        or cookie_token is None
+        or not secrets.compare_digest(cookie_token, magic_csrf)
+    ):
+        raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+
+    encryption_key = key_file.read_bytes().strip()
+    account_created = False
+    invitation_id: UUID | None = None
+    issued_token: str | None = None
+    issued_expires_at: datetime | None = None
+    user_id: UUID | None = None
+    async with sessionmaker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=UUID(int=0),
+                workspace_id=workspace_id,
+                user_id=UUID(int=0),
+                context_kind="request",
+            ),
+        )
+        raw_token = await consume_share_invitation_continuation(
+            session,
+            workspace_id=workspace_id,
+            nonce=state,
+            encryption_key=encryption_key,
+        )
+        if raw_token is None:
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        recipient_email = await share_invitation_recipient_address(
+            session,
+            workspace_id=workspace_id,
+            raw_token=raw_token,
+            encryption_key=encryption_key,
+        )
+        if recipient_email is None:
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        invitation_id = await session.scalar(
+            select(MeetingShareInvitation.id).where(
+                MeetingShareInvitation.workspace_id == workspace_id,
+                MeetingShareInvitation.token_hash == hash_share_token(raw_token),
+                MeetingShareInvitation.status.in_(("pending", "sending", "sent")),
+            )
+        )
+        workspace, user = await _resolve_email_login_user(
+            session,
+            workspace_id=workspace_id,
+            email=recipient_email,
+        )
+        if workspace is None:
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        account_created = user is None
+        if account_created:
+            existing_identity_id = await session.scalar(
+                select(ExternalIdentity.id).where(
+                    func.lower(ExternalIdentity.email) == recipient_email,
+                    ExternalIdentity.is_verified.is_(True),
+                )
+            )
+            account_created = existing_identity_id is None
+            user = await _ensure_email_registration_user(
+                session,
+                workspace=workspace,
+                email=recipient_email,
+                now=datetime.now(UTC),
+            )
+        personal_workspace = await ensure_personal_workspace(
+            session,
+            organization_id=workspace.organization_id,
+            user_id=user.id,
+        )
+        now = datetime.now(UTC)
+        device = await _resolve_email_browser_device(
+            session,
+            workspace=personal_workspace,
+            user=user,
+            now=now,
+        )
+        issued = await issue_auth_session(
+            session,
+            user_id=user.id,
+            workspace_id=personal_workspace.id,
+            device_id=device.id,
+            provider="email_magic_link",
+            ttl_seconds=request.app.state.settings.auth_session_ttl_seconds,
+            claims_fingerprint=hash_token(f"magic:{recipient_email}:{workspace_id}"),
+            now=now,
+        )
+        session.add(
+            AuthSessionDeviceBinding(
+                auth_session_id=issued.id,
+                registered_device_id=device.id,
+                device_state="trusted",
+                last_heartbeat_at=now,
+            )
+        )
+        await session.flush()
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=workspace.organization_id,
+                workspace_id=personal_workspace.id,
+                user_id=user.id,
+                device_id=device.id,
+                auth_session_id=issued.id,
+                context_kind="request",
+            ),
+        )
+        await _record_email_login_audit(
+            session,
+            request=request,
+            workspace_id=personal_workspace.id,
+            user_id=user.id,
+            metadata={
+                "flow": "share_magic_link",
+                "account_created": account_created,
+            },
+        )
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=workspace.organization_id,
+                workspace_id=workspace_id,
+                user_id=user.id,
+                device_id=device.id,
+                auth_session_id=issued.id,
+                context_kind="request",
+            ),
+        )
+        accepted = await accept_share_invitation(
+            session,
+            workspace_id=workspace_id,
+            user_id=user.id,
+            device_id=device.id,
+            raw_token=raw_token,
+            verified_address_hashes=invitation_address_hashes(recipient_email),
+            encryption_key=encryption_key,
+            recipient_user_active=True,
+        )
+        if accepted is None or invitation_id is None:
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        grant, _grant_token = accepted
+        accepted_invitation = await session.scalar(
+            select(MeetingShareInvitation)
+            .where(
+                MeetingShareInvitation.id == invitation_id,
+                MeetingShareInvitation.workspace_id == workspace_id,
+                MeetingShareInvitation.status == "accepted",
+            )
+            .with_for_update()
+        )
+        if accepted_invitation is None:
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        if account_created:
+            accepted_invitation.account_created_email_status = "pending"
+            accepted_invitation.account_created_email_failure_code = None
+        if not await finalize_share_invitation_continuation(
+            session,
+            workspace_id=workspace_id,
+            nonce=state,
+        ):
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        summary_html = await _render_shared_summary_for_grant(
+            session,
+            workspace_id=workspace_id,
+            meeting_id=grant.meeting_id,
+        )
+        await session.commit()
+        issued_token = issued.token
+        issued_expires_at = issued.expires_at
+        user_id = user.id
+
+    response = cabinet_html_response(summary_html)
+    if issued_token is not None and issued_expires_at is not None:
+        _set_browser_auth_cookie(
+            response,
+            token=issued_token,
+            expires_at=issued_expires_at,
+        )
+    response.delete_cookie(MAGIC_LINK_CSRF_COOKIE_NAME, path="/")
+    response.headers.update(
+        {
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow, noarchive",
+        }
+    )
+    if account_created and invitation_id is not None and user_id is not None:
+        await _dispatch_account_created_email(
+            request,
+            sessionmaker=sessionmaker,
+            invitation_id=invitation_id,
+            workspace_id=workspace_id,
+            organization_id=workspace.organization_id,
+            user_id=user_id,
+        )
+    return response
+
+
 @router.get("/share-invitations/{share_token}", response_class=HTMLResponse, include_in_schema=False)
 async def share_invitation_accept_page(
     request: Request,
@@ -224,6 +549,7 @@ async def share_invitation_accept_page(
 ) -> Response:
     preview = None
     continuation_nonce = None
+    magic_csrf_token = None
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is not None:
         async with sessionmaker() as session:
@@ -258,6 +584,8 @@ async def share_invitation_accept_page(
             ),
             status_code=303,
         )
+    if preview is not None and continuation_nonce is not None and principal is None:
+        magic_csrf_token = request.cookies.get(MAGIC_LINK_CSRF_COOKIE_NAME) or secrets.token_urlsafe(32)
     post_login_next_path = "/meetings"
     if continuation_nonce is not None:
         post_login_next_path = (
@@ -279,8 +607,25 @@ async def share_invitation_accept_page(
             invitation_expires_at=preview.expires_at if preview else None,
             authenticated=principal is not None,
             post_login_next_path=post_login_next_path,
+            magic_action=(
+                f"/share-invitations/continue/magic?workspace_id={workspace_id}"
+                if continuation_nonce is not None
+                else None
+            ),
+            magic_state=continuation_nonce,
+            magic_csrf_token=magic_csrf_token,
         )
     )
+    if magic_csrf_token is not None:
+        response.set_cookie(
+            key=MAGIC_LINK_CSRF_COOKIE_NAME,
+            value=magic_csrf_token,
+            max_age=MAGIC_LINK_CSRF_TTL_SECONDS,
+            path="/",
+            secure=request.url.scheme == "https",
+            httponly=False,
+            samesite="lax",
+        )
     response.headers.update(
         {
             "Cache-Control": "private, no-store",

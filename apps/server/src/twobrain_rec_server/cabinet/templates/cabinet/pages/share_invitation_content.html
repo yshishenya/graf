@@ -2,7 +2,7 @@
   <section class="panel compact-panel" aria-labelledby="share-invitation-title">
     {% if invitation_available %}
       <h1 id="share-invitation-title">Вам открыли итоги встречи</h1>
-      <p>Проверьте встречу и войдите с email, на который пришло приглашение.</p>
+      <p>Откройте GRAF — аккаунт создастся автоматически, если его ещё нет.</p>
       <div class="panel compact-panel" aria-label="Сведения о встрече">
         <strong>{{ meeting_title }}</strong>
         <p class="muted">
@@ -11,21 +11,25 @@
         </p>
         <p class="muted">Доступ: только итоги · до {{ invitation_expires_at.strftime("%d.%m.%Y") }}</p>
       </div>
-      <p class="muted">Приглашение не добавляет вас в рабочую область и не открывает аудио, расшифровку или внутренние данные встречи.</p>
+      <p class="muted">Вы увидите только итоги. Приглашение не добавляет вас в рабочую область и не открывает аудио, расшифровку или внутренние данные встречи.</p>
       {% if authenticated %}
         <form method="post" action="{{ accept_action }}">
           <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
           <button type="submit" class="button">Открыть итоги</button>
         </form>
       {% else %}
-        <a class="button" href="{{ login_href }}">Войти и открыть итоги</a>
+        <form method="post" action="{{ magic_action }}">
+          <input type="hidden" name="state" value="{{ magic_state or '' }}">
+          <input type="hidden" name="magic_csrf" value="{{ magic_csrf_token or '' }}">
+          <button type="submit" class="button">Открыть GRAF и итоги</button>
+        </form>
       {% endif %}
     {% else %}
       <h1 id="share-invitation-title">Приглашение недоступно</h1>
       <p>Ссылка уже использована, отозвана или срок её действия истёк.</p>
     {% endif %}
     {% if invitation_available %}
-      <p class="muted">Если аккаунта GRAF ещё нет, он создастся автоматически после подтверждения email.</p>
+      <p class="muted">Пароль и отдельная регистрация не нужны: одноразовая ссылка из письма подтверждает ваш email.</p>
     {% endif %}
   </section>
 </main>

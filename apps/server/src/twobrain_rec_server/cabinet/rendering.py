@@ -136,6 +136,9 @@ def render_share_invitation_accept_page(
     invitation_expires_at: datetime | None = None,
     authenticated: bool = False,
     post_login_next_path: str = "/meetings",
+    magic_action: str | None = None,
+    magic_state: str | None = None,
+    magic_csrf_token: str | None = None,
 ) -> str:
     return _page_shell(
         "Приглашение на встречу",
@@ -153,6 +156,9 @@ def render_share_invitation_accept_page(
         invitation_expires_at=invitation_expires_at,
         authenticated=authenticated,
         login_href=f"/login?{urlencode({'next': post_login_next_path})}",
+        magic_action=magic_action,
+        magic_state=magic_state,
+        magic_csrf_token=magic_csrf_token,
     )
 
 

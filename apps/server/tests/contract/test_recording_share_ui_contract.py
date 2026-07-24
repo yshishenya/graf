@@ -21,7 +21,11 @@ def test_share_fragment_is_simple_first_and_accessible() -> None:
     assert "Скопировать ссылку" in JS.read_text(encoding="utf-8")
     assert "Открыть доступ к итогам" in JS.read_text(encoding="utf-8")
     assert "Календарь и рабочая область" in JS.read_text(encoding="utf-8")
-    assert "Что увидят: только итоги" in source
+    assert "Что увидит получатель" in source
+    assert "Открыть GRAF и итоги" in (
+        REPO_ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html"
+    ).read_text(encoding="utf-8")
     assert "Отозвать" in source
     assert "data-share-recipient-results" in source
     assert "data-share-recipient-confirmation" in source

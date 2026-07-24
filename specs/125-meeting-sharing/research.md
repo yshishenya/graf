@@ -86,13 +86,14 @@ public links, contacts и referral остаются false.
 
 Вирусный цикл строится вокруг полезного первого результата:
 
-`получатель → безопасное письмо/CTA → единый email/provider-вход →
-автоматический personal account при первом входе → summary-only просмотр →
+`получатель → безопасное письмо → явное открытие одноразовой magic link →
+автоматический personal account при первом открытии → summary-only просмотр →
 ненавязчивый «Попробовать GRAF»`.
 
 CTA не блокирует просмотр и не добавляет человека в workspace автоматически.
-Первый email/provider-вход может создать personal account только как явное
-действие получателя. Attribution — только непрозрачный bounded id,
+Первый invite magic-link может создать personal account только как явное
+действие получателя. Обычный email-вход вне приглашения остаётся кодовым.
+Attribution — только непрозрачный bounded id,
 одноразово связанный с invitation/grant; в событии нет title, transcript,
 summary text, email или raw token. На первом этапе достаточно metadata-only
 событий и существующего product-analytics gate; новая внешняя аналитическая
@@ -102,8 +103,8 @@ summary text, email или raw token. На первом этапе достат�
 
 - Read.ai показывает путь от shared report к signup, но аккаунт появляется
   только после действия получателя. Для GRAF это реализуется одним auth-шагом:
-  email-код может создать personal account автоматически, без отдельной
-  registration-страницы.
+  invitation magic link создаёт personal account автоматически, без отдельной
+  registration-страницы и пароля.
 - Письмо Krisp содержит безопасные metadata встречи и кнопку просмотра, но не
   встраивает transcript или summary text. Этот принцип снижает утечку через
   пересылку письма и preview в почтовом клиенте.

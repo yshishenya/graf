@@ -9,13 +9,53 @@
 ## [Unreleased]
 
 ### Добавлено
+- Для внешнего exact-email приглашения добавлен явный одноразовый magic-link:
+  получатель без аккаунта автоматически получает personal account и сразу
+  открывает summary-only итоги без пароля и отдельной регистрации.
+- После первого bootstrap добавлено отдельное account-created письмо с
+  безопасными ссылками GRAF/настроек и маскированным адресом.
+
+### Изменено
+- Модалка «Поделиться итогами» теперь явно показывает scope, ограничения,
+  текущие приглашения и честные состояния подготовки/отправки письма.
+- Anonymous invitation preview больше не ведёт через email-code/signup экран:
+  действие «Открыть GRAF и итоги» создаёт сессию и открывает разрешённые итоги.
+
+### Исправлено
+- Убрано рассогласование между приглашением и фактическим onboarding-flow:
+  повторное использование magic-link отклоняется, а неправильная CSRF-пара
+  не раскрывает состояние приглашения.
+
+### Безопасность
+- Адрес получателя для magic-link хранится зашифрованно только до
+  acceptance/revoke/expiry; raw token не попадает в форму, login target,
+  referrer или analytics. Доступ остаётся summary-only/view-only и не создаёт
+  membership рабочей области.
+- Account-created notification запускается после commit через детерминированный
+  Temporal workflow с отдельными состояниями `sent`, `failed` и
+  `outcome_unknown`; public links, Contacts и referral остаются gated.
+
+### Документы
+- Feature 125 дополнен контрактом magic-link, account-created notification и
+  UX/security evidence.
+
+### Операции
+- Добавлена миграция `0041_share_account_created_email`; worker получает
+  organization context для безопасного чтения verified email под PostgreSQL RLS.
+
+## [2026.07.24.5] - 2026-07-24
+
+
+### Добавлено
 - _Пока нет записей._
 
 ### Изменено
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Исправлена доставка внешних приглашений: `rec-processing-worker` теперь
+  подключается к внешней Postal-сети, где доступен `postal-web`; добавлена
+  Compose-регрессия, чтобы worker не мог снова запуститься без этого канала.
 
 ### Безопасность
 - _Пока нет записей._
@@ -24,7 +64,60 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Production hotfix выкачен на точный SHA
+  `7b601cf94b7f1a8183dc55e8651d2851c4b0eee7`; backup/restore, RLS, readiness,
+  production smoke и automatic dispatch прошли. Worker проверен в
+  `postal_postal-network`; live email для проверки не отправлялся.
+
+## [2026.07.24.4] - 2026-07-24
+
+
+### Добавлено
+- В Feature 125 переработан Share для внутреннего summary-only доступа:
+  поиск по workspace и связанному календарю, отдельные recipient-bound ссылки,
+  копирование/ротация и отзыв доступа.
+- Подготовлен и включён контролируемый B2C exact-email flow: безопасное письмо
+  с метаданными встречи, единый email-вход с автоматическим созданием personal
+  account, exact verified identity, отдельный grant token, bounded expiry и без
+  автоматического вступления в workspace.
+
+### Изменено
+- Модалка Share показывает реальную capability-политику, source/freshness
+  кандидата, явное действие «Открыть доступ к итогам», retry после ошибок и
+  доступный keyboard combobox с начальными календарными подсказками.
+- B2B-доступ повторно проверяет active membership; B2C-доставка различает
+  подтверждённую отправку и `outcome_unknown`, а B2B notification использует
+  token-free URL.
+
+### Исправлено
+- Закрыты гонки invitation/auth state и provider email verification; добавлены
+  узкий read-only `share_invitation_lookup` RLS-контекст, durable auth-code
+  rate limits и commit-before-Temporal delivery recovery без автоматического
+  дубля письма.
+- OpenAPI/RLS contracts и synthetic regression coverage синхронизированы с
+  runtime, а production exact-email configuration проверена в API и worker.
+
+### Безопасность
+- Meeting-bound search, bounded invitation/grant TTL, revoke/rotation,
+  exact-recipient replay safety, token-safe paths и
+  `no-store`/`no-referrer`/`noindex` headers сохраняют summary-only границу.
+
+### Документы
+- Добавлены Spec Kit-артефакты Feature 125 с исследованием Krisp, Read.ai,
+  Fathom, Fireflies, Otter, календаря и native address-book design.
+- Зафиксированы следующие gated slices: participant distribution,
+  `Shared with me`, auto-share, recurring pre-read, team access, public links,
+  Contacts/provider lookup и referral attribution.
+
+### Операции
+- Production runtime выкатан на точном SHA
+  `9a44d9af9c0bce0c4a75b6d497657492f44c818a`, migration head
+  `0037_auth_rate_limit_buckets`; backup/restore, RLS/runtime boundary,
+  readiness, smoke и automatic dispatch прошли.
+- Exact-email invitations и email-login включены; public links, Contacts и
+  referral attribution остаются выключенными отдельными gates.
+- Локальный macOS artifact `2026.07.24.4` собран с `GRAF Local Code Signing`;
+  package unsigned, Developer ID и notarization не заявляются.
 
 ## [2026.07.24.9] - 2026-07-24
 

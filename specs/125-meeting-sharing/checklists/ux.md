@@ -29,6 +29,12 @@
 - [x] Calendar/address-book source and freshness are visible without implying consent
 - [x] Email and recipient surfaces exclude transcript/audio/summary content
 - [x] Visual direction remains original GRAF clean-room UI and requires product-design review
+- [x] Anonymous invitation clearly explains automatic personal-account bootstrap,
+  one-time magic-link access and summary-only scope without exposing a sign-up
+  form or password step
+- [x] Share confirmation distinguishes invitation creation from mailbox delivery
+  and explains that an existing account is reused while a new account receives a
+  separate notification
 
 ## Notes
 
