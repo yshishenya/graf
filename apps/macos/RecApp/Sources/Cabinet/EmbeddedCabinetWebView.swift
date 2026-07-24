@@ -107,7 +107,7 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
         let decision = routePolicy.decision(for: url)
         guard decision.decision == .allow else { return false }
         switch decision.route.kind {
-        case .meetingList, .meetingDetail, .meetingDeletionReport:
+        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport:
             return true
         case .artifactDownload, .calendarSettings, .meetingDetectionSettings, .admin, .authLogin, .authSignup,
              .authProvider, .authCallback, .unsupported, .external, .forbiddenAction:
@@ -369,7 +369,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         switch routeKind {
         case .authLogin, .authSignup, .authProvider, .authCallback:
             return .expiredSession
-        case .meetingList, .meetingDetail, .meetingDeletionReport, .calendarSettings, .meetingDetectionSettings:
+        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .calendarSettings, .meetingDetectionSettings:
             return .ready
         case .artifactDownload:
             return .ready

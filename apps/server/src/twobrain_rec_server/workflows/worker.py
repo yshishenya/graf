@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -8,11 +9,20 @@ from uuid import UUID
 from sqlalchemy import select
 
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.auth.email_delivery import EmailLoginDeliveryError, PostalEmailLoginClient
+from twobrain_rec_server.auth.email_delivery import (
+    EmailLoginDeliveryError,
+    send_meeting_invitation,
+)
 from twobrain_rec_server.config import get_settings
-from twobrain_rec_server.db.models import MeetingShareInvitation
+from twobrain_rec_server.db.models import Meeting, MeetingShareInvitation, UserIdentity
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
-from twobrain_rec_server.db.tenant_context import apply_tenant_scope
+from twobrain_rec_server.db.tenant_context import (
+    MaintenanceTenantContext,
+    apply_tenant_context,
+    apply_tenant_scope,
+)
+from twobrain_rec_server.deletion.local_purge import reconcile_expired_local_purge_tasks
+from twobrain_rec_server.deletion.service import reconcile_deletion_purges
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
 from twobrain_rec_server.outcomes.ai_service import (
@@ -24,7 +34,13 @@ from twobrain_rec_server.outcomes.ai_service import (
     resolve_candidate_prompt,
     snapshot_candidate_transcript,
 )
+from twobrain_rec_server.outcomes.dispatch import (
+    list_due_dispatch_intents,
+    reconcile_dispatch_intent,
+)
 from twobrain_rec_server.processing import reasons, store
+from twobrain_rec_server.processing.fences import is_legacy_lineage
+from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 from twobrain_rec_server.processing.submit import (
     poll_and_import_mediascribe_result,
     submit_to_mediascribe,
@@ -36,12 +52,128 @@ from twobrain_rec_server.workflows.outcome_generation_workflow import (
     OutcomeObservabilityReconcilerWorkflow,
     TranscriptSnapshotError,
 )
-from twobrain_rec_server.workflows.processing_workflow import MediaScribeProcessingWorkflow
+from twobrain_rec_server.workflows.processing_workflow import (
+    PROCESSING_ACTIVITY_MAX_ATTEMPTS,
+    MediaScribeProcessingWorkflow,
+)
 from twobrain_rec_server.workflows.temporal_client import (
     connect_temporal_client,
     outcome_generation_task_queue,
     processing_worker_identity,
 )
+
+logger = logging.getLogger(__name__)
+
+
+async def run_dispatch_reconciler(settings: Any, temporal_client: object) -> None:
+    """Retry durable candidate dispatches without relying on a user request."""
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(
+                        db,
+                        MaintenanceTenantContext(
+                            operation_name="outcome_dispatch_reconciliation",
+                            actor_id="graf-workflow-worker",
+                            reason_category="durable_dispatch_retry",
+                            feature_area="content_regeneration",
+                        ),
+                    )
+                    intents = await list_due_dispatch_intents(db, limit=100)
+                    # list_due_dispatch_intents may project expired leases on
+                    # intent rows. Flush that projection before the first
+                    # Meeting fence so autoflush cannot invert locks.
+                    await db.commit()
+                    for intent in intents:
+                        await reconcile_dispatch_intent(
+                            db,
+                            intent=intent,
+                            settings=settings,
+                            temporal_client=temporal_client,
+                        )
+            except Exception:
+                logger.exception("outcome dispatch reconciliation cycle failed")
+            await asyncio.sleep(5)
+    finally:
+        await engine.dispose()
+
+
+async def run_deletion_purge_reconciler(settings: Any, temporal_client: object) -> None:
+    """Converge committed deletion tombstones after process/storage failures."""
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    storage = get_storage(settings)
+    context = MaintenanceTenantContext(
+        operation_name="deletion_purge_reconciliation",
+        actor_id="graf-workflow-worker",
+        reason_category="durable_deletion_retry",
+        feature_area="content_regeneration",
+    )
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    await reconcile_expired_local_purge_tasks(db, limit=500)
+                    await db.commit()
+                    await reconcile_deletion_purges(
+                        db,
+                        storage=storage,
+                        temporal_client=temporal_client,
+                        limit=20,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("deletion purge reconciliation cycle failed")
+            await asyncio.sleep(15)
+    finally:
+        close_storage = getattr(storage, "close", None)
+        if close_storage is not None:
+            close_storage()
+        await engine.dispose()
+
+
+async def run_legacy_processing_lineage_reconciler(settings: Any) -> None:
+    """Converge pre-revision processing rows without guessing their source."""
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(
+                        db,
+                        MaintenanceTenantContext(
+                            operation_name="processing_legacy_lineage_reconciliation",
+                            actor_id="graf-maintenance",
+                            reason_category="legacy_lineage_backfill",
+                            feature_area="content_regeneration",
+                        ),
+                    )
+                    report = await store.reconcile_legacy_processing_lineage(db, limit=500)
+                    if report["relinked"] or report["blocked"]:
+                        logger.info("legacy processing lineage reconciliation: %s", report)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("legacy processing lineage reconciliation cycle failed")
+            await asyncio.sleep(60)
+    finally:
+        await engine.dispose()
+
+
+def invitation_delivery_failure_state(
+    error: EmailLoginDeliveryError,
+) -> tuple[str, str]:
+    """Keep pre-egress failures distinct from an unknown provider outcome."""
+    return (
+        "outcome_unknown" if error.outcome_unknown else "failed",
+        error.reason_code,
+    )
 
 
 async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str, str]:
@@ -75,16 +207,24 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=media_revision_id,
+                active_only=True,
             )
-            if workflow is None:
-                workflow = await store.upsert_processing_workflow(
+            if media_revision_id is None and not (
+                workflow is not None
+                and is_legacy_lineage(
+                    media_revision_id=workflow.media_revision_id,
+                    source_fingerprint=workflow.source_fingerprint,
+                )
+            ):
+                latest_revision = await store.latest_media_revision_for_meeting(
                     db,
                     workspace_id=workspace_id,
                     meeting_id=meeting_id,
-                    media_revision_id=media_revision_id,
-                    workflow_id=f"processing/{payload.get('media_revision_id') or payload['meeting_id']}",
-                    status=ProcessingStatus.WORKFLOW_STARTED,
                 )
+                if latest_revision is not None:
+                    raise ProcessingLifecycleBlocked("processing_source_revision_stale")
+            if workflow is None:
+                raise ProcessingLifecycleBlocked("processing_workflow_missing")
             submit_result = await submit_to_mediascribe(
                 db=db,
                 settings=settings,
@@ -117,18 +257,102 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 terminal=True,
             )
             return {"meeting_id": payload["meeting_id"], "processing_status": "failed_terminal"}
+    except ProcessingLifecycleBlocked as exc:
+        if str(exc) == "processing_source_revision_stale":
+            # A legacy callback can omit its revision id after a newer source
+            # is accepted. Terminalize only older active workflows; never let
+            # that callback leave a stale row visible to reconciliation.
+            try:
+                async with sessionmaker() as stale_db:
+                    await apply_tenant_scope(stale_db, tenant_scope, context_kind="worker")
+                    await store.cancel_stale_revision_workflows(
+                        stale_db,
+                        workspace_id=workspace_id,
+                        meeting_id=meeting_id,
+                        reason_code=str(exc),
+                    )
+            except Exception:
+                logger.exception("failed to cancel stale processing workflow")
+        # Do not reopen or retry a canceled workflow through the provider-error
+        # path. The stale-source helper above commits its terminal transition.
+        return {
+            "meeting_id": payload.get("meeting_id", meeting_ref),
+            "processing_status": ProcessingStatus.CANCELED.value,
+            "reason_code": str(exc),
+        }
     except MediaScribeClientError as exc:
         status = _processing_status_for_client_error(exc)
-        await _persist_activity_client_error(
-            sessionmaker,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision_id,
-            tenant_scope=tenant_scope,
-            status=status,
-            reason_code=exc.reason_code,
-        )
+        try:
+            activity_attempt = activity.info().attempt
+        except RuntimeError:
+            activity_attempt = 1
+        exhausted = exc.retryable and activity_attempt >= PROCESSING_ACTIVITY_MAX_ATTEMPTS
+        if exhausted:
+            status = ProcessingStatus.FAILED_TERMINAL
+            reason_code = reasons.MEDIASCRIBE_RETRIES_EXHAUSTED
+        else:
+            reason_code = exc.reason_code
+        try:
+            await _persist_activity_client_error(
+                sessionmaker,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                tenant_scope=tenant_scope,
+                status=status,
+                reason_code=reason_code,
+            )
+        except ProcessingLifecycleBlocked:
+            return {
+                "meeting_id": payload.get("meeting_id", meeting_ref),
+                "processing_status": ProcessingStatus.CANCELED.value,
+                "reason_code": "meeting_deleting",
+            }
+        if exhausted:
+            return {
+                "meeting_id": payload["meeting_id"],
+                "processing_status": status.value,
+                "reason_code": reason_code,
+            }
+        if status == ProcessingStatus.FAILED_RETRYABLE:
+            raise
         return {"meeting_id": payload["meeting_id"], "processing_status": status.value}
+    except RuntimeError as exc:
+        classified = _processing_status_for_runtime_error(exc)
+        if classified is None:
+            raise
+        status, retryable = classified
+        try:
+            activity_attempt = activity.info().attempt
+        except RuntimeError:
+            activity_attempt = 1
+        exhausted = retryable and activity_attempt >= PROCESSING_ACTIVITY_MAX_ATTEMPTS
+        if exhausted:
+            status = ProcessingStatus.FAILED_TERMINAL
+        reason_code = str(exc)
+        try:
+            await _persist_activity_client_error(
+                sessionmaker,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                tenant_scope=tenant_scope,
+                status=status,
+                reason_code=reason_code,
+            )
+        except ProcessingLifecycleBlocked:
+            return {
+                "meeting_id": payload.get("meeting_id", meeting_ref),
+                "processing_status": ProcessingStatus.CANCELED.value,
+                "reason_code": "meeting_deleting",
+            }
+        if status == ProcessingStatus.FAILED_RETRYABLE:
+            raise
+        return {
+            "meeting_id": payload["meeting_id"],
+            "processing_status": status.value,
+            "reason_code": reason_code,
+        }
     finally:
         await engine.dispose()
 
@@ -251,6 +475,7 @@ async def finalize_outcome_generation_failure_activity(
             workspace_id=UUID(str(payload["workspace_id"])),
             candidate_id=UUID(str(payload["candidate_id"])),
             failure_code=str(payload.get("failure_code") or "summary_generation_retries_exhausted")[:120],
+            failure_reason=(str(payload["failure_reason"]) if payload.get("failure_reason") else None),
         )
         return {"candidate_id": str(payload["candidate_id"]), "status": "failed"}
     finally:
@@ -312,6 +537,23 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
     try:
         async with sessionmaker() as db:
             await apply_tenant_context(db, tenant_context)
+
+            async def cancel_invitation(reserved: MeetingShareInvitation, reason: str) -> None:
+                reserved.status = "cancelled"
+                reserved.failure_code = reason
+                reserved.encrypted_delivery_address = ""
+                await record_egress_audit_event(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=reserved.meeting_id,
+                    actor_user_id=reserved.invited_by_user_id,
+                    device_id=None,
+                    event_type="share_invitation_cancelled",
+                    outcome="failed",
+                    policy_reason=reason,
+                )
+                await db.commit()
+
             invitation = await db.get(MeetingShareInvitation, invitation_id)
             if invitation is None:
                 raise ApplicationError("invitation_not_committed", non_retryable=False)
@@ -320,7 +562,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
             if invitation.status == "sending":
                 # Join the canonical meeting -> invitation lock order and
                 # re-read the state. A late Temporal attempt must never replace
-                # a newer sent, accepted, or revoked state with `failed`.
+                # a newer sent, accepted, or revoked state with `outcome_unknown`.
                 try:
                     await lock_shareable_meeting(
                         db,
@@ -328,6 +570,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                         meeting_id=invitation.meeting_id,
                     )
                 except ProblemDetail:
+                    await cancel_invitation(invitation, "meeting_unavailable_before_delivery")
                     return {
                         "invitation_id": str(invitation_id),
                         "status": "meeting_unavailable",
@@ -348,7 +591,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                         "invitation_id": str(invitation_id),
                         "status": invitation.status,
                     }
-                invitation.status = "failed"
+                invitation.status = "outcome_unknown"
                 invitation.failure_code = "postal_delivery_outcome_unknown"
                 invitation.encrypted_delivery_address = ""
                 await record_egress_audit_event(
@@ -357,12 +600,12 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     meeting_id=invitation.meeting_id,
                     actor_user_id=invitation.invited_by_user_id,
                     device_id=None,
-                    event_type="share_invitation_failed",
+                    event_type="share_invitation_outcome_unknown",
                     outcome="failed",
                     policy_reason="postal_delivery_outcome_unknown",
                 )
                 await db.commit()
-                return {"invitation_id": str(invitation_id), "status": "failed"}
+                return {"invitation_id": str(invitation_id), "status": "outcome_unknown"}
             if invitation.status != "pending":
                 return {"invitation_id": str(invitation_id), "status": invitation.status}
             try:
@@ -372,6 +615,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     meeting_id=invitation.meeting_id,
                 )
             except ProblemDetail:
+                await cancel_invitation(invitation, "meeting_unavailable_before_delivery")
                 return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
             invitation = await db.scalar(
                 select(MeetingShareInvitation)
@@ -390,10 +634,27 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                 invitation.encrypted_delivery_address = ""
                 await db.commit()
                 return {"invitation_id": str(invitation_id), "status": "expired"}
-            address, raw_token = open_invitation_delivery(
-                invitation.encrypted_delivery_address,
-                key=key,
-            )
+            try:
+                address, raw_token = open_invitation_delivery(
+                    invitation.encrypted_delivery_address,
+                    key=key,
+                )
+            except ProblemDetail as exc:
+                invitation.status = "failed"
+                invitation.failure_code = exc.code
+                invitation.encrypted_delivery_address = ""
+                await record_egress_audit_event(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=invitation.meeting_id,
+                    actor_user_id=invitation.invited_by_user_id,
+                    device_id=None,
+                    event_type="share_invitation_failed",
+                    outcome="failed",
+                    policy_reason=exc.code,
+                )
+                await db.commit()
+                raise ApplicationError(exc.code, non_retryable=True) from exc
             acceptance_url = (
                 f"{str(settings.public_base_url).rstrip('/')}/share-invitations/{raw_token}"
                 f"?workspace_id={workspace_id}"
@@ -423,6 +684,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     meeting_id=invitation.meeting_id,
                 )
             except ProblemDetail:
+                await cancel_invitation(invitation, "meeting_unavailable_after_reservation")
                 return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
             invitation = await db.scalar(
                 select(MeetingShareInvitation)
@@ -436,15 +698,25 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
             )
             if invitation is None:
                 return {"invitation_id": str(invitation_id), "status": "cancelled"}
+            meeting = await db.get(Meeting, invitation.meeting_id)
+            if meeting is None:
+                await cancel_invitation(invitation, "meeting_unavailable_after_reservation")
+                return {"invitation_id": str(invitation_id), "status": "meeting_unavailable"}
+            inviter = await db.get(UserIdentity, invitation.invited_by_user_id)
             try:
-                await PostalEmailLoginClient.from_settings(settings).send_meeting_invitation(
+                await send_meeting_invitation(
+                    settings=settings,
                     recipient_email=address,
                     acceptance_url=acceptance_url,
                     delivery_key=str(invitation.id),
+                    inviter_name=inviter.display_name if inviter is not None else None,
+                    meeting_title=meeting.title,
+                    occurred_at=meeting.started_at or meeting.created_at,
+                    duration_seconds=meeting.duration_seconds,
+                    expires_at=invitation.expires_at,
                 )
             except EmailLoginDeliveryError as exc:
-                invitation.failure_code = exc.reason_code
-                invitation.status = "failed"
+                invitation.status, invitation.failure_code = invitation_delivery_failure_state(exc)
                 invitation.encrypted_delivery_address = ""
                 await record_egress_audit_event(
                     db,
@@ -452,7 +724,11 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     meeting_id=invitation.meeting_id,
                     actor_user_id=invitation.invited_by_user_id,
                     device_id=None,
-                    event_type="share_invitation_failed",
+                    event_type=(
+                        "share_invitation_outcome_unknown"
+                        if exc.outcome_unknown
+                        else "share_invitation_failed"
+                    ),
                     outcome="failed",
                     policy_reason=exc.reason_code,
                 )
@@ -484,7 +760,20 @@ def _processing_status_for_client_error(exc: MediaScribeClientError) -> Processi
         reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
     }:
         return ProcessingStatus.BLOCKED
+    if exc.reason_code == reasons.MEDIASCRIBE_MALFORMED_RESPONSE:
+        return ProcessingStatus.FAILED_TERMINAL
     return ProcessingStatus.FAILED_RETRYABLE if exc.retryable else ProcessingStatus.FAILED_TERMINAL
+
+
+def _processing_status_for_runtime_error(
+    exc: RuntimeError,
+) -> tuple[ProcessingStatus, bool] | None:
+    reason_code = str(exc)
+    if reason_code == reasons.BLOCKED_MISSING_ARTIFACTS:
+        return ProcessingStatus.BLOCKED, False
+    if reason_code == reasons.PROCESSING_TEMP_STORAGE_UNAVAILABLE:
+        return ProcessingStatus.FAILED_RETRYABLE, True
+    return None
 
 
 def _required_uuid_from_payload(payload: dict[str, str], field_name: str) -> UUID:
@@ -531,15 +820,22 @@ async def _persist_activity_client_error(
             meeting_id=meeting_id,
             media_revision_id=media_revision_id,
         )
-        if workflow is None:
-            workflow = await store.upsert_processing_workflow(
+        if media_revision_id is None and not (
+            workflow is not None
+            and is_legacy_lineage(
+                media_revision_id=workflow.media_revision_id,
+                source_fingerprint=workflow.source_fingerprint,
+            )
+        ):
+            latest_revision = await store.latest_media_revision_for_meeting(
                 db,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
-                media_revision_id=media_revision_id,
-                workflow_id=f"processing/{media_revision_id or meeting_id}",
-                status=ProcessingStatus.WORKFLOW_STARTED,
             )
+            if latest_revision is not None:
+                raise ProcessingLifecycleBlocked("processing_source_revision_stale")
+        if workflow is None:
+            raise ProcessingLifecycleBlocked("processing_workflow_missing")
         terminal = status in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_TERMINAL}
         if (
             workflow.status == status.value
@@ -610,18 +906,17 @@ async def run_worker() -> None:
             outcome_tracing=True,
         )
         if settings.outcome_generation_enabled:
-            workers.append(
-                Worker(
-                    traced_client,
-                    task_queue=outcome_generation_task_queue(settings),
-                    workflows=[
-                        OutcomeGenerationWorkflow,
-                        OutcomeObservabilityReconcilerWorkflow,
-                    ],
-                    activities=outcome_activities,
-                    identity=f"{processing_worker_identity()}:outcomes",
-                )
+            outcome_worker = Worker(
+                traced_client,
+                task_queue=outcome_generation_task_queue(settings),
+                workflows=[
+                    OutcomeGenerationWorkflow,
+                    OutcomeObservabilityReconcilerWorkflow,
+                ],
+                activities=outcome_activities,
+                identity=f"{processing_worker_identity()}:outcomes",
             )
+            workers.append(outcome_worker)
     await asyncio.gather(*(worker.run() for worker in workers))
 
 

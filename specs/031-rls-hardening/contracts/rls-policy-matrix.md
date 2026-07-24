@@ -34,6 +34,7 @@ Tables:
 - `workspace_provider_link_states`
 - `auth_callback_states`
 - `auth_audit_events`
+- `auth_rate_limit_buckets`
 - `workspace_consent_copy`
 - `meetings`
 - `media_revisions`
@@ -60,12 +61,16 @@ Tables:
 - `retention_policy_snapshots`
 - `local_purge_tasks`
 - `meeting_lifecycle_audit_events`
+- `dispatch_intents`
+- `meeting_deletion_fences`
+- `meeting_purge_journal`
 - `meeting_outcome_sets`
 - `meeting_outcome_items`
 - `meeting_outcome_generation_attempts`
 - `summary_templates`
 - `generation_calls`
 - `meeting_share_invitations`
+- `meeting_share_rate_limit_buckets`
 - `calendar_sources`
 - `calendar_credential_envelopes`
 - `external_calendars`

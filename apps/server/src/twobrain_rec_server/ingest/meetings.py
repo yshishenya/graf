@@ -3,12 +3,14 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.calendar.matching import consume_recording_calendar_match_attempt
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.models import Meeting as MeetingModel
 from twobrain_rec_server.domain.metadata_text import contains_forbidden_metadata_text
 from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind
 from twobrain_rec_server.ingest import store as store_module
@@ -21,6 +23,7 @@ from twobrain_rec_server.ingest.store import (
     persist_audit_event,
     persist_meeting,
 )
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 
 MEETING_TITLE_SOURCES = frozenset(
     {
@@ -116,6 +119,21 @@ async def create_or_get_meeting(
         local_recording_id=local_recording_id,
     )
     if persisted is not None:
+        if db is not None:
+            locked_model = await db.scalar(
+                select(MeetingModel)
+                .where(
+                    MeetingModel.id == persisted.id,
+                    MeetingModel.workspace_id == tenant_scope.workspace_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if locked_model is None:
+                raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+            if meeting_is_deleted_or_deleting(locked_model):
+                raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+            persisted = await load_meeting_record(db, meeting_id=locked_model.id) or persisted
         if (
             local_media_revision_id is not None
             and persisted.local_media_revision_id != local_media_revision_id

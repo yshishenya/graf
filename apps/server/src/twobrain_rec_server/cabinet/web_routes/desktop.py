@@ -33,6 +33,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_unavailable_page,
     render_settings_page,
 )
+from twobrain_rec_server.cabinet.review_policy_rendering import render_meeting_share_fragment
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
 )
@@ -60,6 +61,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _authorized_lifecycle_meeting,
     _csrf_token_for_principal,
     _is_hx_request,
+    _normalize_web_meeting_status_filter,
     _request_path_with_query,
 )
 from twobrain_rec_server.deletion.service import deletion_report_response
@@ -112,21 +114,42 @@ async def embedded_meeting_list_page(
         visible_title_search=True,
         access=access,
         sort=sort,
+        unknown_sort_fallback="started_desc",
+        normalize_response_sort=True,
         limit=limit,
     )
+    raw_status = request.query_params.get("status")
+    canonical_status = _normalize_web_meeting_status_filter(raw_status)
+    status_was_normalized = (
+        isinstance(raw_status, str)
+        and raw_status != ""
+        and canonical_status != raw_status
+    )
+    sort_was_normalized = sort != response.filters.sort
+    needs_url_normalization = sort_was_normalized or status_was_normalized
+    canonical_path = _request_path_with_query(
+        request,
+        sort_override=response.filters.sort if sort_was_normalized else None,
+        status_override=status if status_was_normalized else None,
+    ) if needs_url_normalization else _request_path_with_query(request)
+    if needs_url_normalization and not _is_hx_request(request):
+        return RedirectResponse(url=canonical_path, status_code=303)
     if _is_hx_request(request):
-        return cabinet_html_response(
+        result = cabinet_html_response(
             render_meeting_list_fragment(
-                response, embedded=True, poll_url=_request_path_with_query(request)
+                response, embedded=True, poll_url=canonical_path
             ),
             hx_request=True,
         )
+        if needs_url_normalization:
+            result.headers["HX-Replace-Url"] = canonical_path
+        return result
     return cabinet_html_response(
         render_meeting_list_page(
             response,
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
-            poll_url=_request_path_with_query(request),
+            poll_url=canonical_path,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "embedded_desktop_webview",
@@ -185,6 +208,12 @@ async def embedded_meeting_detail_page(
         viewer_user_id=principal.user_id,
         storage=storage,
         include_calendar_correction_candidates=calendar_context_action == "change",
+        external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
+        invitation_encryption_key=(
+            request.app.state.settings.credential_encryption_key_file.read_bytes().strip()
+            if request.app.state.settings.credential_encryption_key_file is not None
+            else None
+        ),
     )
     if response is None:
         return _meeting_unavailable_response(
@@ -221,6 +250,42 @@ async def embedded_meeting_detail_page(
             ),
         )
     )
+
+
+@router.get(
+    "/desktop/meetings/{meeting_id}/share",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def embedded_meeting_share_fragment(
+    request: Request,
+    meeting_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    response = await get_cabinet_meeting_review(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+        storage=storage,
+        external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
+        invitation_encryption_key=(
+            request.app.state.settings.credential_encryption_key_file.read_bytes().strip()
+            if request.app.state.settings.credential_encryption_key_file is not None
+            else None
+        ),
+    )
+    if response is None or response.access is None or not response.access.can_share:
+        return _meeting_unavailable_response(
+            request,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    return cabinet_html_response(render_meeting_share_fragment(response), hx_request=True)
 
 
 @router.get(

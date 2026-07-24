@@ -728,6 +728,7 @@ async def admin_delete_file_form(
         actor_user_id=principal.user_id,
         device_id=device.device_id,
         confirmation_boundary=BOUNDED_DELETE_COPY,
+        local_buffer_expiry_days=request.app.state.settings.retention_local_buffer_expiry_days,
         request_source=DeletionRequestSource.ADMIN,
         reason_code=reason_code,
         storage=storage,

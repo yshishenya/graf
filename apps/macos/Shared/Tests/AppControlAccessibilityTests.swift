@@ -311,6 +311,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("microphoneCaptureService.preflight("))
         XCTAssertTrue(source.contains("sessionId: \"startup-permission-onboarding\""))
         XCTAssertTrue(source.contains("microphoneCaptureService.requestPermissionAndPreflight("))
+        XCTAssertTrue(source.contains("openMicrophonePermissionSettings()"))
+        XCTAssertTrue(source.contains("microphoneCaptureService.requestPermissionForSettings()"))
         XCTAssertTrue(source.contains("systemAudioPermissionAuthorizer.requestPermission()"))
         XCTAssertTrue(source.contains("if status.isReady && !permissionRestartRequired {\n            permissionOnboardingPresented = false"))
         XCTAssertTrue(source.contains("restartRequired: permissionRestartRequired"))

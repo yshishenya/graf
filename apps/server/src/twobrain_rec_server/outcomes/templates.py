@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Final
 
 OUTCOME_CATEGORIES: Final[tuple[str, ...]] = (
@@ -42,7 +43,7 @@ def _built_in(
     )
 
 
-BUILT_IN_TEMPLATES: Final[tuple[SummaryTemplateDefinition, ...]] = (
+_BUILT_IN_TEMPLATE_CATALOG_V1: Final[tuple[SummaryTemplateDefinition, ...]] = (
     _built_in("auto", "Авто", "Краткие итоги, решения и действия", OUTCOME_CATEGORIES),
     _built_in(
         "outline", "Структура", "Последовательная структура разговора", ("summary", "key_points", "evidence")
@@ -91,17 +92,42 @@ BUILT_IN_TEMPLATES: Final[tuple[SummaryTemplateDefinition, ...]] = (
     ),
 )
 
+# Keep this immutable v1 fixture separate from the mutable current catalog
+# alias.  A future catalog release appends new versioned definitions without
+# rewriting the historical rows used by existing outcomes.
+BUILT_IN_VERSIONED_TEMPLATES: Final[tuple[SummaryTemplateDefinition, ...]] = _BUILT_IN_TEMPLATE_CATALOG_V1
+BUILT_IN_TEMPLATES: Final[tuple[SummaryTemplateDefinition, ...]] = _BUILT_IN_TEMPLATE_CATALOG_V1
+BUILT_IN_TEMPLATE_REGISTRY: Final = MappingProxyType(
+    {(template.key, template.version): template for template in BUILT_IN_VERSIONED_TEMPLATES}
+)
 BUILT_IN_BY_KEY: Final = {template.key: template for template in BUILT_IN_TEMPLATES}
 PROMPT_NAME_BY_TEMPLATE_KEY: Final = {
-    **{template.key: template.prompt_name for template in BUILT_IN_TEMPLATES},
+    **{template.key: template.prompt_name for template in BUILT_IN_VERSIONED_TEMPLATES},
     "personal": "graf/meeting-outcome/custom",
 }
 
 
+def built_in_template_for_version(
+    template_key: str,
+    template_version: int,
+) -> SummaryTemplateDefinition | None:
+    return BUILT_IN_TEMPLATE_REGISTRY.get((template_key, template_version))
+
+
+def built_in_template_for_key(template_key: str) -> SummaryTemplateDefinition | None:
+    current = BUILT_IN_BY_KEY.get(template_key)
+    if current is not None:
+        return current
+    return next(
+        (template for template in BUILT_IN_VERSIONED_TEMPLATES if template.key == template_key),
+        None,
+    )
+
+
 def prompt_name_for_template(template_key: str, *, built_in: bool) -> str:
     if built_in:
-        try:
-            return PROMPT_NAME_BY_TEMPLATE_KEY[template_key]
-        except KeyError as exc:
-            raise ValueError("unknown built-in template") from exc
+        definition = built_in_template_for_key(template_key)
+        if definition is None:
+            raise ValueError("unknown built-in template")
+        return definition.prompt_name
     return PROMPT_NAME_BY_TEMPLATE_KEY["personal"]

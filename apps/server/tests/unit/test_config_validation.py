@@ -480,6 +480,70 @@ def test_production_email_login_delivery_rejects_empty_postal_secret(tmp_path) -
         )
 
 
+def test_external_invitation_loads_identity_hash_secret_from_file(tmp_path) -> None:
+    identity_secret = tmp_path / "share-identity-hash-secret"
+    credential_key = tmp_path / "credential-key"
+    identity_secret.write_text("synthetic-share-identity-secret-32-bytes", encoding="utf-8")
+    credential_key.write_text("synthetic-credential-key", encoding="utf-8")
+
+    settings = Settings(
+        share_external_invitations_enabled=True,
+        share_identity_hash_secret_file=identity_secret,
+        temporal_address="temporal:7233",
+        email_login_delivery_enabled=True,
+        public_base_url="https://graf.example.test",
+        credential_encryption_key_file=credential_key,
+    )
+
+    assert settings.share_identity_hash_secret == "synthetic-share-identity-secret-32-bytes"
+
+
+def test_production_external_invitation_requires_identity_hash_secret_file(tmp_path) -> None:
+    credential_key = tmp_path / "credential-key"
+    postal_key = tmp_path / "postal-key"
+    credential_key.write_text("synthetic-credential-key", encoding="utf-8")
+    postal_key.write_text("synthetic-postal-key", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="share identity hash secret"):
+        _production_settings(
+            share_external_invitations_enabled=True,
+            public_base_url="https://rec.example.test",
+            credential_encryption_key_file=credential_key,
+            email_login_delivery_enabled=True,
+            web_login_workspace_id="20000000-0000-0000-0000-000000000010",
+            email_login_from_address="no-reply@rec.2brain.pro",
+            postal_api_url="http://postal-web:5000",
+            postal_api_key_file=postal_key,
+        )
+
+
+def test_production_external_invitation_reads_identity_hash_secret_file(tmp_path) -> None:
+    identity_secret = tmp_path / "share-identity-hash-secret"
+    credential_key = tmp_path / "credential-key"
+    postal_key = tmp_path / "postal-key"
+    identity_secret.write_text(
+        "synthetic-production-share-identity-secret-32-bytes", encoding="utf-8"
+    )
+    credential_key.write_text("synthetic-credential-key", encoding="utf-8")
+    postal_key.write_text("synthetic-postal-key", encoding="utf-8")
+
+    settings = _production_settings(
+        share_external_invitations_enabled=True,
+        share_identity_hash_secret_file=identity_secret,
+        public_base_url="https://rec.example.test",
+        credential_encryption_key_file=credential_key,
+        email_login_delivery_enabled=True,
+        web_login_workspace_id="20000000-0000-0000-0000-000000000010",
+        email_login_from_address="no-reply@rec.2brain.pro",
+        postal_api_url="http://postal-web:5000",
+        postal_api_key_file=postal_key,
+    )
+
+    assert settings.share_identity_hash_secret == (
+        "synthetic-production-share-identity-secret-32-bytes"
+    )
+
+
 def test_production_rejects_non_internal_smoke_identity_class() -> None:
     with pytest.raises(ValidationError, match="internal_smoke"):
         _production_settings(smoke_identity_class="local_dev")

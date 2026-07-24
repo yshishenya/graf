@@ -32,7 +32,9 @@ class ProviderIdentity:
     email: str | None = None
     phone: str | None = None
     display_name: str | None = None
-    is_verified: bool = True
+    # Providers must opt in after a verified callback/profile exchange. A
+    # subject alone is not proof that the attached email belongs to it.
+    is_verified: bool = False
 
     def normalized_subject(self) -> str:
         return self.provider_subject.strip().lower()
@@ -176,14 +178,18 @@ class ProviderAdapter:
         if not subject:
             raise ValueError("missing provider subject code")
         provider_subject = self.normalize_subject(subject)
+        email = _optional_str(query.get("email"))
         return ProviderIdentity(
             provider=self.provider,
             provider_subject=provider_subject,
             provider_username=query.get("username"),
-            email=query.get("email"),
+            email=email,
             phone=query.get("phone"),
             display_name=query.get("name") or query.get("display_name"),
-            is_verified=True,
+            # The provider adapter has already exchanged and validated the
+            # callback; an email claim returned by that verified profile is
+            # eligible for exact-email invitation matching.
+            is_verified=bool(email),
         )
 
     def verify_callback(
@@ -247,11 +253,12 @@ class YandexAdapter(ProviderAdapter):
         if not subject:
             raise ProviderVerificationError("Yandex profile is missing subject")
         default_phone = profile.get("default_phone") if isinstance(profile.get("default_phone"), dict) else {}
+        email = _optional_str(profile.get("default_email") or profile.get("email"))
         return ProviderIdentity(
             provider=self.provider,
             provider_subject=self.normalize_subject(subject),
             provider_username=_optional_str(profile.get("login")),
-            email=_optional_str(profile.get("default_email") or profile.get("email")),
+            email=email,
             phone=_optional_str(default_phone.get("number") or profile.get("number")),
             display_name=_optional_str(
                 profile.get("display_name")
@@ -266,7 +273,7 @@ class YandexAdapter(ProviderAdapter):
                 )
                 or profile.get("login")
             ),
-            is_verified=True,
+            is_verified=bool(email),
         )
 
 
@@ -355,14 +362,15 @@ class VkAdapter(ProviderAdapter):
         first_name = _optional_str(profile.get("first_name"))
         last_name = _optional_str(profile.get("last_name"))
         display_name = " ".join(item for item in [first_name, last_name] if item) or None
+        email = _optional_str(profile.get("email"))
         return ProviderIdentity(
             provider=self.provider,
             provider_subject=self.normalize_subject(subject),
             provider_username=None,
-            email=_optional_str(profile.get("email")),
+            email=email,
             phone=_optional_str(profile.get("phone")),
             display_name=display_name,
-            is_verified=True,
+            is_verified=bool(email),
         )
 
 
@@ -411,7 +419,7 @@ class TelegramAdapter(ProviderAdapter):
             email=None,
             phone=_optional_str(query.get("phone") or query.get("phone_number")),
             display_name=display_name or _optional_str(query.get("username")),
-            is_verified=True,
+            is_verified=False,
         )
 
 

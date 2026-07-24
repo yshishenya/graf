@@ -29,6 +29,7 @@ from twobrain_rec_server.db.models.deletion import (
 from twobrain_rec_server.db.models.federated_auth import (
     AuthAuditEvent,
     AuthCallbackState,
+    AuthRateLimitBucket,
     AuthSession,
     AuthSessionDeviceBinding,
     ExternalIdentity,
@@ -52,6 +53,7 @@ from twobrain_rec_server.db.models.ingest import (
     UploadPart,
     UploadSession,
 )
+from twobrain_rec_server.db.models.lifecycle import DeletionFence, DispatchIntent, PurgeJournal
 from twobrain_rec_server.db.models.meeting import Meeting, ProcessingPlaceholder
 from twobrain_rec_server.db.models.meeting_access import (
     ExportPackage,
@@ -59,6 +61,7 @@ from twobrain_rec_server.db.models.meeting_access import (
     MeetingEgressAuditEvent,
     MeetingShareGrant,
     MeetingShareInvitation,
+    MeetingShareRateLimitBucket,
 )
 from twobrain_rec_server.db.models.meeting_detection import (
     MeetingDetectionCandidate,
@@ -100,6 +103,8 @@ from twobrain_rec_server.db.models.support import SupportIncident, SupportIncide
 __all__ = [
     "AdminAuditEvent",
     "DiarizationSegment",
+    "DeletionFence",
+    "DispatchIntent",
     "ExportPackage",
     "IngestAuditEvent",
     "LocalPurgeTask",
@@ -121,6 +126,7 @@ __all__ = [
     "MeetingLifecycleAuditEvent",
     "MeetingShareGrant",
     "MeetingShareInvitation",
+    "MeetingShareRateLimitBucket",
     "MeetingSpeakerName",
     "MeetingOutcomeGenerationAttempt",
     "MeetingOutcomeItem",
@@ -140,6 +146,7 @@ __all__ = [
     "ProcessingPlaceholder",
     "ProcessingResult",
     "ProcessingWorkflow",
+    "PurgeJournal",
     "RegisteredDevice",
     "RetentionPolicySnapshot",
     "TemporaryUploadObject",
@@ -157,6 +164,7 @@ __all__ = [
     "WorkspaceUsageDaily",
     "AuthAuditEvent",
     "AuthCallbackState",
+    "AuthRateLimitBucket",
     "AuthSession",
     "AuthSessionDeviceBinding",
     "CalendarAuditEvent",

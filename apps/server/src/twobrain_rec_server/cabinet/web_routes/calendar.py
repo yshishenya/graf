@@ -272,6 +272,7 @@ async def _calendar_context_review_response(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
         storage=get_request_storage(request),
+        external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
     )
     if review is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")

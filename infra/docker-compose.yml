@@ -31,6 +31,8 @@ services:
       TWOBRAIN_POSTAL_API_KEY_FILE: ${TWOBRAIN_POSTAL_API_KEY_FILE:-/run/secrets/twobrain_postal_api_key}
       TWOBRAIN_POSTAL_HOST_HEADER: ${TWOBRAIN_POSTAL_HOST_HEADER:-postal.2brain.pro}
       TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
+      TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: ${TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED:-false}
+      TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE: /run/secrets/graf_share_identity_hash_secret
       TWOBRAIN_YANDEX_CLIENT_ID: ${TWOBRAIN_YANDEX_CLIENT_ID:-twobrain-yandex-client-id}
       TWOBRAIN_YANDEX_CLIENT_SECRET_FILE: /run/secrets/twobrain_yandex_client_secret
       TWOBRAIN_VK_CLIENT_ID: ${TWOBRAIN_VK_CLIENT_ID:-twobrain-vk-client-id}
@@ -97,6 +99,8 @@ services:
         target: twobrain_smoke_credential
       - source: graf_credential_encryption_key
         target: graf_credential_encryption_key
+      - source: graf_share_identity_hash_secret
+        target: graf_share_identity_hash_secret
       - source: twobrain_web_csrf_secret
         target: twobrain_web_csrf_secret
       - source: twobrain_postal_api_key
@@ -201,6 +205,17 @@ services:
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/graf_credential_encryption_key
+      TWOBRAIN_WEB_LOGIN_WORKSPACE_ID: ${TWOBRAIN_WEB_LOGIN_WORKSPACE_ID:-}
+      TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED: ${TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED:-false}
+      TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS: ${TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS:-}
+      TWOBRAIN_EMAIL_LOGIN_FROM_NAME: ${TWOBRAIN_EMAIL_LOGIN_FROM_NAME:-GRAF}
+      TWOBRAIN_POSTAL_API_URL: ${TWOBRAIN_POSTAL_API_URL:-}
+      TWOBRAIN_POSTAL_API_KEY_FILE: /run/secrets/twobrain_postal_api_key
+      TWOBRAIN_POSTAL_HOST_HEADER: ${TWOBRAIN_POSTAL_HOST_HEADER:-postal.2brain.pro}
+      TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
+      TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: ${TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED:-false}
+      TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE: /run/secrets/graf_share_identity_hash_secret
       TWOBRAIN_MEDIASCRIBE_API_KEY_FILE: /run/secrets/twobrain_mediascribe_api_key
       TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
       TWOBRAIN_LITELLM_BASE_URL: ${TWOBRAIN_LITELLM_BASE_URL:-}
@@ -213,6 +228,21 @@ services:
     secrets:
       - source: twobrain_postgres_app_password
         target: twobrain_postgres_password
+      - source: graf_credential_encryption_key
+        target: graf_credential_encryption_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: graf_share_identity_hash_secret
+        target: graf_share_identity_hash_secret
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_postal_api_key
+        target: twobrain_postal_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
       - source: twobrain_minio_api_access_key
         target: twobrain_minio_api_access_key
         uid: "100"
@@ -271,6 +301,7 @@ services:
           memory: 1g
     networks:
       - rec-private
+      - postal-network
 
   rec-prompt-optimization-worker:
     profiles: ["operations"]
@@ -593,7 +624,7 @@ services:
     build:
       context: ..
       dockerfile: infra/server/Dockerfile
-    restart: "no"
+    restart: unless-stopped
     init: true
     user: twobrain
     group_add:
@@ -619,6 +650,15 @@ services:
       TWOBRAIN_MINIO_SECRET_KEY_FILE: /run/secrets/twobrain_minio_api_secret_key
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
+      TWOBRAIN_LITELLM_BASE_URL: ${TWOBRAIN_LITELLM_BASE_URL:-}
+      TWOBRAIN_LITELLM_API_KEY_FILE: /run/secrets/twobrain_litellm_api_key
+      TWOBRAIN_LANGFUSE_BASE_URL: https://cloud.langfuse.com
+      TWOBRAIN_LANGFUSE_PUBLIC_KEY_FILE: /run/secrets/twobrain_langfuse_public_key
+      TWOBRAIN_LANGFUSE_SECRET_KEY_FILE: /run/secrets/twobrain_langfuse_secret_key
+      TWOBRAIN_LANGFUSE_ENVIRONMENT: production
+      TWOBRAIN_LANGFUSE_RELEASE: ${TWOBRAIN_LANGFUSE_RELEASE:-}
     secrets:
       - source: twobrain_postgres_maintenance_password
         target: twobrain_postgres_password
@@ -632,12 +672,30 @@ services:
         uid: "100"
         gid: "101"
         mode: 0440
+      - source: twobrain_litellm_api_key
+        target: twobrain_litellm_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_langfuse_public_key
+        target: twobrain_langfuse_public_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: twobrain_langfuse_secret_key
+        target: twobrain_langfuse_secret_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+    command: ["python", "-m", "twobrain_rec_server.workflows.maintenance_worker"]
     depends_on:
       rec-db-runtime-bootstrap:
         condition: service_completed_successfully
       rec-postgres:
         condition: service_healthy
       rec-minio:
+        condition: service_healthy
+      rec-temporal:
         condition: service_healthy
     logging:
       driver: json-file
@@ -893,6 +951,8 @@ secrets:
     file: ${TWOBRAIN_SMOKE_CREDENTIAL_FILE:-./secrets/twobrain_smoke_credential}
   graf_credential_encryption_key:
     file: ${GRAF_CREDENTIAL_ENCRYPTION_KEY_SECRET_FILE:-./secrets/graf_credential_encryption_key}
+  graf_share_identity_hash_secret:
+    file: ${TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_SECRET_FILE:-./secrets/graf_share_identity_hash_secret}
   twobrain_web_csrf_secret:
     file: ${TWOBRAIN_WEB_CSRF_SECRET_FILE:-./secrets/twobrain_web_csrf_secret}
   twobrain_mediascribe_api_key:

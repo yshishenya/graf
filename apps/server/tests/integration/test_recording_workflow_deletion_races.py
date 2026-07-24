@@ -35,6 +35,7 @@ from twobrain_rec_server.outcomes.prompts import (
     outcome_config,
     prompt_snapshot_hash,
 )
+from twobrain_rec_server.workflows.temporal_client import playback_normalization_workflow_id
 
 BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
 PLAINTEXT_MARKER = "synthetic plaintext transcript marker for retained observability"
@@ -79,9 +80,16 @@ def test_deletion_wins_pending_egress_and_preserves_completed_observability_deli
     )
     state = asyncio.run(_race_state(client, seeded))
 
+    async def normalization_workflow_id() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            result = await db.get(ProcessingResult, seeded.result_id)
+            assert result is not None and result.media_revision_id is not None
+            return playback_normalization_workflow_id(result.media_revision_id)
+
     assert response.status_code == 202
-    assert temporal.requested == [seeded.workflow_id]
-    assert temporal.cancelled == [seeded.workflow_id]
+    expected_workflow_ids = [seeded.workflow_id, asyncio.run(normalization_workflow_id())]
+    assert temporal.requested == expected_workflow_ids
+    assert temporal.cancelled == expected_workflow_ids
     assert state["attempt_status"] == "cancelled"
     assert state["attempt_failure"] == "meeting_deleted"
     assert state["attempt_prompt_name"] == "graf/meeting-outcome/auto"

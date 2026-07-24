@@ -29,6 +29,15 @@ from twobrain_rec_server.domain.statuses import (
 )
 
 LOCAL_PURGE_TASK_EXPIRY_DAYS = 7
+LOCAL_PURGE_TERMINAL_STATES = frozenset(
+    {
+        LocalPurgeTaskState.ACKNOWLEDGED.value,
+        LocalPurgeTaskState.FAILED.value,
+        LocalPurgeTaskState.UNREACHABLE.value,
+        LocalPurgeTaskState.EXPIRED.value,
+        LocalPurgeTaskState.LOCAL_EXPIRY_RELIED_UPON.value,
+    }
+)
 
 PRIVATE_ACK_VALUE_FRAGMENTS = (
     "/users/",
@@ -61,6 +70,7 @@ async def create_local_purge_tasks_for_request(
     *,
     meeting: Meeting,
     deletion_request_id: UUID,
+    local_buffer_expiry_days: int | None = None,
 ) -> list[LocalPurgeTaskModel]:
     devices = (
         await db.scalars(
@@ -72,7 +82,12 @@ async def create_local_purge_tasks_for_request(
         )
     ).all()
     now = datetime.now(UTC)
-    expires_at = now + timedelta(days=LOCAL_PURGE_TASK_EXPIRY_DAYS)
+    expiry_days = (
+        local_buffer_expiry_days
+        if local_buffer_expiry_days is not None
+        else LOCAL_PURGE_TASK_EXPIRY_DAYS
+    )
+    expires_at = now + timedelta(days=expiry_days)
     tasks = [
         LocalPurgeTaskModel(
             workspace_id=meeting.workspace_id,
@@ -103,6 +118,13 @@ async def list_local_purge_tasks(
     workspace_id: UUID,
     device_id: UUID,
 ) -> list[LocalPurgeTask]:
+    expired = await reconcile_expired_local_purge_tasks(
+        db,
+        workspace_id=workspace_id,
+        device_id=device_id,
+    )
+    if expired:
+        await db.commit()
     tasks = (
         await db.scalars(
             select(LocalPurgeTaskModel)
@@ -133,6 +155,46 @@ async def acknowledge_local_purge_task(
     if task is None:
         raise ProblemDetail(status=404, code="local_purge_task_not_found", title="Local purge task not found")
 
+    expired = await reconcile_expired_local_purge_tasks(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=task.meeting_id,
+        deletion_request_id=task.deletion_request_id,
+    )
+    if expired:
+        await db.commit()
+    # Keep every ACK mutation on Meeting → task rows → artifact → report. The
+    # expiry pass may have committed, so reacquire the meeting fence before
+    # taking the task lock below.
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(Meeting.workspace_id == workspace_id, Meeting.id == task.meeting_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    task = await db.scalar(
+        select(LocalPurgeTaskModel)
+        .where(LocalPurgeTaskModel.workspace_id == workspace_id)
+        .where(LocalPurgeTaskModel.device_id == device_id)
+        .where(LocalPurgeTaskModel.id == task_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if task is None:
+        raise ProblemDetail(status=404, code="local_purge_task_not_found", title="Local purge task not found")
+    current_state = LocalPurgeTaskState(task.state)
+    requested_state = payload.state
+    if current_state in LOCAL_PURGE_TERMINAL_STATES:
+        if current_state == requested_state:
+            return _task_schema(task)
+        raise ProblemDetail(
+            status=409,
+            code="local_purge_task_terminal",
+            title="Local purge task is already terminal",
+        )
+
     now = datetime.now(UTC)
     task.state = payload.state.value
     task.reason_code = payload.reason_code or payload.state.value
@@ -162,6 +224,112 @@ async def acknowledge_local_purge_task(
     return _task_schema(task)
 
 
+async def reconcile_expired_local_purge_tasks(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID | None = None,
+    meeting_id: UUID | None = None,
+    deletion_request_id: UUID | None = None,
+    device_id: UUID | None = None,
+    limit: int = 100,
+    now: datetime | None = None,
+) -> int:
+    """Advance unreachable pending tasks to a durable expiry state."""
+    current = now or datetime.now(UTC)
+    candidate_query = (
+        select(LocalPurgeTaskModel)
+        .where(LocalPurgeTaskModel.state.in_({
+            LocalPurgeTaskState.PENDING.value,
+            LocalPurgeTaskState.CLAIMED.value,
+        }))
+        .where(LocalPurgeTaskModel.expires_at <= current)
+        .order_by(LocalPurgeTaskModel.expires_at.asc(), LocalPurgeTaskModel.id.asc())
+        .limit(limit)
+    )
+    if workspace_id is not None:
+        candidate_query = candidate_query.where(LocalPurgeTaskModel.workspace_id == workspace_id)
+    if meeting_id is not None:
+        candidate_query = candidate_query.where(LocalPurgeTaskModel.meeting_id == meeting_id)
+    if deletion_request_id is not None:
+        candidate_query = candidate_query.where(
+            LocalPurgeTaskModel.deletion_request_id == deletion_request_id
+        )
+    if device_id is not None:
+        candidate_query = candidate_query.where(LocalPurgeTaskModel.device_id == device_id)
+    candidates = (await db.scalars(candidate_query)).all()
+    request_keys = sorted(
+        {
+            (task.workspace_id, task.meeting_id, task.deletion_request_id)
+            for task in candidates
+        },
+        key=lambda key: tuple(str(value) for value in key),
+    )
+    remaining = max(limit, 0)
+    expired_count = 0
+    for task_workspace_id, task_meeting_id, task_request_id in request_keys:
+        if remaining <= 0:
+            break
+        # Every local purge mutation uses Meeting → task rows → report. This
+        # prevents the maintenance-wide expiry pass from deadlocking an ACK.
+        meeting = await db.scalar(
+            select(Meeting)
+            .where(Meeting.workspace_id == task_workspace_id, Meeting.id == task_meeting_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if meeting is None:
+            continue
+        task_query = (
+            select(LocalPurgeTaskModel)
+            .where(
+                LocalPurgeTaskModel.workspace_id == task_workspace_id,
+                LocalPurgeTaskModel.meeting_id == task_meeting_id,
+                LocalPurgeTaskModel.deletion_request_id == task_request_id,
+                LocalPurgeTaskModel.state.in_({
+                    LocalPurgeTaskState.PENDING.value,
+                    LocalPurgeTaskState.CLAIMED.value,
+                }),
+                LocalPurgeTaskModel.expires_at <= current,
+            )
+            .order_by(LocalPurgeTaskModel.id.asc())
+            .limit(remaining)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        tasks = (await db.scalars(task_query)).all()
+        if not tasks:
+            continue
+        for task in tasks:
+            task.state = LocalPurgeTaskState.EXPIRED.value
+            task.reason_code = "local_purge_expired"
+            task.metadata_json = build_lifecycle_audit_metadata(
+                task_type=LocalPurgeTaskType(task.task_type),
+                device_state=LocalPurgeTaskState.EXPIRED,
+                outcome=LifecycleAuditOutcome.COMPLETED,
+                safe_reason=task.reason_code,
+            )
+            db.add(
+                MeetingLifecycleAuditEvent(
+                    workspace_id=task.workspace_id,
+                    meeting_id=task.meeting_id,
+                    deletion_request_id=task.deletion_request_id,
+                    actor_user_id=None,
+                    device_id=task.device_id,
+                    event_type="local_purge_expired",
+                    outcome=LifecycleAuditOutcome.COMPLETED.value,
+                    safe_reason=task.reason_code,
+                    metadata_json=task.metadata_json,
+                    created_at=current,
+                )
+            )
+        await _refresh_local_purge_report_state(db, task=tasks[0])
+        expired_count += len(tasks)
+        remaining -= len(tasks)
+    if expired_count:
+        await db.flush()
+    return expired_count
+
+
 def _assert_metadata_only_ack(payload: LocalPurgeAckRequest) -> None:
     values = [payload.reason_code, payload.client_version]
     for value in values:
@@ -189,12 +357,24 @@ def _assert_verified_ack_state(payload: LocalPurgeAckRequest) -> None:
 
 
 async def _refresh_local_purge_report_state(db: AsyncSession, *, task: LocalPurgeTaskModel) -> None:
+    # The meeting fence must be acquired before SQLAlchemy autoflushes any
+    # task/artifact mutation and before the report lock.
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(Meeting.workspace_id == task.workspace_id, Meeting.id == task.meeting_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if meeting is None:
+        return
     tasks = (
         await db.scalars(
             select(LocalPurgeTaskModel)
             .where(LocalPurgeTaskModel.workspace_id == task.workspace_id)
             .where(LocalPurgeTaskModel.meeting_id == task.meeting_id)
             .where(LocalPurgeTaskModel.deletion_request_id == task.deletion_request_id)
+            .order_by(LocalPurgeTaskModel.id.asc())
+            .with_for_update()
         )
     ).all()
     aggregate_state = _aggregate_local_purge_state(tasks)
@@ -203,9 +383,11 @@ async def _refresh_local_purge_report_state(db: AsyncSession, *, task: LocalPurg
         select(MeetingDeletionArtifactState)
         .where(MeetingDeletionArtifactState.workspace_id == task.workspace_id)
         .where(MeetingDeletionArtifactState.meeting_id == task.meeting_id)
-        .where(MeetingDeletionArtifactState.deletion_request_id == task.deletion_request_id)
-        .where(MeetingDeletionArtifactState.artifact_class == DeletionArtifactClass.LOCAL_DESKTOP_BUFFER.value)
-    )
+            .where(MeetingDeletionArtifactState.deletion_request_id == task.deletion_request_id)
+            .where(MeetingDeletionArtifactState.artifact_class == DeletionArtifactClass.LOCAL_DESKTOP_BUFFER.value)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     if artifact is not None:
         artifact.state = aggregate_state.value
         artifact.safe_reason = safe_reason
@@ -222,6 +404,8 @@ async def _refresh_local_purge_report_state(db: AsyncSession, *, task: LocalPurg
         .where(MeetingDeletionReport.workspace_id == task.workspace_id)
         .where(MeetingDeletionReport.meeting_id == task.meeting_id)
         .where(MeetingDeletionReport.deletion_request_id == task.deletion_request_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if report is not None:
         report.local_purge_state = aggregate_state.value

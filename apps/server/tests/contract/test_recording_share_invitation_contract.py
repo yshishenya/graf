@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -6,6 +7,7 @@ from twobrain_rec_server.cabinet.access import (
     open_invitation_delivery,
     seal_invitation_delivery,
 )
+from twobrain_rec_server.cabinet.rendering import render_share_invitation_accept_page
 
 
 def test_invitation_delivery_payload_is_encrypted_and_round_trips() -> None:
@@ -24,7 +26,7 @@ def test_invitation_delivery_payload_is_encrypted_and_round_trips() -> None:
     )
 
 
-def test_logged_out_invitation_redirects_to_login_and_preserves_target(client) -> None:
+def test_logged_out_invitation_shows_safe_preview_without_bearer_in_login_target(client) -> None:
     response = client.get(
         "/share-invitations/synthetic-token?workspace_id="
         "20000000-0000-0000-0000-000000000001",
@@ -32,12 +34,9 @@ def test_logged_out_invitation_redirects_to_login_and_preserves_target(client) -
         follow_redirects=False,
     )
 
-    assert response.status_code == 303
-    assert response.headers["location"].startswith("/login?")
-    assert "share-invitations%2Fsynthetic-token" in response.headers["location"]
-    assert "workspace_id%3D20000000-0000-0000-0000-000000000001" in response.headers[
-        "location"
-    ]
+    assert response.status_code == 200
+    assert "synthetic-token" not in response.text
+    assert "/sign-up?" not in response.text
 
 
 def test_postal_delivery_commits_at_most_once_fence_before_network_egress() -> None:
@@ -50,12 +49,42 @@ def test_postal_delivery_commits_at_most_once_fence_before_network_egress() -> N
 
     reserved = activity.index('invitation.status = "sending"')
     committed = activity.index("await db.commit()", reserved)
-    sent = activity.index(".send_meeting_invitation(", committed)
+    sent = activity.index("await send_meeting_invitation(", committed)
     assert reserved < committed < sent
 
     recovery = activity.split('if invitation.status == "sending":', 1)[1].split(
         'if invitation.status != "pending":', 1
     )[0]
-    assert 'invitation.status = "failed"' in recovery
+    assert 'invitation.status = "outcome_unknown"' in recovery
     assert 'invitation.failure_code = "postal_delivery_outcome_unknown"' in recovery
-    assert ".send_meeting_invitation(" not in recovery
+    assert "await send_meeting_invitation(" not in recovery
+
+
+def test_invitation_acceptance_uses_a_separate_grant_token_and_safe_onboarding_copy() -> None:
+    source = Path("src/twobrain_rec_server/cabinet/access.py").read_text(encoding="utf-8")
+    acceptance = source.split("async def accept_share_invitation", 1)[1].split(
+        "async def share_invitation_preview", 1
+    )[0]
+    assert "grant_raw_token = secrets.token_urlsafe(32)" in acceptance
+    assert "grant.share_token_hash = hash_share_token(grant_raw_token)" in acceptance
+    assert "invitation.grant_token_ciphertext = seal_invitation_delivery(" in acceptance
+    assert 'invitation.status == "accepted"' in acceptance
+    assert "grant.share_token_hash = invitation.token_hash" not in acceptance
+    assert '"recipient_address_hash": invitation.normalized_address_hash' in acceptance
+
+    rendered = render_share_invitation_accept_page(
+        share_token="synthetic-token",
+        workspace_id="20000000-0000-0000-0000-000000000001",
+        csrf_token="synthetic-csrf",
+        meeting_title="Планирование релиза",
+        meeting_occurred_at=datetime(2026, 7, 23, 10, 0, tzinfo=UTC),
+        meeting_duration_seconds=900,
+        invitation_expires_at=datetime(2026, 7, 30, 10, 0, tzinfo=UTC),
+    )
+    assert "Планирование релиза" in rendered
+    assert "Войти и открыть итоги" in rendered
+    assert "Если аккаунта GRAF ещё нет, он создастся автоматически" in rendered
+    assert "Создать аккаунт GRAF" not in rendered
+    assert "не добавляет вас в рабочую область" in rendered
+    assert "транскрипт" not in rendered.lower()
+    assert "audio" not in rendered.lower()

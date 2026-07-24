@@ -3,6 +3,7 @@ import Foundation
 public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingList
     case meetingDetail
+    case meetingShare
     case meetingDeletionReport
     case artifactDownload
     case calendarSettings
@@ -38,6 +39,7 @@ public enum DesktopCabinetRouteAction: String, Equatable, Sendable {
 public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedMeetingList = "allowed_meeting_list"
     case allowedMeetingDetail = "allowed_meeting_detail"
+    case allowedMeetingShare = "allowed_meeting_share"
     case allowedMeetingDeletionReport = "allowed_meeting_deletion_report"
     case allowedArtifactDownload = "allowed_artifact_download"
     case allowedCalendarSettings = "allowed_calendar_settings"
@@ -143,6 +145,18 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Meeting detail"
             )
         }
+        if components.count == 4,
+           components[0] == "desktop",
+           components[1] == "meetings",
+           isSafeMeetingId(components[2]),
+           components[3] == "share" {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, meetingId: components[2], kind: .meetingShare),
+                decision: .allow,
+                reason: .allowedMeetingShare,
+                userMessage: "Meeting sharing"
+            )
+        }
         if components.count == 5,
            components[0] == "desktop",
            components[1] == "meetings",
@@ -226,7 +240,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     ) -> DesktopCabinetRouteDecision {
         let decision = decision(for: url)
         guard decision.decision == .allow,
-              decision.route.kind == .meetingDetail,
+              [.meetingDetail, .meetingShare].contains(decision.route.kind),
               let meetingId = decision.route.meetingId
         else {
             return decision

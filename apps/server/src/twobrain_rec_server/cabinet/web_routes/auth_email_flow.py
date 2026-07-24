@@ -125,9 +125,13 @@ async def _consume_email_login_code(
         select(AuthCallbackState).where(
             AuthCallbackState.provider == provider,
             AuthCallbackState.state_nonce == state_nonce,
-        )
+        ).with_for_update()
     )
-    flow = "signup" if allow_registration else "login"
+    flow = (
+        "signup"
+        if provider == EMAIL_SIGNUP_PROVIDER
+        else ("share_invitation" if allow_registration else "login")
+    )
     if state is None:
         return _email_code_error_response(
             request=request,
@@ -273,7 +277,11 @@ async def _consume_email_login_code(
         workspace_id=workspace.id,
         outcome="success",
         user_id=user.id,
-        metadata={"flow": "registration"} if allow_registration else None,
+        metadata=(
+            {"flow": "registration"}
+            if provider == EMAIL_SIGNUP_PROVIDER
+            else ({"flow": "share_invitation"} if allow_registration else None)
+        ),
     )
     requested_redirect = state.requested_redirect
     await db.commit()

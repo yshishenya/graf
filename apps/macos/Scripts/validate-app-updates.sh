@@ -179,6 +179,13 @@ fi
 
 APP_ENTITLEMENTS=$(codesign -d --entitlements :- "$APP_BUNDLE" 2>&1 || true)
 APP_ENTITLEMENTS_COMPACT=$(printf '%s\n' "$APP_ENTITLEMENTS" | tr -d '[:space:]')
+AUDIO_INPUT_ENABLED=0
+case "$APP_ENTITLEMENTS_COMPACT" in
+  *"<key>com.apple.security.device.audio-input</key><true/>"*)
+    AUDIO_INPUT_ENABLED=1
+    ;;
+esac
+[ "$AUDIO_INPUT_ENABLED" = "1" ] || fail "app signing must declare hardened-runtime audio input entitlement"
 LIBRARY_VALIDATION_DISABLED=0
 case "$APP_ENTITLEMENTS_COMPACT" in
   *"<key>com.apple.security.cs.disable-library-validation</key><true/>"*)

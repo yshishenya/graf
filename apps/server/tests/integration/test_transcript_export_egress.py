@@ -26,6 +26,7 @@ from tests.fixtures.cabinet_access import (
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.cabinet import egress as egress_module
 from twobrain_rec_server.db.models import (
+    MediaRevision,
     Meeting,
     MeetingArtifactPolicy,
     MeetingOutcomeItem,
@@ -681,6 +682,111 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
         and event.policy_reason == "stored_summary_revision_stale"
         for event in audit_events(client, seeds.ready_id)
     )
+
+
+def test_export_capability_uses_newest_media_revision_before_summary_acceptance(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(
+        client,
+        seeds.ready_id,
+        transcript_download="allowed",
+        summary_download="allowed",
+    )
+    accepted_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+
+    async def seed_newer_revision_result() -> UUID:
+        async with client.app_state["sessionmaker"]() as db:
+            current = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
+            )
+            meeting = await db.get(Meeting, seeds.ready_id)
+            assert current is not None and meeting is not None
+            current_segments = (
+                await db.scalars(
+                    select(TranscriptSegment)
+                    .where(TranscriptSegment.processing_result_id == current.id)
+                    .order_by(TranscriptSegment.sequence.asc())
+                )
+            ).all()
+            revision = MediaRevision(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                local_media_revision_id="export-newer-media-revision",
+                revision_number=2,
+                source_kind="reprocess",
+                status="accepted",
+                manifest_sha256="d" * 64,
+                track_sha256_by_role={"media": "e" * 64},
+                duration_seconds=meeting.duration_seconds,
+                immutable=True,
+                accepted_at=datetime.now(UTC),
+            )
+            db.add(revision)
+            await db.flush()
+            newer = ProcessingResult(
+                meeting_id=current.meeting_id,
+                media_revision_id=revision.id,
+                workspace_id=current.workspace_id,
+                mediascribe_job_id=current.mediascribe_job_id,
+                processing_workflow_id=current.processing_workflow_id,
+                result_version=current.result_version + 1,
+                status="imported",
+                transcript_status="available",
+                diarization_status=current.diarization_status,
+                summary_status=current.summary_status,
+                language=current.language,
+                segment_count=current.segment_count,
+                diarization_segment_count=current.diarization_segment_count,
+                source_result_hash="newer-media-revision-result-hash",
+                imported_at=datetime.now(UTC),
+            )
+            db.add(newer)
+            await db.flush()
+            db.add_all(
+                [
+                    TranscriptSegment(
+                        processing_result_id=newer.id,
+                        meeting_id=segment.meeting_id,
+                        workspace_id=segment.workspace_id,
+                        sequence=segment.sequence,
+                        start_seconds=segment.start_seconds,
+                        end_seconds=segment.end_seconds,
+                        text=segment.text,
+                        source_role=segment.source_role,
+                        source_role_original=segment.source_role_original,
+                    )
+                    for segment in current_segments
+                ]
+            )
+            await db.commit()
+            return newer.id
+
+    newer_result_id = asyncio.run(seed_newer_revision_result())
+    capability = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+    )
+
+    assert capability.status_code == 200
+    payload = capability.json()
+    assert payload["processing_result_id"] == str(newer_result_id)
+    assert payload["outcome_set_id"] == str(accepted_id)
+    assert payload["summary"] == {
+        "state": "missing",
+        "reason": "stored_summary_revision_stale",
+    }
+    transcript_export = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+        json={
+            "content_scope": "transcript",
+            "format": "txt",
+            "processing_result_id": str(newer_result_id),
+            "outcome_set_id": None,
+        },
+    )
+    assert transcript_export.status_code == 200, transcript_export.text
+    assert SAFE_TRANSCRIPT_TEXT in transcript_export.text
 
 
 def test_summary_without_content_hash_is_not_exportable_as_a_pinned_revision(client) -> None:

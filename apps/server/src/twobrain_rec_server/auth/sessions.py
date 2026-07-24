@@ -106,7 +106,7 @@ async def consume_callback_state(
         select(AuthCallbackState).where(
             AuthCallbackState.provider == provider,
             AuthCallbackState.state_nonce == state_nonce,
-        )
+        ).with_for_update()
     )
     if state is None:
         raise ValueError("callback state not found")

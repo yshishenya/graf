@@ -82,7 +82,7 @@ def test_retention_scan_owner_write_run_creates_requests_only_for_eligible_meeti
     assert eligible_request.request_source == "retention_job"
     assert eligible_request.reason_code == "retention_expired"
     assert str(eligible_request.policy_snapshot_id) == body["policy_snapshot_id"]
-    assert persisted["meetings"][seeded["eligible"]].deletion_state == "deleting"
+    assert persisted["meetings"][seeded["eligible"]].deletion_state == "active_purge_complete"
     assert persisted["meetings"][seeded["eligible"]].retention_policy_state == "expired"
 
     report = client.get(
@@ -118,6 +118,130 @@ def test_retention_scan_owner_write_run_creates_requests_only_for_eligible_meeti
         assert "transcript" not in str(event.metadata_json).lower()
         assert "object" not in str(event.metadata_json).lower()
         assert "path" not in str(event.metadata_json).lower()
+
+
+def test_retention_scan_prioritizes_due_meeting_when_oldest_is_blocked(client) -> None:
+    """An old processing row must not starve a newer due deletion at a small limit."""
+    now = datetime.now(UTC)
+    blocked_id = UUID("51000000-0000-0000-0000-000000000101")
+    eligible_id = UUID("51000000-0000-0000-0000-000000000102")
+
+    async def seed() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add_all(
+                [
+                    Meeting(
+                        id=blocked_id,
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id="retention-starvation-blocked",
+                        started_at=now - timedelta(days=40),
+                        created_at=now - timedelta(days=2),
+                        duration_seconds=60,
+                        status="ingested_pending_processing",
+                        processing_status=ProcessingStatus.PENDING_PROCESSING.value,
+                        deletion_state=DeletionState.NONE.value,
+                        retention_delete_after=now - timedelta(days=1),
+                        retention_policy_state=RetentionPolicyState.ACTIVE.value,
+                    ),
+                    Meeting(
+                        id=eligible_id,
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id="retention-starvation-eligible",
+                        started_at=now - timedelta(days=40),
+                        created_at=now - timedelta(days=1),
+                        duration_seconds=60,
+                        status="ingested_pending_processing",
+                        processing_status=ProcessingStatus.PROCESSED.value,
+                        deletion_state=DeletionState.NONE.value,
+                        retention_delete_after=now - timedelta(days=1),
+                        retention_policy_state=RetentionPolicyState.ACTIVE.value,
+                    ),
+                ]
+            )
+            await db.commit()
+
+    asyncio.run(seed())
+    response = client.post(
+        "/api/v1/internal/retention/run",
+        headers=auth_headers(),
+        json={"limit": 1, "dry_run": False},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["created_requests"] == 1
+    async def load_requests() -> set[UUID]:
+        async with client.app_state["sessionmaker"]() as db:
+            rows = (
+                await db.scalars(
+                    select(MeetingDeletionRequest).where(
+                        MeetingDeletionRequest.workspace_id == WORKSPACE_ID,
+                        MeetingDeletionRequest.request_source == "retention_job",
+                    )
+                )
+            ).all()
+            return {row.meeting_id for row in rows}
+
+    assert asyncio.run(load_requests()) == {eligible_id}
+
+
+def test_retention_scan_repersists_snapshot_after_one_deletion_failure(client, monkeypatch) -> None:
+    first = create_finalized_meeting(client, "retention-batch-failure-first")
+    second = create_finalized_meeting(client, "retention-batch-failure-second")
+    meeting_ids = [UUID(str(first["meeting"]["meeting_id"])), UUID(str(second["meeting"]["meeting_id"]))]
+
+    async def make_eligible() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            for meeting_id in meeting_ids:
+                meeting = await db.get(Meeting, meeting_id)
+                assert meeting is not None
+                meeting.processing_status = ProcessingStatus.PROCESSED.value
+                meeting.retention_policy_state = RetentionPolicyState.ACTIVE.value
+                meeting.retention_delete_after = datetime.now(UTC) - timedelta(minutes=1)
+            await db.commit()
+
+    asyncio.run(make_eligible())
+
+    import twobrain_rec_server.deletion.retention as retention_module
+
+    original_request = retention_module.request_meeting_deletion
+    calls = 0
+
+    async def fail_once(db, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("simulated deletion dependency failure")
+        return await original_request(db, **kwargs)
+
+    monkeypatch.setattr(retention_module, "request_meeting_deletion", fail_once)
+    response = client.post(
+        "/api/v1/internal/retention/run",
+        headers=auth_headers(),
+        json={"limit": 2, "dry_run": False},
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["blocked"] == 1
+    assert body["created_requests"] == 1
+    assert body["policy_snapshot_id"]
+
+    async def load_request() -> MeetingDeletionRequest | None:
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.scalar(
+                select(MeetingDeletionRequest).where(
+                    MeetingDeletionRequest.meeting_id == meeting_ids[1],
+                    MeetingDeletionRequest.request_source == "retention_job",
+                )
+            )
+
+    request = asyncio.run(load_request())
+    assert request is not None
+    assert str(request.policy_snapshot_id) == body["policy_snapshot_id"]
 
 
 def test_retention_scan_fails_closed_when_policy_is_unsafe(client) -> None:
@@ -181,7 +305,7 @@ def test_retention_deletion_cancels_active_normalization_without_user_action(cli
             )
 
     meeting, job = asyncio.run(load_truth())
-    assert meeting.deletion_state == "deleting"
+    assert meeting.deletion_state == "active_purge_complete"
     assert meeting.retention_policy_state == "expired"
     assert job.state == "cancelled"
     assert job.reason_code == "meeting_deleting"

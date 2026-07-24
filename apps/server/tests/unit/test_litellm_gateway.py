@@ -72,7 +72,11 @@ async def test_gateway_projects_only_pinned_config_and_does_not_retry(monkeypatc
         base_url="https://litellm.example/v1",
         api_key="secret",
         timeout_seconds=19,
-    ).generate(snapshot=_snapshot(), messages=[{"role": "user", "content": "full"}])
+    ).generate(
+        snapshot=_snapshot(),
+        messages=[{"role": "user", "content": "full"}],
+        idempotency_key="candidate-attempt-1",
+    )
     assert len(_AsyncClient.requests) == 1
     assert set(result.request) == {
         "model",
@@ -84,6 +88,7 @@ async def test_gateway_projects_only_pinned_config_and_does_not_retry(monkeypatc
     assert result.actual_model == "provider-model"
     assert result.actual_provider == "provider-a"
     assert result.token_usage == {"input": 11, "output": 7, "total": 18}
+    assert _AsyncClient.requests[0]["headers"]["Idempotency-Key"] == "candidate-attempt-1"
 
 
 @pytest.mark.asyncio

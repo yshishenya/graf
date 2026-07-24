@@ -29,6 +29,7 @@ from twobrain_rec_server.db.models import (
     RecordingCalendarMatchAttempt,
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 
 MATCHER_VERSION = "calendar_auto_match_v1"
 MAX_SELECTED_SOURCES = 4
@@ -40,6 +41,27 @@ PRESTART_GRACE = timedelta(minutes=5)
 RECENTLY_ENDED_GUARD = timedelta(minutes=5)
 SOURCE_FRESHNESS = timedelta(hours=24)
 ATTEMPT_TTL = timedelta(hours=24)
+
+
+async def _lock_calendar_meeting(
+    db: AsyncSession,
+    tenant_scope: TenantScope,
+    meeting_id: UUID,
+) -> Meeting:
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(
+            Meeting.id == meeting_id,
+            Meeting.workspace_id == tenant_scope.workspace_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    if meeting_is_deleted_or_deleting(meeting):
+        raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
+    return meeting
 
 
 @dataclass(frozen=True, slots=True)
@@ -402,6 +424,8 @@ async def consume_recording_calendar_match_attempt(
     meeting_id = _as_uuid(_read(meeting, "id"))
     if meeting_id is None:
         raise ValueError("meeting must have a UUID id")
+    meeting_input = meeting
+    meeting = await _lock_calendar_meeting(db, tenant_scope, meeting_id)
     existing_context = await db.scalar(
         select(RecordingCalendarContextLink).where(
             RecordingCalendarContextLink.workspace_id == tenant_scope.workspace_id,
@@ -480,6 +504,10 @@ async def consume_recording_calendar_match_attempt(
         attempt=attempt,
         updated_at=consumed,
     )
+    if title_applied and meeting_input is not meeting:
+        meeting_input.title = meeting.title
+        meeting_input.title_source = meeting.title_source
+        meeting_input.title_updated_at = meeting.title_updated_at
     attempt.consumed_by_meeting_id = meeting_id
     attempt.consumed_at = consumed
     context = _context_from_attempt(
@@ -512,6 +540,7 @@ async def ensure_manual_upload_calendar_skip(
     meeting_id = _as_uuid(_read(meeting, "id"))
     if meeting_id is None:
         raise ValueError("meeting must have a UUID id")
+    meeting = await _lock_calendar_meeting(db, tenant_scope, meeting_id)
     existing = await db.scalar(
         select(RecordingCalendarContextLink).where(
             RecordingCalendarContextLink.workspace_id == tenant_scope.workspace_id,

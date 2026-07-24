@@ -57,8 +57,13 @@ for start_attempt in 1 2; do
   fi
   if [[ "$container_started" == true ]]; then
     for _attempt in {1..120}; do
-      if docker exec "$postgres_container" \
-        pg_isready --username=twobrain_rec --dbname=postgres >/dev/null 2>&1; then
+      # `pg_isready` can succeed against the temporary post-init server before
+      # the entrypoint starts the final postmaster. Wait for the stable marker
+      # first so the database creation below cannot race that shutdown.
+      if docker logs "$postgres_container" 2>&1 \
+        | grep -q "PostgreSQL init process complete; ready for start up." \
+        && docker exec "$postgres_container" \
+          pg_isready --username=twobrain_rec --dbname=postgres >/dev/null 2>&1; then
         postgres_ready=true
         break
       fi
@@ -66,18 +71,18 @@ for start_attempt in 1 2; do
     done
   fi
   if [[ "$postgres_ready" == true ]]; then
-    for _database_attempt in {1..20}; do
+    # pg_isready can report the socket during the short initdb handoff while
+    # PostgreSQL is still shutting down its bootstrap server. Retry the actual
+    # DDL probe before discarding an otherwise healthy disposable container.
+    for _db_attempt in {1..20}; do
       if docker exec "$postgres_container" \
         psql --set=ON_ERROR_STOP=1 --username=twobrain_rec --dbname=postgres \
         --command "create database \"${rls_database}\"" >/dev/null; then
         postgres_initialized=true
-        break
+        break 2
       fi
       sleep 0.25
     done
-  fi
-  if [[ "$postgres_initialized" == true ]]; then
-    break
   fi
   if [[ "$container_started" == true ]]; then
     docker rm --force --volumes "$postgres_container" >/dev/null 2>&1 || true

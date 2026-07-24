@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from email.utils import formataddr
 from html import escape
 from typing import Any
@@ -11,11 +12,19 @@ from twobrain_rec_server.config import Settings
 
 
 class EmailLoginDeliveryError(RuntimeError):
-    def __init__(self, reason_code: str, *, retryable: bool = True, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        reason_code: str,
+        *,
+        retryable: bool = True,
+        status_code: int | None = None,
+        outcome_unknown: bool = False,
+    ) -> None:
         super().__init__(reason_code)
         self.reason_code = reason_code
         self.retryable = retryable
         self.status_code = status_code
+        self.outcome_unknown = outcome_unknown
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,17 +91,28 @@ class PostalEmailLoginClient:
         recipient_email: str,
         acceptance_url: str,
         delivery_key: str,
+        inviter_name: str | None = None,
+        meeting_title: str | None = None,
+        occurred_at: datetime | None = None,
+        duration_seconds: int | None = None,
+        expires_at: datetime | None = None,
     ) -> None:
         safe_url = escape(acceptance_url, quote=True)
+        plain_body, html_body = _meeting_invitation_bodies(
+            acceptance_url=acceptance_url,
+            safe_url=safe_url,
+            inviter_name=inviter_name,
+            meeting_title=meeting_title,
+            occurred_at=occurred_at,
+            duration_seconds=duration_seconds,
+            expires_at=expires_at,
+        )
         payload = {
             "to": [recipient_email],
             "from": formataddr((self.from_name, self.from_address)),
             "subject": "Вам открыли итоги встречи в GRAF",
-            "plain_body": f"Откройте приглашение: {acceptance_url}\n",
-            "html_body": (
-                '<p>Вам открыли итоги встречи в GRAF.</p>'
-                f'<p><a href="{safe_url}">Открыть приглашение</a></p>'
-            ),
+            "plain_body": plain_body,
+            "html_body": html_body,
             "tag": "meeting-share-invitation",
             "headers": {
                 "X-2brain-Email-Purpose": "meeting-share-invitation",
@@ -115,17 +135,101 @@ class PostalEmailLoginClient:
             ) as client:
                 response = await client.post("/api/v1/send/message", json=payload)
         except httpx.TimeoutException as exc:
-            raise EmailLoginDeliveryError("postal_timeout", retryable=True) from exc
+            raise EmailLoginDeliveryError(
+                "postal_timeout", retryable=False, outcome_unknown=True
+            ) from exc
         except httpx.RequestError as exc:
-            raise EmailLoginDeliveryError("postal_request_failed", retryable=True) from exc
+            raise EmailLoginDeliveryError(
+                "postal_request_failed", retryable=False, outcome_unknown=True
+            ) from exc
+        if response.status_code >= 500:
+            raise EmailLoginDeliveryError(
+                "postal_http_error",
+                retryable=False,
+                outcome_unknown=True,
+                status_code=response.status_code,
+            )
         if response.status_code >= 400:
             raise EmailLoginDeliveryError("postal_http_error", retryable=True, status_code=response.status_code)
         try:
             data = response.json()
         except ValueError as exc:
-            raise EmailLoginDeliveryError("postal_malformed_response", retryable=True) from exc
+            raise EmailLoginDeliveryError(
+                "postal_malformed_response", retryable=False, outcome_unknown=True
+            ) from exc
         if not isinstance(data, dict) or data.get("status") != "success":
             raise EmailLoginDeliveryError("postal_delivery_rejected", retryable=True)
+
+
+def _meeting_invitation_bodies(
+    *,
+    acceptance_url: str,
+    safe_url: str,
+    inviter_name: str | None,
+    meeting_title: str | None,
+    occurred_at: datetime | None,
+    duration_seconds: int | None,
+    expires_at: datetime | None,
+) -> tuple[str, str]:
+    inviter = _safe_email_label(inviter_name, fallback="Пользователь GRAF")
+    title = _safe_email_label(meeting_title, fallback="Встреча")
+    safe_title = escape(title)
+    safe_inviter = escape(inviter)
+    details: list[str] = [f"Встреча: {title}"]
+    html_details: list[str] = [f"<strong>{safe_title}</strong>"]
+    if occurred_at is not None:
+        date_label = _meeting_invitation_datetime(occurred_at)
+        details.append(f"Дата: {date_label}")
+        html_details.append(f"<span>Дата: {escape(date_label)}</span>")
+    if duration_seconds is not None:
+        duration_label = _meeting_invitation_duration(duration_seconds)
+        details.append(f"Продолжительность: {duration_label}")
+        html_details.append(f"<span>Продолжительность: {escape(duration_label)}</span>")
+    if expires_at is not None:
+        expiry_label = _meeting_invitation_datetime(expires_at)
+        details.append(f"Приглашение действует до: {expiry_label}")
+        html_details.append(f"<span>Ссылка действует до: {escape(expiry_label)}</span>")
+    plain = (
+        f"{inviter} поделился(лась) итогами встречи в GRAF.\n\n"
+        + "\n".join(details)
+        + "\n\nОткройте ссылку, чтобы войти или создать аккаунт GRAF.\n"
+        + f"{acceptance_url}\n\n"
+        + "Доступ ограничен итогами этой встречи и не добавляет вас в рабочую область."
+    )
+    html = (
+        '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;'
+        'max-width:560px;color:#373941;line-height:1.5">'
+        f"<p><strong>{safe_inviter}</strong> поделился(лась) итогами встречи в GRAF.</p>"
+        '<div style="border:1px solid #dfe1e7;border-radius:12px;padding:18px 20px;">'
+        + "<br>".join(html_details)
+        + "</div>"
+        '<p style="margin:24px 0"><a href="'
+        + safe_url
+        + '" style="display:inline-block;background:#7657f5;color:#fff;border-radius:10px;'
+        'padding:12px 20px;text-decoration:none;font-weight:700">Открыть итоги</a></p>'
+        "<p style=\"color:#646a78;font-size:14px\">Ссылка ведёт на вход или регистрацию GRAF."
+        " Доступ ограничен итогами этой встречи и не добавляет вас в рабочую область.</p>"
+        "</div>"
+    )
+    return plain, html
+
+
+def _safe_email_label(value: str | None, *, fallback: str) -> str:
+    label = " ".join((value or fallback).split())[:160]
+    return fallback if "@" in label else label or fallback
+
+
+def _meeting_invitation_datetime(value: datetime) -> str:
+    aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return aware.strftime("%d.%m.%Y, %H:%M UTC")
+
+
+def _meeting_invitation_duration(seconds: int) -> str:
+    minutes = max(0, int(seconds)) // 60
+    if minutes < 60:
+        return f"{minutes} мин"
+    hours, remainder = divmod(minutes, 60)
+    return f"{hours} ч {remainder} мин" if remainder else f"{hours} ч"
 
 
 async def send_email_login_code(
@@ -150,6 +254,33 @@ async def send_workspace_invitation_review_notice(
         raise EmailLoginDeliveryError("postal_delivery_disabled", retryable=False)
     client = PostalEmailLoginClient.from_settings(settings)
     await client.send_workspace_invitation_review_notice(recipient_email=recipient_email)
+
+
+async def send_meeting_invitation(
+    *,
+    settings: Settings,
+    recipient_email: str,
+    acceptance_url: str,
+    delivery_key: str,
+    inviter_name: str | None = None,
+    meeting_title: str | None = None,
+    occurred_at: datetime | None = None,
+    duration_seconds: int | None = None,
+    expires_at: datetime | None = None,
+) -> None:
+    if not settings.email_login_delivery_enabled:
+        raise EmailLoginDeliveryError("postal_delivery_disabled", retryable=False)
+    client = PostalEmailLoginClient.from_settings(settings)
+    await client.send_meeting_invitation(
+        recipient_email=recipient_email,
+        acceptance_url=acceptance_url,
+        delivery_key=delivery_key,
+        inviter_name=inviter_name,
+        meeting_title=meeting_title,
+        occurred_at=occurred_at,
+        duration_seconds=duration_seconds,
+        expires_at=expires_at,
+    )
 
 
 def _plain_login_code_body(*, code: str, ttl_minutes: int) -> str:
