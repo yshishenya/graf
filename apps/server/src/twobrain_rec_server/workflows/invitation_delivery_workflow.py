@@ -20,3 +20,19 @@ class InvitationDeliveryWorkflow:
                 maximum_attempts=5,
             ),
         )
+
+
+@workflow.defn(name="AccountCreatedEmailWorkflow")
+class AccountCreatedEmailWorkflow:
+    @workflow.run
+    async def run(self, payload: dict[str, str]) -> dict[str, str]:
+        return await workflow.execute_activity(
+            "send_account_created_email_activity",
+            payload,
+            start_to_close_timeout=timedelta(seconds=45),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_interval=timedelta(minutes=5),
+                maximum_attempts=5,
+            ),
+        )

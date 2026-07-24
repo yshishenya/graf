@@ -9,22 +9,39 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Для внешнего exact-email приглашения добавлен явный одноразовый magic-link:
+  получатель без аккаунта автоматически получает personal account и сразу
+  открывает summary-only итоги без пароля и отдельной регистрации.
+- После первого bootstrap добавлено отдельное account-created письмо с
+  безопасными ссылками GRAF/настроек и маскированным адресом.
 
 ### Изменено
-- _Пока нет записей._
+- Модалка «Поделиться итогами» теперь явно показывает scope, ограничения,
+  текущие приглашения и честные состояния подготовки/отправки письма.
+- Anonymous invitation preview больше не ведёт через email-code/signup экран:
+  действие «Открыть GRAF и итоги» создаёт сессию и открывает разрешённые итоги.
 
 ### Исправлено
-- _Пока нет записей._
+- Убрано рассогласование между приглашением и фактическим onboarding-flow:
+  повторное использование magic-link отклоняется, а неправильная CSRF-пара
+  не раскрывает состояние приглашения.
 
 ### Безопасность
-- _Пока нет записей._
+- Адрес получателя для magic-link хранится зашифрованно только до
+  acceptance/revoke/expiry; raw token не попадает в форму, login target,
+  referrer или analytics. Доступ остаётся summary-only/view-only и не создаёт
+  membership рабочей области.
+- Account-created notification запускается после commit через детерминированный
+  Temporal workflow с отдельными состояниями `sent`, `failed` и
+  `outcome_unknown`; public links, Contacts и referral остаются gated.
 
 ### Документы
-- _Пока нет записей._
+- Feature 125 дополнен контрактом magic-link, account-created notification и
+  UX/security evidence.
 
 ### Операции
-- _Пока нет записей._
+- Добавлена миграция `0038_share_account_created_email`; worker получает
+  organization context для безопасного чтения verified email под PostgreSQL RLS.
 
 ## [2026.07.24.5] - 2026-07-24
 

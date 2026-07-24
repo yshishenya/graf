@@ -23,6 +23,9 @@ OUTCOME_GENERATION_WORKFLOW_ID_PATTERN = re.compile(
 INVITATION_DELIVERY_WORKFLOW_ID_PATTERN = re.compile(
     r"^share-invitation/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
+ACCOUNT_CREATED_EMAIL_WORKFLOW_ID_PATTERN = re.compile(
+    r"^share-account-created/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
 PROMPT_OPTIMIZATION_WORKFLOW_ID_PATTERN = re.compile(
     r"^prompt-optimization/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
@@ -56,6 +59,13 @@ class OutcomeGenerationWorkflowStart:
 
 @dataclass(frozen=True, slots=True)
 class InvitationDeliveryWorkflowStart:
+    workflow_id: str
+    run_id: str | None = None
+    reused: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AccountCreatedEmailWorkflowStart:
     workflow_id: str
     run_id: str | None = None
     reused: bool = False
@@ -121,6 +131,17 @@ def invitation_delivery_workflow_id(invitation_id: UUID) -> str:
 def validate_invitation_delivery_workflow_id(workflow_id: str) -> None:
     if not INVITATION_DELIVERY_WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
         raise ValueError("invitation workflow id must contain only the fixed prefix and UUID")
+
+
+def account_created_email_workflow_id(invitation_id: UUID) -> str:
+    workflow_id = f"share-account-created/{invitation_id}"
+    validate_account_created_email_workflow_id(workflow_id)
+    return workflow_id
+
+
+def validate_account_created_email_workflow_id(workflow_id: str) -> None:
+    if not ACCOUNT_CREATED_EMAIL_WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+        raise ValueError("account-created email workflow id must contain only the fixed prefix and UUID")
 
 
 def outcome_generation_workflow_id(candidate_id: UUID) -> str:
@@ -477,6 +498,43 @@ async def start_invitation_delivery_workflow(
         return InvitationDeliveryWorkflowStart(workflow_id=workflow_id, reused=True)
     run_id = _started_workflow_run_id(handle)
     return InvitationDeliveryWorkflowStart(workflow_id=workflow_id, run_id=run_id)
+
+
+async def start_account_created_email_workflow(
+    *,
+    temporal_client: object,
+    settings: Settings,
+    invitation_id: UUID,
+    workspace_id: UUID,
+    organization_id: UUID,
+    user_id: UUID,
+) -> AccountCreatedEmailWorkflowStart:
+    from twobrain_rec_server.workflows.invitation_delivery_workflow import (
+        AccountCreatedEmailWorkflow,
+    )
+
+    workflow_id = account_created_email_workflow_id(invitation_id)
+    validate_account_created_email_workflow_id(workflow_id)
+    try:
+        handle = await temporal_client.start_workflow(
+            AccountCreatedEmailWorkflow.run,
+            {
+                "invitation_id": str(invitation_id),
+                "workspace_id": str(workspace_id),
+                "organization_id": str(organization_id),
+                "user_id": str(user_id),
+            },
+            id=workflow_id,
+            task_queue=settings.temporal_task_queue,
+            execution_timeout=timedelta(hours=1),
+        )
+    except Exception as exc:
+        exc_name = exc.__class__.__name__.lower()
+        if "already" not in exc_name and "workflowalready" not in exc_name:
+            raise
+        return AccountCreatedEmailWorkflowStart(workflow_id=workflow_id, reused=True)
+    run_id = _started_workflow_run_id(handle)
+    return AccountCreatedEmailWorkflowStart(workflow_id=workflow_id, run_id=run_id)
 
 
 async def cancel_invitation_delivery_workflow(

@@ -1,7 +1,6 @@
 import asyncio
 import re
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
 
 from cryptography.fernet import Fernet
 from sqlalchemy import select
@@ -505,8 +504,8 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(c
     assert anonymous_preview.status_code == 200
     assert "Вам открыли итоги встречи" in anonymous_preview.text
     assert raw_token not in anonymous_preview.text
-    assert "share-invitations%2Fcontinue" in anonymous_preview.text
-    state_match = re.search(r"%26state%3D([A-Za-z0-9_-]+)", anonymous_preview.text)
+    assert "Открыть GRAF и итоги" in anonymous_preview.text
+    state_match = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', anonymous_preview.text)
     assert state_match is not None
     recipient_headers = auth_headers_for(
         user_id=recipient_user_id,
@@ -658,88 +657,44 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
         headers={"Accept": "text/html"},
     )
     assert preview.status_code == 200
-    state_match = re.search(r"%26state%3D([A-Za-z0-9_-]+)", preview.text)
+    state_match = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', preview.text)
     assert state_match is not None
-    continuation_path = (
-        f"/share-invitations/continue?workspace_id={WORKSPACE_ID}"
-        f"&state={state_match.group(1)}"
-    )
+    state = state_match.group(1)
+    magic_csrf_match = re.search(r'name="magic_csrf" value="([^\"]+)"', preview.text)
+    assert magic_csrf_match is not None
+    assert "Открыть GRAF и итоги" in preview.text
+    assert "Войти и открыть итоги" not in preview.text
 
-    login_page = client.get(
-        "/login",
-        params={"next": continuation_path},
-    )
-    assert login_page.status_code == 200
-    assert "Откройте итоги встречи" in login_page.text
-    assert "Новый аккаунт создастся автоматически" in login_page.text
-    assert "Зарегистрироваться" not in login_page.text
-
-    fallback_workspace_id = uuid4()
-
-    async def seed_fallback_login_workspace() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            db.add(
-                Workspace(
-                    id=fallback_workspace_id,
-                    organization_id=ORG_ID,
-                    slug=f"fallback-login-{fallback_workspace_id.hex}",
-                    name="Fallback Login Workspace",
-                    kind="corporate",
-                )
-            )
-            await db.commit()
-
-    asyncio.run(seed_fallback_login_workspace())
-    client.app.state.settings.web_login_workspace_id = fallback_workspace_id
-    provider_start = client.get(
-        "/login/yandex/start",
-        params={"next": continuation_path},
+    rejected_csrf = client.post(
+        "/share-invitations/continue/magic",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        data={"state": state, "magic_csrf": "x" * 32},
         follow_redirects=False,
     )
-    assert provider_start.status_code == 303
-    assert f"workspace_id={WORKSPACE_ID}" in provider_start.headers["location"]
-    assert str(fallback_workspace_id) not in provider_start.headers["location"]
+    assert rejected_csrf.status_code == 404
 
-    wrong_email = client.post(
-        "/login/email/start",
-        data={"email": "someone-else@example.com", "next": continuation_path},
-    )
-    assert wrong_email.status_code == 400
-    assert "Введите email, на который пришло приглашение" in wrong_email.text
-
-    start = client.post(
-        "/login/email/start",
-        data={"email": recipient_email, "next": continuation_path},
-    )
-    assert start.status_code == 200
-    assert "Если аккаунта GRAF ещё нет, он создастся автоматически" in start.text
-    state_code = re.search(r'name="state" value="([^\"]+)"', start.text)
-    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
-    assert state_code is not None
-    assert code_match is not None
-
-    verified = client.post(
-        "/login/email/verify",
-        data={
-            "email": recipient_email,
-            "code": code_match.group(1),
-            "state": state_code.group(1),
-            "next": continuation_path,
-        },
+    magic = client.post(
+        "/share-invitations/continue/magic",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        data={"state": state, "magic_csrf": magic_csrf_match.group(1)},
         follow_redirects=False,
     )
-    assert verified.status_code == 303
-    assert verified.headers["location"] == continuation_path
-    session_cookie = verified.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    assert magic.status_code == 200
+    assert "Итоги встречи" in magic.text
+    assert raw_token not in magic.text
+    session_cookie = magic.cookies.get(AUTH_SESSION_COOKIE_NAME)
     assert session_cookie
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
 
-    summary = client.get(continuation_path)
-    assert summary.status_code == 200
-    assert "Итоги встречи" in summary.text
-    assert raw_token not in summary.text
+    replay = client.post(
+        "/share-invitations/continue/magic",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        data={"state": state, "magic_csrf": magic_csrf_match.group(1)},
+        follow_redirects=False,
+    )
+    assert replay.status_code == 404
 
-    async def read_bootstrap_result() -> tuple[ExternalIdentity, WorkspaceMembership, MeetingShareGrant]:
+    async def read_bootstrap_result() -> tuple[ExternalIdentity, WorkspaceMembership, MeetingShareGrant, MeetingShareInvitation]:
         async with client.app_state["sessionmaker"]() as db:
             identity = await db.scalar(
                 select(ExternalIdentity).where(ExternalIdentity.email == recipient_email)
@@ -764,11 +719,23 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
                 )
             )
             assert grant is not None
-            return identity, personal_membership, grant
+            invitation = await db.scalar(
+                select(MeetingShareInvitation).where(
+                    MeetingShareInvitation.workspace_id == WORKSPACE_ID,
+                    MeetingShareInvitation.meeting_id == seeds.ready_id,
+                    MeetingShareInvitation.status == "accepted",
+                )
+            )
+            assert invitation is not None
+            return identity, personal_membership, grant, invitation
 
-    identity, personal_membership, grant = asyncio.run(read_bootstrap_result())
+    identity, personal_membership, grant, invitation = asyncio.run(read_bootstrap_result())
     assert personal_membership.workspace_id != WORKSPACE_ID
     assert grant.content_scope == "summary_only"
+    assert grant.can_download is False
+    assert grant.can_export is False
+    assert invitation.account_created_email_status == "failed"
+    assert invitation.account_created_email_failure_code == "postal_delivery_disabled"
 
 
 def test_enabled_broader_audiences_have_no_dead_share_paths(client) -> None:

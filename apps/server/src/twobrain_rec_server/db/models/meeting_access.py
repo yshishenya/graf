@@ -95,6 +95,9 @@ class MeetingShareInvitation(Base):
     )
     normalized_address_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     encrypted_delivery_address: Mapped[str] = mapped_column(String, nullable=False)
+    # Retained only until acceptance/revoke/expiry so magic-link bootstrap can
+    # prove the invited address without putting PII in the URL.
+    encrypted_recipient_address: Mapped[str | None] = mapped_column(String)
     grant_token_ciphertext: Mapped[str | None] = mapped_column(String)
     continuation_nonce: Mapped[str | None] = mapped_column(String(128))
     continuation_token_ciphertext: Mapped[str | None] = mapped_column(String)
@@ -113,6 +116,13 @@ class MeetingShareInvitation(Base):
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failure_code: Mapped[str | None] = mapped_column(String(120))
+    account_created_email_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="not_applicable", server_default="not_applicable"
+    )
+    account_created_email_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    account_created_email_failure_code: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

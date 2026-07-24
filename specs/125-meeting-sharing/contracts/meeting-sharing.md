@@ -153,6 +153,25 @@ token only encrypted-at-rest so a lost response can be replayed for the same
 verified recipient without rotating the grant; a different identity receives a
 privacy-preserving not-found response.
 
+For an anonymous recipient, the landing page exposes only an explicit
+`Открыть GRAF и итоги` POST action. The action uses the one-time continuation
+nonce plus a double-submit CSRF cookie; the bearer invitation token is not
+placed in the form, login `next` path, referrer or analytics. The server
+consumes the continuation, resolves the invited address from encrypted
+server-side data, creates or reuses the recipient's personal account, issues
+the browser session and opens the summary in one transaction. Preview alone
+creates neither an account nor a grant. Existing standard email login remains
+code-based; the invitation magic link is the automatic bootstrap path.
+
+When bootstrap created a new account, the server commits the access result
+first and then starts the deterministic
+`share-account-created/{invitation_id}` notification workflow. Notification
+status is independent from access and is one of `pending`, `sending`, `sent`,
+`failed` or `outcome_unknown`. Its body contains only the safe meeting title,
+masked recipient address, GRAF/settings links and revoke/support copy; it never
+contains raw email, invitation/grant tokens, transcript, audio, participants or
+summary text.
+
 ## 6. Share fragment UI contract
 
 The fragment must be rendered only after an explicit Share action. It contains:
@@ -182,6 +201,12 @@ summary text, tracking pixel, raw email or token is placed in content.
 After successful authorized summary view, an optional CTA explains one concrete
 GRAF value and links to explicit onboarding. It never blocks the summary, joins
 the workspace, creates an account or sends another invitation.
+
+The anonymous invitation action is the exception to the general onboarding
+rule: account creation happens only after the recipient explicitly submits the
+one-time magic-link action, and only as a personal account needed to open this
+summary. The follow-up account-created notification is post-commit and does
+not widen access.
 
 ### 7.1. Effective access and provenance
 
@@ -259,7 +284,9 @@ the same verified recipient and returns the same encrypted-at-rest grant token;
 it does not rotate on retry. Delivery timeout after provider egress is a
 first-class `outcome_unknown` state and must not trigger an automatic duplicate
 send without provider idempotency/reconciliation. Runtime limits apply
-independently to search, grant, rotation, acceptance and distribution.
+independently to search, grant, rotation, acceptance and distribution. The
+account-created notification has its own durable at-most-once reservation; an
+ambiguous provider result is recorded and not silently resent.
 
 Allowed metadata-only event names are bounded and do not contain meeting content:
 

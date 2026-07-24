@@ -729,10 +729,13 @@ async def share_panel_state(
     invitation_views = []
     for invitation in invitations:
         display_label = f"Приглашение · {str(invitation.id)[:8]}"
-        if invitation_encryption_key and invitation.encrypted_delivery_address:
+        sealed_address = (
+            invitation.encrypted_recipient_address or invitation.encrypted_delivery_address
+        )
+        if invitation_encryption_key and sealed_address:
             try:
                 address, _ = open_invitation_delivery(
-                    invitation.encrypted_delivery_address,
+                    sealed_address,
                     key=invitation_encryption_key,
                 )
                 display_label = mask_invitation_address(address)
@@ -1247,6 +1250,7 @@ async def create_share_invitation(
     for invitation in expired:
         invitation.status = "expired"
         invitation.encrypted_delivery_address = ""
+        invitation.encrypted_recipient_address = None
     uncertain = await db.scalar(
         select(MeetingShareInvitation).where(
             MeetingShareInvitation.workspace_id == workspace_id,
@@ -1285,6 +1289,11 @@ async def create_share_invitation(
             raw_token=raw_token,
             key=encryption_key,
         ),
+        encrypted_recipient_address=seal_invitation_delivery(
+            address=normalized,
+            raw_token=raw_token,
+            key=encryption_key,
+        ),
         content_scope=content_scope,
         can_download=can_download,
         can_export=can_export,
@@ -1305,6 +1314,38 @@ async def create_share_invitation(
     )
     await db.flush()
     return invitation
+
+
+async def share_invitation_recipient_address(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    raw_token: str,
+    encryption_key: bytes,
+) -> str | None:
+    """Recover the invited address only for the matching active magic link."""
+    invitation = await db.scalar(
+        select(MeetingShareInvitation).where(
+            MeetingShareInvitation.workspace_id == workspace_id,
+            MeetingShareInvitation.token_hash == hash_share_token(raw_token),
+            MeetingShareInvitation.status.in_(ACTIVE_INVITATION_STATES),
+            MeetingShareInvitation.expires_at > datetime.now(UTC),
+        )
+    )
+    if invitation is None:
+        return None
+    sealed = invitation.encrypted_recipient_address or invitation.encrypted_delivery_address
+    if not sealed:
+        return None
+    try:
+        address, stored_token = open_invitation_delivery(sealed, key=encryption_key)
+    except ProblemDetail:
+        return None
+    if not hmac.compare_digest(hash_share_token(stored_token), invitation.token_hash):
+        return None
+    if invitation.normalized_address_hash not in invitation_address_hashes(address):
+        return None
+    return address
 
 
 async def create_share_invitation_continuation(
@@ -1508,6 +1549,7 @@ async def revoke_share_invitation(
     invitation.status = "revoked"
     invitation.revoked_at = datetime.now(UTC)
     invitation.encrypted_delivery_address = ""
+    invitation.encrypted_recipient_address = None
     await record_egress_audit_event(
         db,
         workspace_id=workspace_id,
@@ -1602,6 +1644,7 @@ async def accept_share_invitation(
         if not replay:
             invitation.status = "expired"
             invitation.encrypted_delivery_address = ""
+            invitation.encrypted_recipient_address = None
         return None
     if invitation.normalized_address_hash not in verified_address_hashes:
         return None
@@ -1678,6 +1721,7 @@ async def accept_share_invitation(
     invitation.accepted_at = datetime.now(UTC)
     invitation.resolved_user_id = user_id
     invitation.encrypted_delivery_address = ""
+    invitation.encrypted_recipient_address = None
     invitation.grant_token_ciphertext = seal_invitation_delivery(
         address="grant-token@graf.invalid",
         raw_token=grant_raw_token,

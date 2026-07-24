@@ -10,6 +10,7 @@ import pytest
 from twobrain_rec_server.auth.email_delivery import (
     EmailLoginDeliveryError,
     PostalEmailLoginClient,
+    send_account_created_email,
     send_email_login_code,
     send_meeting_invitation,
 )
@@ -118,6 +119,55 @@ async def test_postal_meeting_invitation_contains_safe_metadata_and_signup_cta()
     assert "audio" not in payload["html_body"].lower()
     assert "recipient@example.test" not in payload["plain_body"]
     assert payload["tag"] == "meeting-share-invitation"
+
+
+@pytest.mark.anyio
+async def test_postal_account_created_email_uses_magic_link_copy_and_masked_address() -> None:
+    seen: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen["payload"] = json.loads(request.content)
+        return httpx.Response(200, json={"status": "success"})
+
+    client = PostalEmailLoginClient(
+        api_url="http://postal-web:5000",
+        api_key="postal-test-key",
+        from_address="no-reply@graf.example.test",
+        transport=httpx.MockTransport(handler),
+    )
+    await client.send_account_created_email(
+        recipient_email="recipient@example.test",
+        meeting_title="Планирование релиза",
+        graf_url="https://graf.example.test/meetings",
+        settings_url="https://graf.example.test/settings",
+        delivery_key="account-created:synthetic-invitation",
+    )
+
+    payload = seen["payload"]
+    assert isinstance(payload, dict)
+    assert payload["subject"] == "Ваш аккаунт GRAF создан"
+    assert payload["tag"] == "account-created"
+    assert payload["headers"]["X-2brain-Email-Purpose"] == "account-created"
+    assert payload["headers"]["X-2brain-Delivery-Key"] == "account-created:synthetic-invitation"
+    assert "Планирование релиза" in payload["plain_body"]
+    assert "r***@example.test" in payload["plain_body"]
+    assert "recipient@example.test" not in payload["plain_body"]
+    assert "одноразовая ссылка из письма-приглашения" in payload["plain_body"]
+    assert "https://graf.example.test/meetings" in payload["plain_body"]
+    assert "https://graf.example.test/settings" in payload["plain_body"]
+
+
+@pytest.mark.anyio
+async def test_send_account_created_email_fails_closed_when_delivery_disabled() -> None:
+    with pytest.raises(EmailLoginDeliveryError, match="postal_delivery_disabled"):
+        await send_account_created_email(
+            settings=Settings(),
+            recipient_email="recipient@example.test",
+            meeting_title="Встреча",
+            graf_url="https://graf.example.test/meetings",
+            settings_url="https://graf.example.test/settings",
+            delivery_key="synthetic-delivery-key",
+        )
 
 
 @pytest.mark.anyio

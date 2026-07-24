@@ -121,6 +121,35 @@ class PostalEmailLoginClient:
         }
         await self._post_message(payload)
 
+    async def send_account_created_email(
+        self,
+        *,
+        recipient_email: str,
+        meeting_title: str | None,
+        graf_url: str,
+        settings_url: str,
+        delivery_key: str,
+    ) -> None:
+        plain_body, html_body = _account_created_email_bodies(
+            recipient_email=recipient_email,
+            meeting_title=meeting_title,
+            graf_url=graf_url,
+            settings_url=settings_url,
+        )
+        payload = {
+            "to": [recipient_email],
+            "from": formataddr((self.from_name, self.from_address)),
+            "subject": "Ваш аккаунт GRAF создан",
+            "plain_body": plain_body,
+            "html_body": html_body,
+            "tag": "account-created",
+            "headers": {
+                "X-2brain-Email-Purpose": "account-created",
+                "X-2brain-Delivery-Key": delivery_key,
+            },
+        }
+        await self._post_message(payload)
+
     async def _post_message(self, payload: dict[str, Any]) -> None:
         timeout = httpx.Timeout(self.timeout_seconds)
         headers = {"X-Server-API-Key": self.api_key, "Content-Type": "application/json"}
@@ -192,7 +221,7 @@ def _meeting_invitation_bodies(
     plain = (
         f"{inviter} поделился(лась) итогами встречи в GRAF.\n\n"
         + "\n".join(details)
-        + "\n\nОткройте ссылку, чтобы войти или создать аккаунт GRAF.\n"
+        + "\n\nОткройте одноразовую ссылку, чтобы войти или создать аккаунт GRAF.\n"
         + f"{acceptance_url}\n\n"
         + "Доступ ограничен итогами этой встречи и не добавляет вас в рабочую область."
     )
@@ -206,8 +235,8 @@ def _meeting_invitation_bodies(
         '<p style="margin:24px 0"><a href="'
         + safe_url
         + '" style="display:inline-block;background:#7657f5;color:#fff;border-radius:10px;'
-        'padding:12px 20px;text-decoration:none;font-weight:700">Открыть итоги</a></p>'
-        "<p style=\"color:#646a78;font-size:14px\">Ссылка ведёт на вход или регистрацию GRAF."
+        'padding:12px 20px;text-decoration:none;font-weight:700">Открыть GRAF и итоги</a></p>'
+        "<p style=\"color:#646a78;font-size:14px\">Одноразовая ссылка ведёт на вход или регистрацию GRAF."
         " Доступ ограничен итогами этой встречи и не добавляет вас в рабочую область.</p>"
         "</div>"
     )
@@ -230,6 +259,63 @@ def _meeting_invitation_duration(seconds: int) -> str:
         return f"{minutes} мин"
     hours, remainder = divmod(minutes, 60)
     return f"{hours} ч {remainder} мин" if remainder else f"{hours} ч"
+
+
+def _mask_email_address(address: str) -> str:
+    local, _, domain = address.strip().lower().partition("@")
+    if not local or not domain:
+        return "ваш адрес"
+    masked_local = f"{local[0]}***" if len(local) > 1 else "*"
+    return f"{masked_local}@{domain}"
+
+
+def _account_created_email_bodies(
+    *,
+    recipient_email: str,
+    meeting_title: str | None,
+    graf_url: str,
+    settings_url: str,
+) -> tuple[str, str]:
+    title = _safe_email_label(meeting_title, fallback="Встреча")
+    masked_email = _mask_email_address(recipient_email)
+    safe_title = escape(title)
+    safe_email = escape(masked_email)
+    safe_graf_url = escape(graf_url, quote=True)
+    safe_settings_url = escape(settings_url, quote=True)
+    plain = (
+        f"С вами поделились итогами встречи «{title}», которые были созданы с помощью GRAF.\n\n"
+        f"GRAF автоматически создал бесплатный аккаунт на адрес {masked_email}.\n\n"
+        "Пароль создавать не нужно. Для входа используется одноразовая ссылка из письма-приглашения.\n\n"
+        "Открыть GRAF:\n"
+        f"{graf_url}\n\n"
+        "Открыть настройки аккаунта:\n"
+        f"{settings_url}\n\n"
+        "Если вы не ожидали этого письма, вы можете отозвать доступ к встрече "
+        "или обратиться в поддержку."
+    )
+    html = (
+        '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;'
+        'max-width:560px;color:#373941;line-height:1.5">'
+        '<div style="color:#111820;font-size:28px;line-height:1;font-weight:850;'
+        'letter-spacing:-1px;margin:0 0 28px">GRAF</div>'
+        f"<p>С вами поделились итогами встречи <strong>«{safe_title}»</strong>, которые были "
+        "созданы с помощью GRAF.</p>"
+        f"<p>GRAF автоматически создал бесплатный аккаунт на адрес <strong>{safe_email}</strong>.</p>"
+        '<div style="border:1px solid #dfe1e7;border-radius:12px;padding:16px 18px;'
+        'background:#f7f7f8;margin:24px 0">'
+        "<strong>Пароль создавать не нужно.</strong><br>"
+        "Для входа используется одноразовая ссылка из письма-приглашения."
+        "</div>"
+        f'<p style="margin:24px 0 12px"><a href="{safe_graf_url}" style="display:inline-block;'
+        'background:#7657f5;color:#fff;border-radius:10px;padding:12px 20px;'
+        'text-decoration:none;font-weight:700">Открыть GRAF</a></p>'
+        f'<p style="margin:0 0 28px"><a href="{safe_settings_url}" style="color:#7657f5;'
+        'font-weight:700">Открыть настройки аккаунта</a></p>'
+        '<p style="color:#646a78;font-size:14px">Если вы не ожидали этого письма, вы можете '
+        "отозвать доступ к встрече или обратиться в поддержку.</p>"
+        "</div>"
+    )
+    return plain, html
 
 
 async def send_email_login_code(
@@ -280,6 +366,27 @@ async def send_meeting_invitation(
         occurred_at=occurred_at,
         duration_seconds=duration_seconds,
         expires_at=expires_at,
+    )
+
+
+async def send_account_created_email(
+    *,
+    settings: Settings,
+    recipient_email: str,
+    meeting_title: str | None,
+    graf_url: str,
+    settings_url: str,
+    delivery_key: str,
+) -> None:
+    if not settings.email_login_delivery_enabled:
+        raise EmailLoginDeliveryError("postal_delivery_disabled", retryable=False)
+    client = PostalEmailLoginClient.from_settings(settings)
+    await client.send_account_created_email(
+        recipient_email=recipient_email,
+        meeting_title=meeting_title,
+        graf_url=graf_url,
+        settings_url=settings_url,
+        delivery_key=delivery_key,
     )
 
 

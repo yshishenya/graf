@@ -10,8 +10,10 @@ from twobrain_rec_server.auth.email_delivery import (
     PostalEmailLoginClient,
 )
 from twobrain_rec_server.workflows.temporal_client import (
+    account_created_email_workflow_id,
     cancel_invitation_delivery_workflow,
     invitation_delivery_workflow_id,
+    validate_account_created_email_workflow_id,
     validate_invitation_delivery_workflow_id,
 )
 from twobrain_rec_server.workflows.worker import invitation_delivery_failure_state
@@ -45,6 +47,14 @@ def test_invitation_delivery_workflow_id_is_deterministic_and_bounded() -> None:
 
     assert workflow_id == "share-invitation/10000000-0000-0000-0000-000000000121"
     validate_invitation_delivery_workflow_id(workflow_id)
+
+
+def test_account_created_email_workflow_id_is_deterministic_and_bounded() -> None:
+    invitation_id = UUID("10000000-0000-0000-0000-000000000121")
+    workflow_id = account_created_email_workflow_id(invitation_id)
+
+    assert workflow_id == "share-account-created/10000000-0000-0000-0000-000000000121"
+    validate_account_created_email_workflow_id(workflow_id)
 
 
 async def test_invitation_cancellation_uses_the_same_deterministic_id() -> None:

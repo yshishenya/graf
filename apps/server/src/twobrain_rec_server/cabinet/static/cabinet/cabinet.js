@@ -2679,10 +2679,10 @@
         status.className = "muted";
         const expiresAt = invitation.expires_at ? new Date(invitation.expires_at) : null;
         const statusLabel = {
-          pending: "Готовится к отправке",
-          sending: "Отправляется",
-          sent: "Отправлено",
-          outcome_unknown: "Доставка не подтверждена — не отправляйте повторно сразу"
+          pending: "Письмо готовится к отправке",
+          sending: "Письмо отправляется",
+          sent: "Письмо передано в отправку",
+          outcome_unknown: "Письмо не подтверждено — не отправляйте повторно сразу"
         }[invitation.status] || invitation.status || "Готовится к отправке";
         status.textContent = `${statusLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${expiresAt.toLocaleDateString("ru-RU")}` : ""}`;
         identity.append(label, status);
@@ -2758,7 +2758,7 @@
           setConfirmationVisible(false);
           recipientInput?.focus({ preventScroll: true });
           appendInvitationRow(invitation, maskInvitationAddress(address));
-          setStatus("Приглашение поставлено в отправку. Доставка может занять несколько минут.", "success");
+          setStatus("Приглашение создано. Письмо передано в отправку — получатель откроет одноразовую ссылку из email.", "success");
         } catch (error) {
           setStatus(shareErrorMessage(error?.code || error?.message), "error");
           if (button?.isConnected) button.disabled = false;
@@ -2774,7 +2774,7 @@
         title.textContent = `Отправить приглашение на ${maskInvitationAddress(address)}?`;
         const note = document.createElement("small");
         note.className = "muted";
-        note.textContent = "Получатель создаст аккаунт или войдёт по ссылке и увидит только итоги встречи.";
+        note.textContent = "Получатель откроет одноразовую ссылку из письма. Если аккаунта GRAF ещё нет, он создастся автоматически — только для просмотра итогов.";
         const actions = document.createElement("span");
         actions.className = "share-viewer-row__actions";
         const confirm = document.createElement("button");

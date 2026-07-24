@@ -102,10 +102,12 @@ user and one unknown external address.
    request) from `outcome_unknown` (the network result was not confirmed).
 3. Confirm exact verified-email acceptance creates no workspace membership and
    creates a separate bounded grant token.
-4. For a new synthetic recipient, open the invitation, choose the single email
-   login action, enter the one-time code and confirm the personal account is
-   created automatically before the browser returns to the invitation and opens
-   summary. No separate `/sign-up` step is shown or required.
+4. For a new synthetic recipient, open the invitation, press the single
+   `Открыть GRAF и итоги` action and confirm the magic link creates the personal
+   account automatically before the response opens summary. No password, code or
+   separate `/sign-up` step is shown or required. Confirm the account-created
+   notification is queued after commit and contains only the masked address,
+   meeting title and links to GRAF/settings.
 5. In a second synthetic run with external delivery disabled, confirm no POST
    is made to `/share-invitations`, the value is preserved and the UI offers an
    internal alternative.
@@ -272,3 +274,23 @@ attribution remain disabled.
   No live email was sent by the operator. Existing `outcome_unknown` rows are
   not resent automatically; cancel the old invitation and create a new explicit
   invitation after the hotfix.
+
+## Candidate validation — 2026-07-24 magic-link slice
+
+- Focused synthetic magic-link, RLS, account-bootstrap, email-template and Share
+  contract matrix: `25 passed`; static UI/contract checks: `24 passed`.
+- `infra/scripts/ci-local.sh`: pass — macOS `625 passed`; PostgreSQL `2,264
+  passed, 1 skipped` in parallel and `41 passed, 1 skipped` in strict mode;
+  Ruff, Python compile, JavaScript syntax, Compose config and deployment-evidence
+  scan passed. The live destructive RLS probe was not run in this local
+  environment (`postgres_test_database_required`); this did not fail the gate.
+- The candidate migration head is `0038_share_account_created_email`; it is not
+  deployed. No live mailbox delivery was sent. Email assertions use synthetic
+  recipients and verify masked addresses, safe meeting metadata, post-commit
+  notification state, replay rejection and no duplicate send after an unknown
+  provider outcome.
+- Static/contract UX evidence covers the native dialog, copy hierarchy,
+  confirmation and delivery states, keyboard combobox, focus restoration,
+  narrow viewport and browser/embedded parity. A rendered authenticated browser
+  screenshot was not claimed because no authenticated local GRAF session was
+  available in this environment.

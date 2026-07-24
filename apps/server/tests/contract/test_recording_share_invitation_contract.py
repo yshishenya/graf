@@ -60,6 +60,27 @@ def test_postal_delivery_commits_at_most_once_fence_before_network_egress() -> N
     assert "await send_meeting_invitation(" not in recovery
 
 
+def test_account_created_delivery_uses_routed_identity_context_and_commits_before_egress() -> None:
+    source = Path("src/twobrain_rec_server/workflows/worker.py").read_text(encoding="utf-8")
+    activity = source.split("async def send_account_created_email_activity", 1)[1].split(
+        "\ndef _processing_status_for_client_error", 1
+    )[0]
+
+    assert 'organization_id = UUID(payload["organization_id"])' in activity
+    assert 'context_kind="auth_bootstrap"' in activity
+    assert "await apply_tenant_context(db, tenant_context)" in activity
+    reserved = activity.index('invitation.account_created_email_status = "sending"')
+    committed = activity.index("await db.commit()", reserved)
+    sent = activity.index("await send_account_created_email(", committed)
+    assert reserved < committed < sent
+
+    recovery = activity.split('if invitation.account_created_email_status == "sending":', 1)[1].split(
+        'if invitation.account_created_email_status != "pending":', 1
+    )[0]
+    assert 'status="outcome_unknown"' in recovery
+    assert "await send_account_created_email(" not in recovery
+
+
 def test_invitation_acceptance_uses_a_separate_grant_token_and_safe_onboarding_copy() -> None:
     source = Path("src/twobrain_rec_server/cabinet/access.py").read_text(encoding="utf-8")
     acceptance = source.split("async def accept_share_invitation", 1)[1].split(
@@ -80,10 +101,13 @@ def test_invitation_acceptance_uses_a_separate_grant_token_and_safe_onboarding_c
         meeting_occurred_at=datetime(2026, 7, 23, 10, 0, tzinfo=UTC),
         meeting_duration_seconds=900,
         invitation_expires_at=datetime(2026, 7, 30, 10, 0, tzinfo=UTC),
+        magic_action="/share-invitations/continue/magic?workspace_id=synthetic-workspace",
+        magic_state="synthetic-continuation-state",
+        magic_csrf_token="synthetic-magic-csrf-token",
     )
     assert "Планирование релиза" in rendered
-    assert "Войти и открыть итоги" in rendered
-    assert "Если аккаунта GRAF ещё нет, он создастся автоматически" in rendered
+    assert "Открыть GRAF и итоги" in rendered
+    assert "одноразовая ссылка из письма" in rendered
     assert "Создать аккаунт GRAF" not in rendered
     assert "не добавляет вас в рабочую область" in rendered
     assert "транскрипт" not in rendered.lower()

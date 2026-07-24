@@ -3908,16 +3908,22 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .share-dialog__header,
 .share-recipient-row,
 .share-viewer-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.share-dialog__header { align-items: flex-start; }
 .share-dialog__header h2,
 .share-dialog__header p,
 .share-viewers h3 { margin: 0; }
-.share-dialog__capability { display: grid; gap: 6px; border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px 14px; background: var(--surface-2); }
+.share-dialog__header h2 { font-size: clamp(1.35rem, 3vw, 1.7rem); line-height: 1.15; }
+.share-dialog__header p { max-width: 46ch; margin-top: 7px; color: var(--muted); line-height: 1.45; }
+.share-dialog__capability { display: grid; gap: 6px; border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px 16px; background: var(--surface-2); }
+.share-dialog__capability strong { font-size: 1rem; }
 .share-dialog__capability p { margin: 0; color: var(--muted); line-height: 1.4; }
 .share-dialog__capability[data-share-capability-state="auth_required"] { border-color: rgba(255, 193, 102, .45); }
 .share-recipient-form { display: grid; gap: 8px; }
 .share-recipient-row input { min-width: 0; flex: 1 1 auto; }
 .share-recipient-row button { min-width: 76px; white-space: nowrap; }
 .share-scope-disclosure { border-block: 1px solid var(--line); padding: 14px 0; }
+.share-scope-disclosure summary { cursor: pointer; font-weight: 700; }
+.share-scope-disclosure p { max-width: 60ch; margin: 8px 0 0; color: var(--muted); line-height: 1.45; }
 .share-viewers { display: grid; gap: 12px; }
 .share-viewer-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .share-viewer-row > span:first-child { display: grid; gap: 3px; min-width: 0; }
@@ -3932,7 +3938,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .share-recipient-confirmation-host[hidden] { display: none; }
 .share-recipient-results button { display: grid; gap: 3px; justify-content: start; align-items: start; width: 100%; text-align: left; }
 .share-recipient-confirmation,
-.share-load-error { display: grid; gap: 8px; border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px; }
+.share-load-error { display: grid; gap: 8px; border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px; background: var(--surface-2); }
 .share-recipient-confirmation > strong,
 .share-recipient-confirmation > small { overflow-wrap: anywhere; }
 .share-recipient-confirmation .share-viewer-row__actions { justify-content: flex-start; }

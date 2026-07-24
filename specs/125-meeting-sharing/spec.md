@@ -42,8 +42,11 @@
 Фича поставляется по независимым воротам. В эту реализацию входят два
 контролируемых пути: B2B authenticated summary-only доступ для active workspace
 identity и B2C exact-email приглашение внешнему получателю через единый вход.
-При первом email-входе аккаунт создаётся автоматически внутри этого явного
-приглашения; отдельный registration flow не требуется. B2C остаётся
+При открытии invitation magic link аккаунт создаётся автоматически внутри этого
+явного действия; отдельный registration flow не требуется. Получатель не вводит
+пароль или код: одноразовая ссылка из приглашения подтверждает приглашённый
+email и открывает summary. После создания аккаунта GRAF отправляет отдельное
+подтверждающее письмо со ссылками на кабинет и настройки. B2C остаётся
 operator-gated и выключен по умолчанию; включение
 возможно только при настроенных Temporal, email, encryption key, public base
 URL, rate-limit, delivery и deletion checks. Public links, native address-book
@@ -65,8 +68,8 @@ channel/calendar distribution также описаны как последую�
 
 В B2C первой поставки получатель получает только summary-only/view-only доступ
 на bounded срок. Письмо содержит безопасные metadata встречи и ссылку на единый
-вход; если аккаунта ещё нет, подтверждение email создаёт personal GRAF account
-в рамках этого действия. Transcript, audio, summary text и workspace membership
+вход; если аккаунта ещё нет, magic link создаёт personal GRAF account в рамках
+этого действия. Transcript, audio, summary text и workspace membership
 в этот путь не входят.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -121,10 +124,10 @@ channel/calendar distribution также описаны как последую�
    **Then** он видит имя пригласившего, безопасный заголовок/время встречи,
    область доступа, срок действия, основную кнопку и ссылку на настройки
    уведомлений, но не transcript, audio или summary text.
-2. **Given** получатель не вошёл в GRAF, **When** он выбирает основную кнопку,
-   **Then** GRAF предлагает единый вход с email из приглашения; если аккаунта
-   ещё нет, email-код создаёт personal account автоматически и возвращает
-   получателя к разрешённому summary.
+2. **Given** получатель не вошёл в GRAF, **When** он нажимает основную кнопку,
+   **Then** magic link подтверждает приглашённый email; если аккаунта ещё нет,
+   GRAF создаёт personal account автоматически и сразу открывает разрешённый
+   summary. Отдельные пароль, код и `/sign-up` не требуются.
 3. **Given** получатель открыл CTA `Попробовать GRAF`, **When** он завершает
    onboarding, **Then** referral attribution связывает регистрацию с приглашением
    без передачи текста встречи и без автоматического добавления в workspace.
@@ -314,8 +317,9 @@ FR-036–FR-042 и SC-017–SC-021 ниже описывают следующи�
   Принятый grant MUST наследовать срок invitation или иметь другой явно bounded
   срок, но не становиться бессрочным.
 - **FR-010**: Получатель MUST подтвердить именно приглашённый адрес до выдачи
-  grant; открытие письма само по себе не должно добавлять пользователя в
-  workspace.
+  grant; для external invitation это делает одноразовый magic link. Открытие
+  preview само по себе не должно создавать account, выдавать grant или добавлять
+  пользователя в workspace.
 - **FR-011**: Система MUST различать доступ к summary и full meeting; полный
   scope может быть выбран только явно и только если policy и готовность артефактов
   его разрешают.
@@ -340,8 +344,9 @@ FR-036–FR-042 и SC-017–SC-021 ниже описывают следующи�
   scope, expiry, действия входа/создания аккаунта и настройки уведомлений; raw
   transcript/audio/summary text и tracking pixel для meeting content запрещены.
 - **FR-020**: Recipient surface MUST показывать ценность GRAF после успешного
-  разрешённого просмотра, но CTA не должен скрывать основной content, требовать
-  workspace join или создавать account без явного email/provider-auth действия.
+  разрешённого просмотра, но CTA не должен скрывать основной content или
+  требовать workspace join. Явное действие `Открыть GRAF и итоги` может создать
+  только personal account для приглашённого адреса.
 - **FR-021**: Referral attribution MUST использовать opaque bounded identifier,
   быть одноразово привязанной к invitation/grant и не помещать meeting content,
   email или raw token в URL, analytics или клиентское хранилище.
