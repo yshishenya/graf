@@ -24,8 +24,10 @@ Feature: `124-macos-permission-installer-relaunch`
 | Update validator | pass | `validate-app-updates.sh` accepted the staged app as local identity with updater disabled |
 | Native relaunch path | pass | Explicit restart records a relaunch request, clears modal state, preserves bounded cleanup, and opens a fresh app instance via `NSWorkspace` from `applicationWillTerminate` |
 | Public download tests | pass | 17 focused server/contract tests, 0 failures |
+| Remote production deploy | pass | `cd-remote.sh --execute` deployed commit `e485c45e` from `codex/124-microphone-settings-recovery`; backup/restore, migrations, runtime/worker readiness and production smoke passed |
+| Public package deployment | pass | Download URL returned HTTP 200 with `3545079` bytes; served SHA256 matched the built candidate; previous package retained as a rollback backup |
 | Full local CI | pass | 2254 parallel server tests passed, 41 strict tests passed, 2 skips overall (one in each server phase); lint, compile, compose and deployment-evidence scans passed |
-| GitHub issue canon | pass | Canonical issues created, commented with evidence and closed for T001–T012; `validate_issue_canon.py` passed before closeout |
+| GitHub issue canon | pass | Canonical issues created, commented with evidence and closed for T001–T013; `validate_issue_canon.py` passed before closeout |
 
 ## Manual validation boundary
 
@@ -46,7 +48,7 @@ permissions. The code and instructions are ready for that controlled smoke:
 - Apple Developer account, Developer ID certificates, notarization or stapling;
 - `spctl --master-disable`, TCC reset/database edits, PPPC profiles or drivers;
 - installation into `/Applications` during this validation;
-- production download smoke on the colleague's Mac; the candidate still uses
+- clean external-Mac download/permission smoke on the colleague's Mac; the candidate still uses
   local self-signing and must be manually trusted in Finder on the external Mac;
   no TCC reset, database edit, PPPC profile or driver workaround is part of the
   release.
