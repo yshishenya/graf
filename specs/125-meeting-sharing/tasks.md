@@ -151,7 +151,7 @@ server-side contact index.
 
 ## Phase 11 — Production delivery hotfix
 
-- [ ] T060 Attach `rec-processing-worker` to the external Postal network and add a Compose regression assertion in `infra/docker-compose.yml` and `apps/server/tests/integration/test_compose_hardening.py`; rerun the Feature 125 quickstart, repository gate and production smoke without sending a live test email
+- [X] T060 Attach `rec-processing-worker` to the external Postal network and add a Compose regression assertion in `infra/docker-compose.yml` and `apps/server/tests/integration/test_compose_hardening.py`; rerun the Feature 125 quickstart, repository gate and production smoke without sending a live test email
 
 ## Dependencies and execution order
 

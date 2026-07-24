@@ -250,3 +250,25 @@ attribution remain disabled.
   `112a5f2419d8517a0ef5d9fde26ebac0564bf966d01897576ecb7878c2e5d936`.
   It is local-only signed/unsigned for distribution purposes; Developer ID,
   notarization and public artifact publication are not claimed.
+
+## Production delivery incident follow-up — 2026-07-24
+
+- A metadata-only production check found that an external invitation could stay
+  queued in the UI and then become `outcome_unknown` without reaching the
+  mailbox. Worker logs showed DNS failure before the Postal request reached the
+  provider; no meeting content or email body was included in the investigation.
+- Root cause: `rec-processing-worker` had the Postal API settings and secret but
+  was not attached to the external `postal-network`, so `postal-web` was not
+  resolvable from that worker.
+- Fix: production Compose now attaches the worker to both `rec-private` and
+  `postal-network`; the Compose contract test asserts this boundary and that the
+  Postal network remains external.
+- The hotfix was deployed at exact SHA
+  `7b601cf94b7f1a8183dc55e8651d2851c4b0eee7` with backup
+  `/opt/projects/2brain-rec/backups/20260724T121617Z`; CD backup/restore, RLS,
+  migrations, readiness, smoke and automatic dispatch passed.
+- Post-deploy metadata-only checks confirmed the worker is healthy, joined to
+  `postal_postal-network` and `twobrain-rec-private`, and resolves `postal-web`.
+  No live email was sent by the operator. Existing `outcome_unknown` rows are
+  not resent automatically; cancel the old invitation and create a new explicit
+  invitation after the hotfix.

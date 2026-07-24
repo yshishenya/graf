@@ -6,6 +6,23 @@ Date: 2026-07-24
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
+## Production delivery hotfix (2026-07-24) — Feature 125
+
+- Исправлен production-блокер внешних приглашений: `rec-processing-worker`
+  имел Postal-конфигурацию и secret, но не был подключён к внешней Docker-сети
+  Postal, поэтому `postal-web` не резолвился и доставка завершалась
+  `outcome_unknown` до обращения к провайдеру.
+- Worker теперь подключён к `postal_postal-network` и
+  `twobrain-rec-private`; Compose contract test фиксирует этот обязательный
+  сетевой контракт. На production worker healthy, `postal-web` разрешается,
+  automatic dispatch и публичные health/readiness проверки прошли.
+- Hotfix выкачен на точный SHA
+  `7b601cf94b7f1a8183dc55e8651d2851c4b0eee7`; backup/restore reference:
+  `/opt/projects/2brain-rec/backups/20260724T121617Z`. Existing
+  `outcome_unknown` invitations intentionally не переотправляются автоматически,
+  чтобы не создать duplicate; для проверки нужно отменить старое приглашение и
+  создать новое явным действием.
+
 ## Production closeout (2026-07-24) — Feature 125 post-review hardening
 
 - Post-review candidate deployed successfully at exact runtime SHA
