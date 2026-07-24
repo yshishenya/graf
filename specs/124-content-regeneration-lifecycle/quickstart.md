@@ -188,12 +188,17 @@ suite does not waive the full repository gate.
 
 - Final repository gate (`infra/scripts/ci-local.sh`, 2026-07-24): **PASS**.
   macOS legacy guard/build/tests/contract validation passed; Swift tests were
-  **625 passed**. The final isolated server collection was **2,457** tests
-  with digest `abe9ba85d5f658c66dd9b58f67d2210707dfd1023849e4019e1b00c00f0f406f`;
-  the final server result was **2,414 passed, 1 skipped, 11 warnings** in
-  366.78s, and the strict lane remained **41 passed, 1 skipped, 2 warnings**.
+  **625 passed**. The final isolated server collection was **2,458** tests
+  with digest `4884c64dd789e021944b1b88eaf23db32c1891b67bb886d52fdabeb8fe7b7edb`;
+  the final server result was **2,415 passed, 1 skipped, 11 warnings** in
+  352.29s, and the strict lane remained **41 passed, 1 skipped, 2 warnings**.
   Warnings are limited to pytest assert-rewrite, Starlette/httpx deprecation
   and the known SQLAlchemy table-cycle warning.
+- The rollback-expiry regression added in commit `9d7d3125` passed in the
+  focused PostgreSQL deletion/upload/local-purge set: **36 passed, 2 warnings**.
+  It reproduces a failed first purge item rolling back the session and proves
+  the next meeting is reloaded from scalar identifiers rather than implicitly
+  refreshing an expired ORM object.
 - Final evidence scans: deployment evidence scan **PASS (7 files)**;
   production Compose config **PASS**; deployment/test shell syntax **PASS**;
   disposable RLS verifier regression **1 passed, 2 warnings**; metadata-only
@@ -221,6 +226,11 @@ suite does not waive the full repository gate.
   dispatch and starts the compatibility runtime; it never starts the old
   checkout against an unknown merge-head schema. The guard is covered by the
   deployment-readiness fixture and the focused rollback set is green.
+- Maintenance correction loop: the first post-deploy Arc pass found a live
+  `MissingGreenlet` in the deletion reconciler after a session rollback. The
+  reconciler, manual request and retry branches now cache immutable IDs and
+  reacquire meetings after rollback; the regression test and full CI passed on
+  `9d7d3125`.
 
 The focused harness had one transient PostgreSQL startup failure during an
 earlier retry; the final isolated runs above passed and removed their test
@@ -236,11 +246,11 @@ containers.
   recovery branch is updated to the integrated commit.
 - Integrated release dry-run (`infra/scripts/cd-remote.sh --dry-run --branch
   codex/124-content-regeneration-lifecycle-recovery`, 2026-07-24): **PASS**
-  against runtime candidate `6a86156d311ad6265c2ad6607f57e4fe8b2523fd`. The dry-run
-  emitted the complete backup, restore, migration-head,
-  runtime-readiness, smoke, dispatch and rollback step plan; execute remains
-  gated on the release gate. Any later commit in this evidence section is
-  documentation-only and does not change the runtime candidate.
+  against runtime candidate `9d7d3125`. The dry-run emitted the complete
+  clean-worktree, pinned-SHA, backup, restore, migration-head,
+  runtime-readiness, smoke, dispatch, rollback, health and post-deploy
+  reconciliation step plan. Execute remains gated on the production evidence
+  below.
 
 ## Release and production gate
 
