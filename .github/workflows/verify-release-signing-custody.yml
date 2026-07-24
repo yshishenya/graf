@@ -103,7 +103,7 @@ jobs:
             TRUST_GENERATION=0
           fi
           case "$TRUST_GENERATION" in
-            0|[1-9][0-9]*) ;;
+            0|[1-9]|[1-9][0-9]*) ;;
             *) echo "invalid public trust generation" >&2; exit 1 ;;
           esac
           COMMIT=$(git rev-parse HEAD)
