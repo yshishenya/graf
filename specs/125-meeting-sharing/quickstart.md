@@ -7,8 +7,8 @@ summary-only sharing, capability-aware UI, calendar-backed internal suggestions,
 recipient-bound links, revoke/expiry and security negatives. The B2C exact-email
 path is implemented behind its operator gate with metadata-only delivery,
 exact-identity acceptance and replay-safe grant exchange. Exact-email external
-delivery is prepared for the controlled production rollout; live enablement
-occurs only after the deploy-gate passes; public links,
+delivery is enabled in the controlled production rollout after the deploy-gate
+passed; public links,
 address-book permission and referral conversion remain disabled unless their
 independent gates are explicitly enabled in a synthetic environment.
 
@@ -177,23 +177,25 @@ attribution remain disabled.
   five missing `SummaryCandidateResponse.reason_code` enum values and the
   focused drift test passed.
 - CD dry-run and execute: pass for branch `125-meeting-sharing` and deployed
-  merge SHA `7a1c2ed13827cc42e35544b6f5da955785eb4e4f`; migration head
+  merge SHA `cffcfb86cd3edbdb91cc37e8f1e0b8c04bd39d66`; migration head
   `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
   probe, runtime/worker readiness, production smoke and automatic dispatch
   passed. Automatic retry, backfill, range and normalization maintenance are
   recorded by the deploy gate as required post-deploy follow-up checks.
-- External exact-email rollout readiness: provider configuration,
+- External exact-email rollout verification: provider configuration,
   credential-encryption key,
   generated share-identity HMAC secret, durable actor/device invitation limit,
   at-most-once delivery fence, token-scrubbing and revoke/deletion evidence
-  passed locally. A live Postal send was intentionally not performed without
-  a consented test recipient. Public links, address-book/provider lookup and
-  referral attribution remain disabled.
-- macOS local artifact `2026.07.24.2` was built as
+  passed in production config gates for both API and worker. Postal network
+  reachability returned an auth-protected response without sending a message;
+  a live email was intentionally not sent without a consented test recipient.
+  Public links, address-book/provider lookup and referral attribution remain
+  disabled.
+- macOS local artifact `2026.07.24.3` was built as
   `apps/macos/.build/installer/graf-local.pkg` with `GRAF Local Code Signing`;
-  SHA-256 is `da4c07bbfa52b737a4b851844ae28d02940fab7a937c9e0e3e8a1f3fda272d40`;
+  SHA-256 is `4cb73bdc94d8d18aba3597794d34fc1abfb9f0276f3f9351bac9445dbf51a197`;
   the package is unsigned and has no Developer ID or notarization evidence.
 - Synthetic browser/embedded contract coverage includes both `/meetings/.../share`
   and `/desktop/.../share`; no meeting content, live credentials or real
-  contacts were used. Live production public-link and external-delivery gates
-  remain disabled until the controlled deploy is complete.
+  contacts were used. Live production public-link, Contacts/provider and
+  referral gates remain disabled; exact-email is the only enabled external path.

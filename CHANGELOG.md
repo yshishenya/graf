@@ -60,13 +60,14 @@
 ### Операции
 - Production deploy кандидата с контролируемым exact-email B2C rollout прошёл
   для merge SHA
-  `7a1c2ed13827cc42e35544b6f5da955785eb4e4f`: backup/restore rehearsal,
+  `cffcfb86cd3edbdb91cc37e8f1e0b8c04bd39d66`: backup/restore rehearsal,
   migration head `0035_meeting_share_security`, disposable RLS probe,
-  runtime/worker readiness и production smoke — PASS. External email включён
+  runtime/worker readiness, production smoke и API/worker external-config gates —
+  PASS. External email включён
   только для exact-email summary-only пути после delivery, identity, abuse,
   retention и deletion evidence gates; public links, native Contacts и referral
   attribution остаются выключенными.
-- Локальный macOS artifact `2026.07.24.2` собран с `GRAF Local Code Signing`;
+- Локальный macOS artifact `2026.07.24.3` собран с `GRAF Local Code Signing`;
   package unsigned, Developer ID и notarization не заявляются.
 
 ## [2026.07.23.17] - 2026-07-23

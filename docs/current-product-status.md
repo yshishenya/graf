@@ -9,37 +9,42 @@ metadata-only evidence остаются подробной историей ре
 ## Validation update (2026-07-24) — Feature 125 Share candidate
 
 - Feature `125-meeting-sharing` исправляет B2B Share как authenticated
-  summary-only сценарий: capability-aware модалка не вызывает выключенный
-  внешний email endpoint, поиск привязан к встрече и праву владельца,
+  summary-only сценарий: capability-aware модалка obeys server policy and only
+  calls the external email endpoint when the exact-email capability is enabled;
+  поиск привязан к встрече и праву владельца,
   кандидаты объединяют active workspace directory и связанный календарный
   roster без побочного grant/delivery эффекта, а user grants получают
   recipient-bound URL с rotation/revoke и повторной проверкой membership.
-- B2C exact-email invitation flow подготовлен к controlled rollout:
-  production enablement выполняется только deploy-gate после проверки API и
-  delivery-worker; до выкладки флаг остаётся выключенным. Flow — metadata-only
-  email/landing, explicit login/signup, exact verified identity, отдельный
+- B2C exact-email invitation flow включён в controlled rollout: deploy-gate
+  подтвердил одинаковую production-конфигурацию API и delivery-worker. Flow —
+  metadata-only email/landing, explicit login/signup, exact verified identity,
+  отдельный
   grant token с bounded replay-safe выдачей и без workspace auto-join. Postal,
   credential-encryption key, persistent share-identity HMAC secret, durable
   invitation rate-limit, delivery fence and revoke/deletion evidence are
-  provisioned and locally validated. Public links, native Contacts picker/provider
+  provisioned and validated in production. Postal network route is reachable;
+  no live email was sent without a consented test recipient. Public links,
+  native Contacts picker/provider
   lookup и referral attribution остаются выключенными отдельными gates.
 - Validation: focused Share/access/workflow matrix 48 passed; separate
   wrong-account continuation and desktop share-route checks 4 passed;
   after synchronizing with `master`, `infra/scripts/ci-local.sh` passed macOS
   (624 tests), PostgreSQL parallel (2,254 passed, 1 skipped) and strict
   (41 passed, 1 skipped), lint, compile, RLS boundary, compose config and
-  deployment evidence scan. No production public-link or external-delivery
-  flag was enabled.
-- Previous production deploy: PASS for code SHA
-  `7a1c2ed13827cc42e35544b6f5da955785eb4e4f`; migration head
+  deployment evidence scan. Production exact-email is enabled; public links,
+  Contacts and referral remain disabled.
+- Production deploy: PASS for code SHA
+  `cffcfb86cd3edbdb91cc37e8f1e0b8c04bd39d66`; migration head
   `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
   probe, runtime/worker readiness, production smoke and automatic dispatch
   passed. Post-deploy automatic retry, backfill, range and normalization
-  maintenance remain separate required follow-up checks; this change has not
-  yet changed the live production flag.
-- macOS local artifact `2026.07.24.2` прошёл production-build packaging и
-  `codesign --verify --deep --strict`; использован local-only signer, без
-  Developer ID и notarization.
+  maintenance remain separate required follow-up checks. External config gates
+  passed in API and worker; live health endpoints and Postal network reachability
+  passed without sending an email.
+- macOS local artifact `2026.07.24.3` прошёл production-build packaging и
+  `codesign --verify --deep --strict`; SHA-256
+  `4cb73bdc94d8d18aba3597794d34fc1abfb9f0276f3f9351bac9445dbf51a197`;
+  использован local-only signer, без Developer ID и notarization.
 
 ## Validation update (2026-07-23, Feature 124 release/production)
 

@@ -344,7 +344,7 @@ contact/referral rollout и широкое participant distribution остают
 незакрытыми. Поэтому только exact-email путь объявлен готовым; public/contact/
 referral rollout не следует включать на основании одного feature flag.
 
-### Rollout readiness evidence — 2026-07-24
+### Rollout evidence — 2026-07-24
 
 - Postal delivery is server-only, uses a generated persistent HMAC identity
   secret and a separate credential-encryption key; no secret is passed to the
@@ -361,6 +361,10 @@ referral rollout не следует включать на основании о
   integration evidence. The local suite uses a synthetic transport; no live
   email was sent without an explicitly consented test recipient. Public links,
   native Contacts/provider lookup and referral attribution remain disabled.
+- Production deploy `cffcfb86cd3edbdb91cc37e8f1e0b8c04bd39d66` passed the API and
+  delivery-worker config gates, public health checks, Postal network reachability
+  check, backup/restore rehearsal and rollback readiness. Exact-email is enabled;
+  public/contact/referral capabilities remain independently gated.
 
 ## 7. Источники
 
