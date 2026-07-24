@@ -171,18 +171,18 @@ attribution remain disabled.
 
 ## Validation record — 2026-07-24
 
-- Focused Feature 125 share/access/workflow matrix: 48 passed; the separate
-  wrong-account continuation and desktop share-route check: 4 passed.
+- Focused Feature 125 share/access/auth matrix: 50 passed; the targeted
+  invitation-auth/provider-workspace regression passed separately.
 - `swift test --package-path apps/macos`: 624 passed, 0 failed;
   `ContractValidation`: pass; legacy-audio guard: pass.
 - `infra/scripts/ci-local.sh`: pass after synchronizing with `master` — macOS
-  624 passed; PostgreSQL 2,254 parallel + 41 strict passed, 2 skipped; Ruff,
+  624 passed; PostgreSQL 2,255 parallel + 41 strict passed, 2 skipped; Ruff,
   Python compile, RLS boundary, compose config and deployment evidence scan
   passed. The runtime OpenAPI drift found during merge was fixed by adding the
   five missing `SummaryCandidateResponse.reason_code` enum values and the
   focused drift test passed.
 - CD dry-run and execute: pass for branch `125-meeting-sharing` and deployed
-  merge SHA `cffcfb86cd3edbdb91cc37e8f1e0b8c04bd39d66`; migration head
+  SHA `2db3d4ccd2541fbc7701b5803ef8049d2c2cc709`; migration head
   `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
   probe, runtime/worker readiness, production smoke and automatic dispatch
   passed. Automatic retry, backfill, range and normalization maintenance are

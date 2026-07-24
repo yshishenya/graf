@@ -26,15 +26,14 @@ metadata-only evidence остаются подробной историей ре
   no live email was sent without a consented test recipient. Public links,
   native Contacts picker/provider
   lookup и referral attribution остаются выключенными отдельными gates.
-- Validation: focused Share/access/workflow matrix 48 passed; separate
-  wrong-account continuation and desktop share-route checks 4 passed;
-  after synchronizing with `master`, `infra/scripts/ci-local.sh` passed macOS
-  (624 tests), PostgreSQL parallel (2,254 passed, 1 skipped) and strict
-  (41 passed, 1 skipped), lint, compile, RLS boundary, compose config and
-  deployment evidence scan. Production exact-email is enabled; public links,
-  Contacts and referral remain disabled.
+- Validation: focused Share/access/auth matrix 50 passed; the targeted
+  invitation-auth/provider-workspace regression passed separately;
+  `infra/scripts/ci-local.sh` passed macOS (624 tests), PostgreSQL parallel
+  (2,255 passed, 1 skipped) and strict (41 passed, 1 skipped), lint, compile,
+  RLS boundary, compose config and deployment evidence scan. Production
+  exact-email is enabled; public links, Contacts and referral remain disabled.
 - Production deploy: PASS for code SHA
-  `cffcfb86cd3edbdb91cc37e8f1e0b8c04bd39d66`; migration head
+  `2db3d4ccd2541fbc7701b5803ef8049d2c2cc709`; migration head
   `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
   probe, runtime/worker readiness, production smoke and automatic dispatch
   passed. Post-deploy automatic retry, backfill, range and normalization
