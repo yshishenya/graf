@@ -154,7 +154,6 @@ def render_share_invitation_accept_page(
         invitation_expires_at=invitation_expires_at,
         authenticated=authenticated,
         login_href=f"/login?{urlencode({'next': post_login_next_path})}",
-        signup_href=f"/sign-up?{urlencode({'next': post_login_next_path})}",
     )
 
 

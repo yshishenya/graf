@@ -1353,6 +1353,32 @@ async def create_share_invitation_continuation(
     return nonce
 
 
+async def share_invitation_continuation_matches(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    nonce: str,
+    address: str | None = None,
+) -> bool:
+    """Check an active invitation continuation without consuming it."""
+    now = datetime.now(UTC)
+    statement = select(MeetingShareInvitation.id).where(
+        MeetingShareInvitation.workspace_id == workspace_id,
+        MeetingShareInvitation.continuation_nonce == nonce,
+        MeetingShareInvitation.status.in_(ACTIVE_INVITATION_STATES),
+        MeetingShareInvitation.continuation_used_at.is_(None),
+        MeetingShareInvitation.continuation_expires_at > now,
+        MeetingShareInvitation.expires_at > now,
+    )
+    if address is not None:
+        statement = statement.where(
+            MeetingShareInvitation.normalized_address_hash.in_(
+                invitation_address_hashes(address)
+            )
+        )
+    return await db.scalar(statement) is not None
+
+
 async def consume_share_invitation_continuation(
     db: AsyncSession,
     *,

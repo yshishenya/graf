@@ -41,8 +41,10 @@
 
 Фича поставляется по независимым воротам. В эту реализацию входят два
 контролируемых пути: B2B authenticated summary-only доступ для active workspace
-identity и B2C exact-email приглашение внешнему получателю с явным входом или
-регистрацией. B2C остаётся operator-gated и выключен по умолчанию; включение
+identity и B2C exact-email приглашение внешнему получателю через единый вход.
+При первом email-входе аккаунт создаётся автоматически внутри этого явного
+приглашения; отдельный registration flow не требуется. B2C остаётся
+operator-gated и выключен по умолчанию; включение
 возможно только при настроенных Temporal, email, encryption key, public base
 URL, rate-limit, delivery и deletion checks. Public links, native address-book
 picker и referral attribution остаются отдельными gated extensions.
@@ -62,9 +64,10 @@ channel/calendar distribution также описаны как последую�
 - изменение capture, transcript, playback, export или deletion authority.
 
 В B2C первой поставки получатель получает только summary-only/view-only доступ
-на bounded срок. Письмо содержит безопасные metadata встречи и ссылку на
-явный вход/регистрацию; transcript, audio, summary text, workspace membership
-и скрыто созданный аккаунт не входят в этот путь.
+на bounded срок. Письмо содержит безопасные metadata встречи и ссылку на единый
+вход; если аккаунта ещё нет, подтверждение email создаёт personal GRAF account
+в рамках этого действия. Transcript, audio, summary text и workspace membership
+в этот путь не входят.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -119,8 +122,9 @@ channel/calendar distribution также описаны как последую�
    область доступа, срок действия, основную кнопку и ссылку на настройки
    уведомлений, но не transcript, audio или summary text.
 2. **Given** получатель не вошёл в GRAF, **When** он выбирает основную кнопку,
-   **Then** GRAF предлагает войти или создать аккаунт с тем же подтверждённым
-   email и после успеха возвращает его к разрешённому summary.
+   **Then** GRAF предлагает единый вход с email из приглашения; если аккаунта
+   ещё нет, email-код создаёт personal account автоматически и возвращает
+   получателя к разрешённому summary.
 3. **Given** получатель открыл CTA `Попробовать GRAF`, **When** он завершает
    onboarding, **Then** referral attribution связывает регистрацию с приглашением
    без передачи текста встречи и без автоматического добавления в workspace.
@@ -248,8 +252,8 @@ opened → summary viewed → CTA clicked → signup completed`, провери�
 Приоритет: сначала `Поделиться с участниками` + `Shared with me`, затем личный
 auto-share и recurring pre-read; team access, action-item distribution и
 интеграции включаются отдельными операционными и privacy-гейтами. Не входят:
-рейтинги пользователей, реферальные бонусы, автосоздание аккаунта, массовая
-рассылка по календарю и скрытая синхронизация адресной книги.
+рейтинги пользователей, реферальные бонусы, автоматическое добавление в
+workspace, массовая рассылка по календарю и скрытая синхронизация адресной книги.
 
 ### Edge Cases
 
@@ -337,7 +341,7 @@ FR-036–FR-042 и SC-017–SC-021 ниже описывают следующи�
   transcript/audio/summary text и tracking pixel для meeting content запрещены.
 - **FR-020**: Recipient surface MUST показывать ценность GRAF после успешного
   разрешённого просмотра, но CTA не должен скрывать основной content, требовать
-  workspace join или создавать account без явного согласия.
+  workspace join или создавать account без явного email/provider-auth действия.
 - **FR-021**: Referral attribution MUST использовать opaque bounded identifier,
   быть одноразово привязанной к invitation/grant и не помещать meeting content,
   email или raw token в URL, analytics или клиентское хранилище.
