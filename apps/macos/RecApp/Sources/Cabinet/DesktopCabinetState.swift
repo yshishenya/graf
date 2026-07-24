@@ -218,6 +218,9 @@ public enum DesktopCabinetAccessibilityIdentifier {
     public static let embeddedSurface = "desktop-cabinet-embedded-surface"
     public static let unavailableState = "desktop-cabinet-unavailable-state"
     public static let nativeShellRegion = "desktop-native-shell-region"
+    public static let navigationBack = "desktop-cabinet-navigation-back"
+    public static let navigationForward = "desktop-cabinet-navigation-forward"
+    public static let navigationReload = "desktop-cabinet-navigation-reload"
 }
 
 public enum DesktopCabinetRecoveryTarget: Equatable, Sendable {

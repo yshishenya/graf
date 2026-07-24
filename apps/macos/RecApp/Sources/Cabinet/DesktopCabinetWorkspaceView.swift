@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 public struct DesktopCabinetWorkspaceView: View {
@@ -16,6 +17,7 @@ public struct DesktopCabinetWorkspaceView: View {
     private let onCheckForUpdates: EmbeddedCabinetWebView.CheckForUpdatesAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
     private let externalCabinetState: Binding<DesktopCabinetState>?
+    @StateObject private var navigationController = EmbeddedCabinetNavigationController()
     @State private var internalCabinetState: DesktopCabinetState
     @Binding private var currentRoute: URL?
 
@@ -47,32 +49,41 @@ public struct DesktopCabinetWorkspaceView: View {
     }
 
     public var body: some View {
-        switch presentation {
-        case .card:
-            let stack = VStack(alignment: .leading, spacing: 12) {
-                header
-                content
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(Self.workspaceAccessibilityLabel)
-            .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.workspace)
-
-            stack
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
-                )
-        case .shell:
-            content
+        Group {
+            switch presentation {
+            case .card:
+                let stack = VStack(alignment: .leading, spacing: 12) {
+                    header
+                    content
+                }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Self.workspaceAccessibilityLabel)
                 .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.workspace)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                stack
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(DesktopMeetingShellChrome.shellSurfaceColor)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
+                    )
+            case .shell:
+                content
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(Self.workspaceAccessibilityLabel)
+                    .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.workspace)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .background {
+            DesktopCabinetNavigationTitlebarAccessory(
+                controller: navigationController,
+                isVisible: configuration != nil && shouldShowEmbeddedSurface
+            )
+            .frame(width: 0, height: 0)
         }
     }
 
@@ -104,8 +115,11 @@ public struct DesktopCabinetWorkspaceView: View {
                 navigationEventLogger: navigationEventLogger,
                 showsAppUpdateBadge: showsAppUpdateBadge,
                 onCheckForUpdates: onCheckForUpdates,
-                supportIncidentBridge: supportIncidentBridge
+                supportIncidentBridge: supportIncidentBridge,
+                fallbackRequest: configuration.urlRequest(for: configuration.meetingsURL()),
+                navigationController: navigationController
             )
+            .id(navigationController.sessionBoundaryID)
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.embeddedSurface)
 
             switch presentation {
@@ -315,4 +329,169 @@ public struct DesktopCabinetWorkspaceView: View {
 public enum DesktopCabinetWorkspacePresentation: Equatable, Sendable {
     case card
     case shell
+}
+
+private struct DesktopCabinetNavigationTitlebarAccessory: NSViewRepresentable {
+    @ObservedObject var controller: EmbeddedCabinetNavigationController
+    let isVisible: Bool
+
+    func makeNSView(context _: Context) -> DesktopCabinetNavigationTitlebarAccessoryAnchor {
+        let anchor = DesktopCabinetNavigationTitlebarAccessoryAnchor()
+        anchor.update(controller: controller, isVisible: isVisible)
+        return anchor
+    }
+
+    func updateNSView(_ nsView: DesktopCabinetNavigationTitlebarAccessoryAnchor, context _: Context) {
+        nsView.update(controller: controller, isVisible: isVisible)
+    }
+
+    static func dismantleNSView(
+        _ nsView: DesktopCabinetNavigationTitlebarAccessoryAnchor,
+        coordinator _: ()
+    ) {
+        nsView.removeAccessory()
+    }
+}
+
+private final class DesktopCabinetNavigationTitlebarAccessoryAnchor: NSView {
+    private weak var installedWindow: NSWindow?
+    private var accessoryController: NSTitlebarAccessoryViewController?
+    private var hostingView: NSHostingView<DesktopCabinetNavigationControls>?
+    private var controller: EmbeddedCabinetNavigationController?
+    private var isVisible = false
+
+    func update(controller: EmbeddedCabinetNavigationController, isVisible: Bool) {
+        self.controller = controller
+        self.isVisible = isVisible
+        syncAccessory()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        syncAccessory()
+    }
+
+    func removeAccessory() {
+        guard let accessoryController else { return }
+        if let installedWindow,
+           let index = installedWindow.titlebarAccessoryViewControllers.firstIndex(where: { $0 === accessoryController }) {
+            installedWindow.removeTitlebarAccessoryViewController(at: index)
+        }
+        self.accessoryController = nil
+        hostingView = nil
+        installedWindow = nil
+    }
+
+    private func syncAccessory() {
+        guard isVisible, let window, let controller else {
+            removeAccessory()
+            return
+        }
+        if installedWindow !== window {
+            removeAccessory()
+        }
+
+        let rootView = DesktopCabinetNavigationControls(controller: controller)
+        let host = hostingView ?? NSHostingView(rootView: rootView)
+        host.rootView = rootView
+        host.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: DesktopCabinetNavigationControls.preferredWidth,
+            height: DesktopCabinetNavigationControls.preferredHeight
+        )
+        hostingView = host
+
+        if accessoryController == nil {
+            let accessory = NSTitlebarAccessoryViewController()
+            accessory.layoutAttribute = .left
+            accessory.view = host
+            accessoryController = accessory
+            installedWindow = window
+            window.addTitlebarAccessoryViewController(accessory)
+        }
+    }
+}
+
+private struct DesktopCabinetNavigationControls: View {
+    static let preferredWidth: CGFloat = 136
+    static let preferredHeight: CGFloat = 40
+
+    @ObservedObject var controller: EmbeddedCabinetNavigationController
+
+    var body: some View {
+        HStack(spacing: 0) {
+            navigationButton(
+                title: "Назад",
+                hint: "Вернуться к предыдущему экрану",
+                symbol: "chevron.left",
+                enabled: controller.canGoBack && !controller.isLoading,
+                shortcut: "[",
+                action: controller.goBack
+            )
+            navigationButton(
+                title: "Вперёд",
+                hint: "Перейти к следующему экрану",
+                symbol: "chevron.right",
+                enabled: controller.canGoForward && !controller.isLoading,
+                shortcut: "]",
+                action: controller.goForward
+            )
+            navigationButton(
+                title: "Обновить",
+                hint: "Обновить текущий экран",
+                symbol: "arrow.clockwise",
+                enabled: controller.canReload && !controller.isLoading,
+                shortcut: "r",
+                action: controller.reload
+            )
+        }
+        .padding(.horizontal, 4)
+        .frame(width: Self.preferredWidth, height: Self.preferredHeight)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("desktop-cabinet-navigation-controls")
+    }
+
+    private func navigationButton(
+        title: String,
+        hint: String,
+        symbol: String,
+        enabled: Bool,
+        shortcut: KeyEquivalent,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(
+                    width: DesktopMeetingShellChrome.minimumInteractiveTarget,
+                    height: DesktopMeetingShellChrome.minimumInteractiveTarget
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? Color.primary : Color.secondary.opacity(0.35))
+        .disabled(!enabled)
+        .keyboardShortcut(shortcut, modifiers: .command)
+        .help(
+            controller.isLoading
+                ? "Загрузка…"
+                : "\(title) (⌘\(String(describing: shortcut)))"
+        )
+        .accessibilityLabel(title)
+        .accessibilityHint(controller.isLoading ? "Загрузка выполняется" : hint)
+        .accessibilityValue(controller.isLoading ? "Загрузка" : enabled ? "Доступно" : "Недоступно")
+        .accessibilityIdentifier(accessibilityIdentifier(for: title))
+    }
+
+    private func accessibilityIdentifier(for title: String) -> String {
+        switch title {
+        case "Назад":
+            return DesktopCabinetAccessibilityIdentifier.navigationBack
+        case "Вперёд":
+            return DesktopCabinetAccessibilityIdentifier.navigationForward
+        default:
+            return DesktopCabinetAccessibilityIdentifier.navigationReload
+        }
+    }
 }
