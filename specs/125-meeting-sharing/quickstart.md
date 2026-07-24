@@ -278,7 +278,7 @@ attribution remain disabled.
 
 - Focused synthetic magic-link, RLS, account-bootstrap, email-template and Share
   contract matrix: `25 passed`; static UI/contract checks: `24 passed`.
-- `infra/scripts/ci-local.sh`: pass — macOS `625 passed`; PostgreSQL `2,264
+- `infra/scripts/ci-local.sh`: pass — macOS `631 passed`; PostgreSQL `2,419
   passed, 1 skipped` in parallel and `41 passed, 1 skipped` in strict mode;
   Ruff, Python compile, JavaScript syntax, Compose config and deployment-evidence
   scan passed. The live destructive RLS probe was not run in this local
