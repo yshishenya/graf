@@ -67,7 +67,7 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
             view_models.CabinetNavigationItem(
                 "settings",
                 "Настройки",
-                "/settings/integrations/calendar",
+                "/settings",
                 "settings",
             ),
         ),
@@ -88,7 +88,7 @@ def test_cabinet_shell_macro_renders_shared_sidebar_contract() -> None:
     assert 'aria-label="Навигация кабинета"' in html
     assert html.count('aria-current="page"') == 1
     assert 'href="/meetings"' in html
-    assert 'href="/settings/integrations/calendar"' in html
+    assert 'href="/settings"' in html
     assert 'data-state="disabled"' not in html
     assert 'aria-disabled="true"' not in html
     assert 'href="#"' not in html

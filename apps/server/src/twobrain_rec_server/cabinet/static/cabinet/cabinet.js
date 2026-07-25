@@ -2641,8 +2641,15 @@
   };
 
   const initCalendarSettings = () => {
-    const openCalendarDialog = (dialog) => {
+    const dialogOpeners = new WeakMap();
+    const restoreDialogFocus = (dialog) => {
+      const opener = dialogOpeners.get(dialog);
+      dialogOpeners.delete(dialog);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+    const openCalendarDialog = (dialog, opener) => {
       if (!dialog) return;
+      if (opener) dialogOpeners.set(dialog, opener);
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
       const firstField = dialog.querySelector("input:not([type='hidden']), button[type='submit'], button:not([data-calendar-provider-close])");
@@ -2652,13 +2659,14 @@
       if (!dialog) return;
       if (typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
+      restoreDialogFocus(dialog);
     };
     document.querySelectorAll("[data-calendar-provider-open]").forEach((button) => {
       if (button.dataset.calendarProviderOpenReady === "true") return;
       button.dataset.calendarProviderOpenReady = "true";
       button.addEventListener("click", () => {
         const dialogId = button.dataset.calendarProviderOpen || "";
-        openCalendarDialog(document.getElementById(dialogId));
+        openCalendarDialog(document.getElementById(dialogId), button);
       });
     });
     document.querySelectorAll("[data-calendar-provider-close]").forEach((button) => {
@@ -2671,6 +2679,7 @@
     document.querySelectorAll("[data-calendar-provider-dialog]").forEach((dialog) => {
       if (dialog.dataset.calendarProviderDialogReady === "true") return;
       dialog.dataset.calendarProviderDialogReady = "true";
+      dialog.addEventListener("close", () => restoreDialogFocus(dialog));
       dialog.addEventListener("click", (event) => {
         if (event.target === dialog) closeCalendarDialog(dialog);
       });
@@ -2681,6 +2690,50 @@
       button.addEventListener("click", () => {
         const details = button.closest("details");
         if (details) details.open = false;
+      });
+    });
+  };
+
+  const initSettingsFormState = () => {
+    document.querySelectorAll("[data-settings-form]").forEach((form) => {
+      if (form.dataset.settingsFormReady === "true") return;
+      form.dataset.settingsFormReady = "true";
+      const status = form.querySelector("[data-settings-form-status]");
+      const submit = form.querySelector("button[type='submit']");
+      const snapshot = () => new URLSearchParams(new FormData(form)).toString();
+      let initial = snapshot();
+      const update = () => {
+        const dirty = snapshot() !== initial;
+        form.dataset.state = dirty ? "dirty" : "pristine";
+        if (status) {
+          status.textContent = dirty ? "Есть несохранённые изменения" : "";
+          status.hidden = !dirty;
+        }
+      };
+      form.addEventListener("input", update);
+      form.addEventListener("change", update);
+      form.addEventListener("reset", () => window.setTimeout(update, 0));
+      form.addEventListener("submit", () => {
+        initial = snapshot();
+        form.dataset.state = "saving";
+        if (status) {
+          status.textContent = "Сохраняем…";
+          status.hidden = false;
+        }
+        if (submit) submit.disabled = true;
+      });
+      update();
+    });
+  };
+
+  const initSettingsConfirmations = () => {
+    document.querySelectorAll("[data-confirm]").forEach((button) => {
+      if (button.dataset.confirmReady === "true") return;
+      button.dataset.confirmReady = "true";
+      button.addEventListener("click", (event) => {
+        if (!window.confirm(button.dataset.confirm || "Подтвердить действие?")) {
+          event.preventDefault();
+        }
       });
     });
   };
@@ -4393,6 +4446,8 @@
     initContentExport();
     initMeetingDeleteDialog();
     initCalendarSettings();
+    initSettingsFormState();
+    initSettingsConfirmations();
   };
 
   // Keep meeting-list fencing listeners ahead of feature-specific HTMX listeners.

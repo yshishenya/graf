@@ -17,12 +17,22 @@ def _page_shell(
     **context,
 ) -> str:
     navigation = cabinet_view_models.cabinet_navigation(active=active_nav, embedded=embedded)
+    settings_active = context.pop("settings_active", "overview")
+    settings_navigation = context.pop(
+        "settings_navigation",
+        cabinet_view_models.settings_category_navigation(
+            embedded=embedded,
+            active=settings_active,
+        ),
+    )
     content_template = context.pop("content_template", None)
     if content is None and content_template:
         content = render_template(
             content_template,
             embedded=embedded,
             navigation=navigation,
+            settings_navigation=settings_navigation,
+            settings_active=settings_active,
             csrf_token=csrf_token,
             **context,
         )
@@ -33,6 +43,7 @@ def _page_shell(
         page_template,
         embedded=embedded,
         navigation=navigation,
+        settings_navigation=settings_navigation,
         csrf_token=csrf_token,
         **context,
     )
@@ -193,4 +204,4 @@ def _base_path(embedded: bool) -> str:
 
 
 def _settings_path(embedded: bool) -> str:
-    return "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
+    return "/desktop/settings/summaries" if embedded else "/settings/summaries"

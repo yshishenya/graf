@@ -2108,7 +2108,7 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
     assert replacement_match is not None
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, replacement_match.group(1))
 
-    current_settings = client.get("/settings")
+    current_settings = client.get("/settings/workspace")
     assert current_settings.status_code == 200
     assert "Активное пространство" in current_settings.text
     assert "Сейчас выбрано" in current_settings.text
@@ -2230,7 +2230,7 @@ def test_workspace_join_offers_require_explicit_csrf_protected_decisions(client:
     }
     assert "offer-owner@example.test" not in listed.text
 
-    settings = client.get("/settings")
+    settings = client.get("/settings/workspace")
     assert settings.status_code == 200
     assert "Приглашения в команды" in settings.text
     assert "Команда для принятия" in settings.text

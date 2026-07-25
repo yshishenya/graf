@@ -1,0 +1,29 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    <header class="cabinet-topbar settings-page__topbar">
+      <div class="page-title">
+        <p class="eyebrow">Настройки / На этом Mac</p>
+        <h1>Запись встреч</h1>
+        <p class="page-subtitle">Политика записи находится в приложении GRAF для macOS и действует только на этом Mac.</p>
+      </div>
+    </header>
+    {{ settings_ui.navigation(settings_navigation, active=settings_active) }}
+
+    <section class="settings-section settings-handoff-card" aria-labelledby="recording-handoff-title" data-recording-handoff>
+      <span class="settings-scope-badge">На этом Mac</span>
+      <h2 id="recording-handoff-title">Откройте приложение GRAF для настройки записи</h2>
+      <p>Здесь нельзя включить запись для всех встреч или настроить маршрутизацию аудио. В приложении macOS доступны обнаружение поддерживаемых приложений, подсказки перед записью и ручной старт/стоп.</p>
+      <ul class="settings-boundary-list">
+        <li><strong>Обнаружение встреч</strong><span>Настройка находится в приложении и действует локально.</span></li>
+        <li><strong>Ручная запись</strong><span>Ручной старт и стоп остаются доступными всегда.</span></li>
+        <li><strong>Веб</strong><span>Веб-интерфейс показывает результат записи и не получает доступ к системному аудио.</span></li>
+      </ul>
+    </section>
+
+    <section class="settings-section settings-unavailable-card" aria-labelledby="recording-unavailable-title">
+      <h2 id="recording-unavailable-title">Нет приложения на этом устройстве?</h2>
+      <p class="muted">Установите приложение GRAF для macOS, чтобы изменить обнаружение встреч и локальные подсказки. До этого веб-настройки записи недоступны.</p>
+    </section>
+  </div>
+</main>

@@ -1,5 +1,5 @@
 {
-  "bootstrap_version": "0.7.0",
+  "bootstrap_version": "0.7.1",
   "extensions": {
     "agent_context": {
       "manifest_hash": "sha256:9a1dc02d2d0139bb03860392ecacef79183be2c442feda2f9ccaa4e5907b1e47",
@@ -26,7 +26,7 @@
     "speckit-analyze": "73d738e1788d68106fd51cdc909be8f664e4157811b18c4f46ae78962133ffcb",
     "speckit-checklist": "4ef3696b792b6291ffcc993949cc874a32854d3c20b21c239fa805ee7dd78af4",
     "speckit-clarify": "a6fd0d1726dd981f5869048e9d7ad702f1519c2e4ecacc1c6bb7c569ed69462a",
-    "speckit-constitution": "e08641e11092fea868ed573ccd62c1341eaf33a6eead70076f6f04210f0d2d0b",
+    "speckit-constitution": "4e79041d8a1a955f5c9621d3369a7180c854d66946ea5971ed407cced94a0e59",
     "speckit-converge": "181e8873fd75dbfb46e69b563ebbeb22dd36717675bac9be0b101d024d3d994b",
     "speckit-git-commit": "1bbbc69567495fc3bbdf69c46e6359349282e344808dcf74a662dc6a4cc78fb5",
     "speckit-git-feature": "397d4bef3f3184e07f2d11a5f9774f1285820615b11322b18d023556b40c5eca",
@@ -38,7 +38,7 @@
     "speckit-github-issue-canon-validate": "3a47db7f81fc634625b1f3b559600f16cd91b261fda1a88875f4845ee36283f8",
     "speckit-implement": "88c3c06dba6744826cb8637eb0fc7e716b39cdb70138f490f3cca074ad962f31",
     "speckit-plan": "a3375a27f2f634bfcb882504295c8cd60fefa4b7a22005f5ac26afbf1c523ea8",
-    "speckit-specify": "5206b96d3a0bd9bd5247aaf56c8312c8e83174652a7cf9bab5f4950ebdb71022",
+    "speckit-specify": "0a86f86011b259d4cbefcb68308449d43f119911a9e8f40dbea86c1d7cccf22d",
     "speckit-tasks": "87f4b09d76ae86dff9d1beb47aa838a50ca907397ff03e54ec2306103526a807",
     "speckit-taskstoissues": "18deb18d7796d30123380df9bb33013fa2bc9ae33c3354aff62d98013abb2318"
   },
@@ -50,9 +50,9 @@
   },
   "schema_version": 2,
   "spec_kit": {
-    "ref": "7b91c1eda46e1107a53831cd3f14f608b4b7bad0",
-    "source": "git+https://github.com/github/spec-kit.git@7b91c1eda46e1107a53831cd3f14f608b4b7bad0",
-    "version": "v0.12.15"
+    "ref": "2930d06f41e3ab491ef7d111cfe7676de5ddeabd",
+    "source": "git+https://github.com/github/spec-kit.git@2930d06f41e3ab491ef7d111cfe7676de5ddeabd",
+    "version": "v0.14.2"
   },
   "workflow": {
     "id": "speckit",

@@ -312,7 +312,14 @@ def run_checks() -> dict[str, Any]:
 
     _add_check(checks, "standalone_shell", "<!doctype html>" in list_page and 'data-surface-mode="standalone_browser"' in list_page, "full browser shell is rendered")
     _add_check(checks, "embedded_shell", 'class="app-shell desktop-embedded"' in embedded_list_page, "desktop WebView uses embedded shell mode")
-    _add_check(checks, "settings_shell", 'id="calendar-connections"' in settings_page and 'data-active-nav="settings"' in settings_page, "settings shell exposes calendar connections")
+    _add_check(
+        checks,
+        "settings_shell",
+        'data-settings-overview' in settings_page
+        and 'href="/settings/integrations/calendar"' in settings_page
+        and 'data-active-nav="settings"' in settings_page,
+        "settings overview exposes the calendar category",
+    )
     _add_check(checks, "native_controls_absent_from_webview", "Record live" not in embedded_detail_page and "Screen Recording" not in embedded_detail_page, "native capture copy stays outside WebView")
     _add_check(checks, "list_fragment_bounded", "<!doctype html>" not in list_fragment and 'data-cabinet-fragment="meeting-list"' in list_fragment, "list HTMX response is a bounded fragment")
     _add_check(checks, "detail_fragment_bounded", "<!doctype html>" not in detail_fragment and 'data-cabinet-fragment="meeting-detail"' in detail_fragment, "detail HTMX response is a bounded fragment")

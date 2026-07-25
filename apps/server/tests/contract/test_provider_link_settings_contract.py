@@ -25,9 +25,12 @@ def test_settings_provider_link_actions_share_browser_and_embedded_contract() ->
         ProviderLinkStartOption(provider="vk", label="VK"),
     )
 
-    browser = render_settings_page(csrf_token="safe-csrf", provider_link_options=options)
+    browser = render_settings_page(
+        category="account", csrf_token="safe-csrf", provider_link_options=options
+    )
     embedded = render_settings_page(
         embedded=True,
+        category="account",
         csrf_token="safe-csrf",
         provider_link_options=options,
     )
@@ -38,7 +41,7 @@ def test_settings_provider_link_actions_share_browser_and_embedded_contract() ->
     assert 'name="csrf_token" value="safe-csrf"' in embedded
     for page in (browser, embedded):
         assert "Способы входа" in page
-        assert "Добавьте ещё один способ входа" in page
+        assert "Подключённые провайдеры относятся к вашему аккаунту" in page
         assert "provider_subject" not in page
         assert "candidate_email" not in page
         assert "candidate_phone" not in page
@@ -75,6 +78,7 @@ def test_workspace_offer_settings_render_explicit_choice_and_safe_recovery() -> 
     )
 
     page = render_settings_page(
+        category="workspace",
         csrf_token="safe-csrf",
         workspace_join_offers=(offer,),
         workspace_offer_result="accepted",
@@ -129,12 +133,14 @@ def test_active_workspace_selector_is_accessible_and_uses_server_scoped_activati
     )
 
     page = render_settings_page(
+        category="workspace",
         csrf_token="safe-csrf",
         workspace_spaces=spaces,
         workspace_switch_result="activated",
     )
     embedded = render_settings_page(
         embedded=True,
+        category="workspace",
         csrf_token="safe-csrf",
         workspace_spaces=spaces,
     )
@@ -148,7 +154,7 @@ def test_active_workspace_selector_is_accessible_and_uses_server_scoped_activati
     assert f'action="/settings/spaces/{corporate_id}/activate?return_to_settings=true"' in page
     assert 'name="workspace_id"' not in page
     assert 'role="status" aria-live="polite"' in page
-    assert f'action="/settings/spaces/{corporate_id}/activate?return_to_settings=true"' not in embedded
+    assert f'action="/desktop/settings/spaces/{corporate_id}/activate?return_to_settings=true"' in embedded
 
 
 def test_workspace_activation_route_requires_csrf() -> None:

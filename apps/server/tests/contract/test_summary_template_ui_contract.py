@@ -36,7 +36,7 @@ MEETING_TEMPLATE = (
 )
 SETTINGS_TEMPLATE = (
     SERVER_ROOT
-    / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html"
+    / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_summaries_content.html"
 )
 
 
@@ -58,7 +58,7 @@ def test_summary_selector_keeps_auto_four_recommendations_and_all_formats(client
 
 
 def test_personal_template_management_lives_in_settings_not_quick_selector(client) -> None:
-    settings = client.get("/settings", headers=auth_headers())
+    settings = client.get("/settings/summaries", headers=auth_headers())
 
     assert settings.status_code == 200
     html = settings.text

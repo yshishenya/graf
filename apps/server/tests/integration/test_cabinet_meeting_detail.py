@@ -414,7 +414,7 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
     assert response.text.count('aria-current="page"') == 1
     assert 'data-active-nav="meetings"' in response.text
     assert 'href="/desktop/meetings"' in response.text
-    assert 'href="/desktop/settings/integrations/calendar"' in response.text
+    assert 'href="/desktop/settings"' in response.text
     assert "Расшифровка" in response.text
     assert "Recording &amp; Transcript" not in response.text
     assert SAFE_TRANSCRIPT_TEXT in response.text

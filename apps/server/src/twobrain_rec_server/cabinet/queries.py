@@ -77,6 +77,7 @@ from twobrain_rec_server.db.models import (
     CalendarSource,
     DiarizationSegment,
     ExternalCalendar,
+    ExternalIdentity,
     MediaRevision,
     Meeting,
     MeetingOutcomeSet,
@@ -85,6 +86,7 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     ProcessingWorkflow,
     RecordingCalendarContextLink,
+    RegisteredDevice,
     SummaryTemplate,
     TranscriptSegment,
     UploadPart,
@@ -149,6 +151,36 @@ async def get_provider_link_settings_surface(
         )
     )
     return provider_link_settings_surface(link) if link is not None else None
+
+
+async def get_account_settings_surface(
+    db: AsyncSession,
+    tenant_scope: TenantScope,
+):
+    from twobrain_rec_server.cabinet.view_models import account_settings_surface
+
+    identities = tuple(
+        await db.scalars(
+            select(ExternalIdentity)
+            .where(ExternalIdentity.user_id == tenant_scope.user_id)
+            .order_by(ExternalIdentity.created_at.asc())
+        )
+    )
+    devices = tuple(
+        await db.scalars(
+            select(RegisteredDevice)
+            .where(
+                RegisteredDevice.workspace_id == tenant_scope.workspace_id,
+                RegisteredDevice.user_id == tenant_scope.user_id,
+            )
+            .order_by(RegisteredDevice.created_at.desc())
+        )
+    )
+    return account_settings_surface(
+        identities=identities,
+        devices=devices,
+        current_device_id=tenant_scope.device_id,
+    )
 
 
 async def get_calendar_settings_surface(

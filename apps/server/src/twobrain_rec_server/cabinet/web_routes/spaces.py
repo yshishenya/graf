@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,11 @@ from twobrain_rec_server.cabinet.web_routes.support import (
 router = APIRouter(tags=["cabinet-web"])
 
 
+def _workspace_settings_path(request: Request, *, result_key: str, result: str) -> str:
+    prefix = "/desktop/settings/workspace" if request.url.path.startswith("/desktop/") else "/settings/workspace"
+    return f"{prefix}?{result_key}={result}"
+
+
 def _require_offer_session(principal: AuthenticatedPrincipal) -> UUID:
     if not principal.auth_via_session or principal.session_workspace_id is None:
         raise ProblemDetail(
@@ -38,7 +43,9 @@ def _require_offer_session(principal: AuthenticatedPrincipal) -> UUID:
 
 
 @router.get("/settings/spaces", include_in_schema=False)
+@router.get("/desktop/settings/spaces", include_in_schema=False)
 async def list_accessible_spaces(
+    request: Request,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -75,7 +82,14 @@ async def list_accessible_spaces(
     dependencies=[WebCSRFDependency],
     response_model=None,
 )
+@router.post(
+    "/desktop/settings/spaces/{workspace_id}/activate",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+    response_model=None,
+)
 async def activate_accessible_space(
+    request: Request,
     workspace_id: UUID,
     return_to_settings: bool = Query(default=False),
     tenant_scope: TenantScope = WebTenantDependency,
@@ -102,7 +116,14 @@ async def activate_accessible_space(
     )
     await db.commit()
     if return_to_settings:
-        response = RedirectResponse("/settings?space_switch=activated", status_code=303)
+        response = RedirectResponse(
+            _workspace_settings_path(
+                request,
+                result_key="space_switch",
+                result="activated",
+            ),
+            status_code=303,
+        )
     else:
         response = JSONResponse(
             {
@@ -162,7 +183,14 @@ async def list_workspace_offers(
     dependencies=[WebCSRFDependency],
     response_model=None,
 )
+@router.post(
+    "/desktop/settings/join-offers/{offer_id}/{action}",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+    response_model=None,
+)
 async def decide_workspace_offer(
+    request: Request,
     offer_id: UUID,
     action: Literal["accept", "reject"],
     return_to_settings: bool = Query(default=False),
@@ -187,8 +215,22 @@ async def decide_workspace_offer(
         if not return_to_settings:
             raise
         await db.commit()
-        return RedirectResponse("/settings?workspace_offer=unavailable", status_code=303)
+        return RedirectResponse(
+            _workspace_settings_path(
+                request,
+                result_key="workspace_offer",
+                result="unavailable",
+            ),
+            status_code=303,
+        )
     await db.commit()
     if return_to_settings:
-        return RedirectResponse(f"/settings?workspace_offer={offer.status}", status_code=303)
+        return RedirectResponse(
+            _workspace_settings_path(
+                request,
+                result_key="workspace_offer",
+                result=offer.status,
+            ),
+            status_code=303,
+        )
     return JSONResponse({"status": offer.status, "idempotent": idempotent})
