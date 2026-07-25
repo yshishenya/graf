@@ -20,19 +20,22 @@ from twobrain_rec_server.workflows.worker import invitation_delivery_failure_sta
 
 
 @pytest.mark.parametrize(
-    ("content_scope", "can_download", "can_export"),
+    ("content_scope", "can_download", "can_export", "error_text"),
     [
-        ("full_meeting", False, False),
-        ("summary_only", True, False),
-        ("summary_only", False, True),
+        ("full_meeting", False, False, "recording invitations"),
+        ("full_meeting", True, False, "recording invitations"),
+        ("full_meeting", False, True, "recording invitations"),
+        ("summary_only", True, False, "summary invitations"),
+        ("summary_only", False, True, "summary invitations"),
     ],
 )
-def test_external_invitation_is_summary_only_without_egress_capabilities(
+def test_external_invitation_requires_a_complete_scope_preset(
     content_scope: str,
     can_download: bool,
     can_export: bool,
+    error_text: str,
 ) -> None:
-    with pytest.raises(ValueError, match="summary-only"):
+    with pytest.raises(ValueError, match=error_text):
         CreateMeetingShareInvitationRequest(
             address="external@example.com",
             content_scope=content_scope,

@@ -14,7 +14,10 @@ server-policy-aware access surface. The first implementation fixes internal B2B
 summary-only sharing and implements the B2C exact-email invitation path behind
 an operator gate: safe metadata email, one-click magic-link acceptance with
 automatic personal-account bootstrap, exact invited identity, separate grant
-token, bounded expiry and revoke. The controlled
+token, bounded expiry and revoke. A full external recording grant opens a
+recipient-bound page with summary, timestamped transcript, playback, canonical
+audio download and combined summary+transcript export; each egress action
+rechecks policy/readiness. The controlled
 exact-email path is now enabled in production after the delivery, secret,
 abuse, deletion and rollback evidence gates; public links stay disabled. The
 plan also keeps native address-book, viral onboarding and referral
@@ -56,7 +59,7 @@ lookup and referral attribution remain false.
 
 **Performance Goals**: internal recipient search p95 under 1 second for the bounded 20-result query in synthetic fixtures; no network request for disabled capabilities; Share modal remains responsive at the existing cabinet scale
 
-**Constraints**: fail closed; internal and external defaults are summary-only/view-only; external/public flags stay false by default; no raw meeting content, contact records, email delivery secret or bearer token in evidence/logs/analytics; no full address-book sync; 320 CSS px and 200% zoom; browser/embedded parity; no copied competitor UI
+**Constraints**: fail closed; internal defaults are summary-only/view-only, while the explicit exact-email recording preset is full-meeting/view-only with download/export capabilities; external/public flags stay false by default; no raw meeting content, contact records, email delivery secret or bearer token in evidence/logs/analytics; no full address-book sync; 320 CSS px and 200% zoom; browser/embedded parity; no copied competitor UI
 
 **Scale/Scope**: one meeting Share fragment, current workspace/meeting roster candidate search, existing grant/invitation/link lifecycle, existing summary route, exact-email delivery, synthetic security/UX tests; public/contact/referral rollout remains independently gated
 
@@ -93,8 +96,10 @@ PASS with conditions:
    token, deletion and rollback evidence recorded in
    [research.md](research.md#обязательные-blockers-перед-rollout); public,
    contact and referral rollout remains disabled.
-2. Internal and external rollout remains limited to summary-only view unless a
-   later approved slice changes policy.
+2. Internal sharing keeps the summary-only default. Exact-email external access
+   is an explicit full-recording preset only; no anonymous/public full-meeting
+   path is introduced, and every page/playback/download/export request rechecks
+   exact identity, grant state, expiry, deletion and egress policy.
 3. No new persistence is introduced for contacts or referral attribution until
    retention/deletion and analytics contracts are approved.
 4. Token/header/log protections and accepted-grant expiry are blocking, not
@@ -128,9 +133,24 @@ failure remains visible.
 
 When external delivery is disabled, no invitation POST is made. The typed value
 is preserved and the user sees a policy explanation. When enabled, the endpoint
-accepts only exact email + summary-only/view-only scope and remains fail-closed
-for stale/hostile clients. Public link creation/resolution keeps the existing
-gates and remains disabled in this rollout.
+accepts exact email plus either the internal-compatible `summary_only` preset or
+the explicit `full_meeting` recording preset. The full preset requires both
+download and export capabilities, stays view-only, and remains fail-closed for
+stale/hostile clients. After acceptance, an external user without owner
+membership uses a stable `/shared-meetings/{meeting_id}?workspace_id=...` page;
+its playback, audio-download and content-export URLs are owner-workspace scoped
+and recheck the same recipient proof. Public link creation/resolution keeps the
+existing gates and remains disabled in this rollout.
+
+### External recording package
+
+The UI sends one deliberate `full_meeting` external preset instead of exposing a
+permission matrix. The recipient receives only the meeting result surface:
+summary, timestamped transcript, playback, canonical audio download and the
+existing revision-pinned combined export. Workspace membership, calendar
+context, service metadata, media revision identifiers and sharing controls stay
+out of the external page. Email and the pre-auth landing page remain metadata-
+only; they name the scope but never include meeting content.
 
 ### Viral and contact phases
 
@@ -257,7 +277,9 @@ email provider or a new database table in this slice.
 
 - B2C external invitation delivery state, exact-email onboarding and CTA behind
   the operator gate; the exact-email capability is enabled in the current
-  controlled production rollout, while broader viral extensions remain gated;
+  controlled production rollout, with an explicit full-recording preset and
+  owner-workspace-scoped recipient page, while broader viral extensions remain
+  gated;
 - explicit share-to-eligible-participants action and `Shared with me` adoption
   loop, after idempotent distribution/run design;
 - owner opt-in auto-share, recurring pre-read and bounded action-item delivery;

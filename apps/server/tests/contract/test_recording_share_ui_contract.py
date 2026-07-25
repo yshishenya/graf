@@ -22,9 +22,17 @@ def test_share_fragment_is_simple_first_and_accessible() -> None:
     assert "Открыть доступ к итогам" in JS.read_text(encoding="utf-8")
     assert "Календарь и рабочая область" in JS.read_text(encoding="utf-8")
     assert "Что увидит получатель" in source
-    assert "Открыть GRAF и итоги" in (
+    assert "Открыть итоги" in (
         REPO_ROOT
         / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html"
+    ).read_text(encoding="utf-8")
+    assert "Открыть запись" in (
+        REPO_ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html"
+    ).read_text(encoding="utf-8")
+    assert "Расшифровка и итоги" in (
+        REPO_ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/rendering.py"
     ).read_text(encoding="utf-8")
     assert "Отозвать" in source
     assert "data-share-recipient-results" in source
@@ -43,6 +51,9 @@ def test_share_focus_and_isolated_styles_are_registered() -> None:
     assert "dialog.showModal()" in javascript
     assert 'event.key !== "Tab"' in javascript
     assert "content_scope: \"summary_only\"" in javascript
+    assert "content_scope: \"full_meeting\"" in javascript
+    assert "can_download: true" in javascript
+    assert "can_export: true" in javascript
     assert "data-share-revoke-url" in javascript
     assert "renderExternalInvitationConfirmation" in javascript
     assert "setConfirmationVisible" in javascript

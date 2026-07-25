@@ -8388,6 +8388,385 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/shared-meetings/{meeting_id}/playback:
+    get:
+      tags:
+      - cabinet
+      summary: Play Shared Meeting Audio Route
+      operationId: playSharedMeetingAudio
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: Range
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional single RFC 9110 byte range, for example `bytes=0-1023`.
+          title: Range
+        description: Optional single RFC 9110 byte range, for example `bytes=0-1023`.
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Complete canonical review M4A.
+          content:
+            audio/mp4:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Accept-Ranges:
+              description: Supported byte range unit. Always `bytes`.
+              schema:
+                type: string
+            Content-Disposition:
+              description: Safe inline playback filename.
+              schema:
+                type: string
+            Content-Length:
+              description: Number of bytes in this response body.
+              schema:
+                type: integer
+        '206':
+          description: Requested byte range from the canonical review M4A.
+          content:
+            audio/mp4:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Accept-Ranges:
+              description: Supported byte range unit. Always `bytes`.
+              schema:
+                type: string
+            Content-Disposition:
+              description: Safe inline playback filename.
+              schema:
+                type: string
+            Content-Length:
+              description: Number of bytes in this response body.
+              schema:
+                type: integer
+            Content-Range:
+              description: Returned byte interval and complete object length.
+              schema:
+                type: string
+        '404':
+          description: Meeting not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Playback is not available.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '416':
+          description: Requested byte range is malformed or unsatisfiable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Canonical storage is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/shared-meetings/{meeting_id}/downloads/{artifact_class}:
+    get:
+      tags:
+      - cabinet
+      summary: Download Shared Meeting Artifact Route
+      operationId: downloadSharedMeetingArtifact
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: artifact_class
+        in: path
+        required: true
+        schema:
+          enum:
+          - audio
+          - transcript
+          - summary
+          - package
+          type: string
+          title: Artifact Class
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/shared-meetings/{meeting_id}/content-exports:
+    get:
+      tags:
+      - cabinet
+      summary: Get Shared Meeting Content Export Capabilities Route
+      operationId: getSharedMeetingContentExportCapabilities
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentExportCapabilityResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cabinet
+      summary: Create Shared Meeting Content Export Route
+      operationId: createSharedMeetingContentExport
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentExportSelectionRequest'
+      responses:
+        '200':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/cabinet/meetings/{meeting_id}/content-exports:
     get:
       tags:
@@ -14167,6 +14546,13 @@ components:
           type: string
           format: date-time
           title: Expires At
+        content_scope:
+          type: string
+          enum:
+          - summary_only
+          - full_meeting
+          title: Content Scope
+          default: summary_only
         display_label:
           type: string
           title: Display Label
@@ -14310,20 +14696,20 @@ components:
           title: Reason
         template_id:
           anyOf:
-          - format: uuid
-            type: string
+          - type: string
+            format: uuid
           - type: 'null'
           title: Template Id
         version:
           anyOf:
-          - minimum: 1.0
-            type: integer
+          - type: integer
+            minimum: 1.0
           - type: 'null'
           title: Version
         template_version:
           anyOf:
-          - minimum: 1.0
-            type: integer
+          - type: integer
+            minimum: 1.0
           - type: 'null'
           title: Template Version
       type: object

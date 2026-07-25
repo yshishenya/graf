@@ -7,9 +7,11 @@ summary-only sharing, capability-aware UI, calendar-backed internal suggestions,
 recipient-bound links, revoke/expiry and security negatives. The B2C exact-email
 path is implemented behind its operator gate with metadata-only delivery,
 exact-identity acceptance, one-step auth/automatic first-account bootstrap and
-replay-safe grant exchange. Exact-email external
-delivery is enabled in the controlled production rollout after the deploy-gate
-passed; public links,
+replay-safe grant exchange. The current exact-email preset opens a full
+recipient-bound recording page with summary, timestamped transcript, playback,
+canonical audio download and combined export; each egress request rechecks
+authorization, lifecycle and policy. Exact-email external delivery is enabled
+in the controlled production rollout after the deploy-gate passed; public links,
 address-book permission and referral conversion remain disabled unless their
 independent gates are explicitly enabled in a synthetic environment.
 
@@ -97,18 +99,25 @@ user and one unknown external address.
 ### C. External exact-email capability
 
 1. In the synthetic environment, enter `recipient@example.test` and confirm the
-   request is summary-only/view-only and carries no meeting content.
+   request is the explicit full-recording/view-only preset with download/export
+   capabilities and carries no meeting content.
 2. Confirm the delivery state distinguishes `sent` (Postal accepted the
    request) from `outcome_unknown` (the network result was not confirmed).
 3. Confirm exact verified-email acceptance creates no workspace membership and
    creates a separate bounded grant token.
 4. For a new synthetic recipient, open the invitation, press the single
-   `Открыть GRAF и итоги` action and confirm the magic link creates the personal
-   account automatically before the response opens summary. No password, code or
-   separate `/sign-up` step is shown or required. Confirm the account-created
-   notification is queued after commit and contains only the masked address,
-   meeting title and links to GRAF/settings.
-5. In a second synthetic run with external delivery disabled, confirm no POST
+   `Открыть запись` action and confirm the magic link creates the personal
+   account automatically before the response redirects to the stable
+   `/shared-meetings/{meeting_id}?workspace_id=...` page. Confirm the page
+   exposes summary, timestamped transcript, playback, audio download and the
+   existing combined export control, but no workspace/calendar/service details.
+   No password, code or separate `/sign-up` step is shown or required. Confirm
+   the account-created notification is queued after commit and contains only the
+   masked address, meeting title and links to GRAF/settings.
+5. Revoke the accepted grant and confirm the page, playback, audio download and
+   content-export endpoints all block the next request. Repeat with expiry and
+   deletion.
+6. In a second synthetic run with external delivery disabled, confirm no POST
    is made to `/share-invitations`, the value is preserved and the UI offers an
    internal alternative.
 
@@ -150,7 +159,9 @@ headers, browser history/autocapture fixtures and audit JSON:
 
 - zero raw share/invitation/referral tokens outside the intended one-time
   response;
-- no transcript/audio/summary text/private contact data in email or analytics;
+- no transcript/audio/summary text/private contact data in email or pre-auth
+  landing/analytics; authenticated full recipients see only their granted
+  result package;
 - no directory enumeration without authorized meeting context;
 - no wildcard search expansion;
 - no cross-tenant or wrong-recipient access;
@@ -293,3 +304,35 @@ attribution remain disabled.
   narrow viewport and browser/embedded parity. A rendered authenticated browser
   screenshot was not claimed because no authenticated local GRAF session was
   available in this environment.
+
+## Validation record — 2026-07-25 invitation acceptance recovery and recording package
+
+- Focused invitation/Share regression matrix: `33 passed`, including the
+  anonymous preview, magic-link account bootstrap, full recording page,
+  transcript/playback/audio/export routes, revoke recheck, updated CTA copy and
+  the post-commit notification failure-isolation case.
+- `infra/scripts/ci-local.sh`: pass — macOS `637 passed`; PostgreSQL `2,420
+  passed, 1 skipped` in parallel and `41 passed, 1 skipped` in strict mode;
+  pinned Ruff, Python compile, Compose config and deployment-evidence scan
+  passed.
+- The local RLS hardening boundary reported `blocked` because no live
+  disposable PostgreSQL URL was provided to that separate destructive probe;
+  the same CI run completed its isolated PostgreSQL test phases successfully.
+- No live mailbox delivery, deployment or authenticated browser screenshot was
+  used. The external recording package was validated only with synthetic
+  PostgreSQL fixtures; production rollout still requires explicit approval.
+
+## Validation record — 2026-07-26 release closeout
+
+- Focused invitation/Share regression matrix: `44 passed`, with only the known
+  pytest/httpx deprecation and fixture-rewrite warnings.
+- `infra/scripts/ci-local.sh`: pass — macOS `639 passed`; PostgreSQL `2,426
+  passed, 1 skipped` in parallel and `41 passed, 1 skipped` in strict mode;
+  ContractValidation, Ruff, Python compile, Compose config and deployment-
+  evidence scan passed.
+- The local RLS hardening boundary reported `blocked` because it was not given
+  a live production or separate disposable PostgreSQL URL; no destructive
+  production probe was attempted. The isolated PostgreSQL test phases passed.
+- Browser smoke used only synthetic local data: the summary invitation CTA and
+  full-recording recipient page returned HTTP 200 without console errors. No
+  live mailbox delivery or private meeting content was used.

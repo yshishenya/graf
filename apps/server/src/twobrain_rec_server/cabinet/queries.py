@@ -36,7 +36,11 @@ from twobrain_rec_server.api.schemas import (
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.policy import read_auth_providers
 from twobrain_rec_server.auth.providers import build_provider_registry
-from twobrain_rec_server.cabinet.access import decide_meeting_access, share_panel_state
+from twobrain_rec_server.cabinet.access import (
+    ShareRecipientAccessProof,
+    decide_meeting_access,
+    share_panel_state,
+)
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
     artifact_egress_states,
@@ -808,6 +812,7 @@ async def get_cabinet_meeting_review(
     include_calendar_correction_candidates: bool = False,
     external_invitations_enabled: bool = False,
     invitation_encryption_key: bytes | None = None,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> MeetingReviewResponse | None:
     meeting = await db.scalar(
         select(Meeting).where(
@@ -822,6 +827,7 @@ async def get_cabinet_meeting_review(
         meeting,
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
+        recipient_proof=recipient_proof,
     )
     if not decision.can_view:
         return None
