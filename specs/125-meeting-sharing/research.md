@@ -12,8 +12,8 @@ Share должен получать и показывать capability-сост�
 `share_external_invitations_enabled` выключен. Если устаревший клиент всё же
 отправил запрос, сервер сохраняет fail-closed ответ с кодом политики, а клиент
 показывает этот код как понятное следующее действие. В текущем controlled
-rollout флаг планируется true только для exact-email summary-only приглашений;
-public links, contacts и referral остаются false.
+rollout флаг планируется true только для exact-email приглашений с явным
+full-recording preset; public links, contacts и referral остаются false.
 
 ### Evidence
 
@@ -48,13 +48,16 @@ public links, contacts и referral остаются false.
 
 1. **Кто** получает доступ: активный пользователь workspace, адресат
    внешнего приглашения или link-аудитория.
-2. **Что** получает: `Только итоги` по умолчанию; `Вся встреча` только после
-   явного подтверждения и только при готовом policy gate.
+2. **Что** получает: `Только итоги` по умолчанию для internal share; внешний
+   exact-email preset явно выдаёт `Вся встреча` — summary, timestamped
+   transcript, playback, canonical audio download и combined export — при
+   повторной проверке policy/readiness каждого egress-действия.
 3. **Что может сделать** получатель: просмотр отдельно от download/export.
 
-Первый экран остаётся коротким: получатель, видимый scope summary-only, список
-текущего доступа, inline-состояние capability. Сложные настройки не должны
-превращать Share в permission matrix.
+Первый экран остаётся коротким: получатель, видимый scope, список текущего
+доступа и inline-состояние capability. Email-приглашение записи не превращает
+Share в permission matrix: UI отправляет один full-recording preset, а сервер
+сам проверяет `content_scope`, `can_download` и `can_export`.
 
 ### Reference findings
 
@@ -87,8 +90,8 @@ public links, contacts и referral остаются false.
 Вирусный цикл строится вокруг полезного первого результата:
 
 `получатель → безопасное письмо → явное открытие одноразовой magic link →
-автоматический personal account при первом открытии → summary-only просмотр →
-ненавязчивый «Попробовать GRAF»`.
+автоматический personal account при первом открытии → просмотр разрешённого
+пакета записи → ненавязчивый «Попробовать GRAF»`.
 
 CTA не блокирует просмотр и не добавляет человека в workspace автоматически.
 Первый invite magic-link может создать personal account только как явное

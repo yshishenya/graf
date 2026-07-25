@@ -4137,7 +4137,8 @@
           sent: "Письмо передано в отправку",
           outcome_unknown: "Письмо не подтверждено — не отправляйте повторно сразу"
         }[invitation.status] || invitation.status || "Готовится к отправке";
-        status.textContent = `${statusLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${expiresAt.toLocaleDateString("ru-RU")}` : ""}`;
+        const scopeLabel = invitation.content_scope === "full_meeting" ? "запись" : "итоги";
+        status.textContent = `${statusLabel} · ${scopeLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${expiresAt.toLocaleDateString("ru-RU")}` : ""}`;
         identity.append(label, status);
         const revoke = document.createElement("button");
         revoke.type = "button";
@@ -4201,16 +4202,16 @@
             method: "POST",
             body: JSON.stringify({
               address,
-              content_scope: "summary_only",
-              can_download: false,
-              can_export: false
+              content_scope: "full_meeting",
+              can_download: true,
+              can_export: true
             })
           });
           setResultsVisible(false);
           setConfirmationVisible(false);
           recipientInput?.focus({ preventScroll: true });
           appendInvitationRow(invitation, maskInvitationAddress(address));
-          setStatus("Приглашение создано. Письмо поставлено в отправку — доставка может занять несколько минут; получатель откроет одноразовую ссылку из email.", "success");
+          setStatus("Приглашение к записи создано. Письмо поставлено в отправку — доставка может занять несколько минут; получатель откроет одноразовую ссылку из email.", "success");
         } catch (error) {
           setStatus(shareErrorMessage(error?.code || error?.message), "error");
           if (button?.isConnected) button.disabled = false;
@@ -4226,7 +4227,7 @@
         title.textContent = `Отправить приглашение на ${maskInvitationAddress(address)}?`;
         const note = document.createElement("small");
         note.className = "muted";
-        note.textContent = "Получатель откроет одноразовую ссылку из письма. Если аккаунта GRAF ещё нет, он создастся автоматически — только для просмотра итогов.";
+        note.textContent = "Получатель откроет одноразовую ссылку из письма. Если аккаунта GRAF ещё нет, он создастся автоматически — будут доступны саммари, расшифровка и скачивание аудио.";
         const actions = document.createElement("span");
         actions.className = "share-viewer-row__actions";
         const confirm = document.createElement("button");

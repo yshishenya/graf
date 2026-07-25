@@ -122,6 +122,38 @@ async def test_postal_meeting_invitation_contains_safe_metadata_and_signup_cta()
 
 
 @pytest.mark.anyio
+async def test_postal_full_meeting_invitation_names_recording_package_without_content() -> None:
+    seen: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen["payload"] = json.loads(request.content)
+        return httpx.Response(200, json={"status": "success"})
+
+    client = PostalEmailLoginClient(
+        api_url="http://postal-web:5000",
+        api_key="postal-test-key",
+        from_address="no-reply@rec.2brain.pro",
+        transport=httpx.MockTransport(handler),
+    )
+    await client.send_meeting_invitation(
+        recipient_email="recipient@example.test",
+        acceptance_url="https://graf.example.test/share-invitations/synthetic-token",
+        delivery_key="synthetic-delivery-key",
+        content_scope="full_meeting",
+        meeting_title="Планирование релиза",
+    )
+
+    payload = seen["payload"]
+    assert isinstance(payload, dict)
+    assert payload["subject"] == "Вам открыли запись встречи в GRAF"
+    assert "расшифровка" in payload["plain_body"].lower()
+    assert "скачивание аудио" in payload["plain_body"].lower()
+    assert "Открыть GRAF" in payload["html_body"]
+    assert "recipient@example.test" not in payload["plain_body"]
+    assert "synthetic transcript" not in payload["plain_body"]
+
+
+@pytest.mark.anyio
 async def test_postal_account_created_email_uses_magic_link_copy_and_masked_address() -> None:
     seen: dict[str, object] = {}
 

@@ -137,9 +137,12 @@ sets the flag true only with Postal delivery, the public base URL, the
 credential-encryption key and the generated share-identity HMAC secret
 available to `rec-api`; public links remain false.
 
-Request is limited to normalized address + summary-only, view-only scope. The
-domain service must enforce that restriction, invitation TTL, duplicate fence,
-deletion state and rate limits regardless of caller.
+Request accepts a normalized address plus one of two server-validated presets:
+`summary_only` with no recording artifacts, or explicit `full_meeting` with
+`can_download=true` and `can_export=true`. The full preset is still view-only;
+it grants the recipient the meeting result package, not workspace membership or
+sharing rights. The domain service must enforce these combinations, invitation
+TTL, duplicate fence, deletion state and rate limits regardless of caller.
 
 Lifecycle response is one of `pending`, `sending`, `sent`, `accepted`,
 `expired`, `revoked`, `failed`, or bounded `outcome_unknown`. `sent` means the
@@ -153,15 +156,41 @@ token only encrypted-at-rest so a lost response can be replayed for the same
 verified recipient without rotating the grant; a different identity receives a
 privacy-preserving not-found response.
 
-For an anonymous recipient, the landing page exposes only an explicit
-`Открыть GRAF и итоги` POST action. The action uses the one-time continuation
+For an anonymous recipient, the landing page exposes only one explicit action:
+`Открыть итоги` for `summary_only` or `Открыть запись` for `full_meeting`. The
+action uses the one-time continuation
 nonce plus a double-submit CSRF cookie; the bearer invitation token is not
 placed in the form, login `next` path, referrer or analytics. The server
 consumes the continuation, resolves the invited address from encrypted
 server-side data, creates or reuses the recipient's personal account, issues
-the browser session and opens the summary in one transaction. Preview alone
-creates neither an account nor a grant. Existing standard email login remains
-code-based; the invitation magic link is the automatic bootstrap path.
+the browser session and opens the permitted surface in one transaction. Preview
+alone creates neither an account nor a grant. Existing standard email login
+remains code-based; the invitation magic link is the automatic bootstrap path.
+
+For an accepted `full_meeting` invitation whose recipient is not an active
+member of the owner's workspace, the browser redirects to the stable
+recipient-bound route:
+
+```text
+/shared-meetings/{meeting_id}?workspace_id={owner_workspace_id}
+```
+
+The page exposes summary, timestamped transcript and playback. Its owner-
+workspace-scoped egress routes are:
+
+```http
+GET  /api/v1/cabinet/shared-meetings/{meeting_id}/playback?workspace_id=...
+GET  /api/v1/cabinet/shared-meetings/{meeting_id}/downloads/{artifact_class}?workspace_id=...
+GET  /api/v1/cabinet/shared-meetings/{meeting_id}/content-exports?workspace_id=...
+POST /api/v1/cabinet/shared-meetings/{meeting_id}/content-exports?workspace_id=...
+```
+
+Every page, playback, download and export request rechecks the exact verified
+recipient, active grant, scope, expiry, deletion lifecycle and applicable
+artifact policy. Audio is served only through the canonical review M4A; the
+combined export is revision-pinned and uses the existing `combined` scope. A
+recipient never receives calendar/service metadata, media revision identifiers,
+workspace membership or sharing controls.
 
 When bootstrap created a new account, the server commits the access result
 first and then starts the deterministic
@@ -176,11 +205,13 @@ summary text.
 
 The fragment must be rendered only after an explicit Share action. It contains:
 
-1. title and one-sentence summary-only explanation;
+1. title and one-sentence explanation of internal summary access versus the
+   explicit external recording package;
 2. recipient field with combobox/listbox semantics;
 3. typed-search action and result rows with source labels;
 4. blocked external state when applicable;
-5. collapsed “Что увидят: только итоги” disclosure;
+5. collapsed “Что увидит получатель” disclosure naming the external package:
+   summary, transcript, playback and audio download;
 6. current active grants with scope, expiry when available, create-and-copy a
    rotated recipient-bound link and Revoke;
 7. live-region status for loading, success, empty, blocked, rate-limit and
@@ -196,17 +227,19 @@ without a full fragment reload and Copy link uses the API-returned URL.
 The invitation landing page and email may contain only safe metadata: inviter
 label, bounded meeting label/time, scope, expiry, action to sign in/create GRAF
 and notification/privacy links. No transcript, audio, participant list,
-summary text, tracking pixel, raw email or token is placed in content.
+summary text, tracking pixel, raw email or token is placed there. After exact
+verified acceptance, the full recipient page may render only the granted
+summary, transcript, playback and egress actions described above.
 
-After successful authorized summary view, an optional CTA explains one concrete
-GRAF value and links to explicit onboarding. It never blocks the summary, joins
-the workspace, creates an account or sends another invitation.
+After successful authorized view, an optional CTA explains one concrete GRAF
+value and links to explicit onboarding. It never blocks the permitted content,
+joins the workspace, creates another account or sends another invitation.
 
 The anonymous invitation action is the exception to the general onboarding
 rule: account creation happens only after the recipient explicitly submits the
 one-time magic-link action, and only as a personal account needed to open this
-summary. The follow-up account-created notification is post-commit and does
-not widen access.
+shared surface. The follow-up account-created notification is post-commit and
+does not widen access.
 
 ### 7.1. Effective access and provenance
 

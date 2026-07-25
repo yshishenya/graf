@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta, timezone
 from html import escape
 from urllib.parse import urlencode
+from uuid import UUID
 
 from twobrain_rec_server.api.schemas import (
     MeetingListItem,
@@ -131,6 +132,7 @@ def render_share_invitation_accept_page(
     meeting_occurred_at: datetime | None = None,
     meeting_duration_seconds: int | None = None,
     invitation_expires_at: datetime | None = None,
+    content_scope: str = "summary_only",
     authenticated: bool = False,
     post_login_next_path: str = "/meetings",
     magic_action: str | None = None,
@@ -151,6 +153,7 @@ def render_share_invitation_accept_page(
         meeting_occurred_at=meeting_occurred_at,
         meeting_duration_seconds=meeting_duration_seconds,
         invitation_expires_at=invitation_expires_at,
+        content_scope=content_scope,
         authenticated=authenticated,
         login_href=f"/login?{urlencode({'next': post_login_next_path})}",
         magic_action=magic_action,
@@ -487,12 +490,14 @@ def render_meeting_detail_page(
     csrf_token: str | None = None,
     poll_url: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    shared_workspace_id: UUID | None = None,
 ) -> str:
     content = _render_meeting_detail_content(
         review,
         embedded=embedded,
         csrf_token=csrf_token,
         poll_url=poll_url,
+        shared_workspace_id=shared_workspace_id,
     )
     return _page_shell(
         review.meeting.title,
@@ -511,6 +516,7 @@ def render_meeting_detail_fragment(
     csrf_token: str | None = None,
     focus_calendar_context: bool = False,
     poll_url: str | None = None,
+    shared_workspace_id: UUID | None = None,
 ) -> str:
     return render_template(
         "cabinet/fragments/meeting_detail.html",
@@ -521,6 +527,7 @@ def render_meeting_detail_fragment(
                 csrf_token=csrf_token,
                 focus_calendar_context=focus_calendar_context,
                 poll_url=poll_url,
+                shared_workspace_id=shared_workspace_id,
             ),
             source="meeting_detail.content",
         ),
@@ -534,6 +541,7 @@ def _render_meeting_detail_content(
     csrf_token: str | None = None,
     focus_calendar_context: bool = False,
     poll_url: str | None = None,
+    shared_workspace_id: UUID | None = None,
 ) -> str:
     transcript_rows = review.transcript.speaker_turns or review.transcript.segments
     speaker_palette = _speaker_palette(review)
@@ -558,7 +566,7 @@ def _render_meeting_detail_content(
         or review.content_exports.summary.state in {"available", "partial"}
         or review.content_exports.combined.state == "available"
     )
-    meeting_details_available = _meeting_details_available(review)
+    meeting_details_available = _meeting_details_available(review) and shared_workspace_id is None
     more_actions_available = (
         content_export_available
         or review.governance.download.state == "available"
@@ -567,6 +575,25 @@ def _render_meeting_detail_content(
     )
     current_summary_format_key = review.template.reason or "graf-auto-v1"
     current_summary_format = BUILT_IN_BY_KEY.get(current_summary_format_key)
+    shared_api_root = f"/api/v1/cabinet/shared-meetings/{review.meeting.meeting_id}"
+    shared_query = (
+        f"?workspace_id={shared_workspace_id}" if shared_workspace_id is not None else ""
+    )
+    playback_path = (
+        f"{shared_api_root}/playback{shared_query}"
+        if shared_workspace_id is not None
+        else review.playback.playback_path
+    )
+    audio_download_href = (
+        f"{shared_api_root}/downloads/audio{shared_query}"
+        if shared_workspace_id is not None
+        else f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/downloads/audio"
+    )
+    content_export_endpoint = (
+        f"{shared_api_root}/content-exports{shared_query}"
+        if shared_workspace_id is not None
+        else f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/content-exports"
+    )
     return render_template(
         "cabinet/pages/meeting_detail_content.html",
         base_path=_base_path(embedded),
@@ -574,8 +601,12 @@ def _render_meeting_detail_content(
         meeting_date=cabinet_view_models.date_label(review.meeting),
         meeting_duration=cabinet_view_models.format_duration(review.meeting.duration_seconds),
         status_label=_ui_text(review.meeting.status_label),
-        media_revision_id=str(review.provenance.media_revision_id or ""),
-        local_media_revision_id=review.provenance.local_media_revision_id or "",
+        media_revision_id=(
+            "" if shared_workspace_id is not None else str(review.provenance.media_revision_id or "")
+        ),
+        local_media_revision_id=(
+            "" if shared_workspace_id is not None else review.provenance.local_media_revision_id or ""
+        ),
         playback_poll_url=poll_url or "",
         playback_poll_active="true" if review.playback.state == "preparing" else "false",
         playback_live_label=review.playback.label,
@@ -619,6 +650,7 @@ def _render_meeting_detail_content(
         ),
         summary_settings_href=_settings_path(embedded) + "#summary-formats",
         audio_download_available=(review.governance.download.state == "available"),
+        audio_download_href=audio_download_href,
         outcomes=trusted_component_html(
             _render_notes_outcomes(review), source="meeting_detail.outcomes"
         ),
@@ -671,7 +703,12 @@ def _render_meeting_detail_content(
         ),
         activity=trusted_component_html(_render_activity(review), source="meeting_detail.activity"),
         playback=trusted_component_html(
-            _render_playback(review, embedded=embedded, csrf_token=csrf_token),
+            _render_playback(
+                review,
+                embedded=embedded,
+                csrf_token=csrf_token,
+                playback_path=playback_path,
+            ),
             source="meeting_detail.playback",
         ),
         content_export_dialog=trusted_component_html(
@@ -679,6 +716,7 @@ def _render_meeting_detail_content(
                 review,
                 csrf_token=csrf_token,
                 embedded=embedded,
+                endpoint=content_export_endpoint,
             ),
             source="meeting_detail.content_export_dialog",
         ),
@@ -727,6 +765,7 @@ def _render_content_export_dialog(
     *,
     csrf_token: str | None,
     embedded: bool,
+    endpoint: str | None = None,
 ) -> str:
     capability = review.content_exports
     if capability is None:
@@ -808,7 +847,7 @@ def _render_content_export_dialog(
         <form
           class="content-export-form"
           data-content-export-form
-          data-endpoint="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/content-exports"
+          data-endpoint="{escape(endpoint or f'/api/v1/cabinet/meetings/{review.meeting.meeting_id}/content-exports')}"
           data-processing-result-id="{escape(result_id)}"
           data-outcome-set-id="{escape(outcome_id)}"
           data-csrf-token="{escape(csrf_token or "")}"
@@ -1365,13 +1404,15 @@ def _render_playback(
     *,
     embedded: bool,
     csrf_token: str | None,
+    playback_path: str | None = None,
 ) -> str:
-    if review.playback.can_play and review.playback.playback_path:
+    playback_path = playback_path or review.playback.playback_path
+    if review.playback.can_play and playback_path:
         speed_options = ",".join(f"{speed:g}" for speed in review.playback.speed_options)
         speaker_palette = _speaker_palette(review)
         return f"""
           <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-describedby="playback-live-status">
-            <audio class="playback-audio" data-playback-player preload="metadata" src="{escape(review.playback.playback_path)}"></audio>
+            <audio class="playback-audio" data-playback-player preload="metadata" src="{escape(playback_path)}"></audio>
             <div class="playback-toolbar">
               {_render_speaker_manager(review, embedded=embedded, csrf_token=csrf_token, speaker_palette=speaker_palette)}
               <div class="playback-controls" aria-label="Управление воспроизведением">

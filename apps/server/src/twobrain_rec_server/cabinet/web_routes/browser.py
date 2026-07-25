@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import UTC, datetime
 from typing import Annotated
@@ -11,6 +12,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.api.cabinet import (
+    PublicShareDbDependency,
+    _recipient_share_access_proof,
+)
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.sessions import hash_token, issue_auth_session
@@ -95,6 +100,11 @@ from twobrain_rec_server.workflows.temporal_client import (
 router = APIRouter(tags=["cabinet-web"])
 MAGIC_LINK_CSRF_COOKIE_NAME = "graf_share_magic_csrf"
 MAGIC_LINK_CSRF_TTL_SECONDS = 15 * 60
+logger = logging.getLogger(__name__)
+
+
+def _shared_meeting_url(*, workspace_id: UUID, meeting_id: UUID) -> str:
+    return f"/shared-meetings/{meeting_id}?{urlencode({'workspace_id': str(workspace_id)})}"
 
 
 def _meeting_unavailable_response(
@@ -237,14 +247,23 @@ async def share_invitation_continuation(
             nonce=state,
         ):
             raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
-        summary_html = await _render_shared_summary_for_grant(
+        shared_url = (
+            _shared_meeting_url(workspace_id=workspace_id, meeting_id=grant.meeting_id)
+            if grant.content_scope == "full_meeting"
+            and grant.can_download
+            and grant.can_export
+            else None
+        )
+        summary_html = None if shared_url is not None else await _render_shared_summary_for_grant(
             session,
             workspace_id=workspace_id,
             meeting_id=grant.meeting_id,
         )
         await session.commit()
-    response = cabinet_html_response(
-        summary_html
+    response = (
+        RedirectResponse(url=shared_url, status_code=303)
+        if shared_url is not None
+        else cabinet_html_response(summary_html or "")
     )
     response.headers.update(
         {
@@ -292,16 +311,16 @@ async def _dispatch_account_created_email(
     user_id: UUID,
 ) -> None:
     settings = request.app.state.settings
-    if not settings.email_login_delivery_enabled:
-        await _mark_account_created_email_dispatch_failure(
-            sessionmaker=sessionmaker,
-            invitation_id=invitation_id,
-            workspace_id=workspace_id,
-            status="failed",
-            failure_code="postal_delivery_disabled",
-        )
-        return
     try:
+        if not settings.email_login_delivery_enabled:
+            await _mark_account_created_email_dispatch_failure(
+                sessionmaker=sessionmaker,
+                invitation_id=invitation_id,
+                workspace_id=workspace_id,
+                status="failed",
+                failure_code="postal_delivery_disabled",
+            )
+            return
         temporal_client = getattr(request.app.state, "temporal_client", None)
         if temporal_client is None:
             temporal_client = await connect_temporal_client(settings)
@@ -314,13 +333,18 @@ async def _dispatch_account_created_email(
             user_id=user_id,
         )
     except Exception:
-        await _mark_account_created_email_dispatch_failure(
-            sessionmaker=sessionmaker,
-            invitation_id=invitation_id,
-            workspace_id=workspace_id,
-            status="outcome_unknown",
-            failure_code="account_created_email_workflow_start_unknown",
-        )
+        try:
+            await _mark_account_created_email_dispatch_failure(
+                sessionmaker=sessionmaker,
+                invitation_id=invitation_id,
+                workspace_id=workspace_id,
+                status="outcome_unknown",
+                failure_code="account_created_email_workflow_start_unknown",
+            )
+        except Exception:
+            # Access is already committed; notification bookkeeping must not
+            # turn a successful invitation acceptance into an HTTP 500.
+            logger.exception("account-created invitation notification bookkeeping failed")
 
 
 @router.post(
@@ -502,7 +526,14 @@ async def share_invitation_magic_link(
             nonce=state,
         ):
             raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
-        summary_html = await _render_shared_summary_for_grant(
+        shared_url = (
+            _shared_meeting_url(workspace_id=workspace_id, meeting_id=grant.meeting_id)
+            if grant.content_scope == "full_meeting"
+            and grant.can_download
+            and grant.can_export
+            else None
+        )
+        summary_html = None if shared_url is not None else await _render_shared_summary_for_grant(
             session,
             workspace_id=workspace_id,
             meeting_id=grant.meeting_id,
@@ -512,7 +543,11 @@ async def share_invitation_magic_link(
         issued_expires_at = issued.expires_at
         user_id = user.id
 
-    response = cabinet_html_response(summary_html)
+    response = (
+        RedirectResponse(url=shared_url, status_code=303)
+        if shared_url is not None
+        else cabinet_html_response(summary_html or "")
+    )
     if issued_token is not None and issued_expires_at is not None:
         _set_browser_auth_cookie(
             response,
@@ -605,6 +640,7 @@ async def share_invitation_accept_page(
             meeting_occurred_at=preview.occurred_at if preview else None,
             meeting_duration_seconds=preview.duration_seconds if preview else None,
             invitation_expires_at=preview.expires_at if preview else None,
+            content_scope=preview.content_scope if preview else "summary_only",
             authenticated=principal is not None,
             post_login_next_path=post_login_next_path,
             magic_action=(
@@ -775,6 +811,65 @@ async def meeting_detail_page(
             ),
         )
     )
+
+
+@router.get("/shared-meetings/{meeting_id}", response_class=HTMLResponse, include_in_schema=False)
+async def shared_meeting_detail_page(
+    request: Request,
+    meeting_id: str,
+    workspace_id: Annotated[UUID, Query()],
+    recipient_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
+    db: AsyncSession | None = PublicShareDbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    try:
+        parsed_meeting_id = UUID(meeting_id)
+    except ValueError:
+        return _meeting_unavailable_response(
+            request,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    recipient_proof = await _recipient_share_access_proof(
+        request,
+        recipient_scope=recipient_scope,
+        owner_workspace_id=workspace_id,
+    )
+    review = await get_cabinet_meeting_review(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=parsed_meeting_id,
+        viewer_user_id=principal.user_id,
+        storage=storage,
+        recipient_proof=recipient_proof,
+    )
+    if review is None or review.access is None or not review.access.can_view_full_meeting:
+        return _meeting_unavailable_response(
+            request,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    response = cabinet_html_response(
+        render_meeting_detail_page(
+            review,
+            csrf_token=_csrf_token_for_principal(request, principal),
+            poll_url=_request_path_with_query(request),
+            product_analytics_provider=None,
+            shared_workspace_id=workspace_id,
+        )
+    )
+    response.headers.update(
+        {
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow, noarchive",
+        }
+    )
+    return response
 
 
 @router.get(

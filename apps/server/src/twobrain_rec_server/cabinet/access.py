@@ -92,6 +92,7 @@ class ShareInvitationPreview:
     occurred_at: datetime
     duration_seconds: int
     expires_at: datetime
+    content_scope: str = "summary_only"
 
 
 @dataclass(frozen=True, slots=True)
@@ -749,6 +750,7 @@ async def share_panel_state(
                 "status": invitation.status,
                 "created_at": invitation.created_at,
                 "expires_at": invitation.expires_at,
+                "content_scope": invitation.content_scope,
                 "display_label": display_label,
             }
         )
@@ -1226,11 +1228,23 @@ async def create_share_invitation(
         device_id=device_id,
         action_key="invitation",
     )
-    if content_scope != "summary_only" or can_download or can_export:
+    if content_scope == "summary_only" and (can_download or can_export):
         raise ProblemDetail(
             status=422,
             code="external_share_scope_invalid",
-            title="External invitations support summary-only view access",
+            title="Summary invitations cannot include recording artifacts",
+        )
+    if content_scope == "full_meeting" and (not can_download or not can_export):
+        raise ProblemDetail(
+            status=422,
+            code="external_share_scope_invalid",
+            title="Recording invitations must include download and export access",
+        )
+    if content_scope not in {"summary_only", "full_meeting"}:
+        raise ProblemDetail(
+            status=422,
+            code="external_share_scope_invalid",
+            title="External invitation scope is invalid",
         )
     normalized = normalize_invitation_address(address)
     address_hash = hash_invitation_address(normalized)
@@ -1752,7 +1766,7 @@ async def share_invitation_preview(
 ) -> ShareInvitationPreview | None:
     """Return only meeting metadata for an unexpired, unconsumed invitation."""
     row = await db.execute(
-        select(Meeting, MeetingShareInvitation.expires_at)
+        select(Meeting, MeetingShareInvitation.expires_at, MeetingShareInvitation.content_scope)
         .join(MeetingShareInvitation, MeetingShareInvitation.meeting_id == Meeting.id)
         .where(
             Meeting.workspace_id == workspace_id,
@@ -1766,12 +1780,13 @@ async def share_invitation_preview(
     result = row.one_or_none()
     if result is None:
         return None
-    meeting, expires_at = result
+    meeting, expires_at, content_scope = result
     return ShareInvitationPreview(
         meeting_title=(meeting.title or "Встреча")[:160],
         occurred_at=meeting.started_at or meeting.created_at,
         duration_seconds=max(0, meeting.duration_seconds),
         expires_at=expires_at,
+        content_scope=content_scope,
     )
 
 
