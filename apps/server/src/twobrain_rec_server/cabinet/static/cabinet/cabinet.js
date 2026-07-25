@@ -2481,7 +2481,13 @@
         }
       });
       panel.addEventListener("click", (event) => {
-        if (event.target.closest?.('[role="menuitem"]')) closePanel(panel);
+        const item = event.target.closest?.('[role="menuitem"]');
+        if (!item) return;
+        if (item.matches("a[href]")) {
+          window.setTimeout(() => closePanel(panel), 0);
+          return;
+        }
+        closePanel(panel);
       });
     });
     if (document.body.dataset.meetingPanelEscapeReady === "true") return;
