@@ -1,0 +1,56 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+{% import "cabinet/components/sections.html" as sections %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    <header class="cabinet-topbar settings-page__topbar">
+      <div class="page-title">
+        <p class="eyebrow">Настройки / Личная настройка</p>
+        <h1>Аккаунт и безопасность</h1>
+        <p class="page-subtitle">Способы входа и зарегистрированные устройства текущего аккаунта.</p>
+      </div>
+    </header>
+    {{ settings_ui.navigation(settings_navigation, active=settings_active) }}
+
+    {% if provider_link_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_link_result }}</p>{% endif %}
+    {% if device_revoke_result %}<p class="settings-status" role="status" aria-live="polite">{{ device_revoke_result }}</p>{% endif %}
+    {% if account_surface.unavailable %}
+    <section class="settings-section settings-unavailable-card" role="status" aria-live="polite"><h2>Данные аккаунта временно недоступны</h2><p class="muted">Попробуйте обновить страницу. Пока данные не загружены, мы не показываем частичную или непроверенную информацию.</p></section>
+    {% else %}
+    <section class="settings-section cabinet-card" aria-labelledby="account-providers-title">
+      <div class="settings-section__heading">
+        <div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-providers-title">Способы входа</h2><p class="muted">Подключённые провайдеры относятся к вашему аккаунту, а не к отдельному пространству.</p></div>
+      </div>
+      {% if account_surface.providers %}
+      <ul class="settings-choice-list" aria-label="Подключённые способы входа">
+        {% for provider in account_surface.providers %}
+        <li class="settings-choice-row"><div><strong>{{ provider.label }}</strong><span class="muted">{{ provider.status_label }}{% if provider.primary %} · Основной{% endif %}</span></div></li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
+      {% if provider_link_options %}
+      <div class="settings-actions" aria-label="Добавить способ входа">
+        {% for provider in provider_link_options %}
+        <form action="{{ provider_link_start_base_path }}/{{ provider.provider }}/start" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit">Подключить {{ provider.label }}</button></form>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="settings-section cabinet-card" aria-labelledby="account-devices-title">
+      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-devices-title">Зарегистрированные устройства</h2><p class="muted">Список показывает только безопасные метаданные. Текущее устройство нельзя отозвать из этой страницы.</p></div></div>
+      {% if account_surface.devices %}
+      <ul class="settings-choice-list" aria-label="Зарегистрированные устройства">
+        {% for device in account_surface.devices %}
+        <li class="settings-choice-row">
+          <div><strong>{{ device.platform_label }}{% if device.current %} · Текущее устройство{% endif %}</strong><span class="muted">{{ device.status_label }} · {{ device.version_label }}{% if device.last_seen_at %} · Последняя активность: {{ device.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>
+          {% if device.can_revoke %}
+          <form action="{{ "/desktop/settings/account/devices/" if embedded else "/settings/account/devices/" }}{{ device.device_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отозвать это устройство?">Отозвать</button></form>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="settings-empty-state" role="status">Зарегистрированных устройств пока нет.</p>{% endif %}
+    </section>
+    {% endif %}
+  </div>
+</main>

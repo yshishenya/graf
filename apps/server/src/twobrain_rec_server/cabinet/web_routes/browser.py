@@ -21,8 +21,6 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.sessions import hash_token, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import (
     ensure_personal_workspace,
-    list_active_workspaces,
-    list_workspace_join_offers,
 )
 from twobrain_rec_server.cabinet.access import (
     accept_share_invitation,
@@ -38,7 +36,6 @@ from twobrain_rec_server.cabinet.access import (
 )
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
-    get_provider_link_start_options,
     list_cabinet_meetings,
 )
 from twobrain_rec_server.cabinet.rendering import (
@@ -47,7 +44,6 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_list_fragment,
     render_meeting_list_page,
     render_meeting_unavailable_page,
-    render_settings_page,
     render_share_invitation_accept_page,
     render_shared_meeting_summary_page,
 )
@@ -906,48 +902,3 @@ async def meeting_share_fragment(
             csrf_token=_csrf_token_for_principal(request, principal),
         )
     return cabinet_html_response(render_meeting_share_fragment(response), hx_request=True)
-
-
-@router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
-async def settings_page(
-    request: Request,
-    workspace_offer: str | None = Query(default=None, max_length=24),
-    space_switch: str | None = Query(default=None, max_length=24),
-    tenant_scope: TenantScope = WebTenantDependency,
-    principal: AuthenticatedPrincipal = PrincipalDependency,
-    db: AsyncSession | None = WebDbDependency,
-) -> HTMLResponse:
-    if db is None:
-        raise ProblemDetail(
-            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
-        )
-    offers = await list_workspace_join_offers(
-        db,
-        organization_id=principal.organization_id,
-        current_workspace_id=tenant_scope.workspace_id,
-        user_id=principal.user_id,
-    )
-    provider_link_options = await get_provider_link_start_options(db, tenant_scope)
-    spaces = await list_active_workspaces(
-        db,
-        organization_id=principal.organization_id,
-        current_workspace_id=tenant_scope.workspace_id,
-        user_id=principal.user_id,
-    )
-    await db.commit()
-    return cabinet_html_response(
-        render_settings_page(
-            csrf_token=_csrf_token_for_principal(request, principal),
-            provider_link_options=provider_link_options,
-            workspace_spaces=spaces,
-            workspace_join_offers=offers,
-            workspace_offer_result=workspace_offer,
-            workspace_switch_result=space_switch,
-            product_analytics_provider=build_request_browser_provider_context(
-                request,
-                "settings",
-                principal=principal,
-                tenant_scope=tenant_scope,
-            ),
-        )
-    )

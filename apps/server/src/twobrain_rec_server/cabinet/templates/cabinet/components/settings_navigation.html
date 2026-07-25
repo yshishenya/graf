@@ -1,0 +1,11 @@
+{% macro navigation(items, active=None) -%}
+<nav class="settings-navigation" aria-label="Разделы настроек">
+  {% for item in items %}
+  {% set selected = item.id == (active or "overview") %}
+  <a class="settings-navigation__item{% if selected %} is-selected{% endif %}" href="{{ item.href }}"{% if selected %} aria-current="page"{% endif %} data-settings-nav="{{ item.id }}">
+    <span>{{ item.label }}</span>
+    {% if item.scope_label %}<small>{{ item.scope_label }}</small>{% endif %}
+  </a>
+  {% endfor %}
+</nav>
+{%- endmacro %}

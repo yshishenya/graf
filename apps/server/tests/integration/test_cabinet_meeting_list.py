@@ -1232,7 +1232,7 @@ def test_desktop_embedded_list_keeps_review_workspace_but_hides_native_creation_
     assert response.text.count('aria-current="page"') == 1
     assert 'data-active-nav="meetings"' in response.text
     assert 'href="/desktop/meetings"' in response.text
-    assert 'href="/desktop/settings/integrations/calendar"' in response.text
+    assert 'href="/desktop/settings"' in response.text
     assert 'href="/meetings"' not in response.text
     assert f'href="{CABINET_STATIC_URL}/cabinet.css?v=' in response.text
     assert "Записи встреч" not in response.text
@@ -1283,9 +1283,9 @@ def test_cabinet_settings_calendar_anchor_renders_in_web_and_embedded(client) ->
     assert web.status_code == 200
     assert embedded.status_code == 200
     assert 'data-active-nav="settings"' in web.text
-    assert 'id="calendar-connections"' in web.text
+    assert 'data-settings-category="calendar"' in web.text
     assert 'href="/settings/integrations/calendar"' in web.text
-    assert "Подключить календари" in web.text
+    assert "Календари" in web.text
     assert "desktop-embedded" in embedded.text
     assert 'href="/desktop/settings/integrations/calendar"' in embedded.text
 

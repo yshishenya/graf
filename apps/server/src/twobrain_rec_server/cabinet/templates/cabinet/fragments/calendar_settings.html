@@ -1,5 +1,6 @@
 {% import "cabinet/components/primitives.html" as ui %}
 {% import "cabinet/components/sections.html" as sections %}
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
 
 {% macro provider_logo(provider) -%}
 <span class="calendar-provider-logo" data-provider="{{ provider.provider_family }}" aria-hidden="true">{{ provider.mark }}</span>
@@ -83,6 +84,7 @@
         <span><strong>{{ surface.selected_calendar_count_total }}</strong> {{ surface.selected_calendar_count_total_word }}</span>
       </div>
     </div>
+    {{ settings_ui.navigation(settings_navigation, active="calendar") }}
 
     {% if surface.notices %}
     <div class="calendar-notice-list" aria-label="Состояние подключения календаря">
@@ -136,7 +138,7 @@
           {% if source.calendars %}
           <details class="calendar-source-details calendar-source-details--picker" {% if source.selected_calendar_count == 0 %}open{% endif %}>
             <summary>Календари внутри источника</summary>
-            <form class="calendar-selection-form" action="{{ base_path }}/sources/{{ source.source_id }}/calendars" method="post">
+            <form class="calendar-selection-form" action="{{ base_path }}/sources/{{ source.source_id }}/calendars" method="post" data-settings-form>
               {{ sections.csrf_field(csrf_token) }}
               <fieldset class="calendar-picker">
                 <legend>Что подтягивать</legend>
@@ -156,6 +158,7 @@
                 <button type="submit" class="primary">Сохранить выбор</button>
                 <button type="reset" class="quiet">Отмена</button>
               </div>
+              <p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p>
             </form>
           </details>
           {% else %}
@@ -226,7 +229,7 @@
           <p>{{ surface.preferences.manual_recording_copy }}</p>
         </div>
       </div>
-      <form class="calendar-preferences-form" action="{{ base_path }}/preferences" method="post">
+      <form class="calendar-preferences-form" action="{{ base_path }}/preferences" method="post" data-settings-form>
         {{ sections.csrf_field(csrf_token) }}
         <div class="calendar-preference-grid">
           {{ ui.checkbox("join_prompt_enabled", surface.preferences.join_prompt_label, checked=surface.preferences.join_prompt_enabled) }}
@@ -250,6 +253,7 @@
           <p class="calendar-policy-note">{{ surface.preferences.prompt_policy_copy }}</p>
           <p class="calendar-policy-note" data-state="not_enabled">{{ surface.preferences.disabled_auto_record_copy }}</p>
         </details>
+        <p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p>
         <button type="submit" class="primary">Сохранить настройки</button>
       </form>
     </section>

@@ -406,6 +406,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("Автозапись"))
         XCTAssertTrue(source.contains("ForEach(promptCapableTargets"))
         XCTAssertTrue(source.contains("Всегда писать") || source.contains("autoRecordSectionDetail"))
+        XCTAssertTrue(source.contains("autoRecordDisabledSectionDetail"))
+        XCTAssertTrue(source.contains("settings.detectionMode == .detectAndAsk"))
         XCTAssertTrue(source.contains("selectAllAutoRecordTargets"))
         XCTAssertTrue(source.contains("clearAutoRecordTargets"))
         XCTAssertTrue(source.contains("MeetingTargetRegistryStore"))

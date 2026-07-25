@@ -46,6 +46,17 @@ def _provider_link_path(*, link_state_id: UUID, embedded: bool, result: str | No
     return f"{path}/{link_state_id}{suffix}"
 
 
+def _account_settings_path(*, embedded: bool, result: str) -> str:
+    path = "/desktop/settings/account" if embedded else "/settings/account"
+    safe_result = {
+        "confirmed": "confirmed",
+        "provider_link_conflict": "provider_link_conflict",
+        "provider_link_denied": "provider_link_denied",
+        "provider_link_expired": "provider_link_expired",
+    }.get(result, "provider_link_denied")
+    return f"{path}?provider_link={safe_result}"
+
+
 def _is_embedded(request: Request) -> bool:
     return request.url.path.startswith("/desktop/")
 
@@ -213,19 +224,11 @@ async def confirm_provider_link_from_settings(
     except ProviderLinkError as exc:
         await db.commit()
         return RedirectResponse(
-            _provider_link_path(
-                link_state_id=link_state_id,
-                embedded=_is_embedded(request),
-                result=exc.code,
-            ),
+            _account_settings_path(embedded=_is_embedded(request), result=exc.code),
             status_code=303,
         )
     await db.commit()
     return RedirectResponse(
-        _provider_link_path(
-            link_state_id=link_state_id,
-            embedded=_is_embedded(request),
-            result="confirmed",
-        ),
+        _account_settings_path(embedded=_is_embedded(request), result="confirmed"),
         status_code=303,
     )

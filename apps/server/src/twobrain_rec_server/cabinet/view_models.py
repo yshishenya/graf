@@ -62,6 +62,7 @@ from twobrain_rec_server.db.models import (
     CalendarSource,
     DiarizationSegment,
     ExternalCalendar,
+    ExternalIdentity,
     MediaRevision,
     Meeting,
     MeetingOutcomeItem,
@@ -70,6 +71,7 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     ProcessingWorkflow,
     RecordingCalendarContextLink,
+    RegisteredDevice,
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.media_filenames import (
@@ -96,6 +98,8 @@ if TYPE_CHECKING:
 
 
 PROVIDER_LINK_LABELS = {
+    "email": "Email",
+    "email_magic_link": "Email",
     "yandex": "Яндекс",
     "vk": "VK",
     "telegram": "Telegram",
@@ -131,6 +135,94 @@ def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> Provider
         status=link.status,
         status_label=status_labels.get(link.status, "Подключение недоступно. Начните заново."),
         can_confirm=link.status == "callback_verified",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class AccountProviderView:
+    provider: str
+    label: str
+    status_label: str
+    primary: bool
+    connected_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class AccountDeviceView:
+    device_id: UUID
+    platform_label: str
+    version_label: str
+    status_label: str
+    last_seen_at: datetime | None
+    current: bool
+    can_revoke: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AccountSettingsSurface:
+    providers: tuple[AccountProviderView, ...] = ()
+    devices: tuple[AccountDeviceView, ...] = ()
+    unavailable: bool = False
+
+
+def account_provider_view(
+    identity: ExternalIdentity,
+    *,
+    primary: bool = False,
+) -> AccountProviderView:
+    return AccountProviderView(
+        provider=identity.provider,
+        label=PROVIDER_LINK_LABELS.get(identity.provider, "Способ входа"),
+        status_label="Подключён" if identity.is_verified else "Проверка не завершена",
+        primary=primary,
+        connected_at=identity.last_seen_at or identity.created_at,
+    )
+
+
+def account_device_view(
+    device: RegisteredDevice,
+    *,
+    current_device_id: UUID | None,
+) -> AccountDeviceView:
+    platform_labels = {
+        "macos": "Mac",
+        "web": "Браузер",
+        "browser": "Браузер",
+    }
+    status_labels = {
+        "active": "Активно",
+        "revoked": "Отозвано",
+    }
+    is_current = device.id == current_device_id
+    return AccountDeviceView(
+        device_id=device.id,
+        platform_label=platform_labels.get(device.platform, "Устройство"),
+        version_label=device.client_version or "Версия неизвестна",
+        status_label=status_labels.get(device.status, "Состояние неизвестно"),
+        last_seen_at=device.last_seen_at,
+        current=is_current,
+        can_revoke=device.status == "active" and not is_current,
+    )
+
+
+def account_settings_surface(
+    *,
+    identities: Iterable[ExternalIdentity] = (),
+    devices: Iterable[RegisteredDevice] = (),
+    current_device_id: UUID | None = None,
+    unavailable: bool = False,
+) -> AccountSettingsSurface:
+    identity_rows = tuple(identities)
+    return AccountSettingsSurface(
+        providers=tuple(
+            account_provider_view(identity, primary=index == 0)
+            for index, identity in enumerate(identity_rows)
+        ),
+        devices=tuple(
+            account_device_view(device, current_device_id=current_device_id)
+            for device in devices
+        ),
+        unavailable=unavailable,
     )
 
 
@@ -1263,9 +1355,7 @@ def cabinet_navigation(
     *, active: str = "meetings", embedded: bool = False
 ) -> CabinetNavigationModel:
     meetings_href = "/desktop/meetings" if embedded else "/meetings"
-    settings_href = (
-        "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
-    )
+    settings_href = "/desktop/settings" if embedded else "/settings"
     items = (
         CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "calendar-days"),
         CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
@@ -1274,6 +1364,77 @@ def cabinet_navigation(
     return CabinetNavigationModel(
         active=active if active in item_ids else "meetings",
         items=items,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsCategoryView:
+    id: str
+    label: str
+    description: str
+    scope_label: str
+    href: str
+
+
+def settings_category_navigation(
+    *,
+    embedded: bool = False,
+    active: str = "overview",
+) -> tuple[SettingsCategoryView, ...]:
+    base = "/desktop/settings" if embedded else "/settings"
+    definitions = (
+        (
+            "overview",
+            "Обзор",
+            "Все разделы настроек в одном месте.",
+            "",
+            "",
+        ),
+        (
+            "recording",
+            "Запись",
+            "Подсказки и обнаружение встреч на этом Mac.",
+            "На этом Mac",
+            "/recording",
+        ),
+        (
+            "summaries",
+            "Итоги",
+            "Форматы итогов и личные шаблоны.",
+            "В этом пространстве",
+            "/summaries",
+        ),
+        (
+            "calendar",
+            "Календари",
+            "Источники, выбор календарей и подсказки.",
+            "Личная настройка",
+            "/integrations/calendar",
+        ),
+        (
+            "workspace",
+            "Пространство",
+            "Активное пространство и приглашения.",
+            "В этом пространстве",
+            "/workspace",
+        ),
+        (
+            "account",
+            "Аккаунт и безопасность",
+            "Способы входа и зарегистрированные устройства.",
+            "Личная настройка",
+            "/account",
+        ),
+    )
+    return tuple(
+        SettingsCategoryView(
+            id=category_id,
+            label=label,
+            description=description,
+            scope_label=scope_label,
+            href=base + suffix,
+        )
+        for category_id, label, description, scope_label, suffix in definitions
     )
 
 

@@ -1,9 +1,11 @@
 {% import "cabinet/components/sections.html" as sections %}
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="cabinet-topbar">
       <div class="cabinet-titleline"><strong>Способ входа</strong><span>{{ surface.provider_label }}</span></div>
     </div>
+    {{ settings_ui.navigation(settings_navigation, active="account") }}
     <section class="settings-section cabinet-card" aria-labelledby="provider-link-status-title">
       <div>
         <div class="section-title" id="provider-link-status-title">{{ surface.provider_label }}</div>

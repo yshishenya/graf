@@ -56,6 +56,14 @@ class WorkspaceAccessView:
     role: str
     active: bool
 
+    @property
+    def role_label(self) -> str:
+        return {
+            "owner": "Владелец",
+            "admin": "Администратор",
+            "member": "Участник",
+        }.get(self.role, "Участник")
+
 
 @dataclass(frozen=True, slots=True)
 class ActivatedWorkspaceSession:

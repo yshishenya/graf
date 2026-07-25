@@ -11,7 +11,6 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     set_desktop_calendar_auth_cookie,
 )
-from twobrain_rec_server.auth.workspace_onboarding import list_active_workspaces
 from twobrain_rec_server.cabinet.deletion_rendering import (
     render_deletion_report_fragment,
     render_deletion_report_page,
@@ -19,7 +18,6 @@ from twobrain_rec_server.cabinet.deletion_rendering import (
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
     get_calendar_settings_surface,
-    get_provider_link_start_options,
     list_cabinet_meetings,
 )
 from twobrain_rec_server.cabinet.rendering import (
@@ -31,7 +29,6 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_list_fragment,
     render_meeting_list_page,
     render_meeting_unavailable_page,
-    render_settings_page,
 )
 from twobrain_rec_server.cabinet.review_policy_rendering import render_meeting_share_fragment
 from twobrain_rec_server.cabinet.templates import (
@@ -358,40 +355,6 @@ async def embedded_calendar_settings_page(
     return response
 
 
-@router.get("/desktop/settings", response_class=HTMLResponse, include_in_schema=False)
-async def embedded_settings_page(
-    request: Request,
-    tenant_scope: TenantScope = WebTenantDependency,
-    principal: AuthenticatedPrincipal = PrincipalDependency,
-    db: AsyncSession | None = WebDbDependency,
-) -> HTMLResponse:
-    if db is None:
-        raise ProblemDetail(
-            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
-        )
-    provider_link_options = await get_provider_link_start_options(db, tenant_scope)
-    spaces = await list_active_workspaces(
-        db,
-        organization_id=principal.organization_id,
-        current_workspace_id=tenant_scope.workspace_id,
-        user_id=principal.user_id,
-    )
-    await db.commit()
-    return cabinet_html_response(
-        render_settings_page(
-            embedded=True,
-            csrf_token=_csrf_token_for_principal(request, principal),
-            provider_link_options=provider_link_options,
-            workspace_spaces=spaces,
-            product_analytics_provider=build_request_browser_provider_context(
-                request,
-                "settings",
-                principal=principal,
-                tenant_scope=tenant_scope,
-                device_class="desktop_webview",
-            ),
-        )
-    )
 
 
 @router.get(

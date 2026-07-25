@@ -1,0 +1,70 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+{% import "cabinet/components/sections.html" as sections %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    <header class="cabinet-topbar settings-page__topbar">
+      <div class="page-title">
+        <p class="eyebrow">Настройки / В этом пространстве</p>
+        <h1>Пространство</h1>
+        <p class="page-subtitle">Выберите, где будут создаваться новые записи, и обработайте приглашения в команды.</p>
+      </div>
+    </header>
+    {{ settings_ui.navigation(settings_navigation, active=settings_active) }}
+
+    {% if workspace_switch_result %}<p class="settings-status" role="status" aria-live="polite">{{ workspace_switch_result }}</p>{% endif %}
+    <section class="settings-section cabinet-card" id="active-workspace" aria-labelledby="active-workspace-title">
+      <div class="settings-section__heading">
+        <div>
+          <span class="settings-scope-badge">В этом пространстве</span>
+          <h2 id="active-workspace-title">Активное пространство</h2>
+          <p class="muted">Новые записи и загрузки останутся в выбранном пространстве. Уже начатые действия не переносятся автоматически.</p>
+        </div>
+      </div>
+      {% if workspace_spaces %}
+      <ul class="settings-choice-list" aria-label="Доступные пространства">
+        {% for space in workspace_spaces %}
+        <li class="settings-choice-row">
+          <div><strong>{{ space.name }}</strong><span class="muted">{{ "Личное пространство" if space.kind == "personal" else "Команда" }} · {{ space.role_label }}</span></div>
+          {% if space.active %}
+          <span class="settings-status-badge" role="status">Сейчас выбрано</span>
+          {% elif workspace_switch_available %}
+          <form action="{{ workspace_switch_action_base_path }}/{{ space.id }}/activate?return_to_settings=true" method="post">
+            {{ sections.csrf_field(csrf_token) }}
+            <button class="button quiet" type="submit">Переключиться</button>
+          </form>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="settings-empty-state" role="status">Активные пространства пока недоступны.</p>
+      {% endif %}
+    </section>
+
+    <section class="settings-section cabinet-card" id="workspace-join-offers" aria-labelledby="workspace-join-offers-title">
+      <div class="settings-section__heading">
+        <div>
+          <span class="settings-scope-badge">Личная настройка</span>
+          <h2 id="workspace-join-offers-title">Приглашения в команды</h2>
+          <p class="muted">Выбирайте команды сами. Принятие приглашения не переносит личные записи.</p>
+        </div>
+      </div>
+      {% if workspace_offer_result %}<p class="settings-status" role="status" aria-live="polite">{{ workspace_offer_result }}</p>{% endif %}
+      {% if workspace_join_offers %}
+      <ul class="settings-choice-list" aria-label="Доступные приглашения">
+        {% for offer in workspace_join_offers %}
+        <li class="settings-choice-row">
+          <div><strong>{{ offer.workspace_name }}</strong><span class="muted">Роль: {{ offer.invited_role_label }}</span></div>
+          <div class="settings-actions">
+            <form action="{{ workspace_offer_action_base_path }}/{{ offer.id }}/accept?return_to_settings=true" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit">Присоединиться</button></form>
+            <form action="{{ workspace_offer_action_base_path }}/{{ offer.id }}/reject?return_to_settings=true" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit">Не сейчас</button></form>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="settings-empty-state" role="status">Новых приглашений нет.</p>
+      {% endif %}
+    </section>
+  </div>
+</main>

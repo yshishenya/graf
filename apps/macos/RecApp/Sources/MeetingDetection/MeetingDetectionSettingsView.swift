@@ -12,6 +12,8 @@ public struct MeetingDetectionSettingsView: View {
     public static let autoRecordSectionTitle = "Приложения"
     public static let autoRecordSectionDetail =
         "Отмеченные приложения пишутся автоматически. Остальные будут спрашивать перед записью."
+    public static let autoRecordDisabledSectionDetail =
+        "Автоматическая запись выключена. Выбранные приложения остаются в списке для определения встреч."
     public static let selectAllTitle = "Выбрать все"
     public static let clearAllTitle = "Снять все"
     private let store: MeetingDetectionSettingsStore
@@ -124,7 +126,11 @@ public struct MeetingDetectionSettingsView: View {
                             Text(Self.autoRecordSectionTitle)
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
-                            Text(Self.autoRecordSectionDetail)
+                            Text(
+                                settings.detectionMode == .detectAndAsk
+                                    ? Self.autoRecordSectionDetail
+                                    : Self.autoRecordDisabledSectionDetail
+                            )
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }

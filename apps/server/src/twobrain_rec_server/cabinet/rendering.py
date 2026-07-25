@@ -187,11 +187,15 @@ def render_settings_page(
     embedded: bool = False,
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    category: str = "overview",
     provider_link_options: tuple[cabinet_view_models.ProviderLinkStartOption, ...] = (),
     workspace_spaces: tuple[WorkspaceAccessView, ...] = (),
     workspace_join_offers: tuple[WorkspaceJoinOfferView, ...] = (),
     workspace_offer_result: str | None = None,
     workspace_switch_result: str | None = None,
+    account_surface: cabinet_view_models.AccountSettingsSurface | None = None,
+    provider_link_result: str | None = None,
+    device_revoke_result: str | None = None,
 ) -> str:
     offer_result_copy = {
         "accepted": "Вы присоединились к команде. Личное пространство остаётся вашим.",
@@ -201,26 +205,61 @@ def render_settings_page(
     switch_result_copy = {
         "activated": "Активное пространство изменено. Новые действия останутся в выбранном пространстве.",
     }.get(workspace_switch_result)
-    return _page_shell(
-        "Настройки",
-        embedded=embedded,
-        active_nav="settings",
-        csrf_token=csrf_token,
-        product_analytics_provider=product_analytics_provider,
-        content_template="cabinet/pages/settings_content.html",
-        calendar_settings_href=_settings_path(embedded),
-        provider_link_options=provider_link_options,
-        provider_link_start_base_path="/desktop/settings/provider-links"
+    provider_link_result_copy = {
+        "confirmed": "Способ входа подключён к текущему аккаунту.",
+        "provider_link_conflict": "Этот способ входа уже связан с другим аккаунтом.",
+        "provider_link_denied": "Подключение не разрешено текущей политикой.",
+        "provider_link_expired": "Срок подключения истёк. Начните заново.",
+    }.get(provider_link_result)
+    device_revoke_result_copy = {
+        "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
+        "failed": "Не удалось отозвать устройство. Попробуйте ещё раз.",
+    }.get(device_revoke_result)
+    content_templates = {
+        "overview": "cabinet/pages/settings_content.html",
+        "recording": "cabinet/pages/settings_recording_content.html",
+        "summaries": "cabinet/pages/settings_summaries_content.html",
+        "workspace": "cabinet/pages/settings_workspace_content.html",
+        "account": "cabinet/pages/settings_account_content.html",
+    }
+    titles = {
+        "overview": "Настройки",
+        "recording": "Запись встреч",
+        "summaries": "Итоги",
+        "workspace": "Пространство",
+        "account": "Аккаунт и безопасность",
+    }
+    resolved_category = category if category in content_templates else "overview"
+    settings_context = {
+        "provider_link_options": provider_link_options,
+        "provider_link_start_base_path": "/desktop/settings/provider-links"
         if embedded
         else "/settings/provider-links",
-        workspace_spaces=workspace_spaces,
-        workspace_switch_result=switch_result_copy,
-        workspace_switch_action_base_path="/settings/spaces",
-        workspace_switch_available=not embedded,
-        workspace_join_offers=workspace_join_offers,
-        workspace_offer_result=offer_result_copy,
-        workspace_offer_action_base_path="/settings/join-offers",
-        summary_formats=BUILT_IN_TEMPLATES,
+        "workspace_spaces": workspace_spaces,
+        "workspace_switch_result": switch_result_copy,
+        "workspace_switch_action_base_path": "/desktop/settings/spaces"
+        if embedded
+        else "/settings/spaces",
+        "workspace_switch_available": True,
+        "workspace_join_offers": workspace_join_offers,
+        "workspace_offer_result": offer_result_copy,
+        "workspace_offer_action_base_path": "/desktop/settings/join-offers"
+        if embedded
+        else "/settings/join-offers",
+        "summary_formats": BUILT_IN_TEMPLATES,
+        "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
+        "provider_link_result": provider_link_result_copy,
+        "device_revoke_result": device_revoke_result_copy,
+    }
+    return _page_shell(
+        titles[resolved_category],
+        embedded=embedded,
+        active_nav="settings",
+        settings_active=resolved_category,
+        csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
+        content_template=content_templates[resolved_category],
+        **settings_context,
     )
 
 
@@ -237,11 +276,12 @@ def render_provider_link_settings_page(
         "Способ входа",
         embedded=embedded,
         active_nav="settings",
+        settings_active="account",
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
         content_template="cabinet/fragments/provider_link_settings.html",
         surface=surface,
-        settings_href="/desktop/settings" if embedded else "/settings",
+        settings_href="/desktop/settings/account" if embedded else "/settings/account",
         confirmation_action=f"{base_path}/{surface.link_state_id}/confirm",
         result=result,
     )
@@ -266,10 +306,11 @@ def render_calendar_settings_page(
     return _page_shell(
         surface.title,
         embedded=embedded,
+        active_nav="settings",
+        settings_active="calendar",
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
         content_template="cabinet/fragments/calendar_settings.html",
-        active_nav="settings",
         skip_target="calendar-settings-region",
         base_path="/desktop/settings/integrations/calendar"
         if embedded
@@ -288,6 +329,10 @@ def render_calendar_settings_fragment(
         "cabinet/fragments/calendar_settings.html",
         surface=surface,
         embedded=embedded,
+        settings_navigation=cabinet_view_models.settings_category_navigation(
+            embedded=embedded,
+            active="calendar",
+        ),
         base_path="/desktop/settings/integrations/calendar"
         if embedded
         else "/settings/integrations/calendar",
