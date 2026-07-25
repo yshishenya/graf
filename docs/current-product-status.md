@@ -1573,3 +1573,20 @@ the current accepted implementation or `012` ingest slice.
   and full-recording recipient routes returned HTTP 200 with no console errors.
   Live mailbox delivery, private meeting content and production deployment
   were not used for this validation record.
+
+## Release closeout (2026-07-26) — v2026.07.26.2
+
+- Feature 125 was released at tag `v2026.07.26.2` and deployed to
+  `2brain.dev:/opt/projects/2brain-rec` at immutable SHA
+  `0c16b218466f43863dbb5db0cea06dcf21921910`.
+- Remote deploy passed backup, restore rehearsal, migration head `0041`,
+  external invitation API/worker configuration, production smoke,
+  `infra_smoke_ready`, automatic dispatch, and worker/Temporal readiness.
+  Public health returned `live=200` and `ready=200`.
+- The public Sparkle ZIP, PKG and appcast were fetched over HTTPS and matched
+  the release checksums. The installed owner-only GRAF app displayed the
+  signed update offer; installation remains pending because the macOS desktop
+  was locked during this session.
+- The preceding validation record intentionally described pre-deploy local
+  testing; the production evidence for this release is recorded in
+  `docs/deployments/2brain-rec/release-v2026.07.26.2.md`.
