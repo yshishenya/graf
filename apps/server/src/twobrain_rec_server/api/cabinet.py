@@ -99,7 +99,6 @@ from twobrain_rec_server.cabinet.access import (
     share_panel_state,
 )
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
-from twobrain_rec_server.cabinet.deletion_rendering import render_deletion_feedback_fragment
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
     artifact_egress_states,
@@ -695,7 +694,7 @@ async def create_meeting_deletion_request_route(
     await db.commit()
     if _is_hx_request(request):
         return cabinet_html_response(
-            render_deletion_feedback_fragment(),
+            "",
             status_code=202,
             hx_request=True,
         )

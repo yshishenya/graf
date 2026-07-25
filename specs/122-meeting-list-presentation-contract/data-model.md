@@ -143,7 +143,7 @@ Reuses existing deletion request results.
 
 | State | Message | Focus behavior |
 |---|---|---|
-| accepted | `Запись удалена из списка. Очистка данных GRAF продолжается.` | Announce politely; next row, previous row, then list heading. |
+| accepted | Видимый текст отсутствует; скрытое объявление `Запись удалена из списка.` | Announce politely; next row, previous row, then list heading. |
 | partial failure | `Не удалось удалить N записей. Попробуйте ещё раз.` | Announce; preserve failed selection and existing retry path. |
 | confirmation | Existing bounded dialog copy | Dialog owns focus and returns it on cancel. |
 

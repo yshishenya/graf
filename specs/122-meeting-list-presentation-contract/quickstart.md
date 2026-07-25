@@ -252,8 +252,12 @@ Before requesting a product-code commit/PR decision:
 - Tests-first proof began with the expected missing-state result: `6 failed, 2 passed`. After the smallest rendering/client changes, the named waiting, empty, access, recovery, and deletion cases passed: `11 passed`, `2 warnings` in `24.94s`.
 - Measured and unmeasured upload, processing, calendar choice, audio preparation/absence, and failed processing each render one total compact status; terminal rows render no stale upload meter. First-empty and refined-empty states use distinct exact copy without hiding the persistent upload action.
 - HTMX loading exposes one polite `Загружаем встречи…` status. Synthetic service `503`, session `401`, and browser-offline failures replaced the collection with one metadata-safe state and one applicable action; no cached title, date, status, identifier, path, or transcript remained. Retry restored the current query, and expired-session recovery linked to the bounded sign-in route.
-- Accepted deletion announces exactly one line above the collection: `Запись удалена из списка. Очистка данных GRAF продолжается.` Cancelling with `Escape` returned focus to the invoking delete control; accepted deletion moved focus next → previous → `Мои встречи` when the collection became empty.
-- When the final visible rows are deleted, both surfaces immediately replace the empty ordered list with `Пока нет встреч` / `Начните запись или загрузите готовый файл.`, hide batch mode, retain the accepted feedback, and focus `Мои встречи`; no refresh is required.
+- Historical validation covered a visible accepted-deletion announcement and
+  deterministic focus recovery; that presentation was superseded by the
+  deletion feedback UX correction below.
+- When the final visible rows are deleted, both surfaces immediately replace the
+  empty ordered list with `Пока нет встреч` / `Начните запись или загрузите
+  готовый файл.`, hide batch mode, and focus `Мои встречи`; no refresh is required.
 - A headed Playwright partial-failure walkthrough selected two synthetic rows. One successful row was removed, the failed row remained selected, and the dialog stayed open with `Не удалось удалить 1 запись. Попробуйте ещё раз.` plus `Повторить`; no private failure reason entered the page.
 - Access-revoked rendering now says `Встреча больше недоступна` and offers only the bounded return action without repeating meeting metadata.
 - `node --check` passed. The US3 rendering/static/privacy/deletion/access suite passed: `160 passed`, `2 warnings` in `49.66s`; runner phase passed in `53s` and removed its disposable PostgreSQL container.
@@ -531,3 +535,12 @@ Before requesting a product-code commit/PR decision:
 
 - The first rerun exposed only a stale test fixture: `q=Запись` did not match the seeded processing meeting, and the HTMX fragment does not render the full filter form. The regression now uses the seeded `Планирование релиза` row, verifies the direct canonical page's selected status, and checks the canonical polling URL in the fragment.
 - The focused isolated PostgreSQL regression passed `1 passed`, `2 warnings` in `7.10s`; the disposable container was removed. The full `infra/scripts/ci-local.sh` rerun finished with `ci_local_result=pass`: macOS legacy-architecture guard, Swift build, `608` Swift tests, `ContractValidation`, PostgreSQL suites, Ruff, Python compilation, Compose validation, and deployment-evidence scan all passed. The existing fixture-rewrite, Starlette/httpx, and SQLAlchemy-cycle warnings remained documented only.
+
+### Deletion feedback UX correction — 2026-07-25
+
+- Accepted deletion now removes the row and closes the dialog without a visible
+  success or cleanup banner. VoiceOver receives a short hidden announcement;
+  failed deletion remains visible with the existing retry action.
+- HX deletion responses are empty, so the normal owner flow cannot render an
+  internal lifecycle fragment or report hand-off. The deletion lifecycle and
+  separate diagnostic report remain unchanged.

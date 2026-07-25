@@ -127,6 +127,15 @@
     target.replaceChildren(feedback);
   };
 
+  const announceDeletionResult = (message) => {
+    const announcer = document.querySelector("[data-meeting-result-announcer]");
+    if (!announcer) return;
+    announcer.textContent = "";
+    window.requestAnimationFrame(() => {
+      if (announcer.isConnected) announcer.textContent = message;
+    });
+  };
+
   const pruneUploadProgressTracking = () => {
     const cutoff = Date.now() - uploadProgressTrackingTtlMs;
     announcedUploadProgressMetadata.forEach((metadata, meetingId) => {
@@ -849,9 +858,6 @@
     );
     if (recoveryKind) return recoveryKind;
     if (!response.ok) throw new Error("deletion_request_failed");
-    const responseDocument = new DOMParser().parseFromString(await response.text(), "text/html");
-    const feedback = responseDocument.querySelector("[data-cabinet-fragment='deletion-feedback']");
-    if (!feedback) return "";
     return "";
   };
 
@@ -1077,12 +1083,12 @@
           return;
         }
         if (deletedCount > 0) {
-          publishDeletionFeedback(
-            "Запись удалена из списка. Очистка данных GRAF продолжается.",
-            "success",
-          );
+          const message = deletedCount === 1
+            ? "Запись удалена из списка."
+            : `Удалено ${deletedCount} ${plural(deletedCount, "запись", "записи", "записей")} из списка.`;
+          announceDeletionResult(message);
         } else if (missingCount > 0) {
-          publishDeletionFeedback("Встреча больше недоступна. Список обновлён.");
+          announceDeletionResult("Встреча больше недоступна. Список обновлён.");
         }
         const refreshFocusMeetingIds = [...deleteFocusFallbackIds];
         closeDeleteDialog({ restoreFocus: false });

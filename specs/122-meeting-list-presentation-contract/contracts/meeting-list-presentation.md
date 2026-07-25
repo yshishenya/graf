@@ -178,8 +178,8 @@ All four elements remain keyboard and VoiceOver reachable.
 
 - Reuse the existing row forms, CSRF, authorization, bounded confirmation dialog, and request endpoints.
 - Do not add `Отменить удаление` or claim deletion outside GRAF control.
-- Place one persistent polite/atomic deletion live region between the toolbar/batch state and the list, not after a long list. Server and client feedback fragments inside it do not create nested live regions.
-- Accepted copy: `Запись удалена из списка. Очистка данных GRAF продолжается.`
+- Keep the existing visible deletion feedback region for actionable failures only; successful deletion uses the existing hidden polite result announcer.
+- Accepted copy is not rendered visibly. The hidden announcement is `Запись удалена из списка.` for one row and a grammatically correct count for a batch.
 - Partial failure copy: `Не удалось удалить N записей. Попробуйте ещё раз.`
 - Feedback is polite/atomic and does not receive focus.
 - After the focused row disappears, focus moves to the primary link of the next surviving row, otherwise the primary link of the previous row, otherwise the list heading/status anchor. A delayed refresh does not override focus the user has since moved elsewhere.
