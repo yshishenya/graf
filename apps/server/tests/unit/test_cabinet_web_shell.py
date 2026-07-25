@@ -424,13 +424,15 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert '<label class="row-select-hit" aria-hidden="true">' not in page
     assert "data-row-delete" in page
     assert "data-row-delete-form" in page
-    assert 'data-hx-post="/meetings/' in page
+    assert "data-hx-post=" not in page
     assert 'name="confirmation_boundary"' in page
     assert (
         'id="delete-feedback-region" class="delete-feedback-region" '
         'role="status" aria-live="polite" aria-atomic="true"'
         in page
     )
+    assert ".delete-feedback-region:empty { display: none; }" in css
+    assert '.cabinet-deletion-feedback[data-state="error"]' in css
     assert "Отчет удаления" not in page
     assert "data-delete-dialog" in page
     assert "Удалить запись?" in page
@@ -878,6 +880,8 @@ def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_determinis
 
     assert page.index('id="delete-feedback-region"') < page.index('id="meeting-list-region"')
     assert 'feedback.setAttribute("role", "status")' not in script
+    assert "announceDeletionResult" in script
+    assert "Запись удалена из списка. Очистка данных GRAF продолжается." not in script
     for marker in [
         "deleteFocusFallbackIds",
         "captureDeletionFocusFallback",

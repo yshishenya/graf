@@ -29,9 +29,6 @@ from twobrain_rec_server.cabinet.auth_rendering import (
     render_signup_page as render_signup_page,
 )
 from twobrain_rec_server.cabinet.deletion_rendering import (
-    render_deletion_feedback_fragment as render_deletion_feedback_fragment,
-)
-from twobrain_rec_server.cabinet.deletion_rendering import (
     render_deletion_report_fragment as render_deletion_report_fragment,
 )
 from twobrain_rec_server.cabinet.deletion_rendering import (
@@ -953,11 +950,7 @@ def _render_meeting_row(
     )
     delete_control = (
         f"""
-        <form class="row-delete-form" method="post" action="{delete_action}" data-row-delete-form
-          data-hx-post="{delete_action}"
-          data-hx-target="#delete-feedback-region"
-          data-hx-select="[data-cabinet-fragment='deletion-feedback']"
-          data-hx-swap="innerHTML">
+        <form class="row-delete-form" method="post" action="{delete_action}" data-row-delete-form>
           {csrf_field}
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
           <button class="row-delete icon-button" type="button" data-row-delete aria-label="Удалить встречу {action_context}" title="Удалить">{render_icon("trash")}</button>

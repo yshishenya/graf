@@ -1763,6 +1763,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   min-height: 0;
   margin-top: 10px;
 }
+.delete-feedback-region:empty { display: none; }
 .cabinet-deletion-feedback {
   border: 1px solid rgba(47,201,166,.42);
   border-radius: 8px;
@@ -1772,6 +1773,10 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .cabinet-deletion-feedback[data-state="warning"] {
   border-color: rgba(240,167,66,.48);
   background: rgba(240,167,66,.08);
+}
+.cabinet-deletion-feedback[data-state="error"] {
+  border-color: rgba(255,107,107,.48);
+  background: rgba(255,107,107,.08);
 }
 .cabinet-deletion-feedback p { margin: 0; }
 .delete-dialog {
