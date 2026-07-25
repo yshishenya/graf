@@ -1,10 +1,26 @@
 # Текущий статус продукта
 
-Date: 2026-07-24
+Date: 2026-07-25
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Implementation update (2026-07-25) — Feature 128
+
+- Нативная строка локальной записи теперь показывает bounded-прогресс активной
+  отправки и процент только при известном общем объёме. Очередь, порядок строк,
+  automatic retry, custody, retention, deletion и local purge не изменены.
+- При 100% принятых байтов до перехода в `uploaded` строка сообщает, что запись
+  проверяется перед просмотром; queued, retrying, blocked и неизмеримые состояния
+  не получают устаревший progress bar. VoiceOver получает то же состояние и
+  процент из доступного текста.
+- Feature 128 не является production owner-journey или release evidence:
+  installed-app, deploy и production acceptance остаются отдельным P2 launch
+  gap. Focused macOS contract run прошёл `41/41`; полный local CI прошёл:
+  macOS `639/639`, server `2420 passed / 1 skipped`, strict PostgreSQL
+  `41 passed / 1 skipped`, lint/compile/Compose/evidence scan PASS. Production
+  RLS probe не выполнялся без live production DB.
 
 ## Production delivery hotfix (2026-07-24) — Feature 125
 
