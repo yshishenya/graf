@@ -9,7 +9,9 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- В нативном списке локальных записей отображается bounded-прогресс активной
+  отправки и процент; после 100% принятых байтов UI сообщает о проверке записи,
+  а не о готовности к просмотру.
 
 ### Изменено
 - _Пока нет записей._
@@ -21,10 +23,14 @@
 - _Пока нет записей._
 
 ### Документы
-- _Пока нет записей._
+- Добавлены Spec Kit-артефакты Feature 128 с UX, accessibility и security
+  границами для видимости прогресса без изменения custody semantics.
 
 ### Операции
-- _Пока нет записей._
+- Focused macOS contract: 41/41; полный local CI: macOS 639/639,
+  server 2420 passed / 1 skipped, strict PostgreSQL 41 passed / 1 skipped,
+  lint, compile, Compose и deployment evidence scan PASS. Production RLS probe
+  и deploy не заявляются.
 
 ## [2026.07.25.1] - 2026-07-25
 

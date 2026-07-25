@@ -78,6 +78,32 @@ public enum DesktopMeetingShellLocalQueuePolicy {
     ) -> [DesktopUploadQueueItem] {
         Array(items.sortedForNativeLocalDisplay().prefix(limit))
     }
+
+    public static func measuredProgress(for item: DesktopUploadQueueItem) -> Double? {
+        guard item.state == .uploading else { return nil }
+        let roles = item.serverTruth.uploadProgressRoles
+        guard item.artifactProfile.totalUploadBytes(limitedToRoles: roles) > 0 else { return nil }
+        let fraction = item.progressFraction
+        guard fraction.isFinite else { return nil }
+        return min(max(fraction, 0), 1)
+    }
+
+    public static func progressPercent(for item: DesktopUploadQueueItem) -> Int? {
+        guard let fraction = measuredProgress(for: item) else { return nil }
+        return min(100, max(0, Int(fraction * 100)))
+    }
+
+    public static func progressDetail(for item: DesktopUploadQueueItem) -> String? {
+        guard let percent = progressPercent(for: item) else { return nil }
+        return percent == 100
+            ? "Файлы переданы. Проверяем запись перед просмотром."
+            : "Отправка продолжается."
+    }
+
+    public static func progressAccessibilityLabel(for item: DesktopUploadQueueItem) -> String? {
+        guard let percent = progressPercent(for: item) else { return nil }
+        return "Отправка записи: \(percent) процентов."
+    }
 }
 
 private extension Array where Element == DesktopUploadQueueItem {
@@ -434,7 +460,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             Image(systemName: localRecordingIcon(for: item))
                 .frame(width: 18)
                 .foregroundStyle(localRecordingColor(for: item))
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(localRecordingTitle(for: item))
                         .font(.subheadline)
@@ -448,6 +474,18 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                if let progress = DesktopMeetingShellLocalQueuePolicy.measuredProgress(for: item),
+                   let percent = DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item) {
+                    HStack(spacing: 8) {
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                            .tint(localRecordingColor(for: item))
+                        Text("\(percent)%")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityHidden(true)
+                }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
@@ -476,6 +514,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private func localRecordingDetail(for item: DesktopUploadQueueItem) -> String {
+        if let progressDetail = DesktopMeetingShellLocalQueuePolicy.progressDetail(for: item) {
+            return progressDetail
+        }
         if item.state == .uploaded {
             return item.serverTruth.meetingId == nil
                 ? "Сохранено на Mac; сервер пока не подтвердил запись"
@@ -500,7 +541,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private func localRecordingAccessibilityLabel(for item: DesktopUploadQueueItem) -> String {
         let reviewState = item.serverTruth.mediaRevisionId == nil ? "" : ". Запись получена сервером"
-        return "\(localRecordingTitle(for: item)), \(localRecordingDetail(for: item)), \(localRecordingDuration(for: item))\(reviewState)"
+        let progressState = DesktopMeetingShellLocalQueuePolicy.progressAccessibilityLabel(for: item)
+            .map { " \($0)" } ?? ""
+        return "\(localRecordingTitle(for: item)), \(localRecordingDetail(for: item)), \(localRecordingDuration(for: item))\(progressState)\(reviewState)"
     }
 
     private func localRecordingDuration(for item: DesktopUploadQueueItem) -> String {
