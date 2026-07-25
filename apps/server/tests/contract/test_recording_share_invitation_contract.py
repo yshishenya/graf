@@ -106,9 +106,39 @@ def test_invitation_acceptance_uses_a_separate_grant_token_and_safe_onboarding_c
         magic_csrf_token="synthetic-magic-csrf-token",
     )
     assert "Планирование релиза" in rendered
-    assert "Открыть GRAF и итоги" in rendered
-    assert "одноразовая ссылка из письма" in rendered
+    assert "Открыть итоги" in rendered
+    assert "создаст личный аккаунт" in rendered
     assert "Создать аккаунт GRAF" not in rendered
-    assert "не добавляет вас в рабочую область" in rendered
+    assert "Рабочая область, аудио и расшифровка недоступны" in rendered
     assert "транскрипт" not in rendered.lower()
     assert "audio" not in rendered.lower()
+
+
+def test_full_invitation_contract_exposes_recording_package_without_workspace_membership() -> None:
+    browser_source = Path("src/twobrain_rec_server/cabinet/web_routes/browser.py").read_text(
+        encoding="utf-8"
+    )
+    api_source = Path("src/twobrain_rec_server/api/cabinet.py").read_text(encoding="utf-8")
+    rendered = render_share_invitation_accept_page(
+        share_token="synthetic-token",
+        workspace_id="20000000-0000-0000-0000-000000000001",
+        csrf_token="synthetic-csrf",
+        meeting_title="Планирование релиза",
+        meeting_occurred_at=datetime(2026, 7, 23, 10, 0, tzinfo=UTC),
+        meeting_duration_seconds=900,
+        invitation_expires_at=datetime(2026, 7, 30, 10, 0, tzinfo=UTC),
+        content_scope="full_meeting",
+        magic_action="/share-invitations/continue/magic?workspace_id=synthetic-workspace",
+        magic_state="synthetic-continuation-state",
+        magic_csrf_token="synthetic-magic-csrf-token",
+    )
+
+    assert "Запись встречи доступна" in rendered
+    assert "саммари, расшифровка, прослушивание и скачивание аудио" in rendered
+    assert "Открыть запись" in rendered
+    assert "Открыть итоги" not in rendered
+    assert "/shared-meetings/" in browser_source
+    assert "/cabinet/shared-meetings/{meeting_id}/playback" in api_source
+    assert "/cabinet/shared-meetings/{meeting_id}/downloads/{artifact_class}" in api_source
+    assert "/cabinet/shared-meetings/{meeting_id}/content-exports" in api_source
+    assert "_recipient_share_access_proof" in api_source

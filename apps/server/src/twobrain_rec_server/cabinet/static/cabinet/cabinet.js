@@ -127,6 +127,15 @@
     target.replaceChildren(feedback);
   };
 
+  const announceDeletionResult = (message) => {
+    const announcer = document.querySelector("[data-meeting-result-announcer]");
+    if (!announcer) return;
+    announcer.textContent = "";
+    window.requestAnimationFrame(() => {
+      if (announcer.isConnected) announcer.textContent = message;
+    });
+  };
+
   const pruneUploadProgressTracking = () => {
     const cutoff = Date.now() - uploadProgressTrackingTtlMs;
     announcedUploadProgressMetadata.forEach((metadata, meetingId) => {
@@ -849,9 +858,6 @@
     );
     if (recoveryKind) return recoveryKind;
     if (!response.ok) throw new Error("deletion_request_failed");
-    const responseDocument = new DOMParser().parseFromString(await response.text(), "text/html");
-    const feedback = responseDocument.querySelector("[data-cabinet-fragment='deletion-feedback']");
-    if (!feedback) return "";
     return "";
   };
 
@@ -1077,12 +1083,12 @@
           return;
         }
         if (deletedCount > 0) {
-          publishDeletionFeedback(
-            "Запись удалена из списка. Очистка данных GRAF продолжается.",
-            "success",
-          );
+          const message = deletedCount === 1
+            ? "Запись удалена из списка."
+            : `Удалено ${deletedCount} ${plural(deletedCount, "запись", "записи", "записей")} из списка.`;
+          announceDeletionResult(message);
         } else if (missingCount > 0) {
-          publishDeletionFeedback("Встреча больше недоступна. Список обновлён.");
+          announceDeletionResult("Встреча больше недоступна. Список обновлён.");
         }
         const refreshFocusMeetingIds = [...deleteFocusFallbackIds];
         closeDeleteDialog({ restoreFocus: false });
@@ -2475,7 +2481,13 @@
         }
       });
       panel.addEventListener("click", (event) => {
-        if (event.target.closest?.('[role="menuitem"]')) closePanel(panel);
+        const item = event.target.closest?.('[role="menuitem"]');
+        if (!item) return;
+        if (item.matches("a[href]")) {
+          window.setTimeout(() => closePanel(panel), 0);
+          return;
+        }
+        closePanel(panel);
       });
     });
     if (document.body.dataset.meetingPanelEscapeReady === "true") return;
@@ -4178,7 +4190,8 @@
           sent: "Письмо передано в отправку",
           outcome_unknown: "Письмо не подтверждено — не отправляйте повторно сразу"
         }[invitation.status] || invitation.status || "Готовится к отправке";
-        status.textContent = `${statusLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${expiresAt.toLocaleDateString("ru-RU")}` : ""}`;
+        const scopeLabel = invitation.content_scope === "full_meeting" ? "запись" : "итоги";
+        status.textContent = `${statusLabel} · ${scopeLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${expiresAt.toLocaleDateString("ru-RU")}` : ""}`;
         identity.append(label, status);
         const revoke = document.createElement("button");
         revoke.type = "button";
@@ -4242,16 +4255,16 @@
             method: "POST",
             body: JSON.stringify({
               address,
-              content_scope: "summary_only",
-              can_download: false,
-              can_export: false
+              content_scope: "full_meeting",
+              can_download: true,
+              can_export: true
             })
           });
           setResultsVisible(false);
           setConfirmationVisible(false);
           recipientInput?.focus({ preventScroll: true });
           appendInvitationRow(invitation, maskInvitationAddress(address));
-          setStatus("Приглашение создано. Письмо поставлено в отправку — доставка может занять несколько минут; получатель откроет одноразовую ссылку из email.", "success");
+          setStatus("Приглашение к записи создано. Письмо поставлено в отправку — доставка может занять несколько минут; получатель откроет одноразовую ссылку из email.", "success");
         } catch (error) {
           setStatus(shareErrorMessage(error?.code || error?.message), "error");
           if (button?.isConnected) button.disabled = false;
@@ -4267,7 +4280,7 @@
         title.textContent = `Отправить приглашение на ${maskInvitationAddress(address)}?`;
         const note = document.createElement("small");
         note.className = "muted";
-        note.textContent = "Получатель откроет одноразовую ссылку из письма. Если аккаунта GRAF ещё нет, он создастся автоматически — только для просмотра итогов.";
+        note.textContent = "Получатель откроет одноразовую ссылку из письма. Если аккаунта GRAF ещё нет, он создастся автоматически — будут доступны саммари, расшифровка и скачивание аудио.";
         const actions = document.createElement("span");
         actions.className = "share-viewer-row__actions";
         const confirm = document.createElement("button");

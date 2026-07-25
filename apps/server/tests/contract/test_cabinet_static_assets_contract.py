@@ -225,7 +225,8 @@ def test_meeting_list_js_closes_authorization_retry_and_deletion_boundaries() ->
         'if (titleInput) titleInput.value = ""',
         "closeDialog({ restoreFocus: false })",
         "publishDeletionFeedback",
-        "Запись удалена из списка. Очистка данных GRAF продолжается.",
+        "announceDeletionResult",
+        "Запись удалена из списка.",
         "Не удалось удалить ${failures}",
         "listRefreshFocusMeetingIds",
         "listRefreshFocusOrigin",
@@ -2141,7 +2142,7 @@ if (!shareHost.children[0]?.textContent.includes("Не удалось откры
     assert completed.returncode == 0, completed.stderr
 
 
-def test_batch_deletion_publishes_once_after_the_request_loop() -> None:
+def test_batch_deletion_keeps_success_out_of_visible_feedback_region() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     submit_deletion = script[
         script.index("const submitDeletionForm") : script.index("const requestMeetingListRefresh")
@@ -2158,10 +2159,12 @@ def test_batch_deletion_publishes_once_after_the_request_loop() -> None:
     ]
 
     assert "#delete-feedback-region" not in submit_deletion
+    assert "responseDocument" not in submit_deletion
     assert "publishDeletionFeedback" not in request_loop
     assert 'document.querySelector("#delete-feedback-region")?.replaceChildren()' in deletion_handler
     assert 'publishDeletionFeedback(failureMessage, "error")' in deletion_handler
-    assert "Запись удалена из списка. Очистка данных GRAF продолжается." in deletion_handler
+    assert "announceDeletionResult" in deletion_handler
+    assert "Запись удалена из списка. Очистка данных GRAF продолжается." not in deletion_handler
 
 
 def test_authorization_disabled_upload_name_keeps_the_visible_label() -> None:
@@ -2211,7 +2214,6 @@ def test_cabinet_js_owns_component_dom_behavior() -> None:
         'xhr.getResponseHeader("X-GRAF-Cabinet-Recovery")',
         'response.headers.get("X-GRAF-Cabinet-Recovery")',
         "renderMeetingListRecovery(recoveryKind)",
-        'feedback = responseDocument.querySelector("[data-cabinet-fragment=\'deletion-feedback\']")',
         'document.querySelector("#delete-feedback-region")?.replaceChildren()',
         'dialog.querySelector("[data-delete-cancel]")?.focus({ preventScroll: true })',
         'deleteDialog?.addEventListener("cancel"',

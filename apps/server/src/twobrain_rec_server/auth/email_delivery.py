@@ -91,6 +91,7 @@ class PostalEmailLoginClient:
         recipient_email: str,
         acceptance_url: str,
         delivery_key: str,
+        content_scope: str = "summary_only",
         inviter_name: str | None = None,
         meeting_title: str | None = None,
         occurred_at: datetime | None = None,
@@ -101,6 +102,7 @@ class PostalEmailLoginClient:
         plain_body, html_body = _meeting_invitation_bodies(
             acceptance_url=acceptance_url,
             safe_url=safe_url,
+            content_scope=content_scope,
             inviter_name=inviter_name,
             meeting_title=meeting_title,
             occurred_at=occurred_at,
@@ -110,7 +112,11 @@ class PostalEmailLoginClient:
         payload = {
             "to": [recipient_email],
             "from": formataddr((self.from_name, self.from_address)),
-            "subject": "Вам открыли итоги встречи в GRAF",
+            "subject": (
+                "Вам открыли запись встречи в GRAF"
+                if content_scope == "full_meeting"
+                else "Вам открыли итоги встречи в GRAF"
+            ),
             "plain_body": plain_body,
             "html_body": html_body,
             "tag": "meeting-share-invitation",
@@ -126,6 +132,7 @@ class PostalEmailLoginClient:
         *,
         recipient_email: str,
         meeting_title: str | None,
+        content_scope: str = "summary_only",
         graf_url: str,
         settings_url: str,
         delivery_key: str,
@@ -133,6 +140,7 @@ class PostalEmailLoginClient:
         plain_body, html_body = _account_created_email_bodies(
             recipient_email=recipient_email,
             meeting_title=meeting_title,
+            content_scope=content_scope,
             graf_url=graf_url,
             settings_url=settings_url,
         )
@@ -194,6 +202,7 @@ def _meeting_invitation_bodies(
     *,
     acceptance_url: str,
     safe_url: str,
+    content_scope: str = "summary_only",
     inviter_name: str | None,
     meeting_title: str | None,
     occurred_at: datetime | None,
@@ -204,6 +213,13 @@ def _meeting_invitation_bodies(
     title = _safe_email_label(meeting_title, fallback="Встреча")
     safe_title = escape(title)
     safe_inviter = escape(inviter)
+    recording_access = content_scope == "full_meeting"
+    access_label = "запись встречи" if recording_access else "итоги встречи"
+    access_details = (
+        "Вам доступны расшифровка, саммари, прослушивание и скачивание аудио."
+        if recording_access
+        else "Доступ ограничен итогами этой встречи."
+    )
     details: list[str] = [f"Встреча: {title}"]
     html_details: list[str] = [f"<strong>{safe_title}</strong>"]
     if occurred_at is not None:
@@ -219,25 +235,26 @@ def _meeting_invitation_bodies(
         details.append(f"Приглашение действует до: {expiry_label}")
         html_details.append(f"<span>Ссылка действует до: {escape(expiry_label)}</span>")
     plain = (
-        f"{inviter} поделился(лась) итогами встречи в GRAF.\n\n"
+        f"{inviter} открыл(а) вам {access_label} в GRAF.\n\n"
         + "\n".join(details)
         + "\n\nОткройте одноразовую ссылку, чтобы войти или создать аккаунт GRAF.\n"
         + f"{acceptance_url}\n\n"
-        + "Доступ ограничен итогами этой встречи и не добавляет вас в рабочую область."
+        + access_details
+        + " Рабочая область не меняется."
     )
     html = (
         '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;'
         'max-width:560px;color:#373941;line-height:1.5">'
-        f"<p><strong>{safe_inviter}</strong> поделился(лась) итогами встречи в GRAF.</p>"
+        f"<p><strong>{safe_inviter}</strong> открыл(а) вам {escape(access_label)} в GRAF.</p>"
         '<div style="border:1px solid #dfe1e7;border-radius:12px;padding:18px 20px;">'
         + "<br>".join(html_details)
         + "</div>"
         '<p style="margin:24px 0"><a href="'
         + safe_url
         + '" style="display:inline-block;background:#7657f5;color:#fff;border-radius:10px;'
-        'padding:12px 20px;text-decoration:none;font-weight:700">Открыть GRAF и итоги</a></p>'
+        'padding:12px 20px;text-decoration:none;font-weight:700">Открыть GRAF</a></p>'
         "<p style=\"color:#646a78;font-size:14px\">Одноразовая ссылка ведёт на вход или регистрацию GRAF."
-        " Доступ ограничен итогами этой встречи и не добавляет вас в рабочую область.</p>"
+        f" {escape(access_details)} Рабочая область не меняется.</p>"
         "</div>"
     )
     return plain, html
@@ -273,6 +290,7 @@ def _account_created_email_bodies(
     *,
     recipient_email: str,
     meeting_title: str | None,
+    content_scope: str = "summary_only",
     graf_url: str,
     settings_url: str,
 ) -> tuple[str, str]:
@@ -280,10 +298,12 @@ def _account_created_email_bodies(
     masked_email = _mask_email_address(recipient_email)
     safe_title = escape(title)
     safe_email = escape(masked_email)
+    access_label = "записи" if content_scope == "full_meeting" else "итогам"
+    safe_access_label = escape(access_label)
     safe_graf_url = escape(graf_url, quote=True)
     safe_settings_url = escape(settings_url, quote=True)
     plain = (
-        f"С вами поделились итогами встречи «{title}», которые были созданы с помощью GRAF.\n\n"
+        f"Вам открыли доступ к {access_label} встречи «{title}». GRAF создал личный аккаунт для этого доступа.\n\n"
         f"GRAF автоматически создал бесплатный аккаунт на адрес {masked_email}.\n\n"
         "Пароль создавать не нужно. Для входа используется одноразовая ссылка из письма-приглашения.\n\n"
         "Открыть GRAF:\n"
@@ -298,8 +318,8 @@ def _account_created_email_bodies(
         'max-width:560px;color:#373941;line-height:1.5">'
         '<div style="color:#111820;font-size:28px;line-height:1;font-weight:850;'
         'letter-spacing:-1px;margin:0 0 28px">GRAF</div>'
-        f"<p>С вами поделились итогами встречи <strong>«{safe_title}»</strong>, которые были "
-        "созданы с помощью GRAF.</p>"
+        f"<p>Вам открыли доступ к {safe_access_label} встречи <strong>«{safe_title}»</strong>. "
+        "GRAF создал личный аккаунт для этого доступа.</p>"
         f"<p>GRAF автоматически создал бесплатный аккаунт на адрес <strong>{safe_email}</strong>.</p>"
         '<div style="border:1px solid #dfe1e7;border-radius:12px;padding:16px 18px;'
         'background:#f7f7f8;margin:24px 0">'
@@ -348,6 +368,7 @@ async def send_meeting_invitation(
     recipient_email: str,
     acceptance_url: str,
     delivery_key: str,
+    content_scope: str = "summary_only",
     inviter_name: str | None = None,
     meeting_title: str | None = None,
     occurred_at: datetime | None = None,
@@ -361,6 +382,7 @@ async def send_meeting_invitation(
         recipient_email=recipient_email,
         acceptance_url=acceptance_url,
         delivery_key=delivery_key,
+        content_scope=content_scope,
         inviter_name=inviter_name,
         meeting_title=meeting_title,
         occurred_at=occurred_at,
@@ -374,6 +396,7 @@ async def send_account_created_email(
     settings: Settings,
     recipient_email: str,
     meeting_title: str | None,
+    content_scope: str = "summary_only",
     graf_url: str,
     settings_url: str,
     delivery_key: str,
@@ -384,6 +407,7 @@ async def send_account_created_email(
     await client.send_account_created_email(
         recipient_email=recipient_email,
         meeting_title=meeting_title,
+        content_scope=content_scope,
         graf_url=graf_url,
         settings_url=settings_url,
         delivery_key=delivery_key,

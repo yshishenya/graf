@@ -99,7 +99,6 @@ from twobrain_rec_server.cabinet.access import (
     share_panel_state,
 )
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
-from twobrain_rec_server.cabinet.deletion_rendering import render_deletion_feedback_fragment
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
     artifact_egress_states,
@@ -217,6 +216,7 @@ async def _send_internal_share_notification(
                 f"{str(public_base_url).rstrip('/')}/meetings/{meeting.id}"
             ),
             delivery_key=str(grant.id),
+            content_scope=grant.content_scope,
             inviter_name=inviter.display_name if inviter is not None else None,
             meeting_title=meeting.title,
             occurred_at=meeting.started_at or meeting.created_at,
@@ -695,7 +695,7 @@ async def create_meeting_deletion_request_route(
     await db.commit()
     if _is_hx_request(request):
         return cabinet_html_response(
-            render_deletion_feedback_fragment(),
+            "",
             status_code=202,
             hx_request=True,
         )
@@ -2171,7 +2171,15 @@ async def resolve_login_required_share_link_route(
         _mark_share_secret_response(response)
         return response
     await db.commit()
-    return RedirectResponse(url=f"/meetings/{meeting.id}", status_code=302)
+    if recipient_proof.workspace_membership_is_active:
+        return RedirectResponse(url=f"/meetings/{meeting.id}", status_code=302)
+    return RedirectResponse(
+        url=(
+            f"/shared-meetings/{meeting.id}"
+            f"?workspace_id={workspace_id}"
+        ),
+        status_code=302,
+    )
 
 
 @router.get(
@@ -2316,6 +2324,15 @@ async def accept_meeting_share_invitation_route(
         meeting = await db.get(Meeting, grant.meeting_id)
         if meeting is None:
             raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        if grant.content_scope == "full_meeting" and grant.can_download and grant.can_export:
+            await db.commit()
+            return RedirectResponse(
+                url=(
+                    f"/shared-meetings/{meeting.id}"
+                    f"?workspace_id={workspace_id}"
+                ),
+                status_code=303,
+            )
         items = []
         if meeting.current_outcome_set_id is not None:
             items = (
@@ -2465,6 +2482,224 @@ async def download_meeting_artifact_route(
         content=download.body,
         media_type=download.media_type,
         headers=headers,
+    )
+
+
+@router.get(
+    "/cabinet/shared-meetings/{meeting_id}/playback",
+    operation_id="playSharedMeetingAudio",
+    dependencies=[PrincipalDependency, DeviceDependency],
+    response_class=StreamingResponse,
+    responses=PLAYBACK_RESPONSES,
+)
+async def play_shared_meeting_audio_route(
+    request: Request,
+    meeting_id: UUID,
+    workspace_id: Annotated[UUID, Query()],
+    range_header: Annotated[
+        str | None,
+        Header(
+            alias="Range",
+            description="Optional single RFC 9110 byte range, for example `bytes=0-1023`.",
+        ),
+    ] = None,
+    recipient_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    storage: object = StorageDependency,
+    db: AsyncSession | None = PublicShareDbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    meeting, decision = await _authorized_shared_meeting(
+        request,
+        db,
+        owner_workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        principal=principal,
+        recipient_scope=recipient_scope,
+    )
+    playback = await playback_artifact(
+        db,
+        storage=storage,
+        meeting=meeting,
+        access=decision,
+        actor_user_id=principal.user_id,
+        device_id=device.device_id,
+        range_header=range_header,
+    )
+    await db.commit()
+    return StreamingResponse(
+        playback.body,
+        media_type=playback.media_type,
+        status_code=playback.status_code,
+        headers=playback.headers,
+    )
+
+
+@router.get(
+    "/cabinet/shared-meetings/{meeting_id}/downloads/{artifact_class}",
+    operation_id="downloadSharedMeetingArtifact",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def download_shared_meeting_artifact_route(
+    request: Request,
+    meeting_id: UUID,
+    artifact_class: ArtifactClass,
+    workspace_id: Annotated[UUID, Query()],
+    recipient_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    storage: object = StorageDependency,
+    db: AsyncSession | None = PublicShareDbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    meeting, decision = await _authorized_shared_meeting(
+        request,
+        db,
+        owner_workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        principal=principal,
+        recipient_scope=recipient_scope,
+    )
+    result = await latest_processing_result(
+        db, workspace_id=workspace_id, meeting_id=meeting_id
+    )
+    download = await download_artifact(
+        db,
+        storage=storage,
+        meeting=meeting,
+        access=decision,
+        artifact_class=artifact_class,
+        result=result,
+        actor_user_id=principal.user_id,
+        device_id=device.device_id,
+    )
+    await db.commit()
+    headers = {
+        "Content-Disposition": f'attachment; filename="{download.filename}"',
+        "Content-Length": str(download.byte_length),
+    }
+    if not isinstance(download.body, bytes):
+        return StreamingResponse(
+            download.body,
+            media_type=download.media_type,
+            headers=headers,
+        )
+    return Response(
+        content=download.body,
+        media_type=download.media_type,
+        headers=headers,
+    )
+
+
+@router.get(
+    "/cabinet/shared-meetings/{meeting_id}/content-exports",
+    response_model=ContentExportCapabilityResponse,
+    operation_id="getSharedMeetingContentExportCapabilities",
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_shared_meeting_content_export_capabilities_route(
+    request: Request,
+    meeting_id: UUID,
+    workspace_id: Annotated[UUID, Query()],
+    recipient_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = PublicShareDbDependency,
+) -> ContentExportCapabilityResponse:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    meeting, decision = await _authorized_shared_meeting(
+        request,
+        db,
+        owner_workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        principal=principal,
+        recipient_scope=recipient_scope,
+    )
+    result = await latest_processing_result(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        prefer_latest=True,
+    )
+    return await content_export_capabilities(
+        db, meeting=meeting, access=decision, result=result
+    )
+
+
+@router.post(
+    "/cabinet/shared-meetings/{meeting_id}/content-exports",
+    operation_id="createSharedMeetingContentExport",
+    response_class=Response,
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def create_shared_meeting_content_export_route(
+    request: Request,
+    meeting_id: UUID,
+    workspace_id: Annotated[UUID, Query()],
+    payload: ContentExportSelectionRequest,
+    recipient_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = PublicShareDbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    meeting, decision = await _authorized_shared_meeting(
+        request,
+        db,
+        owner_workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        principal=principal,
+        recipient_scope=recipient_scope,
+    )
+    result = await latest_processing_result(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        prefer_latest=True,
+    )
+    generated = await create_content_export(
+        db,
+        meeting=meeting,
+        access=decision,
+        result=result,
+        selection=ExportSelection(
+            content_scope=payload.content_scope,
+            format=payload.format,
+            processing_result_id=payload.processing_result_id,
+            outcome_set_id=payload.outcome_set_id,
+            include_speaker_labels=payload.include_speaker_labels,
+            include_timestamps=payload.include_timestamps,
+            include_evidence=payload.include_evidence,
+        ),
+        actor_user_id=principal.user_id,
+        device_id=device.device_id,
+    )
+    await db.commit()
+    return Response(
+        content=generated.body,
+        media_type=generated.media_type,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{generated.filename}"; '
+                f"filename*=UTF-8''{generated.filename}"
+            ),
+            "Content-Length": str(generated.byte_length),
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+        },
     )
 
 
@@ -3142,6 +3377,7 @@ async def _authorized_meeting(
     workspace_id: UUID,
     meeting_id: UUID,
     viewer_user_id: UUID,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ):
     meeting = await db.scalar(
         select(Meeting).where(
@@ -3156,8 +3392,35 @@ async def _authorized_meeting(
         meeting,
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
+        recipient_proof=recipient_proof,
     )
     if not decision.can_view:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return meeting, decision
+
+
+async def _authorized_shared_meeting(
+    request: Request,
+    db: AsyncSession,
+    *,
+    owner_workspace_id: UUID,
+    meeting_id: UUID,
+    principal: AuthenticatedPrincipal,
+    recipient_scope: TenantScope,
+):
+    recipient_proof = await _recipient_share_access_proof(
+        request,
+        recipient_scope=recipient_scope,
+        owner_workspace_id=owner_workspace_id,
+    )
+    meeting, decision = await _authorized_meeting(
+        db,
+        workspace_id=owner_workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
+        recipient_proof=recipient_proof,
+    )
+    if not decision.can_view_full_meeting:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return meeting, decision
 
@@ -3168,6 +3431,7 @@ async def _authorized_content_export_meeting(
     workspace_id: UUID,
     meeting_id: UUID,
     viewer_user_id: UUID,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ):
     meeting = await db.scalar(
         select(Meeting).where(
@@ -3182,6 +3446,7 @@ async def _authorized_content_export_meeting(
         meeting,
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
+        recipient_proof=recipient_proof,
     )
     if decision.state == "deleted":
         await _authorized_lifecycle_meeting(

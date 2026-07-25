@@ -61,3 +61,16 @@ def test_more_menu_hides_unavailable_capability_actions_instead_of_rendering_a_c
     assert "{{ artifacts }}" not in source[source.index('role="menu"') : source.index('id="meeting-details-dialog"')]
     assert "Активность" not in source[source.index('role="menu"') : source.index('id="meeting-details-dialog"')]
     assert "capability matrix" not in source.casefold()
+
+
+def test_more_menu_preserves_default_link_action_before_closing() -> None:
+    script = CABINET_JS.read_text(encoding="utf-8")
+    menu_start = script.index('panels.filter((panel) => panel.getAttribute("role") === "menu")')
+    handler_start = script.index('panel.addEventListener("click", (event) => {', menu_start)
+    handler_end = script.index("      });", handler_start) + len("      });")
+    handler = script[handler_start:handler_end]
+
+    assert 'const item = event.target.closest?.(\'[role="menuitem"]\');' in handler
+    assert 'if (item.matches("a[href]")) {' in handler
+    assert "window.setTimeout(() => closePanel(panel), 0);" in handler
+    assert handler.index("window.setTimeout") < handler.rindex("closePanel(panel);")

@@ -34,8 +34,11 @@ def test_playback_read_contract_is_durable_and_has_no_repair_mutation(client) ->
     playback_paths = {
         path: operations for path, operations in schema["paths"].items() if "playback" in path
     }
-    assert set(playback_paths) == {"/api/v1/cabinet/meetings/{meeting_id}/playback"}
-    assert set(playback_paths["/api/v1/cabinet/meetings/{meeting_id}/playback"]) == {"get"}
+    assert set(playback_paths) == {
+        "/api/v1/cabinet/meetings/{meeting_id}/playback",
+        "/api/v1/cabinet/shared-meetings/{meeting_id}/playback",
+    }
+    assert all(set(operations) == {"get"} for operations in playback_paths.values())
     operation = playback_paths["/api/v1/cabinet/meetings/{meeting_id}/playback"]["get"]
     range_parameter = next(
         parameter for parameter in operation["parameters"] if parameter["name"] == "Range"

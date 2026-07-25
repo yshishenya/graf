@@ -1,10 +1,26 @@
 # Текущий статус продукта
 
-Date: 2026-07-24
+Date: 2026-07-25
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Implementation update (2026-07-25) — Feature 128
+
+- Нативная строка локальной записи теперь показывает bounded-прогресс активной
+  отправки и процент только при известном общем объёме. Очередь, порядок строк,
+  automatic retry, custody, retention, deletion и local purge не изменены.
+- При 100% принятых байтов до перехода в `uploaded` строка сообщает, что запись
+  проверяется перед просмотром; queued, retrying, blocked и неизмеримые состояния
+  не получают устаревший progress bar. VoiceOver получает то же состояние и
+  процент из доступного текста.
+- Feature 128 не является production owner-journey или release evidence:
+  installed-app, deploy и production acceptance остаются отдельным P2 launch
+  gap. Focused macOS contract run прошёл `41/41`; полный local CI прошёл:
+  macOS `639/639`, server `2420 passed / 1 skipped`, strict PostgreSQL
+  `41 passed / 1 skipped`, lint/compile/Compose/evidence scan PASS. Production
+  RLS probe не выполнялся без live production DB.
 
 ## Production delivery hotfix (2026-07-24) — Feature 125
 
@@ -36,8 +52,9 @@ metadata-only evidence остаются подробной историей ре
 - Production external exact-email configuration is enabled and consistent in
   both API and delivery worker: `share_external_invitations_enabled=true`,
   `email_login_delivery_enabled=true`, Postal and public base URL configured.
-  The flow remains metadata-only, exact-email and summary-only; no workspace
-  auto-join is introduced.
+  The email/pre-auth flow remains metadata-only and exact-email; the explicit
+  accepted recording preset opens summary, timestamped transcript, playback,
+  canonical audio download and combined export without workspace auto-join.
 - macOS local artifact `2026.07.24.4` was rebuilt after the review at
   [`graf-local-release-125-v4.pkg`](../apps/macos/.build/installer/graf-local-release-125-v4.pkg)
   with SHA-256
@@ -1483,9 +1500,10 @@ the current accepted implementation or `012` ingest slice.
   verified native target path, follow Feature 124 and preserve its settings,
   per-target opt-in, eight-second automatic start, and visible skip/start
   prompt contract.
-- Public-link and external-recipient sharing policy: add optional public links,
-  expiration, external invitations, abuse controls, and admin/legal copy after
-  the login-required 017 flow is accepted.
+- Public-link and broader external-recipient sharing policy: add optional public
+  links, batch/participant delivery, additional expiration/abuse controls and
+  admin/legal copy beyond the bounded exact-email recording package in Feature
+  125.
 - `021-production-deployment-plan`: use the remote-first runbook to reach
   `infra_smoke_ready` for the Rec stack, while keeping user rollout and pilot
   claims blocked until later product slices are accepted.
@@ -1523,3 +1541,35 @@ the current accepted implementation or `012` ingest slice.
   receives only the canonical WAV. Raise its separate OpenResty/nginx body
   limit only if a real v5 WAV approaches the observed public proxy ceiling and
   starts failing with `413`.
+
+## Validation update (2026-07-25) — External recording package
+
+- Full focused invitation/Share matrix: `33 passed`. It covers the explicit
+  full-recording email preset, personal-account bootstrap without owner
+  workspace membership, stable recipient-bound page, transcript/playback/audio
+  download/content-export routes and revoke rechecks.
+- The recipient page intentionally omits workspace/calendar/service metadata,
+  media revision identifiers and sharing controls. Email and pre-auth landing
+  remain metadata-only; transcript/audio/summary content is served only after
+  exact verified identity and server-side access/egress checks.
+- In-app browser smoke on disposable local PostgreSQL passed: the invitation CTA
+  opened the result with HTTP 200, and the full-recording preset redirected to
+  the recipient-bound page with HTTP 200 and no console errors. No live mailbox
+  delivery, commit or deployment was performed. The local RLS hardening probe
+  remains blocked without a separate disposable live PostgreSQL URL.
+
+## Validation update (2026-07-26) — Full recording package closeout
+
+- Focused invitation/Share regression matrix passed `44` tests. The canonical
+  `infra/scripts/ci-local.sh` gate passed with macOS `639` tests, PostgreSQL
+  `2,426` parallel tests plus one skip and `41` strict tests plus one skip;
+  ContractValidation, Ruff, Python compile, Compose configuration and the
+  deployment-evidence scan also passed.
+- The local RLS hardening boundary reported `blocked` because no live
+  production or separate disposable PostgreSQL URL was supplied; no
+  destructive production probe was attempted. The isolated PostgreSQL phases
+  completed successfully.
+- The in-app browser smoke used synthetic local data only: summary invitation
+  and full-recording recipient routes returned HTTP 200 with no console errors.
+  Live mailbox delivery, private meeting content and production deployment
+  were not used for this validation record.

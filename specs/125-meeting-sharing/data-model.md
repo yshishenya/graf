@@ -30,6 +30,9 @@ Rules:
   converted to a client-side authorization decision.
 - A direct mutation always re-evaluates the same policy on the server.
 - Defaults are internal authenticated, summary-only, view-only, invite-only.
+  Exact-email invitations use an explicit `full_meeting` recording preset in
+  the current rollout; it remains view-only and carries download/export
+  capabilities without creating workspace membership.
 
 ## 2. Meeting access grant
 
@@ -45,7 +48,7 @@ Relevant fields:
 - audit ownership: `created_by_user_id`, `revoked_by_user_id`, metadata-only
   `metadata_json`.
 
-Allowed first rollout invariant:
+Allowed internal default invariant:
 
 ```text
 audience_type = user
@@ -89,7 +92,9 @@ Fields and rules:
   response; raw grant token is never written to logs, analytics or metadata
   audit;
 - `content_scope`, `can_download`, `can_export`: domain service must enforce
-  summary-only view for external invitations, independently of request schema;
+  either summary-only view or the explicit full-recording preset for external
+  invitations, independently of request schema. `full_meeting` requires both
+  `can_download` and `can_export`;
 - `expires_at`: required bounded TTL;
 - `resolved_user_id`: identity created/located only after exact verified-address
   acceptance.
@@ -98,7 +103,10 @@ An accepted invitation does not create membership. It creates or updates a user
 grant with a separate recipient-bound token, the invitation scope and bounded
 expiry. The invitation exchange is idempotent for the same exact verified
 recipient until expiry: it returns the same grant URL without rotating it. A
-different verified identity cannot replay the exchange.
+different verified identity cannot replay the exchange. A full external grant
+is rendered through an owner-workspace-scoped recipient page and rechecks
+identity, grant lifecycle and egress policy for every page/playback/download/
+export request; no calendar/service/revision metadata is added to that page.
 
 ## 4. Recipient suggestion
 

@@ -15,7 +15,7 @@
   {% endif %}
   {% if audio_download_available %}
     <a class="meeting-action-item" role="menuitem" tabindex="-1"
-       href="/api/v1/cabinet/meetings/{{ meeting_id }}/downloads/audio">
+       href="{{ audio_download_href }}">
       <span class="meeting-action-item__icon">{{ icons.icon("audio") }}</span>
       <span class="meeting-action-item__body">
         <strong>Скачать аудио…</strong>

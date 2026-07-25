@@ -24,14 +24,14 @@
 
 ## Trust and visual quality
 
-- [x] Summary-only default and exclusions are understandable in Russian
+- [x] Internal summary-only default and explicit external recording package are understandable in Russian
 - [x] Sent/delivered wording does not overpromise mailbox delivery
 - [x] Calendar/address-book source and freshness are visible without implying consent
-- [x] Email and recipient surfaces exclude transcript/audio/summary content
+- [x] Email and pre-auth surfaces exclude transcript/audio/summary content; the authenticated recipient page shows only the granted package
 - [x] Visual direction remains original GRAF clean-room UI and requires product-design review
 - [x] Anonymous invitation clearly explains automatic personal-account bootstrap,
-  one-time magic-link access and summary-only scope without exposing a sign-up
-  form or password step
+  one-time magic-link access and the granted summary/recording scope without
+  exposing a sign-up form or password step
 - [x] Share confirmation distinguishes invitation creation from mailbox delivery
   and explains that an existing account is reused while a new account receives a
   separate notification

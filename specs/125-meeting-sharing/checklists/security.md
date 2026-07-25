@@ -55,9 +55,10 @@ testable before implementation and rollout
   hour; duplicate active invitations are fenced by normalized identity hash,
   meeting and a partial unique index.
 - Contract/integration evidence covers token URL/log/referrer scrubbing,
-  summary-only email content, exact verified-recipient acceptance, bounded
-  expiry, revoke and deletion rechecks. Public links, contacts and referral
-  attribution remain disabled.
+  metadata-only email and pre-auth landing content, exact verified-recipient
+  acceptance, the full recording page/egress rechecks, bounded expiry, revoke
+  and deletion. Public links, contacts and referral attribution remain
+  disabled.
 
 ## Notes
 

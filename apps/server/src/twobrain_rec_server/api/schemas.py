@@ -1496,9 +1496,11 @@ class CreateMeetingShareInvitationRequest(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def require_safe_external_scope(self) -> Self:
-        if self.content_scope != "summary_only" or self.can_download or self.can_export:
-            raise ValueError("external invitations support summary-only view access")
+    def require_complete_external_scope(self) -> Self:
+        if self.content_scope == "summary_only" and (self.can_download or self.can_export):
+            raise ValueError("summary invitations cannot include recording artifacts")
+        if self.content_scope == "full_meeting" and (not self.can_download or not self.can_export):
+            raise ValueError("recording invitations require download and export access")
         return self
 
 
@@ -1564,6 +1566,7 @@ class ShareInvitationView(BaseModel):
     status: ShareInvitationStatus
     created_at: datetime
     expires_at: datetime
+    content_scope: ShareContentScope = "summary_only"
     display_label: str = "Приглашение"
 
 

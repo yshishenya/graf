@@ -1,15 +1,18 @@
 import asyncio
 import re
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
+import twobrain_rec_server.cabinet.web_routes.browser as browser_routes
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
-from tests.fixtures.cabinet import seed_cabinet_meetings
+from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, seed_cabinet_meetings
 from tests.fixtures.cabinet_access import (
     SHARED_USER_ID,
+    add_retained_playback_m4a,
     add_workspace_user,
     auth_headers_for,
     set_artifact_policy,
@@ -18,6 +21,7 @@ from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.cabinet.access import (
     create_share_invitation,
     open_invitation_delivery,
+    revoke_share_grant,
     revoke_share_invitation,
 )
 from twobrain_rec_server.db.models import (
@@ -502,9 +506,9 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(c
         headers={"Accept": "text/html"},
     )
     assert anonymous_preview.status_code == 200
-    assert "Вам открыли итоги встречи" in anonymous_preview.text
+    assert "Итоги встречи доступны" in anonymous_preview.text
     assert raw_token not in anonymous_preview.text
-    assert "Открыть GRAF и итоги" in anonymous_preview.text
+    assert "Открыть итоги" in anonymous_preview.text
     state_match = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', anonymous_preview.text)
     assert state_match is not None
     recipient_headers = auth_headers_for(
@@ -662,7 +666,7 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
     state = state_match.group(1)
     magic_csrf_match = re.search(r'name="magic_csrf" value="([^\"]+)"', preview.text)
     assert magic_csrf_match is not None
-    assert "Открыть GRAF и итоги" in preview.text
+    assert "Открыть итоги" in preview.text
     assert "Войти и открыть итоги" not in preview.text
 
     rejected_csrf = client.post(
@@ -736,6 +740,178 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
     assert grant.can_export is False
     assert invitation.account_created_email_status == "failed"
     assert invitation.account_created_email_failure_code == "postal_delivery_disabled"
+
+
+def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(client, tmp_path) -> None:
+    seeds = seed_cabinet_meetings(client)
+    audio_body = add_retained_playback_m4a(client, seeds.ready_id, b"shared-recording-m4a")
+    set_artifact_policy(
+        client,
+        seeds.ready_id,
+        audio_download="allowed",
+        transcript_download="allowed",
+        summary_download="allowed",
+        package_export="allowed",
+    )
+    recipient_email = "recording-invitee@example.com"
+    key = Fernet.generate_key()
+    key_path = tmp_path / "full-share.key"
+    key_path.write_bytes(key)
+    client.app.state.settings.credential_encryption_key_file = key_path
+
+    async def seed_invitation() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, seeds.ready_id)
+            assert meeting is not None
+            invitation = await create_share_invitation(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting=meeting,
+                actor_user_id=USER_ID,
+                device_id=DEVICE_ID,
+                address=recipient_email,
+                content_scope="full_meeting",
+                can_download=True,
+                can_export=True,
+                encryption_key=key,
+                ttl_seconds=3600,
+            )
+            _, token = open_invitation_delivery(
+                invitation.encrypted_delivery_address,
+                key=key,
+            )
+            await db.commit()
+            return token
+
+    raw_token = asyncio.run(seed_invitation())
+    preview = client.get(
+        f"/share-invitations/{raw_token}?workspace_id={WORKSPACE_ID}",
+        headers={"Accept": "text/html"},
+    )
+    assert preview.status_code == 200
+    assert "Запись встречи доступна" in preview.text
+    assert "Открыть запись" in preview.text
+    assert "Открыть итоги" not in preview.text
+    state = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', preview.text)
+    magic_csrf = re.search(r'name="magic_csrf" value="([^\"]+)"', preview.text)
+    assert state is not None and magic_csrf is not None
+
+    magic = client.post(
+        "/share-invitations/continue/magic",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        data={"state": state.group(1), "magic_csrf": magic_csrf.group(1)},
+        follow_redirects=False,
+    )
+    assert magic.status_code == 303
+    shared_url = magic.headers["location"]
+    assert shared_url == f"/shared-meetings/{seeds.ready_id}?workspace_id={WORKSPACE_ID}"
+    session_cookie = magic.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    assert session_cookie
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
+
+    page = client.get(shared_url, headers={"Accept": "text/html"})
+    assert page.status_code == 200
+    assert "Итоги" in page.text
+    assert "Расшифровка" in page.text
+    assert SAFE_TRANSCRIPT_TEXT in page.text
+    assert f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/playback" in page.text
+    assert f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/downloads/audio" in page.text
+    assert f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/content-exports" in page.text
+    assert 'data-media-revision-id=""' in page.text
+    assert "Сведения о встрече" not in page.text
+
+    playback = client.get(
+        f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/playback",
+        params={"workspace_id": str(WORKSPACE_ID)},
+    )
+    assert playback.status_code == 200
+    assert playback.content == audio_body
+
+    download = client.get(
+        f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/downloads/audio",
+        params={"workspace_id": str(WORKSPACE_ID)},
+    )
+    assert download.status_code == 200
+    assert download.content == audio_body
+    assert "attachment" in download.headers["content-disposition"]
+
+    capabilities = client.get(
+        f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/content-exports",
+        params={"workspace_id": str(WORKSPACE_ID)},
+    )
+    assert capabilities.status_code == 200
+    assert capabilities.json()["transcript"]["state"] == "available"
+
+    async def revoke_grant() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            identity = await db.scalar(
+                select(ExternalIdentity).where(ExternalIdentity.email == recipient_email)
+            )
+            assert identity is not None
+            grant = await db.scalar(
+                select(MeetingShareGrant).where(
+                    MeetingShareGrant.workspace_id == WORKSPACE_ID,
+                    MeetingShareGrant.meeting_id == seeds.ready_id,
+                    MeetingShareGrant.audience_id == identity.user_id,
+                    MeetingShareGrant.status == "active",
+                )
+            )
+            meeting = await db.get(Meeting, seeds.ready_id)
+            assert grant is not None and meeting is not None
+            await revoke_share_grant(
+                db,
+                workspace_id=WORKSPACE_ID,
+                meeting=meeting,
+                actor_user_id=USER_ID,
+                device_id=DEVICE_ID,
+                grant_id=grant.id,
+            )
+            await db.commit()
+
+    asyncio.run(revoke_grant())
+    assert client.get(shared_url, headers={"Accept": "text/html"}).status_code == 404
+    assert (
+        client.get(
+            f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/downloads/audio",
+            params={"workspace_id": str(WORKSPACE_ID)},
+        ).status_code
+        == 404
+    )
+
+
+def test_account_created_notification_failure_cannot_break_committed_acceptance(monkeypatch) -> None:
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                settings=SimpleNamespace(email_login_delivery_enabled=True),
+                temporal_client=object(),
+            )
+        )
+    )
+
+    async def fail_workflow_start(**_kwargs):
+        raise RuntimeError("synthetic workflow outage")
+
+    async def fail_status_update(**_kwargs):
+        raise RuntimeError("synthetic status-store outage")
+
+    monkeypatch.setattr(browser_routes, "start_account_created_email_workflow", fail_workflow_start)
+    monkeypatch.setattr(
+        browser_routes,
+        "_mark_account_created_email_dispatch_failure",
+        fail_status_update,
+    )
+
+    asyncio.run(
+        browser_routes._dispatch_account_created_email(
+            request,
+            sessionmaker=object(),
+            invitation_id=USER_ID,
+            workspace_id=WORKSPACE_ID,
+            organization_id=ORG_ID,
+            user_id=USER_ID,
+        )
+    )
 
 
 def test_enabled_broader_audiences_have_no_dead_share_paths(client) -> None:

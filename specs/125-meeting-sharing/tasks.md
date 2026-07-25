@@ -162,6 +162,28 @@ server-side contact index.
 - [X] T065 Refine the Share modal copy, hierarchy, confirmation state and delivery status while preserving the existing GRAF UI tokens, native dialog, keyboard combobox, focus restore and browser/embedded parity in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_share.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`
 - [X] T066 Add synthetic regression coverage for magic-link CSRF/replay/exact-recipient behavior, automatic account creation, account-created email content/delivery state, migration/model contracts and Share modal accessibility/copy in `apps/server/tests/`
 - [X] T067 Run focused Feature 125 checks, `git diff --check`, `infra/scripts/ci-local.sh`, security/UX/code/Ponytail reviews and update `CHANGELOG.md` with validation evidence; do not commit or deploy without explicit approval
+
+## Phase 13 — Invitation acceptance recovery and first-value copy
+
+- [X] T068 Make post-commit account-created notification bookkeeping best-effort so it cannot turn a successful summary acceptance into HTTP 500, and shorten the anonymous invitation landing page to one direct `Открыть итоги` action without changing the explicit CSRF-bound POST or summary-only scope in `apps/server/src/twobrain_rec_server/cabinet/web_routes/browser.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html`, `apps/server/tests/contract/test_recording_share_invitation_contract.py`, `apps/server/tests/contract/test_recording_share_ui_contract.py`, `apps/server/tests/integration/test_recording_share_public_link.py`, and `specs/125-meeting-sharing/`
+## Phase 14 — Full recording package for exact-email recipients
+
+**Story goal**: an explicitly invited exact-email recipient receives a bounded
+recording result surface—summary, timestamped transcript, playback, canonical
+audio download and combined summary+transcript export—without workspace
+membership or internal meeting metadata.
+
+**Independent test**: accept a synthetic `full_meeting` invitation, follow the
+stable recipient-bound page, exercise each permitted egress route, then revoke
+the grant and confirm the page and egress routes block the next request.
+
+- [X] T069 [P] Add contract and delivery-copy coverage for the `full_meeting` external preset, required download/export flags, metadata-only email and `Открыть запись` acceptance in `apps/server/tests/contract/test_recording_share_invitation_contract.py`, `apps/server/tests/contract/test_recording_share_ui_contract.py`, and `apps/server/tests/unit/test_email_login_delivery.py`
+- [X] T070 [P] Add synthetic integration coverage for full invitation bootstrap, no owner-workspace membership, stable recipient page, transcript/playback/audio/content-export routes and revoke rechecks in `apps/server/tests/integration/test_recording_share_public_link.py`
+- [X] T071 [P] Extend external invitation domain/schema/workflow delivery to carry `full_meeting` with `can_download=true` and `can_export=true`, while retaining summary-only compatibility and fail-closed scope validation in `apps/server/src/twobrain_rec_server/cabinet/access.py`, `apps/server/src/twobrain_rec_server/api/schemas.py`, `apps/server/src/twobrain_rec_server/auth/email_delivery.py`, and `apps/server/src/twobrain_rec_server/workflows/worker.py`
+- [X] T072 Add owner-workspace-scoped recipient page and playback/download/content-export routes that reuse existing authorization, canonical audio and revision-pinned export authorities with exact-recipient, expiry, revoke, deletion and policy rechecks in `apps/server/src/twobrain_rec_server/cabinet/web_routes/browser.py`, `apps/server/src/twobrain_rec_server/api/cabinet.py`, and `apps/server/src/twobrain_rec_server/cabinet/queries.py`
+- [X] T073 Render the external recording result surface with hidden workspace/calendar/service metadata, shared egress URLs and explicit summary/transcript/playback/download/export copy in `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_governance.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_share.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T074 Record the full-recording package contract, security/UX gates, synthetic validation evidence, current product status and Russian changelog in `specs/125-meeting-sharing/`, `docs/current-product-status.md`, and `CHANGELOG.md`; run focused tests, `git diff --check` and repository CI before requesting approval
+
 ## Dependencies and execution order
 
 ```text
@@ -182,7 +204,10 @@ T029–T036 (US4 internal/calendar)
    ↓
    T053–T060 (post-review hardening and production delivery hotfix)
    ↓
-   T061–T067 (magic-link acceptance, notification delivery and Share UX)
+   T061–T068 (magic-link acceptance, notification delivery, Share UX and
+   invitation-acceptance recovery)
+   ↓
+   T069–T074 (full recording package for exact-email recipients)
 ```
 
 Parallel examples:
@@ -204,9 +229,11 @@ Parallel examples:
 5. Enable only the exact-email portion of US2 after security, delivery,
    privacy, retention and deletion evidence; keep US5/address-book/provider
    extensions gated until their own approvals.
-6. Update `CHANGELOG.md`, run clean-room/product-design/Ponytail review and the
-   repository gate. No implementation commit or deploy is created without
-   explicit user approval after validation.
+6. Add the explicit exact-email full-recording package only after the existing
+   internal and summary gates remain green. Update `CHANGELOG.md`, run
+   clean-room/product-design/Ponytail review and the repository gate. No
+   implementation commit or deploy is created without explicit user approval
+   after validation.
 
 ## Requirement coverage map
 
@@ -214,7 +241,7 @@ Parallel examples:
 |---|---|
 | FR-001–FR-005 capability, explicit Share, default summary/view | T012–T020 |
 | FR-006–FR-010 identity input, bounded search, capability-gated delivery, invitation lifecycle | T004–T008, T012–T020, T037–T041 |
-| FR-011–FR-017 scope, egress separation, access management, privacy errors | T006–T010, T021–T028, T037–T040 |
+| FR-011–FR-017 scope, egress separation, access management, privacy errors | T006–T010, T021–T028, T037–T040, T069–T073 |
 | FR-018–FR-023 audit, safe email, CTA/attribution, funnel and abuse limits | T005–T011, T037–T045 |
 | FR-024–FR-027 calendar/contact sources and permission states | T029–T036, T046–T048 |
 | FR-028 accessibility, parity and narrow viewport | T016–T020, T025–T026, T034–T036, T050 |
@@ -222,7 +249,7 @@ Parallel examples:
 | FR-036–FR-038 participant share, auto-share and Shared with me | Spec/research/contract design; future gated implementation slice |
 | FR-039–FR-041 pre-read, team access and channel/calendar distribution | Spec/data-model/contract design; future gated implementation slice |
 | FR-042 metadata-only adoption analytics | T042–T045 plus the metadata-only adoption contract |
-| SC-001–SC-005 capability, lifecycle, authorization and content safety | T004–T028, T037–T041, T052 |
+| SC-001–SC-005 capability, lifecycle, authorization and content safety | T004–T028, T037–T041, T052, T069–T074 |
 | SC-006–SC-007 search latency and contact side-effect safety | T029–T036, T048, T052 |
 | SC-008–SC-009 funnel idempotency and abuse limits | T038–T045, T052 |
 | SC-010–SC-012 parity, rollback and owner comprehension | T019–T020, T028, T036, T040–T052 |

@@ -779,6 +779,106 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertEqual(uploadingSummary.title, "Отправляем запись")
     }
 
+    func testLocalRecordingProgressIsBoundedAndOnlyActive() throws {
+        let zero = uploadItem(
+            id: "zero-progress",
+            state: .uploading,
+            updatedAt: Date(timeIntervalSince1970: 22)
+        )
+        let partial = uploadItem(
+            id: "partial-progress",
+            state: .uploading,
+            updatedAt: Date(timeIntervalSince1970: 23),
+            serverTruth: ServerTruthFingerprint(
+                acceptedBytesByTrack: [
+                    "microphone": 64,
+                    "system": 96
+                ]
+            )
+        )
+        let full = uploadItem(
+            id: "full-progress",
+            state: .uploading,
+            updatedAt: Date(timeIntervalSince1970: 24),
+            serverTruth: ServerTruthFingerprint(
+                acceptedBytesByTrack: [
+                    "manifest": 64,
+                    "microphone": 128,
+                    "system": 128
+                ]
+            )
+        )
+        let queued = uploadItem(
+            id: "queued-with-stale-progress",
+            state: .queued,
+            updatedAt: Date(timeIntervalSince1970: 25),
+            serverTruth: full.serverTruth
+        )
+        let uploaded = uploadItem(
+            id: "uploaded",
+            state: .uploaded,
+            updatedAt: Date(timeIntervalSince1970: 26),
+            serverTruth: full.serverTruth
+        )
+        let unknownTotal = uploadItem(
+            id: "unknown-total",
+            state: .uploading,
+            updatedAt: Date(timeIntervalSince1970: 27),
+            serverTruth: ServerTruthFingerprint(expectedTrackRoles: ["unknown"])
+        )
+
+        XCTAssertEqual(try XCTUnwrap(DesktopMeetingShellLocalQueuePolicy.measuredProgress(for: zero)), 0)
+        XCTAssertEqual(try XCTUnwrap(DesktopMeetingShellLocalQueuePolicy.measuredProgress(for: partial)), 0.5, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(DesktopMeetingShellLocalQueuePolicy.measuredProgress(for: full)), 1)
+        XCTAssertNil(DesktopMeetingShellLocalQueuePolicy.measuredProgress(for: queued))
+        XCTAssertNil(DesktopMeetingShellLocalQueuePolicy.measuredProgress(for: uploaded))
+        XCTAssertNil(DesktopMeetingShellLocalQueuePolicy.measuredProgress(for: unknownTotal))
+    }
+
+    func testLocalRecordingProgressCopySeparatesFinalizationAndAccessiblePercent() throws {
+        let uploading = uploadItem(
+            id: "finalizing",
+            state: .uploading,
+            updatedAt: Date(timeIntervalSince1970: 28),
+            serverTruth: ServerTruthFingerprint(
+                acceptedBytesByTrack: [
+                    "manifest": 64,
+                    "microphone": 128,
+                    "system": 128
+                ]
+            )
+        )
+        let partial = uploadItem(
+            id: "accessible-partial",
+            state: .uploading,
+            updatedAt: Date(timeIntervalSince1970: 29),
+            serverTruth: ServerTruthFingerprint(acceptedBytesByTrack: ["microphone": 64])
+        )
+
+        XCTAssertEqual(
+            DesktopMeetingShellLocalQueuePolicy.progressDetail(for: uploading),
+            "Файлы переданы. Проверяем запись перед просмотром."
+        )
+        XCTAssertEqual(
+            DesktopMeetingShellLocalQueuePolicy.progressAccessibilityLabel(for: uploading),
+            "Отправка записи: 100 процентов."
+        )
+        XCTAssertEqual(
+            DesktopMeetingShellLocalQueuePolicy.progressAccessibilityLabel(for: partial),
+            "Отправка записи: 20 процентов."
+        )
+        XCTAssertNil(
+            DesktopMeetingShellLocalQueuePolicy.progressAccessibilityLabel(
+                for: uploadItem(
+                    id: "unmeasured-copy",
+                    state: .uploading,
+                    updatedAt: Date(timeIntervalSince1970: 30),
+                    serverTruth: ServerTruthFingerprint(expectedTrackRoles: ["unknown"])
+                )
+            )
+        )
+    }
+
     func testUploadSummaryAccessibilityUsesCustodyLanguage() throws {
         let auth = uploadItem(
             id: "auth-required",
