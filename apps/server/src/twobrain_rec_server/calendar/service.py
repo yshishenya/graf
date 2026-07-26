@@ -15,7 +15,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingCalendarContextResponse,
 )
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.cabinet.access import decide_meeting_access
+from twobrain_rec_server.cabinet.access import ShareRecipientAccessProof, decide_meeting_access
 from twobrain_rec_server.calendar.audit import (
     calendar_match_audit_metadata,
     write_calendar_audit_event,
@@ -735,6 +735,7 @@ async def get_meeting_calendar_context_response(
     workspace_id: UUID,
     viewer_user_id: UUID,
     meeting_id: UUID,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> MeetingCalendarContextResponse:
     """Project one authorization-aware, metadata-bounded context response."""
 
@@ -751,6 +752,7 @@ async def get_meeting_calendar_context_response(
         meeting,
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
+        recipient_proof=recipient_proof,
     )
     if not access.can_view:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")

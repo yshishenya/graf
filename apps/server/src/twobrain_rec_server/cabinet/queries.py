@@ -972,6 +972,7 @@ async def get_cabinet_meeting_review(
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
         meeting_id=meeting_id,
+        recipient_proof=recipient_proof,
     )
     if include_calendar_correction_candidates and calendar_context_detail.can_change:
         correction_candidates = await list_owner_context_correction_candidates(
@@ -1097,6 +1098,7 @@ async def get_meeting_calendar_context_read_model(
     workspace_id: UUID,
     viewer_user_id: UUID,
     meeting_id: UUID,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> MeetingCalendarContextResponse:
     """Return current context plus one independently authorized series pointer."""
 
@@ -1105,6 +1107,7 @@ async def get_meeting_calendar_context_read_model(
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
         meeting_id=meeting_id,
+        recipient_proof=recipient_proof,
     )
     current_link = await _calendar_context_link(
         db,
@@ -1117,6 +1120,7 @@ async def get_meeting_calendar_context_read_model(
         viewer_user_id=viewer_user_id,
         meeting_id=meeting_id,
         current_link=current_link,
+        recipient_proof=recipient_proof,
     )
     return response.model_copy(update={"previous_recurring_meeting": previous})
 
@@ -1128,6 +1132,7 @@ async def _previous_recurring_meeting(
     viewer_user_id: UUID,
     meeting_id: UUID,
     current_link: RecordingCalendarContextLink | None,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> PreviousRecurringMeetingView | None:
     if (
         current_link is None
@@ -1169,6 +1174,7 @@ async def _previous_recurring_meeting(
         previous_meeting,
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
+        recipient_proof=recipient_proof,
     )
     if not access.can_view or previous_meeting.started_at is None:
         return None
