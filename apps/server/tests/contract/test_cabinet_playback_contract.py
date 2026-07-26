@@ -27,7 +27,8 @@ def test_ready_detail_reports_automatic_preparation_until_m4a_artifact_exists(cl
     audio_artifact = next(
         artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio"
     )
-    assert audio_artifact["state"] == "policy_blocked"
+    assert audio_artifact["state"] == "missing"
+    assert audio_artifact["reason"] == "missing_playback_artifact"
     assert audio_artifact["action"] == "disabled"
 
 

@@ -12,13 +12,18 @@
 - _Пока нет записей._
 
 ### Изменено
-- _Пока нет записей._
+- Владелец встречи получает скачивание готового аудио по умолчанию при implicit
+  `meeting_default` или `workspace_default`; явный `meeting_override` deny и
+  доступ permitted non-owner остаются ограниченными.
 
 ### Исправлено
-- _Пока нет записей._
+- Исправлен тихий отказ/HTTP 409 для owner audio download при текущем
+  `workspace_default=disabled`; web и embedded cabinet используют прежний
+  server-mediated маршрут.
 
 ### Безопасность
-- _Пока нет записей._
+- Owner-default применяется только к audio download; transcript, summary,
+  package, deletion, validated-artifact и metadata-only audit gates сохранены.
 
 ### Документы
 - _Пока нет записей._

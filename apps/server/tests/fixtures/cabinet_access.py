@@ -177,6 +177,7 @@ def set_artifact_policy(
     transcript_download: str = "disabled",
     summary_download: str = "disabled",
     package_export: str = "disabled",
+    policy_source: str = "test_fixture",
 ) -> None:
     asyncio.run(
         _set_artifact_policy(
@@ -186,6 +187,7 @@ def set_artifact_policy(
             transcript_download=transcript_download,
             summary_download=summary_download,
             package_export=package_export,
+            policy_source=policy_source,
         )
     )
 
@@ -198,6 +200,7 @@ async def _set_artifact_policy(
     transcript_download: str,
     summary_download: str,
     package_export: str,
+    policy_source: str,
 ) -> None:
     async with client.app_state["sessionmaker"]() as db:
         policy = MeetingArtifactPolicy(
@@ -207,7 +210,7 @@ async def _set_artifact_policy(
             transcript_download=transcript_download,
             summary_download=summary_download,
             package_export=package_export,
-            policy_source="test_fixture",
+            policy_source=policy_source,
         )
         db.add(policy)
         await db.commit()

@@ -50,7 +50,7 @@ reported:
 - `traceback_matches=0`;
 - `error_level_matches=0`.
 
-No user invitation token, email address, meeting content, audio or transcript
+No user invitation token, email address, meeting material, audio or transcript
 was replayed or recorded in evidence.
 
 ## Public update artifacts

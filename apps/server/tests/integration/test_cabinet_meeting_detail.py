@@ -63,8 +63,8 @@ def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance
     audio_artifact = next(
         artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio"
     )
-    assert audio_artifact["state"] == "policy_blocked"
-    assert audio_artifact["action"] == "disabled"
+    assert audio_artifact["state"] == "available"
+    assert audio_artifact["action"] == "download"
     assert {speaker["label"] for speaker in payload["speakers"]["speakers"]} == {
         "SPEAKER_00",
         "SPEAKER_01",
@@ -380,7 +380,7 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert "Файлы" in ready.text
     assert 'class="playback-bar detail-playback"' in ready.text
     assert f'src="/api/v1/cabinet/meetings/{seeds.ready_id}/playback"' in ready.text
-    assert "/downloads/audio" not in ready.text
+    assert f'href="/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio"' in ready.text
     assert processing.status_code == 200
     assert "Транскрипт готовится" in processing.text
     assert "Итоги готовятся" in processing.text
@@ -446,7 +446,23 @@ def test_cabinet_embedded_ready_detail_keeps_playback_and_seek_controls(client) 
     assert 'class="timestamp timestamp-seek"' in response.text
     assert 'data-seek-seconds="0.0"' in response.text
     assert 'data-seek-seconds="12.5"' in response.text
-    assert "/downloads/audio" not in response.text
+    assert f'href="/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio"' in response.text
+    assert "Скачать аудио…" in response.text
+
+
+def test_cabinet_owner_default_audio_download_has_web_embedded_parity(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A parity")
+
+    responses = {
+        "web": client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers()),
+        "embedded": client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers()),
+    }
+
+    for surface, response in responses.items():
+        assert response.status_code == 200, surface
+        assert f'href="/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio"' in response.text
+        assert "Скачать аудио…" in response.text
 
 
 def test_098_ambiguous_owner_detail_renders_safe_chooser_with_web_embedded_parity(client) -> None:
