@@ -50,8 +50,8 @@ reported:
 - `traceback_matches=0`;
 - `error_level_matches=0`.
 
-No user invitation token, email address, meeting content, audio or transcript
-was replayed or recorded in evidence.
+Evidence used aggregate metadata only and did not replay or record any
+user-specific payload.
 
 ## Public update artifacts
 
