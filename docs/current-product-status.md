@@ -361,6 +361,21 @@ outcome generation с одним явно открытым GEPA gate.
 Эта сверка не закрывает general-release, security или representative-reviewer
 gates.
 
+## Feature 129 — invitation magic-link RLS hotfix
+
+- Production investigation установил источник HTTP 500: pending
+  `auth_audit_events` flushed после переключения из personal workspace в
+  workspace встречи.
+- Исправление добавляет один flush в существующей AsyncSession до смены
+  контекста; RLS policy и authorization boundaries не ослаблены, новой
+  migration нет.
+- Focused invitation matrix (`23 passed`), strict-RLS regression и полный
+  `infra/scripts/ci-local.sh` прошли: macOS `640`, server `2440 passed / 1
+  skipped`, strict PostgreSQL `42 passed / 1 skipped`, lint/compile/Compose/
+  evidence scan — `PASS`.
+- PR/release/deploy остаются отдельными gates; production fix не заявляется
+  до проверки immutable deploy SHA и sanitized post-deploy logs.
+
 Feature `114-support-incident-diagnostics` реализована и merged через
 [PR #4068](https://github.com/yshishenya/crisp/pull/4068): v2 metadata-only
 report связывает client/server correlation, canonical stage/problem, bounded

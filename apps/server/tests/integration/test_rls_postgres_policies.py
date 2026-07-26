@@ -37,6 +37,7 @@ from twobrain_rec_server.db.models import (
     IngestAuditEvent,
     MediaRevision,
     Meeting,
+    MeetingShareRateLimitBucket,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
     TemporaryUploadObject,
@@ -1092,6 +1093,73 @@ async def test_active_space_switch_replaces_session_inside_rls_context(rls_engin
 
     assert source_status == "replaced"
     assert replacement_count == 1
+
+
+@pytest.mark.asyncio
+async def test_share_magic_link_flushes_audit_before_source_workspace_context(
+    rls_engine: AsyncEngine,
+    app_rls_engine: AsyncEngine,
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    sessionmaker = async_sessionmaker(app_rls_engine, expire_on_commit=False)
+    personal_context = _request_context(ids, "a")
+    source_context = _request_context(ids, "b")
+    action_key = f"share_magic_regression_{ids['slug']}"
+    event_type = f"email_auth_completed_{ids['slug']}"
+
+    async with sessionmaker() as db:
+        await apply_tenant_context(db, personal_context)
+        db.add(
+            AuthAuditEvent(
+                workspace_id=ids["workspace_a"],
+                user_id=ids["user_a"],
+                actor_user_id=ids["user_a"],
+                event_type=event_type,
+                provider="email",
+                outcome="success",
+                metadata_json={"flow": "share_magic_link"},
+            )
+        )
+        await apply_tenant_context(db, source_context)
+        db.add(
+            MeetingShareRateLimitBucket(
+                workspace_id=ids["workspace_b"],
+                user_id=ids["user_b"],
+                device_id=ids["device_b"],
+                action_key=action_key,
+                window_started_at=datetime.now(UTC),
+            )
+        )
+        with pytest.raises(DBAPIError, match="row-level security|violates"):
+            await db.flush()
+        await db.rollback()
+
+    async with sessionmaker() as db:
+        await apply_tenant_context(db, personal_context)
+        db.add(
+            AuthAuditEvent(
+                workspace_id=ids["workspace_a"],
+                user_id=ids["user_a"],
+                actor_user_id=ids["user_a"],
+                event_type=event_type,
+                provider="email",
+                outcome="success",
+                metadata_json={"flow": "share_magic_link"},
+            )
+        )
+        await db.flush()
+        await apply_tenant_context(db, source_context)
+        db.add(
+            MeetingShareRateLimitBucket(
+                workspace_id=ids["workspace_b"],
+                user_id=ids["user_b"],
+                device_id=ids["device_b"],
+                action_key=action_key,
+                window_started_at=datetime.now(UTC),
+            )
+        )
+        await db.flush()
+        await db.rollback()
 
 
 @pytest.mark.asyncio

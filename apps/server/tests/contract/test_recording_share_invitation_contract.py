@@ -116,6 +116,52 @@ def test_invitation_acceptance_uses_a_separate_grant_token_and_safe_onboarding_c
     assert "audio" not in rendered.lower()
 
 
+def test_magic_link_flushes_email_audit_before_switching_workspace() -> None:
+    browser_source = Path(
+        "src/twobrain_rec_server/cabinet/web_routes/browser.py"
+    ).read_text(encoding="utf-8")
+    magic_link = browser_source.split(
+        "async def share_invitation_magic_link", 1
+    )[1].split(
+        '@router.get("/share-invitations/{share_token}"', 1
+    )[0]
+    audit_offset = magic_link.index("await _record_email_login_audit(")
+    after_audit = magic_link[audit_offset:]
+    flush_offset = after_audit.index("await session.flush()")
+    context_switch_offset = after_audit.index("await apply_tenant_context(")
+
+    assert flush_offset < context_switch_offset
+    assert "no_autoflush" not in after_audit
+
+    rls_migration = Path(
+        "src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py"
+    ).read_text(encoding="utf-8")
+    assert '"auth_audit_events":' in rls_migration
+    assert "workspace_id = rec_current_workspace_id()" in rls_migration
+
+
+def test_invitation_notification_failure_stays_after_commit_and_bounded() -> None:
+    browser_source = Path(
+        "src/twobrain_rec_server/cabinet/web_routes/browser.py"
+    ).read_text(encoding="utf-8")
+    magic_link = browser_source.split(
+        "async def share_invitation_magic_link", 1
+    )[1].split(
+        '@router.get("/share-invitations/{share_token}"', 1
+    )[0]
+    committed = magic_link.index("await session.commit()")
+    notification = magic_link.index("await _dispatch_account_created_email(", committed)
+    assert committed < notification
+
+    dispatcher = browser_source.split(
+        "async def _dispatch_account_created_email", 1
+    )[1].split(
+        '@router.post("/share-invitations/continue/magic"', 1
+    )[0]
+    assert "except Exception:" in dispatcher
+    assert "Access is already committed" in dispatcher
+
+
 def test_full_invitation_contract_exposes_recording_package_without_workspace_membership() -> None:
     browser_source = Path("src/twobrain_rec_server/cabinet/web_routes/browser.py").read_text(
         encoding="utf-8"
