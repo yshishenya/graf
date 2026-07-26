@@ -15,16 +15,24 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Исправлен HTTP 500 при первом входе нового получателя по invitation
+  magic-link: auth-аудит теперь flushed в personal workspace до переключения
+  на workspace встречи, поэтому production RLS не получает pending row из
+  другого tenant-контекста.
 
 ### Безопасность
-- _Пока нет записей._
+- RLS policy, exact-recipient, CSRF, replay, expiry/revoke и post-commit
+  notification boundaries сохранены; обход policy и отключение autoflush не
+  добавлялись.
 
 ### Документы
-- _Пока нет записей._
+- Добавлены Feature 129 spec, strict-RLS regression и metadata-only
+  validation evidence.
 
 ### Операции
-- _Пока нет записей._
+- Focused invitation matrix: `23 passed`; полный `infra/scripts/ci-local.sh`:
+  macOS `640 passed`, server `2440 passed / 1 skipped`, strict PostgreSQL
+  `42 passed / 1 skipped`; lint, compile, Compose и evidence scan прошли.
 
 ## [2026.07.26.5] - 2026-07-26
 
