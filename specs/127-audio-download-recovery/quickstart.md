@@ -46,3 +46,11 @@ Local PostgreSQL integration tests запускать через предусм�
 - PASS — macOS focused tests: `DesktopCabinetConfigurationTests` 25 passed и `DesktopCabinetRoutePolicyTests` 14 passed.
 - PASS — `infra/scripts/ci-local.sh`: macOS 637 tests, server 2420 parallel + 41 strict (1 skipped), lint, compile, compose и deployment evidence scan.
 - Expected scope note — CI сообщил `rls_validation_result=blocked` для production enforcement probe, потому что no-deploy lane не предоставляет production database; это не блокирует локальные tests и не меняет egress policy.
+
+Дополнительная проверка после устранения серверного регресса: 2026-07-26.
+
+- PASS — artifact egress integration suite: 14 passed; сценарий stale text result + доступный playback M4A прошёл.
+- PASS — `ruff check` для изменённых server-файлов.
+- PASS — macOS focused tests: `DesktopCabinetConfigurationTests` 25 passed и `DesktopCabinetRoutePolicyTests` 14 passed.
+- PASS — `node --check` для cabinet JS и UI contract suite: 4 passed.
+- PASS — повторный `infra/scripts/ci-local.sh`: `ci_local_result=pass`, 2421 server-тест, 41 strict-тест, 637 macOS-тестов, lint, compile, compose и deployment evidence scan; production RLS probe ожидаемо blocked без production DB.
