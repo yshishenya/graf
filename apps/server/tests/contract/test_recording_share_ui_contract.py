@@ -30,6 +30,13 @@ def test_share_fragment_is_simple_first_and_accessible() -> None:
         REPO_ROOT
         / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html"
     ).read_text(encoding="utf-8")
+    invitation_page = (
+        REPO_ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html"
+    ).read_text(encoding="utf-8")
+    assert "data-share-invitation-auto-accept-form" in invitation_page
+    assert "Открываем запись" in invitation_page
+    assert "Открываем итоги" in invitation_page
     assert "Расшифровка и итоги" in (
         REPO_ROOT
         / "apps/server/src/twobrain_rec_server/cabinet/rendering.py"
@@ -60,4 +67,6 @@ def test_share_focus_and_isolated_styles_are_registered() -> None:
     assert "Отправить приглашение" in javascript
     assert "shareRequestErrorMessage" in javascript
     assert "Повторить" in javascript
+    assert "initShareInvitationAutoAccept" in javascript
+    assert "form.requestSubmit()" in javascript
     assert ".share-dialog" in CSS.read_text(encoding="utf-8")

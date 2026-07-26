@@ -22,7 +22,9 @@ testable before implementation and rollout
 - [x] URL/log/referrer/autocapture token leakage controls are explicitly required
 - [x] Delivery `sent`, `failed` and `outcome-unknown` meanings are distinct
 - [x] Anonymous invitation acceptance uses a one-time continuation, a
-  double-submit CSRF check and no bearer token in the form/login target
+  double-submit CSRF check and no bearer token in the form/login target; GET
+  only prepares the continuation and the browser auto-submit/fallback invokes
+  the existing POST
 - [x] The invited address is encrypted at rest, cleared after acceptance/revoke/
   expiry, and is never reconstructed from client-controlled identity input
 - [x] Automatic personal-account bootstrap and account-created notification are

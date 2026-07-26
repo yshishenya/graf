@@ -138,6 +138,7 @@ def render_share_invitation_accept_page(
     magic_action: str | None = None,
     magic_state: str | None = None,
     magic_csrf_token: str | None = None,
+    auto_accept: bool = False,
 ) -> str:
     return _page_shell(
         "Приглашение на встречу",
@@ -159,6 +160,7 @@ def render_share_invitation_accept_page(
         magic_action=magic_action,
         magic_state=magic_state,
         magic_csrf_token=magic_csrf_token,
+        auto_accept=auto_accept,
     )
 
 

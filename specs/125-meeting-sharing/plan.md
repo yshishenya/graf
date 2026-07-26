@@ -142,6 +142,18 @@ its playback, audio-download and content-export URLs are owner-workspace scoped
 and recheck the same recipient proof. Public link creation/resolution keeps the
 existing gates and remains disabled in this rollout.
 
+### Direct invitation-link acceptance
+
+Opening the one-time invitation URL is the recipient's explicit action. The GET
+route keeps its current safe exchange behavior: it validates the invitation,
+creates only a server-side continuation nonce and renders no meeting content.
+For an anonymous recipient the existing CSRF-bound magic-link form is marked for
+automatic submission by the deferred cabinet script; JavaScript-disabled clients
+retain the single visible acceptance button. The POST remains the only path that
+creates/reuses the personal account, issues the session, accepts the grant and
+redirects to the permitted result. No new endpoint, dependency or persistence is
+needed.
+
 ### External recording package
 
 The UI sends one deliberate `full_meeting` external preset instead of exposing a
@@ -173,8 +185,8 @@ when `Shared with me` is sufficient. Retry must never rotate a grant token.
 3. Run contract tests for the fragment, capability projection, no-disabled-request
    behavior, returned Copy link, source labels, focus and privacy headers.
 4. Run integration tests for authorized meeting-bound search, internal grant,
-   recipient-bound resolution, revoke/rotation/expiry/deletion and parallel
-   duplicate actions.
+   recipient-bound resolution, direct invitation-link acceptance,
+   revoke/rotation/expiry/deletion and parallel duplicate actions.
 5. Run synthetic token/log/analytics negative tests, calendar side-effect tests,
    delivery-state tests and provider-disabled external invitation tests.
 6. Execute [quickstart.md](quickstart.md), including browser/embedded parity,
@@ -255,6 +267,18 @@ email provider or a new database table in this slice.
   existing GRAF cabinet tokens, focus management and browser/embedded parity;
 - keep standard non-invitation email login code-based, and keep public links,
   Contacts/provider lookup and referral attribution gated.
+
+### Phase 15 — Direct invitation-link acceptance
+
+- keep the invitation GET side-effect free while rendering only a minimal
+  transition shell and the existing one-time CSRF-bound POST form;
+- auto-submit that form when the invitation page is opened and preserve one
+  visible button for JavaScript-disabled clients;
+- keep the existing account, grant, session, expiry, revoke, deletion,
+  no-store/no-referrer and notification authorities unchanged;
+- validate that the anonymous page no longer displays the metadata preview and
+  that the first successful response is the permitted summary or
+  recipient-bound recording result.
 
 ### Phase 0 — Repair and hard safety invariants
 

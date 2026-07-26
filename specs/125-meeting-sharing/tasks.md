@@ -184,6 +184,21 @@ the grant and confirm the page and egress routes block the next request.
 - [X] T073 Render the external recording result surface with hidden workspace/calendar/service metadata, shared egress URLs and explicit summary/transcript/playback/download/export copy in `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_governance.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_share.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
 - [X] T074 Record the full-recording package contract, security/UX gates, synthetic validation evidence, current product status and Russian changelog in `specs/125-meeting-sharing/`, `docs/current-product-status.md`, and `CHANGELOG.md`; run focused tests, `git diff --check` and repository CI before requesting approval
 
+## Phase 15 — Direct invitation-link acceptance
+
+**Story goal**: opening a valid external invitation URL takes the recipient to
+the permitted result without an unnecessary metadata-preview screen while
+keeping GET side-effect free and the current exact-identity safeguards intact.
+
+**Independent test**: open a synthetic anonymous invitation URL, confirm the
+minimal shell contains no meeting metadata preview and auto-submits the existing
+CSRF-bound POST to the summary or recipient-bound recording result; disable
+JavaScript and confirm the single fallback button performs the same action.
+
+- [X] T075 [P] Add contract and integration assertions for the direct-link shell, no metadata preview, one JavaScript-disabled fallback action, raw-token hygiene and POST-only magic-link acceptance in `apps/server/tests/contract/test_recording_share_invitation_contract.py`, `apps/server/tests/contract/test_recording_share_ui_contract.py`, and `apps/server/tests/integration/test_recording_share_public_link.py`
+- [X] T076 Implement the direct invitation-link shell and auto-submit behavior while preserving the existing continuation, double-submit CSRF, exact-recipient, account/grant/session, expiry/revoke/deletion and security-header authorities in `apps/server/src/twobrain_rec_server/cabinet/web_routes/browser.py`, `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`
+- [X] T077 Update the Feature 125 contract, plan, quickstart, security/UX checklists, current product status and Russian changelog for direct-link acceptance; run focused checks, `git diff --check`, `infra/scripts/ci-local.sh`, security/UX/code/Ponytail review and record synthetic evidence before requesting explicit approval for commit and deploy
+
 ## Dependencies and execution order
 
 ```text
@@ -208,6 +223,8 @@ T029–T036 (US4 internal/calendar)
    invitation-acceptance recovery)
    ↓
    T069–T074 (full recording package for exact-email recipients)
+   ↓
+   T075–T077 (direct invitation-link acceptance)
 ```
 
 Parallel examples:
@@ -240,18 +257,18 @@ Parallel examples:
 | Requirement group | Covered by |
 |---|---|
 | FR-001–FR-005 capability, explicit Share, default summary/view | T012–T020 |
-| FR-006–FR-010 identity input, bounded search, capability-gated delivery, invitation lifecycle | T004–T008, T012–T020, T037–T041 |
-| FR-011–FR-017 scope, egress separation, access management, privacy errors | T006–T010, T021–T028, T037–T040, T069–T073 |
+| FR-006–FR-010 identity input, bounded search, capability-gated delivery, invitation lifecycle | T004–T008, T012–T020, T037–T041, T075–T076 |
+| FR-011–FR-017 scope, egress separation, access management, privacy errors | T006–T010, T021–T028, T037–T040, T069–T073, T075–T076 |
 | FR-018–FR-023 audit, safe email, CTA/attribution, funnel and abuse limits | T005–T011, T037–T045 |
 | FR-024–FR-027 calendar/contact sources and permission states | T029–T036, T046–T048 |
-| FR-028 accessibility, parity and narrow viewport | T016–T020, T025–T026, T034–T036, T050 |
-| FR-029–FR-035 gates, deletion, rollback, domain invariants and synthetic evidence | T004–T011, T021–T028, T037–T052 |
+| FR-028 accessibility, parity and narrow viewport | T016–T020, T025–T026, T034–T036, T050, T075–T077 |
+| FR-029–FR-035 gates, deletion, rollback, domain invariants and synthetic evidence | T004–T011, T021–T028, T037–T052, T075–T077 |
 | FR-036–FR-038 participant share, auto-share and Shared with me | Spec/research/contract design; future gated implementation slice |
 | FR-039–FR-041 pre-read, team access and channel/calendar distribution | Spec/data-model/contract design; future gated implementation slice |
 | FR-042 metadata-only adoption analytics | T042–T045 plus the metadata-only adoption contract |
-| SC-001–SC-005 capability, lifecycle, authorization and content safety | T004–T028, T037–T041, T052, T069–T074 |
+| SC-001–SC-005 capability, lifecycle, authorization and content safety | T004–T028, T037–T041, T052, T069–T077 |
 | SC-006–SC-007 search latency and contact side-effect safety | T029–T036, T048, T052 |
-| SC-008–SC-009 funnel idempotency and abuse limits | T038–T045, T052 |
-| SC-010–SC-012 parity, rollback and owner comprehension | T019–T020, T028, T036, T040–T052 |
-| SC-013–SC-016 meeting-bound search, bounded expiry, token hygiene and throttling | T004–T011, T021–T028, T037–T045, T052 |
+| SC-008–SC-009 funnel idempotency and abuse limits | T038–T045, T052, T075–T076 |
+| SC-010–SC-012 parity, rollback and owner comprehension | T019–T020, T028, T036, T040–T052, T075–T077 |
+| SC-013–SC-016 meeting-bound search, bounded expiry, token hygiene and throttling | T004–T011, T021–T028, T037–T045, T052, T075–T077 |
 | SC-017–SC-021 participant distribution, adoption and rollback | Spec/data-model/contract design; synthetic execution requires a later gated task slice |

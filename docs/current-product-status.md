@@ -1,10 +1,25 @@
 # Текущий статус продукта
 
-Date: 2026-07-25
+Date: 2026-07-26
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Implementation update (2026-07-26) — Feature 125 direct invitation link
+
+- Открытие валидной external invitation URL теперь показывает только короткий
+  переход и автоматически отправляет существующий CSRF-bound POST; результатом
+  становится разрешённое summary или recipient-bound recording page без
+  обязательного metadata-preview экрана.
+- GET остаётся без побочных эффектов: личный аккаунт, grant и browser session
+  создаются только POST-потоком. При отключённом JavaScript сохраняется одна
+  fallback-кнопка; exact identity, expiry, revoke, deletion и egress checks не
+  менялись.
+- Focused direct-link matrix прошёл `21/21`; полный local CI прошёл macOS
+  `639/639`, PostgreSQL `2,438 passed / 1 skipped` и strict `41 passed / 1
+  skipped`, lint/compile/Compose/evidence scan PASS. Production deploy и live
+  rendered browser smoke для этой правки ещё не выполнялись.
 
 ## Implementation update (2026-07-25) — Feature 128
 

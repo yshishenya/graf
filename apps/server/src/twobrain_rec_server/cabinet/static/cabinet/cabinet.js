@@ -4461,6 +4461,16 @@
     initCalendarSettings();
     initSettingsFormState();
     initSettingsConfirmations();
+    initShareInvitationAutoAccept();
+  };
+
+  const initShareInvitationAutoAccept = () => {
+    const form = document.querySelector("form[data-share-invitation-auto-accept-form]");
+    if (!form || form.dataset.submitted === "true") return;
+    form.dataset.submitted = "true";
+    form.hidden = true;
+    if (typeof form.requestSubmit === "function") form.requestSubmit();
+    else form.submit();
   };
 
   // Keep meeting-list fencing listeners ahead of feature-specific HTMX listeners.
