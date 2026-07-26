@@ -31,7 +31,7 @@
 ### Операции
 - _Пока нет записей._
 
-## [2026.07.26.8] - 2026-07-26
+## [2026.07.26.9] - 2026-07-26
 
 
 ### Добавлено
@@ -41,27 +41,53 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Browser-приглашение после повторного, просроченного или недействительного
+  перехода теперь показывает понятную HTML-страницу GRAF вместо скачиваемого
+  JSON; явные JSON API-ответы и одноразовая защита ссылки сохранены.
 
 ### Безопасность
 - _Пока нет записей._
 
 ### Документы
-- Закреплён Developer ID-only public macOS workflow и отдельный manual `.pkg`
-  migration boundary; historical self-signed material больше не является
-  release-инструкцией.
+- _Пока нет записей._
 
 ### Операции
-- Следующий macOS-релиз готовится как обычное Developer ID → Developer ID
-  обновление с обязательными notarization, stapling, Gatekeeper и Sparkle
-  continuity checks.
+- _Пока нет записей._
+
+## [2026.07.26.8] - 2026-07-26
+
+
+### Добавлено
+- Опубликован `v2026.07.26.8`: нотарифицированные Developer ID ZIP и PKG,
+  подписанный appcast, checksums и production release receipt.
+
+### Изменено
+- Публичный macOS-релизный путь закреплён как Developer ID Application +
+  Developer ID Installer → Apple notarization → stapling → Gatekeeper →
+  Developer ID → Developer ID Sparkle update.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- Публичный guard и update validator fail-closed для local, self-signed,
+  ad-hoc и owner-only Apple identities.
+
+### Документы
+- Текущий product status, release guidance, Spec Kit index и installer README
+  ссылаются на опубликованный `.8`; historical self-signed material сохранён
+  только как архивный/тестовый контекст.
+
+### Операции
+- Реальный update smoke подтвердил `2026.07.26.7 → 2026.07.26.8`; production
+  deploy выполнен на том же immutable SHA с backup/restore, RLS, migration,
+  smoke и health/readiness evidence.
 
 ### Правило следующего релиза
-- После `v2026.07.26.6` публичный macOS-релизный путь единственный: Developer
-  ID Application + Developer ID Installer, notarization, stapling и Gatekeeper.
-  `.6` был ручным `.pkg`-bootstrap с исторического self-signed predecessor без
-  замены appcast; следующий выпуск обязан пройти обычный Developer ID →
-  Developer ID Sparkle flow.
+- После одноразового `.6` bootstrap публичный macOS-релизный путь единственный:
+  Developer ID Application + Developer ID Installer, notarization, stapling,
+  Gatekeeper и обычный Developer ID → Developer ID Sparkle flow. Self-signed
+  и ad-hoc пути не являются альтернативой.
 
 ## [2026.07.26.7] - 2026-07-26
 

@@ -37,6 +37,8 @@ def test_share_fragment_is_simple_first_and_accessible() -> None:
     assert "data-share-invitation-auto-accept-form" in invitation_page
     assert "Открываем запись" in invitation_page
     assert "Открываем итоги" in invitation_page
+    assert "Приглашение недоступно" in invitation_page
+    assert "Ссылка уже использована, отозвана или срок её действия истёк." in invitation_page
     assert "Расшифровка и итоги" in (
         REPO_ROOT
         / "apps/server/src/twobrain_rec_server/cabinet/rendering.py"

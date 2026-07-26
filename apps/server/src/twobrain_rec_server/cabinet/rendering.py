@@ -123,6 +123,16 @@ def render_meeting_unavailable_page(
     )
 
 
+def render_share_invitation_unavailable_page() -> str:
+    return _page_shell(
+        "Приглашение недоступно",
+        embedded=False,
+        content_template="cabinet/pages/share_invitation_content.html",
+        invitation_available=False,
+        meeting_list_href=_base_path(False),
+    )
+
+
 def render_share_invitation_accept_page(
     *,
     share_token: str,
@@ -150,6 +160,7 @@ def render_share_invitation_accept_page(
             f"?workspace_id={workspace_id}"
         ),
         invitation_available=meeting_title is not None,
+        meeting_list_href=_base_path(False),
         meeting_title=meeting_title,
         meeting_occurred_at=meeting_occurred_at,
         meeting_duration_seconds=meeting_duration_seconds,

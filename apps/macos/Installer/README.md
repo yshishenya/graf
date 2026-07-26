@@ -55,6 +55,11 @@ for `GRAF.app`, Developer ID Installer for `.pkg`, Apple notarization, stapling
 and Gatekeeper acceptance. There is no supported unsigned, local-self-signed or
 owner-only public release fallback.
 
+The current verified reference is `v2026.07.26.8`. It was accepted by Apple,
+stapled, Gatekeeper-checked and installed over `2026.07.26.7` through the
+ordinary Developer ID → Developer ID Sparkle path. Future public releases must
+follow this same sequence.
+
 Build the exact CalVer candidate with the public guard enabled:
 
 ```sh
@@ -243,7 +248,8 @@ The client behavior is deliberately conservative:
   recording start/stop, finalization, and termination cleanup;
 - no meeting content or system profile is sent with update checks.
 
-Updater-disabled local builds are valid. They embed Sparkle but omit both
+Updater-disabled local development builds are valid only for local validation.
+They embed Sparkle but omit both
 `SUFeedURL` and `SUPublicEDKey`; the menu then reports that trusted updates are
 unavailable and never opens an unsigned fallback. A configured build reads its
 public trust from `UpdateSigningKey.json`:
