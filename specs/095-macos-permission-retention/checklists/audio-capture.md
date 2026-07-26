@@ -1,5 +1,8 @@
 # Audio Capture Checklist: macOS Permission Retention
 
+> Historical capture-permission checklist. It does not change the current
+> Developer ID-only macOS publication rule in Feature 130.
+
 **Purpose**: Validate requirements quality for microphone and Screen/System
 Audio permission continuity without changing the capture engine.
 **Created**: 2026-07-09

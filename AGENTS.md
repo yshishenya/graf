@@ -202,6 +202,15 @@ Default validation anchors:
   `infra/scripts/cd-remote.sh --execute` when the release gate is met
 - release prep: `./scripts/prepare-release.sh YYYY.MM.DD.N`
 
+Public macOS distribution is Developer ID-only: the app must use Developer ID
+Application, the package must use Developer ID Installer, and notarization,
+stapling and Gatekeeper checks must pass before any public mutation. The
+published `v2026.07.26.6` is the one-time manual `.pkg` bootstrap from the
+historical self-signed lineage; it must not be staged as an ordinary Sparkle
+appcast update. Every later public update must be Developer ID→Developer ID.
+Local/ad-hoc/self-signed identities may appear only in explicitly isolated test
+fixtures or historical receipts, never as a current release instruction.
+
 Implementation commits require explicit user approval after validation. Spec Kit
 documentation auto-commits may run only through user-approved Spec Kit hooks.
 Never reset or discard user changes.

@@ -1,5 +1,9 @@
 # Production closeout: v2026.07.26.5
 
+> Historical production receipt. `.5` is the local/self-signed predecessor for
+> the manual Developer ID bootstrap in `.6`; its signing facts are audit history
+> only and not a current release path.
+
 ## Immutable release
 
 - Tag: `v2026.07.26.5`

@@ -115,10 +115,10 @@
 - [X] T031 Re-run Spec Kit analyze for `specs/109-release-signing-key-custody/`, reconcile feature-109 GitHub task issues, and obtain required code/release review before a production secret enrollment or tag.
 - [X] T032 After `v2026.07.17.12` is merged, fetch and semantically merge the exact current `origin/master` into the feature/release branch; preserve the completed `.12` behavior, re-run focused tests, and do not create a tag or package during this sync.
 - [X] T033 After feature merge and release approval, create a clean release worktree at exact refreshed `origin/master`, enumerate remote CalVer tags, choose the next free version strictly greater than `.12`, and verify the branch/tag provenance before any active-key enrollment.
-- [X] T034 Record the changed private-repository operating decision in `specs/109-release-signing-key-custody/spec.md`, `plan.md`, `research.md`, `quickstart.md`, `apps/macos/Installer/README.md`, and `qa/macos/release-candidate-checklist.md`: the unavailable protected reviewer path is superseded by the explicitly degraded owner-only Keychain lane, with the offline password-manager copy used only for recovery.
+- [X] T034 Record the historical private-repository operating decision in `specs/109-release-signing-key-custody/spec.md`, `plan.md`, `research.md`, `quickstart.md`, `apps/macos/Installer/README.md`, and `qa/macos/release-candidate-checklist.md`: the unavailable protected reviewer path was superseded by a degraded Sparkle Keychain-custody lane, with the offline password-manager copy used only for recovery; neither lane is an Apple public-signing alternative.
 - [X] T035 Build/install the selected next-free CalVer manual bootstrap with `apps/macos/Installer/Scripts/build-trust-bootstrap.sh`; prove app identity and retained permissions without resetting/regranting TCC. Закрыто историческим системным receipt bootstrap `2026.07.18.3` и последующим штатным Sparkle-переходом; см. `quickstart.md`.
 - [X] T036 Produce and verify two strictly greater normal updates through `.github/workflows/sign-graf-app-update.yml`, publish versioned assets before `graf-appcast.xml`, and capture metadata-only proof of the two in-app installations. Закрыто receipt переходов `2026.07.18.3 → 2026.07.20.1` и `2026.07.20.2 → 2026.07.21.1`; см. `quickstart.md`.
-- [X] T037 [US2] Prove the current owner-only release lane in `apps/macos/Installer/README.md`, `specs/109-release-signing-key-custody/quickstart.md`, and `qa/macos/release-candidate-checklist.md`: exact tag/provenance, fresh Keychain attestation, explicit degraded approval, archive-before-appcast ordering, and no automated password-manager or public-host signer access. Закрыто receipt релиза `v2026.07.21.3`; публичные archive/pkg/checksum проверены до замены appcast, затем весь public result перепроверен.
+- [X] T037 [US2] Archive the former degraded Sparkle-custody release receipt in `apps/macos/Installer/README.md`, `specs/109-release-signing-key-custody/quickstart.md`, and `qa/macos/release-candidate-checklist.md`: exact tag/provenance, fresh Keychain attestation, explicit degraded approval, archive-before-appcast ordering, and no automated password-manager or public-host signer access. Закрыто историческим receipt релиза `v2026.07.21.3`; текущая Apple release policy — Feature 130 Developer ID-only.
 
 ---
 
@@ -171,9 +171,12 @@ Task: "Add workflow policy checks in apps/macos/Installer/Scripts/test-release-s
 
 1. Shared manifest/guard → no new secret and no relaxed update trust.
 2. Bootstrap boundary → one honest migration path.
-3. Protected signer workflows remain the future two-channel path; the current private-repository lane is the explicitly degraded owner-only Keychain path.
+3. Protected signer workflows remain the future two-channel Sparkle-custody path;
+   the former private-repository lane is historical evidence only.
 4. State/rollback checks → release safety under failure.
-5. Green repository gate + refreshed master after `.12` + approved migration → bootstrap, owner-only release proof, and two in-app proofs.
+5. Green repository gate + refreshed master after `.12` + approved migration →
+   Sparkle bootstrap, historical custody proof, and two in-app proofs; Apple
+   signing migration is handled separately by Feature 130.
 
 ## Notes
 

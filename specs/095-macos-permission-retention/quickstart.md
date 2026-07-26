@@ -1,5 +1,11 @@
 # Quickstart: macOS Permission Retention And Relaunch Reliability
 
+> Historical/test-fixture quickstart. The local/self-signed commands below are
+> not a release path and must not be used for a GitHub Release, public host or
+> appcast. For current publication use
+> [Feature 130](../130-developer-id-release/quickstart.md) and the
+> [Installer README](../../apps/macos/Installer/README.md).
+
 Run from repository root unless a step says otherwise.
 
 ## Prerequisites
@@ -7,8 +13,8 @@ Run from repository root unless a step says otherwise.
 - macOS 14.5+.
 - Full Xcode or Command Line Tools sufficient for SwiftPM macOS tests.
 - Local administrator rights for installing a package to `/Applications`.
-- A stable code-signing identity for accepted permission-retention validation.
-  The free local path uses `GRAF Local Code Signing`.
+- A stable code-signing identity for the historical permission-retention
+  fixture. The former free local fixture uses `GRAF Local Code Signing`.
 - No active GRAF recording before install, reinstall, or quit/relaunch tests.
 - User grants microphone and Screen/System Audio manually when macOS prompts.
 
@@ -34,7 +40,7 @@ Expected:
 - no unresolved template or clarification markers;
 - forbidden-content matches, if any, are policy text only.
 
-## 2. Signing Identity Preflight
+## 2. Historical Fixture Signing Preflight
 
 ```sh
 security find-identity -v -p codesigning
@@ -71,7 +77,7 @@ Expected:
 
 - both scripts parse.
 
-## 5. Build Local Signed Package
+## 5. Build Historical Local Signed Fixture Package
 
 ```sh
 GRAF_APP_SIGN_IDENTITY="GRAF Local Code Signing" \
@@ -158,7 +164,7 @@ Expected:
 - Screen/System Audio row for `pro.2brain.graf` has allowed state;
 - evidence records only service/client/auth summary, not full database dumps.
 
-## 8. Reinstall And Permission Retention
+## 8. Reinstall And Permission Retention (Historical Fixture)
 
 Build or reuse a second package signed with the same continuity identity and a
 new version if needed.
@@ -251,14 +257,14 @@ Expected:
 - if blocked by environment, record the exact blocker and do not claim feature
   closeout until a suitable host runs the gate.
 
-## 12. Public Release Boundary
+## 12. Current Public Release Boundary
 
-Do not claim public release readiness from this quickstart. The following
-remain separate release/deploy lane prerequisites:
+The local fixture above cannot establish public release readiness. The current
+public path is the Developer ID-only flow in Feature 130:
 
-- Apple Developer account;
-- Developer ID Application certificate;
-- Developer ID Installer certificate when package signing is required;
-- notarization submission and success;
-- stapling verification;
-- public download Gatekeeper validation.
+- `Developer ID Application` app signing;
+- `Developer ID Installer` package signing;
+- Apple notarization and stapling;
+- Gatekeeper execute/install validation;
+- manual `.pkg` migration when the predecessor is historical local/self-signed,
+  with no appcast replacement.

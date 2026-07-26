@@ -1,5 +1,8 @@
 # Security Hardening Review: GRAF update-signing custody
 
+> Historical Sparkle-custody review. It does not authorize local/self-signed
+> Apple publication; current macOS public release gates are in Feature 130.
+
 ## Evidence Basis
 
 We reviewed the supplied historic-signer availability incident together with the
@@ -30,7 +33,8 @@ bootstrap is a compatibility requirement rather than an implementation choice.
 
 ## Recommendation Summary
 
-I recommend Option 2 under the current owner-only constraints.  It keeps the
+I recommend Option 2 under the historical degraded Sparkle-custody constraints.
+It keeps the
 strongest existing property—the installed app itself still decides what public
 key can verify a normal update—while moving signer availability behind an owned,
 testable control boundary.  The protected GitHub environment is the normal path;

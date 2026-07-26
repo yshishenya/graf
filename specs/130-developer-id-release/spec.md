@@ -4,7 +4,9 @@
 
 **Created**: 2026-07-26
 
-**Status**: Draft
+**Status**: Implemented and validated on branch; published bootstrap evidence is
+recorded for `v2026.07.26.6`, with ordinary Developer ID → Developer ID flow
+required for the next release
 
 **Input**: User description: «После публикации v2026.07.26.6 проанализировать
 все документы и инструкции и закрепить Developer ID как единственный путь,

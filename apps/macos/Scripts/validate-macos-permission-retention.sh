@@ -21,14 +21,16 @@ Usage: $0 <command>
 
 Commands:
   preflight          Check local signing identity availability.
-  build              Build a local package with explicit local self-signed signing.
+  build              Build a historical local self-signed test fixture only;
+                     never use for public release or appcast publication.
   staged-identity    Inspect staged app bundle identity.
   installed-identity Inspect /Applications/GRAF.app identity.
   permissions        Print metadata-only permission state summaries.
   quit               Ask installed GRAF app to quit and wait for exit.
 
 This helper never resets TCC, never grants permissions, and never records
-private key material, raw audio, transcripts, or meeting content.
+private key material, raw audio, transcripts, or meeting content. It is not a
+public release helper; use Feature 130 for Developer ID publication.
 EOF
 }
 

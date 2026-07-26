@@ -11,9 +11,10 @@ This directory owns the local app-only macOS installer package.
 
 Silent install, MDM, fleet deployment, and enterprise deployment are out of scope for this feature.
 
-## Local Interactive Installer Build
+## Local Development Build (not public release)
 
-Use the native Apple `pkgbuild`/`productbuild` flow for local development:
+Use the native Apple `pkgbuild`/`productbuild` flow only for local development
+or isolated packaging tests. This command is not a public release path:
 
 ```sh
 sudo DevToolsSecurity -enable
@@ -47,53 +48,75 @@ After installing, verify the local result with:
 open "/Applications/GRAF.app"
 ```
 
-## First Launch on a Mac Without Apple Developer Trust
+## Public Developer ID Release
 
-The no-account local package is not Developer ID signed or notarized. On a
-different Mac, Gatekeeper can show a warning such as «Файл graf-local.pkg не
-был открыт». This is an expected limitation of the channel, not a reason to
-disable macOS security globally.
+Public macOS artifacts must use one canonical path: Developer ID Application
+for `GRAF.app`, Developer ID Installer for `.pkg`, Apple notarization, stapling
+and Gatekeeper acceptance. There is no supported unsigned, local-self-signed or
+owner-only public release fallback.
 
-Use the supported one-time system confirmation:
-
-1. Close the warning dialog without moving the package to the Trash.
-2. Open **System Settings → Privacy & Security**.
-3. In **Security**, click **Open Anyway** for `graf-local.pkg`, authenticate if
-   macOS asks, and confirm the open action.
-4. Open the package again and install `GRAF.app` into `/Applications`.
-
-Do not use `sudo spctl --master-disable`, TCC reset commands, manual TCC database
-edits, or an audio-driver installer. The package-level signature remains
-unsigned in this no-account path even after the one-time confirmation.
-
-After the first launch:
-
-- Click **Разрешить микрофон** in GRAF while the state is «Нужно разрешение» and
-  accept the normal macOS prompt. The `.pkg` is not a microphone permission
-  target; GRAF must first request access as the running app.
-- If the state is «Отклонено», click **Открыть настройки macOS** and enable GRAF
-  in **Privacy & Security → Microphone**. GRAF does not promise a second prompt
-  after a denial.
-- Enable GRAF in **Privacy & Security → Screen & System Audio Recording**, return
-  to GRAF, and click **Перезапустить GRAF**. The old process must exit before the
-  new process can read the updated permission state.
-
-Local development may use ad-hoc app signing only when Developer Tools Security
-is enabled. If it is disabled, macOS can install the `.app` successfully but
-kill it through AMFI before app diagnostics are written. Check the local state
-with:
+Build the exact CalVer candidate with the public guard enabled:
 
 ```sh
-DevToolsSecurity -status
+GRAF_VERSION=YYYY.MM.DD.N \
+GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
+GRAF_APP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+DEVELOPER_ID_INSTALLER_IDENTITY="Developer ID Installer: Your Name (TEAMID)" \
+GRAF_UPDATE_FEED_URL="https://rec.2brain.pro/static/public/downloads/graf-appcast.xml" \
+  sh apps/macos/Installer/Scripts/build-local-installer.sh \
+  "apps/macos/.build/release/GRAF-YYYY.MM.DD.N.pkg"
 ```
 
-## Local Self-Signed Permission-Retention Builds
+Submit the app ZIP and package to Apple with the local Keychain profile
+`graf-notary`, wait for acceptance, staple both artifacts, and validate them
+before copying any public asset:
 
-For owner-machine validation without an Apple Developer account, use a stable
-locally trusted code-signing identity such as `GRAF Local Code Signing`. This
-path is intended to prove that macOS sees the same `pro.2brain.graf` app
-identity across local reinstalls, so granted microphone and Screen/System Audio
-permissions do not need to be granted again on every build.
+```sh
+xcrun notarytool submit GRAF-YYYY.MM.DD.N.zip --keychain-profile graf-notary --wait
+xcrun notarytool submit GRAF-YYYY.MM.DD.N.pkg --keychain-profile graf-notary --wait
+xcrun stapler staple GRAF.app
+xcrun stapler staple GRAF-YYYY.MM.DD.N.pkg
+spctl --assess --type execute --verbose=4 GRAF.app
+spctl --assess --type install --verbose=4 GRAF-YYYY.MM.DD.N.pkg
+```
+
+Run the public update validator only after the previous Developer ID app,
+archive and staged appcast are available. It must pass before replacing the
+live feed. The package/app public checks are separate from Sparkle Ed25519
+signing and from application permission prompts.
+
+## One-Time Developer ID Migration for v2026.07.26.6
+
+The published `v2026.07.26.6` is the manual bootstrap from the historical
+local/self-signed predecessor. Existing clients must install the notarized
+Developer ID `.pkg` once; this transition is not an ordinary Sparkle update and
+must not replace the live appcast.
+
+```sh
+apps/macos/Installer/Scripts/validate-developer-id-bootstrap.sh \
+  "/path/to/new/GRAF.app" \
+  "/path/to/previous/GRAF.app" \
+  "/path/to/notarized/GRAF-2026.07.26.6.pkg"
+```
+
+The command must report `publication=manual-pkg-only` and
+`appcast_staged=no`. After this manual installation, future releases use the
+ordinary Developer ID→Developer ID Sparkle path with the same bundle identifier,
+team identity, designated requirement, feed URL and Sparkle trust generation.
+
+Do not use `build-trust-bootstrap.sh` for this transition: that script concerns
+Sparkle Ed25519 trust-generation custody, not Apple code signing.
+
+## Historical/Test Fixture Only — Local Self-Signed Permission Retention
+
+The following material is retained only to describe old receipts and isolated
+permission-retention fixtures. It is never a public release instruction.
+
+For an isolated owner-machine fixture, a stable locally trusted code-signing
+identity such as `GRAF Local Code Signing` can prove that macOS sees the same
+`pro.2brain.graf` app identity across local reinstalls. This local self-signed
+path is not public release readiness and must never be used with the public
+guard.
 
 Preflight the local identity:
 
@@ -109,7 +132,7 @@ GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1 \
   sh apps/macos/Installer/Scripts/build-local-installer.sh
 ```
 
-Then inspect the app identity:
+Then inspect the fixture identity; do not upload or publish this package:
 
 ```sh
 codesign --verify --deep --strict "apps/macos/RecApp/.build/GRAF.app"
@@ -117,10 +140,10 @@ codesign -dv --verbose=4 "apps/macos/RecApp/.build/GRAF.app" 2>&1
 codesign -dr - "apps/macos/RecApp/.build/GRAF.app" 2>&1
 ```
 
-Keep the same certificate/private key pair. Recreating a certificate with the
-same display name is signing drift and may make macOS ask for permissions
-again. Do not commit exported certificates, private keys, passwords, or
-generated signed packages.
+Keep the same certificate/private key pair only for this disposable fixture.
+Recreating a certificate with the same display name is signing drift and may
+make macOS ask for permissions again. Do not commit exported certificates,
+private keys, passwords, or generated signed packages.
 
 The app bundle also declares the Hardened Runtime Audio Input entitlement
 (`com.apple.security.device.audio-input`). This declaration is required for
@@ -149,24 +172,23 @@ reinstallation or a TCC reset, use this order:
    request microphone access while status is unknown; for denied/restricted,
    send the user to the Microphone panel and keep capture disabled until access
    is granted. Do not promise a second prompt after denial.
-5. For a release, validate the candidate against the previous app, publish the
-   versioned ZIP/PKG/checksum first, replace `graf-appcast.xml` last, fetch all
-   public HTTPS artifacts again, verify SHA-256/ZIP/Sparkle signatures, and run
-   a clean-Mac smoke as a separate acceptance gate.
+5. For an isolated fixture comparison, validate the candidate against the
+   previous app without publishing or replacing the live appcast. The active
+   release sequence is the Developer ID workflow above.
 
 This local self-signed path is not public release readiness. It does not create
 an Apple Developer TeamIdentifier, Developer ID signature, notarization ticket,
-or stapled Gatekeeper-ready installer.
+or stapled Gatekeeper-ready installer. The active release path is the Developer
+ID flow above.
 
-Signed pre-release builds must use an Apple application signing identity
-(`Apple Development`, `Developer ID Application`, `Apple Distribution`, or
-legacy `Mac Developer`). Check available identities with:
+Local test builds may inspect available identities with:
 
 ```sh
 security find-identity -v -p codesigning
 ```
 
-Then build with:
+An Apple Development command is retained only as a local fixture example, never
+as a public release command:
 
 ```sh
 GRAF_APP_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
@@ -188,22 +210,19 @@ path is `Scripts/build-local-installer.sh`.
 
 ## Signing Policy
 
-- Developer ID signing and notarization are required before public distribution.
+- Developer ID Application certificate for the app, Developer ID Installer
+  certificate when package signing is needed, successful notarization,
+  stapling and Gatekeeper validation are required before public distribution.
 - Local certificates, private keys, app-specific passwords, API keys, notarization credentials, and generated signed artifacts must stay outside git.
 - Build scripts may reference environment variables or local keychain identities by name, but must not embed secret values.
-- Local self-signed app signing is allowed only when
-  `GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1` is set. It is accepted for
-  single-machine permission-retention validation and an explicitly approved
-  owner-only channel for controlled Macs, not for public distribution.
-- Public distribution still requires Apple Developer Program access, a
-  Developer ID Application certificate for the app, a Developer ID Installer
-  certificate when package signing is needed, successful notarization, and
-  stapling/verification before release.
-- For local development, `build-local-installer.sh` may ad-hoc sign the `.app`
-  only when Developer Tools Security is enabled. Apple application signing is
-  required for pre-release builds. The product package itself remains unsigned
-  unless `DEVELOPER_ID_INSTALLER_IDENTITY` is set in the environment. Unsigned
-  packages are acceptable only for local validation.
+- Public distribution has one path: Apple Developer Program access, Developer
+  ID Application for the app, Developer ID Installer for the package, successful
+  notarization, stapling and Gatekeeper validation.
+- Local self-signed and ad-hoc flags are isolated test fixtures only. They are
+  rejected whenever `GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1` is set and must never
+  be used for a public host, GitHub Release asset or appcast.
+- An unsigned package or updater-disabled local app is acceptable only for local
+  validation; it is never a release candidate.
 
 ## In-App Updates
 
@@ -231,7 +250,9 @@ public trust from `UpdateSigningKey.json`:
 
 ```sh
 GRAF_VERSION=YYYY.MM.DD.N \
+GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
 GRAF_APP_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" \
+DEVELOPER_ID_INSTALLER_IDENTITY="Developer ID Installer: Example (TEAMID)" \
 GRAF_UPDATE_FEED_URL="https://rec.2brain.pro/static/public/downloads/graf-appcast.xml" \
   sh apps/macos/Installer/Scripts/build-local-installer.sh
 ```
@@ -341,14 +362,16 @@ Keep the previous public `GRAF.app` as an immutable comparison input. Validate
 the new bundle before creating or publishing update artifacts:
 
 ```sh
+GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
 GRAF_PREVIOUS_APP_BUNDLE="/absolute/path/to/previous/GRAF.app" \
   sh apps/macos/Scripts/validate-app-updates.sh \
   apps/macos/RecApp/.build/GRAF.app
 ```
 
-Ad-hoc builds can prove only bundle structure and increasing version because
-their designated requirement is content-hash based. Public validation is
-strict and requires the previous app, the same Developer ID team and compatible
+Historical ad-hoc fixtures can prove only bundle structure and increasing
+version because their designated requirement is content-hash based. They are
+never release candidates. Public validation is strict and requires the previous
+app, the same Developer ID team and compatible
 designated requirement, hardened runtime, a valid notarization staple, and
 Gatekeeper acceptance:
 
@@ -373,6 +396,7 @@ matching safe attestation:
 
 ```sh
 GRAF_VERSION=YYYY.MM.DD.N \
+GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
 GRAF_PREVIOUS_APP_BUNDLE="/absolute/path/to/previous/GRAF.app" \
 GRAF_UPDATE_RELEASE_NOTES="/absolute/path/to/release-notes-ru.md" \
 GRAF_UPDATE_DOWNLOAD_BASE_URL="https://rec.2brain.pro/static/public/downloads" \
@@ -408,24 +432,28 @@ a safe `GRAF_RELEASE_SIGNING_DEGRADED_APPROVAL_ID`. A present but malformed
 cloud attestation never falls back silently; it blocks the release. The cloud
 workflow itself always uses normal two-channel readiness.
 
-#### Current private-repository mode
+This custody fallback controls Sparkle Ed25519 archive/appcast signing only. It
+does not authorize local/self-signed Apple code signing, replace Developer ID
+Application/Installer, or provide an alternative public macOS release path.
 
-The current private repository does not have the GitHub plan capability needed
-for a required reviewer protection rule. Until that changes, the approved
-release lane is the named macOS Keychain signer in explicit degraded mode. The
-owner must provide exact tag/provenance, a fresh metadata-only Keychain
-attestation, the degraded-approval flag and identifier, and must copy/version
-check the archive or package before replacing `graf-appcast.xml`. Bitwarden is
+#### Historical private-repository mode — not an active public lane
+
+The following paragraph is a historical receipt of the former private
+repository fallback. It is not an active public release lane. Current public
+macOS publication uses Developer ID Application/Installer, notarization,
+stapling and Gatekeeper; the fallback below must not be repeated. Bitwarden is
 an offline recovery backup only; CI, the app and the public host never read it
-automatically. This mode does not claim that the protected cloud signer is
-ready; the manual bootstrap and two-update proofs remain separate receipts and
-are not replaced by this lane.
+automatically.
 
 ### T037 closeout receipt — `v2026.07.21.3` (2026-07-21)
 
-The current owner-only lane is now proven by a real published release, not only
-by local staging. This is metadata-only release evidence; it contains no
-private key, secret, local secret path, meeting content, raw audio or transcript.
+> Historical receipt only. Its owner-only signing path is closed and must not be
+> reused for a current public release.
+
+The former owner-only lane was proven by a real published release, not only by
+local staging. This is metadata-only historical release evidence; it contains
+no private key, secret, local secret path, meeting content, raw audio or
+transcript.
 
 - The immutable tag `v2026.07.21.3` is peeled to
   `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`, the exact `origin/master` used
@@ -444,8 +472,8 @@ private key, secret, local secret path, meeting content, raw audio or transcript
   `signer=keychain`, `custody=degraded`, `published=no` before publication.
 - The full local CI passed on the release train: 583 macOS tests, 1,945 server
   tests and 34 strict PostgreSQL checks, with one expected skip in each set.
-  Sparkle signatures, owner-only update validation, ZIP integrity and package
-  expansion also passed; the package version and bundle identity are
+  Sparkle signatures, historical owner-only update validation, ZIP integrity and
+  package expansion also passed; the package version and bundle identity are
   `2026.07.21.3` and `pro.2brain.graf`.
 - Local SHA-256 evidence is: ZIP
   `4aad5495b079f8b075981c8e654820133b315aad417496f143d51e4d15c82a77`, pkg
@@ -461,10 +489,13 @@ private key, secret, local secret path, meeting content, raw audio or transcript
 
 ### T037 closeout receipt — `v2026.07.23.11` (2026-07-23)
 
-The Feature 124 macOS update was published through the approved private-repository
-Keychain recovery lane after exact tag/provenance and owner-only validation. The
-receipt is metadata-only and contains no private key, secret, meeting content,
-raw audio or transcript.
+> Historical receipt only. Its owner-only signing path is closed and must not be
+> reused for a current public release.
+
+The Feature 124 macOS update was published through the former private-repository
+Keychain recovery lane after exact tag/provenance and historical owner-only
+validation. The receipt is metadata-only and contains no private key, secret,
+meeting content, raw audio or transcript.
 
 - The immutable tag `v2026.07.23.11` points to merge
   `05d66e582f77a4bfeed66057043e8269077d395a`; the [GitHub Release](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.11)
@@ -477,24 +508,24 @@ raw audio or transcript.
   `d8b93e40164347bfb62f71039fae51fd34dbb84c3c473d21c2268b3edaf2f025`, and
   appcast
   `1eaac01354991f3eedbf0b73e968cedf1fb1ec3641e25b4899b354b6cb1588e7`.
-- `validate-app-updates.sh` passed with owner-only trust, the ZIP passed
+- `validate-app-updates.sh` passed with historical owner-only trust, the ZIP passed
   integrity validation, and both the appcast and archive passed Sparkle
   signature verification. The previous `2026.07.22.6` archive remains in the
   public directory; the previous appcast was retained as a recoverable backup
   before the new feed was installed last.
 - The fresh metadata-only attestation reports `channel=macos-keychain`,
   `state=ready`, `trustGeneration=1`, and the active manifest key id. This
-  remains an owner-only local-signing channel, not Developer ID/notarized public
+  was an owner-only local-signing channel, not Developer ID/notarized public
   distribution.
 
 The unused `v2026.07.21.2` tag was not rewritten; its release/public assets
 were not published after `origin/master` moved during preparation. The next
-free higher CalVer `.3` was used instead. T037 is closed by this receipt. The
-remaining limitation is intentional: this is a self-signed owner-only release,
-not Developer ID/notarized public distribution; protected reviewer approval is
-still a future migration.
+free higher CalVer `.3` was used instead. T037 is closed by this historical
+receipt. The former self-signed owner-only release is superseded and must not be
+used for a new publication; current Apple publication is Developer ID/notarized
+only.
 
-For a normal cloud release, first attach the signed candidate-app ZIP,
+For a normal Developer ID cloud release, first attach the signed candidate-app ZIP,
 predecessor ZIP, and Russian notes to a draft GitHub Release. Dispatch
 `sign-graf-app-update.yml` manually from `master`; it only reads those
 exact-tag draft inputs, checks out the immutable tag, signs into the draft,
@@ -518,18 +549,18 @@ a lower version or an unsigned downgrade through the feed. Manual installation
 of a prior trusted package is a separately approved recovery path, not the
 normal rollback mechanism.
 
-### Owner-Only Self-Signed Channel
+### Historical Owner-Only Self-Signed Channel — do not use for new releases
 
-When the owner explicitly accepts the absence of Apple Developer ID and every
-target Mac is controlled by that owner, the same signed appcast/archive flow may
-use `GRAF Local Code Signing`. This is not public release readiness: every new
-Mac needs a manual trusted bootstrap, Gatekeeper may warn, and the exact
-certificate/private-key pair must remain available.
+The former owner-only channel used `GRAF Local Code Signing`. It was not public
+release readiness and is retained only as historical/negative-test evidence.
+Do not use it for a new release, public host, GitHub Release asset or appcast.
 
-Run the additional gate against the final staged artifacts:
+The old validation command is retained only as a historical negative-test
+receipt; it is not an approved operator path:
 
 ```sh
 GRAF_REQUIRE_OWNER_ONLY_UPDATE_TRUST=1 \
+GRAF_ALLOW_HISTORICAL_OWNER_ONLY_FIXTURE=1 \
   sh apps/macos/Scripts/validate-app-updates.sh \
   /absolute/path/to/new/GRAF.app \
   /absolute/path/to/previous/GRAF.app \
@@ -543,10 +574,12 @@ archive and bootstrap package first, then replace `graf-appcast.xml` last so a
 catalog never points at a missing archive. Generated signed artifacts and the
 private EdDSA key stay outside git.
 
-### One-Time Trust Bootstrap And Recovery
+### Sparkle Trust Generation Custody And Recovery
 
-The historic signer cannot be reconstructed. The only supported move to a new
-trust generation is a deliberately labelled manual package:
+This section concerns Sparkle Ed25519 trust-generation custody, not Apple
+Developer ID code-signing migration. The historic Sparkle signer cannot be
+reconstructed; a new Sparkle generation is a separate, explicitly approved
+operation:
 
 ```sh
 GRAF_VERSION=YYYY.MM.DD.N \
@@ -555,11 +588,11 @@ GRAF_UPDATE_FEED_URL="https://rec.2brain.pro/static/public/downloads/graf-appcas
   sh apps/macos/Installer/Scripts/build-trust-bootstrap.sh
 ```
 
-The bootstrap validates the previous and new GRAF identity, permission copy,
-signing lineage, unchanged feed URL, and a changed public signing generation.
-It writes no appcast and cannot be used by normal staging. Install it manually
-once, then prove two strictly higher normal in-app updates. Do not reset or
-re-grant macOS permissions for that proof.
+The Sparkle bootstrap validates unchanged feed URL and a changed public signing
+generation. It writes no appcast and cannot be used by normal staging. It does
+not sign or notarize the application. For the already-published local→Developer
+ID transition, use `validate-developer-id-bootstrap.sh` and a notarized package
+from the active section above instead.
 
 If the active generation is suspected compromised, stop public publication,
 preserve the last known-good signed feed and versioned assets, and investigate
@@ -570,9 +603,10 @@ reuse an old secret. A secret-pattern guard may occasionally flag safe fixture
 text; correct the pattern or fixture so it remains obviously non-secret rather
 than adding an exception for a real value.
 
-Moving to Developer ID later is a separate signing-identity migration, not an
-ordinary Sparkle update. It requires a new manual bootstrap and may make macOS
-ask for permissions again because the designated requirement changes.
+The Developer ID migration is now the active path: it requires the named manual
+`.pkg` bootstrap once and may make macOS ask for permissions again because the
+designated requirement changes. Subsequent public updates must remain Developer
+ID→Developer ID.
 
 ### Permission-Retention Proof
 

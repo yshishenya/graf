@@ -54,8 +54,9 @@ uses the minimum repository permissions.
 - A persistent external key file or encrypted repository blob: rejected;
   recovery copies are easy to leak, copy or lose and increase audit surface.
 - A third-party HSM/KMS: potentially stronger at a larger operational cost,
-  but unavailable in the current owner-only channel.  It remains an upgrade
-  option when Developer ID/notarization work is approved.
+  but unavailable in the historical degraded Sparkle channel. It remains a
+  possible future Sparkle-custody upgrade; Developer ID/notarization is already
+  the current Apple release policy in Feature 130.
 
 ## Decision 3: Sign a validated draft asset in the cloud, do not publish there
 
@@ -124,12 +125,13 @@ step working while leaving release custody or version ordering fragile.
 - Call a manual package an automatic update: rejected; users must understand
   that it is a one-time trust migration.
 
-## Decision 6: Use the owner-only lane until protected review is available
+## Historical Decision 6: Use the local Keychain lane until protected Sparkle review is available
 
 **Decision**: Do not pretend that the current private-repository GitHub plan
-provides the required reviewer gate.  Use the named macOS Keychain signer for
-the current owner-controlled release lane, keep the private key as a manual
-Bitwarden recovery backup, and treat cloud signing as a future reactivation.
+provides the required reviewer gate. The former named macOS Keychain signer was
+used for Sparkle trust custody, with the private key as a manual Bitwarden
+recovery backup. Neither this lane nor its backup is an Apple public-signing
+alternative.
 
 **Rationale**: The environment, secret and branch policy exist, but GitHub
 rejects the required reviewer protection rule on the current plan.  A local
@@ -139,10 +141,9 @@ tag/provenance, fresh Keychain evidence, explicit owner approval and
 archive-before-appcast publication.  Bitwarden is not an automated signer and
 is never read by CI or the application.
 
-**Consequence**: T034 is superseded as an unavailable cloud setup task.  T037
-closes the owner-only release proof for the current lane; a later plan upgrade
-can reopen the protected two-channel path without rotating the active public
-key.
+**Consequence**: T034 is superseded as an unavailable cloud setup task. T037
+closes historical Sparkle-custody evidence; a later plan upgrade can reopen the
+protected two-channel path without rotating the active Sparkle public key.
 
 ## Sources
 

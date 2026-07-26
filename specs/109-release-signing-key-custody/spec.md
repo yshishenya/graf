@@ -4,24 +4,30 @@
 
 **Created**: 2026-07-17
 
-**Status**: Owner-only release evidence complete; protected two-channel path remains future scope
+**Status**: Historical Sparkle trust-custody evidence complete; Apple public
+release policy is superseded by Feature 130
+
+**Current release boundary**: This feature governs Sparkle Ed25519 key custody
+and appcast/archive signing only. It does not choose an Apple app or installer
+identity. Current public macOS publication uses Developer ID
+Application/Installer, notarization, stapling and Gatekeeper; local/self-signed
+Apple signing is never a release alternative.
 
 ## Current operating decision — 2026-07-21
 
-The protected GitHub reviewer path remains the target design, but it is not
-available for this private repository on the current GitHub plan.  The current
-release lane therefore uses the already implemented named macOS Keychain
-signer, with the private key kept as an offline owner backup in the password
-manager.  The backup is recovery-only: no workflow, app or public host reads
-it automatically.
+The protected GitHub reviewer path remains the target Sparkle custody design,
+but it is not available for this private repository on the current GitHub plan.
+The former release lane therefore used the named macOS Keychain signer, with
+the private key kept as an offline owner backup in the password manager. The
+backup is recovery-only: no workflow, app or public host reads it automatically.
 
-This is an explicitly degraded owner-only mode, not proof that the protected
-two-channel design is complete.  It still requires exact CalVer provenance,
+This was an explicitly degraded Sparkle-custody mode, not proof that the
+protected two-channel design is complete. It still required exact CalVer provenance,
 fresh metadata-only Keychain attestation, explicit owner approval, unchanged
-manifest/app/feed identity, and archive-before-appcast publication.  T034 is
-closed as superseded by this decision; T037 closes the owner-only release
-evidence for the current lane.  The protected cloud path can be reopened later
-without rotating the active public key.
+manifest/app/feed identity, and archive-before-appcast publication. T034 is
+closed as superseded by this decision; T037 closes historical Sparkle custody
+evidence. The protected cloud path can be reopened later without rotating the
+active Sparkle public key, but neither path is an Apple signing alternative.
 
 **Input**: User description: "Исправить всё и сделать безопасное, всегда доступное хранение ключа подписи обновлений."
 
@@ -280,10 +286,10 @@ without rotating the active public key.
 - **SC-008**: При двух конкурентных release attempts существует не более одной
   активной заявки на stable feed, а после отмены/ошибки второй заявки текущий
   public appcast и уже проверенные versioned artifacts остаются доступны.
-- **SC-009**: Перед activation нового trust generation проверены возможность
-  protected GitHub environment approval, доступность owner-only app-signing
-  identity и отсутствие secret authority у public-host оператора; при любом
-  непрохождении activation не начинается.
+- **SC-009**: Перед activation нового Sparkle trust generation проверены
+  возможность protected GitHub environment approval, готовность Sparkle
+  Keychain custody и отсутствие secret authority у public-host оператора; при
+  любом непрохождении activation не начинается.
 
 ## Assumptions
 
@@ -296,11 +302,10 @@ without rotating the active public key.
 - GitHub environment и его approved reviewers доступны как отдельный от macOS
   Keychain control plane; конкретные владельцы и правила approval задаются до
   activation, но их identities и secret details не попадают в Git.
-- Текущая owner-only app-signing identity остаётся доступной для bootstrap и
-  сохраняет проверяемую continuity с установленным GRAF; Developer ID/
-  notarization остаются отдельной будущей миграцией.
-- Канал остаётся контролируемым owner-only до отдельной утверждённой миграции
-  на Developer ID и notarization.
+- Historical local app-signing continuity is retained only in archived
+  permission fixtures; it is not used by this Sparkle custody feature.
+- Developer ID/notarization migration is completed by Feature 130. This feature
+  must not reopen the former owner-only Apple signing channel.
 - Действующая идентичность приложения и разрешения macOS сохраняются, если
   это подтверждается установленной проверкой continuity.
 - Граница фичи включает только custody и delivery обновлений; она не меняет
@@ -310,8 +315,7 @@ without rotating the active public key.
 
 - Восстановление утраченного исторического приватного ключа из публичного
   ключа, установленного приложения или appcast.
-- Публичная Developer ID/notarized дистрибуция и миграция code-signing
-  identity.
+- Apple Developer ID/notarized distribution implementation; see Feature 130.
 - Автоматическая установка обновлений без действия пользователя.
 - Изменение записи, аудиопайплайна, MediaScribe или незакрытых физических
   acceptance-gates feature 106.

@@ -26,7 +26,7 @@ is unprovisioned, transfers it directly to the named protected GitHub
 environment secret, and atomically writes public trust metadata. It never
 prints or stores the private material in this repository.
 
---resume is an explicit owner-only recovery for an interrupted initialization:
+--resume is an explicit Keychain recovery for an interrupted initialization:
 it reuses only the named existing Keychain generation while the public manifest
 is still unprovisioned, repeats the protected secret transfer, and writes the
 same public metadata. It never creates or replaces a Keychain generation.

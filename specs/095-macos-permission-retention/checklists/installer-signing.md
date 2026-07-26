@@ -1,5 +1,9 @@
 # Installer And Signing Checklist: macOS Permission Retention
 
+> Historical local-fixture checklist. Current public releases must use the
+> Developer ID-only gates in Feature 130; local/self-signed and ad-hoc checks
+> below are not release acceptance.
+
 **Purpose**: Validate requirements quality for local signing, installer
 packaging, release boundaries, and parked driver scope.
 **Created**: 2026-07-09

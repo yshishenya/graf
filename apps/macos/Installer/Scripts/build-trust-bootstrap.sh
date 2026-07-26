@@ -10,7 +10,7 @@ MANIFEST="$INSTALLER_DIR/UpdateSigningKey.json"
 COMMON="$SCRIPT_DIR/release-signing-common.sh"
 
 fail() {
-  echo "trust bootstrap build failed: $*" >&2
+  echo "Sparkle trust-generation bootstrap build failed: $*" >&2
   exit 1
 }
 
@@ -40,7 +40,7 @@ PACKAGE_SHA256=$(shasum -a 256 "$OUTPUT_PKG" | awk '{print $1}')
 SAFE_METADATA="$MACOS_DIR/.build/bootstrap/GRAF-trust-bootstrap-${VERSION}.metadata"
 umask 077
 {
-  printf 'kind=manual-trust-bootstrap\n'
+  printf 'kind=sparkle-trust-generation-bootstrap\n'
   printf 'version=%s\n' "$VERSION"
   printf 'key_id=%s\n' "$RELEASE_SIGNING_KEY_ID"
   printf 'package_sha256=%s\n' "$PACKAGE_SHA256"
@@ -48,4 +48,4 @@ umask 077
 } > "$SAFE_METADATA"
 chmod 600 "$SAFE_METADATA"
 
-echo "manual trust bootstrap built: version=$VERSION key_id=$RELEASE_SIGNING_KEY_ID package_sha256=$PACKAGE_SHA256 appcast_staged=no"
+echo "Sparkle trust-generation bootstrap built: version=$VERSION key_id=$RELEASE_SIGNING_KEY_ID package_sha256=$PACKAGE_SHA256 appcast_staged=no apple_code_signing_migration=no"

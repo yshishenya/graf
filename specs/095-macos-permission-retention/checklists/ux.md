@@ -1,5 +1,8 @@
 # UX Checklist: Permission Onboarding And Relaunch
 
+> Historical UX checklist. It does not authorize a local/self-signed public
+> release; current publication follows Feature 130.
+
 **Purpose**: Validate requirements quality for permission onboarding,
 termination, relaunch, and user-facing truth.
 **Created**: 2026-07-09

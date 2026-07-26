@@ -1,5 +1,8 @@
 # Specification Quality Checklist: macOS Permission Retention
 
+> Historical requirements checklist. Local signing is fixture scope only;
+> current public macOS release acceptance is Developer ID-only in Feature 130.
+
 **Purpose**: Validate specification completeness and quality before
 implementation.
 **Created**: 2026-07-09

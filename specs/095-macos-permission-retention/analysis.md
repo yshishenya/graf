@@ -1,5 +1,8 @@
 # Specification Analysis Report: macOS Permission Retention And Relaunch Reliability
 
+> Historical analysis. Local/self-signed findings are fixture evidence only;
+> Feature 130 owns the current Developer ID-only public release path.
+
 Feature: `095-macos-permission-retention`
 Date: 2026-07-09
 

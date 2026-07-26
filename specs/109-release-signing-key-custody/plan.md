@@ -1,5 +1,9 @@
 # Implementation Plan: Надёжная custody подписи обновлений
 
+> Historical Sparkle trust-custody plan. It does not authorize local/self-signed
+> Apple app/package signing. Feature 130 is the current and only public macOS
+> Developer ID release path.
+
 **Branch**: `codex/109-release-signing-key-custody` | **Date**: 2026-07-17 | **Spec**: [spec.md](spec.md)
 
 ## Summary
@@ -13,28 +17,29 @@ release helper and a protected workflow will derive and compare the public key
 before staging anything, fail before a public feed can change, and emit only
 safe attestation data.
 
-The historic private key cannot be reconstructed.  We will therefore ship one
-explicit manual bootstrap package that preserves the GRAF bundle identity and
-macOS signing lineage while embedding the newly managed public key.  The first
-subsequent update is then signed through the new custody path and delivered by
-ordinary Sparkle.  This is an intentional trust migration, never a silent
-key/feed change in an ordinary appcast.
+The historic Sparkle private key cannot be reconstructed. We therefore defined
+one explicit manual Sparkle trust bootstrap package that preserves the GRAF
+bundle identity and embeds the newly managed public key. The Apple signing
+migration in `v2026.07.26.6` is a separate notarized Developer ID `.pkg`
+bootstrap owned by Feature 130. This plan never authorizes a self-signed public
+package or a silent key/feed change in an ordinary appcast.
 
 ## Current operating decision — 2026-07-21
 
-The two-channel GitHub-environment design below remains the future normal path,
-but the current private repository cannot create the required reviewer
-protection rule on its GitHub plan.  The accepted current lane is the existing
-owner-only macOS Keychain signer with an offline owner backup in Bitwarden.
+The two-channel GitHub-environment design below remains the future normal
+Sparkle custody path, but the current private repository cannot create the
+required reviewer protection rule on its GitHub plan. The former degraded lane
+used the macOS Keychain signer with an offline owner backup in Bitwarden.
 Bitwarden is recovery-only and is never read by CI, the app or the public host.
 
-This lane is explicitly degraded.  It requires exact tag/provenance, a fresh
+That historical lane was explicitly degraded. It required exact tag/provenance,
+a fresh
 metadata-only Keychain attestation, explicit owner approval, unchanged public
-manifest/app/feed identity, and archive-before-appcast publication.  T034 is
+manifest/app/feed identity, and archive-before-appcast publication. T034 is
 therefore a completed scope decision rather than a claim that the unavailable
-reviewer gate was configured.  T037 closes the owner-only release evidence for
-the current lane; the protected cloud path remains a future reactivation
-option.
+reviewer gate was configured. T037 closes historical Sparkle-custody evidence;
+the protected cloud path remains a future reactivation option and is not an
+Apple code-signing alternative.
 
 ## Technical Context
 
@@ -83,8 +88,9 @@ artifact metadata, logs, shell history, or diagnostics.  Preserve
 installation during capture, and existing permission continuity.  A lost
 historic key is not recoverable by design.
 
-**Scale/Scope**: one owner-only update line and a small release team.  This
-slice intentionally does not migrate to Developer ID/notarization and does not
+**Scale/Scope**: one Sparkle trust-custody line and a small release team. This
+slice intentionally does not implement Apple signing migration; Feature 130
+owns Developer ID/notarization and does not
 modify capture, audio, transcription, or server code.
 
 ## Constitution Check
@@ -123,9 +129,10 @@ All applicable gates remain passed.
 3. Review the workflow for `workflow_dispatch`/protected-environment scope,
    least `contents` permission, no untrusted PR trigger, no `set -x`, and no
    secret-bearing artifact or output.
-4. Run `infra/scripts/ci-local.sh` before PR/closeout.  Run the real owner-only
-   manual bootstrap plus two sequential in-app updates only in the release
-   gate; include metadata-only evidence and do not reset TCC permissions.
+4. Run `infra/scripts/ci-local.sh` before PR/closeout. The historical Sparkle
+   bootstrap plus two sequential in-app updates belong only to archived
+   evidence; current Apple publication follows Feature 130. Include
+   metadata-only evidence and do not reset TCC permissions.
 5. For the physical rollout, verify remote versioned files and SHA-256 values,
    replace `graf-appcast.xml` last, fetch it again, and retain the previous
    signed feed/artifacts for forward rollback.

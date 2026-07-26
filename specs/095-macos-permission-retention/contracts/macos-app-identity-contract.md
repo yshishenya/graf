@@ -1,5 +1,9 @@
 # Contract: macOS App Identity And Permission Continuity
 
+> Historical contract. Local/self-signed and Apple Development examples are
+> test-fixture evidence only and never authorize public publication. Current
+> macOS release identity is Developer ID-only under Feature 130.
+
 ## Purpose
 
 Define the metadata that must be collected and the pass/fail rules for claiming

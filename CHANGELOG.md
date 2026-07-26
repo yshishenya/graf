@@ -26,6 +26,13 @@
 ### Операции
 - _Пока нет записей._
 
+### Правило следующего релиза
+- После `v2026.07.26.6` публичный macOS-релизный путь единственный: Developer
+  ID Application + Developer ID Installer, notarization, stapling и Gatekeeper.
+  `.6` был ручным `.pkg`-bootstrap с исторического self-signed predecessor без
+  замены appcast; следующий выпуск обязан пройти обычный Developer ID →
+  Developer ID Sparkle flow.
+
 ## [2026.07.26.6] - 2026-07-26
 
 

@@ -1,5 +1,9 @@
 # Tasks: macOS Permission Retention And Relaunch Reliability
 
+> Historical task record. Local/self-signed tasks below describe isolated
+> permission-retention fixtures only; they do not authorize public publication.
+> Current public macOS release work is tracked in Feature 130.
+
 **Input**: Design documents from `/specs/095-macos-permission-retention/`
 
 **Prerequisites**: [plan.md](./plan.md), [spec.md](./spec.md), [research.md](./research.md), [data-model.md](./data-model.md), [contracts/](./contracts/), [quickstart.md](./quickstart.md)
