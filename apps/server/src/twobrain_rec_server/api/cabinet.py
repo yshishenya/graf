@@ -2513,7 +2513,7 @@ async def play_shared_meeting_audio_route(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    meeting, decision = await _authorized_shared_meeting(
+    meeting, decision, recipient_proof = await _authorized_shared_meeting(
         request,
         db,
         owner_workspace_id=workspace_id,
@@ -2529,6 +2529,7 @@ async def play_shared_meeting_audio_route(
         actor_user_id=principal.user_id,
         device_id=device.device_id,
         range_header=range_header,
+        recipient_proof=recipient_proof,
     )
     await db.commit()
     return StreamingResponse(
@@ -2559,7 +2560,7 @@ async def download_shared_meeting_artifact_route(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    meeting, decision = await _authorized_shared_meeting(
+    meeting, decision, recipient_proof = await _authorized_shared_meeting(
         request,
         db,
         owner_workspace_id=workspace_id,
@@ -2579,6 +2580,7 @@ async def download_shared_meeting_artifact_route(
         result=result,
         actor_user_id=principal.user_id,
         device_id=device.device_id,
+        recipient_proof=recipient_proof,
     )
     await db.commit()
     headers = {
@@ -2616,7 +2618,7 @@ async def get_shared_meeting_content_export_capabilities_route(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    meeting, decision = await _authorized_shared_meeting(
+    meeting, decision, _recipient_proof = await _authorized_shared_meeting(
         request,
         db,
         owner_workspace_id=workspace_id,
@@ -2655,7 +2657,7 @@ async def create_shared_meeting_content_export_route(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    meeting, decision = await _authorized_shared_meeting(
+    meeting, decision, recipient_proof = await _authorized_shared_meeting(
         request,
         db,
         owner_workspace_id=workspace_id,
@@ -2685,6 +2687,7 @@ async def create_shared_meeting_content_export_route(
         ),
         actor_user_id=principal.user_id,
         device_id=device.device_id,
+        recipient_proof=recipient_proof,
     )
     await db.commit()
     return Response(
@@ -3422,7 +3425,7 @@ async def _authorized_shared_meeting(
     )
     if not decision.can_view_full_meeting:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    return meeting, decision
+    return meeting, decision, recipient_proof
 
 
 async def _authorized_content_export_meeting(

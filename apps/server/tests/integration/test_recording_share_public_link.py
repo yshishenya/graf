@@ -2,6 +2,7 @@ import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from cryptography.fernet import Fernet
 from sqlalchemy import select
@@ -18,6 +19,7 @@ from tests.fixtures.cabinet_access import (
     set_artifact_policy,
 )
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+from twobrain_rec_server.cabinet import egress as egress_module
 from twobrain_rec_server.cabinet.access import (
     create_share_invitation,
     open_invitation_delivery,
@@ -27,10 +29,14 @@ from twobrain_rec_server.cabinet.access import (
 from twobrain_rec_server.db.models import (
     ExternalIdentity,
     Meeting,
+    MeetingOutcomeItem,
+    MeetingOutcomeSet,
     MeetingShareGrant,
     MeetingShareInvitation,
+    ProcessingResult,
     RecordingCalendarContextLink,
     RegisteredDevice,
+    TranscriptSegment,
     UserIdentity,
     Workspace,
     WorkspaceMembership,
@@ -773,6 +779,7 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(cl
         summary_download="allowed",
         package_export="allowed",
     )
+    asyncio.run(_seed_external_full_summary(client, seeds.ready_id))
 
     async def seed_calendar_context() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -858,28 +865,98 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(cl
     assert f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/content-exports" in page.text
     assert 'data-media-revision-id=""' in page.text
     assert "Сведения о встрече" not in page.text
-
-    playback = client.get(
-        f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/playback",
-        params={"workspace_id": str(WORKSPACE_ID)},
-    )
-    assert playback.status_code == 200
-    assert playback.content == audio_body
-
-    download = client.get(
-        f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/downloads/audio",
-        params={"workspace_id": str(WORKSPACE_ID)},
-    )
-    assert download.status_code == 200
-    assert download.content == audio_body
-    assert "attachment" in download.headers["content-disposition"]
+    csrf = re.search(r'<meta name="csrf-token" content="([^"]+)"', page.text)
+    assert csrf is not None
 
     capabilities = client.get(
         f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/content-exports",
         params={"workspace_id": str(WORKSPACE_ID)},
     )
     assert capabilities.status_code == 200
-    assert capabilities.json()["transcript"]["state"] == "available"
+    capability_payload = capabilities.json()
+    assert capability_payload["transcript"]["state"] == "available"
+    assert capability_payload["summary"]["state"] == "available"
+    assert capability_payload["combined"]["state"] == "available"
+    assert capability_payload["formats"]["transcript"] == ["txt", "md", "csv", "xlsx", "json", "srt"]
+    assert capability_payload["formats"]["summary"] == ["txt", "md", "xlsx", "json"]
+    assert capability_payload["formats"]["combined"] == ["txt", "md", "xlsx", "json"]
+
+    recipient_proofs = []
+    original_decide = egress_module.decide_meeting_access
+
+    async def observe_recipient_proof(*args, **kwargs):
+        recipient_proofs.append(kwargs.get("recipient_proof"))
+        return await original_decide(*args, **kwargs)
+
+    with patch.object(egress_module, "decide_meeting_access", side_effect=observe_recipient_proof):
+        playback = client.get(
+            f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/playback",
+            params={"workspace_id": str(WORKSPACE_ID)},
+        )
+        assert playback.status_code == 200
+        assert playback.content == audio_body
+
+        download = client.get(
+            f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/downloads/audio",
+            params={"workspace_id": str(WORKSPACE_ID)},
+        )
+        assert download.status_code == 200
+        assert download.content == audio_body
+        assert "attachment" in download.headers["content-disposition"]
+
+        transcript_download = client.get(
+            f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/downloads/transcript",
+            params={"workspace_id": str(WORKSPACE_ID)},
+        )
+        assert transcript_download.status_code == 200
+        assert transcript_download.headers["content-disposition"].startswith("attachment;")
+        assert SAFE_TRANSCRIPT_TEXT in transcript_download.text
+
+        transcript_export = client.post(
+            f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/content-exports",
+            params={"workspace_id": str(WORKSPACE_ID)},
+            headers={"X-CSRF-Token": csrf.group(1)},
+            json={
+                "content_scope": "transcript",
+                "format": "txt",
+                "processing_result_id": capability_payload["processing_result_id"],
+            },
+        )
+        assert transcript_export.status_code == 200
+        assert transcript_export.headers["content-disposition"].startswith("attachment;")
+        assert SAFE_TRANSCRIPT_TEXT in transcript_export.text
+
+        summary_export = client.post(
+            f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/content-exports",
+            params={"workspace_id": str(WORKSPACE_ID)},
+            headers={"X-CSRF-Token": csrf.group(1)},
+            json={
+                "content_scope": "summary",
+                "format": "txt",
+                "processing_result_id": capability_payload["processing_result_id"],
+                "outcome_set_id": capability_payload["outcome_set_id"],
+            },
+        )
+        assert summary_export.status_code == 200
+        assert summary_export.headers["content-disposition"].startswith("attachment;")
+        assert "Сохранённый итог." in summary_export.text
+
+        combined_export = client.post(
+            f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/content-exports",
+            params={"workspace_id": str(WORKSPACE_ID)},
+            headers={"X-CSRF-Token": csrf.group(1)},
+            json={
+                "content_scope": "combined",
+                "format": "json",
+                "processing_result_id": capability_payload["processing_result_id"],
+                "outcome_set_id": capability_payload["outcome_set_id"],
+            },
+        )
+        assert combined_export.status_code == 200
+        assert combined_export.headers["content-disposition"].startswith("attachment;")
+        assert SAFE_TRANSCRIPT_TEXT in combined_export.text
+
+    assert recipient_proofs and all(proof is not None for proof in recipient_proofs)
 
     async def revoke_grant() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -916,6 +993,71 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(cl
         ).status_code
         == 404
     )
+
+
+async def _seed_external_full_summary(client, meeting_id) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        result = await db.scalar(
+            select(ProcessingResult).where(
+                ProcessingResult.meeting_id == meeting_id,
+                ProcessingResult.status == "imported",
+            )
+        )
+        meeting = await db.get(Meeting, meeting_id)
+        segment = await db.scalar(
+            select(TranscriptSegment)
+            .where(TranscriptSegment.meeting_id == meeting_id)
+            .order_by(TranscriptSegment.sequence.asc())
+        )
+        assert result is not None and meeting is not None and segment is not None
+        outcome_set = MeetingOutcomeSet(
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=result.media_revision_id,
+            processing_result_id=result.id,
+            status="available",
+            summary_state="available",
+            key_points_state="not_found",
+            decisions_state="available",
+            action_items_state="available",
+            followups_state="not_found",
+            risks_state="not_found",
+            questions_state="not_found",
+            evidence_state="available",
+            source_kind="extractive_generator",
+            generator_kind="deterministic_extractive",
+            generator_version="fixture-share-egress-v1",
+            content_hash="fixture-share-egress-summary-hash",
+            lifecycle_state="active",
+            generated_at=datetime.now(UTC),
+            revision_state="accepted",
+        )
+        db.add(outcome_set)
+        await db.flush()
+        outcome_set.accepted_at = outcome_set.generated_at
+        meeting.current_outcome_set_id = outcome_set.id
+        db.add(
+            MeetingOutcomeItem(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting_id,
+                outcome_set_id=outcome_set.id,
+                category="summary",
+                sequence=0,
+                state="available",
+                text="Сохранённый итог.",
+                truth_label="supported",
+                source_refs_json=[
+                    {
+                        "transcript_segment_id": str(segment.id),
+                        "sequence": segment.sequence,
+                        "start_seconds": float(segment.start_seconds),
+                        "end_seconds": float(segment.end_seconds),
+                        "evidence_kind": "segment",
+                    }
+                ],
+            )
+        )
+        await db.commit()
 
 
 def test_account_created_notification_failure_cannot_break_committed_acceptance(monkeypatch) -> None:
