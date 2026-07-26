@@ -63,7 +63,7 @@ owner-only or local public-release instruction.
 
 **Goal**: Prove the docs, scripts, evidence and repository state agree.
 
-- [ ] T012 Run `sh -n`, focused Swift lifecycle evidence tests, and a repository-wide active-path audit; record only secret-free results in `specs/129-developer-id-release/quickstart.md` or the relevant status artifact.
+- [ ] T012 Run `sh -n`, focused Swift lifecycle evidence tests, and a repository-wide active-path audit; record only secret-free results in `specs/130-developer-id-release/quickstart.md` or the relevant status artifact.
 - [ ] T013 Run `infra/scripts/ci-local.sh` and resolve all failures without weakening the public signing gate or product/privacy gates.
 - [ ] T014 Run `infra/scripts/cd-remote.sh --dry-run`, verify the current public host/appcast state remains unchanged by this docs/validator slice, and update `docs/deployments/2brain-rec/release-v2026.07.26.6.md` with metadata-only evidence.
 - [ ] T015 Re-run the Spec Kit consistency checks, confirm all checklists are complete, mark completed tasks `[X]`, and perform the final forbidden-active-path scan across `AGENTS.md`, `docs/`, `qa/`, `apps/macos/Installer/`, and active `specs/` files.

@@ -1,6 +1,6 @@
 # Feature Specification: Developer ID как единственный публичный macOS-релиз
 
-**Feature Branch**: `129-developer-id-release`
+**Feature Branch**: `130-developer-id-release`
 
 **Created**: 2026-07-26
 

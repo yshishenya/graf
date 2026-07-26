@@ -1,6 +1,6 @@
 # Implementation Plan: Developer ID как единственный публичный macOS-релиз
 
-**Branch**: `129-developer-id-release` | **Date**: 2026-07-26 | **Spec**: [spec.md](spec.md)
+**Branch**: `130-developer-id-release` | **Date**: 2026-07-26 | **Spec**: [spec.md](spec.md)
 
 ## Summary
 
@@ -78,7 +78,7 @@ ordinary continuity checks.
 ### Documentation (this feature)
 
 ```text
-specs/129-developer-id-release/
+specs/130-developer-id-release/
 ├── plan.md
 ├── research.md
 ├── data-model.md
