@@ -29,7 +29,6 @@
 
 ## [2026.07.26.5] - 2026-07-26
 
-
 ### Добавлено
 - _Пока нет записей._
 
@@ -77,7 +76,20 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Focused direct-link matrix: `21 passed`; полный `infra/scripts/ci-local.sh`:
+  macOS `640 passed`, PostgreSQL `2,438 passed, 1 skipped`, strict `41 passed,
+  1 skipped`; lint, compile, Compose и evidence scan прошли.
+- Production deploy на точный SHA `57dde9fd745a89622f804ac1188eee548e805439`
+  завершён успешно после автоматического rollback первой попытки из-за
+  временной Docker-гонки удаления контейнера. Backup/restore rehearsal,
+  migration head `0041_share_account_created_email`, disposable RLS, smoke и
+  final live/ready (`200/200`) прошли; backup:
+  `/opt/projects/2brain-rec/backups/20260726T110215Z`.
+- Публичные Sparkle ZIP и appcast повторно проверены по HTTPS; `/Applications/GRAF.app`
+  обновлён с `2026.07.26.4` до `2026.07.26.5` через штатный update flow и
+  прошёл `codesign --verify --deep --strict`. Live rendered browser smoke не
+  заявляется; post-deploy retry/backfill/range/normalization остаются
+  `required_post_deploy` по CD gate.
 
 ## [2026.07.26.3] - 2026-07-26
 
