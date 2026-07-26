@@ -27,7 +27,11 @@ from twobrain_rec_server.api.schemas import (
     MeetingActivityResponse,
     PlaybackPreparationState,
 )
-from twobrain_rec_server.cabinet.access import AccessDecision, decide_meeting_access
+from twobrain_rec_server.cabinet.access import (
+    AccessDecision,
+    ShareRecipientAccessProof,
+    decide_meeting_access,
+)
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
 from twobrain_rec_server.cabinet.exports import (
     FORMAT_COMPATIBILITY,
@@ -134,6 +138,7 @@ async def _refresh_egress_access(
     meeting: Meeting,
     access: AccessDecision,
     actor_user_id: UUID,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> AccessDecision:
     # Admin file routes already proved workspace membership and intentionally
     # use an operator decision; re-evaluate ordinary user ACLs only.
@@ -144,6 +149,7 @@ async def _refresh_egress_access(
         meeting,
         workspace_id=meeting.workspace_id,
         viewer_user_id=actor_user_id,
+        recipient_proof=recipient_proof,
     )
 
 
@@ -289,6 +295,7 @@ async def create_content_export(
     selection: ExportSelection,
     actor_user_id: UUID,
     device_id: UUID,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> GeneratedContentExport:
     artifact_class: ArtifactClass = (
         "transcript"
@@ -425,7 +432,11 @@ async def create_content_export(
     meeting = await _lock_export_meeting(db, meeting)
     await db.refresh(result)
     final_access = await _refresh_egress_access(
-        db, meeting=meeting, access=access, actor_user_id=actor_user_id
+        db,
+        meeting=meeting,
+        access=access,
+        actor_user_id=actor_user_id,
+        recipient_proof=recipient_proof,
     )
     final_capabilities = await content_export_capabilities(
         db, meeting=meeting, access=final_access, result=result
@@ -1135,6 +1146,7 @@ async def download_artifact(
     result: ProcessingResult | None,
     actor_user_id: UUID,
     device_id: UUID,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> DownloadArtifact:
     locked_meeting = await lock_meeting_fence(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
@@ -1145,7 +1157,11 @@ async def download_artifact(
     if result is not None:
         await db.refresh(result)
     access = await _refresh_egress_access(
-        db, meeting=meeting, access=access, actor_user_id=actor_user_id
+        db,
+        meeting=meeting,
+        access=access,
+        actor_user_id=actor_user_id,
+        recipient_proof=recipient_proof,
     )
     if meeting_deletion_active(meeting):
         await record_egress_audit_event(
@@ -1308,6 +1324,7 @@ async def playback_artifact(
     actor_user_id: UUID,
     device_id: UUID,
     range_header: str | None = None,
+    recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> PlaybackArtifact:
     locked_meeting = await lock_meeting_fence(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
@@ -1316,7 +1333,11 @@ async def playback_artifact(
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     meeting = locked_meeting
     access = await _refresh_egress_access(
-        db, meeting=meeting, access=access, actor_user_id=actor_user_id
+        db,
+        meeting=meeting,
+        access=access,
+        actor_user_id=actor_user_id,
+        recipient_proof=recipient_proof,
     )
     if meeting_deletion_active(meeting):
         await _record_playback_denied(
