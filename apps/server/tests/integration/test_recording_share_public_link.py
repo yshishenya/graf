@@ -29,6 +29,7 @@ from twobrain_rec_server.db.models import (
     Meeting,
     MeetingShareGrant,
     MeetingShareInvitation,
+    RecordingCalendarContextLink,
     RegisteredDevice,
     UserIdentity,
     Workspace,
@@ -772,6 +773,22 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(cl
         summary_download="allowed",
         package_export="allowed",
     )
+
+    async def seed_calendar_context() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            context = await db.scalar(
+                select(RecordingCalendarContextLink).where(
+                    RecordingCalendarContextLink.workspace_id == WORKSPACE_ID,
+                    RecordingCalendarContextLink.meeting_id == seeds.ready_id,
+                )
+            )
+            assert context is not None
+            context.context_state = "matched_auto"
+            context.matched_title = "Synthetic calendar context"
+            context.matched_title_state = "available"
+            await db.commit()
+
+    asyncio.run(seed_calendar_context())
     recipient_email = "recording-invitee@example.com"
     key = Fernet.generate_key()
     key_path = tmp_path / "full-share.key"
