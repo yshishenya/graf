@@ -7,7 +7,10 @@ from twobrain_rec_server.cabinet.access import (
     open_invitation_delivery,
     seal_invitation_delivery,
 )
-from twobrain_rec_server.cabinet.rendering import render_share_invitation_accept_page
+from twobrain_rec_server.cabinet.rendering import (
+    render_share_invitation_accept_page,
+    render_share_invitation_unavailable_page,
+)
 
 
 def test_invitation_delivery_payload_is_encrypted_and_round_trips() -> None:
@@ -37,6 +40,16 @@ def test_logged_out_invitation_shows_safe_preview_without_bearer_in_login_target
     assert response.status_code == 200
     assert "synthetic-token" not in response.text
     assert "/sign-up?" not in response.text
+
+
+def test_unavailable_invitation_page_reuses_safe_cabinet_state() -> None:
+    rendered = render_share_invitation_unavailable_page()
+
+    assert "Приглашение недоступно" in rendered
+    assert "Ссылка уже использована, отозвана или срок её действия истёк." in rendered
+    assert 'href="/meetings"' in rendered
+    assert "synthetic-token" not in rendered
+    assert "synthetic-continuation-state" not in rendered
 
 
 def test_postal_delivery_commits_at_most_once_fence_before_network_egress() -> None:

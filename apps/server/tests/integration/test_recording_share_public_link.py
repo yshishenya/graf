@@ -706,10 +706,16 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
     replay = client.post(
         "/share-invitations/continue/magic",
         params={"workspace_id": str(WORKSPACE_ID)},
+        headers={"Accept": "text/html"},
         data={"state": state, "magic_csrf": magic_csrf_match.group(1)},
         follow_redirects=False,
     )
     assert replay.status_code == 404
+    assert replay.headers["content-type"].startswith("text/html")
+    assert replay.headers["cache-control"] == "private, no-store"
+    assert "Приглашение недоступно" in replay.text
+    assert state not in replay.text
+    assert magic_csrf_match.group(1) not in replay.text
 
     async def read_bootstrap_result() -> tuple[ExternalIdentity, WorkspaceMembership, MeetingShareGrant, MeetingShareInvitation]:
         async with client.app_state["sessionmaker"]() as db:
