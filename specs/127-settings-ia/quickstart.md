@@ -31,6 +31,9 @@ contains provider subjects, candidate contact data or credentials.
    «Пространство и команда» from the inner navigation.
 5. Repeat steps 2–4 in `/desktop/meetings` and confirm the embedded paths remain
    under `/desktop/`.
+6. In the installed GRAF macOS client select the web cabinet's «Настройки»
+   link and confirm the overview opens inside the webview; the native gear in
+   the recording rail must remain the separate «Автозапись» handoff.
 
 ## Manual scenario B: scope and safe empty states
 
@@ -62,6 +65,7 @@ After focused checks pass, run:
 infra/scripts/ci-local.sh
 ```
 
-No deploy or `cd-remote.sh` execution is part of this feature. Hardware capture
-acceptance is not required because the implementation does not change capture
-behavior.
+The original server-only feature had no deploy gate. The corrective macOS
+rollout follows the repository release guidance and requires explicit approval;
+hardware capture acceptance is not required because the implementation does
+not change capture behavior.

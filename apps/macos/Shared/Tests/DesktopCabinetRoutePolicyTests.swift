@@ -43,6 +43,33 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(meetingDetectionSettings.route.kind, .meetingDetectionSettings)
         XCTAssertEqual(meetingDetectionSettings.reason, .allowedMeetingDetectionSettings)
 
+        for route in [
+            "/desktop/settings",
+            "/desktop/settings/recording",
+            "/desktop/settings/summaries",
+            "/desktop/settings/workspace",
+            "/desktop/settings/account",
+            "/desktop/settings/provider-links/7f3d6f9f-0f7f-4c13-a9af-000000000033",
+            "/desktop/settings/provider-links/yandex/start",
+            "/desktop/settings/provider-links/7f3d6f9f-0f7f-4c13-a9af-000000000033/confirm",
+            "/desktop/settings/account/devices/7f3d6f9f-0f7f-4c13-a9af-000000000033/revoke",
+            "/desktop/settings/spaces/7f3d6f9f-0f7f-4c13-a9af-000000000033/activate",
+            "/desktop/settings/join-offers/7f3d6f9f-0f7f-4c13-a9af-000000000033/accept"
+        ] {
+            let settings = policy.decision(for: try url(route))
+            XCTAssertEqual(settings.decision, .allow, route)
+            XCTAssertEqual(settings.route.kind, .settings, route)
+            XCTAssertEqual(settings.reason, .allowedSettings, route)
+        }
+
+        for route in [
+            "/desktop/settings/unknown",
+            "/desktop/settings/provider-links/unsafe provider/start",
+            "/desktop/settings/join-offers/7f3d6f9f-0f7f-4c13-a9af-000000000033/delete"
+        ] {
+            XCTAssertEqual(policy.decision(for: try url(route)).decision, .blockWithMessage, route)
+        }
+
         let login = policy.decision(for: try url("/login?next=/desktop/meetings"))
         XCTAssertEqual(login.decision, .allow)
         XCTAssertEqual(login.route.kind, .authLogin)

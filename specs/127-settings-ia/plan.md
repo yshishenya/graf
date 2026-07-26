@@ -19,7 +19,8 @@ shell должен одинаково работать в браузере и em
 ## Technical Context
 
 **Language/Version**: Python 3.11+ server code, Jinja templates, vanilla
-JavaScript/CSS; SwiftUI source is read-only context for this slice.
+JavaScript/CSS; the corrective embedded-parity slice also updates the Swift
+macOS route policy and its focused tests.
 
 **Primary Dependencies**: FastAPI, Starlette, Jinja2, SQLAlchemy async,
 existing cabinet rendering/helpers, HTMX where already used; no new package.
@@ -37,8 +38,10 @@ calendar credentials, accessibility and native recording handoff. Required:
 full Spec Kit flow, UX/security requirements checklists, focused quickstart and
 repository CI gate. Capture behavior itself remains out of scope.
 
-**Release Gate**: **no deploy**. This is a product UX/code slice; no production
-rollout, version tag or `cd-remote.sh` execution is authorized by the request.
+**Release Gate**: The original server-only slice had no deploy gate. The
+post-release embedded-parity correction uses the repository release guidance;
+versioning, macOS feed publication and production rollout require explicit user
+approval and the mandatory local CI/CD evidence.
 
 **Target Platform**: Authenticated browser cabinet and macOS embedded desktop
 webview; native macOS recording settings remain authoritative but are not
@@ -90,8 +93,12 @@ placeholders and the feature does not change project governance.
    settings route scenarios from `quickstart.md`.
 3. Manual browser and embedded smoke for discoverability, role/scope, empty and
    unavailable states, dirty/save/error behavior and keyboard dialog focus.
-4. `git diff --check` and `infra/scripts/ci-local.sh` before closeout.
-5. No deploy gate, no hardware capture run, no raw meeting-content evidence.
+4. macOS route-policy tests and an installed-client smoke proving the embedded
+   settings link loads instead of entering the blocked-route state; the native
+   recording settings handoff remains separate.
+5. `git diff --check` and `infra/scripts/ci-local.sh` before closeout.
+6. No hardware capture run and no raw meeting-content evidence; release/deploy
+   evidence is required only for the explicitly approved corrective rollout.
 
 ## Technical Approach
 

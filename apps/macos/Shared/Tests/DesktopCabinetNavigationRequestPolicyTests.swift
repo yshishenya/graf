@@ -69,6 +69,22 @@ final class DesktopCabinetNavigationRequestPolicyTests: XCTestCase {
         }
     }
 
+    func testReloadsSettingsOverviewNavigationWithDesktopHeaders() throws {
+        let policy = try makePolicy()
+        let settingsURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/settings"))
+        let request = URLRequest(url: settingsURL)
+
+        switch policy.decision(forNavigationRequest: request, isForMainFrame: true) {
+        case let .reload(reloaded):
+            XCTAssertEqual(reloaded.url, settingsURL)
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Client-Version"), "local-macos")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Device-Id"), "device-033")
+        case .allow:
+            XCTFail("Expected settings navigation to be reloaded with desktop headers")
+        }
+    }
+
     func testReloadsArtifactDownloadNavigationWithDesktopHeaders() throws {
         let policy = try makePolicy()
         let audioURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/cabinet/meetings/meeting-033/downloads/audio"))

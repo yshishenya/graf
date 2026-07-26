@@ -209,6 +209,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     func testSuccessfulLoginPageLoadDoesNotMarkCabinetReady() {
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .meetingList), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .meetingDetail), .ready)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .settings), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .calendarSettings), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authLogin), .expiredSession)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authSignup), .expiredSession)
