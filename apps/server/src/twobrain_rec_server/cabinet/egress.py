@@ -97,6 +97,7 @@ ALLOWED_AUDIT_KEYS = {
     "turn_policy_version",
 }
 STORAGE_MATERIALIZATION_TIMEOUT_SECONDS = 30
+IMPLICIT_AUDIO_POLICY_SOURCES = frozenset({"meeting_default", "workspace_default"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -775,7 +776,7 @@ async def artifact_egress_states(
         processing_result_id=result.id if result is not None else None,
     )
     states = [
-        _audio_state(policy.audio_download, access, audio_artifacts),
+        _audio_state(_effective_audio_download_policy(policy), access, audio_artifacts),
         _transcript_state(policy.transcript_download, access, result),
         _summary_state(policy.summary_download, access, result, published_outcome),
     ]
@@ -808,6 +809,15 @@ async def resolve_artifact_policy(
         package_export="disabled",
         policy_source="meeting_default",
     )
+
+
+def _effective_audio_download_policy(policy: MeetingArtifactPolicy) -> str:
+    if (
+        policy.audio_download == "disabled"
+        and policy.policy_source in IMPLICIT_AUDIO_POLICY_SOURCES
+    ):
+        return "owner_only"
+    return policy.audio_download
 
 
 async def stored_audio_artifacts(
