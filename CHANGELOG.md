@@ -51,9 +51,12 @@
   validation evidence.
 
 ### Операции
-- Focused invitation matrix: `23 passed`; полный `infra/scripts/ci-local.sh`:
-  macOS `640 passed`, server `2440 passed / 1 skipped`, strict PostgreSQL
+- Focused invitation matrix: `23 passed`; полный CD/local gate:
+  macOS `640 passed`, server `2441 passed / 1 skipped`, strict PostgreSQL
   `42 passed / 1 skipped`; lint, compile, Compose и evidence scan прошли.
+- Release `v2026.07.26.7` deployed на exact SHA; backup/restore, migration,
+  smoke, readiness и live/ready `200/200` прошли. Post-deploy API log audit:
+  `0` HTTP-500 и `0` `auth_audit_events` RLS errors.
 
 ## [2026.07.26.6] - 2026-07-26
 
