@@ -104,12 +104,14 @@ def test_invitation_acceptance_uses_a_separate_grant_token_and_safe_onboarding_c
         magic_action="/share-invitations/continue/magic?workspace_id=synthetic-workspace",
         magic_state="synthetic-continuation-state",
         magic_csrf_token="synthetic-magic-csrf-token",
+        auto_accept=True,
     )
-    assert "Планирование релиза" in rendered
+    assert "Открываем итоги" in rendered
     assert "Открыть итоги" in rendered
-    assert "создаст личный аккаунт" in rendered
+    assert "data-share-invitation-auto-accept-form" in rendered
+    assert "Планирование релиза" not in rendered
+    assert "Сведения о встрече" not in rendered
     assert "Создать аккаунт GRAF" not in rendered
-    assert "Рабочая область, аудио и расшифровка недоступны" in rendered
     assert "транскрипт" not in rendered.lower()
     assert "audio" not in rendered.lower()
 
@@ -131,11 +133,14 @@ def test_full_invitation_contract_exposes_recording_package_without_workspace_me
         magic_action="/share-invitations/continue/magic?workspace_id=synthetic-workspace",
         magic_state="synthetic-continuation-state",
         magic_csrf_token="synthetic-magic-csrf-token",
+        auto_accept=True,
     )
 
-    assert "Запись встречи доступна" in rendered
-    assert "саммари, расшифровка, прослушивание и скачивание аудио" in rendered
+    assert "Открываем запись" in rendered
     assert "Открыть запись" in rendered
+    assert "data-share-invitation-auto-accept-form" in rendered
+    assert "Планирование релиза" not in rendered
+    assert "Сведения о встрече" not in rendered
     assert "Открыть итоги" not in rendered
     assert "/shared-meetings/" in browser_source
     assert "/cabinet/shared-meetings/{meeting_id}/playback" in api_source

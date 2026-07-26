@@ -156,16 +156,18 @@ token only encrypted-at-rest so a lost response can be replayed for the same
 verified recipient without rotating the grant; a different identity receives a
 privacy-preserving not-found response.
 
-For an anonymous recipient, the landing page exposes only one explicit action:
-`Открыть итоги` for `summary_only` or `Открыть запись` for `full_meeting`. The
-action uses the one-time continuation
-nonce plus a double-submit CSRF cookie; the bearer invitation token is not
-placed in the form, login `next` path, referrer or analytics. The server
-consumes the continuation, resolves the invited address from encrypted
-server-side data, creates or reuses the recipient's personal account, issues
-the browser session and opens the permitted surface in one transaction. Preview
-alone creates neither an account nor a grant. Existing standard email login
-remains code-based; the invitation magic link is the automatic bootstrap path.
+For an anonymous recipient, opening the invitation URL renders a minimal
+transition shell and automatically submits the existing magic-link POST. The
+same shell keeps one visible fallback action: `Открыть итоги` for `summary_only`
+or `Открыть запись` for `full_meeting` when JavaScript is disabled. The action
+uses the one-time continuation nonce plus a double-submit CSRF cookie; the
+bearer invitation token is not placed in the form, login `next` path, referrer
+or analytics. GET only creates the server-side continuation and does not create
+an account or grant. The POST consumes the continuation, resolves the invited
+address from encrypted server-side data, creates or reuses the recipient's
+personal account, issues the browser session and opens the permitted surface in
+one transaction. Existing standard email login remains code-based; the
+invitation magic link is the automatic bootstrap path.
 
 For an accepted `full_meeting` invitation whose recipient is not an active
 member of the owner's workspace, the browser redirects to the stable
@@ -226,10 +228,14 @@ without a full fragment reload and Copy link uses the API-returned URL.
 
 The invitation landing page and email may contain only safe metadata: inviter
 label, bounded meeting label/time, scope, expiry, action to sign in/create GRAF
-and notification/privacy links. No transcript, audio, participant list,
-summary text, tracking pixel, raw email or token is placed there. After exact
-verified acceptance, the full recipient page may render only the granted
-summary, transcript, playback and egress actions described above.
+and notification/privacy links. The anonymous landing page has only a minimal
+transition state plus one JavaScript-disabled fallback CTA. No transcript,
+audio, participant list, summary text, tracking pixel, raw email or token is
+placed there. GET neither silently joins the workspace, creates an account nor
+sends another invitation; the existing CSRF-bound POST performs the explicit
+acceptance. After exact verified acceptance, the full recipient page may render
+only the granted summary, transcript, playback and egress actions described
+above.
 
 After successful authorized view, an optional CTA explains one concrete GRAF
 value and links to explicit onboarding. It never blocks the permitted content,

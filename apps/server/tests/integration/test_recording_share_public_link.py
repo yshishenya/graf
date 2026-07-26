@@ -506,9 +506,12 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(c
         headers={"Accept": "text/html"},
     )
     assert anonymous_preview.status_code == 200
-    assert "Итоги встречи доступны" in anonymous_preview.text
+    assert "Открываем итоги" in anonymous_preview.text
+    assert "Итоги встречи доступны" not in anonymous_preview.text
+    assert "Сведения о встрече" not in anonymous_preview.text
     assert raw_token not in anonymous_preview.text
     assert "Открыть итоги" in anonymous_preview.text
+    assert "data-share-invitation-auto-accept-form" in anonymous_preview.text
     state_match = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', anonymous_preview.text)
     assert state_match is not None
     recipient_headers = auth_headers_for(
@@ -661,6 +664,9 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
         headers={"Accept": "text/html"},
     )
     assert preview.status_code == 200
+    assert "Открываем итоги" in preview.text
+    assert "Итоги встречи доступны" not in preview.text
+    assert "data-share-invitation-auto-accept-form" in preview.text
     state_match = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', preview.text)
     assert state_match is not None
     state = state_match.group(1)
@@ -668,6 +674,13 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
     assert magic_csrf_match is not None
     assert "Открыть итоги" in preview.text
     assert "Войти и открыть итоги" not in preview.text
+
+    magic_get = client.get(
+        "/share-invitations/continue/magic",
+        params={"workspace_id": str(WORKSPACE_ID)},
+        follow_redirects=False,
+    )
+    assert magic_get.status_code == 405
 
     rejected_csrf = client.post(
         "/share-invitations/continue/magic",
@@ -789,9 +802,12 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(cl
         headers={"Accept": "text/html"},
     )
     assert preview.status_code == 200
-    assert "Запись встречи доступна" in preview.text
+    assert "Открываем запись" in preview.text
+    assert "Запись встречи доступна" not in preview.text
+    assert "Сведения о встрече" not in preview.text
     assert "Открыть запись" in preview.text
     assert "Открыть итоги" not in preview.text
+    assert "data-share-invitation-auto-accept-form" in preview.text
     state = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', preview.text)
     magic_csrf = re.search(r'name="magic_csrf" value="([^\"]+)"', preview.text)
     assert state is not None and magic_csrf is not None

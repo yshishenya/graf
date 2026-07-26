@@ -1,32 +1,42 @@
 <main id="cabinet-main" class="main" tabindex="-1">
   <section class="panel compact-panel" aria-labelledby="share-invitation-title">
     {% if invitation_available %}
-      <h1 id="share-invitation-title">{% if content_scope == "full_meeting" %}Запись встречи доступна{% else %}Итоги встречи доступны{% endif %}</h1>
-      <p>Нажмите кнопку — GRAF откроет доступ и создаст личный аккаунт, если его ещё нет.</p>
-      <div class="panel compact-panel" aria-label="Сведения о встрече">
-        <strong>{{ meeting_title }}</strong>
-        <p class="muted">
-          {% if meeting_occurred_at %}{{ meeting_occurred_at.strftime("%d.%m.%Y, %H:%M UTC") }}{% endif %}
-          {% if meeting_duration_seconds is not none %} · {{ (meeting_duration_seconds // 60) }} мин{% endif %}
-          · Доступ до {{ invitation_expires_at.strftime("%d.%m.%Y") }}
-        </p>
-      </div>
-      {% if content_scope == "full_meeting" %}
-      <p class="muted">Доступны саммари, расшифровка, прослушивание и скачивание аудио. Рабочая область и служебные данные недоступны.</p>
-      {% else %}
-      <p class="muted">Откроются только итоги. Рабочая область, аудио и расшифровка недоступны.</p>
-      {% endif %}
-      {% if authenticated %}
-        <form method="post" action="{{ accept_action }}">
-          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-          <button type="submit" class="button">{% if content_scope == "full_meeting" %}Открыть запись{% else %}Открыть итоги{% endif %}</button>
-        </form>
-      {% else %}
-        <form method="post" action="{{ magic_action }}">
+      {% if auto_accept %}
+        <h1 id="share-invitation-title">{% if content_scope == "full_meeting" %}Открываем запись{% else %}Открываем итоги{% endif %}</h1>
+        <p role="status" aria-live="polite">Проверяем ссылку и открываем разрешённый результат.</p>
+        <form method="post" action="{{ magic_action }}" data-share-invitation-auto-accept-form>
           <input type="hidden" name="state" value="{{ magic_state or '' }}">
           <input type="hidden" name="magic_csrf" value="{{ magic_csrf_token or '' }}">
           <button type="submit" class="button">{% if content_scope == "full_meeting" %}Открыть запись{% else %}Открыть итоги{% endif %}</button>
         </form>
+      {% else %}
+        <h1 id="share-invitation-title">{% if content_scope == "full_meeting" %}Запись встречи доступна{% else %}Итоги встречи доступны{% endif %}</h1>
+        <p>Нажмите кнопку — GRAF откроет доступ и создаст личный аккаунт, если его ещё нет.</p>
+        <div class="panel compact-panel" aria-label="Сведения о встрече">
+          <strong>{{ meeting_title }}</strong>
+          <p class="muted">
+            {% if meeting_occurred_at %}{{ meeting_occurred_at.strftime("%d.%m.%Y, %H:%M UTC") }}{% endif %}
+            {% if meeting_duration_seconds is not none %} · {{ (meeting_duration_seconds // 60) }} мин{% endif %}
+            · Доступ до {{ invitation_expires_at.strftime("%d.%m.%Y") }}
+          </p>
+        </div>
+        {% if content_scope == "full_meeting" %}
+        <p class="muted">Доступны саммари, расшифровка, прослушивание и скачивание аудио. Рабочая область и служебные данные недоступны.</p>
+        {% else %}
+        <p class="muted">Откроются только итоги. Рабочая область, аудио и расшифровка недоступны.</p>
+        {% endif %}
+        {% if authenticated %}
+          <form method="post" action="{{ accept_action }}">
+            <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+            <button type="submit" class="button">{% if content_scope == "full_meeting" %}Открыть запись{% else %}Открыть итоги{% endif %}</button>
+          </form>
+        {% else %}
+          <form method="post" action="{{ magic_action }}">
+            <input type="hidden" name="state" value="{{ magic_state or '' }}">
+            <input type="hidden" name="magic_csrf" value="{{ magic_csrf_token or '' }}">
+            <button type="submit" class="button">{% if content_scope == "full_meeting" %}Открыть запись{% else %}Открыть итоги{% endif %}</button>
+          </form>
+        {% endif %}
       {% endif %}
     {% else %}
       <h1 id="share-invitation-title">Приглашение недоступно</h1>

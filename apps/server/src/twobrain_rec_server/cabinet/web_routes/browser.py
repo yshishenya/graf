@@ -646,6 +646,7 @@ async def share_invitation_accept_page(
             ),
             magic_state=continuation_nonce,
             magic_csrf_token=magic_csrf_token,
+            auto_accept=preview is not None and continuation_nonce is not None and principal is None,
         )
     )
     if magic_csrf_token is not None:

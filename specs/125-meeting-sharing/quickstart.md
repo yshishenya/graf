@@ -105,15 +105,18 @@ user and one unknown external address.
    request) from `outcome_unknown` (the network result was not confirmed).
 3. Confirm exact verified-email acceptance creates no workspace membership and
    creates a separate bounded grant token.
-4. For a new synthetic recipient, open the invitation, press the single
-   `Открыть запись` action and confirm the magic link creates the personal
-   account automatically before the response redirects to the stable
-   `/shared-meetings/{meeting_id}?workspace_id=...` page. Confirm the page
-   exposes summary, timestamped transcript, playback, audio download and the
-   existing combined export control, but no workspace/calendar/service details.
-   No password, code or separate `/sign-up` step is shown or required. Confirm
-   the account-created notification is queued after commit and contains only the
-   masked address, meeting title and links to GRAF/settings.
+4. For a new synthetic recipient, open the invitation URL and confirm the
+   minimal transition shell automatically submits the existing CSRF-bound
+   acceptance form. Confirm the magic link creates the personal account
+   automatically before the response redirects to the stable
+   `/shared-meetings/{meeting_id}?workspace_id=...` page. With JavaScript
+   disabled, confirm the same page exposes only the single `Открыть запись`
+   fallback action. Confirm the result page exposes summary, timestamped
+   transcript, playback, audio download and the existing combined export
+   control, but no workspace/calendar/service details. No password, code or
+   separate `/sign-up` step is shown or required. Confirm the account-created
+   notification is queued after commit and contains only the masked address,
+   meeting title and links to GRAF/settings.
 5. Revoke the accepted grant and confirm the page, playback, audio download and
    content-export endpoints all block the next request. Repeat with expiry and
    deletion.
@@ -336,3 +339,20 @@ attribution remain disabled.
 - Browser smoke used only synthetic local data: the summary invitation CTA and
   full-recording recipient page returned HTTP 200 without console errors. No
   live mailbox delivery or private meeting content was used.
+
+## Validation record — 2026-07-26 direct invitation-link acceptance
+
+- Focused direct-link regression matrix: `21 passed`, including summary/full
+  invitation shells, no metadata preview, raw-token hygiene, POST-only magic
+  acceptance, account bootstrap, replay, revoke and recording egress checks.
+- `infra/scripts/ci-local.sh`: pass — macOS `639 passed`; PostgreSQL `2,438
+  passed, 1 skipped` in parallel and `41 passed, 1 skipped` in strict mode;
+  ContractValidation, Ruff, Python compile, Compose config and deployment-
+  evidence scan passed.
+- The local RLS hardening boundary reported `blocked` because no live
+  production or separate disposable PostgreSQL URL was supplied; no
+  destructive production probe was attempted. The isolated PostgreSQL phases
+  completed successfully.
+- The production browser navigation used for diagnosis timed out, so no live
+  rendered screenshot or console-clean claim is made. This change is validated
+  only with synthetic local fixtures until the release deploy gate is approved.
