@@ -1,6 +1,6 @@
 <!--
 Sync Impact Report
-Version change: 4.0.0 -> 4.1.0
+Version change: 4.1.0 -> 4.2.0
 Modified principles:
 - Data Boundary And Secret Discipline -> Plaintext Observability For Internal
   MVP: complete transcript and model content are intentionally retained in
@@ -15,7 +15,9 @@ Modified principles:
   preserved product requirements and cannot be removed by a cleanup or UX
   simplification without an explicit superseding feature decision.
 Added sections:
-- None; the existing capture and consent principle is materially expanded.
+- Public macOS Distribution And Update Integrity: public app and package
+  releases use only Developer ID, Apple notarization, stapling and Gatekeeper;
+  local/self-signed paths are never public release or update paths.
 Removed sections:
 - None.
 Templates requiring updates:
@@ -30,6 +32,9 @@ Follow-up items:
   stabilization feature when the operator chooses to add those controls.
 - Do not remove automatic recording behavior without a new approved feature,
   migration/compatibility note, and explicit product-owner decision.
+- First migration from a legacy local/self-signed app to Developer ID is a
+  manual notarized-package bootstrap; the live Sparkle feed MUST NOT be
+  replaced until the migration validator proves safe continuity.
 -->
 # 2brain Rec Constitution
 
@@ -215,7 +220,34 @@ observability copies as a failed GRAF purge.
 Rationale: deletion is not a button; it is a cross-system lifecycle promise.
 Precise status is safer than broad claims that the system cannot prove.
 
-### V. Spec-Driven Delivery With Testable Gates
+### V. Public macOS Distribution And Update Integrity
+
+Every public macOS application and installer package MUST use an Apple-issued
+Developer ID Application or Developer ID Installer identity as applicable,
+hardened runtime, a secure timestamp, successful Apple notarization, a valid
+staple, and Gatekeeper acceptance before publication. Public `/download`,
+GitHub Release assets, versioned update archives, and the live Sparkle feed MUST
+not contain an ad-hoc, local self-signed, or owner-only artifact.
+
+The ordinary Sparkle update path MUST preserve the same bundle identifier,
+Developer ID team, designated-requirement compatibility, public feed, and
+Sparkle trust generation. A migration from a legacy local/self-signed client
+to Developer ID MUST use a separately labelled, notarized `.pkg` bootstrap and
+MUST keep the old appcast unchanged until an explicit migration validator has
+proved the transition safe. The first Developer ID bootstrap MUST NOT be
+represented as an ordinary in-app update.
+
+Release scripts and documentation MUST fail closed when a local/self-signed
+identity is selected for a public lane. Local or ad-hoc signing MAY remain only
+in isolated development fixtures and historical metadata-only receipts, never
+as an active release instruction or public fallback.
+
+Rationale: macOS signing identity is part of application continuity and
+permission retention. Publishing a local signature as if it were a public
+update can strand installed clients, trigger unexpected permission prompts, or
+weaken Gatekeeper trust.
+
+### VI. Spec-Driven Delivery With Testable Gates
 
 All work MUST start by selecting an explicit risk/validation lane. Significant
 work MUST follow Spec Kit: constitution, specify, clarify, plan, checklist when
@@ -349,4 +381,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 4.1.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-07-23
+**Version**: 4.2.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-07-26
