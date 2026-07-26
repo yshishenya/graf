@@ -46,7 +46,7 @@ and ordinary mode still rejects a changed signing kind.
 
 - [ ] T006 Add `apps/macos/Installer/Scripts/validate-developer-id-bootstrap.sh` that reuses the shared validator and checks Developer ID Installer package signature, staple and install Gatekeeper acceptance.
 - [ ] T007 [P] [US2] Clarify Sparkle trust-generation rotation versus Apple Developer ID migration in `apps/macos/Installer/Scripts/build-trust-bootstrap.sh`, `apps/macos/Installer/Scripts/validate-manual-update-bootstrap.sh`, and `apps/macos/Installer/Scripts/provision-release-signing-custody.sh` guidance/comments without changing Sparkle custody behavior.
-- [ ] T008 [P] [US2] Update active update contracts and quickstarts to document the manual `.pkg` bootstrap and ordinary Developer ID lineage in `specs/095-macos-permission-retention/`, `specs/105-macos-app-updates/`, and `specs/109-release-signing-key-custody/`.
+- [ ] T008 [P] [US2] Update `specs/095-macos-permission-retention/contracts/local-signing-runbook.md`, `specs/095-macos-permission-retention/contracts/macos-app-identity-contract.md`, `specs/095-macos-permission-retention/quickstart.md`, `specs/105-macos-app-updates/contracts/update-publication-contract.md`, `specs/105-macos-app-updates/quickstart.md`, `specs/105-macos-app-updates/spec.md`, `specs/109-release-signing-key-custody/quickstart.md`, `specs/109-release-signing-key-custody/spec.md`, `specs/109-release-signing-key-custody/plan.md`, `specs/109-release-signing-key-custody/research.md`, `specs/109-release-signing-key-custody/checklists/security-release.md`, and `specs/109-release-signing-key-custody/hardening/context.md` to document the manual `.pkg` bootstrap and ordinary Developer ID lineage.
 
 ## Phase 4: User Story 3 — единые инструкции без legacy-пути (P1)
 
@@ -56,7 +56,7 @@ and ordinary mode still rejects a changed signing kind.
 owner-only or local public-release instruction.
 
 - [ ] T009 [P] [US3] Update current status, feature index, and `.6` release/deployment evidence in `docs/current-product-status.md`, `docs/spec-kit-feature-index.md`, `docs/releases/v2026.07.26.6.md`, and `docs/deployments/2brain-rec/release-v2026.07.26.6.md`.
-- [ ] T010 [P] [US3] Mark legacy signing passages as historical receipts or isolated fixtures in `docs/releases/`, `docs/deployments/`, `apps/macos/Installer/README.md`, `qa/macos/release-candidate-checklist.md`, and affected `specs/` documents without rewriting prior facts.
+- [ ] T010 [P] [US3] Mark legacy signing passages as historical receipts or isolated fixtures in `docs/releases/v2026.07.24.11.md`, `docs/releases/v2026.07.26.4.md`, `docs/releases/v2026.07.26.5.md`, `docs/deployments/2brain-rec/release-v2026.07.24.11.md`, `docs/deployments/2brain-rec/release-v2026.07.26.1.md`, `docs/deployments/2brain-rec/release-v2026.07.26.2.md`, `docs/deployments/2brain-rec/release-v2026.07.26.4.md`, `docs/deployments/2brain-rec/release-v2026.07.26.5.md`, `apps/macos/Installer/README.md`, and `qa/macos/release-candidate-checklist.md` without rewriting prior facts.
 - [ ] T011 [P] [US3] Add the Developer ID-only operating rule and `.6` manual-bootstrap limitation to `CHANGELOG.md` without adding credentials or signed URLs.
 
 ## Phase 5: Polish and cross-cutting validation
