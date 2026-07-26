@@ -17,9 +17,18 @@ metadata-only evidence остаются подробной историей ре
   fallback-кнопка; exact identity, expiry, revoke, deletion и egress checks не
   менялись.
 - Focused direct-link matrix прошёл `21/21`; полный local CI прошёл macOS
-  `639/639`, PostgreSQL `2,438 passed / 1 skipped` и strict `41 passed / 1
-  skipped`, lint/compile/Compose/evidence scan PASS. Production deploy и live
-  rendered browser smoke для этой правки ещё не выполнялись.
+  `640/640`, PostgreSQL `2,438 passed / 1 skipped` и strict `41 passed / 1
+  skipped`, lint/compile/Compose/evidence scan PASS. Release `v2026.07.26.5`
+  опубликован и выкачен на production на точный SHA
+  `57dde9fd745a89622f804ac1188eee548e805439`; backup/restore rehearsal,
+  migration head `0041_share_account_created_email`, disposable RLS,
+  production smoke и live/ready `200/200` прошли. Backup:
+  `/opt/projects/2brain-rec/backups/20260726T110215Z`.
+- Публичный appcast и ZIP `2026.07.26.5` доступны и совпадают с подписанными
+  артефактами; установленный `/Applications/GRAF.app` обновился с
+  `2026.07.26.4` через штатную проверку обновлений и прошёл strict codesign.
+  Live rendered browser smoke отдельно не заявляется; CD оставил
+  post-deploy retry/backfill/range/normalization как `required_post_deploy`.
 
 ## Implementation update (2026-07-25) — Feature 128
 
