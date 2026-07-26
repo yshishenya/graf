@@ -155,7 +155,7 @@ settings IA and the macOS webview route allowlist.
   `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`,
   `apps/macos/Shared/Tests/DesktopCabinetNavigationRequestPolicyTests.swift`
   and `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`.
-- [ ] T039 Validate the embedded settings path in the installed macOS client,
+- [X] T039 Validate the embedded settings path in the installed macOS client,
   run the focused Swift tests and `infra/scripts/ci-local.sh`, then record the
   release/deploy evidence without changing native capture behavior.
 
