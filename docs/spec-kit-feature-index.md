@@ -7,10 +7,12 @@ receipts сверены.
 
 Feature 124 и предшествующие server slices остаются в архиве product history.
 Для macOS публичным каноном теперь является только Developer ID Application /
-Developer ID Installer с notarization, stapling и Gatekeeper. `v2026.07.26.6`
-устанавливается вручную как одноразовый migration bootstrap с бывшего
-local/self-signed predecessor; appcast для этого перехода не меняется. Все
-дальнейшие обычные обновления — только Developer ID → Developer ID.
+Developer ID Installer с notarization, stapling и Gatekeeper. Текущий
+опубликованный и production-deployed reference — `v2026.07.26.8`; его переход
+`Developer ID → Developer ID` проверен на установленном клиенте. `v2026.07.26.6`
+остаётся ручным одноразовым migration bootstrap с бывшего local/self-signed
+predecessor; appcast для этого перехода не меняется. Все дальнейшие обычные
+обновления — только Developer ID → Developer ID.
 
 Текущая product/runtime truth находится в
 `docs/current-product-status.md`, а исполняемые инструкции — в
@@ -105,7 +107,7 @@ receipt и current-product-status одним change set.
 | [107](../specs/107-auth-return-safety/spec.md) | Реализована, merged и released | Первоначальный no-release lane был позже явно открыт; текущая release boundary зафиксирована в release notes. |
 | [108](../specs/108-local-postgres-only/spec.md) | Реализована и validated | Validation-only slice; production schema/runtime не изменялся. |
 | [109](../specs/109-release-signing-key-custody/spec.md) | Sparkle trust-custody evidence архивирована | T022 остаётся открытым; T037 — исторический receipt `v2026.07.21.3`. Это не текущая Apple code-signing policy. |
-| [130](../specs/130-developer-id-release/spec.md) | Текущий канон Developer ID-only; `.6` опубликован и миграционно проверен | Ручной notarized `.pkg` bootstrap без appcast для local/self-signed predecessor; далее только Developer ID → Developer ID. |
+| [130](../specs/130-developer-id-release/spec.md) | Текущий канон Developer ID-only; `.6` миграционно проверен, `.8` опубликован и выкачен | Ручной notarized `.pkg` bootstrap без appcast для local/self-signed predecessor; `.8` подтвердил обычный Developer ID → Developer ID Sparkle update. |
 | [110](../specs/110-postgres-test-acceleration/spec.md) | Реализована; validation evidence записан | Новый полный прогон после финального startup guard намеренно не повторялся. |
 | [111](../specs/111-support-incident-recovery/spec.md) | Реализована, merged и released | PR #3843 и follow-up #3867 merged; release `v2026.07.18.2`; старый deploy receipt переименован в historical checkpoint. |
 | [113](../specs/113-transcript-speaker-turns/spec.md) | Реализована, merged и включена в `v2026.07.21.1` | Canonical speaker-turn boundary provider-neutral; MinIO playback hotfix остаётся отдельным slice. |

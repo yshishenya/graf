@@ -6,11 +6,15 @@ Date: 2026-07-26
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
-## Canonical macOS public release policy (2026-07-26)
+## Canonical macOS public release policy (2026-07-26, current `v2026.07.26.8`)
 
 - Единственный текущий публичный путь для macOS — `Developer ID Application`
   для `GRAF.app` и `Developer ID Installer` для `.pkg`, затем hardened runtime,
   secure timestamp, notarization Apple, stapling и проверка Gatekeeper.
+- Текущий опубликованный и выкаченный релиз — `v2026.07.26.8` на точном коммите
+  `15309573ff8ff0fa5ed97269c6577f68db57c439`. Для уже доверенного Developer ID
+  клиента подтверждено обычное in-place обновление `2026.07.26.7 →
+  2026.07.26.8` через Sparkle; appcast указывает на `.8`.
 - `v2026.07.26.6` — одноразовый ручной `.pkg`-bootstrap для перехода с
   исторического local/self-signed `.5`; он намеренно не заменял appcast и не
   является обычным Sparkle update. После установки дальнейшая цепочка только
@@ -25,8 +29,22 @@ metadata-only evidence остаются подробной историей ре
 Канонические инструкции: [Installer README](../apps/macos/Installer/README.md),
 [release validation](agent-guidance/release-and-validation.md) и
 [Feature 130](../specs/130-developer-id-release/spec.md). Metadata-only release
-evidence: [release note](releases/v2026.07.26.6.md) и
-[production receipt](deployments/2brain-rec/release-v2026.07.26.6.md).
+evidence текущего выпуска: [release note](releases/v2026.07.26.8.md) и
+[production receipt](deployments/2brain-rec/release-v2026.07.26.8.md). Описание
+одноразовой миграции `.6` сохранено в [архивной release note](releases/v2026.07.26.6.md).
+
+## Current release closeout — `v2026.07.26.8`
+
+- Apple принял app и installer; оба артефакта получили notarization staple и
+  прошли Gatekeeper. Публичные ZIP, PKG, checksums и appcast опубликованы после
+  проверки точных SHA-256.
+- Protected Sparkle signing workflow завершился успешно; continuity validator
+  подтвердил ту же bundle identity, Developer ID lineage, designated requirement
+  и trust generation.
+- Production deploy завершён на том же SHA; backup/restore rehearsal, disposable
+  RLS, migration, smoke, readiness и публичные health endpoints прошли.
+- В receipts зафиксированы только агрегированные технические результаты; они не
+  содержат пользовательские данные.
 
 ## Implementation update (2026-07-26) — Feature 125 direct invitation link
 
