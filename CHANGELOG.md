@@ -26,6 +26,31 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.07.26.8] - 2026-07-26
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Закреплён Developer ID-only public macOS workflow и отдельный manual `.pkg`
+  migration boundary; historical self-signed material больше не является
+  release-инструкцией.
+
+### Операции
+- Следующий macOS-релиз готовится как обычное Developer ID → Developer ID
+  обновление с обязательными notarization, stapling, Gatekeeper и Sparkle
+  continuity checks.
+
 ### Правило следующего релиза
 - После `v2026.07.26.6` публичный macOS-релизный путь единственный: Developer
   ID Application + Developer ID Installer, notarization, stapling и Gatekeeper.
