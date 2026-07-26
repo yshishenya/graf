@@ -1,5 +1,9 @@
 # Security Hardening Proposal: protected dual custody for Sparkle signing
 
+> Historical proposal for Sparkle trust custody. Any Apple app/package signing
+> examples are non-operative; current public macOS publication is Developer
+> ID-only under Feature 130.
+
 ## Decision
 
 We need a release boundary that owns both signer availability and signer-to-app
@@ -67,10 +71,12 @@ availability/recovery into a distinct, explicit control.
 
 ## Constraints And Non-Goals
 
-We retain the owner-only code-signing line, local package/bootstrap workflow,
+The historical proposal retained the owner-only code-signing line and local
+package/bootstrap workflow,
 existing public host, `pro.2brain.graf`, and macOS permission-continuity
 checks.  We do not recover the historic key, add a third-party runtime service,
-or switch to Developer ID/notarization.  No option may let a pull request,
+or switch to Developer ID/notarization. Current Apple publication is now
+Developer ID-only under Feature 130. No option may let a pull request,
 untrusted ref, public host or app bundle access the private signer.
 
 ## Before Architecture
@@ -176,9 +182,10 @@ current owner-only distribution limitation.
 
 However, it makes this recovery work dependent on provider selection, billing,
 service availability, certificate custody, notarization and a potentially
-different macOS designated requirement.  We would still need the same manual
-bootstrap because no KMS can recreate the historic Sparkle signer.  I would not
-combine those risks with an update outage repair.
+different macOS designated requirement. We would still need the same manual
+Sparkle bootstrap because no KMS can recreate the historic signer. Apple
+Developer ID publication is now handled separately by Feature 130; I would not
+combine further Apple identity changes with an update outage repair.
 
 The larger future architecture is [shown here](../diagrams/protected-dual-custody-external-kms-and-public-signing-after.mmd).
 

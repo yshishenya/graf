@@ -60,7 +60,7 @@ assert_calver "$VERSION" "GRAF_VERSION"
 
 case "${GRAF_MANUAL_TRUST_BOOTSTRAP:-0}" in
   ''|0) ;;
-  *) fail "manual trust bootstrap validation cannot stage an ordinary appcast" ;;
+  *) fail "Sparkle trust-generation bootstrap cannot stage an ordinary appcast" ;;
 esac
 [ -z "${GRAF_SPARKLE_PRIVATE_KEY_FILE:-}" ] ||
   fail "legacy arbitrary private-file input is forbidden"

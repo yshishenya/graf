@@ -1,5 +1,11 @@
 # Quickstart: validate custody подписи обновлений
 
+> This quickstart validates Sparkle Ed25519 trust custody only. It is not an
+> Apple code-signing runbook. Current public macOS artifacts must use Developer
+> ID Application/Installer, notarization, stapling and Gatekeeper; see
+> [Feature 130](../130-developer-id-release/quickstart.md). The former
+> owner-only/self-signed Apple path is historical evidence only.
+
 This guide is for controlled test keys and disposable release artifacts.  Do
 not put a real private key, raw key export, credential, real meeting data, or
 local secret path into terminal history, CI logs, issues, screenshots or this
@@ -72,9 +78,10 @@ uploads a signed appcast.
    controlled Mac with the old unavailable-key app.
 2. Verify GRAF identity, microphone and Screen/System Audio permissions using
    existing permission-retention tools.  Do not reset/regrant TCC permissions.
-3. Release a strictly newer signed update through the approved owner-only
-   Keychain signer (or the protected cloud lane if it is later re-enabled) and
-   install it through GRAF's normal update UI.
+3. Release a strictly newer update through the approved Sparkle Keychain signer
+   (or the protected Sparkle cloud lane if it is later re-enabled) and install
+   it through GRAF's normal update UI. The app and package being distributed
+   must already satisfy the current Developer ID release gates.
 4. Repeat for one further strictly newer update.
 
 Expected result: the bootstrap is the only manual package; both later installs
@@ -165,8 +172,8 @@ clean detached release worktree. The metadata-only receipt is:
 No tag, package, active-key enrollment, protected environment, public appcast,
 or remote release asset was created or changed. T034 is now the recorded scope
 decision; T035 is closed by the physical receipt below, T036 is closed by the
-normal-update receipt, and T037 is closed by the owner-only publication receipt
-at the end of this document.
+normal-update receipt, and T037 is closed by the historical Sparkle-custody
+receipt at the end of this document.
 
 ## Решение для приватного репозитория без платного GitHub — 2026-07-20
 
@@ -184,8 +191,8 @@ HTTP 422, потому что текущий тариф не поддержив�
 
 - автоматический cloud signing и обычная публикация через GitHub Actions не
   считаются доступными;
-- редкий owner-only выпуск выполняется локальным macOS Keychain signer через
-  существующий `GRAF_RELEASE_SIGNING_MODE=keychain` путь;
+- исторический degraded Sparkle-выпуск выполнялся локальным macOS Keychain
+  signer через существующий `GRAF_RELEASE_SIGNING_MODE=keychain` путь;
 - такой выпуск остаётся явно `degraded`: нужны exact CalVer tag/provenance,
   свежая Keychain attestation и явное owner approval; архив и appcast проверяются
   локально, а публикация выполняется вручную в порядке archive-before-appcast;
@@ -194,9 +201,8 @@ HTTP 422, потому что текущий тариф не поддержив�
 
 Решение закрывает исходный T034 как superseded: полноценный protected reviewer
 gate недоступен на текущем тарифе и не объявляется настроенным. T035 и T036
-закрыты отдельными receipts ниже, а T037 закрыт отдельным owner-only
-publication receipt. Текущий release lane использует
-только named Keychain signer с явным degraded approval; копия в Bitwarden
+закрыты отдельными receipts ниже, а T037 закрыт отдельным историческим
+Sparkle-custody receipt. Копия в Bitwarden
 остаётся ручным recovery backup и не читается автоматически. Если позже
 появится поддержка reviewer approval, cloud-путь можно вернуть без изменения
 публичного ключа приложения.
@@ -209,7 +215,7 @@ publication receipt. Текущий release lane использует
 - активный public manifest и named Keychain public key уже совпадают по
   metadata-only `keyId`;
 - T034 переведён в завершённое состояние решения и superseded закрытие issue;
-  bootstrap proof закрыт отдельным T035 receipt, а owner-only release/update
+  bootstrap proof закрыт отдельным T035 receipt, а historical Sparkle-custody
   proof подтверждён в T037;
 - в Git, issue и evidence нет приватного ключа, секрета или локального пути.
 
@@ -243,7 +249,7 @@ publication receipt. Текущий release lane использует
 Таким образом, первый переход на новый trust anchor подтверждён единственным
 ручным bootstrap, а обычные последующие обновления — штатным Sparkle updater.
 T035 закрыт. Публикация двух новых versioned assets подтверждена в T036, а
-отдельное owner-only release-attestation подтверждено в T037.
+отдельное историческое Sparkle release-attestation подтверждено в T037.
 
 ## T036 two normal update receipt — 2026-07-21
 
@@ -276,11 +282,12 @@ transcript data не сохраняются.
 
 T036 закрыт: две строго возрастающие normal updates прошли через Sparkle,
 release assets опубликованы после подготовки архива/appcast, а metadata-only
-proof сохранён. Owner-only release attestation подтверждён отдельным T037.
+proof сохранён. Historical Sparkle release attestation подтверждён отдельным
+T037.
 
-## T037 owner-only publication receipt — 2026-07-21
+## T037 historical Sparkle-custody publication receipt — 2026-07-21
 
-Это полный metadata-only receipt текущего degraded owner-only lane. Он не
+Это полный metadata-only receipt бывшего degraded Sparkle-custody lane. Он не
 содержит приватного ключа, секрета, живого пути, raw audio или transcript data.
 
 - exact release tag `v2026.07.21.3` имеет remote peeled commit
@@ -305,7 +312,8 @@ proof сохранён. Owner-only release attestation подтверждён о
 - полный `infra/scripts/ci-local.sh` на release train прошёл: 583 macOS-теста,
   1 945 серверных тестов и 34 строгих PostgreSQL-проверки; по одному тесту в
   каждом наборе были штатно пропущены;
-- локальные artifacts прошли Sparkle signature verification, owner-only
+- локальные artifacts прошли Sparkle signature verification, historical
+  owner-only
   update validator, ZIP integrity и package expansion без установки. Версии
   distribution/component/bundle совпали с `2026.07.21.3`, bundle identity
   осталась `pro.2brain.graf`;
@@ -325,8 +333,8 @@ proof сохранён. Owner-only release attestation подтверждён о
 - Bitwarden остаётся только offline recovery backup; workflow, приложение и
   public host не читают его и не получают приватный ключ.
 
-T037 закрыт: текущий owner-only release lane доказан реальным подписанным
+T037 закрыт: бывший owner-only Sparkle release lane доказан реальным подписанным
 релизом, публикацией в правильном порядке и повторной публичной проверкой.
-Ограничение сохраняется: self-signed owner-only выпуск не является Developer ID
-или notarized public distribution; protected reviewer path остаётся будущей
-отдельной миграцией.
+Ограничение исторического receipt: self-signed owner-only Apple выпуск не был
+Developer ID или notarized public distribution. Текущий Apple путь закрыт
+Feature 130 и не имеет этой альтернативы.

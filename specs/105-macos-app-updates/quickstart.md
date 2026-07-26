@@ -1,5 +1,9 @@
 # Quickstart: Safe macOS App Updates
 
+> Historical updater quickstart. Its local/ad-hoc section is a disposable
+> non-release fixture; current public build and migration commands are in
+> [Feature 130](../130-developer-id-release/quickstart.md).
+
 ## 1. Orient to the feature
 
 ```sh
@@ -34,7 +38,11 @@ uv run --extra dev pytest -q \
 
 Expected: the updater state/capture gate, menu/sidebar bridge, embedded-only slot, and packaging contract pass.
 
-## 3. Validate an updater-disabled local build
+## 3. Validate an updater-disabled local fixture
+
+This is a non-release fixture for testing the disabled-update UI. It must never
+be uploaded or used as a release candidate. Local/ad-hoc signing is not a
+public macOS path.
 
 ```sh
 GRAF_ALLOW_ADHOC_APP_SIGNING=1 \
@@ -62,12 +70,13 @@ find apps/macos/.build/artifacts -type f \
 
 Create/import the EdDSA private key only in an approved operator keychain or secret file outside the repository. Record only the public key for the build environment. Never commit the private key, exported key file, password, Developer ID certificate, or notarization credentials.
 
-## 5. Build a release-like updater-enabled app
+## 5. Build a public Developer ID updater-enabled app
 
 ```sh
 GRAF_VERSION=YYYY.MM.DD.N \
-GRAF_APP_SIGN_IDENTITY="GRAF Local Code Signing" \
-GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1 \
+GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
+GRAF_APP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+DEVELOPER_ID_INSTALLER_IDENTITY="Developer ID Installer: Your Name (TEAMID)" \
 GRAF_UPDATE_FEED_URL="https://<trusted-staging-host>/graf-appcast.xml" \
 GRAF_SPARKLE_PUBLIC_ED_KEY="<public-key-only>" \
   sh apps/macos/Installer/Scripts/build-local-installer.sh
@@ -81,6 +90,10 @@ Expected Info.plist settings:
 - system profiling disabled;
 - archive verification before extraction enabled;
 - signed feed required.
+
+The app ZIP and installer package must then be notarized, stapled and assessed
+by Gatekeeper before any public upload. The public guard rejects local, ad-hoc
+and development identities.
 
 Inspect identity and nested signatures:
 
@@ -161,23 +174,25 @@ sh apps/macos/Scripts/validate-app-updates.sh \
 infra/scripts/ci-local.sh
 ```
 
-## 10. Explicit owner-only release gate
+## 10. One-time Developer ID migration and current release gate
 
-For controlled owner Macs only, after explicit approval, validate the final
-self-signed app and signed update artifacts together:
+For the published `v2026.07.26.6`, existing historical local/self-signed
+installations use the notarized package once. This is a manual package
+migration, not an appcast update:
 
 ```sh
-GRAF_REQUIRE_OWNER_ONLY_UPDATE_TRUST=1 \
-  sh apps/macos/Scripts/validate-app-updates.sh \
+sh apps/macos/Installer/Scripts/validate-developer-id-bootstrap.sh \
   /absolute/path/to/new/GRAF.app \
   /absolute/path/to/previous/GRAF.app \
-  /absolute/path/to/GRAF-YYYY.MM.DD.N.zip \
-  /absolute/path/to/graf-appcast.xml
+  /absolute/path/to/notarized/GRAF-2026.07.26.6.pkg
 ```
 
-This lane requires the same `GRAF Local Code Signing` certificate and private
-key, one manual trusted bootstrap on each controlled Mac, explicit release
-approval, and truthful release notes that Developer ID/notarization are absent.
+The validator must report `publication=manual-pkg-only` and
+`appcast_staged=no`. After installation, every normal release uses the
+Developer ID → Developer ID flow from section 6 with the same bundle identity,
+TeamIdentifier, designated requirement, feed URL and Sparkle trust generation.
+The old owner-only command is historical evidence only and is intentionally not
+an operator step in this quickstart.
 It is not public distribution readiness.
 
 ## 11. Public release gate

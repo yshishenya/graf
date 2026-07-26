@@ -30,6 +30,41 @@ UPDATE_SIGNING_MANIFEST="$INSTALLER_DIR/UpdateSigningKey.json"
 RELEASE_SIGNING_COMMON="$SCRIPT_DIR/release-signing-common.sh"
 ALLOW_ADHOC_APP_SIGNING="${GRAF_ALLOW_ADHOC_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING:-0}}"
 ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING="${GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-0}}"
+REQUIRE_PUBLIC_TRUST="${GRAF_REQUIRE_PUBLIC_UPDATE_TRUST:-0}"
+DEVELOPER_ID_INSTALLER_IDENTITY="${DEVELOPER_ID_INSTALLER_IDENTITY:-}"
+
+case "$REQUIRE_PUBLIC_TRUST" in
+  0) ;;
+  1)
+    case "$APP_SIGN_IDENTITY" in
+      "Developer ID Application:"*) ;;
+      *)
+        echo "Public release requires a Developer ID Application identity; local, ad-hoc and development identities are rejected." >&2
+        exit 1
+        ;;
+    esac
+    case "$DEVELOPER_ID_INSTALLER_IDENTITY" in
+      "Developer ID Installer:"*) ;;
+      *)
+        echo "Public package release requires a Developer ID Installer identity." >&2
+        exit 1
+        ;;
+    esac
+    [ "$ALLOW_ADHOC_APP_SIGNING" = "0" ] || {
+      echo "Public release cannot enable ad-hoc app signing." >&2
+      exit 1
+    }
+    [ "$ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING" = "0" ] || {
+      echo "Public release cannot enable local self-signed app signing." >&2
+      exit 1
+    }
+    ;;
+  *)
+    echo "GRAF_REQUIRE_PUBLIC_UPDATE_TRUST must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+
 DEVELOPER_TOOLS_STATUS=$(DevToolsSecurity -status 2>&1 || true)
 DEVELOPER_TOOLS_ENABLED=0
 case "$DEVELOPER_TOOLS_STATUS" in
@@ -259,14 +294,16 @@ Then rerun:
 
   sh apps/macos/Installer/Scripts/build-local-installer.sh
 
-For a signed pre-release build, install an Apple Development or Developer ID
-Application certificate, then run:
+For an isolated signed fixture, install an Apple Development identity, then run
+the local command below. This is never a public release command; public release
+must use the Developer ID guard in the Installer README:
 
   GRAF_APP_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
     sh apps/macos/Installer/Scripts/build-local-installer.sh
 
-For local permission-retention validation with a locally trusted self-signed
-identity, run:
+For an isolated permission-retention test fixture with a locally trusted
+self-signed identity, run. Never use this with a public host, GitHub Release,
+package release or appcast:
 
   GRAF_APP_SIGN_IDENTITY="GRAF Local Code Signing" \
   GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1 \
@@ -379,8 +416,8 @@ App bundle was signed, but not with an Apple application signing identity.
 Observed signature:
 $APP_SIGNATURE
 
-Use an Apple Development or Developer ID Application identity for release-like builds.
-For local-only permission-retention validation, rerun with:
+Use a Developer ID Application identity for a public release-like build. The
+local command below is an isolated permission-retention fixture only:
 
   GRAF_APP_SIGN_IDENTITY="GRAF Local Code Signing" \\
   GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1 \\

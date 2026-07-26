@@ -1,13 +1,20 @@
 # Реестр Spec Kit и сверка документации
 
-**Дата сверки**: 2026-07-23
-**Проверяемая база**: `origin/master` (`9ffa8a78`)
-**Lane**: release/production closeout; tracker и installed-app receipts сверены.
+**Дата сверки**: 2026-07-26
+**Проверяемая база**: Feature 130 release-policy audit; tracker и release
+receipts сверены.
+**Lane**: release/production closeout и documentation consistency.
 
-Feature 124 merged в `origin/master`, server release и production receipt
-сохранены, а macOS update опубликован отдельным owner-only Sparkle-каналом.
-Её active product и runtime truth находится в `docs/current-product-status.md` и артефактах
-`specs/124-restore-automatic-recording/`.
+Feature 124 и предшествующие server slices остаются в архиве product history.
+Для macOS публичным каноном теперь является только Developer ID Application /
+Developer ID Installer с notarization, stapling и Gatekeeper. `v2026.07.26.6`
+устанавливается вручную как одноразовый migration bootstrap с бывшего
+local/self-signed predecessor; appcast для этого перехода не меняется. Все
+дальнейшие обычные обновления — только Developer ID → Developer ID.
+
+Текущая product/runtime truth находится в
+`docs/current-product-status.md`, а исполняемые инструкции — в
+`apps/macos/Installer/README.md` и Feature 130.
 
 ## Как читать этот реестр
 
@@ -93,11 +100,12 @@ receipt и current-product-status одним change set.
 | [102](../specs/102-remove-legacy-audio-driver/spec.md) | Реализована и merged | Удаление legacy driver подтверждено; отдельный production release не заявляется этим feature slice. |
 | [104-email](../specs/104-email-login-rls-commit/spec.md) | Реализована и deployed | RLS receipt и browser production proof находятся в [validation.md](../specs/104-email-login-rls-commit/validation.md). |
 | [104-essential](../specs/104-essential-interface-polish/spec.md) | Реализована и локально валидирована | Visual target и implementation evidence есть; release/production rollout — отдельный gate. |
-| [105](../specs/105-macos-app-updates/spec.md) | Реализована и released в owner-only канале | Public Developer ID, notarization и Gatekeeper proof отложены. |
+| [105](../specs/105-macos-app-updates/spec.md) | Реализована; бывший owner-only receipt архивирован | Публичная signing/migration граница superseded Feature 130; текущий путь Developer ID-only. |
 | [106](../specs/106-mixed-wav-recording/spec.md) | Код реализован; acceptance/release gates открыты | T049, T063 и T064 остаются `[ ]`; installed-app, rollback и synthetic E2E proof не подменяются локальным CI. |
 | [107](../specs/107-auth-return-safety/spec.md) | Реализована, merged и released | Первоначальный no-release lane был позже явно открыт; текущая release boundary зафиксирована в release notes. |
 | [108](../specs/108-local-postgres-only/spec.md) | Реализована и validated | Validation-only slice; production schema/runtime не изменялся. |
-| [109](../specs/109-release-signing-key-custody/spec.md) | Owner-only release evidence complete; protected two-channel path remains future scope | T022 остаётся открытым; T037 закрыт receipt `v2026.07.21.3`. Protected reviewer/cloud signer не объявляется доступным. |
+| [109](../specs/109-release-signing-key-custody/spec.md) | Sparkle trust-custody evidence архивирована | T022 остаётся открытым; T037 — исторический receipt `v2026.07.21.3`. Это не текущая Apple code-signing policy. |
+| [130](../specs/130-developer-id-release/spec.md) | Текущий канон Developer ID-only; `.6` опубликован и миграционно проверен | Ручной notarized `.pkg` bootstrap без appcast для local/self-signed predecessor; далее только Developer ID → Developer ID. |
 | [110](../specs/110-postgres-test-acceleration/spec.md) | Реализована; validation evidence записан | Новый полный прогон после финального startup guard намеренно не повторялся. |
 | [111](../specs/111-support-incident-recovery/spec.md) | Реализована, merged и released | PR #3843 и follow-up #3867 merged; release `v2026.07.18.2`; старый deploy receipt переименован в historical checkpoint. |
 | [113](../specs/113-transcript-speaker-turns/spec.md) | Реализована, merged и включена в `v2026.07.21.1` | Canonical speaker-turn boundary provider-neutral; MinIO playback hotfix остаётся отдельным slice. |
@@ -124,8 +132,9 @@ receipt и current-product-status одним change set.
   T104 остаётся открытым до финального tracker closeout после T101.
 - `106-mixed-wav-recording`: T049/T063/T064 — compatibility/rollback,
   installed-app hardware и synthetic end-to-end package proof.
-- `109-release-signing-key-custody`: T022 — disposable-key workflow; owner-only
-  release evidence T037 закрыт в `v2026.07.21.3`.
+- `109-release-signing-key-custody`: T022 — disposable-key workflow; исторический
+  owner-only Sparkle custody receipt T037 закрыт в `v2026.07.21.3`; текущий
+  Apple release policy находится в Feature 130.
 - `119-expand-meeting-app-registry`: T008 — live post-deploy receipt после
   enablement.
 - `120-transcript-export`: T059 — representative-reviewer usability study до

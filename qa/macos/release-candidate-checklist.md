@@ -1,7 +1,9 @@
 # macOS Release Candidate Checklist
 
 This checklist describes the current app-owned system-audio-first recording
-release surface.
+release surface. The active public macOS lane is Developer ID-only. Historical
+owner-only/self-signed receipts below are archive evidence, not release
+instructions.
 
 ## Automated Gates
 
@@ -77,12 +79,15 @@ release surface.
 - [ ] The package contains no privileged audio component, lifecycle sidecar, or
   host-service mutation script.
 - [ ] Package expansion/inspection passes without installing it.
-- [ ] Signing/notarization evidence matches the intended release lane.
+- [ ] Developer ID Application signing is used for the app and Developer ID
+  Installer signing for the package; notarization, stapling and Gatekeeper
+  evidence all pass.
 
 ## In-App Update Gates
 
-- [x] Exactly one release lane is declared: owner-only self-signed for
-  controlled Macs, or public Developer ID/notarized distribution.
+- [x] Exactly one active public release lane is declared: Developer ID
+  Application/Installer with notarization, stapling and Gatekeeper. Owner-only
+  self-signed material is historical or isolated-test evidence only.
 - [ ] `Sparkle` is locked to `2.9.4`, embedded at
   `Contents/Frameworks/Sparkle.framework`, and reports current version `2.9.4`.
 - [ ] `Contents/Resources/Sparkle-LICENSE.txt` contains the complete license
@@ -99,10 +104,9 @@ release surface.
   more than 90 calendar days after the prior drill and immediately after any
   control-plane change; its retained evidence contains only timestamp,
   generation, key ID and channel states.
-- [x] If this private-repository release uses the current owner-only fallback,
-  the receipt explicitly records degraded approval, exact tag/provenance,
-  fresh Keychain attestation and archive-before-appcast ordering; Bitwarden is
-  recovery-only and no workflow or public host reads it automatically.
+- [x] The public release never selects the historical owner-only fallback;
+  historical receipts retain their exact tag/provenance and metadata-only
+  evidence without becoming an active operator path.
 - [ ] The protected signing environments require independent reviewer approval,
   permit the protected master branch only, and have no public-host write path.
   Every external workflow action is pinned to a full immutable SHA.
@@ -115,28 +119,26 @@ release surface.
   `macos-keychain` attestation for the same generation/tag/commit. The signing
   workflow rejects its absence, mismatch, non-ready state or age over 24 hours
   before generating a signed appcast.
-- [x] A one-channel Keychain recovery release, if unavoidable, has a recorded
-  owner approval identifier and explicit degraded-fallback flag; it still
-  passes manifest/app/signer/Keychain-attestation/tag checks. A malformed cloud
-  attestation is never silently treated as a fallback.
+- [x] A one-channel Keychain recovery receipt, if encountered in history, is
+  treated as archive evidence only. It never authorizes a new public release;
+  malformed or missing attestation blocks publication.
 - [ ] Signed-feed and verify-before-extraction settings are enabled; scheduled
   checks are `86400`; automatic download/install and system profiling are off.
 - [ ] All nested Sparkle code is signed inside-out before `GRAF.app`; the app
   has hardened runtime and a secure timestamp.
 - [ ] The new app has a strictly increasing CalVer, stays `GRAF.app` /
-  `pro.2brain.graf`, has the same TeamIdentifier, and satisfies the previous
-  public app's designated requirement.
-- [ ] The selected trust gate passes: owner-only requires the exact local
-  certificate and designated-requirement continuity; public distribution
-  requires Developer ID Application signing, notarization, stapling, and
-  `spctl --assess --type execute`.
+  `pro.2brain.graf`, uses the same Developer ID TeamIdentifier, and satisfies
+  the previous public app's designated requirement.
+- [ ] Public distribution passes the Developer ID Application/Installer gate,
+  notarization, stapling, `spctl --assess --type execute`, and
+  `spctl --assess --type install`.
 - [ ] `prepare-app-update.sh` creates a versioned archive and signed appcast in
   staging only; archive length, EdDSA signatures, `arm64`, and macOS `14.5+`
   match the final app.
-- [ ] The one manual trust-bootstrap package is explicitly labelled, preserves
-  GRAF identity and permission continuity, changes only the permitted signing
-  generation, and produces no appcast. It is followed by two strictly higher
-  ordinary in-app updates with the same new public key.
+- [ ] The one-time `v2026.07.26.6` Developer ID migration package is explicitly
+  labelled, preserves GRAF metadata and feed/public-key continuity, passes
+  notarization/package checks, and produces no appcast. It is installed
+  manually; later releases use ordinary Developer ID→Developer ID updates.
 - [x] Production update artifacts were staged from a clean commit published at the exact release tag
   and matching `origin/master`, with
   `GRAF_REQUIRE_RELEASE_PROVENANCE=1` enabled.
@@ -148,9 +150,9 @@ release surface.
 - [ ] The custody fixture/secret-pattern guard passes without suppressing a
   real value. A safe false positive is corrected in the pattern or fixture,
   never excepted by adding a production secret.
-- [ ] An older installed build finds the staged release through both the daily
-  scheduler and `GRAF > Check for Updates…`; current/offline/incompatible
-  outcomes remain truthful.
+- [ ] After the manual `.6` bootstrap, an older updater-enabled build finds the
+  next staged release through both the daily scheduler and `GRAF > Check for
+  Updates…`; current/offline/incompatible outcomes remain truthful.
 - [ ] Dismissing a valid offer keeps one accessible left-sidebar marker in both
   connected-cabinet and local-only layouts; skip, withdrawal, or successful
   install removes it.
@@ -169,11 +171,11 @@ release surface.
   documented stop-rollout feed restore plus higher-CalVer forward rollback for
   Macs that already updated.
 
-## T037 owner-only release closeout receipt — 2026-07-21
+## Historical T037 owner-only release closeout receipt — 2026-07-21
 
-The following checks are the completed receipt for the current private-repository
-owner-only lane. They do not claim that the future protected reviewer or
-Developer ID/notarization lane is configured.
+The following checks are an immutable historical receipt for the former
+private-repository owner-only lane. They do not authorize a current release and
+do not claim that the old artifact was Developer ID-signed or notarized.
 
 - [x] `v2026.07.21.3` is an immutable exact tag at the staged `origin/master`
   commit `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`.
@@ -195,8 +197,8 @@ Developer ID/notarization lane is configured.
   Keychain attestation. The private key, Bitwarden recovery copy and any
   secret-bearing material remain outside Git, issues and the public host.
 
-The remaining unchecked protected-cloud and Developer ID items are future
-migration gates, not blockers for this explicitly approved owner-only receipt.
+The historical owner-only receipt is not a current migration gate. The active
+Developer ID gates above are required for every new public release.
 
 ## Manual Gates
 

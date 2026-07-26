@@ -1,5 +1,9 @@
 # Data Model: macOS Permission Retention And Relaunch Reliability
 
+> Historical validation model. It describes local permission-continuity
+> fixtures, not a public signing or distribution path; use Feature 130 for
+> Developer ID release evidence.
+
 This feature does not add product database tables. The model defines
 metadata-only validation records and runtime concepts needed to prove local
 permission continuity and safe termination.

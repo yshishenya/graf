@@ -1,18 +1,21 @@
 # Implementation Evidence: macOS Permission Retention And Relaunch Reliability
 
+> Historical local permission-retention evidence. It does not prove public
+> release readiness and must not replace Feature 130 Developer ID,
+> notarization, stapling and Gatekeeper evidence.
+
 Feature: `095-macos-permission-retention`
 
-Status: Implemented and prepared for release `v2026.07.09.6` with local
-self-signed distribution boundaries.
+Status: Historical local fixture, formerly referenced by `v2026.07.09.6`.
 
 ## Lane
 
 - Risk / validation lane: high-risk feature.
 - Reason: macOS microphone and Screen/System Audio permissions, installer
   signing, permission onboarding UX, and app termination/relaunch behavior.
-- Release gate: local self-signed owner-machine release path only. Public
-  download refresh is allowed for the current owner-machine update flow, but
-  this is not Developer ID/notarized public distribution readiness.
+- Release gate: historical local self-signed owner-machine fixture only. No
+  public download refresh is allowed from this evidence; current public
+  distribution is Developer ID/notarized under Feature 130.
 
 ## Preliminary Local Evidence From 2026-07-09
 
@@ -38,7 +41,7 @@ marked `[X]`.
 | GitHub issue closeout | pass | After validation passed and `tasks.md` was marked `[X]`, issues #2979-#3018 were closed with Russian closure comments referencing task, evidence, validation, and out-of-scope release boundaries. |
 | GitHub issue canon hooks | pass | `python3 .specify/extensions/github-issue-canon/scripts/ensure_issue_canon.py` passed; `python3 .specify/extensions/github-issue-canon/scripts/validate_issue_canon.py` passed with `OK (174 Spec Kit issue(s) checked)`. |
 | Local self-signed build script support | pass | `apps/macos/Installer/Scripts/build-local-installer.sh` accepts `GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1` with an explicit local-only warning while keeping release-like Apple signing strict by default. |
-| Installer README boundary | pass | `apps/macos/Installer/README.md` documents the free local self-signed path, certificate/key continuity, and the Developer ID/notarization public release boundary. |
+| Installer README boundary | pass | `apps/macos/Installer/README.md` documents the historical free local self-signed fixture, certificate/key continuity, and the current Developer ID/notarization public release boundary. |
 | Permission modal termination hardening | pass | `apps/macos/RecApp/App/TwoBrainRecApp.swift` clears permission onboarding, permission request, meeting prompt, and AppKit sheet state during termination. |
 | Validation helper | pass | `apps/macos/Scripts/validate-macos-permission-retention.sh` supports metadata-only preflight/build/identity/permission/quit checks and does not reset or mutate TCC. |
 

@@ -8,6 +8,8 @@ UPDATE_APPCAST=${4:-${GRAF_UPDATE_APPCAST:-}}
 REQUIRE_PUBLIC_TRUST=${GRAF_REQUIRE_PUBLIC_UPDATE_TRUST:-0}
 REQUIRE_OWNER_ONLY_TRUST=${GRAF_REQUIRE_OWNER_ONLY_UPDATE_TRUST:-0}
 MANUAL_TRUST_BOOTSTRAP=${GRAF_MANUAL_TRUST_BOOTSTRAP:-0}
+MANUAL_DEVELOPER_ID_BOOTSTRAP=${GRAF_MANUAL_DEVELOPER_ID_BOOTSTRAP:-0}
+ALLOW_HISTORICAL_OWNER_ONLY_FIXTURE=${GRAF_ALLOW_HISTORICAL_OWNER_ONLY_FIXTURE:-0}
 
 fail() {
   echo "app-update validation failed: $*" >&2
@@ -22,16 +24,36 @@ fi
 case "$MANUAL_TRUST_BOOTSTRAP" in
   0) ;;
   1)
-    [ -n "$PREVIOUS_APP_BUNDLE" ] || fail "manual trust bootstrap requires the previous GRAF.app"
-    [ -z "$UPDATE_ARCHIVE" ] || fail "manual trust bootstrap must not validate or stage an appcast archive"
-    [ -z "$UPDATE_APPCAST" ] || fail "manual trust bootstrap must not validate or stage an appcast"
-    [ "$REQUIRE_PUBLIC_TRUST" = "0" ] || fail "manual trust bootstrap cannot claim public in-app update trust"
-    [ "$REQUIRE_OWNER_ONLY_TRUST" = "0" ] || fail "manual trust bootstrap cannot claim owner-only in-app update trust"
+    [ -n "$PREVIOUS_APP_BUNDLE" ] || fail "Sparkle trust-generation bootstrap requires the previous GRAF.app"
+    [ -z "$UPDATE_ARCHIVE" ] || fail "Sparkle trust-generation bootstrap must not validate or stage an appcast archive"
+    [ -z "$UPDATE_APPCAST" ] || fail "Sparkle trust-generation bootstrap must not validate or stage an appcast"
+    [ "$REQUIRE_PUBLIC_TRUST" = "0" ] || fail "Sparkle trust-generation bootstrap cannot claim public in-app update trust"
+    [ "$REQUIRE_OWNER_ONLY_TRUST" = "0" ] || fail "Sparkle trust-generation bootstrap cannot claim owner-only in-app update trust"
+    [ "$MANUAL_DEVELOPER_ID_BOOTSTRAP" = "0" ] || fail "choose either Sparkle trust bootstrap or Developer ID migration bootstrap"
     ;;
   *)
     fail "GRAF_MANUAL_TRUST_BOOTSTRAP must be 0 or 1"
     ;;
 esac
+
+case "$MANUAL_DEVELOPER_ID_BOOTSTRAP" in
+  0) ;;
+  1)
+    [ -n "$PREVIOUS_APP_BUNDLE" ] || fail "Developer ID migration bootstrap requires the previous GRAF.app"
+    [ -z "$UPDATE_ARCHIVE" ] || fail "Developer ID migration bootstrap must not validate or stage an update archive"
+    [ -z "$UPDATE_APPCAST" ] || fail "Developer ID migration bootstrap must not validate or stage an appcast"
+    [ "$REQUIRE_PUBLIC_TRUST" = "0" ] || fail "Developer ID migration bootstrap has its own public trust gate"
+    [ "$REQUIRE_OWNER_ONLY_TRUST" = "0" ] || fail "Developer ID migration bootstrap cannot claim owner-only update trust"
+    [ "$MANUAL_TRUST_BOOTSTRAP" = "0" ] || fail "choose either Sparkle trust bootstrap or Developer ID migration bootstrap"
+    ;;
+  *)
+    fail "GRAF_MANUAL_DEVELOPER_ID_BOOTSTRAP must be 0 or 1"
+    ;;
+esac
+
+if [ "$REQUIRE_OWNER_ONLY_TRUST" = "1" ] && [ "$ALLOW_HISTORICAL_OWNER_ONLY_FIXTURE" != "1" ]; then
+  fail "owner-only validation is historical fixture-only; set GRAF_ALLOW_HISTORICAL_OWNER_ONLY_FIXTURE=1 for an isolated negative-test receipt"
+fi
 
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 EXECUTABLE="$APP_BUNDLE/Contents/MacOS/GRAF"
@@ -198,7 +220,7 @@ else
   [ "$LIBRARY_VALIDATION_DISABLED" = "0" ] || fail "team-identified signing must keep library validation enabled"
 fi
 
-if { [ "$REQUIRE_PUBLIC_TRUST" = "1" ] || [ "$REQUIRE_OWNER_ONLY_TRUST" = "1" ]; } &&
+if { [ "$REQUIRE_PUBLIC_TRUST" = "1" ] || [ "$REQUIRE_OWNER_ONLY_TRUST" = "1" ] || [ "$MANUAL_DEVELOPER_ID_BOOTSTRAP" = "1" ]; } &&
    [ -z "$PREVIOUS_APP_BUNDLE" ]; then
   fail "release update validation requires the previous GRAF.app"
 fi
@@ -220,11 +242,17 @@ if [ -n "$PREVIOUS_APP_BUNDLE" ]; then
   [ "$MICROPHONE_COPY" = "$PREVIOUS_MICROPHONE_COPY" ] || fail "microphone usage description changed"
   [ "$SYSTEM_AUDIO_COPY" = "$PREVIOUS_SYSTEM_AUDIO_COPY" ] || fail "screen/system-audio usage description changed"
 
-  if [ "$MANUAL_TRUST_BOOTSTRAP" = "1" ]; then
-    [ -n "$PREVIOUS_FEED_URL" ] && [ -n "$PREVIOUS_PUBLIC_KEY" ] || fail "manual trust bootstrap requires a configured previous app"
-    [ "$UPDATE_CONFIGURATION" = "configured" ] || fail "manual trust bootstrap requires a configured candidate app"
-    [ "$FEED_URL" = "$PREVIOUS_FEED_URL" ] || fail "manual trust bootstrap cannot change the update feed URL"
-    [ "$PUBLIC_KEY" != "$PREVIOUS_PUBLIC_KEY" ] || fail "manual trust bootstrap requires a new public signing generation"
+  if [ "$MANUAL_DEVELOPER_ID_BOOTSTRAP" = "1" ]; then
+    [ -n "$PREVIOUS_FEED_URL" ] && [ -n "$PREVIOUS_PUBLIC_KEY" ] || fail "Developer ID migration bootstrap requires a configured previous app"
+    [ "$UPDATE_CONFIGURATION" = "configured" ] || fail "Developer ID migration bootstrap requires a configured candidate app"
+    [ "$FEED_URL" = "$PREVIOUS_FEED_URL" ] || fail "Developer ID migration bootstrap cannot change the update feed URL"
+    [ "$PUBLIC_KEY" = "$PREVIOUS_PUBLIC_KEY" ] || fail "Developer ID migration bootstrap cannot rotate the Sparkle public key"
+    UPDATE_CONTINUITY=manual-developer-id-bootstrap
+  elif [ "$MANUAL_TRUST_BOOTSTRAP" = "1" ]; then
+    [ -n "$PREVIOUS_FEED_URL" ] && [ -n "$PREVIOUS_PUBLIC_KEY" ] || fail "Sparkle trust-generation bootstrap requires a configured previous app"
+    [ "$UPDATE_CONFIGURATION" = "configured" ] || fail "Sparkle trust-generation bootstrap requires a configured candidate app"
+    [ "$FEED_URL" = "$PREVIOUS_FEED_URL" ] || fail "Sparkle trust-generation bootstrap cannot change the update feed URL"
+    [ "$PUBLIC_KEY" != "$PREVIOUS_PUBLIC_KEY" ] || fail "Sparkle trust-generation bootstrap requires a new public signing generation"
     UPDATE_CONTINUITY=manual-trust-bootstrap
   elif [ -z "$PREVIOUS_FEED_URL" ] && [ -z "$PREVIOUS_PUBLIC_KEY" ]; then
     UPDATE_CONTINUITY=manual-bootstrap
@@ -249,29 +277,40 @@ if [ -n "$PREVIOUS_APP_BUNDLE" ]; then
   elif [ -n "$PREVIOUS_AUTHORITY" ]; then
     PREVIOUS_SIGNING_KIND=local
   fi
-  [ "$PREVIOUS_SIGNING_KIND" = "$SIGNING_KIND" ] || fail "signing kind changed"
-
-  if [ "$SIGNING_KIND" = "developer-id" ] || [ "$SIGNING_KIND" = "local" ]; then
-    if [ "$SIGNING_KIND" = "developer-id" ]; then
-      [ -n "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "previous signing team is unavailable"
-      [ -n "$TEAM_IDENTIFIER" ] || fail "new signing team is unavailable"
-      [ "$PREVIOUS_TEAM_IDENTIFIER" = "$TEAM_IDENTIFIER" ] || fail "signing team changed"
-    else
-      [ -z "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "unexpected previous local signing team"
-      [ -z "$TEAM_IDENTIFIER" ] || fail "unexpected new local signing team"
-      [ "$PREVIOUS_AUTHORITY" = "$AUTHORITY" ] || fail "local signing authority changed"
-    fi
-    PREVIOUS_REQUIREMENT=$(codesign -dr - "$PREVIOUS_APP_BUNDLE" 2>&1 | sed -n 's/^designated => //p' | head -n 1)
-    [ -n "$PREVIOUS_REQUIREMENT" ] || fail "previous designated requirement is unavailable"
-    codesign -R="$PREVIOUS_REQUIREMENT" --verify "$APP_BUNDLE" 2>/dev/null || fail "new app does not satisfy the previous designated requirement"
-    IDENTITY_CHECK=designated-requirement
+  if [ "$MANUAL_DEVELOPER_ID_BOOTSTRAP" = "1" ]; then
+    case "$PREVIOUS_SIGNING_KIND" in
+      local|adhoc) ;;
+      *) fail "Developer ID migration bootstrap requires a historical local or ad-hoc predecessor" ;;
+    esac
+    [ -z "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "historical predecessor unexpectedly has a signing team"
+    [ "$SIGNING_KIND" = "developer-id" ] || fail "Developer ID migration bootstrap requires Developer ID Application signing"
+    [ -n "$TEAM_IDENTIFIER" ] || fail "Developer ID migration bootstrap requires a signing team identifier"
+    IDENTITY_CHECK=manual-developer-id-bootstrap
   else
-    # Ad-hoc signatures bind their designated requirement to a content hash,
-    # which changes on every build. Local validation can prove only the stable
-    # bundle shape; public readiness always requires the Developer ID path.
-    [ -z "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "unexpected previous ad-hoc signing team"
-    [ -z "$TEAM_IDENTIFIER" ] || fail "unexpected new ad-hoc signing team"
-    IDENTITY_CHECK=structural-adhoc
+    [ "$PREVIOUS_SIGNING_KIND" = "$SIGNING_KIND" ] || fail "signing kind changed"
+
+    if [ "$SIGNING_KIND" = "developer-id" ] || [ "$SIGNING_KIND" = "local" ]; then
+      if [ "$SIGNING_KIND" = "developer-id" ]; then
+        [ -n "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "previous signing team is unavailable"
+        [ -n "$TEAM_IDENTIFIER" ] || fail "new signing team is unavailable"
+        [ "$PREVIOUS_TEAM_IDENTIFIER" = "$TEAM_IDENTIFIER" ] || fail "signing team changed"
+      else
+        [ -z "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "unexpected previous local signing team"
+        [ -z "$TEAM_IDENTIFIER" ] || fail "unexpected new local signing team"
+        [ "$PREVIOUS_AUTHORITY" = "$AUTHORITY" ] || fail "local signing authority changed"
+      fi
+      PREVIOUS_REQUIREMENT=$(codesign -dr - "$PREVIOUS_APP_BUNDLE" 2>&1 | sed -n 's/^designated => //p' | head -n 1)
+      [ -n "$PREVIOUS_REQUIREMENT" ] || fail "previous designated requirement is unavailable"
+      codesign -R="$PREVIOUS_REQUIREMENT" --verify "$APP_BUNDLE" 2>/dev/null || fail "new app does not satisfy the previous designated requirement"
+      IDENTITY_CHECK=designated-requirement
+    else
+      # Ad-hoc signatures bind their designated requirement to a content hash,
+      # which changes on every build. Local validation can prove only the stable
+      # bundle shape; public readiness always requires the Developer ID path.
+      [ -z "$PREVIOUS_TEAM_IDENTIFIER" ] || fail "unexpected previous ad-hoc signing team"
+      [ -z "$TEAM_IDENTIFIER" ] || fail "unexpected new ad-hoc signing team"
+      IDENTITY_CHECK=structural-adhoc
+    fi
   fi
 fi
 
@@ -342,7 +381,13 @@ if [ -n "$UPDATE_APPCAST" ]; then
   [ "$APPCAST_LENGTH" = "$ARCHIVE_LENGTH" ] || fail "appcast archive length differs"
 fi
 
-if [ "$REQUIRE_PUBLIC_TRUST" = "1" ]; then
+if [ "$MANUAL_DEVELOPER_ID_BOOTSTRAP" = "1" ]; then
+  [ "$SIGNING_KIND" = "developer-id" ] || fail "Developer ID migration bootstrap requires Developer ID Application signing"
+  [ -n "$TEAM_IDENTIFIER" ] || fail "Developer ID migration bootstrap requires a signing team identifier"
+  printf '%s\n' "$SIGNATURE_INFO" | grep -Eq 'flags=.*\(runtime\)' || fail "Developer ID migration bootstrap requires hardened runtime"
+  xcrun stapler validate "$APP_BUNDLE" >/dev/null 2>&1 || fail "notarization staple is invalid for Developer ID migration bootstrap"
+  spctl --assess --type execute --verbose=4 "$APP_BUNDLE" >/dev/null 2>&1 || fail "Gatekeeper rejected GRAF.app for Developer ID migration bootstrap"
+elif [ "$REQUIRE_PUBLIC_TRUST" = "1" ]; then
   [ "$SIGNING_KIND" = "developer-id" ] || fail "public update requires Developer ID Application signing"
   [ -n "$TEAM_IDENTIFIER" ] || fail "public update requires a signing team identifier"
   printf '%s\n' "$SIGNATURE_INFO" | grep -Eq 'flags=.*\(runtime\)' || fail "public update requires hardened runtime"

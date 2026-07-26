@@ -4,7 +4,13 @@
 
 **Created**: 2026-07-17
 
-**Status**: Implemented and released in the owner-only update channel; public signing deferred
+**Status**: Implemented; historical owner-only receipt superseded by Feature 130
+
+**Current release policy**: Public macOS artifacts use only Developer ID
+Application/Installer, notarization, stapling and Gatekeeper. The former
+owner-only/self-signed path is retained in this feature only as historical
+evidence. `v2026.07.26.6` is the one-time manual package migration; all later
+Sparkle updates must be Developer ID → Developer ID.
 
 **Input**: User description: "Implement a best-practice macOS application update system that preserves permissions, checks periodically, offers available updates, provides a Check for Updates menu item, and shows an availability badge in the left sidebar."
 

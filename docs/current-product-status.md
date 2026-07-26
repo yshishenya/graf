@@ -6,6 +6,28 @@ Date: 2026-07-26
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
 
+## Canonical macOS public release policy (2026-07-26)
+
+- Единственный текущий публичный путь для macOS — `Developer ID Application`
+  для `GRAF.app` и `Developer ID Installer` для `.pkg`, затем hardened runtime,
+  secure timestamp, notarization Apple, stapling и проверка Gatekeeper.
+- `v2026.07.26.6` — одноразовый ручной `.pkg`-bootstrap для перехода с
+  исторического local/self-signed `.5`; он намеренно не заменял appcast и не
+  является обычным Sparkle update. После установки дальнейшая цепочка только
+  `Developer ID → Developer ID` при неизменных bundle id, team, designated
+  requirement, feed URL и Sparkle trust generation.
+- Local, ad-hoc и self-signed identities допустимы только в архивных receipts и
+  изолированных тестовых fixtures. Они не могут попасть в GitHub Release,
+  public host, ZIP/PKG для пользователей или appcast. Исторические записи ниже
+  сохраняют факты прошлых выпусков, но не являются инструкцией или текущим
+  release gate.
+
+Канонические инструкции: [Installer README](../apps/macos/Installer/README.md),
+[release validation](agent-guidance/release-and-validation.md) и
+[Feature 130](../specs/130-developer-id-release/spec.md). Metadata-only release
+evidence: [release note](releases/v2026.07.26.6.md) и
+[production receipt](deployments/2brain-rec/release-v2026.07.26.6.md).
+
 ## Implementation update (2026-07-26) — Feature 125 direct invitation link
 
 - Открытие валидной external invitation URL теперь показывает только короткий
@@ -419,7 +441,9 @@ receipt не заявляются; они остаются отдельными 
   provider-only start surface without starting a provider flow.
   The standalone formal Codex Security scan for Feature `097` was explicitly
   skipped by user instruction and is not represented as a security result.
-- Feature `105-macos-app-updates` is merged and live on the owner-only production
+- Historical receipt for Feature `105-macos-app-updates` (superseded by the
+  Developer ID-only policy above) was merged and live on the former owner-only
+  production
   channel as
   [`v2026.07.17.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.17.9)
   at exact merge `d6debe22b799e37f08fcbf77bec9b5123338acf7` through
@@ -443,18 +467,21 @@ receipt не заявляются; они остаются отдельными 
   unsigned, wrong-key, downgrade, incompatible, and wrong-identity updates;
   full CI passes 666 macOS tests and 1761 server tests with 28 expected skips.
   Existing installations without Sparkle still need one trusted `.pkg`
-  bootstrap. This owner-only self-signed channel is not public Developer ID
-  distribution; notarization, stapling, public Gatekeeper proof, and signing-
-  identity migration remain deferred until Apple Developer access is available.
-- Feature `109-release-signing-key-custody` is closed for the current private
+  bootstrap. This owner-only self-signed channel was not public Developer ID
+  distribution; its notarization, stapling, public Gatekeeper proof, and
+  signing-identity migration gap is closed by `v2026.07.26.6` only through the
+  manual Developer ID package bootstrap described above.
+- Historical receipt for Feature `109-release-signing-key-custody` is closed for
+  the former private
   repository lane through [T037 / issue #3911](https://github.com/yshishenya/crisp/issues/3911)
   and [release `v2026.07.21.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.3).
   The immutable tag is pinned to exact `origin/master` commit
   `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`; fresh Keychain evidence is
   metadata-only and explicitly degraded. Versioned ZIP/pkg/checksum were
   verified and published before the signed appcast, then the public files were
-  fetched and checked again. The protected reviewer and Developer ID/notarized
-  paths remain future migration work, and Bitwarden is recovery-only.
+  fetched and checked again. This entry documents Sparkle key custody only; it
+  does not authorize the former owner-only app-signing lane. Bitwarden is
+  recovery-only.
 - Feature `113-transcript-speaker-turns` is implemented, merged, and included
   in release `v2026.07.21.1`. The server derives provider-neutral chronological
   `speaker_turns` from canonical diarization boundaries, preserves raw ASR and
@@ -510,7 +537,8 @@ receipt не заявляются; они остаются отдельными 
   Metadata-only evidence is recorded in
   `specs/120-transcript-export/validation/production-preview-2026-07-21.md` and
   `specs/120-transcript-export/validation/production-embedded-download-hotfix-2026-07-22.md`.
-- Feature `095-macos-permission-retention` is implemented for local
+- Historical receipt for Feature `095-macos-permission-retention` is implemented
+  for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted
   microphone and Screen/System Audio permissions on the validated Mac, and
@@ -519,9 +547,9 @@ receipt не заявляются; они остаются отдельными 
   distribution readiness: Apple Developer account, Developer ID Application
   and Installer signing, notarization, stapling, and public Gatekeeper
   validation remain separate release-gate work. Release `v2026.07.09.6`
-  refreshes the public download package with the local self-signed build so
-  the owner machine can update from the hosted package while the Developer ID
-  path remains out of scope.
+  refreshed a public download package with the local self-signed build. That
+  former path is closed and must not be used for current publication; the
+  Developer ID path is now the only public release path.
 - Feature `097-workspace-account-onboarding` is merged through
   [#3842](https://github.com/yshishenya/crisp/pull/3842) at merge SHA
   `d79f24a9b91a739e90826a5e51659614628b62d1`, released as

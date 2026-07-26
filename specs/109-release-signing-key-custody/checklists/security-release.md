@@ -1,5 +1,9 @@
 # Security & Release Requirements Checklist: Надёжное хранение ключа обновлений
 
+> This checklist is for Sparkle Ed25519 custody. It does not authorize the
+> former owner-only/self-signed Apple signing lane; current public macOS release
+> gates are maintained by Feature 130.
+
 **Purpose**: Проверить, что требования к custody ключа, trust migration и
 выпуску сформулированы полно, однозначно и измеримо до реализации.
 **Created**: 2026-07-17
@@ -60,7 +64,9 @@
 
 - [x] CHK035 Is the GitHub environment/reviewer capability validated as a required operational dependency before the new trust generation is activated? [Assumption, Spec §FR-008]
 - [x] CHK036 Are Sparkle tool/version compatibility and the supported macOS Keychain account behavior recorded as dependencies with an upgrade/recheck trigger? [Dependency, plan §Technical Context]
-- [x] CHK037 Is the assumption that the owner-only app-signing identity remains available and compatible with the manual bootstrap explicitly validated before the migration is scheduled? [Assumption, Spec §Assumptions]
+- [x] CHK037 Is the historical app-signing assumption explicitly separated from
+  Sparkle custody and excluded from the current public release path? [Assumption,
+  Spec §Assumptions]
 - [x] CHK038 Is the public-host operator boundary documented so it has artifact-copy authority but never signer-secret authority? [Dependency, Spec §FR-001, FR-007]
 
 ## Notes

@@ -24,7 +24,7 @@
       "Public appcast replacement remains after verified versioned assets."
     ],
     "assumptions": [
-      "The current owner-only signing channel can use a protected GitHub environment and a controlled macOS Keychain.",
+      "The former degraded Sparkle signing channel used a protected GitHub environment and a controlled macOS Keychain.",
       "No measured release latency or secret-management budget was supplied."
     ]
   },
@@ -120,7 +120,7 @@
             {"dimension": "operability", "direction": "regresses", "confidence": "medium", "basis": "source-derived", "assessment": "Operators must manage a protected environment, approval and draft-release workflow, but receive a deterministic readiness/rollback procedure.", "validationPlan": "Have a second approved operator run the quickstart without access to secret values."},
             {"dimension": "migration", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "One manual bootstrap package is necessary for clients bound to the lost historic public key.", "validationPlan": "Prove bootstrap plus two sequential normal in-app updates and permission continuity."}
           ],
-          "residualRisks": ["If both protected channels are lost, another manual bootstrap is required.", "Owner-only code-signing identity remains a separate future migration."],
+          "residualRisks": ["If both protected Sparkle channels are lost, another manual bootstrap is required.", "Historical owner-only Apple code-signing identity is not a current release option."],
           "implementationReadiness": {"affectedComponents": ["apps/macos/Installer", "apps/macos/Scripts", ".github/workflows", "apps/macos/Shared/Tests", "qa/macos"], "workPackages": ["Manifest and local custody tools", "protected workflows", "strict staging/validator integration", "bootstrap and documentation", "tests and release proof"], "acceptanceCriteria": ["Both channels attest to one active public key.", "Mismatches fail before staging/publication.", "Bootstrap then two in-app updates pass."], "migrationNotes": ["Use the first unused CalVer for manual bootstrap and later greater versions for normal updates."], "rollback": "Keep previous signed feed; halt before appcast replacement; fix forward for installed clients."}
         },
         {
@@ -150,11 +150,11 @@
         }
       ],
       "recommendedOptionId": "protected-dual-custody",
-      "recommendation": "Use protected dual custody now; revisit an external KMS/Developer ID migration only after the owner-only release line is stable and a separate permission-continuity plan is approved."
+      "recommendation": "Use protected dual custody for Sparkle trust; current Apple publication is Developer ID-only under Feature 130. Any future KMS or identity change requires a separate approved feature."
     }
   ],
   "openQuestions": [
     "The exact release reviewers and environment policy must be configured by the repository owner before the first physical release.",
-    "A future Developer ID/notarization migration needs its own trust and TCC continuity feature."
+    "Feature 130 completes the current Developer ID/notarization migration; any later identity change needs its own trust and TCC continuity feature."
   ]
 }

@@ -40,6 +40,30 @@ Do not rerun full local CI after every small edit inside a slice. Accumulate
 focused checks while developing, then run the repository gate at the closeout
 boundary required by the lane.
 
+## Public macOS Signing And Migration
+
+The active public macOS path is Developer ID-only. A releasable app uses
+`Developer ID Application`, a published package uses `Developer ID Installer`,
+and both artifacts require Apple notarization, stapling and Gatekeeper
+acceptance. Set `GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1` for the public candidate;
+the builder and validator must fail closed before public files or the appcast
+change when an identity is local, self-signed, ad-hoc, owner-only or missing.
+
+The published `v2026.07.26.6` is a one-time migration bootstrap from the
+historical local/self-signed predecessor. Validate that transition with
+`apps/macos/Installer/Scripts/validate-developer-id-bootstrap.sh` and install
+the notarized `.pkg` manually. The migration validator forbids an update ZIP
+and appcast; keep the live appcast unchanged for this step. After that manual
+installation, use the ordinary `validate-app-updates.sh` path only with a
+Developer ID predecessor and candidate, preserving bundle ID, team identity,
+designated requirement, feed URL and Sparkle trust generation.
+
+`build-trust-bootstrap.sh` and `validate-manual-update-bootstrap.sh` concern
+Sparkle Ed25519 trust-generation custody/rotation. They are not Apple
+code-signing migration tools. Local/self-signed/ad-hoc commands may remain in
+historical receipts or disposable fixtures for negative tests, but are never a
+public release fallback.
+
 ## Dependency Updates
 
 Use the latest stable dependency versions by default. Before adding or updating

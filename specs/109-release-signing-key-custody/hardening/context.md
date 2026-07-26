@@ -1,5 +1,9 @@
 # Hardening analysis context
 
+> Historical analysis of Sparkle trust custody. The owner-only/local Apple
+> signing language in this archive is not an active release option; Feature 130
+> defines the current Developer ID-only macOS publication path.
+
 ## Evidence inventory
 
 Analysis target is repository revision
@@ -26,7 +30,8 @@ sealed incident archive.
 - The historical private key cannot be recreated from the application or feed.
 - Existing GRAF clients must not have their verifier changed by a normal
   appcast; one manual bootstrap is acceptable and must be clearly labelled.
-- The owner-only local code-signing identity remains outside this slice.
+- The historical owner-only local Apple code-signing identity remains outside
+  this Sparkle-custody slice and is not a release option.
 - The public download host cannot be given signing secret authority.
 - No raw secret, raw audio, transcript, customer data, live local path or
   credential-bearing URL may enter feature artifacts or evidence.

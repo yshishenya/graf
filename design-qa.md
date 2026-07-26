@@ -1,4 +1,8 @@
 **Source Visual Truth**
+
+> Historical QA receipt. The local signing identity mentioned in this file is
+> preserved as past evidence only; current public macOS publication uses the
+> Feature 130 Developer ID-only path.
 - User-provided Krisp login screenshot in the current chat, state: desktop login screen at app.krisp.ai.
 - Local source file path: not available; the reference was supplied as an in-chat screenshot.
 

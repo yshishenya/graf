@@ -1,5 +1,9 @@
 # Implementation Plan: macOS Permission Retention And Relaunch Reliability
 
+> Historical permission-retention fixture plan. Its local/self-signed signing
+> material is not a publication path; current macOS release work belongs to
+> [Feature 130](../130-developer-id-release/plan.md).
+
 **Branch**: `095-macos-permission-retention` | **Date**: 2026-07-09 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `/specs/095-macos-permission-retention/spec.md`
@@ -10,9 +14,10 @@ Stabilize GRAF's macOS permission identity so local reinstall/upgrade cycles do
 not force the same user to grant microphone and Screen/System Audio access on
 every build, and harden app termination so permission onboarding sheets cannot
 block macOS quit/relaunch. The implementation remains macOS-native and
-local-first: support a free, locally trusted self-signed code-signing identity
-for owner-machine validation; keep Developer ID signing, installer signing,
-notarization, and stapled public distribution as a later paid release gate.
+local-first for this historical fixture: support a free, locally trusted
+self-signed code-signing identity for owner-machine validation. It does not
+authorize publication. Current public Developer ID signing, installer signing,
+notarization, stapling and Gatekeeper are owned by Feature 130.
 Also reconcile the existing permission onboarding/termination hotfix under this
 Spec Kit slice, with focused Swift tests and metadata-only installed-app
 evidence.
@@ -43,9 +48,10 @@ microphone and Screen/System Audio permissions, installer/signing, capture
 prerequisites, permission onboarding UX, termination/relaunch behavior, and
 release-readiness claims.
 
-**Release Gate**: No deploy and no public release in this slice. Local owner
-installer validation is in scope. Developer ID/notarization public distribution
-requires a later release/deploy lane and explicit approval.
+**Release Gate**: No deploy and no public release may use this slice's local
+signer. Local owner installer validation is historical fixture scope. Current
+public Developer ID/notarization/stapling/Gatekeeper acceptance is the Feature
+130 release lane.
 
 **Target Platform**: macOS 14.5+ on the current owner/development machine for
 local validation; future public distribution remains macOS.

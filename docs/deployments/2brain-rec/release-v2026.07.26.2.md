@@ -1,5 +1,8 @@
 # Production closeout: v2026.07.26.2
 
+> Historical production receipt. Its owner-only/local signing facts are kept for
+> audit history only; current public macOS publication is Developer ID-only.
+
 ## Immutable release
 
 - Tag: `v2026.07.26.2`

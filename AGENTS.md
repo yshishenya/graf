@@ -132,7 +132,7 @@ Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/129-share-magic-rls/plan.md
+at specs/130-developer-id-release/plan.md
 <!-- SPECKIT END -->
 
 ## Tracking And GitHub Issues
@@ -201,6 +201,15 @@ Default validation anchors:
 - production deploy/smoke: `infra/scripts/cd-remote.sh --dry-run` then
   `infra/scripts/cd-remote.sh --execute` when the release gate is met
 - release prep: `./scripts/prepare-release.sh YYYY.MM.DD.N`
+
+Public macOS distribution is Developer ID-only: the app must use Developer ID
+Application, the package must use Developer ID Installer, and notarization,
+stapling and Gatekeeper checks must pass before any public mutation. The
+published `v2026.07.26.6` is the one-time manual `.pkg` bootstrap from the
+historical self-signed lineage; it must not be staged as an ordinary Sparkle
+appcast update. Every later public update must be Developer ID→Developer ID.
+Local/ad-hoc/self-signed identities may appear only in explicitly isolated test
+fixtures or historical receipts, never as a current release instruction.
 
 Implementation commits require explicit user approval after validation. Spec Kit
 documentation auto-commits may run only through user-approved Spec Kit hooks.

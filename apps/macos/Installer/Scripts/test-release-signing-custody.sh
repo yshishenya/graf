@@ -406,11 +406,11 @@ fi
 
 grep -Fq 'Sparkle public key changed without an approved rotation' "$ORDINARY_VALIDATOR" ||
   fail "ordinary Sparkle key rotation guard is missing"
-grep -Fq 'manual trust bootstrap requires a new public signing generation' "$ORDINARY_VALIDATOR" ||
+grep -Fq 'Sparkle trust-generation bootstrap requires a new public signing generation' "$ORDINARY_VALIDATOR" ||
   fail "manual-only trust transition guard is missing"
 grep -Fq 'GRAF_MANUAL_TRUST_BOOTSTRAP=1' "$BOOTSTRAP_VALIDATOR" ||
   fail "manual bootstrap wrapper does not activate its explicit validator mode"
-grep -Fq 'manual trust bootstrap must not receive an appcast' "$BOOTSTRAP_VALIDATOR" ||
+grep -Fq 'Sparkle trust-generation bootstrap must not receive an appcast' "$BOOTSTRAP_VALIDATOR" ||
   fail "manual bootstrap wrapper can receive an appcast"
 grep -Fq 'appcast_staged=no' "$BOOTSTRAP_BUILDER" ||
   fail "bootstrap builder does not explicitly forbid appcast staging"
@@ -438,7 +438,7 @@ grep -Fq 'initialization refuses to overwrite an existing Keychain signing gener
   fail "provisioner could overwrite a named Keychain generation"
 grep -Fq 'could not prove that the named Keychain signing generation is absent' "$PROVISIONER" ||
   fail "provisioner treats a Keychain lookup error as an absent generation"
-grep -Fq -- '--resume is an explicit owner-only recovery' "$PROVISIONER" ||
+grep -Fq -- '--resume is an explicit Keychain recovery' "$PROVISIONER" ||
   fail "provisioner cannot safely resume an interrupted approved enrollment"
 grep -Fq 'mktemp -d' "$PROVISIONER" ||
   fail "provisioner does not create a private temporary transfer directory"

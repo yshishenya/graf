@@ -1,5 +1,10 @@
 # Research: macOS Permission Retention And Relaunch Reliability
 
+> Historical research for isolated permission-continuity fixtures. Local and
+> self-signed observations below do not authorize public publication; use
+> [Feature 130](../130-developer-id-release/quickstart.md) for the current
+> Developer ID-only release path.
+
 ## Decision: Use Stable Code Identity Instead Of Ad-hoc Builds
 
 Use a stable app bundle id (`pro.2brain.graf`) and a non-ad-hoc code signature
@@ -31,7 +36,11 @@ certificate-root designated requirement for the installed app.
   self-signed certificate, or ad-hoc signing cannot be accepted as continuity.
 - The bundle id is part of the identity boundary and must remain stable.
 
-## Decision: Support A Free Local Self-Signed Identity For Owner Validation
+## Historical Decision: Support A Free Local Self-Signed Identity For Owner Validation
+
+This decision is retained as historical research for permission-continuity
+fixtures only. It is superseded for public release by Feature 130 and must not
+be read as an available publication path.
 
 Accept a locally trusted self-signed code-signing identity as the no-paid
 owner-machine path. Require an explicit build flag or runbook step so nobody
@@ -53,7 +62,10 @@ for public downloads.
 - Build/installer docs must label local self-signed signing as owner/local
   validation only.
 
-## Decision: Keep Developer ID And Notarization As A Separate Paid Release Gate
+## Historical Decision: Keep Developer ID And Notarization As A Separate Paid Release Gate
+
+This gate has since been completed for the current release lane by
+`v2026.07.26.6`; future public releases use it as the only path.
 
 Do not attempt Developer ID signing or notarization in this slice. Record the
 future public-distribution path instead: Apple Developer account, Developer ID

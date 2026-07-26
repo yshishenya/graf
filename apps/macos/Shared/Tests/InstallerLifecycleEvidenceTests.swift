@@ -20,11 +20,21 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         let source = try Self.readRepositoryFile("apps/macos/Installer/Scripts/build-local-installer.sh")
 
         XCTAssertTrue(source.contains("Apple Development|Developer ID Application|Apple Distribution|Mac Developer"))
-        XCTAssertTrue(source.contains("Use an Apple Development or Developer ID Application identity for release-like builds."))
+        XCTAssertTrue(source.contains("Use a Developer ID Application identity for a public release-like build."))
         XCTAssertFalse(source.contains("ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=\"1\""))
         XCTAssertFalse(source.contains("INCLUDE_DRIVER_COMPONENT"))
         XCTAssertFalse(source.contains("AudioDriver"))
         XCTAssertFalse(source.contains("Audio/Plug-Ins/HAL"))
+    }
+
+    func testPublicInstallerRequiresDeveloperIDApplicationAndInstallerIdentities() throws {
+        let source = try Self.readRepositoryFile("apps/macos/Installer/Scripts/build-local-installer.sh")
+
+        XCTAssertTrue(source.contains("GRAF_REQUIRE_PUBLIC_UPDATE_TRUST"))
+        XCTAssertTrue(source.contains("\"Developer ID Application:\""))
+        XCTAssertTrue(source.contains("\"Developer ID Installer:\""))
+        XCTAssertTrue(source.contains("Public release cannot enable ad-hoc app signing."))
+        XCTAssertTrue(source.contains("Public release cannot enable local self-signed app signing."))
     }
 
     func testInstallerDeclaresStableGrafAppIdentityAndPermissions() throws {
@@ -102,6 +112,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(source.contains("UPDATE_CONTINUITY=in-app"))
         XCTAssertTrue(source.contains("GRAF_REQUIRE_PUBLIC_UPDATE_TRUST"))
         XCTAssertTrue(source.contains("GRAF_REQUIRE_OWNER_ONLY_UPDATE_TRUST"))
+        XCTAssertTrue(source.contains("GRAF_ALLOW_HISTORICAL_OWNER_ONLY_FIXTURE"))
         XCTAssertTrue(source.contains("Developer ID Application"))
         XCTAssertTrue(source.contains("owner-only update requires GRAF Local Code Signing"))
         XCTAssertTrue(source.contains("owner-only update requires designated-requirement continuity"))
@@ -212,7 +223,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(provisioner.contains("mktemp -d"))
         XCTAssertTrue(provisioner.contains("TRANSFER_FILE=\"$TRANSFER_DIRECTORY/signing-key\""))
         XCTAssertTrue(provisioner.contains("rm -rf \"$TRANSFER_DIRECTORY\""))
-        XCTAssertTrue(provisioner.contains("--resume is an explicit owner-only recovery"))
+        XCTAssertTrue(provisioner.contains("--resume is an explicit Keychain recovery"))
         let custodyHarness = try Self.readRepositoryFile("apps/macos/Installer/Scripts/test-release-signing-custody.sh")
         XCTAssertTrue(custodyHarness.contains("current source contains a probable secret literal"))
         XCTAssertTrue(custodyHarness.contains("$REPO_ROOT/.github"))
@@ -261,13 +272,29 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         let bootstrapBuilder = try Self.readRepositoryFile("apps/macos/Installer/Scripts/build-trust-bootstrap.sh")
 
         XCTAssertTrue(ordinary.contains("Sparkle public key changed without an approved rotation"))
-        XCTAssertTrue(ordinary.contains("manual trust bootstrap requires a new public signing generation"))
-        XCTAssertTrue(ordinary.contains("manual trust bootstrap cannot change the update feed URL"))
+        XCTAssertTrue(ordinary.contains("Sparkle trust-generation bootstrap requires a new public signing generation"))
+        XCTAssertTrue(ordinary.contains("Sparkle trust-generation bootstrap cannot change the update feed URL"))
         XCTAssertTrue(bootstrapValidator.contains("GRAF_MANUAL_TRUST_BOOTSTRAP=1"))
-        XCTAssertTrue(bootstrapValidator.contains("manual trust bootstrap must not receive an appcast"))
+        XCTAssertTrue(bootstrapValidator.contains("Sparkle trust-generation bootstrap must not receive an appcast"))
         XCTAssertTrue(bootstrapBuilder.contains("validate-manual-update-bootstrap.sh"))
         XCTAssertTrue(bootstrapBuilder.contains("appcast_staged=no"))
         XCTAssertFalse(bootstrapBuilder.contains("prepare-app-update.sh"))
+    }
+
+    func testDeveloperIDMigrationBootstrapIsManualPackageOnly() throws {
+        let ordinary = try Self.readRepositoryFile("apps/macos/Scripts/validate-app-updates.sh")
+        let migration = try Self.readRepositoryFile("apps/macos/Installer/Scripts/validate-developer-id-bootstrap.sh")
+
+        XCTAssertTrue(ordinary.contains("GRAF_MANUAL_DEVELOPER_ID_BOOTSTRAP"))
+        XCTAssertTrue(ordinary.contains("manual-developer-id-bootstrap"))
+        XCTAssertTrue(ordinary.contains("Developer ID migration bootstrap cannot rotate the Sparkle public key"))
+        XCTAssertTrue(migration.contains("GRAF_MANUAL_DEVELOPER_ID_BOOTSTRAP=1"))
+        XCTAssertTrue(migration.contains("publication=manual-pkg-only"))
+        XCTAssertTrue(migration.contains("appcast_staged=no"))
+        XCTAssertTrue(migration.contains("Developer ID Installer:"))
+        XCTAssertTrue(migration.contains("xcrun stapler validate"))
+        XCTAssertTrue(migration.contains("spctl --assess --type install"))
+        XCTAssertFalse(migration.contains("GRAF_UPDATE_ARCHIVE=\"$3\""))
     }
 
     func testProtectedReleaseSigningWorkflowsStayManualPinnedAndSecretSafe() throws {
@@ -326,7 +353,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
     func testInstallerReadmeDocumentsLocalOnlySigningBoundary() throws {
         let readme = try Self.readRepositoryFile("apps/macos/Installer/README.md")
 
-        XCTAssertTrue(readme.contains("Local Self-Signed Permission-Retention Builds"))
+        XCTAssertTrue(readme.contains("Historical/Test Fixture Only — Local Self-Signed Permission Retention"))
         XCTAssertTrue(readme.contains("GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING=1"))
         XCTAssertTrue(readme.contains("same certificate/private key pair"))
         XCTAssertTrue(readme.contains("This local self-signed path is not public release readiness"))
