@@ -49,6 +49,12 @@ acceptance. Set `GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1` for the public candidate;
 the builder and validator must fail closed before public files or the appcast
 change when an identity is local, self-signed, ad-hoc, owner-only or missing.
 
+The current published reference is `v2026.07.26.8`: it passed Apple
+notarization, stapling, Gatekeeper assessment and a real Developer ID →
+Developer ID Sparkle update from `2026.07.26.7`. Use the [release note](../releases/v2026.07.26.8.md)
+and [production receipt](../deployments/2brain-rec/release-v2026.07.26.8.md)
+as the evidence template for the next release.
+
 The published `v2026.07.26.6` is a one-time migration bootstrap from the
 historical local/self-signed predecessor. Validate that transition with
 `apps/macos/Installer/Scripts/validate-developer-id-bootstrap.sh` and install
