@@ -383,6 +383,31 @@ outcome generation с одним явно открытым GEPA gate.
 Эта сверка не закрывает general-release, security или representative-reviewer
 gates.
 
+## Feature 129 — invitation magic-link RLS hotfix
+
+- Production investigation установил источник HTTP 500: pending
+  `auth_audit_events` flushed после переключения из personal workspace в
+  workspace встречи.
+- Исправление добавляет один flush в существующей AsyncSession до смены
+  контекста; RLS policy и authorization boundaries не ослаблены, новой
+  migration нет.
+- Focused invitation matrix (`23 passed`), strict-RLS regression и полный
+  `infra/scripts/ci-local.sh` прошли: macOS `640`, server `2441 passed / 1
+  skipped`, strict PostgreSQL `42 passed / 1 skipped`, lint/compile/Compose/
+  evidence scan — `PASS`.
+- PR #4626 и release PR #4627 merged; CalVer `v2026.07.26.7` выкачен на
+  production на exact SHA `0b2680433ffda9137ea63e16ec99153e37bcb562`.
+  Backup/restore, migration head `0041_share_account_created_email`,
+  disposable RLS, production smoke, readiness и live/ready `200/200` прошли.
+- После deploy aggregate API-log audit показал `0` HTTP-500 и `0` RLS-ошибок
+  `auth_audit_events`; raw logs и пользовательская magic-ссылка в evidence не
+  сохранялись. Backup:
+  `/opt/projects/2brain-rec/backups/20260726T123714Z`.
+- Signed public Sparkle feed/ZIP `2026.07.26.7` опубликованы; trusted v6
+  bootstrap обновился до v7 через Sparkle и relaunch/codesign smoke прошли.
+  v7 notarization staple и Gatekeeper public-trust не заявляются, потому что в
+  release-operator окружении отсутствуют Apple notarization credentials.
+
 Feature `114-support-incident-diagnostics` реализована и merged через
 [PR #4068](https://github.com/yshishenya/crisp/pull/4068): v2 metadata-only
 report связывает client/server correlation, canonical stage/problem, bounded

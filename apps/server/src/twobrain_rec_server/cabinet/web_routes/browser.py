@@ -478,6 +478,7 @@ async def share_invitation_magic_link(
                 "account_created": account_created,
             },
         )
+        await session.flush()
         await apply_tenant_context(
             session,
             TenantDatabaseContext(

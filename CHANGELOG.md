@@ -33,6 +33,38 @@
   замены appcast; следующий выпуск обязан пройти обычный Developer ID →
   Developer ID Sparkle flow.
 
+## [2026.07.26.7] - 2026-07-26
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Исправлен HTTP 500 при первом входе нового получателя по invitation
+  magic-link: auth-аудит теперь flushed в personal workspace до переключения
+  на workspace встречи, поэтому production RLS не получает pending row из
+  другого tenant-контекста.
+
+### Безопасность
+- RLS policy, exact-recipient, CSRF, replay, expiry/revoke и post-commit
+  notification boundaries сохранены; обход policy и отключение autoflush не
+  добавлялись.
+
+### Документы
+- Добавлены Feature 129 spec, strict-RLS regression и metadata-only
+  validation evidence.
+
+### Операции
+- Focused invitation matrix: `23 passed`; полный CD/local gate:
+  macOS `640 passed`, server `2441 passed / 1 skipped`, strict PostgreSQL
+  `42 passed / 1 skipped`; lint, compile, Compose и evidence scan прошли.
+- Release `v2026.07.26.7` deployed на exact SHA; backup/restore, migration,
+  smoke, readiness и live/ready `200/200` прошли. Post-deploy API log audit:
+  `0` HTTP-500 и `0` `auth_audit_events` RLS errors.
+
 ## [2026.07.26.6] - 2026-07-26
 
 
