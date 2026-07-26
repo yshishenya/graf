@@ -6,6 +6,7 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingShare
     case meetingDeletionReport
     case artifactDownload
+    case settings
     case calendarSettings
     case meetingDetectionSettings
     case admin
@@ -42,6 +43,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedMeetingShare = "allowed_meeting_share"
     case allowedMeetingDeletionReport = "allowed_meeting_deletion_report"
     case allowedArtifactDownload = "allowed_artifact_download"
+    case allowedSettings = "allowed_settings"
     case allowedCalendarSettings = "allowed_calendar_settings"
     case allowedMeetingDetectionSettings = "allowed_meeting_detection_settings"
     case allowedAuthLogin = "allowed_auth_login"
@@ -214,6 +216,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Meeting detection settings"
             )
         }
+        if isSettingsRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .settings),
+                decision: .allow,
+                reason: .allowedSettings,
+                userMessage: "Settings"
+            )
+        }
         if isAdminRoute(components) {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, kind: .admin),
@@ -354,6 +364,42 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
     private func isMeetingDetectionSettingsRoute(_ components: [String]) -> Bool {
         components == ["desktop", "settings", "meeting-detection"]
+    }
+
+    private func isSettingsRoute(_ components: [String]) -> Bool {
+        guard components.count >= 2,
+              components[0] == "desktop",
+              components[1] == "settings"
+        else {
+            return false
+        }
+
+        let tail = Array(components.dropFirst(2))
+        if tail.isEmpty || (tail.count == 1 && ["recording", "summaries", "workspace", "account"].contains(tail[0])) {
+            return true
+        }
+        if tail.count == 4,
+           tail[0] == "account",
+           tail[1] == "devices",
+           tail[3] == "revoke" {
+            return isSafeMeetingId(tail[2])
+        }
+        if tail.count == 2, tail[0] == "provider-links" {
+            return isSafeMeetingId(tail[1])
+        }
+        if tail.count == 3, tail[0] == "provider-links" {
+            if tail[2] == "start" {
+                return isSafeProviderId(tail[1])
+            }
+            return tail[2] == "confirm" && isSafeMeetingId(tail[1])
+        }
+        if tail.count == 3, tail[0] == "spaces", tail[2] == "activate" {
+            return isSafeMeetingId(tail[1])
+        }
+        if tail.count == 3, tail[0] == "join-offers", ["accept", "reject"].contains(tail[2]) {
+            return isSafeMeetingId(tail[1])
+        }
+        return false
     }
 
     private func isArtifactDownloadRoute(_ components: [String]) -> Bool {

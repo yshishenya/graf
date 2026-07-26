@@ -142,6 +142,23 @@ evidence.
 - [X] T036 Run the focused commands from `specs/127-settings-ia/quickstart.md`, including `git diff --check`, and mark validated tasks `[X]` only after evidence is captured in the worktree.
 - [X] T037 Run `infra/scripts/ci-local.sh` for the selected high-risk UX lane and record pass/fail evidence in the final handoff without committing private meeting content.
 
+## Phase 8: Post-release embedded parity correction
+
+**Purpose**: Close the discovered gap between the server-rendered embedded
+settings IA and the macOS webview route allowlist.
+
+- [X] T038 [US1] Allow the canonical `/desktop/settings` overview, category and
+  existing settings mutation routes in
+  `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift`, keep
+  desktop-header reinjection and protected-history behavior intact, and add
+  focused route-policy tests in
+  `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`,
+  `apps/macos/Shared/Tests/DesktopCabinetNavigationRequestPolicyTests.swift`
+  and `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`.
+- [ ] T039 Validate the embedded settings path in the installed macOS client,
+  run the focused Swift tests and `infra/scripts/ci-local.sh`, then record the
+  release/deploy evidence without changing native capture behavior.
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -164,6 +181,8 @@ evidence.
 - **US3 (P1)**: Depends on US1 shell and US2 form-state contract; domain APIs
   remain independent.
 - **US4 (P2)**: Depends only on US1 route map; no capture dependency.
+- **T038** depends on the completed server-side route map and is required before
+  the embedded parity smoke in **T039**.
 
 ### Parallel Opportunities
 

@@ -299,7 +299,7 @@ public enum DesktopCabinetWorkspace {
         for route in [currentRoute, initialRoute].compactMap({ $0 }) {
             let decision = policy.decision(for: route)
             if decision.decision == .allow,
-               [.meetingList, .meetingDetail, .meetingDeletionReport, .calendarSettings,
+               [.meetingList, .meetingDetail, .meetingDeletionReport, .settings, .calendarSettings,
                 .meetingDetectionSettings].contains(decision.route.kind) {
                 return route
             }

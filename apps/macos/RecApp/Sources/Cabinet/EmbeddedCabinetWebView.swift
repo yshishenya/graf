@@ -91,7 +91,7 @@ public enum EmbeddedCabinetNavigationPolicy {
     private static func isProtectedDocumentRoute(_ kind: DesktopCabinetRouteKind?) -> Bool {
         switch kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport,
-             .calendarSettings, .meetingDetectionSettings:
+             .settings, .calendarSettings, .meetingDetectionSettings:
             return true
         default:
             return false
@@ -599,7 +599,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         let kind = routePolicy.decision(for: url).route.kind
         switch kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport,
-             .calendarSettings, .meetingDetectionSettings:
+             .settings, .calendarSettings, .meetingDetectionSettings:
             return true
         default:
             return false
@@ -747,7 +747,7 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
         switch decision.route.kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport:
             return true
-        case .artifactDownload, .calendarSettings, .meetingDetectionSettings, .admin, .authLogin, .authSignup,
+        case .artifactDownload, .settings, .calendarSettings, .meetingDetectionSettings, .admin, .authLogin, .authSignup,
              .authProvider, .authCallback, .unsupported, .external, .forbiddenAction:
             return false
         }
@@ -1013,7 +1013,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         switch routeKind {
         case .authLogin, .authSignup, .authProvider, .authCallback:
             return .expiredSession
-        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .calendarSettings, .meetingDetectionSettings:
+        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .settings, .calendarSettings, .meetingDetectionSettings:
             return .ready
         case .artifactDownload:
             return .ready
