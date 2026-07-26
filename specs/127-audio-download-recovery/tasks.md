@@ -9,3 +9,4 @@
 
 - [X] T003 [P] [US2] Обновить `CHANGELOG.md` в секции `[Unreleased]`, зафиксировав восстановление скачивания аудио без изменения server-mediated egress, auth и fail-closed policy.
 - [X] T004 [US2] Выполнить сценарии из `specs/127-audio-download-recovery/quickstart.md`, включая focused server contracts, существующие artifact egress tests при доступной БД, `swift test --filter DesktopCabinetConfigurationTests`, `swift test --filter DesktopCabinetRoutePolicyTests` и `infra/scripts/ci-local.sh`; записать metadata-only evidence в `specs/127-audio-download-recovery/quickstart.md` и отметить завершённые задачи только после проверки.
+- [X] T005 [US1] Исправить общий egress guard в `apps/server/src/twobrain_rec_server/cabinet/egress.py`, чтобы устаревший текстовый результат обработки не блокировал доступный audio playback artifact, и добавить регрессионный integration test в `apps/server/tests/integration/test_artifact_egress_policy.py`.

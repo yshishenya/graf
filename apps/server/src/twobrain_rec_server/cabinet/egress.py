@@ -1154,7 +1154,7 @@ async def download_artifact(
         raise ProblemDetail(
             status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
         )
-    if result is not None and not await _processing_result_is_current(
+    if artifact_class != "audio" and result is not None and not await _processing_result_is_current(
         db, meeting=meeting, result=result
     ):
         await _record_content_export_denied(

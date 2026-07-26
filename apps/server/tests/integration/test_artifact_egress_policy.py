@@ -6,6 +6,7 @@ from tests.fixtures.cabinet_access import (
     replace_retained_audio_with_test_wav,
     set_artifact_policy,
 )
+from twobrain_rec_server.cabinet import egress as egress_module
 
 
 class DownloadStreamingOnlyStorage:
@@ -105,6 +106,29 @@ def test_allowed_audio_download_returns_stored_m4a_review_artifact(client) -> No
         "source_mode": "stored_review_m4a",
         "stream_state": "prepared",
     }
+
+
+def test_audio_download_ignores_stale_processing_result_when_playback_is_available(
+    client, monkeypatch
+) -> None:
+    seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
+    replace_retained_audio_with_test_wav(client, seeds.ready_id)
+    m4a_body = add_retained_playback_m4a(
+        client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A stale result"
+    )
+
+    async def stale_result(*_args, **_kwargs) -> bool:
+        return False
+
+    monkeypatch.setattr(egress_module, "_processing_result_is_current", stale_result)
+    response = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    assert response.content == m4a_body
 
 
 def test_allowed_audio_download_rejects_stale_storage_size_before_serving_headers(client) -> None:
