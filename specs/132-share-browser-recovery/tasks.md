@@ -85,10 +85,10 @@ status, content type and JSON fields for explicit API requests.
 - [X] T008 [P] Update the Russian `[Unreleased]` `Fixed` entry in
   `CHANGELOG.md` and record the selected high-risk validation lane and evidence
   links in `specs/132-share-browser-recovery/quickstart.md`.
-- [ ] T009 Run the focused quickstart, `git diff --check`, Python compile and
+- [X] T009 Run the focused quickstart, `git diff --check`, Python compile and
   targeted Ruff; then run `infra/scripts/ci-local.sh` and record metadata-only
   results in `specs/132-share-browser-recovery/quickstart.md`.
-- [ ] T010 Reconcile task/issue/PR evidence and run the required Ponytail/code
+- [X] T010 Reconcile task/issue/PR evidence and run the required Ponytail/code
   review before implementation closeout; keep production deployment behind the
   separate release approval gate.
 
