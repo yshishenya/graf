@@ -63,7 +63,7 @@ notification tests проходят; RLS policy и production security boundarie
 - [X] T008 [US3] Выполнить `git diff --check`, targeted Ruff/compile, focused
   isolated-Postgres matrix и полный `infra/scripts/ci-local.sh`; зафиксировать
   security/infra checklist status и Ponytail/code review evidence
-- [ ] T009 [US3] Подготовить CalVer release notes, macOS candidate/update
+- [X] T009 [US3] Подготовить CalVer release notes, macOS candidate/update
   continuity smoke, public artifact checks и guarded deploy evidence в
   `docs/releases/`, `docs/deployments/2brain-rec/` и release assets без raw
   meeting content

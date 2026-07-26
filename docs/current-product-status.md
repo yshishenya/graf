@@ -370,11 +370,21 @@ gates.
   контекста; RLS policy и authorization boundaries не ослаблены, новой
   migration нет.
 - Focused invitation matrix (`23 passed`), strict-RLS regression и полный
-  `infra/scripts/ci-local.sh` прошли: macOS `640`, server `2440 passed / 1
+  `infra/scripts/ci-local.sh` прошли: macOS `640`, server `2441 passed / 1
   skipped`, strict PostgreSQL `42 passed / 1 skipped`, lint/compile/Compose/
   evidence scan — `PASS`.
-- PR/release/deploy остаются отдельными gates; production fix не заявляется
-  до проверки immutable deploy SHA и sanitized post-deploy logs.
+- PR #4626 и release PR #4627 merged; CalVer `v2026.07.26.7` выкачен на
+  production на exact SHA `0b2680433ffda9137ea63e16ec99153e37bcb562`.
+  Backup/restore, migration head `0041_share_account_created_email`,
+  disposable RLS, production smoke, readiness и live/ready `200/200` прошли.
+- После deploy aggregate API-log audit показал `0` HTTP-500 и `0` RLS-ошибок
+  `auth_audit_events`; raw logs и пользовательская magic-ссылка в evidence не
+  сохранялись. Backup:
+  `/opt/projects/2brain-rec/backups/20260726T123714Z`.
+- Signed public Sparkle feed/ZIP `2026.07.26.7` опубликованы; trusted v6
+  bootstrap обновился до v7 через Sparkle и relaunch/codesign smoke прошли.
+  v7 notarization staple и Gatekeeper public-trust не заявляются, потому что в
+  release-operator окружении отсутствуют Apple notarization credentials.
 
 Feature `114-support-incident-diagnostics` реализована и merged через
 [PR #4068](https://github.com/yshishenya/crisp/pull/4068): v2 metadata-only
