@@ -1247,9 +1247,9 @@ def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> No
     assert 'aria-current="page"' in page
     assert 'href="/desktop/meetings"' in page
     assert 'href="/desktop/settings"' in page
-    for icon in ("search", "calendar-days", "settings"):
+    for icon in ("search", "calendar-days", "users-round", "settings"):
         assert f'data-icon="{icon}"' in page
-    for removed_icon in ("users-round", "list-checks", "activity"):
+    for removed_icon in ("list-checks", "activity"):
         assert f'data-icon="{removed_icon}"' not in page
 
 

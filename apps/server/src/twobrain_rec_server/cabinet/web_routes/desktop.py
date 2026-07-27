@@ -19,6 +19,7 @@ from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
     get_calendar_settings_surface,
     list_cabinet_meetings,
+    list_shared_with_me_meetings,
 )
 from twobrain_rec_server.cabinet.rendering import (
     calendar_settings_notice_codes,
@@ -29,6 +30,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_list_fragment,
     render_meeting_list_page,
     render_meeting_unavailable_page,
+    render_shared_with_me_page,
 )
 from twobrain_rec_server.cabinet.review_policy_rendering import render_meeting_share_fragment
 from twobrain_rec_server.cabinet.templates import (
@@ -115,6 +117,7 @@ async def embedded_meeting_list_page(
         normalize_response_sort=True,
         limit=limit,
     )
+
     raw_status = request.query_params.get("status")
     canonical_status = _normalize_web_meeting_status_filter(raw_status)
     status_was_normalized = (
@@ -147,6 +150,37 @@ async def embedded_meeting_list_page(
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=canonical_path,
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "embedded_desktop_webview",
+                principal=principal,
+                tenant_scope=tenant_scope,
+                device_class="desktop_webview",
+            ),
+        )
+    )
+
+
+@router.get("/desktop/shared-with-me", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_shared_with_me_list_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+) -> HTMLResponse:
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    items = await list_shared_with_me_meetings(
+        sessionmaker,
+        recipient_scope=tenant_scope,
+    )
+    return cabinet_html_response(
+        render_shared_with_me_page(
+            items,
+            embedded=True,
+            csrf_token=_csrf_token_for_principal(request, principal),
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "embedded_desktop_webview",

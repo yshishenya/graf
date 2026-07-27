@@ -9,6 +9,14 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
 
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings")).decision, .allow)
+        let sharedWithMe = policy.decision(for: try url("/desktop/shared-with-me"))
+        XCTAssertEqual(sharedWithMe.decision, .allow)
+        XCTAssertEqual(sharedWithMe.route.kind, .meetingList)
+        XCTAssertEqual(sharedWithMe.reason, .allowedMeetingList)
+        XCTAssertEqual(
+            policy.decision(for: try url("/desktop/shared-with-me/unexpected")).decision,
+            .blockWithMessage
+        )
         let detail = policy.decision(for: try url("/desktop/meetings/meeting-033"))
         XCTAssertEqual(detail.decision, .allow)
         XCTAssertEqual(detail.route.kind, .meetingDetail)

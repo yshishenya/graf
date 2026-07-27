@@ -91,6 +91,7 @@ from twobrain_rec_server.cabinet.access import (
     lock_shareable_meeting,
     narrow_summary_projection,
     normalize_invitation_address,
+    recipient_share_access_proof,
     resolve_share_token,
     revoke_share_grant,
     revoke_share_invitation,
@@ -306,61 +307,10 @@ async def _recipient_share_access_proof(
             code="auth_context_unavailable",
             title="Authentication context unavailable",
         )
-    async with sessionmaker() as session:
-        await apply_tenant_context(
-            session,
-            TenantDatabaseContext(
-                organization_id=recipient_scope.organization_id,
-                workspace_id=recipient_scope.workspace_id,
-                user_id=recipient_scope.user_id,
-                device_id=recipient_scope.device_id,
-                auth_session_id=recipient_scope.auth_session_id,
-                context_kind="request",
-            ),
-        )
-        user = await session.scalar(
-            select(UserIdentity).where(
-                UserIdentity.id == recipient_scope.user_id,
-                UserIdentity.status == "active",
-            )
-        )
-        emails = (
-            await session.scalars(
-                select(ExternalIdentity.email).where(
-                    ExternalIdentity.user_id == recipient_scope.user_id,
-                    ExternalIdentity.is_verified.is_(True),
-                    ExternalIdentity.email.is_not(None),
-                )
-            )
-        ).all()
-    async with sessionmaker() as session:
-        await apply_tenant_context(
-            session,
-            TenantDatabaseContext(
-                organization_id=recipient_scope.organization_id,
-                workspace_id=owner_workspace_id,
-                user_id=recipient_scope.user_id,
-                device_id=recipient_scope.device_id,
-                auth_session_id=recipient_scope.auth_session_id,
-                context_kind="request",
-            ),
-        )
-        membership = await session.scalar(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == owner_workspace_id,
-                WorkspaceMembership.user_id == recipient_scope.user_id,
-                WorkspaceMembership.status == "active",
-            )
-        )
-    return ShareRecipientAccessProof(
-        user_is_active=user is not None,
-        workspace_membership_is_active=membership is not None,
-        verified_address_hashes=frozenset(
-            digest
-            for email in emails
-            if email
-            for digest in invitation_address_hashes(normalize_invitation_address(email))
-        ),
+    return await recipient_share_access_proof(
+        sessionmaker,
+        recipient_scope=recipient_scope,
+        owner_workspace_id=owner_workspace_id,
     )
 
 

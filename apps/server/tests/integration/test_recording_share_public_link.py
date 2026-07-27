@@ -541,6 +541,16 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(c
     assert continued.status_code == 200
     assert raw_token not in continued.text
     assert "Итоги встречи" in continued.text
+    shared_with_me = client.get("/shared-with-me", headers=recipient_headers)
+    assert shared_with_me.status_code == 200
+    assert f"/shared-meetings/{seeds.ready_id}" in shared_with_me.text
+    assert "External Invitee Workspace" not in shared_with_me.text
+    listed_target = client.get(
+        f"/shared-meetings/{seeds.ready_id}?workspace_id={WORKSPACE_ID}",
+        headers=recipient_headers,
+    )
+    assert listed_target.status_code == 200
+    assert "Итоги встречи" in listed_target.text
     assert (
         client.get(
             f"/share-invitations/continue?workspace_id={WORKSPACE_ID}&state={state_match.group(1)}",

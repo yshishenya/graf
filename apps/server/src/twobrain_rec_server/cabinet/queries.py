@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 from uuid import UUID
 
 from sqlalchemy import (
@@ -39,6 +40,7 @@ from twobrain_rec_server.auth.providers import build_provider_registry
 from twobrain_rec_server.cabinet.access import (
     ShareRecipientAccessProof,
     decide_meeting_access,
+    recipient_share_access_proof,
     share_panel_state,
 )
 from twobrain_rec_server.cabinet.egress import (
@@ -53,6 +55,7 @@ from twobrain_rec_server.cabinet.view_models import (
     MeetingListTimeBasis,
     ProviderLinkSettingsSurface,
     ProviderLinkStartOption,
+    SharedWithMeMeetingItem,
     build_list_item,
     build_review_response,
     format_duration,
@@ -85,6 +88,7 @@ from twobrain_rec_server.db.models import (
     MediaRevision,
     Meeting,
     MeetingOutcomeSet,
+    MeetingShareGrant,
     MeetingSpeakerName,
     ProcessingDependencyState,
     ProcessingResult,
@@ -97,6 +101,11 @@ from twobrain_rec_server.db.models import (
     UploadSession,
     Workspace,
     WorkspaceProviderLinkState,
+)
+from twobrain_rec_server.db.tenant_context import (
+    SharedWithMeLookupContext,
+    TenantDatabaseContext,
+    apply_tenant_context,
 )
 from twobrain_rec_server.domain.media_filenames import MEDIA_FILENAME_EXTENSION_ALTERNATION
 from twobrain_rec_server.domain.statuses import (
@@ -437,6 +446,115 @@ async def list_cabinet_meetings(
     return response
 
 
+async def list_shared_with_me_meetings(
+    sessionmaker,
+    *,
+    recipient_scope: TenantScope,
+    limit: int = 50,
+) -> tuple[SharedWithMeMeetingItem, ...]:
+    """List only recipient grants that still pass the existing access decision."""
+    now = datetime.now(UTC)
+    async with sessionmaker() as lookup_db:
+        await apply_tenant_context(
+            lookup_db,
+            SharedWithMeLookupContext(user_id=recipient_scope.user_id),
+        )
+        grants = list(
+            await lookup_db.scalars(
+                select(MeetingShareGrant)
+                .where(
+                    MeetingShareGrant.grantee_user_id == recipient_scope.user_id,
+                    MeetingShareGrant.audience_type == "user",
+                    MeetingShareGrant.status == "active",
+                    MeetingShareGrant.expires_at.is_(None) | (MeetingShareGrant.expires_at > now),
+                )
+                .order_by(MeetingShareGrant.created_at.desc())
+                .limit(limit)
+            )
+        )
+    grants_by_workspace: dict[UUID, list[MeetingShareGrant]] = {}
+    for grant in grants:
+        grants_by_workspace.setdefault(grant.workspace_id, []).append(grant)
+
+    rows: dict[UUID, tuple[datetime, tuple[int, int, int], SharedWithMeMeetingItem]] = {}
+    for workspace_id, workspace_grants in grants_by_workspace.items():
+        proof = await recipient_share_access_proof(
+            sessionmaker,
+            recipient_scope=recipient_scope,
+            owner_workspace_id=workspace_id,
+        )
+        if not proof.user_is_active:
+            continue
+        async with sessionmaker() as source_db:
+            await apply_tenant_context(
+                source_db,
+                TenantDatabaseContext(
+                    organization_id=UUID(int=0),
+                    workspace_id=workspace_id,
+                    user_id=UUID(int=0),
+                ),
+            )
+            meeting_ids = [grant.meeting_id for grant in workspace_grants]
+            meetings = {
+                meeting.id: meeting
+                for meeting in await source_db.scalars(
+                    select(Meeting).where(
+                        Meeting.workspace_id == workspace_id,
+                        Meeting.id.in_(meeting_ids),
+                        Meeting.deleted_at.is_(None),
+                        or_(
+                            Meeting.deletion_state.is_(None),
+                            Meeting.deletion_state == DeletionState.NONE.value,
+                        ),
+                    )
+                )
+            }
+            for grant in workspace_grants:
+                meeting = meetings.get(grant.meeting_id)
+                if meeting is None:
+                    continue
+                decision = await decide_meeting_access(
+                    source_db,
+                    meeting,
+                    workspace_id=workspace_id,
+                    viewer_user_id=recipient_scope.user_id,
+                    recipient_proof=proof,
+                )
+                if not decision.can_view:
+                    continue
+                rank = (
+                    int(decision.can_view_full_meeting),
+                    int(decision.can_download),
+                    int(decision.can_export),
+                )
+                occurred_at = meeting.started_at or meeting.created_at
+                card = SharedWithMeMeetingItem(
+                    title=meeting_list_title(meeting),
+                    time_label=meeting_list_time_label(
+                        occurred_at,
+                        timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
+                        time_basis="meeting",
+                    ),
+                    duration_label=format_duration(meeting.duration_seconds),
+                    status_label=(
+                        "В обработке"
+                        if meeting.processing_status in {"submitted", "processing", "uploading"}
+                        else "Готово"
+                    ),
+                    access_label=(
+                        "Полный доступ" if decision.can_view_full_meeting else "Только итоги"
+                    ),
+                    href=(
+                        f"/shared-meetings/{meeting.id}?"
+                        f"{urlencode({'workspace_id': str(workspace_id)})}"
+                    ),
+                )
+                previous = rows.get(meeting.id)
+                if previous is None or rank > previous[1]:
+                    rows[meeting.id] = (occurred_at, rank, card)
+    return tuple(card for _, _, card in sorted(rows.values(), key=lambda row: row[0], reverse=True))
+
+
 def _meeting_matches_query(
     meeting: Meeting,
     query: str,
@@ -714,9 +832,7 @@ def _meeting_visible_row_search_expression(*, time_basis: MeetingListTimeBasis):
             literal("Запись"),
         ),
         (
-            safe_title_value.op("~*")(
-                rf"\.({MEDIA_FILENAME_EXTENSION_ALTERNATION})$"
-            ),
+            safe_title_value.op("~*")(rf"\.({MEDIA_FILENAME_EXTENSION_ALTERNATION})$"),
             func.coalesce(
                 func.nullif(func.btrim(cleaned_file_title), ""),
                 literal("Загруженная запись"),
