@@ -1355,9 +1355,13 @@ def cabinet_navigation(
     *, active: str = "meetings", embedded: bool = False
 ) -> CabinetNavigationModel:
     meetings_href = "/desktop/meetings" if embedded else "/meetings"
+    shared_with_me_href = "/desktop/shared-with-me" if embedded else "/shared-with-me"
     settings_href = "/desktop/settings" if embedded else "/settings"
     items = (
         CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "calendar-days"),
+        CabinetNavigationItem(
+            "shared-with-me", "Поделились со мной", shared_with_me_href, "users-round"
+        ),
         CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
     )
     item_ids = {item.id for item in items}
@@ -1365,6 +1369,16 @@ def cabinet_navigation(
         active=active if active in item_ids else "meetings",
         items=items,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class SharedWithMeMeetingItem:
+    title: str
+    time_label: str
+    duration_label: str
+    status_label: str
+    access_label: str
+    href: str
 
 
 @dataclass(frozen=True, slots=True)

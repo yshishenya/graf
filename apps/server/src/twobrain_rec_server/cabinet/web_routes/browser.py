@@ -26,6 +26,7 @@ from twobrain_rec_server.cabinet.access import (
     accept_share_invitation,
     consume_share_invitation_continuation,
     create_share_invitation_continuation,
+    decide_meeting_access,
     finalize_share_invitation_continuation,
     hash_share_token,
     invitation_address_hashes,
@@ -37,6 +38,7 @@ from twobrain_rec_server.cabinet.access import (
 from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
     list_cabinet_meetings,
+    list_shared_with_me_meetings,
 )
 from twobrain_rec_server.cabinet.rendering import (
     render_meeting_detail_fragment,
@@ -46,6 +48,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_unavailable_page,
     render_share_invitation_accept_page,
     render_shared_meeting_summary_page,
+    render_shared_with_me_page,
 )
 from twobrain_rec_server.cabinet.review_policy_rendering import render_meeting_share_fragment
 from twobrain_rec_server.cabinet.templates import (
@@ -144,9 +147,7 @@ async def _render_shared_summary_for_grant(
         meeting_label=meeting.title or "Встреча",
         occurred_at=meeting.started_at or meeting.created_at,
         duration_seconds=meeting.duration_seconds,
-        summary_sections=[
-            {"category": item.category, "text": item.text or ""} for item in items
-        ],
+        summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
     )
     return render_shared_meeting_summary_page(
         meeting_title=str(projection["meeting_label"]),
@@ -216,7 +217,9 @@ async def share_invitation_continuation(
             encryption_key=key_file.read_bytes().strip(),
         )
         if raw_token is None:
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+            raise ProblemDetail(
+                status=404, code="invitation_not_found", title="Invitation not found"
+            )
         accepted = await accept_share_invitation(
             session,
             workspace_id=workspace_id,
@@ -228,10 +231,7 @@ async def share_invitation_continuation(
             recipient_user_active=True,
         )
         if accepted is None:
-            retry_path = (
-                f"/share-invitations/continue?workspace_id={workspace_id}"
-                f"&state={state}"
-            )
+            retry_path = f"/share-invitations/continue?workspace_id={workspace_id}&state={state}"
             return RedirectResponse(
                 url=f"/login?{urlencode({'next': retry_path, 'error': 'share_recipient_mismatch'})}",
                 status_code=303,
@@ -242,18 +242,22 @@ async def share_invitation_continuation(
             workspace_id=workspace_id,
             nonce=state,
         ):
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+            raise ProblemDetail(
+                status=404, code="invitation_not_found", title="Invitation not found"
+            )
         shared_url = (
             _shared_meeting_url(workspace_id=workspace_id, meeting_id=grant.meeting_id)
-            if grant.content_scope == "full_meeting"
-            and grant.can_download
-            and grant.can_export
+            if grant.content_scope == "full_meeting" and grant.can_download and grant.can_export
             else None
         )
-        summary_html = None if shared_url is not None else await _render_shared_summary_for_grant(
-            session,
-            workspace_id=workspace_id,
-            meeting_id=grant.meeting_id,
+        summary_html = (
+            None
+            if shared_url is not None
+            else await _render_shared_summary_for_grant(
+                session,
+                workspace_id=workspace_id,
+                meeting_id=grant.meeting_id,
+            )
         )
         await session.commit()
     response = (
@@ -388,7 +392,9 @@ async def share_invitation_magic_link(
             encryption_key=encryption_key,
         )
         if raw_token is None:
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+            raise ProblemDetail(
+                status=404, code="invitation_not_found", title="Invitation not found"
+            )
         recipient_email = await share_invitation_recipient_address(
             session,
             workspace_id=workspace_id,
@@ -396,7 +402,9 @@ async def share_invitation_magic_link(
             encryption_key=encryption_key,
         )
         if recipient_email is None:
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+            raise ProblemDetail(
+                status=404, code="invitation_not_found", title="Invitation not found"
+            )
         invitation_id = await session.scalar(
             select(MeetingShareInvitation.id).where(
                 MeetingShareInvitation.workspace_id == workspace_id,
@@ -410,7 +418,9 @@ async def share_invitation_magic_link(
             email=recipient_email,
         )
         if workspace is None:
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+            raise ProblemDetail(
+                status=404, code="invitation_not_found", title="Invitation not found"
+            )
         account_created = user is None
         if account_created:
             existing_identity_id = await session.scalar(
@@ -501,7 +511,9 @@ async def share_invitation_magic_link(
             recipient_user_active=True,
         )
         if accepted is None or invitation_id is None:
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+            raise ProblemDetail(
+                status=404, code="invitation_not_found", title="Invitation not found"
+            )
         grant, _grant_token = accepted
         accepted_invitation = await session.scalar(
             select(MeetingShareInvitation)
@@ -513,7 +525,9 @@ async def share_invitation_magic_link(
             .with_for_update()
         )
         if accepted_invitation is None:
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+            raise ProblemDetail(
+                status=404, code="invitation_not_found", title="Invitation not found"
+            )
         if account_created:
             accepted_invitation.account_created_email_status = "pending"
             accepted_invitation.account_created_email_failure_code = None
@@ -522,18 +536,22 @@ async def share_invitation_magic_link(
             workspace_id=workspace_id,
             nonce=state,
         ):
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+            raise ProblemDetail(
+                status=404, code="invitation_not_found", title="Invitation not found"
+            )
         shared_url = (
             _shared_meeting_url(workspace_id=workspace_id, meeting_id=grant.meeting_id)
-            if grant.content_scope == "full_meeting"
-            and grant.can_download
-            and grant.can_export
+            if grant.content_scope == "full_meeting" and grant.can_download and grant.can_export
             else None
         )
-        summary_html = None if shared_url is not None else await _render_shared_summary_for_grant(
-            session,
-            workspace_id=workspace_id,
-            meeting_id=grant.meeting_id,
+        summary_html = (
+            None
+            if shared_url is not None
+            else await _render_shared_summary_for_grant(
+                session,
+                workspace_id=workspace_id,
+                meeting_id=grant.meeting_id,
+            )
         )
         await session.commit()
         issued_token = issued.token
@@ -572,7 +590,9 @@ async def share_invitation_magic_link(
     return response
 
 
-@router.get("/share-invitations/{share_token}", response_class=HTMLResponse, include_in_schema=False)
+@router.get(
+    "/share-invitations/{share_token}", response_class=HTMLResponse, include_in_schema=False
+)
 async def share_invitation_accept_page(
     request: Request,
     share_token: str,
@@ -617,21 +637,20 @@ async def share_invitation_accept_page(
             status_code=303,
         )
     if preview is not None and continuation_nonce is not None and principal is None:
-        magic_csrf_token = request.cookies.get(MAGIC_LINK_CSRF_COOKIE_NAME) or secrets.token_urlsafe(32)
+        magic_csrf_token = request.cookies.get(
+            MAGIC_LINK_CSRF_COOKIE_NAME
+        ) or secrets.token_urlsafe(32)
     post_login_next_path = "/meetings"
     if continuation_nonce is not None:
         post_login_next_path = (
-            f"/share-invitations/continue?workspace_id={workspace_id}"
-            f"&state={continuation_nonce}"
+            f"/share-invitations/continue?workspace_id={workspace_id}&state={continuation_nonce}"
         )
     response = cabinet_html_response(
         render_share_invitation_accept_page(
             share_token=share_token,
             workspace_id=str(workspace_id),
             csrf_token=(
-                _csrf_token_for_principal(request, principal)
-                if principal is not None
-                else None
+                _csrf_token_for_principal(request, principal) if principal is not None else None
             ),
             meeting_title=preview.meeting_title if preview else None,
             meeting_occurred_at=preview.occurred_at if preview else None,
@@ -647,7 +666,9 @@ async def share_invitation_accept_page(
             ),
             magic_state=continuation_nonce,
             magic_csrf_token=magic_csrf_token,
-            auto_accept=preview is not None and continuation_nonce is not None and principal is None,
+            auto_accept=preview is not None
+            and continuation_nonce is not None
+            and principal is None,
         )
     )
     if magic_csrf_token is not None:
@@ -703,20 +724,23 @@ async def meeting_list_page(
         normalize_response_sort=True,
         limit=limit,
     )
+
     raw_status = request.query_params.get("status")
     canonical_status = _normalize_web_meeting_status_filter(raw_status)
     status_was_normalized = (
-        isinstance(raw_status, str)
-        and raw_status != ""
-        and canonical_status != raw_status
+        isinstance(raw_status, str) and raw_status != "" and canonical_status != raw_status
     )
     sort_was_normalized = sort != response.filters.sort
     needs_url_normalization = sort_was_normalized or status_was_normalized
-    canonical_path = _request_path_with_query(
-        request,
-        sort_override=response.filters.sort if sort_was_normalized else None,
-        status_override=status if status_was_normalized else None,
-    ) if needs_url_normalization else _request_path_with_query(request)
+    canonical_path = (
+        _request_path_with_query(
+            request,
+            sort_override=response.filters.sort if sort_was_normalized else None,
+            status_override=status if status_was_normalized else None,
+        )
+        if needs_url_normalization
+        else _request_path_with_query(request)
+    )
     if needs_url_normalization and not _is_hx_request(request):
         return RedirectResponse(url=canonical_path, status_code=303)
     if _is_hx_request(request):
@@ -732,6 +756,35 @@ async def meeting_list_page(
             response,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=canonical_path,
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "recording_list",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
+        )
+    )
+
+
+@router.get("/shared-with-me", response_class=HTMLResponse, include_in_schema=False)
+async def shared_with_me_list_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+) -> HTMLResponse:
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
+    items = await list_shared_with_me_meetings(
+        sessionmaker,
+        recipient_scope=tenant_scope,
+    )
+    return cabinet_html_response(
+        render_shared_with_me_page(
+            items,
+            csrf_token=_csrf_token_for_principal(request, principal),
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "recording_list",
@@ -837,6 +890,45 @@ async def shared_meeting_detail_page(
         recipient_scope=recipient_scope,
         owner_workspace_id=workspace_id,
     )
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == parsed_meeting_id,
+        )
+    )
+    access = (
+        await decide_meeting_access(
+            db,
+            meeting,
+            workspace_id=workspace_id,
+            viewer_user_id=principal.user_id,
+            recipient_proof=recipient_proof,
+        )
+        if meeting is not None
+        else None
+    )
+    if access is None or not access.can_view:
+        return _meeting_unavailable_response(
+            request,
+            csrf_token=_csrf_token_for_principal(request, principal),
+        )
+    if not access.can_view_full_meeting:
+        response = cabinet_html_response(
+            await _render_shared_summary_for_grant(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=parsed_meeting_id,
+            )
+        )
+        response.headers.update(
+            {
+                "Cache-Control": "private, no-store",
+                "Pragma": "no-cache",
+                "Referrer-Policy": "no-referrer",
+                "X-Robots-Tag": "noindex, nofollow, noarchive",
+            }
+        )
+        return response
     review = await get_cabinet_meeting_review(
         db,
         workspace_id=workspace_id,
@@ -845,7 +937,7 @@ async def shared_meeting_detail_page(
         storage=storage,
         recipient_proof=recipient_proof,
     )
-    if review is None or review.access is None or not review.access.can_view_full_meeting:
+    if review is None or review.access is None or not review.access.can_view:
         return _meeting_unavailable_response(
             request,
             csrf_token=_csrf_token_for_principal(request, principal),
@@ -884,7 +976,9 @@ async def meeting_share_fragment(
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     response = await get_cabinet_meeting_review(
         db,
         workspace_id=tenant_scope.workspace_id,

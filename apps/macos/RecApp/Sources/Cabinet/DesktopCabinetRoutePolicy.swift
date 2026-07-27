@@ -136,6 +136,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Meeting list"
             )
         }
+        if components == ["desktop", "shared-with-me"] {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .meetingList),
+                decision: .allow,
+                reason: .allowedMeetingList,
+                userMessage: "Shared meeting list"
+            )
+        }
         if components.count == 3,
            components[0] == "desktop",
            components[1] == "meetings",

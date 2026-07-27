@@ -24,6 +24,7 @@ from twobrain_rec_server.api.schemas import (
     ShareRecipientSource,
     ShareRecipientType,
 )
+from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import (
     CalendarEventSnapshot,
     CalendarParticipant,
@@ -332,9 +333,7 @@ def bounded_share_invitation_expiry(
             code="invalid_invitation_ttl",
             title="Invitation expiry is invalid",
         )
-    return now + timedelta(
-        seconds=min(ttl_seconds, MAX_SHARE_INVITATION_TTL_SECONDS)
-    )
+    return now + timedelta(seconds=min(ttl_seconds, MAX_SHARE_INVITATION_TTL_SECONDS))
 
 
 def _query_matches(value: str | None, query: str) -> bool:
@@ -388,9 +387,11 @@ async def lock_shareable_meeting(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if meeting is None or meeting.deleted_at is not None or (
-        meeting.deletion_state or DeletionState.NONE.value
-    ) != DeletionState.NONE.value:
+    if (
+        meeting is None
+        or meeting.deleted_at is not None
+        or (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value
+    ):
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return meeting
 
@@ -438,7 +439,9 @@ def owner_access_state() -> MeetingAccessState:
     ).to_schema()
 
 
-def denied_access_state(reason: str = "Access is unavailable for this viewer.") -> MeetingAccessState:
+def denied_access_state(
+    reason: str = "Access is unavailable for this viewer.",
+) -> MeetingAccessState:
     return AccessDecision(
         state="denied",
         label="Not available",
@@ -463,9 +466,10 @@ async def decide_meeting_access(
 ) -> AccessDecision:
     if meeting.workspace_id != workspace_id:
         return _denied_decision()
-    if meeting.deleted_at is not None or (
-        meeting.deletion_state or DeletionState.NONE.value
-    ) != DeletionState.NONE.value:
+    if (
+        meeting.deleted_at is not None
+        or (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value
+    ):
         return AccessDecision(
             state="deleted",
             label="Deleted",
@@ -480,13 +484,15 @@ async def decide_meeting_access(
         )
 
     membership = await db.scalar(
-        select(WorkspaceMembership).where(
+        select(WorkspaceMembership)
+        .where(
             and_(
                 WorkspaceMembership.workspace_id == workspace_id,
                 WorkspaceMembership.user_id == viewer_user_id,
                 WorkspaceMembership.status == "active",
             )
-        ).execution_options(populate_existing=True)
+        )
+        .execution_options(populate_existing=True)
     )
     role = membership.role if membership is not None else None
     privileged = role in PRIVILEGED_ROLES
@@ -582,14 +588,79 @@ async def active_user_grant(
 ) -> MeetingShareGrant | None:
     now = datetime.now(UTC)
     return await db.scalar(
-        select(MeetingShareGrant).where(
+        select(MeetingShareGrant)
+        .where(
             MeetingShareGrant.workspace_id == workspace_id,
             MeetingShareGrant.meeting_id == meeting_id,
             MeetingShareGrant.grantee_user_id == grantee_user_id,
             MeetingShareGrant.audience_type == "user",
             MeetingShareGrant.status == "active",
             MeetingShareGrant.expires_at.is_(None) | (MeetingShareGrant.expires_at > now),
-        ).execution_options(populate_existing=True)
+        )
+        .execution_options(populate_existing=True)
+    )
+
+
+async def recipient_share_access_proof(
+    sessionmaker,
+    *,
+    recipient_scope: TenantScope,
+    owner_workspace_id: UUID,
+) -> ShareRecipientAccessProof:
+    """Build recipient proof under trusted recipient and source-workspace contexts."""
+    async with sessionmaker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=recipient_scope.organization_id,
+                workspace_id=recipient_scope.workspace_id,
+                user_id=recipient_scope.user_id,
+                device_id=recipient_scope.device_id,
+                auth_session_id=recipient_scope.auth_session_id,
+            ),
+        )
+        user = await session.scalar(
+            select(UserIdentity).where(
+                UserIdentity.id == recipient_scope.user_id,
+                UserIdentity.status == "active",
+            )
+        )
+        emails = (
+            await session.scalars(
+                select(ExternalIdentity.email).where(
+                    ExternalIdentity.user_id == recipient_scope.user_id,
+                    ExternalIdentity.is_verified.is_(True),
+                    ExternalIdentity.email.is_not(None),
+                )
+            )
+        ).all()
+    async with sessionmaker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=recipient_scope.organization_id,
+                workspace_id=owner_workspace_id,
+                user_id=recipient_scope.user_id,
+                device_id=recipient_scope.device_id,
+                auth_session_id=recipient_scope.auth_session_id,
+            ),
+        )
+        membership = await session.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == owner_workspace_id,
+                WorkspaceMembership.user_id == recipient_scope.user_id,
+                WorkspaceMembership.status == "active",
+            )
+        )
+    return ShareRecipientAccessProof(
+        user_is_active=user is not None,
+        workspace_membership_is_active=membership is not None,
+        verified_address_hashes=frozenset(
+            digest
+            for email in emails
+            if email
+            for digest in invitation_address_hashes(normalize_invitation_address(email))
+        ),
     )
 
 
@@ -624,9 +695,7 @@ async def _share_grant_recipient_is_valid(
             )
         ).all()
         return any(
-            expected_hash in invitation_address_hashes(email)
-            for email in verified_emails
-            if email
+            expected_hash in invitation_address_hashes(email) for email in verified_emails if email
         )
     if recipient_proof is not None:
         return recipient_proof.workspace_membership_is_active
@@ -655,10 +724,7 @@ async def active_share_grants(
                 MeetingShareGrant.workspace_id == workspace_id,
                 MeetingShareGrant.meeting_id == meeting_id,
                 MeetingShareGrant.status == "active",
-                (
-                    MeetingShareGrant.expires_at.is_(None)
-                    | (MeetingShareGrant.expires_at > now)
-                ),
+                (MeetingShareGrant.expires_at.is_(None) | (MeetingShareGrant.expires_at > now)),
             )
             .order_by(MeetingShareGrant.created_at.asc())
         )
@@ -714,7 +780,9 @@ async def share_panel_state(
             )
         )
 
-    team_visibility = "enabled" if (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES else "disabled"
+    team_visibility = (
+        "enabled" if (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES else "disabled"
+    )
     calendar_context = await db.scalar(
         select(RecordingCalendarContextLink.id).where(
             RecordingCalendarContextLink.workspace_id == meeting.workspace_id,
@@ -761,9 +829,7 @@ async def share_panel_state(
         public_link_state="disabled_by_default",
         capability_state=capability_state,
         capability_reason=capability_reason,
-        external_invitation_state=(
-            "available" if external_invitations_enabled else "disabled"
-        ),
+        external_invitation_state=("available" if external_invitations_enabled else "disabled"),
         active_invitations=invitation_views,
         recipient_sources=["workspace", "calendar"] if calendar_context else ["workspace"],
     )
@@ -786,9 +852,7 @@ async def create_scoped_share_grant(
 ) -> tuple[MeetingShareGrant, str]:
     from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
-    meeting = await lock_shareable_meeting(
-        db, workspace_id=workspace_id, meeting_id=meeting.id
-    )
+    meeting = await lock_shareable_meeting(db, workspace_id=workspace_id, meeting_id=meeting.id)
     decision = await decide_meeting_access(
         db, meeting, workspace_id=workspace_id, viewer_user_id=actor_user_id
     )
@@ -818,9 +882,7 @@ async def create_scoped_share_grant(
             or grantee.organization_id != workspace.organization_id
             or membership is None
         ):
-            raise ProblemDetail(
-                status=404, code="grantee_not_found", title="Grantee not found"
-            )
+            raise ProblemDetail(status=404, code="grantee_not_found", title="Grantee not found")
         existing_decision = await decide_meeting_access(
             db,
             meeting,
@@ -884,7 +946,9 @@ async def create_scoped_share_grant(
             title="Team sharing is not available",
         )
     if audience_type == "workspace" and audience_id != workspace_id:
-        raise ProblemDetail(status=422, code="invalid_share_audience", title="Share audience is invalid")
+        raise ProblemDetail(
+            status=422, code="invalid_share_audience", title="Share audience is invalid"
+        )
     if audience_type == "link" and expires_at is None:
         raise ProblemDetail(status=422, code="share_expiry_required", title="Share expiry required")
     if audience_type == "link" and content_scope != "summary_only":
@@ -978,9 +1042,7 @@ async def rotate_share_link(
 ) -> tuple[MeetingShareGrant, str]:
     from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
-    meeting = await lock_shareable_meeting(
-        db, workspace_id=workspace_id, meeting_id=meeting.id
-    )
+    meeting = await lock_shareable_meeting(db, workspace_id=workspace_id, meeting_id=meeting.id)
     decision = await decide_meeting_access(
         db, meeting, workspace_id=workspace_id, viewer_user_id=actor_user_id
     )
@@ -1015,11 +1077,7 @@ async def rotate_share_link(
         meeting_id=meeting.id,
         actor_user_id=actor_user_id,
         device_id=device_id,
-        event_type=(
-            "share_link_rotated"
-            if grant.audience_type == "link"
-            else "share_updated"
-        ),
+        event_type=("share_link_rotated" if grant.audience_type == "link" else "share_updated"),
         outcome="allowed",
         policy_reason=(
             "active_link_token_rotated"
@@ -1100,11 +1158,7 @@ async def search_share_recipients(
                     UserIdentity.display_name.ilike(pattern, escape="\\"),
                     ExternalIdentity.email.ilike(pattern, escape="\\"),
                 ),
-                *(
-                    (UserIdentity.id != viewer_user_id,)
-                    if viewer_user_id is not None
-                    else ()
-                ),
+                *((UserIdentity.id != viewer_user_id,) if viewer_user_id is not None else ()),
             )
             .distinct()
             .order_by(UserIdentity.display_name.asc())
@@ -1168,11 +1222,7 @@ async def search_share_recipients(
                 UserIdentity.status == "active",
                 UserIdentity.organization_id == Workspace.organization_id,
                 func.lower(ExternalIdentity.email).in_(participant_emails),
-                *(
-                    (UserIdentity.id != viewer_user_id,)
-                    if viewer_user_id is not None
-                    else ()
-                ),
+                *((UserIdentity.id != viewer_user_id,) if viewer_user_id is not None else ()),
             )
             .distinct()
         )
@@ -1213,9 +1263,7 @@ async def create_share_invitation(
 ) -> MeetingShareInvitation:
     from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
-    meeting = await lock_shareable_meeting(
-        db, workspace_id=workspace_id, meeting_id=meeting.id
-    )
+    meeting = await lock_shareable_meeting(db, workspace_id=workspace_id, meeting_id=meeting.id)
     decision = await decide_meeting_access(
         db, meeting, workspace_id=workspace_id, viewer_user_id=actor_user_id
     )
@@ -1430,9 +1478,7 @@ async def share_invitation_continuation_matches(
     )
     if address is not None:
         statement = statement.where(
-            MeetingShareInvitation.normalized_address_hash.in_(
-                invitation_address_hashes(address)
-            )
+            MeetingShareInvitation.normalized_address_hash.in_(invitation_address_hashes(address))
         )
     return await db.scalar(statement) is not None
 
@@ -1446,8 +1492,7 @@ async def consume_share_invitation_continuation(
 ) -> str | None:
     now = datetime.now(UTC)
     invitation = await db.scalar(
-        select(MeetingShareInvitation)
-        .where(
+        select(MeetingShareInvitation).where(
             MeetingShareInvitation.workspace_id == workspace_id,
             MeetingShareInvitation.continuation_nonce == nonce,
             MeetingShareInvitation.status.in_(ACTIVE_INVITATION_STATES),
@@ -1537,9 +1582,7 @@ async def revoke_share_invitation(
 ) -> None:
     from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
-    meeting = await lock_shareable_meeting(
-        db, workspace_id=workspace_id, meeting_id=meeting.id
-    )
+    meeting = await lock_shareable_meeting(db, workspace_id=workspace_id, meeting_id=meeting.id)
     decision = await decide_meeting_access(
         db, meeting, workspace_id=workspace_id, viewer_user_id=actor_user_id
     )
@@ -1612,8 +1655,7 @@ async def accept_share_invitation(
             return None
     token_hash = hash_share_token(raw_token)
     invitation = await db.scalar(
-        select(MeetingShareInvitation)
-        .where(
+        select(MeetingShareInvitation).where(
             MeetingShareInvitation.workspace_id == workspace_id,
             MeetingShareInvitation.token_hash == token_hash,
             MeetingShareInvitation.status.in_(ACTIVE_INVITATION_STATES),
@@ -1632,18 +1674,14 @@ async def accept_share_invitation(
         replay = invitation is not None
     if invitation is None:
         return None
-    await lock_shareable_meeting(
-        db, workspace_id=workspace_id, meeting_id=invitation.meeting_id
-    )
+    await lock_shareable_meeting(db, workspace_id=workspace_id, meeting_id=invitation.meeting_id)
     invitation = await db.scalar(
         select(MeetingShareInvitation)
         .where(
             MeetingShareInvitation.id == invitation.id,
             MeetingShareInvitation.workspace_id == workspace_id,
             MeetingShareInvitation.token_hash == token_hash,
-            MeetingShareInvitation.status.in_(
-                (*ACTIVE_INVITATION_STATES, "accepted")
-            ),
+            MeetingShareInvitation.status.in_((*ACTIVE_INVITATION_STATES, "accepted")),
         )
         .with_for_update()
         .execution_options(populate_existing=True)
@@ -1678,10 +1716,7 @@ async def accept_share_invitation(
     if replay:
         if (
             grant is None
-            or (
-                grant.expires_at is not None
-                and grant.expires_at <= datetime.now(UTC)
-            )
+            or (grant.expires_at is not None and grant.expires_at <= datetime.now(UTC))
             or not invitation.grant_token_ciphertext
         ):
             return None
@@ -1801,9 +1836,7 @@ async def revoke_share_grant(
 ) -> None:
     from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
-    meeting = await lock_shareable_meeting(
-        db, workspace_id=workspace_id, meeting_id=meeting.id
-    )
+    meeting = await lock_shareable_meeting(db, workspace_id=workspace_id, meeting_id=meeting.id)
     decision = await decide_meeting_access(
         db,
         meeting,

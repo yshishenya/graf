@@ -33,6 +33,7 @@ type WorkspaceAuthContextKind = Literal["auth_public", "auth_bootstrap"]
 type AuthSessionLookupContextKind = Literal["auth_session_lookup"]
 type AuthCallbackLookupContextKind = Literal["auth_callback_lookup"]
 type ShareInvitationLookupContextKind = Literal["share_invitation_lookup"]
+type SharedWithMeLookupContextKind = Literal["shared_with_me_lookup"]
 type MaintenanceContextKind = Literal["maintenance"]
 
 ALLOWED_TENANT_CONTEXT_KINDS = frozenset(("request", "worker"))
@@ -182,6 +183,20 @@ class ShareInvitationLookupContext:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class SharedWithMeLookupContext:
+    """Select only the current user's active direct share grants."""
+
+    user_id: UUID
+    context_kind: SharedWithMeLookupContextKind = "shared_with_me_lookup"
+
+    def __post_init__(self) -> None:
+        if self.context_kind != "shared_with_me_lookup":
+            raise ValueError(
+                f"Unsupported shared_with_me_lookup context_kind: {self.context_kind}"
+            )
+
+
 def tenant_context_from_scope(
     scope: TenantScope,
     *,
@@ -264,6 +279,13 @@ def share_invitation_lookup_settings(
     }
 
 
+def shared_with_me_lookup_settings(context: SharedWithMeLookupContext) -> dict[str, str]:
+    return {
+        "app.context_kind": context.context_kind,
+        "app.user_id": str(context.user_id),
+    }
+
+
 async def apply_tenant_context(
     session: AsyncSession,
     context: (
@@ -273,6 +295,7 @@ async def apply_tenant_context(
         | WorkspaceAuthContext
         | AuthCallbackLookupContext
         | ShareInvitationLookupContext
+        | SharedWithMeLookupContext
     ),
 ) -> None:
     if isinstance(context, TenantDatabaseContext):
@@ -285,8 +308,10 @@ async def apply_tenant_context(
         settings = workspace_auth_context_settings(context)
     elif isinstance(context, AuthCallbackLookupContext):
         settings = auth_callback_lookup_settings(context)
-    else:
+    elif isinstance(context, ShareInvitationLookupContext):
         settings = share_invitation_lookup_settings(context)
+    else:
+        settings = shared_with_me_lookup_settings(context)
     session.info["tenant_context"] = settings
     bind = session.get_bind()
     if bind.dialect.name != "postgresql":
@@ -307,6 +332,7 @@ async def apply_tenant_context_to_connection(
         | WorkspaceAuthContext
         | AuthCallbackLookupContext
         | ShareInvitationLookupContext
+        | SharedWithMeLookupContext
     ),
 ) -> None:
     if isinstance(context, TenantDatabaseContext):
@@ -319,8 +345,10 @@ async def apply_tenant_context_to_connection(
         settings = workspace_auth_context_settings(context)
     elif isinstance(context, AuthCallbackLookupContext):
         settings = auth_callback_lookup_settings(context)
-    else:
+    elif isinstance(context, ShareInvitationLookupContext):
         settings = share_invitation_lookup_settings(context)
+    else:
+        settings = shared_with_me_lookup_settings(context)
     connection.info["tenant_context"] = settings
     if connection.dialect.name != "postgresql":
         return

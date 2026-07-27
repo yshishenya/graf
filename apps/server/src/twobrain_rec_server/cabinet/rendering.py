@@ -107,6 +107,24 @@ def render_meeting_list_page(
     )
 
 
+def render_shared_with_me_page(
+    items: tuple[cabinet_view_models.SharedWithMeMeetingItem, ...],
+    *,
+    embedded: bool = False,
+    csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
+) -> str:
+    return _page_shell(
+        "Поделились со мной",
+        embedded=embedded,
+        csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
+        active_nav="shared-with-me",
+        content_template="cabinet/pages/shared_with_me_list_content.html",
+        items=items,
+    )
+
+
 def render_meeting_unavailable_page(
     *,
     embedded: bool = False,
