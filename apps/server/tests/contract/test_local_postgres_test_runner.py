@@ -12,6 +12,7 @@ from tests.fixtures.postgres_test_database import (
 
 ROOT = Path(__file__).resolve().parents[4]
 RUNNER = ROOT / "apps/server/scripts/run_local_postgres_tests.sh"
+LOCAL_CI = ROOT / "infra/scripts/ci-local.sh"
 
 
 def test_runner_uses_an_isolated_postgres_container_and_disposable_database_names() -> None:
@@ -75,7 +76,7 @@ def test_worker_and_clean_database_names_are_bounded_and_run_scoped(monkeypatch)
 def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -> None:
     script = RUNNER.read_text(encoding="utf-8")
 
-    assert script.count("--extra dev --extra evaluation") == 4
+    assert script.count("--extra dev --extra evaluation") >= 4
     assert "GRAF_TEST_WORKERS" in script
     assert 'workers="${GRAF_TEST_WORKERS:-8}"' in script
     assert "GRAF_TEST_WORKERS must be an integer from 1 through 8." in script
@@ -90,3 +91,22 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     assert "postgres_test_phase=%s status=fail" in script
     assert 'if [[ "$requested_mode" == "full" && "$mode" == "focused" ]]; then' in script
     assert "refusing --full with a focused pytest selection" in script
+
+
+def test_runner_exposes_a_fast_unit_lane_without_replacing_full_coverage() -> None:
+    script = RUNNER.read_text(encoding="utf-8")
+
+    assert 'requested_mode="fast"' in script
+    assert 'refusing --fast with a focused pytest selection' in script
+    assert 'postgres_test_mode=fast worker_count=1 suite=tests/unit' in script
+    assert 'pytest "${timing_args[@]}" -q tests/unit' in script
+    assert 'postgres_test_result=pass mode=fast' in script
+
+
+def test_local_ci_keeps_full_as_default_and_exposes_fast_explicitly() -> None:
+    script = LOCAL_CI.read_text(encoding="utf-8")
+
+    assert 'mode="full"' in script
+    assert 'usage: $0 [--fast|--full]' in script
+    assert 'bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q' in script
+    assert 'if [[ "$mode" == "full" ]]; then' in script

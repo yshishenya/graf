@@ -117,6 +117,9 @@ pytest_args=()
 requested_mode=""
 for argument in "$@"; do
   case "$argument" in
+    --fast)
+      requested_mode="fast"
+      ;;
     --full)
       requested_mode="full"
       ;;
@@ -145,6 +148,10 @@ for argument in "${pytest_args[@]}"; do
       ;;
   esac
 done
+if [[ "$requested_mode" == "fast" && "$mode" == "focused" ]]; then
+  printf '%s\n' 'refusing --fast with a focused pytest selection; run the focused selection directly' >&2
+  exit 2
+fi
 if [[ "$requested_mode" == "full" && "$mode" == "focused" ]]; then
   printf '%s\n' 'refusing --full with a focused pytest selection' >&2
   exit 2
@@ -243,6 +250,17 @@ if [[ "$mode" == "focused" ]]; then
     exit 1
   fi
   printf 'postgres_test_result=pass mode=focused\n'
+  exit 0
+fi
+
+if [[ "$mode" == "fast" ]]; then
+  printf 'postgres_test_mode=fast worker_count=1 suite=tests/unit\n'
+  if run_phase fast uv run --extra dev --extra evaluation pytest "${timing_args[@]}" -q tests/unit; then
+    :
+  else
+    exit 1
+  fi
+  printf 'postgres_test_result=pass mode=fast\n'
   exit 0
 fi
 
