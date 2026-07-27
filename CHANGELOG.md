@@ -12,6 +12,16 @@
 - _Пока нет записей._
 
 ### Изменено
+- Feature `097-test-pipeline-optimization`: server test pipeline теперь использует
+  только disposable PostgreSQL с Alembic head, отдельной БД на xdist worker и
+  отдельной serial RLS-фазой.
+- Feature `097-test-pipeline-optimization`: добавлены `--fast`, `--full` и
+  `--governance` lanes, baseline collection union guard и default 8 workers с
+  override через `GRAF_TEST_WORKERS`; полный lane сохранил 1 245 тестов.
+- Feature `097-test-pipeline-optimization`: full lane теперь выполняет
+  ordinary, governance и strict RLS как отдельные непересекающиеся фазы;
+  optional spike checks не входят в обычный полный прогон.
+
 - Feature `096-product-analytics-provider-rollout`: product status and provider
   runbooks now reflect the 2026-07-09 production runtime state: self-hosted
   PostHog is live-safe validated on the analytics domain, while Yandex offline
@@ -28,6 +38,12 @@
   device, share, and skipped/partial outcomes.
 
 ### Исправлено
+- Feature `097-test-pipeline-optimization`: владелец готовой встречи снова
+  скачивает аудио без отдельной сохранённой policy; shared/team viewers не
+  получают этот доступ по умолчанию.
+- Feature `097-test-pipeline-optimization`: удалены test-only access
+  placeholders, а HTTP/API и pure worker checks размещены в соответствующих
+  слоях тестов.
 - Feature `096-product-analytics-provider-rollout`: public pages now include
   the shared analytics controller once, preventing duplicate first-party
   PostHog autocapture events while preserving consent-gated Yandex loading.

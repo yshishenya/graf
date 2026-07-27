@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from twobrain_rec_server.readiness import (
     build_default_readiness_report,
     render_markdown_report,
@@ -11,6 +13,7 @@ from twobrain_rec_server.readiness import (
 
 FEATURE = "035-mvp-loop-live-evidence"
 FEATURE_036 = "036-owner-review-live-polish"
+pytestmark = pytest.mark.governance
 
 
 def test_035_live_evidence_report_uses_feature_contract_and_caps_claims(tmp_path: Path) -> None:
@@ -108,10 +111,13 @@ def test_035_installed_desktop_evidence_files_are_present_and_metadata_safe() ->
 
     validation_log = (evidence_dir / "validation-log.md").read_text()
     readme = (evidence_dir / "README.md").read_text()
+    current_status = (
+        Path(__file__).resolve().parents[4] / "docs/current-product-status.md"
+    ).read_text()
 
     assert "installed-app-proof" in validation_log
-    assert "/Applications/2brain Rec.app" in validation_log
     assert "latest-artifact-validator" in validation_log
+    assert "/Applications/GRAF.app" in current_status
     assert "20260616-163553-91CF43DD-71DA-45BA-9995-0C0788D49D7F" in readme
     assert "meeting-app mute-respecting claim is allowed" in readme
     assert "/Users/" not in validation_log

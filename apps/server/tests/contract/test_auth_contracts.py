@@ -667,6 +667,7 @@ def test_auth_callback_fails_for_identity_bound_to_other_organization(monkeypatc
                         name="Other Workspace",
                     )
                 )
+                await db.flush()
                 db.add(
                     UserIdentity(
                         id=other_user_id,
@@ -675,6 +676,7 @@ def test_auth_callback_fails_for_identity_bound_to_other_organization(monkeypatc
                         display_name="Other User",
                     )
                 )
+                await db.flush()
                 db.add(
                     ExternalIdentity(
                         user_id=other_user_id,
@@ -720,6 +722,7 @@ def test_auth_callback_fails_for_inactive_identity_owner(monkeypatch, client: Te
                         status="inactive",
                     )
                 )
+                await db.flush()
                 db.add(
                     ExternalIdentity(
                         user_id=inactive_user_id,
@@ -806,7 +809,9 @@ def test_auth_link_conflict_persists_metadata_only_audit(monkeypatch, client: Te
     async def seed_conflicting_link_identity() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=other_user_id, organization_id=ORG_ID, external_subject=str(other_user_id)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=other_user_id, role="member", status="active"))
+            await db.flush()
             db.add(
                 ExternalIdentity(
                     user_id=other_user_id,
@@ -934,7 +939,9 @@ def test_workspace_owner_can_revoke_another_user_device(client: TestClient) -> N
     async def seed_other_device() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=other_user_id, organization_id=ORG_ID, external_subject=str(other_user_id)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=other_user_id, role="member", status="active"))
+            await db.flush()
             db.add(
                 RegisteredDevice(
                     id=other_device_id,
@@ -967,6 +974,7 @@ def test_workspace_member_cannot_revoke_another_user_device(client: TestClient) 
     async def seed_member_and_owner_device() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=member_user_id, organization_id=ORG_ID, external_subject=str(member_user_id)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=member_user_id, role="member", status="active"))
             db.add(
                 RegisteredDevice(

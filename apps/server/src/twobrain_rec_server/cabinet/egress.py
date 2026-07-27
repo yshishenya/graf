@@ -169,7 +169,7 @@ async def resolve_artifact_policy(
     return MeetingArtifactPolicy(
         workspace_id=workspace_id,
         meeting_id=meeting_id,
-        audio_download="disabled",
+        audio_download="owner_only",
         transcript_download="disabled",
         summary_download="disabled",
         package_export="disabled",

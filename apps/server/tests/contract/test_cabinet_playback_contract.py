@@ -23,8 +23,8 @@ def test_ready_detail_exposes_server_mediated_combined_playback_contract(client)
     assert "http" not in playback["playback_path"]
     assert "X-Amz" not in playback["playback_path"]
     audio_artifact = next(artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio")
-    assert audio_artifact["state"] == "policy_blocked"
-    assert audio_artifact["action"] == "disabled"
+    assert audio_artifact["state"] == "available"
+    assert audio_artifact["action"] == "download"
 
 
 def test_ready_detail_exposes_stored_m4a_playback_source_mode(client) -> None:

@@ -997,14 +997,8 @@ async def get_me(
     identities = (
         await db.execute(
             select(ExternalIdentity)
-            .distinct()
-            .join(
-                WorkspaceMembership,
-                WorkspaceMembership.user_id == ExternalIdentity.user_id,
-            )
             .where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.user_id == principal.user_id,
+                ExternalIdentity.user_id == principal.user_id,
             )
             .order_by(ExternalIdentity.created_at.asc())
         )

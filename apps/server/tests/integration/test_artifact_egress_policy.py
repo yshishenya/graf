@@ -1,8 +1,11 @@
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, seed_cabinet_meetings
 from tests.fixtures.cabinet_access import (
+    SHARED_USER_ID,
     add_retained_playback_m4a,
+    add_workspace_user,
     audit_events,
+    auth_headers_for,
     replace_retained_audio_with_test_wav,
     set_artifact_policy,
 )
@@ -31,24 +34,30 @@ def test_allowed_transcript_download_is_server_mediated_and_audited(client) -> N
     assert event_types == ["download_requested", "download_completed"]
 
 
-def test_blocked_artifact_download_fails_closed_and_records_denied_audit(client) -> None:
+def test_shared_viewer_cannot_download_audio_without_explicit_policy(client) -> None:
     seeds = seed_cabinet_meetings(client)
+    add_workspace_user(client)
+    share = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+        headers=auth_headers(),
+        json={"grantee_user_id": str(SHARED_USER_ID)},
+    )
+    assert share.status_code == 201
 
     response = client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio",
-        headers=auth_headers(),
+        headers=auth_headers_for(),
     )
 
     assert response.status_code == 409
     events = audit_events(client, seeds.ready_id)
-    assert [(event.event_type, event.outcome, event.artifact_class) for event in events] == [
+    assert [(event.event_type, event.outcome, event.artifact_class) for event in events[-1:]] == [
         ("download_denied", "denied", "audio")
     ]
 
 
-def test_allowed_audio_download_returns_stored_m4a_review_artifact(client) -> None:
+def test_owner_downloads_audio_without_explicit_policy(client) -> None:
     seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, audio_download="allowed")
     replace_retained_audio_with_test_wav(client, seeds.ready_id)
     m4a_body = add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A download")
 

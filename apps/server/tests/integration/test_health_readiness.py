@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -53,8 +55,10 @@ def test_ready_reports_ready_without_dependency_detail(client) -> None:
     assert internal.json()["checks"]["minio"] == "ok"
 
 
-def test_ready_reports_not_ready_when_database_schema_is_empty(tmp_path) -> None:
-    database_url = f"sqlite+aiosqlite:///{tmp_path / 'empty-schema.db'}"
+def test_ready_reports_not_ready_when_database_schema_is_empty(
+    postgres_clean_database_url: str,
+) -> None:
+    database_url = postgres_clean_database_url
     settings = Settings(
         database_url=database_url,
         minio_access_key="test",
@@ -69,8 +73,6 @@ def test_ready_reports_not_ready_when_database_schema_is_empty(tmp_path) -> None
     with TestClient(app) as test_client:
         response = test_client.get("/api/v1/health/ready")
         internal = test_client.get("/api/v1/health/ready/internal", headers={"X-Internal-Health-Check": "true"})
-    import asyncio
-
     asyncio.run(engine.dispose())
 
     assert response.status_code == 503

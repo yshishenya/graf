@@ -6,6 +6,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.config import Settings, get_settings
@@ -32,6 +33,11 @@ async def _seed_identity(sessionmaker) -> None:
                 Organization(id=ORG_ID, slug="local-org", name="Local Org"),
                 Workspace(id=WORKSPACE_ID, organization_id=ORG_ID, slug="local-workspace", name="Local Workspace"),
                 UserIdentity(id=USER_ID, organization_id=ORG_ID, external_subject=str(USER_ID), display_name="Local User"),
+            ]
+        )
+        await db.flush()
+        db.add_all(
+            [
                 WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=USER_ID, role="owner", status="active"),
                 RegisteredDevice(
                     id=DEVICE_ID,
@@ -82,8 +88,11 @@ def test_alembic_revision_ids_fit_default_version_table_length() -> None:
         assert len(match.group(1)) <= 32, migration_path.name
 
 
-def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, monkeypatch) -> None:
-    database_url = f"sqlite+aiosqlite:///{tmp_path / 'migrated.db'}"
+def test_clean_database_migrates_and_accepts_seeded_identity_request(
+    postgres_clean_database_url: str,
+    monkeypatch,
+) -> None:
+    database_url = postgres_clean_database_url
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", database_url)
     get_settings.cache_clear()
     alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
@@ -94,7 +103,7 @@ def test_clean_database_migrates_and_accepts_seeded_identity_request(tmp_path, m
     settings = Settings(database_url=database_url, minio_access_key="test", minio_secret_key="test", minio_bucket="test-bucket")
     import asyncio
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(database_url, poolclass=NullPool)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
     asyncio.run(_seed_identity(sessionmaker))
     app = create_app(settings)

@@ -176,6 +176,11 @@ async def seed_default_workspace_admin_roles(db: AsyncSession) -> None:
                 role="member",
                 status="active",
             ),
+        ]
+    )
+    await db.flush()
+    db.add_all(
+        [
             RegisteredDevice(
                 id=DEFAULT_ADMIN_DEVICE_ID,
                 workspace_id=WORKSPACE_ID,

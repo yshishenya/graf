@@ -103,7 +103,13 @@ def _is_external_identity_unique_conflict(exc: IntegrityError) -> bool:
     return (
         "external_identities.provider" in message
         and "external_identities.provider_subject" in message
-    ) or "external_identities_provider_provider_subject_key" in message
+    ) or any(
+        constraint in message
+        for constraint in (
+            "external_identities_provider_provider_subject_key",
+            "uq_external_identities_provider",
+        )
+    )
 
 
 async def _mark_state_error(state, code: str, now: datetime | None = None) -> None:

@@ -84,9 +84,9 @@ def test_public_pages_render_without_analytics_by_default(client) -> None:
         assert not [marker for marker in FORBIDDEN_PHASE1_MARKERS if marker in response.text]
 
 
-def test_public_pages_render_safe_local_analytics_assets_in_render_only_mode(tmp_path) -> None:
+def test_public_pages_render_safe_local_analytics_assets_in_render_only_mode() -> None:
     settings = Settings(
-        database_url=f"sqlite+aiosqlite:///{tmp_path / 'analytics-render-only.db'}",
+        database_url="postgresql+asyncpg://test:test@127.0.0.1:5432/test",
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",
@@ -113,9 +113,9 @@ def test_public_pages_render_safe_local_analytics_assets_in_render_only_mode(tmp
     assert not [marker for marker in FORBIDDEN_PHASE1_MARKERS if marker in response.text]
 
 
-def test_public_pages_render_safe_campaign_context_without_private_values(tmp_path) -> None:
+def test_public_pages_render_safe_campaign_context_without_private_values() -> None:
     settings = Settings(
-        database_url=f"sqlite+aiosqlite:///{tmp_path / 'analytics-campaign.db'}",
+        database_url="postgresql+asyncpg://test:test@127.0.0.1:5432/test",
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",
@@ -145,9 +145,9 @@ def test_public_pages_render_safe_campaign_context_without_private_values(tmp_pa
     assert "token=abc" not in response.text
 
 
-def test_public_analytics_is_absent_from_non_public_and_legal_surfaces(tmp_path) -> None:
+def test_public_analytics_is_absent_from_non_public_and_legal_surfaces() -> None:
     settings = Settings(
-        database_url=f"sqlite+aiosqlite:///{tmp_path / 'analytics-negative-scope.db'}",
+        database_url="postgresql+asyncpg://test:test@127.0.0.1:5432/test",
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",
@@ -178,9 +178,9 @@ def test_public_analytics_is_absent_from_non_public_and_legal_surfaces(tmp_path)
         assert "data-graf-cookieconsent-version" not in response.text
 
 
-def test_public_pages_render_stable_conversion_labels_in_render_only_mode(tmp_path) -> None:
+def test_public_pages_render_stable_conversion_labels_in_render_only_mode() -> None:
     settings = Settings(
-        database_url=f"sqlite+aiosqlite:///{tmp_path / 'analytics-conversion-labels.db'}",
+        database_url="postgresql+asyncpg://test:test@127.0.0.1:5432/test",
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",

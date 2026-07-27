@@ -133,20 +133,26 @@ def test_sync_state_reports_access_revoked_conflict_for_different_owner(client) 
                         external_subject=other_user_id,
                         display_name="Other User",
                     ),
-                    WorkspaceMembership(
-                        workspace_id=WORKSPACE_ID,
-                        user_id=UUID(other_user_id),
-                        role="member",
-                        status="active",
-                    ),
-                    RegisteredDevice(
-                        id=UUID(other_device_id),
-                        workspace_id=WORKSPACE_ID,
-                        user_id=UUID(other_user_id),
-                        device_public_id="other-user-device",
-                        status="active",
-                    ),
                 ]
+            )
+            await db.flush()
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=WORKSPACE_ID,
+                    user_id=UUID(other_user_id),
+                    role="member",
+                    status="active",
+                )
+            )
+            await db.flush()
+            db.add(
+                RegisteredDevice(
+                    id=UUID(other_device_id),
+                    workspace_id=WORKSPACE_ID,
+                    user_id=UUID(other_user_id),
+                    device_public_id="other-user-device",
+                    status="active",
+                )
             )
             await db.commit()
 

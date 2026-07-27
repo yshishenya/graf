@@ -25,6 +25,8 @@ from twobrain_rec_server.db.tenant_context import (
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
+pytestmark = pytest.mark.strict_rls
+
 
 @dataclass(frozen=True, slots=True)
 class MigratedPostgresUrls:
@@ -84,7 +86,9 @@ def migrated_postgres_urls() -> Iterator[MigratedPostgresUrls]:
     probe_url = os.getenv("RLS_TEST_PROBE_DATABASE_URL")
     if not probe_url:
         probe_role, password = asyncio.run(_create_probe_role(url))
-        probe_url = str(make_url(url).set(username=probe_role, password=password))
+        probe_url = make_url(url).set(username=probe_role, password=password).render_as_string(
+            hide_password=False
+        )
     try:
         yield MigratedPostgresUrls(migration_url=url, probe_url=probe_url, probe_role=probe_role)
     finally:

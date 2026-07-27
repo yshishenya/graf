@@ -76,9 +76,9 @@ def test_public_landing_footer_links_to_legal_pages_without_analytics_by_default
     assert 'data-cc="show-preferencesModal"' not in response.text
 
 
-def test_public_landing_render_only_consent_markup_is_accessible_and_category_scoped(tmp_path) -> None:
+def test_public_landing_render_only_consent_markup_is_accessible_and_category_scoped() -> None:
     settings = Settings(
-        database_url=f"sqlite+aiosqlite:///{tmp_path / 'public-consent-markup.db'}",
+        database_url="postgresql+asyncpg://test:test@127.0.0.1:5432/test",
         minio_access_key="test",
         minio_secret_key="test",
         minio_bucket="test-bucket",

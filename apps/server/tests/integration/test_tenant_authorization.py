@@ -135,6 +135,7 @@ def test_inactive_membership_is_denied(client) -> None:
     async def seed_inactive_membership() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=INACTIVE_USER_ID, organization_id=ORG_ID, external_subject=str(INACTIVE_USER_ID)))
+            await db.flush()
             db.add(
                 WorkspaceMembership(
                     workspace_id=WORKSPACE_ID,
@@ -168,6 +169,7 @@ def test_device_bound_to_another_user_is_denied(client) -> None:
     async def seed_cross_bound_device() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=OTHER_USER_ID, organization_id=ORG_ID, external_subject=str(OTHER_USER_ID)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=OTHER_USER_ID, role="member", status="active"))
             db.add(
                 RegisteredDevice(
@@ -195,6 +197,7 @@ def test_device_bound_to_another_workspace_is_denied(client) -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(Organization(id=OTHER_ORG_ID, slug="other-org", name="Other Org"))
             db.add(Workspace(id=OTHER_WORKSPACE, organization_id=OTHER_ORG_ID, slug="other", name="Other Workspace"))
+            await db.flush()
             db.add(
                 RegisteredDevice(
                     id=OTHER_WORKSPACE_DEVICE_ID,
@@ -220,6 +223,7 @@ def test_same_workspace_meeting_hijack_is_denied(client) -> None:
     async def seed_other_owner() -> None:
         async with client.app_state["sessionmaker"]() as db:
             db.add(UserIdentity(id=OTHER_USER_ID, organization_id=ORG_ID, external_subject=str(OTHER_USER_ID)))
+            await db.flush()
             db.add(WorkspaceMembership(workspace_id=WORKSPACE_ID, user_id=OTHER_USER_ID, role="member", status="active"))
             db.add(
                 RegisteredDevice(

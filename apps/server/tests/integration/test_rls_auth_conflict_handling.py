@@ -22,28 +22,33 @@ OTHER_WORKSPACE_ID = UUID("91000000-0000-0000-0000-000000000001")
 
 async def _seed_global_identity_conflict(db, *, provider: str, provider_subject: str) -> None:
     other_user_id = uuid4()
-    db.add_all(
-        [
-            Organization(id=OTHER_ORG_ID, slug=f"other-org-{provider_subject}", name="Other Org"),
-            Workspace(
-                id=OTHER_WORKSPACE_ID,
-                organization_id=OTHER_ORG_ID,
-                slug=f"other-workspace-{provider_subject}",
-                name="Other Workspace",
-            ),
-            UserIdentity(
-                id=other_user_id,
-                organization_id=OTHER_ORG_ID,
-                external_subject=f"other-{provider_subject}",
-                display_name="Other User",
-            ),
-            ExternalIdentity(
-                user_id=other_user_id,
-                provider=provider,
-                provider_subject=provider_subject,
-                is_verified=True,
-            ),
-        ]
+    db.add(Organization(id=OTHER_ORG_ID, slug=f"other-org-{provider_subject}", name="Other Org"))
+    await db.flush()
+    db.add(
+        Workspace(
+            id=OTHER_WORKSPACE_ID,
+            organization_id=OTHER_ORG_ID,
+            slug=f"other-workspace-{provider_subject}",
+            name="Other Workspace",
+        )
+    )
+    await db.flush()
+    db.add(
+        UserIdentity(
+            id=other_user_id,
+            organization_id=OTHER_ORG_ID,
+            external_subject=f"other-{provider_subject}",
+            display_name="Other User",
+        )
+    )
+    await db.flush()
+    db.add(
+        ExternalIdentity(
+            user_id=other_user_id,
+            provider=provider,
+            provider_subject=provider_subject,
+            is_verified=True,
+        )
     )
     await db.commit()
 
