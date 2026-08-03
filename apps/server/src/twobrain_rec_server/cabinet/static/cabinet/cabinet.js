@@ -1216,7 +1216,7 @@
     });
   };
 
-  const activateDetailTab = (name) => {
+  const activateDetailTab = (name, { updateUrl = true } = {}) => {
     const tabs = Array.from(document.querySelectorAll("[data-detail-tab]"));
     const panels = Array.from(document.querySelectorAll("[data-detail-panel]"));
     tabs.forEach((tab) => {
@@ -1230,6 +1230,12 @@
       panel.classList.toggle("active", selected);
       panel.hidden = !selected;
     });
+    if (updateUrl && ["outcomes", "recording"].includes(name)) {
+      const hash = `#${name}`;
+      if (window.location.hash !== hash) {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash}`);
+      }
+    }
   };
 
   const initDetailTabs = () => {
@@ -1251,7 +1257,8 @@
         tabs[next].focus();
       });
     });
-    if (window.location.hash === "#outcomes") activateDetailTab("outcomes");
+    if (window.location.hash === "#outcomes") activateDetailTab("outcomes", { updateUrl: false });
+    if (window.location.hash === "#recording") activateDetailTab("recording", { updateUrl: false });
   };
 
   const initSummaryFormats = () => {
@@ -2634,6 +2641,7 @@
         button.addEventListener("click", () => {
           const seekSeconds = Number.parseFloat(button.dataset.seekSeconds || "0");
           if (!Number.isFinite(seekSeconds)) return;
+          if (button.closest("[data-outcome-category]")) activateDetailTab("recording");
           seekTo(seekSeconds, { autoplay: true });
         });
       });

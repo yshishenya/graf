@@ -335,9 +335,9 @@ def test_cabinet_web_renders_processing_and_blocked_outcomes_in_russian_without_
     assert 'data-outcome-source-basis="policy_deferral"' in processing.text
     assert 'data-outcome-state="deferred"' in processing.text
     assert "Ключевое" in processing.text
-    assert "Источник итогов: отложено политикой" in processing.text
+    assert "Источник: отложено политикой" in processing.text
     assert 'data-outcome-source-basis="policy_deferral"' in blocked.text
-    assert "Источник итогов: отложено политикой" in blocked.text
+    assert "Источник: отложено политикой" in blocked.text
     assert "Синтетический итог встречи готов." not in blocked.text
 
 
