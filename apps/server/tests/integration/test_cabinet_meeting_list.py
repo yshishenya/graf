@@ -1283,7 +1283,7 @@ def test_cabinet_settings_calendar_anchor_renders_in_web_and_embedded(client) ->
     assert web.status_code == 200
     assert embedded.status_code == 200
     assert 'data-active-nav="settings"' in web.text
-    assert 'data-settings-category="calendar"' in web.text
+    assert 'data-settings-nav="calendar"' in web.text
     assert 'href="/settings/integrations/calendar"' in web.text
     assert "Календари" in web.text
     assert "desktop-embedded" in embedded.text
