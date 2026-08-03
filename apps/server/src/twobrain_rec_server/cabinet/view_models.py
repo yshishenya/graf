@@ -1388,6 +1388,7 @@ class SettingsCategoryView:
     description: str
     scope_label: str
     href: str
+    group_label: str
 
 
 def settings_category_navigation(
@@ -1403,6 +1404,7 @@ def settings_category_navigation(
             "Все разделы настроек в одном месте.",
             "",
             "",
+            "Основное",
         ),
         (
             "recording",
@@ -1410,6 +1412,7 @@ def settings_category_navigation(
             "Подсказки и обнаружение встреч на этом Mac.",
             "На этом Mac",
             "/recording",
+            "Встречи",
         ),
         (
             "summaries",
@@ -1417,6 +1420,7 @@ def settings_category_navigation(
             "Форматы итогов и личные шаблоны.",
             "В этом пространстве",
             "/summaries",
+            "Встречи",
         ),
         (
             "calendar",
@@ -1424,6 +1428,7 @@ def settings_category_navigation(
             "Источники, выбор календарей и подсказки.",
             "Личная настройка",
             "/integrations/calendar",
+            "Встречи",
         ),
         (
             "workspace",
@@ -1431,6 +1436,7 @@ def settings_category_navigation(
             "Активное пространство и приглашения.",
             "В этом пространстве",
             "/workspace",
+            "Пространство",
         ),
         (
             "account",
@@ -1438,6 +1444,7 @@ def settings_category_navigation(
             "Способы входа и зарегистрированные устройства.",
             "Личная настройка",
             "/account",
+            "Аккаунт",
         ),
     )
     return tuple(
@@ -1447,8 +1454,9 @@ def settings_category_navigation(
             description=description,
             scope_label=scope_label,
             href=base + suffix,
+            group_label=group_label,
         )
-        for category_id, label, description, scope_label, suffix in definitions
+        for category_id, label, description, scope_label, suffix, group_label in definitions
     )
 
 

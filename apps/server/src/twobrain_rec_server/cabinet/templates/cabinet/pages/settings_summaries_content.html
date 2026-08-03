@@ -9,7 +9,7 @@
         <p class="page-subtitle">Выберите формат итогов по умолчанию и создавайте личные варианты.</p>
       </div>
     </header>
-    {{ settings_ui.navigation(settings_navigation, active=settings_active) }}
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
 
     <section class="settings-section cabinet-card summary-format-settings" id="summary-formats" aria-labelledby="summary-formats-title" data-summary-template-settings data-template-endpoint="/api/v1/cabinet/summary-templates" data-summary-default-endpoint="/api/v1/cabinet/summary-templates/default">
       <div class="settings-section__heading">

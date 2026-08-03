@@ -8,7 +8,7 @@
         <p class="page-subtitle">Политика записи находится в приложении GRAF для macOS и действует только на этом Mac.</p>
       </div>
     </header>
-    {{ settings_ui.navigation(settings_navigation, active=settings_active) }}
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
 
     <section class="settings-section settings-handoff-card" aria-labelledby="recording-handoff-title" data-recording-handoff>
       <span class="settings-scope-badge">На этом Mac</span>
