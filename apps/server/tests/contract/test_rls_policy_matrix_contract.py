@@ -83,6 +83,10 @@ LEGACY_LINEAGE_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0039_legacy_lineage_backfill.py"
 )
+OUTCOME_BASELINE_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0043_outcome_initial_baseline_reconciliation.py"
+)
 SHARE_INVITATION_AUTH_LOOKUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0036_share_invitation_auth_lookup.py"
@@ -146,6 +150,7 @@ def test_migration_and_contract_share_maintenance_operations() -> None:
         + PROMPT_OPTIMIZATION_MAINTENANCE_MIGRATION.read_text(encoding="utf-8")
         + LIFECYCLE_RECONCILIATION_MIGRATION.read_text(encoding="utf-8")
         + LEGACY_LINEAGE_MIGRATION.read_text(encoding="utf-8")
+        + OUTCOME_BASELINE_MIGRATION.read_text(encoding="utf-8")
     )
 
     for operation_name in sorted(RLS_ALLOWED_MAINTENANCE_OPERATIONS):

@@ -695,7 +695,11 @@ async def poll_and_import_mediascribe_result(
         )
         return ImportProcessingResult(imported=False, status=ProcessingStatus.CANCELED)
     try:
-        await ensure_outcomes_for_processing_result(db, result=result_row)
+        await ensure_outcomes_for_processing_result(
+            db,
+            result=result_row,
+            publish_initial_baseline=True,
+        )
     except ProcessingLifecycleBlocked as exc:
         await _cancel_stale_processing(db, workflow=workflow, reason=exc)
         return ImportProcessingResult(imported=True, status=ProcessingStatus.CANCELED)

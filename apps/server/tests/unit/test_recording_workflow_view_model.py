@@ -81,11 +81,12 @@ def test_one_artifact_specific_lifecycle_projects_without_a_second_queue() -> No
 
 
 def test_ready_partial_and_failed_are_artifact_independent_human_states() -> None:
+    ready_meeting = _meeting(
+        status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
+        processing_status=ProcessingStatus.PROCESSED.value,
+    )
     ready = processing_state(
-        _meeting(
-            status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
-            processing_status=ProcessingStatus.PROCESSED.value,
-        ),
+        ready_meeting,
         result=_result(transcript=True, diarization=True),
         workflow=None,
     )
@@ -111,6 +112,7 @@ def test_ready_partial_and_failed_are_artifact_independent_human_states() -> Non
         True,
         True,
     )
+    assert ready_meeting.status == MeetingStatus.INGESTED_PENDING_PROCESSING.value
     assert (partial.state, partial.content_available, partial.transcript_available) == (
         "partial",
         True,

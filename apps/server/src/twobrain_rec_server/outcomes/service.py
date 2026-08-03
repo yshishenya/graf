@@ -64,6 +64,7 @@ async def ensure_outcomes_for_meeting(
     sessionmaker: async_sessionmaker[AsyncSession],
     *,
     meeting_id: UUID,
+    publish_initial_baseline: bool = False,
 ) -> MeetingOutcomeSet | None:
     async with sessionmaker() as db:
         latest_revision = await db.scalar(
@@ -94,7 +95,11 @@ async def ensure_outcomes_for_meeting(
         )
         if result is None:
             return None
-        outcome_set = await ensure_outcomes_for_processing_result(db, result=result)
+        outcome_set = await ensure_outcomes_for_processing_result(
+            db,
+            result=result,
+            publish_initial_baseline=publish_initial_baseline,
+        )
         await db.commit()
         return outcome_set
 
@@ -103,6 +108,7 @@ async def ensure_outcomes_for_processing_result(
     db: AsyncSession,
     *,
     result: ProcessingResult,
+    publish_initial_baseline: bool = False,
 ) -> MeetingOutcomeSet:
     meeting = await lock_meeting_fence(
         db, workspace_id=result.workspace_id, meeting_id=result.meeting_id
@@ -171,13 +177,23 @@ async def ensure_outcomes_for_processing_result(
         existing.template_key = existing.template_key or template_key
         existing.template_version = existing.template_version or template_version
         existing.generator_config_hash = existing.generator_config_hash or generator_config_hash
-    if existing is not None and should_reuse_outcome_set(existing, transcript_is_available=transcript_is_available):
-        await _accept_initial_outcome_set(db, meeting=meeting, outcome_set=existing)
+    if existing is not None and should_reuse_outcome_set(
+        existing, transcript_is_available=transcript_is_available
+    ):
+        await _accept_initial_outcome_set(
+            db,
+            meeting=meeting,
+            outcome_set=existing,
+            publish_initial_baseline=publish_initial_baseline,
+        )
         return existing
     if existing is not None and existing.revision_state in {"accepted", "superseded"}:
         # Accepted history is immutable; a new processing result gets a new set.
         return existing
-    automatic_candidate_id = None if initial_trusted_baseline else uuid4()
+    publishable_initial_baseline = (
+        publish_initial_baseline and meeting.current_outcome_set_id is None
+    )
+    automatic_candidate_id = None if initial_trusted_baseline or publishable_initial_baseline else uuid4()
     replace_blocked_revision = (
         existing is not None
         and not initial_trusted_baseline
@@ -326,10 +342,11 @@ async def ensure_outcomes_for_processing_result(
         return outcome_set
     outcome_set.status = OutcomeSetStatus.AVAILABLE.value
     if outcome_set.revision_state is None:
-        if initial_trusted_baseline:
+        if initial_trusted_baseline or publishable_initial_baseline:
             # Legacy imports predate immutable media-revision provenance. Keep
-            # their historical auto-publish behavior; every revision-scoped
-            # baseline is a candidate until the owner accepts it.
+            # their historical auto-publish behavior. A newly imported,
+            # revision-scoped baseline may also publish once when no accepted
+            # outcome exists; later revisions remain candidates.
             outcome_set.revision_state = "accepted"
             meeting.current_outcome_set_id = outcome_set.id
         else:
@@ -372,7 +389,12 @@ async def ensure_outcomes_for_processing_result(
             "item_count": len(stored_items),
         },
     )
-    await _accept_initial_outcome_set(db, meeting=meeting, outcome_set=outcome_set)
+    await _accept_initial_outcome_set(
+        db,
+        meeting=meeting,
+        outcome_set=outcome_set,
+        publish_initial_baseline=publish_initial_baseline,
+    )
     await db.flush()
     return outcome_set
 
@@ -382,19 +404,52 @@ async def _accept_initial_outcome_set(
     *,
     meeting: Meeting,
     outcome_set: MeetingOutcomeSet,
+    publish_initial_baseline: bool = False,
 ) -> None:
     if outcome_set.status not in {
         OutcomeSetStatus.AVAILABLE.value,
         OutcomeSetStatus.PARTIAL.value,
     }:
         return
-    if (
-        meeting.deleted_at is not None
-        or meeting.deletion_state not in {None, "none"}
-        or meeting.current_outcome_set_id not in {None, outcome_set.id}
-        or outcome_set.candidate_id is not None
-        or outcome_set.revision_state in {"candidate", "rejected", "stale", "expired"}
-    ):
+    if meeting.deleted_at is not None or meeting.deletion_state not in {None, "none"}:
+        return
+    if meeting.current_outcome_set_id not in {None, outcome_set.id}:
+        return
+    if outcome_set.candidate_id is not None:
+        if not publish_initial_baseline or meeting.current_outcome_set_id is not None:
+            return
+        if (
+            outcome_set.generator_kind != "deterministic_extractive"
+            or outcome_set.requested_by_user_id is not None
+            or outcome_set.revision_state != "candidate"
+        ):
+            return
+        attempt = await db.scalar(
+            select(MeetingOutcomeGenerationAttempt)
+            .where(
+                MeetingOutcomeGenerationAttempt.workspace_id == outcome_set.workspace_id,
+                MeetingOutcomeGenerationAttempt.candidate_id == outcome_set.candidate_id,
+            )
+            .with_for_update()
+        )
+        if (
+            attempt is None
+            or attempt.provider_kind != "deterministic_extractive"
+            or attempt.request_intent != "automatic_baseline"
+            or attempt.requested_by_user_id is not None
+        ):
+            return
+        now = datetime.now(UTC)
+        outcome_set.revision_state = "accepted"
+        outcome_set.expires_at = None
+        outcome_set.accepted_at = outcome_set.accepted_at or now
+        meeting.current_outcome_set_id = outcome_set.id
+        attempt.status = "accepted"
+        attempt.ended_at = attempt.ended_at or now
+        attempt.expires_at = None
+        await db.flush()
+        return
+    if outcome_set.revision_state in {"candidate", "rejected", "stale", "expired"}:
         return
     outcome_set.revision_state = "accepted"
     outcome_set.accepted_at = outcome_set.accepted_at or outcome_set.generated_at or datetime.now(UTC)
