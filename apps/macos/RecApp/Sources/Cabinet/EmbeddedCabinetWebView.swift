@@ -918,6 +918,17 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         lastLoadedRequestIdentity != loadIdentity(for: request)
     }
 
+    /// Provider and callback navigations are part of the current OAuth
+    /// continuation, but they are not SwiftUI-owned document routes. Keeping
+    /// either URL as the last loaded request makes updateNSView reload the
+    /// current provider-start route while WebKit is still following OAuth
+    /// redirects, which restarts the flow indefinitely.
+    public nonisolated static func shouldTrackSwiftUIRequestIdentity(
+        for routeKind: DesktopCabinetRouteKind
+    ) -> Bool {
+        ![.authProvider, .authCallback].contains(routeKind)
+    }
+
     public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
         loaded
     }
@@ -1619,14 +1630,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 for: url,
                 allowExternalAuthProvider: authContinuationActive
             ).route.kind
-            if ![.authProvider, .authCallback].contains(routeKind) {
+            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeKind) {
                 currentRoute = url
-            }
-            if let container = webView.superview as? WebViewContainer {
-                // SwiftUI rebuilds the request from the route as a GET. Keep
-                // its identity in sync so the in-flight WebKit navigation is
-                // not started a second time by updateNSView.
-                container.lastLoadedRequestIdentity = EmbeddedCabinetWebView.loadIdentity(url: url)
+                if let container = webView.superview as? WebViewContainer {
+                    // SwiftUI rebuilds the request from the route as a GET.
+                    // Keep its identity in sync so the in-flight WebKit
+                    // navigation is not started a second time by updateNSView.
+                    container.lastLoadedRequestIdentity = EmbeddedCabinetWebView.loadIdentity(url: url)
+                }
             }
         }
 

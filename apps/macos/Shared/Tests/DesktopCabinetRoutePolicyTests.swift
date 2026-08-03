@@ -154,6 +154,13 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         )
     }
 
+    func testOAuthProviderAndCallbackRoutesDoNotReplaceSwiftUIRequestIdentity() {
+        XCTAssertFalse(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .authProvider))
+        XCTAssertFalse(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .authCallback))
+        XCTAssertTrue(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .authLogin))
+        XCTAssertTrue(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .meetingList))
+    }
+
     func testBlocksNonHTTPSProviderLegsEvenWhenAuthContinuationIsActive() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
         let insecureProvider = try XCTUnwrap(URL(string: "http://id.future-provider.example/authorize?state=state"))
