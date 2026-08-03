@@ -1517,13 +1517,15 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             updateAuthContinuation(for: routeDecision.route.kind)
             let finishedState = EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
             DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
-            if let container = webView.superview as? WebViewContainer {
+            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind),
+               let container = webView.superview as? WebViewContainer {
+                // OAuth provider/callback pages are transient WebKit-owned
+                // navigations. Recording them here makes SwiftUI think its
+                // login request changed and updateNSView restarts the OAuth
+                // provider URL on every render.
                 container.lastLoadedRequestIdentity = EmbeddedCabinetWebView.loadIdentity(url: url)
             }
-            if ![
-                .authProvider,
-                .authCallback
-            ].contains(routeDecision.route.kind) {
+            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind) {
                 currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
             }
             cabinetState = finishedState
