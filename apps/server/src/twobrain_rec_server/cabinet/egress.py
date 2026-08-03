@@ -101,7 +101,7 @@ ALLOWED_AUDIT_KEYS = {
     "turn_policy_version",
 }
 STORAGE_MATERIALIZATION_TIMEOUT_SECONDS = 30
-IMPLICIT_AUDIO_POLICY_SOURCES = frozenset({"meeting_default", "workspace_default"})
+IMPLICIT_OWNER_ONLY_POLICY_SOURCES = frozenset({"meeting_default", "workspace_default"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,8 +179,14 @@ async def content_export_capabilities(
     policy = await resolve_artifact_policy(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
     )
+    transcript_policy = _effective_policy_value(
+        policy.transcript_download, policy_source=policy.policy_source
+    )
+    summary_policy = _effective_policy_value(
+        policy.summary_download, policy_source=policy.policy_source
+    )
     transcript_blocked = _policy_blocked_state(
-        "transcript", policy.transcript_download, access, required_action="export"
+        "transcript", transcript_policy, access, required_action="export"
     )
     transcript = unavailable
     if transcript_blocked is not None:
@@ -216,7 +222,7 @@ async def content_export_capabilities(
         and outcome_set.processing_result_id == result.id
     )
     summary_blocked = _policy_blocked_state(
-        "summary", policy.summary_download, access, required_action="export"
+        "summary", summary_policy, access, required_action="export"
     )
     if summary_blocked is not None:
         summary = ContentExportReadiness(state="denied", reason=summary_blocked.reason)
@@ -788,10 +794,25 @@ async def artifact_egress_states(
     )
     states = [
         _audio_state(_effective_audio_download_policy(policy), access, audio_artifacts),
-        _transcript_state(policy.transcript_download, access, result),
-        _summary_state(policy.summary_download, access, result, published_outcome),
+        _transcript_state(
+            _effective_policy_value(
+                policy.transcript_download, policy_source=policy.policy_source
+            ),
+            access,
+            result,
+        ),
+        _summary_state(
+            _effective_policy_value(policy.summary_download, policy_source=policy.policy_source),
+            access,
+            result,
+            published_outcome,
+        ),
     ]
-    package_state = _package_state(policy.package_export, access, states)
+    package_state = _package_state(
+        _effective_policy_value(policy.package_export, policy_source=policy.policy_source),
+        access,
+        states,
+    )
     return states + [package_state]
 
 
@@ -823,12 +844,16 @@ async def resolve_artifact_policy(
 
 
 def _effective_audio_download_policy(policy: MeetingArtifactPolicy) -> str:
+    return _effective_policy_value(policy.audio_download, policy_source=policy.policy_source)
+
+
+def _effective_policy_value(policy_value: str, *, policy_source: str) -> str:
     if (
-        policy.audio_download == "disabled"
-        and policy.policy_source in IMPLICIT_AUDIO_POLICY_SOURCES
+        policy_value == "disabled"
+        and policy_source in IMPLICIT_OWNER_ONLY_POLICY_SOURCES
     ):
         return "owner_only"
-    return policy.audio_download
+    return policy_value
 
 
 async def stored_audio_artifacts(

@@ -115,6 +115,15 @@ def test_allowed_maintenance_operations_match_contract() -> None:
         ).operation_name
         == "operator_diagnostics"
     )
+    assert (
+        MaintenanceTenantContext(
+            operation_name="outcome_initial_baseline_reconciliation",
+            actor_id="operator",
+            reason_category="initial_baseline_reconciliation",
+            feature_area="outcomes",
+        ).operation_name
+        == "outcome_initial_baseline_reconciliation"
+    )
 
 
 @pytest.mark.parametrize(

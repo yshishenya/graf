@@ -36,6 +36,37 @@ from twobrain_rec_server.db.models import (
 )
 
 
+def test_implicit_content_policy_is_owner_only_and_explicit_deny_stays_disabled(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+
+    owner = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/transcript",
+        headers=auth_headers(),
+    )
+    assert owner.status_code == 200
+    assert SAFE_TRANSCRIPT_TEXT in owner.text
+
+    add_workspace_user(client)
+    grant_meeting_to_user(client, seeds.ready_id)
+    shared = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/transcript",
+        headers=auth_headers_for(),
+    )
+    assert shared.status_code == 409
+
+    set_artifact_policy(
+        client,
+        seeds.ready_id,
+        transcript_download="disabled",
+        policy_source="meeting_override",
+    )
+    denied = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/transcript",
+        headers=auth_headers(),
+    )
+    assert denied.status_code == 409
+
+
 def test_capability_is_metadata_only_and_separates_transcript_summary_combined(client) -> None:
     seeds = seed_cabinet_meetings(client)
     set_artifact_policy(
@@ -59,6 +90,32 @@ def test_capability_is_metadata_only_and_separates_transcript_summary_combined(c
     assert SAFE_TRANSCRIPT_TEXT not in response.text
     assert "storage_object_key" not in response.text
     assert "mediascribe_job_id" not in response.text
+
+
+def test_implicit_summary_policy_allows_owner_server_mediated_export(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    outcome_set_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+
+    capability = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+    )
+    assert capability.status_code == 200
+    payload = capability.json()
+    assert payload["summary"]["state"] == "available"
+    assert payload["outcome_set_id"] == str(outcome_set_id)
+
+    exported = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+        json={
+            "content_scope": "summary",
+            "format": "json",
+            "processing_result_id": payload["processing_result_id"],
+            "outcome_set_id": payload["outcome_set_id"],
+        },
+    )
+    assert exported.status_code == 200
 
 
 def test_authorized_transcript_formats_share_one_revision_and_safe_headers(client) -> None:

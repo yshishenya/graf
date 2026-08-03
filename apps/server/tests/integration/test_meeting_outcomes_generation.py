@@ -117,6 +117,73 @@ def test_first_baseline_outcome_remains_an_unpublished_candidate(client) -> None
     assert repaired == expected
 
 
+def test_trusted_reconcile_promotes_only_the_initial_baseline(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "trusted-baseline-reconcile")
+    service = _service_module()
+
+    async def reconcile() -> tuple:
+        async with client.app_state["sessionmaker"]() as db:
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            meeting = await db.get(Meeting, meeting_id)
+            assert result is not None and meeting is not None
+            candidate = await service.ensure_outcomes_for_processing_result(db, result=result)
+            await db.commit()
+            assert meeting.current_outcome_set_id is None
+            assert candidate.revision_state == "candidate"
+
+            promoted = await service.ensure_outcomes_for_processing_result(
+                db,
+                result=result,
+                publish_initial_baseline=True,
+            )
+            repeated = await service.ensure_outcomes_for_processing_result(
+                db,
+                result=result,
+                publish_initial_baseline=True,
+            )
+            attempts = (
+                await db.scalars(
+                    select(MeetingOutcomeGenerationAttempt).where(
+                        MeetingOutcomeGenerationAttempt.meeting_id == meeting_id
+                    )
+                )
+            ).all()
+            sets = (
+                await db.scalars(
+                    select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id)
+                )
+            ).all()
+            await db.commit()
+            return (
+                candidate.id,
+                promoted.id,
+                repeated.id,
+                meeting.current_outcome_set_id,
+                promoted.revision_state,
+                promoted.accepted_at is not None,
+                [attempt.status for attempt in attempts],
+                len(sets),
+            )
+
+    (
+        candidate_id,
+        promoted_id,
+        repeated_id,
+        current_id,
+        revision_state,
+        accepted,
+        attempt_statuses,
+        set_count,
+    ) = asyncio.run(reconcile())
+    assert candidate_id == promoted_id == repeated_id == current_id
+    assert revision_state == "accepted"
+    assert accepted is True
+    assert attempt_statuses == ["accepted"]
+    assert set_count == 1
+
+
 def test_deletion_state_is_checked_under_the_meeting_lock_before_outcome_mutation(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()

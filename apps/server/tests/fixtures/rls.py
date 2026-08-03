@@ -113,4 +113,5 @@ RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "outcome_dispatch_reconciliation",
     "deletion_purge_reconciliation",
     "processing_legacy_lineage_reconciliation",
+    "outcome_initial_baseline_reconciliation",
 }

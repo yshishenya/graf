@@ -312,10 +312,10 @@ def _validate_control_gate_config(name: str, value: object) -> None:
     ):
         raise ValueError("control prompt gate config is invalid")
     if gate == "judge" and (
-        not isinstance(value.get("agreement"), (int, float))
+        not isinstance(value.get("agreement"), int | float)
         or isinstance(value.get("agreement"), bool)
         or float(value["agreement"]) < 0.9
-        or not isinstance(value.get("agreement_threshold"), (int, float))
+        or not isinstance(value.get("agreement_threshold"), int | float)
         or isinstance(value.get("agreement_threshold"), bool)
         or float(value["agreement_threshold"]) < 0.9
         or not isinstance(value.get("valid_rows"), int)
@@ -390,10 +390,12 @@ def validate_outcome_result(
         refs = item["source_refs"]
         if not isinstance(refs, list) or len(refs) > 8:
             raise ValueError("source references are invalid")
+        normalized_refs: list[dict[str, object]] = []
         for ref in refs:
             if not isinstance(ref, dict) or set(ref) != {"transcript_segment_id", "sequence"}:
                 raise ValueError("source reference is invalid")
-            if str(ref["transcript_segment_id"]) not in allowed_segment_ids:
+            segment_id = str(ref["transcript_segment_id"])
+            if segment_id not in allowed_segment_ids:
                 raise ValueError("source reference is outside the pinned transcript")
             if (
                 not isinstance(ref["sequence"], int)
@@ -401,19 +403,22 @@ def validate_outcome_result(
                 or ref["sequence"] < 0
             ):
                 raise ValueError("source reference sequence is invalid")
-            if (
-                allowed_segment_sequences is not None
-                and int(ref["sequence"])
-                != allowed_segment_sequences.get(str(ref["transcript_segment_id"]))
-            ):
-                raise ValueError("source reference sequence does not match the pinned transcript")
+            canonical_sequence = int(ref["sequence"])
+            if allowed_segment_sequences is not None:
+                canonical_sequence = allowed_segment_sequences.get(segment_id)
+                if canonical_sequence is None:
+                    raise ValueError("source reference is outside the pinned transcript")
+            normalized_refs.append(
+                {
+                    "transcript_segment_id": segment_id,
+                    "sequence": canonical_sequence,
+                    "evidence_kind": "segment",
+                }
+            )
         normalized_items.append(
             {
                 **item,
-                "source_refs": [
-                    {**ref, "evidence_kind": "segment"}
-                    for ref in refs
-                ],
+                "source_refs": normalized_refs,
             }
         )
         counts[category] += 1
@@ -472,7 +477,7 @@ def _validate_base_config(
         raise ValueError("model route is invalid")
     if (
         isinstance(temperature, bool)
-        or not isinstance(temperature, (int, float))
+        or not isinstance(temperature, int | float)
         or not 0 <= temperature <= 2
     ):
         raise ValueError("temperature is invalid")

@@ -200,9 +200,18 @@ def test_outcome_validation_preserves_category_truth_and_source_ownership() -> N
 
     wrong_sequence = deepcopy(result)
     wrong_sequence["items"][0]["source_refs"][0]["sequence"] = 1
-    with pytest.raises(ValueError, match="does not match"):
+    repaired = validate_outcome_result(
+        wrong_sequence,
+        allowed_categories=["summary", "action_items"],
+        allowed_segment_ids={"seg-1"},
+        allowed_segment_sequences={"seg-1": 0},
+    )
+    assert repaired["items"][0]["source_refs"][0]["sequence"] == 0
+    unknown_segment = deepcopy(result)
+    unknown_segment["items"][0]["source_refs"][0]["transcript_segment_id"] = "seg-2"
+    with pytest.raises(ValueError, match="outside the pinned transcript"):
         validate_outcome_result(
-            wrong_sequence,
+            unknown_segment,
             allowed_categories=["summary", "action_items"],
             allowed_segment_ids={"seg-1"},
             allowed_segment_sequences={"seg-1": 0},
