@@ -1,6 +1,6 @@
 """allow a bounded operator repair for the first imported outcome baseline
 
-Revision ID: 0043_outcome_initial_baseline_reconciliation
+Revision ID: 0043_initial_outcome_reconcile
 Revises: 0042_shared_with_me_lookup
 Create Date: 2026-08-03
 """
@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0043_outcome_initial_baseline_reconciliation"
+revision: str = "0043_initial_outcome_reconcile"
 down_revision: str | None = "0042_shared_with_me_lookup"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
