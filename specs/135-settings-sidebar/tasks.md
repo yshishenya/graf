@@ -4,7 +4,7 @@
 
 ## Phase 1: Contract and model
 
-- [X] T001 [P1] Add browser/embedded grouped-sidebar assertions for all six canonical IDs, group order, href parity, selected state and `aria-current` in `apps/server/tests/contract/test_settings_ui_contract.py`.
+- [X] T001 [P1] Add browser/embedded grouped-sidebar assertions for all five actionable IDs, group order, href parity, selected state and `aria-current` in `apps/server/tests/contract/test_settings_ui_contract.py`.
 - [X] T002 [P1] Add route-wide sidebar and active-parent assertions for browser/embedded category and calendar paths in `apps/server/tests/integration/test_settings_ia_flow.py`.
 - [X] T003 [P1] Add presentation-only `group_label` metadata to `SettingsCategoryView` and the explicit definitions in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`.
 
@@ -23,6 +23,14 @@
 
 - [X] T009 [P1] Run the feature quickstart, focused settings test set and `git diff --check`; record evidence in the implementation handoff using `specs/135-settings-sidebar/quickstart.md`.
 - [X] T010 [P1] Run `infra/scripts/ci-local.sh`, review the final diff for route/security/product-gate regressions, and update `CHANGELOG.md` under `[Unreleased]` with the sidebar UX change.
+
+## Refinement pass: clarity and density
+
+- [X] T011 [P1] Record the second UX/UI/IA review and target navigation model in `specs/135-settings-sidebar/design-review.md`.
+- [X] T012 [P1] Remove redundant scope and explanatory copy from the settings rail and overview while adding stable category icon metadata in `apps/server/src/twobrain_rec_server/cabinet/view_models.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/settings_navigation.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_content.html`.
+- [X] T013 [P1] Align settings category headers and sidebar styling with the compact two-level IA, semantic group headings, visible icons, focus treatment and responsive layout in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_recording_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_summaries_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_workspace_content.html` and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`.
+- [X] T014 [P1] Extend settings contracts for icon parity, compact overview copy and semantic groups in `apps/server/tests/contract/test_settings_ui_contract.py`.
+- [X] T015 [P1] Route the embedded recording settings action to the existing native macOS meeting-detection window through the allowlisted route policy in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_recording_content.html`, `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`, `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift` and `apps/macos/RecApp/App/TwoBrainRecApp.swift`.
 
 ## Dependencies
 

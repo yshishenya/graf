@@ -322,6 +322,9 @@ private struct ContentView: View {
                 onCheckForUpdates: {
                     (NSApp.delegate as? AppLifecycleDelegate)?.checkForUpdates(nil)
                 },
+                onOpenMeetingDetectionSettings: {
+                    (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
+                },
                 supportIncidentBridge: supportIncidentBridge
             )
         }

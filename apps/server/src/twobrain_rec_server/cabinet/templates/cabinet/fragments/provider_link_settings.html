@@ -2,9 +2,12 @@
 {% import "cabinet/components/settings_navigation.html" as settings_ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    <div class="cabinet-topbar">
-      <div class="cabinet-titleline"><strong>Способ входа</strong><span>{{ surface.provider_label }}</span></div>
-    </div>
+    <header class="cabinet-topbar settings-page__topbar">
+      <div class="page-title">
+        <h1>Способ входа</h1>
+        <p class="page-subtitle">{{ surface.provider_label }}</p>
+      </div>
+    </header>
     {{ settings_ui.navigation(settings_navigation, active="account", back_href=("/desktop/meetings" if embedded else "/meetings")) }}
     <section class="settings-section cabinet-card" aria-labelledby="provider-link-status-title">
       <div>

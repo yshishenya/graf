@@ -1,20 +1,22 @@
+{% import "cabinet/components/icons.html" as icons %}
+
 {% macro navigation(items, active=None, back_href=None) -%}
 <nav class="settings-navigation" aria-label="Разделы настроек">
   {% if back_href %}
-  <a class="settings-navigation__back" href="{{ back_href }}"><span aria-hidden="true">←</span><span>Мои встречи</span></a>
+  <a class="settings-navigation__back" href="{{ back_href }}"><span aria-hidden="true">←</span><span>Назад</span></a>
   {% endif %}
   {% set state = namespace(group=None) %}
   {% for item in items %}
   {% if item.group_label != state.group %}
   {% if state.group %}</div>{% endif %}
-  <div class="settings-navigation__group">
-    <span class="settings-navigation__group-label">{{ item.group_label }}</span>
+  <div class="settings-navigation__group" role="group" aria-labelledby="settings-navigation-group-{{ loop.index }}">
+    <h2 class="settings-navigation__group-label" id="settings-navigation-group-{{ loop.index }}">{{ item.group_label }}</h2>
   {% set state.group = item.group_label %}
   {% endif %}
   {% set selected = item.id == (active or "overview") %}
   <a class="settings-navigation__item{% if selected %} is-selected{% endif %}" href="{{ item.href }}"{% if selected %} aria-current="page"{% endif %} data-settings-nav="{{ item.id }}">
+    <span class="settings-navigation__item-icon">{{ icons.icon(item.icon) }}</span>
     <span>{{ item.label }}</span>
-    {% if item.scope_label %}<small>{{ item.scope_label }}</small>{% endif %}
   </a>
   {% endfor %}
   {% if state.group %}</div>{% endif %}

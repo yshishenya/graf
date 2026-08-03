@@ -865,6 +865,7 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
 public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
     public typealias CheckForUpdatesAction = @MainActor @Sendable () -> Void
+    public typealias OpenMeetingDetectionSettingsAction = @MainActor @Sendable () -> Void
 
     private let request: URLRequest
     private let routePolicy: DesktopCabinetRoutePolicy
@@ -872,6 +873,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let navigationEventLogger: NavigationEventLogger?
     private let showsAppUpdateBadge: Bool
     private let onCheckForUpdates: CheckForUpdatesAction
+    private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
     private let fallbackRequest: URLRequest
     private let navigationController: EmbeddedCabinetNavigationController
@@ -887,6 +889,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         navigationEventLogger: NavigationEventLogger? = nil,
         showsAppUpdateBadge: Bool = false,
         onCheckForUpdates: @escaping CheckForUpdatesAction = {},
+        onOpenMeetingDetectionSettings: @escaping OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
         fallbackRequest: URLRequest,
         navigationController: EmbeddedCabinetNavigationController
@@ -897,6 +900,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         self.navigationEventLogger = navigationEventLogger
         self.showsAppUpdateBadge = showsAppUpdateBadge
         self.onCheckForUpdates = onCheckForUpdates
+        self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
         self.supportIncidentBridge = supportIncidentBridge
         self.fallbackRequest = fallbackRequest
         self.navigationController = navigationController
@@ -1118,6 +1122,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             navigationEventLogger: navigationEventLogger,
             showsAppUpdateBadge: showsAppUpdateBadge,
             onCheckForUpdates: onCheckForUpdates,
+            onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
             supportIncidentBridge: supportIncidentBridge,
             navigationController: navigationController
         )
@@ -1139,6 +1144,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private var authContinuationActive = false
         private var showsAppUpdateBadge: Bool
         private var onCheckForUpdates: CheckForUpdatesAction
+        private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
         private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
         private let navigationController: EmbeddedCabinetNavigationController
         private weak var downloadHostWindow: NSWindow?
@@ -1154,6 +1160,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             navigationEventLogger: NavigationEventLogger?,
             showsAppUpdateBadge: Bool,
             onCheckForUpdates: @escaping CheckForUpdatesAction,
+            onOpenMeetingDetectionSettings: @escaping OpenMeetingDetectionSettingsAction,
             supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?,
             navigationController: EmbeddedCabinetNavigationController
         ) {
@@ -1165,6 +1172,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.navigationEventLogger = navigationEventLogger
             self.showsAppUpdateBadge = showsAppUpdateBadge
             self.onCheckForUpdates = onCheckForUpdates
+            self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
             self.supportIncidentBridge = supportIncidentBridge
             self.navigationController = navigationController
             _cabinetState = cabinetState
@@ -1294,6 +1302,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 for: url,
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
             )
+            if decision.decision == .allow,
+               decision.route.kind == .meetingDetectionSettings {
+                navigationController.cancelPendingNavigation(webView: webView)
+                onOpenMeetingDetectionSettings()
+                decisionHandler(.cancel)
+                return
+            }
             switch decision.decision {
             case .allow:
                 updateAuthContinuation(for: decision.route.kind)
@@ -1815,6 +1830,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
 public struct EmbeddedCabinetWebView: View {
     public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
     public typealias CheckForUpdatesAction = @MainActor @Sendable () -> Void
+    public typealias OpenMeetingDetectionSettingsAction = @MainActor @Sendable () -> Void
 
     private let message: String
 
@@ -1827,6 +1843,7 @@ public struct EmbeddedCabinetWebView: View {
         navigationEventLogger _: NavigationEventLogger? = nil,
         showsAppUpdateBadge _: Bool = false,
         onCheckForUpdates _: @escaping CheckForUpdatesAction = {},
+        onOpenMeetingDetectionSettings _: @escaping OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge _: EmbeddedCabinetSupportIncidentBridge? = nil,
         fallbackRequest _: URLRequest,
         navigationController _: EmbeddedCabinetNavigationController

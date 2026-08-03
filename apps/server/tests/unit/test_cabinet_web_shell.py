@@ -1084,7 +1084,7 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
     assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in settings_page
     assert settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert settings_page.count('aria-label="Навигация кабинета"') == 1
-    assert settings_page.count('aria-current="page"') == 2
+    assert settings_page.count('aria-current="page"') == 1
     assert 'data-active-nav="settings"' in settings_page
     assert 'href="/settings/integrations/calendar"' in settings_page
 
@@ -1253,12 +1253,12 @@ def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> No
         assert f'data-icon="{removed_icon}"' not in page
 
 
-def test_settings_shell_renders_calendar_connection_anchor() -> None:
+def test_settings_shell_exposes_calendar_in_sidebar() -> None:
     page = render_settings_page()
 
     assert 'data-active-nav="settings"' in page
-    assert 'data-settings-category="calendar"' in page
-    assert "Календари" in page
+    assert 'data-settings-nav="calendar"' in page
+    assert '>Календари</span>' in page
     assert 'href="/settings/integrations/calendar"' in page
     assert 'href="/desktop/settings/integrations/calendar"' not in page
 

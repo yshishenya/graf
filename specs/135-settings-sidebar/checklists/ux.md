@@ -5,10 +5,12 @@
 ## IA and interaction
 
 - [x] The sidebar is the primary settings navigation mechanism.
-- [x] All six existing categories are visible without horizontal scrolling.
+- [x] All five actionable categories are visible without horizontal scrolling;
+  `/settings` remains a compact overview entry point.
 - [x] Group labels describe user tasks, not authorization scopes.
 - [x] The order is stable across browser and embedded surfaces.
-- [x] The active category is visible and remains a link-consistent state.
+- [x] The active category is visible and remains a link-consistent state; the
+  overview page has no false active item.
 - [x] Calendar and account provider-link subflows map to their parent item.
 
 ## Accessibility

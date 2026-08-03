@@ -4,7 +4,6 @@
 
 | Group | ID | Browser href | Embedded href |
 | --- | --- | --- | --- |
-| Основное | overview | `/settings` | `/desktop/settings` |
 | Встречи | recording | `/settings/recording` | `/desktop/settings/recording` |
 | Встречи | summaries | `/settings/summaries` | `/desktop/settings/summaries` |
 | Встречи | calendar | `/settings/integrations/calendar` | `/desktop/settings/integrations/calendar` |
@@ -13,7 +12,8 @@
 
 The menu renders one semantic `nav[aria-label="Разделы настроек"]`, one visible
 heading for each group and exactly one anchor per canonical ID. No arbitrary
-category or redirect is accepted.
+  category or redirect is accepted. The `/settings` landing page is a separate
+  compact entry point and is not repeated as a rail item.
 
 ## Active state
 

@@ -24,6 +24,7 @@
   --meeting-row-height: 48px;
   --meeting-row-exception-height: 56px;
   --focus-ring: #b6aaff;
+  --settings-gap: 24px;
   --app-sidebar-width: 176px;
   --app-rail-width: 64px;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, ui-sans-serif, sans-serif;
@@ -1632,8 +1633,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .settings-page,
 .calendar-settings {
   display: grid;
-  grid-template-columns: minmax(184px, 220px) minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(176px, 208px) minmax(0, 1fr);
+  gap: var(--settings-gap);
   align-items: start;
 }
 .settings-page > .settings-navigation,
@@ -1671,28 +1672,29 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .settings-navigation {
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 16px;
   width: 100%;
   max-width: none;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface-2);
+  padding: 0 0 8px;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
 }
 .settings-navigation__back {
   display: flex;
   align-items: center;
   gap: 7px;
-  min-height: 36px;
-  padding: 0 10px 10px;
+  min-height: 44px;
+  padding: 0 16px 10px 10px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
   font-weight: 700;
 }
 .settings-navigation__back:hover { color: var(--text); }
-.settings-navigation__group { display: grid; gap: 3px; min-width: 0; }
+.settings-navigation__group { display: grid; gap: 2px; min-width: 0; padding-right: 10px; }
 .settings-navigation__group-label {
-  padding: 4px 10px 3px;
+  margin: 0;
+  padding: 0 10px 4px;
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;
@@ -1700,34 +1702,24 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   text-transform: uppercase;
 }
 .settings-navigation__item {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   align-content: center;
   min-height: 44px;
   padding: 8px 10px;
-  border-left: 3px solid transparent;
+  border-left: 2px solid transparent;
   border-radius: 8px;
   color: var(--muted);
+  font-weight: 650;
   overflow-wrap: anywhere;
 }
 .settings-navigation__item:hover { color: var(--text); background: rgba(255,255,255,.035); }
 .settings-navigation__item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .settings-navigation__item.is-selected { border-left-color: var(--accent); color: var(--text); background: var(--surface-3); }
-.settings-navigation__item small { color: var(--subtle); font-size: 10px; line-height: 1.3; }
-.settings-category-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.settings-category-card {
-  display: grid;
-  gap: 7px;
-  min-height: 132px;
-  padding: 15px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
-}
-.settings-category-card:hover { border-color: rgba(182,170,255,.62); background: var(--surface-2); }
-.settings-category-card__label { font-size: 15px; font-weight: 800; }
-.settings-category-card__description { color: var(--muted); line-height: 1.45; }
-.settings-category-card__action { color: var(--focus-ring); font-size: 12px; font-weight: 750; }
+.settings-navigation__item-icon { display: inline-flex; flex: 0 0 auto; color: currentColor; }
+.settings-navigation__item-icon .ui-icon { width: 15px; height: 15px; }
+.settings-navigation__item > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .settings-scope-badge,
 .settings-status-badge {
   display: inline-flex;
@@ -1768,6 +1760,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .settings-empty-state { padding: 12px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
 .settings-status-badge { border-color: rgba(47,201,166,.32); color: #b5f1df; background: rgba(47,201,166,.08); }
 .settings-boundary-card .button { justify-self: start; }
+.settings-handoff-card .button { justify-self: start; }
 .settings-page form { margin: 0; }
 .settings-page h1,
 .settings-page h2,
@@ -1779,17 +1772,19 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   .settings-page,
   .calendar-settings {
     grid-template-columns: 1fr;
-    gap: 14px;
+    gap: 18px;
   }
   .settings-page > .settings-navigation,
   .calendar-settings > .settings-navigation {
     grid-column: 1;
     grid-row: auto;
     position: static;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 12px;
   }
   .settings-page > :not(.settings-navigation),
   .calendar-settings > :not(.settings-navigation) { grid-column: 1; }
-  .settings-category-grid { grid-template-columns: 1fr; }
   .settings-section__heading,
   .settings-choice-row { align-items: stretch; flex-direction: column; }
   .settings-section__heading .button,
@@ -2363,7 +2358,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 
 .calendar-settings {
   display: grid;
-  gap: 24px;
+  gap: var(--settings-gap);
   max-width: none;
 }
 
@@ -2381,6 +2376,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
   max-width: 560px;
   font-size: 12px;
 }
+.calendar-settings h2[id] { scroll-margin-block-start: 24px; }
 
 .calendar-settings-section,
 .calendar-source-card,
@@ -2698,7 +2694,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 }
 
 .calendar-picker-row small {
-  color: var(--subtle);
+  color: var(--muted);
 }
 
 .calendar-color {

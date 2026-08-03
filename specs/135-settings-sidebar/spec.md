@@ -15,7 +15,8 @@
 Пользователь открывает настройки и видит постоянное боковое меню со всеми
 доступными разделами, сгруппированными по смыслу. Он понимает, где находится,
 и может перейти в нужный раздел без поиска по карточкам или горизонтальной
-прокрутки.
+прокрутки. Страница `/settings` остаётся короткой точкой входа, а не вторым
+списком навигации.
 
 **Why this priority**: Видимость структуры — основной пользовательский запрос и
 самый короткий путь к исправлению текущего неудобства.
@@ -27,8 +28,9 @@ browser и embedded desktop режимах; все разделы должны �
 **Acceptance Scenarios**:
 
 1. **Given** пользователь открыл `/settings`, **When** страница загрузилась,
-   **Then** боковое меню показывает «Обзор», «Запись», «Итоги», «Календари»,
-   «Пространство» и «Аккаунт и безопасность» ровно по одному разу.
+   **Then** боковое меню показывает «Запись», «Итоги», «Календари»,
+   «Пространство» и «Аккаунт и безопасность» ровно по одному разу, а
+   «Настройки» остаётся заголовком текущей landing-страницы.
 2. **Given** пользователь находится в категории, **When** он смотрит на меню,
    **Then** текущая категория имеет selected-состояние и `aria-current`, а
    остальные пункты остаются доступными ссылками.
@@ -106,13 +108,16 @@ selected state и отсутствие горизонтального клипп
 
 - **FR-001**: System MUST render a semantic settings side navigation for the
   browser and embedded desktop settings surfaces.
-- **FR-002**: The side navigation MUST expose each category from the existing
-  canonical settings route map exactly once: overview, recording, summaries,
-  calendar, workspace and account.
+- **FR-002**: The side navigation MUST expose each actionable category from
+  the existing canonical settings route map exactly once: recording, summaries,
+  calendar, workspace and account. The overview route remains available as the
+  direct `/settings` entry point but is not repeated as a navigation item.
 - **FR-003**: The side navigation MUST group categories with concise visible
-  group labels while keeping the existing Russian category names and routes.
+  group labels («Встречи», «Рабочее пространство», «Аккаунт») while keeping the
+  existing Russian category names and routes.
 - **FR-004**: The active category MUST be derived from the canonical route and
-  represented by both a visible selected state and `aria-current="page"`.
+  represented by both a visible selected state and `aria-current="page"`; the
+  overview landing page has no selected category.
 - **FR-005**: Existing category scope labels, mutation forms, CSRF protection,
   authorization checks, result states and safe account presentation MUST remain
   unchanged in meaning and reachable from the side navigation.
@@ -142,12 +147,13 @@ selected state и отсутствие горизонтального клипп
 ### Measurable Outcomes
 
 - **SC-001**: In a desktop settings viewport of at least 1024px width, 100% of
-  the six canonical categories are visible in the side navigation without
+  the five actionable categories are visible in the side navigation without
   horizontal scrolling.
 - **SC-002**: From any settings category, a user reaches any other canonical
   category with one navigation activation and no intermediate overview screen.
-- **SC-003**: In browser and embedded render checks, 100% of canonical category
-  links have matching route, heading and active-state evidence.
+- **SC-003**: In browser and embedded render checks, 100% of actionable category
+  links have matching route, heading and active-state evidence; the overview
+  entry point has a matching heading and no false active link.
 - **SC-004**: At a 320px-wide viewport, 100% of canonical categories remain
   reachable and no settings navigation text is clipped out of the viewport.
 - **SC-005**: Existing settings contract and focused integration tests remain
@@ -158,8 +164,8 @@ selected state и отсутствие горизонтального клипп
 
 ## Assumptions
 
-- The existing six-category route map is the source of truth for the sidebar;
-  the slice does not invent sections for settings that do not yet exist.
+- The existing route map is the source of truth for the sidebar; the slice does
+  not invent sections for settings that do not yet exist.
 - Group labels are presentation-only and do not change authorization or scope.
 - Desktop and embedded web surfaces share the same server-rendered navigation
   contract; only the base path differs.

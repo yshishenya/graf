@@ -65,6 +65,7 @@ def test_pending_provider_link_confirmation_renders_safe_copy_only() -> None:
     assert "phone" not in page.lower()
     assert "subject" not in page.lower()
     assert 'id="cabinet-main" class="cabinet-main" tabindex="-1"' in page
+    assert "<h1>Способ входа</h1>" in page
     assert 'role="status" aria-live="polite"' in page
     assert '<button class="button primary" type="submit">Подтвердить подключение</button>' in page
 

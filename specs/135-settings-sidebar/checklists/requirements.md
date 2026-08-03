@@ -30,6 +30,6 @@
 ## Notes
 
 - Group labels are presentation-only and are intentionally resolved during
-  planning from the existing six-category route map.
+  planning from the existing five-actionable-category route map.
 - Mobile behavior is specified as a reachable compact vertical menu rather than
   a hidden horizontal scroller.

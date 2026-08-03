@@ -9,11 +9,11 @@ navigation contracts. It does not change production deployment in this slice.
 ## Summary
 
 Replace the current horizontal settings navigation with one shared, grouped
-vertical rail inside the settings workspace. The rail exposes the existing six
-canonical categories exactly once, preserves browser/embedded route parity, and
-keeps category content, scope semantics, forms, CSRF checks and the native
-recording handoff unchanged. At narrow widths the same links become a stacked
-menu above the content.
+vertical rail inside the settings workspace. The rail exposes the five
+actionable settings categories exactly once; `/settings` remains a compact
+overview entry point without duplicating the rail. Browser/embedded route
+parity, category content, scope semantics, forms and CSRF checks remain intact.
+At narrow widths the same links become a stacked menu above the content.
 
 ## Technical Context
 
@@ -45,7 +45,7 @@ menu above the content.
 
 - UX/accessibility work follows the full Spec Kit flow with clarify, checklist,
   analyze, focused validation and repository CI.
-- The six existing route definitions remain the source of truth; no catch-all
+- The existing route definitions remain the source of truth; no catch-all
   redirects, new permissions, persistence or mutation endpoints are introduced.
 - Recording remains a native macOS handoff. The web surface does not gain a
   capture toggle or audio-routing behavior.
@@ -63,7 +63,7 @@ contract is needed.
 ## Validation Plan
 
 1. Run the feature quickstart: render browser and embedded overview/category
-   pages, assert six grouped links, active state, canonical hrefs and safe-copy
+   pages, assert five grouped links, active state, canonical hrefs and safe-copy
    invariants; render the calendar and provider-link surfaces as well.
 2. Run focused pytest files covering settings UI, settings IA flow, calendar,
    provider-link and cabinet shell contracts.

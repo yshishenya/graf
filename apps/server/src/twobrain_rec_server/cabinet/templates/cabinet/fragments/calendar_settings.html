@@ -69,13 +69,8 @@
 
 <main class="cabinet-main calendar-settings-main" id="calendar-settings-region" data-cabinet-fragment="calendar-settings">
   <div class="cabinet-workspace calendar-settings">
-    <div class="cabinet-topbar calendar-settings__topbar">
+    <header class="cabinet-topbar calendar-settings__topbar">
       <div class="page-title">
-        <nav class="crumbs" aria-label="Путь к разделу">
-          {% for crumb in surface.breadcrumb %}
-          {% if loop.last %}<strong>{{ crumb }}</strong>{% else %}<span>{{ crumb }}</span><span aria-hidden="true">/</span>{% endif %}
-          {% endfor %}
-        </nav>
         <h1>{{ surface.title }}</h1>
         <p class="page-subtitle">{{ surface.subtitle }}</p>
       </div>
@@ -83,7 +78,7 @@
         <span><strong>{{ surface.sources|length }}</strong> {{ surface.source_count_word }}</span>
         <span><strong>{{ surface.selected_calendar_count_total }}</strong> {{ surface.selected_calendar_count_total_word }}</span>
       </div>
-    </div>
+    </header>
     {{ settings_ui.navigation(settings_navigation, active="calendar", back_href=("/desktop/meetings" if embedded else "/meetings")) }}
 
     {% if surface.notices %}
@@ -210,11 +205,11 @@
     <section class="calendar-settings-section" aria-labelledby="calendar-providers-title">
       <div class="calendar-section-head">
         <div>
-          <h2 id="calendar-providers-title">Подключить календарь</h2>
+          <h2 id="calendar-providers-title" tabindex="-1">Подключить календарь</h2>
           <p>Выберите сервис. Реквизиты вводятся в отдельном окне.</p>
         </div>
       </div>
-      <div class="calendar-provider-buttons" aria-label="Поддерживаемые провайдеры календаря">
+      <div class="calendar-provider-buttons" role="group" aria-labelledby="calendar-providers-title">
         {% for provider in surface.providers %}
         {{ provider_button(provider) }}
         {{ provider_dialog(provider, base_path, csrf_token) }}

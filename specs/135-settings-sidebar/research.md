@@ -4,7 +4,9 @@
 
 - The existing canonical model is `settings_category_navigation()` in
   `apps/server/src/twobrain_rec_server/cabinet/view_models.py`. It already
-  defines six safe, explicit categories and builds browser/embedded prefixes.
+  defines five actionable safe, explicit categories and builds
+  browser/embedded prefixes; the overview remains a separate `/settings`
+  entry point.
 - `settings_navigation.html` is imported by all settings pages and by the
   calendar/provider-link surfaces. A shared macro is therefore the smallest
   parity-preserving change.
@@ -26,9 +28,9 @@
 3. Use a desktop CSS grid with a fixed-width inner rail and a flexible content
    column. At `max-width: 640px`, switch to one column and keep the complete
    menu as a normal vertical block.
-4. Keep scope labels in page headers and content cards, where they explain
-   impact without making the rail too wide. The overview cards remain useful
-   descriptions, but the rail is the primary navigation mechanism.
+4. Keep scope labels in page content, where they explain impact without making
+   the rail too wide. The overview does not repeat the category links because
+   the rail is the primary navigation mechanism.
 5. Reuse existing focus-visible styles, spacing variables and color tokens. No
    new dependency, icon system or JavaScript behavior is needed.
 

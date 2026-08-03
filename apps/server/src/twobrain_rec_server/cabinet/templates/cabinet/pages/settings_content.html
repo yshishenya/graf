@@ -3,38 +3,16 @@
   <div class="cabinet-workspace settings-page">
     <header class="cabinet-topbar settings-page__topbar">
       <div class="page-title">
-        <p class="eyebrow">Настройки</p>
         <h1>Настройки</h1>
-        <p class="page-subtitle">Здесь собраны только доступные сейчас настройки. У каждого раздела указано, на что он влияет.</p>
       </div>
     </header>
 
     {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
 
-    <section class="settings-section settings-overview" aria-labelledby="settings-overview-title" data-settings-overview>
-      <div class="settings-section__heading">
-        <div>
-          <p class="eyebrow">Все разделы</p>
-          <h2 id="settings-overview-title">Что можно настроить</h2>
-          <p class="muted">Если настройка относится к конкретному пространству или Mac, это видно до перехода.</p>
-        </div>
-      </div>
-      <div class="settings-category-grid">
-        {% for item in settings_navigation if item.id != "overview" %}
-        <a class="settings-category-card" href="{{ item.href }}" data-settings-category="{{ item.id }}">
-          <span class="settings-category-card__label">{{ item.label }}</span>
-          {% if item.scope_label %}<span class="settings-scope-badge">{{ item.scope_label }}</span>{% endif %}
-          <span class="settings-category-card__description">{{ item.description }}</span>
-          <span class="settings-category-card__action" aria-hidden="true">Открыть →</span>
-        </a>
-        {% endfor %}
-      </div>
-    </section>
-
     <section class="settings-section settings-boundary-card" aria-labelledby="settings-boundary-title">
       <div>
-        <h2 id="settings-boundary-title">Где находятся специальные настройки</h2>
-        <p class="muted">Запись встречи и обнаружение приложений настраиваются в приложении GRAF для macOS. Веб-интерфейс только объясняет границу и не меняет политику записи.</p>
+        <h2 id="settings-boundary-title">Запись на этом Mac</h2>
+        <p class="muted">Настройте запись в приложении GRAF для macOS.</p>
       </div>
       <a class="button quiet" href="{{ (settings_navigation | selectattr('id', 'equalto', 'recording') | list | first).href }}">О настройках записи</a>
     </section>

@@ -415,6 +415,21 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertFalse(source.localizedCaseInsensitiveContains("diagnostic"))
     }
 
+    func testEmbeddedSettingsRouteOpensNativeMeetingDetectionWindow() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent(
+                    "apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift"
+                ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("decision.route.kind == .meetingDetectionSettings"))
+        XCTAssertTrue(source.contains("navigationController.cancelPendingNavigation(webView: webView)"))
+        XCTAssertTrue(source.contains("onOpenMeetingDetectionSettings()"))
+        XCTAssertTrue(source.contains("decisionHandler(.cancel)"))
+    }
+
     func testDesktopAppInstallsStandardEditMenuCommandsForEmbeddedCabinetFields() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()

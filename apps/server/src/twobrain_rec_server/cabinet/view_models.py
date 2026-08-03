@@ -1385,10 +1385,10 @@ class SharedWithMeMeetingItem:
 class SettingsCategoryView:
     id: str
     label: str
-    description: str
     scope_label: str
     href: str
     group_label: str
+    icon: str
 
 
 def settings_category_navigation(
@@ -1399,64 +1399,56 @@ def settings_category_navigation(
     base = "/desktop/settings" if embedded else "/settings"
     definitions = (
         (
-            "overview",
-            "Обзор",
-            "Все разделы настроек в одном месте.",
-            "",
-            "",
-            "Основное",
-        ),
-        (
             "recording",
             "Запись",
-            "Подсказки и обнаружение встреч на этом Mac.",
             "На этом Mac",
             "/recording",
             "Встречи",
+            "video",
         ),
         (
             "summaries",
             "Итоги",
-            "Форматы итогов и личные шаблоны.",
             "В этом пространстве",
             "/summaries",
             "Встречи",
+            "transcript",
         ),
         (
             "calendar",
             "Календари",
-            "Источники, выбор календарей и подсказки.",
             "Личная настройка",
             "/integrations/calendar",
             "Встречи",
+            "calendar-days",
         ),
         (
             "workspace",
             "Пространство",
-            "Активное пространство и приглашения.",
             "В этом пространстве",
             "/workspace",
-            "Пространство",
+            "Рабочее пространство",
+            "users-round",
         ),
         (
             "account",
             "Аккаунт и безопасность",
-            "Способы входа и зарегистрированные устройства.",
             "Личная настройка",
             "/account",
             "Аккаунт",
+            "settings",
         ),
     )
     return tuple(
         SettingsCategoryView(
             id=category_id,
             label=label,
-            description=description,
             scope_label=scope_label,
             href=base + suffix,
             group_label=group_label,
+            icon=icon,
         )
-        for category_id, label, description, scope_label, suffix, group_label in definitions
+        for category_id, label, scope_label, suffix, group_label, icon in definitions
     )
 
 
