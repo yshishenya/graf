@@ -9,7 +9,7 @@
         <p class="page-subtitle">Выберите, где будут создаваться новые записи, и обработайте приглашения в команды.</p>
       </div>
     </header>
-    {{ settings_ui.navigation(settings_navigation, active=settings_active) }}
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
 
     {% if workspace_switch_result %}<p class="settings-status" role="status" aria-live="polite">{{ workspace_switch_result }}</p>{% endif %}
     <section class="settings-section cabinet-card" id="active-workspace" aria-labelledby="active-workspace-title">

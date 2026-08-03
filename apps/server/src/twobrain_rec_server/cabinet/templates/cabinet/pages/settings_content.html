@@ -9,7 +9,7 @@
       </div>
     </header>
 
-    {{ settings_ui.navigation(settings_navigation, active=settings_active) }}
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
 
     <section class="settings-section settings-overview" aria-labelledby="settings-overview-title" data-settings-overview>
       <div class="settings-section__heading">

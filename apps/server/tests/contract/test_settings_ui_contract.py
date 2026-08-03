@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -27,6 +28,74 @@ def test_settings_overview_exposes_supported_categories_and_scope_labels() -> No
         assert "На этом Mac" in page
         assert "provider_subject" not in page
         assert "candidate_identity_subject" not in page
+
+
+def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> None:
+    expected_ids = ("overview", "recording", "summaries", "calendar", "workspace", "account")
+    expected_groups = ("Основное", "Встречи", "Пространство", "Аккаунт")
+    expected_suffixes = {
+        "overview": "",
+        "recording": "/recording",
+        "summaries": "/summaries",
+        "calendar": "/integrations/calendar",
+        "workspace": "/workspace",
+        "account": "/account",
+    }
+
+    for category in ("overview", "recording", "summaries", "workspace", "account"):
+        for embedded, prefix in ((False, "/settings"), (True, "/desktop/settings")):
+            page = render_settings_page(embedded=embedded, category=category)
+            navigation = re.search(
+                r'<nav class="settings-navigation".*?</nav>', page, flags=re.DOTALL
+            )
+
+            assert navigation is not None
+            markup = navigation.group(0)
+            assert tuple(re.findall(r'data-settings-nav="([^"]+)"', markup)) == expected_ids
+            assert tuple(
+                re.findall(r'class="settings-navigation__group-label">([^<]+)', markup)
+            ) == expected_groups
+            assert markup.count('aria-current="page"') == 1
+            assert f'data-settings-nav="{category}"' in markup
+            assert f'href="{"/desktop" if embedded else ""}/meetings"' in markup
+            for category_id, suffix in expected_suffixes.items():
+                assert re.search(
+                    rf'<a[^>]+href="{re.escape(prefix + suffix)}"[^>]*'
+                    rf'data-settings-nav="{category_id}"[^>]*>',
+                    markup,
+                ) or re.search(
+                    rf'<a[^>]+data-settings-nav="{category_id}"[^>]*'
+                    rf'href="{re.escape(prefix + suffix)}"[^>]*>',
+                    markup,
+                )
+
+
+def test_settings_sidebar_uses_vertical_accessible_layout_without_horizontal_only_menu() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
+        encoding="utf-8"
+    )
+    navigation_css = css[css.index(".settings-navigation {") : css.index(".settings-category-grid")]
+
+    assert "overflow-x: auto" not in navigation_css
+    assert "min-height: 44px" in navigation_css
+    assert ".settings-navigation__item:focus-visible" in navigation_css
+    assert ".settings-navigation__back" in navigation_css
+    assert "color: var(--muted)" in navigation_css
+    assert "grid-template-columns: 1fr" in css[css.index("@media (max-width: 640px)") :]
+
+
+def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
+        encoding="utf-8"
+    )
+
+    calendar_rules = re.findall(r"\.calendar-settings\s*\{([^}]*)\}", css)
+
+    assert calendar_rules
+    assert any(re.search(r"\bgap:\s*24px;", rule) for rule in calendar_rules)
+    assert not any(re.search(r"\bgap:\s*0;", rule) for rule in calendar_rules)
 
 
 def test_settings_route_map_has_no_arbitrary_category_redirect() -> None:
