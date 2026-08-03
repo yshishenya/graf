@@ -110,7 +110,7 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         )
     }
 
-    func testV5WriterFailsClosedForUncomparableSourceClocksWithoutPublishingAudio() throws {
+    func testV5WriterPreservesAvailableAudioForUncomparableSourceClocks() throws {
         let root = makeRoot("v5-system-audio-clock-mismatch")
         defer { try? FileManager.default.removeItem(at: root) }
         let micSource = BufferedLocalRecordingSampleSource(channelCount: 1)
@@ -129,14 +129,17 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 21))
         let packageNames = Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path))
 
-        XCTAssertEqual(packageNames, Set(["manifest.json"]))
+        XCTAssertEqual(packageNames, Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"]))
         XCTAssertEqual(manifest.status, .failed)
-        XCTAssertEqual(manifest.failureReason, .timelineMisaligned)
+        XCTAssertEqual(manifest.failureReason, .captureFailed)
+        XCTAssertEqual(manifest.captureFailureCode, "uncomparable_presentation_times")
         XCTAssertEqual(manifest.transcriptionReadiness, .failed)
         XCTAssertFalse(manifest.isComplete)
+        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
+        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
     }
 
-    func testV5WriterFailsClosedWhenEitherRequiredSourceHasNoFrames() throws {
+    func testV5WriterPreservesAvailableAudioWhenEitherRequiredSourceHasNoFrames() throws {
         for microphoneOnly in [true, false] {
             let root = makeRoot("v5-required-source-\(microphoneOnly)")
             defer { try? FileManager.default.removeItem(at: root) }
@@ -162,8 +165,10 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
             XCTAssertFalse(manifest.isComplete)
             XCTAssertEqual(
                 Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
-                Set(["manifest.json"])
+                Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
             )
+            XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
+            XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
         }
     }
 

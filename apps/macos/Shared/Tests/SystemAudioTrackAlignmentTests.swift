@@ -20,7 +20,7 @@ final class SystemAudioTrackAlignmentTests: XCTestCase {
         XCTAssertEqual(health.gateStatus, .passed)
     }
 
-    func testDurationDifferenceAboveThreeSecondsFailsAlignment() {
+    func testDurationDifferenceIsTelemetryAndDoesNotCreateLegacyTimelineFailure() {
         let health = CaptureHealthMonitor().snapshot(
             sessionId: "session",
             phase: .activeRecording,
@@ -31,8 +31,8 @@ final class SystemAudioTrackAlignmentTests: XCTestCase {
         )
 
         XCTAssertEqual(health.durationDifferenceSeconds, 3.001, accuracy: 0.001)
-        XCTAssertEqual(health.gateStatus, .failed)
-        XCTAssertEqual(health.failureReason, .timelineMisaligned)
+        XCTAssertEqual(health.gateStatus, .passed)
+        XCTAssertEqual(health.failureReason, .none)
     }
 }
 #endif

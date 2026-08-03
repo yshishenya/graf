@@ -36,8 +36,14 @@ public struct LocalRecordingManifestService: Sendable {
         privacySegments: [ProductPrivacySegment] = [],
         targetMuteCapability: TargetMuteCapability? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
-        limitationCopyShownAt: Date? = nil
+        limitationCopyShownAt: Date? = nil,
+        captureFailureCode: String? = nil
     ) -> LocalRecordingManifest {
+        // `timeline_misaligned` is a legacy persisted value. Never create it
+        // for a new package, even if an older caller passes it through.
+        let persistedFailureReason = failureReason == .timelineMisaligned
+            ? .captureFailed
+            : failureReason
         let durationDifferenceSeconds = Self.v5DurationDifferenceSeconds(tracks: tracks)
         let hasExactV5Artifacts = tracks.count == 2 &&
             Set(tracks.map(\.role)) == Set([.mixedMeetingAudio, .reviewPlayback]) &&
@@ -47,12 +53,12 @@ public struct LocalRecordingManifestService: Sendable {
             scopeApproval?.isAcceptedForMeetingRecording == true &&
             permissions?.allowsAcceptedRecording == true &&
             durationDifferenceSeconds <= 0.1 &&
-            failureReason == .none
+            persistedFailureReason == .none
         let status: LocalRecordingSessionStatus = if complete {
             .saved
-        } else if Self.isBlockedFailure(failureReason) {
+        } else if Self.isBlockedFailure(persistedFailureReason) {
             .blocked
-        } else if failureReason != .none || tracks.contains(where: { $0.status == .failed }) {
+        } else if persistedFailureReason != .none || tracks.contains(where: { $0.status == .failed }) {
             .failed
         } else {
             .degraded
@@ -87,7 +93,8 @@ public struct LocalRecordingManifestService: Sendable {
             canonicalMixProfile: LocalRecordingManifest.canonicalMixProfileVersion,
             tracks: tracks,
             localDeletionRegistered: false,
-            failureReason: complete ? .none : failureReason,
+            failureReason: complete ? .none : persistedFailureReason,
+            captureFailureCode: captureFailureCode,
             durationDifferenceSeconds: durationDifferenceSeconds,
             scopeApproval: scopeApproval,
             permissions: permissions,

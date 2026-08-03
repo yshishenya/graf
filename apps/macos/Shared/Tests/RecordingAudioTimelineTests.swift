@@ -242,6 +242,53 @@ final class RecordingAudioTimelineTests: XCTestCase {
         XCTAssertNoThrow(try timeline.finish())
     }
 
+    func testSlowerSourceCanArriveAfterReorderWindowWithoutFalseLateBatch() throws {
+        let timeline = RecordingAudioTimeline(
+            configuration: .init(reorderWindowFrames: 48_000)
+        )
+
+        try timeline.append(
+            source: .microphone,
+            batch: batch(
+                samples: Array(repeating: 0.4, count: 480),
+                at: 0,
+                clockDomain: .sourcePresentationTime
+            )
+        )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.2, count: 480),
+                at: 0,
+                clockDomain: .sourcePresentationTime
+            )
+        )
+
+        for index in 1...220 {
+            try timeline.append(
+                source: .microphone,
+                batch: batch(
+                    samples: Array(repeating: 0.4, count: 480),
+                    at: Double(index) * 0.01,
+                    clockDomain: .sourcePresentationTime
+                )
+            )
+        }
+
+        XCTAssertNoThrow(
+            try timeline.append(
+                source: .systemAudio,
+                batch: batch(
+                    samples: Array(repeating: 0.2, count: 480),
+                    at: 0.01,
+                    clockDomain: .sourcePresentationTime
+                )
+            )
+        )
+        XCTAssertNoThrow(try timeline.finish())
+        XCTAssertGreaterThan(timeline.metrics.outputFrameCount, 0)
+    }
+
     func testSmallPTSDriftRemainsBoundedAndMeasurable() throws {
         let timeline = RecordingAudioTimeline(
             configuration: .init(
