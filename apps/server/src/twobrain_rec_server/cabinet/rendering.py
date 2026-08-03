@@ -1695,41 +1695,86 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
 
 
 def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
-    outcomes = [
+    primary = [
         ("summary", "Summary", review.notes_action_truth.summary),
-        ("key_points", "Key points", review.notes_action_truth.key_points),
-        ("decisions", "Decisions", review.notes_action_truth.decisions),
         ("action_items", "Action Items", review.notes_action_truth.action_items),
+        ("decisions", "Decisions", review.notes_action_truth.decisions),
+    ]
+    secondary = [
+        ("key_points", "Key points", review.notes_action_truth.key_points),
         ("followups", "Follow-ups", review.notes_action_truth.followups),
         ("risks", "Risks", review.notes_action_truth.risks),
         ("questions", "Questions", review.notes_action_truth.questions),
         ("evidence", "Evidence", review.notes_action_truth.evidence),
     ]
-    rows = "".join(
-        _render_notes_outcome_row(category, title, state) for category, title, state in outcomes
+    primary_rows = "".join(
+        _render_notes_outcome_row(category, title, state) for category, title, state in primary
+    )
+    secondary_rows = "".join(
+        _render_notes_outcome_row(category, title, state) for category, title, state in secondary
     )
     source = escape(_notes_source_label(review.notes_action_truth.source_basis))
     source_basis = escape(review.notes_action_truth.source_basis)
+    secondary_count = sum(
+        state.state == "available" and any(item.text for item in state.items)
+        for _, _, state in secondary
+    )
+    secondary_label = "Дополнительные разделы"
+    if secondary_count:
+        secondary_label += f" ({secondary_count})"
     return f"""
-      <div class="notes" data-outcome-source-basis="{source_basis}">
-        <h3>{escape(_ui_text("Итоги встречи"))}</h3>
-        <div class="state-list notes-outcomes">
-          {rows}
+      <section class="notes" data-outcome-source-basis="{source_basis}" aria-labelledby="meeting-outcomes-title">
+        <div class="notes-header">
+          <div class="notes-header-copy">
+            <h3 id="meeting-outcomes-title">{escape(_ui_text("Итоги встречи"))}</h3>
+            <p class="notes-source-line">Источник: {source}</p>
+          </div>
         </div>
-        <div class="muted">{escape(_ui_text("Outcome source"))}: {source}</div>
-      </div>
+        <div class="notes-outcomes notes-primary-outcomes">
+          {primary_rows}
+        </div>
+        <details class="notes-more">
+          <summary>{secondary_label}</summary>
+          <div class="notes-outcomes notes-secondary-outcomes" aria-label="Дополнительные разделы">
+            {secondary_rows}
+          </div>
+        </details>
+      </section>
     """
 
 
-def _render_notes_outcome_row(category: str, title: str, state: NotesActionCategoryState) -> str:
+def _render_notes_outcome_row(
+    category: str,
+    title: str,
+    state: NotesActionCategoryState,
+) -> str:
     state_name = escape(state.state)
-    items = "".join(_render_outcome_item(item) for item in state.items)
+    item_html = (
+        "".join(_render_outcome_item(item) for item in state.items if item.text)
+        if state.state == "available"
+        else ""
+    )
+    items = f'<div class="notes-items">{item_html}</div>' if item_html else ""
+    state_reason = "" if state.state == "available" else _ui_text(state.reason)
+    state_html = (
+        f'<span class="notes-state-label">{escape(_ui_text(state.label))}</span>'
+        if state.state != "available"
+        else ""
+    )
+    reason_html = (
+        f'<p class="notes-state-copy">{escape(state_reason)}</p>' if state_reason else ""
+    )
     return f"""
-      <div class="state-row notes-outcome-row" data-outcome-category="{escape(category)}" data-outcome-state="{state_name}">
-        <span><strong>{escape(_notes_title(title))}</strong><br><span class="muted">{escape(_ui_text(state.reason))}</span></span>
-        <span class="chip {state_name}">{escape(_ui_text(state.label))}</span>
+      <section class="notes-outcome-row notes-section" data-outcome-category="{escape(category)}" data-outcome-state="{state_name}">
+        <div class="notes-section-header">
+          <div class="notes-section-title">
+            <h4>{escape(_notes_title(title))}</h4>
+            {reason_html}
+          </div>
+          {state_html}
+        </div>
         {items}
-      </div>
+      </section>
     """
 
 
@@ -1737,13 +1782,54 @@ def _render_outcome_item(item) -> str:
     text = escape(item.text or "")
     if not text:
         return ""
-    refs = ", ".join(
-        _timecode(int(ref.start_seconds or 0))
-        for ref in item.source_refs[:2]
-        if ref.start_seconds is not None
+    owner = escape((item.owner_text or "").strip())
+    due_date = escape((item.due_date_text or "").strip())
+    metadata = []
+    if owner:
+        metadata.append(f'<span class="notes-item-meta">Ответственный: {owner}</span>')
+    if due_date:
+        metadata.append(f'<span class="notes-item-meta">Срок: {due_date}</span>')
+
+    truth_label = getattr(item, "truth_label", "")
+    truth_copy = {
+        "supported": "Подтверждено расшифровкой",
+        "not_found": "Не найдено",
+        "not_inferable": "Не удалось определить",
+        "unsafe": "Нужна проверка",
+        "blocked": "Заблокировано",
+    }.get(truth_label, _ui_text(truth_label))
+    if truth_copy and truth_label != "supported":
+        metadata.append(
+            f'<span class="notes-item-meta notes-item-truth" data-outcome-truth-label="{escape(truth_label)}">{escape(truth_copy)}</span>'
+        )
+
+    source_controls = []
+    for ref in item.source_refs[:2]:
+        if ref.start_seconds is None:
+            continue
+        seconds = escape(str(ref.start_seconds))
+        timestamp = _timecode(int(ref.start_seconds))
+        source_label = f"Источник: {timestamp}"
+        source_controls.append(
+            f'<button type="button" class="notes-source-link" data-seek-seconds="{seconds}" '
+            f'data-source-label="{escape(source_label)}" '
+            f'aria-label="Открыть источник {escape(timestamp)} в расшифровке">{escape(timestamp)}</button>'
+        )
+    if source_controls:
+        source_html = (
+            '<div class="notes-item-sources"><span class="notes-source-label">Источник:</span>'
+            + "".join(source_controls)
+            + "</div>"
+        )
+    else:
+        source_html = ""
+    metadata_html = (
+        f'<div class="notes-item-meta-row">{"".join(metadata)}</div>' if metadata else ""
     )
-    refs_html = f'<span class="muted">Источник: {escape(refs)}</span>' if refs else ""
-    return f'<div class="outcome-item"><span>{text}</span>{refs_html}</div>'
+    return (
+        f'<article class="outcome-item" data-outcome-truth-label="{escape(truth_label)}">'
+        f'<p class="outcome-item-text">{text}</p>{metadata_html}{source_html}</article>'
+    )
 
 
 def _empty_title(review: MeetingReviewResponse) -> str:

@@ -1558,7 +1558,7 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
     assert 'data-detail-panel="outcomes" hidden' in page
     assert 'data-detail-panel="recording"' in page
-    assert "const activateDetailTab = (name)" in _cabinet_js()
+    assert "const activateDetailTab = (name, { updateUrl = true } = {})" in _cabinet_js()
     assert "Транскрипт готовится" in page
     assert "Поделиться" in page
     assert 'data-share-dialog-open' in page
@@ -2159,9 +2159,175 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
     assert "Источник: 00:12" in page
     assert "Ключевое" in page
     css = _cabinet_css()
-    assert ".notes-outcome-row .outcome-item" in css
-    assert "grid-column: 1 / -1" in css
+    assert ".notes-more" in css
+    assert ".notes-primary-outcomes" in css
     assert 'class="playback-bar detail-playback"' in page
+
+
+def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> None:
+    review = _review()
+
+    def available(label: str, category: str, items: list[OutcomeItemView]) -> NotesActionCategoryState:
+        return NotesActionCategoryState(
+            state="available",
+            label=label,
+            reason="Сохранённый результат связан с расшифровкой.",
+            readiness_impact="closes_gap",
+            copy_key=f"notes.{category}.available",
+            items=items,
+        )
+    empty = NotesActionCategoryState(
+        state="not_found",
+        label="Не найдено",
+        reason="В расшифровке нет надёжной опоры для этой категории.",
+        readiness_impact="closes_gap",
+        copy_key="notes.outcomes.not_found",
+    )
+    review.notes_action_truth = NotesActionTruthState(
+        summary=available(
+            "Итоги готовы",
+            "summary",
+            [
+                OutcomeItemView(
+                    category="summary",
+                    sequence=0,
+                    text="Команда согласовала следующий шаг.",
+                    truth_label="supported",
+                    source_refs=[
+                        OutcomeSourceReferenceView(
+                            sequence=0,
+                            start_seconds=12.5,
+                            end_seconds=20.0,
+                            evidence_kind="segment",
+                        ),
+                    ],
+                ),
+            ],
+        ),
+        key_points=empty,
+        decisions=available(
+            "Решения",
+            "decisions",
+            [
+                OutcomeItemView(
+                    category="decisions",
+                    sequence=0,
+                    text="Проверить план на следующей встрече.",
+                    truth_label="supported",
+                ),
+            ],
+        ),
+        action_items=available(
+            "Действия",
+            "action_items",
+            [
+                OutcomeItemView(
+                    category="action_items",
+                    sequence=0,
+                    text="Подготовить план миграции.",
+                    owner_text="Алексей",
+                    due_date_text="до пятницы",
+                    truth_label="supported",
+                    source_refs=[
+                        OutcomeSourceReferenceView(
+                            sequence=1,
+                            start_seconds=45.0,
+                            end_seconds=52.0,
+                            evidence_kind="segment",
+                        ),
+                    ],
+                ),
+                OutcomeItemView(
+                    category="action_items",
+                    sequence=1,
+                    text="Проверить доступы.",
+                    truth_label="supported",
+                ),
+            ],
+        ),
+        followups=empty,
+        risks=empty,
+        questions=empty,
+        evidence=empty,
+        source_basis="stored_output",
+    )
+    review.content_exports = ContentExportCapabilityResponse(
+        processing_result_id=uuid4(),
+        outcome_set_id=uuid4(),
+        transcript=ContentExportReadiness(state="available"),
+        summary=ContentExportReadiness(state="available"),
+        combined=ContentExportReadiness(state="available"),
+        formats={
+            "transcript": ["txt", "md"],
+            "summary": ["txt", "md"],
+            "combined": ["txt", "md"],
+        },
+        defaults=ContentExportDefaults(),
+        language="ru",
+        duration_seconds=120,
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert page.index('data-outcome-category="summary"') < page.index(
+        'data-outcome-category="action_items"'
+    ) < page.index('data-outcome-category="decisions"')
+    assert "Алексей" in page
+    assert "до пятницы" in page
+    assert "Ответственный не определён" not in page
+    assert "Срок не определён" not in page
+    assert 'data-outcome-truth-label="supported"' in page
+    assert 'data-seek-seconds="12.5"' in page
+    assert 'data-seek-seconds="45.0"' in page
+    assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
+    assert 'data-export-dialog-open' in page
+    assert 'data-export-scope="summary"' not in page
+    assert 'class="notes-more"' in page
+
+
+def test_detail_shell_does_not_render_non_available_outcome_items() -> None:
+    review = _review()
+    blocked = NotesActionCategoryState(
+        state="blocked",
+        label="Заблокировано",
+        reason="Итоги требуют проверки перед показом.",
+        readiness_impact="keeps_gap_open",
+        copy_key="notes.outcomes.blocked",
+        items=[
+            OutcomeItemView(
+                category="summary",
+                sequence=0,
+                text="Секретный синтетический результат.",
+                truth_label="blocked",
+            )
+        ],
+    )
+    review.notes_action_truth = NotesActionTruthState(
+        summary=blocked,
+        key_points=blocked,
+        decisions=blocked,
+        action_items=blocked,
+        followups=blocked,
+        risks=blocked,
+        questions=blocked,
+        evidence=blocked,
+        source_basis="blocked",
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert "Секретный синтетический результат." not in page
+    assert 'class="outcome-item"' not in page
+    assert "Заблокировано" in page
+    assert "Источник: заблокировано" in page
+
+
+def test_detail_tabs_write_both_supported_url_hashes() -> None:
+    script = _cabinet_js()
+
+    assert "history.replaceState" in script
+    assert 'window.location.hash === "#outcomes"' in script
+    assert 'window.location.hash === "#recording"' in script
 
 
 def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_contract() -> None:
