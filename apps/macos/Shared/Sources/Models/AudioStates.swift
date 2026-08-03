@@ -155,6 +155,8 @@ public enum LocalRecordingFailureReason: String, Codable, Sendable {
     case finalizationFailed = "finalization_failed"
     case emptyRequiredTrack = "empty_required_track"
     case formatNotReady = "format_not_ready"
+    /// Kept only to decode historical manifests. New capture code never emits
+    /// this generic reason; it uses the concrete capture/finalization outcome.
     case timelineMisaligned = "timeline_misaligned"
     case permissionDenied = "permission_denied"
     case scopeUnavailable = "scope_unavailable"

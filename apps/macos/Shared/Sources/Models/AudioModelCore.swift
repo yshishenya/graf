@@ -538,6 +538,9 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var diagnosticSafe: Bool
     public var localDeletionRegistered: Bool
     public var failureReason: LocalRecordingFailureReason
+    /// Safe machine-readable capture/finalization detail. It contains no
+    /// audio, transcript content, credentials, or local paths.
+    public var captureFailureCode: String?
     public var durationDifferenceSeconds: Double
     public var scopeApproval: CaptureScopeApproval?
     public var permissions: SystemAudioPermissionSnapshot?
@@ -571,6 +574,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         diagnosticSafe: Bool = true,
         localDeletionRegistered: Bool = false,
         failureReason: LocalRecordingFailureReason = .none,
+        captureFailureCode: String? = nil,
         durationDifferenceSeconds: Double = 0,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
@@ -603,6 +607,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.diagnosticSafe = diagnosticSafe
         self.localDeletionRegistered = localDeletionRegistered
         self.failureReason = failureReason
+        self.captureFailureCode = captureFailureCode
         self.durationDifferenceSeconds = durationDifferenceSeconds
         self.scopeApproval = scopeApproval
         self.permissions = permissions

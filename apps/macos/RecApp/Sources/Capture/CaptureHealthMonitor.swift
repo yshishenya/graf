@@ -35,9 +35,6 @@ public struct CaptureHealthMonitor: Sendable {
         } else if protectedFrameCount > 0 {
             failureReason = .protectedAudioBlocked
             gateStatus = .blocked
-        } else if durationDifferenceSeconds > 3 {
-            failureReason = .timelineMisaligned
-            gateStatus = .failed
         } else if incomingFrameCount == 0 {
             failureReason = .noFrames
             gateStatus = .degraded

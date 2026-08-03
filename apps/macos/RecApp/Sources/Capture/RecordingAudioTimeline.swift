@@ -194,7 +194,6 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
     /// Flushes converter tails and emits the exact remaining canonical timeline.
     public func finish() throws {
         guard !finished else { return }
-        defer { finished = true }
 
         if epoch == nil, !pendingBootstrapBatches.isEmpty {
             guard hasBothSourcesInBootstrap else {
@@ -214,6 +213,46 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             try appendCanonicalSamples(flushed, for: source, into: state, at: state.lastInputEndFrame ?? 0)
         }
         try emitAvailableFrames(final: true)
+        finished = true
+    }
+
+    /// Best-effort stop path used after a source boundary or clock error. It
+    /// keeps every source segment that was accepted before the error and mixes
+    /// missing portions as silence. The manifest remains degraded/failed, but
+    /// the audio that was actually captured is still persisted.
+    @discardableResult
+    public func finishPreservingAvailableAudio() -> Bool {
+        guard !finished else { return metrics.outputFrameCount > 0 }
+
+        if epoch == nil, !pendingBootstrapBatches.isEmpty {
+            epoch = pendingBootstrapBatches
+                .map(\.batch.presentationTime)
+                .min(by: { $0.seconds < $1.seconds })
+            let batches = pendingBootstrapBatches
+            pendingBootstrapBatches.removeAll(keepingCapacity: false)
+            bootstrapBufferedCanonicalFrames.removeAll(keepingCapacity: false)
+            for item in batches {
+                try? process(source: item.source, batch: item.batch)
+            }
+        }
+
+        for source in RecordingAudioInput.allCases {
+            guard let state = states[source] else { continue }
+            if let converter = state.converter,
+               let flushed = try? converter.flush(),
+               !flushed.isEmpty
+            {
+                try? appendCanonicalSamples(
+                    flushed,
+                    for: source,
+                    into: state,
+                    at: state.lastInputEndFrame ?? 0
+                )
+            }
+        }
+        try? emitAvailableFrames(final: true)
+        finished = true
+        return metrics.outputFrameCount > 0
     }
 
     /// Converts a timestamp to the stable 48 kHz integer timeline. The integer
@@ -444,7 +483,25 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
     }
 
     private func emitAvailableFrames(final: Bool) throws {
-        let highWaterFrame = states.values.compactMap(\.lastInputEndFrame).max() ?? 0
+        // A mixed frame is final only after both sources have reached it. Using
+        // the fastest source as the watermark makes the slower callback look
+        // late once the reorder window expires, even when its PTS is valid.
+        // That false lateBatch was then surfaced as timeline_misaligned and
+        // caused otherwise recoverable recordings to fail at stop.
+        let sourceWatermarks = RecordingAudioInput.allCases.compactMap {
+            states[$0]?.lastInputEndFrame
+        }
+        let highWaterFrame: Int64
+        if final {
+            // At the stop barrier all accepted batches have been drained, so
+            // the longest source defines the retained local prefix. Missing
+            // source portions are emitted as silence by copySamples.
+            highWaterFrame = sourceWatermarks.max() ?? 0
+        } else if sourceWatermarks.count == RecordingAudioInput.allCases.count {
+            highWaterFrame = sourceWatermarks.min() ?? 0
+        } else {
+            highWaterFrame = 0
+        }
         let targetFrame: Int64
         if final {
             targetFrame = highWaterFrame

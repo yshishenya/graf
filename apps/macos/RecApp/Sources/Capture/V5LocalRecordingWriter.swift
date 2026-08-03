@@ -275,34 +275,47 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             maximumBatchesPerSource: Self.maximumBatchesAtStop,
             failWhenLimitIsReached: true
         )
-        let resolvedFailure: LocalRecordingFailureReason
         var artifact: CanonicalRecordingArtifact?
         if active.terminalFailureReason == nil, failureReason == .none {
             do {
                 try active.timeline.finish()
                 artifact = try active.canonicalWriter.finish()
             } catch {
-                active.recordFailure(Self.failureReason(for: error))
+                // The timeline may have already emitted a valid prefix before
+                // a bad source boundary. Keep that prefix and describe the
+                // failure instead of deleting it.
+                active.recordFailure(
+                    Self.failureReason(for: error),
+                    code: Self.failureCode(for: error)
+                )
+                _ = active.timeline.finishPreservingAvailableAudio()
+                artifact = active.canonicalWriter.finishPreservingAudio()
             }
+        } else {
+            if active.terminalFailureReason == nil {
+                do {
+                    try active.timeline.finish()
+                } catch {
+                    active.recordFailure(
+                        Self.failureReason(for: error),
+                        code: Self.failureCode(for: error)
+                    )
+                    _ = active.timeline.finishPreservingAvailableAudio()
+                }
+            } else {
+                _ = active.timeline.finishPreservingAvailableAudio()
+            }
+            artifact = active.canonicalWriter.finishPreservingAudio()
         }
-        if active.terminalFailureReason != nil || failureReason != .none {
-            active.canonicalWriter.abort()
-            removeFinalArtifacts(in: active.directory)
+        if artifact == nil, active.terminalFailureReason == nil {
+            active.recordFailure(.finalizationFailed, code: "canonical_artifact_unavailable")
         }
-        resolvedFailure = failureReason != .none
+        let resolvedFailure = failureReason != .none
             ? failureReason
             : active.terminalFailureReason ?? .none
 
         let tracks: [LocalRecordingTrack]
-        do {
-            tracks = try makeTracks(for: active, artifact: artifact, failureReason: resolvedFailure)
-        } catch {
-            active.canonicalWriter.abort()
-            removeFinalArtifacts(in: active.directory)
-            active.recordFailure(.finalizationFailed)
-            let finalFailure = failureReason != .none ? failureReason : .finalizationFailed
-            tracks = missingTracks(failureReason: finalFailure)
-        }
+        tracks = makeTracks(for: active, artifact: artifact, failureReason: resolvedFailure)
 
         let microphoneStream = microphoneStream(for: active, stoppedAt: stoppedAt)
         let microphoneHealth = microphoneStream.map { stream in
@@ -333,7 +346,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             privacySegments: active.privacySegments,
             targetMuteCapability: active.targetMuteCapability,
             meetingMuteTruthEvidence: active.meetingMuteTruthEvidence,
-            limitationCopyShownAt: active.limitationCopyShownAt
+            limitationCopyShownAt: active.limitationCopyShownAt,
+            captureFailureCode: active.terminalFailureCode
         )
         try manifestService.write(manifest, to: active.directory.manifestURL)
         lastFinalizedManifest = manifest
@@ -374,7 +388,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         ] {
             guard let source else { continue }
             if source.hasTimestampedOverflow {
-                active.recordFailure(.writeFailed)
+                active.recordFailure(.writeFailed, code: "source_overflow")
                 return
             }
             var drained = 0
@@ -386,7 +400,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                     try active.timeline.append(source: sourceKind, batch: batch)
                     active.observe(batch: batch, source: sourceKind)
                 } catch {
-                    active.recordFailure(Self.failureReason(for: error))
+                    active.recordFailure(
+                        Self.failureReason(for: error),
+                        code: Self.failureCode(for: error)
+                    )
                     return
                 }
             }
@@ -394,7 +411,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 continue
             }
             if source.readTimestampedBatch(maximumFrameCount: Self.batchFrameLimit) != nil {
-                active.recordFailure(.writeFailed)
+                active.recordFailure(.writeFailed, code: "stop_drain_limit_exceeded")
                 return
             }
         }
@@ -404,21 +421,31 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         for active: V5ActiveRecording,
         artifact: CanonicalRecordingArtifact?,
         failureReason: LocalRecordingFailureReason
-    ) throws -> [LocalRecordingTrack] {
-        guard let artifact, failureReason == .none else {
-            return missingTracks(failureReason: failureReason == .none ? .noFrames : failureReason)
+    ) -> [LocalRecordingTrack] {
+        let persistedFailureReason = failureReason == .timelineMisaligned ? .captureFailed : failureReason
+        guard let artifact else {
+            return missingTracks(failureReason: persistedFailureReason == .none ? .noFrames : persistedFailureReason)
         }
-        let mediaBytes = try byteCount(of: artifact.transcriptionAudioURL)
-        let playbackBytes = try byteCount(of: artifact.reviewAudioURL)
-        let playbackFile = try AVAudioFile(forReading: artifact.reviewAudioURL)
+        guard let mediaBytes = try? byteCount(of: artifact.transcriptionAudioURL),
+              let playbackBytes = try? byteCount(of: artifact.reviewAudioURL),
+              let playbackFile = try? AVAudioFile(forReading: artifact.reviewAudioURL),
+              let mediaHash = try? Self.sha256(of: artifact.transcriptionAudioURL),
+              let playbackHash = try? Self.sha256(of: artifact.reviewAudioURL)
+        else {
+            return missingTracks(
+                failureReason: persistedFailureReason == .none ? .finalizationFailed : persistedFailureReason
+            )
+        }
         let playbackDurationMs = Int((Double(playbackFile.length) / playbackFile.fileFormat.sampleRate) * 1_000)
         let aacPresentationFrameDelta = playbackFile.length - artifact.canonicalFrameCount
+        let trackStatus: LocalRecordingTrackStatus = persistedFailureReason == .none ? .saved : .degraded
+        let timelineAligned = persistedFailureReason == .none
         let media = LocalRecordingTrack(
             trackId: "mixed-meeting-audio",
             role: .mixedMeetingAudio,
             sourceKind: .canonicalMix,
             mediaScribeField: .mediaFile,
-            status: .saved,
+            status: trackStatus,
             fileName: "meeting-transcription.wav",
             format: "wav-pcm-s16le",
             sampleRate: CanonicalRecordingWriter.transcriptionSampleRate,
@@ -426,18 +453,18 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             bitsPerSample: 16,
             durationMs: artifact.transcriptionDurationMs,
             byteCount: mediaBytes,
-            sha256: try Self.sha256(of: artifact.transcriptionAudioURL),
+            sha256: mediaHash,
             frameCount: artifact.transcriptionFrameCount,
             timelineStartMs: 0,
-            timelineAligned: true,
-            failureReason: .none
+            timelineAligned: timelineAligned,
+            failureReason: persistedFailureReason
         )
         let playback = LocalRecordingTrack(
             trackId: "review-playback",
             role: .reviewPlayback,
             sourceKind: .canonicalMix,
             mediaScribeField: .playbackFile,
-            status: .saved,
+            status: trackStatus,
             fileName: "meeting-review.m4a",
             format: "m4a-aac-lc",
             sampleRate: playbackFile.fileFormat.sampleRate,
@@ -445,12 +472,12 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             bitsPerSample: 0,
             durationMs: playbackDurationMs,
             byteCount: playbackBytes,
-            sha256: try Self.sha256(of: artifact.reviewAudioURL),
+            sha256: playbackHash,
             frameCount: playbackFile.length,
             aacPresentationFrameDelta: aacPresentationFrameDelta,
             timelineStartMs: 0,
-            timelineAligned: true,
-            failureReason: .none
+            timelineAligned: timelineAligned,
+            failureReason: persistedFailureReason
         )
         return [media, playback]
     }
@@ -557,7 +584,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
              RecordingAudioTimelineError.routeGenerationChanged,
              RecordingAudioTimelineError.gapExceedsBound,
              RecordingAudioTimelineError.lateBatch:
-            .timelineMisaligned
+            // Keep the local prefix, but do not emit the legacy generic
+            // timeline_misaligned code for a new package. The failed capture
+            // remains blocked from upload and is retained for recovery.
+            .captureFailed
         case RecordingAudioTimelineError.missingRequiredSource:
             .noFrames
         case RecordingAudioTimelineError.sourceOverflow:
@@ -569,6 +599,49 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             .finalizationFailed
         default:
             .captureFailed
+        }
+    }
+
+    private static func failureCode(for error: Error) -> String {
+        switch error {
+        case RecordingAudioTimelineError.invalidTimestamp:
+            "invalid_timestamp"
+        case RecordingAudioTimelineError.invalidFormat:
+            "invalid_format"
+        case RecordingAudioTimelineError.invalidSamples:
+            "invalid_samples"
+        case RecordingAudioTimelineError.uncomparablePresentationTimes:
+            "uncomparable_presentation_times"
+        case RecordingAudioTimelineError.routeGenerationChanged:
+            "route_generation_changed"
+        case RecordingAudioTimelineError.sourceOverflow:
+            "source_overflow"
+        case RecordingAudioTimelineError.gapExceedsBound:
+            "gap_exceeds_bound"
+        case RecordingAudioTimelineError.lateBatch:
+            "late_batch"
+        case RecordingAudioTimelineError.missingRequiredSource:
+            "missing_required_source"
+        case RecordingAudioTimelineError.converterFailed:
+            "converter_failed"
+        case RecordingAudioTimelineError.alreadyFinished:
+            "already_finished"
+        case CanonicalRecordingWriterError.noFrames:
+            "no_frames"
+        case CanonicalRecordingWriterError.invalidChunk:
+            "invalid_canonical_chunk"
+        case CanonicalRecordingWriterError.nonContiguousChunk:
+            "non_contiguous_canonical_chunk"
+        case CanonicalRecordingWriterError.finalArtifactAlreadyExists:
+            "final_artifact_already_exists"
+        case CanonicalRecordingWriterError.conversionFailed:
+            "conversion_failed"
+        case CanonicalRecordingWriterError.finalizationFailed:
+            "finalization_failed"
+        case CanonicalRecordingWriterError.alreadyFinalized:
+            "already_finalized"
+        default:
+            "capture_failure"
         }
     }
 
@@ -603,11 +676,6 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         try FileManager.default.attributesOfItem(atPath: url.path)
     }
 
-    private func removeFinalArtifacts(in directory: LocalRecordingDirectory) {
-        try? FileManager.default.removeItem(at: directory.transcriptionAudioURL)
-        try? FileManager.default.removeItem(at: directory.reviewAudioURL)
-    }
-
     private func monotonicMs(for date: Date, relativeTo startedAt: Date) -> Int {
         Int(max(0, date.timeIntervalSince(startedAt) * 1_000))
     }
@@ -631,6 +699,7 @@ private final class V5ActiveRecording {
     let recordMicrophone: Bool
     var timer: DispatchSourceTimer?
     var terminalFailureReason: LocalRecordingFailureReason?
+    var terminalFailureCode: String?
     var lastMicrophoneLevel: Double = 0
     var lastIncomingLevel: Double = 0
     var lastMicrophoneFrameAt: Date?
@@ -673,9 +742,10 @@ private final class V5ActiveRecording {
         self.recordMicrophone = recordMicrophone
     }
 
-    func recordFailure(_ reason: LocalRecordingFailureReason) {
+    func recordFailure(_ reason: LocalRecordingFailureReason, code: String? = nil) {
         if terminalFailureReason == nil {
             terminalFailureReason = reason
+            terminalFailureCode = code
         }
     }
 

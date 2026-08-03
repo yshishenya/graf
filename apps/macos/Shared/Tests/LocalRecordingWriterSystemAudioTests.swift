@@ -31,7 +31,7 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertTrue(manifest.isComplete)
     }
 
-    func testExternalFailureRemovesPublishedAudioBeforeWritingFailedManifest() throws {
+    func testExternalFailurePreservesPublishedAudioBeforeWritingFailedManifest() throws {
         let root = makeSystemWriterRoot("v5-manual-failure")
         defer { try? FileManager.default.removeItem(at: root) }
         let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
@@ -53,8 +53,45 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertFalse(manifest.isComplete)
         XCTAssertEqual(
             Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
-            Set(["manifest.json"])
+            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
         )
+        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
+        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
+    }
+
+    func testLegacyTimelineFailureKeepsAudioLocalButBlocksUpload() throws {
+        let root = makeSystemWriterRoot("v5-timeline-warning")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let system = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+
+        let directory = try writer.start(
+            sessionId: "timeline-warning",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(),
+            permissions: systemGrantedPermissions()
+        )
+        microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 4_800), seconds: 100))
+        system.append(systemBatch(samples: Array(repeating: 0.2, count: 4_800), seconds: 100))
+        let manifest = try writer.stop(
+            stoppedAt: Date(timeIntervalSince1970: 11),
+            failureReason: .timelineMisaligned
+        )
+
+        let profile = DesktopUploadQueueService.artifactProfile(
+            manifest: manifest,
+            manifestURL: directory.manifestURL,
+            microphoneURL: directory.directoryURL.appendingPathComponent("mic.wav"),
+            systemAudioURL: directory.directoryURL.appendingPathComponent("incoming.wav"),
+            reviewAudioURL: directory.reviewAudioURL,
+            transcriptionURL: directory.transcriptionAudioURL
+        )
+
+        XCTAssertFalse(manifest.isComplete)
+        XCTAssertEqual(manifest.failureReason, .captureFailed)
+        XCTAssertNil(profile.qualityWarningReason)
+        XCTAssertFalse(profile.isUploadable)
     }
 
     func testTimestampedQueueOverflowFailsWithoutPublishingPartialPackage() throws {
@@ -79,11 +116,13 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertFalse(manifest.isComplete)
         XCTAssertEqual(
             Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
-            Set(["manifest.json"])
+            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
         )
+        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
+        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
     }
 
-    func testStopBoundsAnUnboundedTimestampedSourceAndFailsTruthfully() throws {
+    func testStopBoundsAnUnboundedTimestampedSourceAndPreservesCapturedPrefix() throws {
         let root = makeSystemWriterRoot("v5-infinite")
         defer { try? FileManager.default.removeItem(at: root) }
         let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
@@ -111,8 +150,10 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertFalse(writer.isRecording)
         XCTAssertEqual(
             Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
-            Set(["manifest.json"])
+            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
         )
+        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
+        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
     }
 
     func testBufferedSourceSplitsBatchesWithTheirOriginalPTS() throws {

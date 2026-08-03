@@ -1613,7 +1613,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 durationSeconds: durationSeconds,
                 trackCompleteness: tracks,
                 isUploadable: uploadable,
-                qualityWarningReason: nil
+                qualityWarningReason: uploadable ? Self.qualityWarningReason(for: manifest) : nil
             )
         }
         let manifestTrack = UploadTrackCompleteness(

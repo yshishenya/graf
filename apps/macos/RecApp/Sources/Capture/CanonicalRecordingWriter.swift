@@ -148,7 +148,8 @@ public final class CanonicalRecordingWriter: @unchecked Sendable {
     }
 
     /// Flushes the native converter, validates both files, then makes the pair
-    /// visible together. No finalized file is left behind after a failed step.
+    /// visible together. If finalization fails after frames were written, the
+    /// writer stays recoverable so the caller can retain a local salvage copy.
     public func finish() throws -> CanonicalRecordingArtifact {
         guard !finalized else { throw CanonicalRecordingWriterError.alreadyFinalized }
         guard canonicalFrameCount > 0 else {
@@ -171,12 +172,46 @@ public final class CanonicalRecordingWriter: @unchecked Sendable {
                 transcriptionFrameCount: Int64(wavWriter.frameCount)
             )
         } catch let error as CanonicalRecordingWriterError {
-            abort()
             throw error
         } catch {
-            abort()
             throw CanonicalRecordingWriterError.finalizationFailed
         }
+    }
+
+    /// Finalizes every artifact that can still be made playable. This is the
+    /// safety path used when capture ended with a source/timeline error: the
+    /// quality gate remains truthful in the manifest, but already captured
+    /// audio must not be deleted merely because the pair is degraded.
+    ///
+    /// Unlike `finish()`, this path does not reject a pair because its decoded
+    /// durations differ. Each file is validated independently and retained.
+    public func finishPreservingAudio() -> CanonicalRecordingArtifact? {
+        guard !finalized else { return nil }
+        guard canonicalFrameCount > 0 else {
+            abort()
+            return nil
+        }
+
+        do {
+            let tail = try transcriptionConverter.flush()
+            try wavWriter.write(tail)
+        } catch {
+            // The samples already committed to the two encoders still form a
+            // useful local copy. Close and publish what is structurally valid.
+        }
+
+        try? wavWriter.close()
+        reviewFile = nil
+        let published = publishRetainableArtifacts()
+        finalized = true
+        guard published.transcription, published.review else { return nil }
+
+        return CanonicalRecordingArtifact(
+            transcriptionAudioURL: directory.transcriptionAudioURL,
+            reviewAudioURL: directory.reviewAudioURL,
+            canonicalFrameCount: canonicalFrameCount,
+            transcriptionFrameCount: Int64(wavWriter.frameCount)
+        )
     }
 
     /// Safe to call more than once. It deliberately removes only temporary
@@ -235,20 +270,72 @@ public final class CanonicalRecordingWriter: @unchecked Sendable {
     }
 
     private func publishFinalArtifacts() throws {
-        var published: [URL] = []
         do {
             try fileManager.moveItem(at: partialTranscriptionURL, to: directory.transcriptionAudioURL)
-            published.append(directory.transcriptionAudioURL)
             try fileManager.moveItem(at: partialReviewURL, to: directory.reviewAudioURL)
-            published.append(directory.reviewAudioURL)
             try LocalCustodyFileProtection.apply(to: directory.transcriptionAudioURL)
             try LocalCustodyFileProtection.apply(to: directory.reviewAudioURL)
         } catch {
-            for url in published {
-                try? fileManager.removeItem(at: url)
-            }
+            // Never erase a successfully published artifact while trying to
+            // publish its sibling. The package can be recovered from the
+            // retained artifact and the manifest will describe what exists.
             throw CanonicalRecordingWriterError.finalizationFailed
         }
+    }
+
+    private func publishRetainableArtifacts() -> (transcription: Bool, review: Bool) {
+        var transcriptionPublished = fileManager.fileExists(atPath: directory.transcriptionAudioURL.path)
+        var reviewPublished = fileManager.fileExists(atPath: directory.reviewAudioURL.path)
+
+        if !transcriptionPublished,
+           isRetainableTranscriptionArtifact(partialTranscriptionURL)
+        {
+            do {
+                try fileManager.moveItem(at: partialTranscriptionURL, to: directory.transcriptionAudioURL)
+                try LocalCustodyFileProtection.apply(to: directory.transcriptionAudioURL)
+                transcriptionPublished = true
+            } catch {
+                // Keep the partial file in place for local recovery.
+            }
+        }
+
+        if !reviewPublished,
+           isRetainableReviewArtifact(partialReviewURL)
+        {
+            do {
+                try fileManager.moveItem(at: partialReviewURL, to: directory.reviewAudioURL)
+                try LocalCustodyFileProtection.apply(to: directory.reviewAudioURL)
+                reviewPublished = true
+            } catch {
+                // Keep the partial file in place for local recovery.
+            }
+        }
+
+        return (transcriptionPublished, reviewPublished)
+    }
+
+    private func isRetainableTranscriptionArtifact(_ url: URL) -> Bool {
+        guard let wav = try? Data(contentsOf: url), wav.count >= 44,
+              Array(wav.prefix(4)) == [0x52, 0x49, 0x46, 0x46],
+              Array(wav[8..<12]) == [0x57, 0x41, 0x56, 0x45],
+              wav.uint16LE(at: 20) == 1,
+              wav.uint16LE(at: 22) == 1,
+              wav.uint32LE(at: 24) == UInt32(Self.transcriptionSampleRate),
+              wav.uint16LE(at: 34) == 16,
+              wav.uint32LE(at: 40) > 0,
+              Int(wav.uint32LE(at: 40)) <= wav.count - 44
+        else {
+            return false
+        }
+        return true
+    }
+
+    private func isRetainableReviewArtifact(_ url: URL) -> Bool {
+        guard let review = try? AVAudioFile(forReading: url) else { return false }
+        return review.length > 0 &&
+            abs(review.fileFormat.sampleRate - Self.canonicalSampleRate) < 1 &&
+            review.fileFormat.channelCount == 1 &&
+            (review.fileFormat.settings[AVFormatIDKey] as? NSNumber)?.intValue == Int(kAudioFormatMPEG4AAC)
     }
 }
 
