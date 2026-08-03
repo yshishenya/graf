@@ -65,7 +65,7 @@ def test_meeting_player_is_outside_switchable_content_and_truth_stays_contextual
     assert "Медиа-ревизия" in html
     assert "Файлы" in html
     assert 'role="menu" aria-label="Действия со встречей"' in html
-    assert "data-export-dialog-open" not in html
+    assert "data-export-dialog-open" in html
 
 
 def test_browser_and_embedded_denied_meeting_render_only_generic_unavailable_state(client) -> None:
