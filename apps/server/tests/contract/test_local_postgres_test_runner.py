@@ -13,6 +13,7 @@ from tests.fixtures.postgres_test_database import (
 ROOT = Path(__file__).resolve().parents[4]
 RUNNER = ROOT / "apps/server/scripts/run_local_postgres_tests.sh"
 LOCAL_CI = ROOT / "infra/scripts/ci-local.sh"
+REMOTE_CD = ROOT / "infra/scripts/cd-remote.sh"
 
 
 def test_runner_uses_an_isolated_postgres_container_and_disposable_database_names() -> None:
@@ -110,3 +111,10 @@ def test_local_ci_keeps_full_as_default_and_exposes_fast_explicitly() -> None:
     assert 'usage: $0 [--fast|--full]' in script
     assert 'bash apps/server/scripts/run_local_postgres_tests.sh "--${mode}" -q' in script
     assert 'if [[ "$mode" == "full" ]]; then' in script
+
+
+def test_remote_deploy_requires_the_explicit_full_local_ci_lane() -> None:
+    script = REMOTE_CD.read_text(encoding="utf-8")
+
+    assert "local_ci=$([[ \"$SKIP_LOCAL_CI\" == \"1\" ]] && echo skipped || echo full_required)" in script
+    assert "infra/scripts/ci-local.sh --full" in script

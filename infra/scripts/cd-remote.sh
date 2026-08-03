@@ -44,7 +44,7 @@ deploy_result=dry_run
 remote_host=$REMOTE_HOST
 remote_path=$REMOTE_PATH
 branch=$BRANCH
-local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped || echo required)
+local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped || echo full_required)
 posthog_stack_handoff=dry_run_metadata_only
 posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
 posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
@@ -83,7 +83,7 @@ if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
 fi
 
 if [[ "$SKIP_LOCAL_CI" != "1" ]]; then
-  infra/scripts/ci-local.sh
+  infra/scripts/ci-local.sh --full
 fi
 
 remote_script=$(cat <<'SH'
