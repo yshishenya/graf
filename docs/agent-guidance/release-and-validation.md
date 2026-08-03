@@ -3,14 +3,27 @@
 ## Local Validation
 
 Use the feature `quickstart.md` first when working inside a Spec Kit slice. For
-repository-wide local validation, use:
+repository-wide local validation, use one explicit lane:
 
 ```sh
-infra/scripts/ci-local.sh
+# Fast feedback before a code PR.
+infra/scripts/ci-local.sh --fast
+
+# Full baseline for a release candidate or early broad diagnosis.
+infra/scripts/ci-local.sh --full
 ```
 
-This is the canonical local gate for Crisp. Prefer it over ad hoc validation
-when closing a feature or preparing a deploy.
+`--full` is the default when no argument is supplied. The fast lane runs the
+server unit suite, lint and compile checks, and skips the longer macOS and
+deployment-readiness checks. It is for iteration and PR feedback, never a
+release gate. Focused tests remain the first check during implementation.
+
+The **GRAF validation** GitHub workflow automatically runs the fast server lane
+and a macOS build for every PR to `master`. Dispatch the same workflow with
+`lane=full` only when an early full baseline is useful; do not run it after
+every small edit. GitHub branch rules cannot make status checks mandatory on
+the current private-repository plan, so agents must follow this protocol and
+record the selected lane in the PR.
 
 Use targeted tests during development, but do not replace the feature
 quickstart or canonical local gate with a narrow command when the change touches
@@ -28,17 +41,18 @@ Every change must record one risk/validation lane in the final response or PR.
 - **Tiny low-risk code**: run the focused test or lint command for the touched
   path. Add one small runnable check when the change adds non-trivial logic.
 - **Active Spec Kit slice**: use `quickstart.md` and focused tests during
-  development. Run `infra/scripts/ci-local.sh` once at closeout when behavior,
-  shared surfaces, UX/QA expectations, operations, release readiness, or code
-  paths changed.
-- **Significant or high-risk feature**: run the feature quickstart and
-  `infra/scripts/ci-local.sh` before closeout/PR.
+  development, then the fast lane before the PR. Run the full lane only for an
+  early broad baseline or when a release candidate is being prepared.
+- **Significant or high-risk feature**: run the feature quickstart and fast
+  lane before closeout/PR; add a full baseline before release when it helps
+  resolve risk early.
 - **Release / deploy**: run the CD dry-run and execute only after the release
-  gate is met and approved.
+  gate is met and approved. `--execute` runs the full lane for the pinned SHA;
+  this is the mandatory full validation boundary.
 
 Do not rerun full local CI after every small edit inside a slice. Accumulate
-focused checks while developing, then run the repository gate at the closeout
-boundary required by the lane.
+focused checks while developing, use the fast lane for PR feedback, and rely on
+the full exact-SHA gate during the approved production deployment.
 
 ## Public macOS Signing And Migration
 
@@ -112,7 +126,19 @@ must preserve:
 - health checks and smoke evidence;
 - metadata-only evidence.
 
-`--skip-local-ci` bypasses local CI only; it does not bypass production gates.
+Use the exact production sequence:
+
+1. Merge reviewed PRs, then start from a clean checkout of the intended branch
+   synced with `origin/<branch>`.
+2. Run `infra/scripts/cd-remote.sh --dry-run --branch <branch>`.
+3. Obtain explicit user approval for production.
+4. Run `infra/scripts/cd-remote.sh --execute --branch <branch>`. It runs
+   `infra/scripts/ci-local.sh --full` against the pinned commit before remote
+   backup, migration, deployment and smoke checks.
+
+`--skip-local-ci` bypasses the full local CI only; it does not bypass production
+gates. It is reserved for an explicitly approved incident response that names
+the omitted check and accepted risk; it is never a normal speed optimization.
 
 ## Changelog
 

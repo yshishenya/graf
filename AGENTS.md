@@ -197,10 +197,35 @@ Use `docs/agent-guidance/release-and-validation.md` for full rules.
 
 Default validation anchors:
 
-- local CI: `infra/scripts/ci-local.sh`
+- fast local CI: `infra/scripts/ci-local.sh --fast`
+- full local CI: `infra/scripts/ci-local.sh --full`
 - production deploy/smoke: `infra/scripts/cd-remote.sh --dry-run` then
   `infra/scripts/cd-remote.sh --execute` when the release gate is met
 - release prep: `./scripts/prepare-release.sh YYYY.MM.DD.N`
+
+### CI/CD protocol for agents
+
+Use the selected validation lane in this order:
+
+1. During implementation, run focused tests or checks for the changed code.
+2. Before opening or updating a code PR, run `infra/scripts/ci-local.sh --fast`.
+   The **GRAF validation** workflow repeats the fast server lane and macOS
+   build automatically for every PR to `master`; record its result in the PR.
+3. A green fast lane permits an ordinary PR merge. It is not release approval
+   and does not replace focused checks for high-risk work.
+4. For a release candidate, deployment, or early full-baseline request, run the
+   manual **GRAF validation** workflow with `lane=full`, or run
+   `infra/scripts/ci-local.sh --full` locally.
+5. Production deployment starts only from a clean, synced target branch with
+   `infra/scripts/cd-remote.sh --dry-run --branch <branch>`, explicit user
+   approval, then `infra/scripts/cd-remote.sh --execute --branch <branch>`.
+   Execute runs `infra/scripts/ci-local.sh --full` for the pinned SHA before
+   any remote mutation.
+
+Never use `--skip-local-ci` to make ordinary work faster. It is an emergency
+operator bypass and requires explicit user approval that names the incident and
+accepts the omitted full local gate. A public macOS update remains a separate
+signed, notarized release procedure.
 
 Public macOS distribution is Developer ID-only: the app must use Developer ID
 Application, the package must use Developer ID Installer, and notarization,
