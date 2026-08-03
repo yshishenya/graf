@@ -60,4 +60,4 @@ The runtime checkout and deployed branch resolve to the immutable release SHA.
   path; the candidate preserved bundle identity, feed URL and Sparkle trust.
 - Rollback must restore the previous verified signed feed/archive and use the
   guarded deployment rollback runbook. Never publish an unsigned downgrade.
-- All committed evidence is metadata-only and contains no meeting content.
+- All committed evidence is metadata-only and excludes user data.
