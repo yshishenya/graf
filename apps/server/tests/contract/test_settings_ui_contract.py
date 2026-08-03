@@ -13,7 +13,7 @@ from twobrain_rec_server.cabinet.view_models import (
 from twobrain_rec_server.cabinet.web_routes.settings import router as settings_router
 
 
-def test_settings_overview_exposes_supported_categories_and_scope_labels() -> None:
+def test_settings_overview_exposes_supported_categories_and_group_labels() -> None:
     browser = render_settings_page()
     embedded = render_settings_page(embedded=True)
 
@@ -21,20 +21,28 @@ def test_settings_overview_exposes_supported_categories_and_scope_labels() -> No
         assert "<h1>Настройки</h1>" in page
         assert f'href="{prefix}/recording"' in page
         assert f'href="{prefix}/summaries"' in page
+        assert f'href="{prefix}/integrations/calendar"' in page
         assert f'href="{prefix}/workspace"' in page
         assert f'href="{prefix}/account"' in page
-        assert "Личная настройка" in page
-        assert "В этом пространстве" in page
-        assert "На этом Mac" in page
+        assert 'class="settings-navigation__group-label"' in page
+        assert ">Встречи</h2>" in page
+        assert ">Рабочее пространство</h2>" in page
+        assert ">Аккаунт</h2>" in page
         assert "provider_subject" not in page
         assert "candidate_identity_subject" not in page
 
 
 def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> None:
-    expected_ids = ("overview", "recording", "summaries", "calendar", "workspace", "account")
-    expected_groups = ("Основное", "Встречи", "Пространство", "Аккаунт")
+    expected_ids = ("recording", "summaries", "calendar", "workspace", "account")
+    expected_groups = ("Встречи", "Рабочее пространство", "Аккаунт")
+    expected_icons = {
+        "recording": "video",
+        "summaries": "transcript",
+        "calendar": "calendar-days",
+        "workspace": "users-round",
+        "account": "settings",
+    }
     expected_suffixes = {
-        "overview": "",
         "recording": "/recording",
         "summaries": "/summaries",
         "calendar": "/integrations/calendar",
@@ -53,10 +61,16 @@ def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> 
             markup = navigation.group(0)
             assert tuple(re.findall(r'data-settings-nav="([^"]+)"', markup)) == expected_ids
             assert tuple(
-                re.findall(r'class="settings-navigation__group-label">([^<]+)', markup)
+                re.findall(r'class="settings-navigation__group-label"[^>]*>([^<]+)', markup)
             ) == expected_groups
-            assert markup.count('aria-current="page"') == 1
-            assert f'data-settings-nav="{category}"' in markup
+            if category == "overview":
+                assert markup.count('aria-current="page"') == 0
+            else:
+                assert markup.count('aria-current="page"') == 1
+                assert f'data-settings-nav="{category}"' in markup
+            assert "settings-navigation__item-icon" in markup
+            assert "<small>" not in markup
+            assert 'role="group"' in markup
             assert f'href="{"/desktop" if embedded else ""}/meetings"' in markup
             for category_id, suffix in expected_suffixes.items():
                 assert re.search(
@@ -68,6 +82,11 @@ def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> 
                     rf'href="{re.escape(prefix + suffix)}"[^>]*>',
                     markup,
                 )
+                assert re.search(
+                    rf'data-settings-nav="{category_id}"[^>]*>.*?data-icon="{expected_icons[category_id]}"',
+                    markup,
+                    flags=re.DOTALL,
+                )
 
 
 def test_settings_sidebar_uses_vertical_accessible_layout_without_horizontal_only_menu() -> None:
@@ -75,14 +94,36 @@ def test_settings_sidebar_uses_vertical_accessible_layout_without_horizontal_onl
     css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
         encoding="utf-8"
     )
-    navigation_css = css[css.index(".settings-navigation {") : css.index(".settings-category-grid")]
+    navigation_css = css[css.index(".settings-navigation {") : css.index(".settings-scope-badge")]
 
     assert "overflow-x: auto" not in navigation_css
     assert "min-height: 44px" in navigation_css
     assert ".settings-navigation__item:focus-visible" in navigation_css
+    assert ".settings-navigation__item-icon" in navigation_css
     assert ".settings-navigation__back" in navigation_css
     assert "color: var(--muted)" in navigation_css
     assert "grid-template-columns: 1fr" in css[css.index("@media (max-width: 640px)") :]
+
+
+def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
+    page = render_settings_page()
+
+    assert "Здесь собраны только доступные сейчас настройки" not in page
+    assert "Что можно настроить" not in page
+    assert "data-settings-category=" not in page
+    assert page.count('data-settings-nav="') == 5
+
+
+def test_recording_settings_keep_native_boundary_copy_compact() -> None:
+    page = render_settings_page(category="recording")
+    embedded_page = render_settings_page(category="recording", embedded=True)
+
+    assert "Настройка записи находится в приложении GRAF" in page
+    assert "Старт и стоп доступны всегда" in page
+    assert "Здесь нельзя включить запись для всех встреч" not in page
+    assert "Веб-интерфейс показывает результат записи" not in page
+    assert "/desktop/settings/meeting-detection" not in page
+    assert '/desktop/settings/meeting-detection">Открыть настройки записи в приложении' in embedded_page
 
 
 def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:
@@ -94,8 +135,19 @@ def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:
     calendar_rules = re.findall(r"\.calendar-settings\s*\{([^}]*)\}", css)
 
     assert calendar_rules
-    assert any(re.search(r"\bgap:\s*24px;", rule) for rule in calendar_rules)
-    assert not any(re.search(r"\bgap:\s*0;", rule) for rule in calendar_rules)
+    assert any("gap: var(--settings-gap);" in rule for rule in calendar_rules)
+    assert "--settings-gap: 24px" in css
+
+
+def test_calendar_provider_anchor_preserves_keyboard_focus_target() -> None:
+    root = Path(__file__).resolve().parents[2]
+    template = (
+        root / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
+    ).read_text(encoding="utf-8")
+    assert 'id="calendar-providers-title" tabindex="-1"' in template
+    assert "scroll-margin-block-start" in (
+        root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
+    ).read_text(encoding="utf-8")
 
 
 def test_settings_route_map_has_no_arbitrary_category_redirect() -> None:

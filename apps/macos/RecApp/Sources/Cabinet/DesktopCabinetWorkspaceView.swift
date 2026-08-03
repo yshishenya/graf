@@ -15,6 +15,7 @@ public struct DesktopCabinetWorkspaceView: View {
     private let navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger?
     private let showsAppUpdateBadge: Bool
     private let onCheckForUpdates: EmbeddedCabinetWebView.CheckForUpdatesAction
+    private let onOpenMeetingDetectionSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
     private let externalCabinetState: Binding<DesktopCabinetState>?
     @StateObject private var navigationController = EmbeddedCabinetNavigationController()
@@ -31,6 +32,7 @@ public struct DesktopCabinetWorkspaceView: View {
         navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger? = nil,
         showsAppUpdateBadge: Bool = false,
         onCheckForUpdates: @escaping EmbeddedCabinetWebView.CheckForUpdatesAction = {},
+        onOpenMeetingDetectionSettings: @escaping EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
         initialState: DesktopCabinetState? = nil
     ) {
@@ -42,6 +44,7 @@ public struct DesktopCabinetWorkspaceView: View {
         self.navigationEventLogger = navigationEventLogger
         self.showsAppUpdateBadge = showsAppUpdateBadge
         self.onCheckForUpdates = onCheckForUpdates
+        self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
         self.supportIncidentBridge = supportIncidentBridge
         self.externalCabinetState = cabinetState
         _internalCabinetState = State(initialValue: cabinetState?.wrappedValue ?? resolvedInitialState)
@@ -115,6 +118,7 @@ public struct DesktopCabinetWorkspaceView: View {
                 navigationEventLogger: navigationEventLogger,
                 showsAppUpdateBadge: showsAppUpdateBadge,
                 onCheckForUpdates: onCheckForUpdates,
+                onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
                 supportIncidentBridge: supportIncidentBridge,
                 fallbackRequest: configuration.urlRequest(for: configuration.meetingsURL()),
                 navigationController: navigationController

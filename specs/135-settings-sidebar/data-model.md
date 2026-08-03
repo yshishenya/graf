@@ -9,21 +9,20 @@ navigation macro:
 
 | Field | Meaning | Invariant |
 | --- | --- | --- |
-| `id` | Canonical category key | One of the six existing route-map keys |
+| `id` | Canonical category key | One of the five actionable settings route-map keys |
 | `label` | Safe Russian display name | Server-defined, never user-provided |
-| `description` | Overview helper copy | Server-defined |
-| `scope_label` | Area affected by the setting | Empty only for overview; does not define grouping |
+| `icon` | Secondary visual cue | Server-defined, decorative |
+| `scope_label` | Area affected by the setting | Server-defined for each actionable category; does not define grouping |
 | `href` | Browser or embedded route | Built from explicit server suffixes |
 | `group_label` | Visible presentation group | Server-defined; no auth or route meaning |
 
 ## Group order
 
-The model emits groups in this order:
+The model emits actionable groups in this order:
 
-1. `Основное`: overview
-2. `Встречи`: recording, summaries, calendar
-3. `Пространство`: workspace
-4. `Аккаунт`: account
+1. `Встречи`: recording, summaries, calendar
+2. `Рабочее пространство`: workspace
+3. `Аккаунт`: account
 
 The order is part of the UI contract. A group label is not a link, permission,
 scope, or persisted preference.

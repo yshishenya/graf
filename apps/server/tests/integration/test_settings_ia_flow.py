@@ -28,7 +28,7 @@ def test_settings_overview_and_categories_are_reachable_in_browser_and_embedded_
 
 
 def test_settings_sidebar_is_present_and_calendar_maps_to_parent_category(client) -> None:
-    expected_ids = ("overview", "recording", "summaries", "calendar", "workspace", "account")
+    expected_ids = ("recording", "summaries", "calendar", "workspace", "account")
 
     for path in ("/settings/integrations/calendar", "/desktop/settings/integrations/calendar"):
         response = client.get(path, headers=auth_headers())
