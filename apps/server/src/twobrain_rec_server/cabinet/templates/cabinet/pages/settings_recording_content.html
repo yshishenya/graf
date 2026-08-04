@@ -1,13 +1,13 @@
 {% import "cabinet/components/settings_navigation.html" as settings_ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
+    <div class="settings-page__content">
     <header class="cabinet-topbar settings-page__topbar">
       <div class="page-title">
         <h1>Запись встреч</h1>
       </div>
     </header>
-    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
-
     <section class="settings-section settings-handoff-card" aria-labelledby="recording-handoff-title" data-recording-handoff>
       <span class="settings-scope-badge">На этом Mac</span>
       <h2 id="recording-handoff-title">Настройка записи находится в приложении GRAF</h2>
@@ -26,5 +26,6 @@
       <h2 id="recording-unavailable-title">Нет приложения GRAF?</h2>
       <p class="muted">Установите приложение GRAF для macOS, чтобы изменить настройки записи.</p>
     </section>
+    </div>
   </div>
 </main>

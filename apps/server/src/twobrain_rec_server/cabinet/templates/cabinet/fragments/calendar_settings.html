@@ -69,6 +69,8 @@
 
 <main class="cabinet-main calendar-settings-main" id="calendar-settings-region" data-cabinet-fragment="calendar-settings">
   <div class="cabinet-workspace calendar-settings">
+    {{ settings_ui.navigation(settings_navigation, active="calendar", back_href=("/desktop/meetings" if embedded else "/meetings")) }}
+    <div class="calendar-settings__content">
     <header class="cabinet-topbar calendar-settings__topbar">
       <div class="page-title">
         <h1>{{ surface.title }}</h1>
@@ -79,8 +81,6 @@
         <span><strong>{{ surface.selected_calendar_count_total }}</strong> {{ surface.selected_calendar_count_total_word }}</span>
       </div>
     </header>
-    {{ settings_ui.navigation(settings_navigation, active="calendar", back_href=("/desktop/meetings" if embedded else "/meetings")) }}
-
     {% if surface.notices %}
     <div class="calendar-notice-list" aria-label="Состояние подключения календаря">
       {% for notice in surface.notices %}
@@ -330,6 +330,7 @@
           <p class="calendar-policy-note" data-state="unavailable">{{ surface.unavailable_state_copy }}</p>
         </div>
       </details>
+    </div>
     </div>
   </div>
 </main>

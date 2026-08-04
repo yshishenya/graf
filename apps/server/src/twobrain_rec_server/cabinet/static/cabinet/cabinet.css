@@ -1705,14 +1705,17 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .settings-page > .settings-navigation,
 .calendar-settings > .settings-navigation {
   grid-column: 1;
-  grid-row: 1 / -1;
+  grid-row: 1;
   position: sticky;
   top: 0;
 }
-.settings-page > :not(.settings-navigation),
-.calendar-settings > :not(.settings-navigation) {
+.settings-page > .settings-page__content,
+.calendar-settings > .calendar-settings__content {
   grid-column: 2;
   min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--settings-gap);
 }
 .settings-section {
   max-width: 920px;
@@ -1848,8 +1851,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
     border-bottom: 1px solid var(--line);
     padding-bottom: 12px;
   }
-  .settings-page > :not(.settings-navigation),
-  .calendar-settings > :not(.settings-navigation) { grid-column: 1; }
+  .settings-page > .settings-page__content,
+  .calendar-settings > .calendar-settings__content { grid-column: 1; }
   .settings-section__heading,
   .settings-choice-row { align-items: stretch; flex-direction: column; }
   .settings-section__heading .button,

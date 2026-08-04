@@ -116,12 +116,41 @@ def test_settings_sidebar_sticky_rail_stays_aligned_with_page_header() -> None:
     )
     sticky_layout_css = css[
         css.index(".settings-page > .settings-navigation,") : css.index(
-            ".settings-page > :not(.settings-navigation),"
+            ".settings-page > .settings-page__content,"
         )
     ]
 
     assert "position: sticky" in sticky_layout_css
     assert "top: 0" in sticky_layout_css
+    assert "grid-row: 1;" in sticky_layout_css
+
+
+def test_settings_content_is_grouped_into_the_second_grid_column() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
+        encoding="utf-8"
+    )
+
+    content_css = css[
+        css.index(".settings-page > .settings-page__content,") : css.index(
+            ".settings-section {"
+        )
+    ]
+    assert "grid-column: 2" in content_css
+    assert "display: grid" in content_css
+    assert "align-content: start" in content_css
+
+    for page in (
+        render_settings_page(category="summaries"),
+        render_settings_page(category="recording", embedded=True),
+    ):
+        assert 'class="settings-navigation"' in page
+        assert 'class="settings-page__content"' in page
+
+    calendar_template = (
+        root / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
+    ).read_text(encoding="utf-8")
+    assert 'class="calendar-settings__content"' in calendar_template
 
 
 def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
