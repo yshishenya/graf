@@ -170,6 +170,7 @@ async def _run_candidate(sessionmaker, settings: Settings, storage: object, medi
                 workflow=workflow,
                 job=submit_result.job,
                 mediascribe_client=mediascribe_client,
+                outcome_generation_enabled=settings.outcome_generation_enabled,
             )
             if result.status in {
                 ProcessingStatus.PROCESSED,

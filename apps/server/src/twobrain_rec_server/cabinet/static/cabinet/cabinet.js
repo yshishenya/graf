@@ -1349,6 +1349,7 @@
         generation_call_content_incomplete: "Ответ модели не был сохранён полностью. Обновите статус.",
         generation_call_content_hash_mismatch: "Не удалось проверить сохранённый ответ. Обновите статус.",
         content_unavailable: "Ответ модели не был сохранён полностью. Обновите статус.",
+        input_too_large: "Расшифровка слишком большая для генерации итогов. Расшифровка и текущие итоги сохранены.",
         summary_revision_conflict: "Итоги уже изменились. Обновите страницу.",
         revision_changed: "Итоги уже изменились. Обновите страницу.",
         result_invalid: "Модель вернула неподтверждённый результат. Можно попробовать другой вариант.",
@@ -1574,7 +1575,10 @@
           if (generation !== candidateRequestGeneration) return;
           currentOutcomeSetId = resolved.current_outcome_set_id || currentOutcomeSetId;
           if (accept) window.location.reload();
-          else if (status) status.hidden = true;
+          else {
+            if (status) status.hidden = true;
+            clearPreview();
+          }
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
           if (generation !== candidateRequestGeneration) return;
@@ -1583,6 +1587,93 @@
         } finally {
           if (generation === candidateRequestGeneration) setBusy(false);
         }
+      };
+      const candidateSections = [
+        ["summary", "Кратко"],
+        ["action_items", "Действия"],
+        ["decisions", "Решения"],
+        ["key_points", "Ключевые пункты"],
+        ["followups", "Следующие шаги"],
+        ["risks", "Риски"],
+        ["questions", "Вопросы"],
+        ["evidence", "Подтверждения"]
+      ];
+      const renderCandidateItem = (item) => {
+        const article = document.createElement("article");
+        article.className = "outcome-item";
+        const text = document.createElement("p");
+        text.className = "outcome-item-text";
+        text.textContent = item.text || "Без текста";
+        article.append(text);
+        const metadata = [
+          ["Ответственный", item.owner_text],
+          ["Срок", item.due_date_text]
+        ].filter(([, value]) => typeof value === "string" && value.trim());
+        if (metadata.length) {
+          const row = document.createElement("div");
+          row.className = "notes-item-meta-row";
+          metadata.forEach(([label, value]) => {
+            const meta = document.createElement("span");
+            meta.className = "notes-item-meta";
+            meta.textContent = `${label}: ${value.trim()}`;
+            row.append(meta);
+          });
+          article.append(row);
+        }
+        const refs = Array.isArray(item.source_refs)
+          ? item.source_refs.filter((ref) => (
+              ref?.seekable && Number.isFinite(Number.parseFloat(ref.start_seconds))
+            ))
+          : [];
+        if (refs.length && document.querySelector("[data-transcript-turn]")) {
+          const sources = document.createElement("div");
+          sources.className = "notes-item-sources";
+          const label = document.createElement("span");
+          label.className = "notes-source-label";
+          label.textContent = "Источник:";
+          sources.append(label);
+          const appendSource = (host, ref) => {
+            const seconds = Number.parseFloat(ref.start_seconds);
+            const source = document.createElement("button");
+            source.type = "button";
+            source.className = "notes-source-link";
+            source.textContent = formatTime(seconds);
+            source.dataset.seekSeconds = String(seconds);
+            source.dataset.sourceSegment = ref.transcript_segment_id || "";
+            source.setAttribute("aria-label", `Открыть источник ${formatTime(seconds)} в расшифровке`);
+            host.append(source);
+          };
+          refs.slice(0, 2).forEach((ref) => appendSource(sources, ref));
+          const overflow = refs.slice(2);
+          if (overflow.length) {
+            const more = document.createElement("details");
+            more.className = "notes-source-more";
+            const summary = document.createElement("summary");
+            summary.textContent = `Ещё ${overflow.length}`;
+            const sourceNoun = overflow.length === 1
+              ? "источник"
+              : overflow.length < 5 ? "источника" : "источников";
+            summary.setAttribute("aria-label", `Показать ещё ${overflow.length} ${sourceNoun}`);
+            more.append(summary);
+            overflow.forEach((ref) => appendSource(more, ref));
+            sources.append(more);
+          }
+          if (sources.childElementCount > 1) article.append(sources);
+        }
+        return article;
+      };
+      const appendCandidateSections = (host, entries) => {
+        entries.forEach(([key, label, items]) => {
+          const section = document.createElement("section");
+          section.className = "summary-candidate-section";
+          const heading = document.createElement("h4");
+          heading.textContent = label;
+          const list = document.createElement("div");
+          list.className = "summary-candidate-items";
+          items.forEach((item) => list.append(renderCandidateItem(item)));
+          section.append(heading, list);
+          host.append(section);
+        });
       };
       const renderCandidate = (candidate, generation = candidateRequestGeneration) => {
         if (generation !== candidateRequestGeneration) return false;
@@ -1621,12 +1712,12 @@
         setBusy(false);
         if (pendingLabel) pendingLabel.hidden = true;
         const renderPreview = () => {
-          if (!status) return;
-          const preview = document.createElement("section");
-          preview.className = "summary-candidate-preview";
+          if (!preview) return;
+          preview.hidden = false;
+          preview.replaceChildren();
           preview.setAttribute("aria-label", "Предпросмотр нового варианта итогов");
-          const heading = document.createElement("strong");
-          heading.textContent = "Предпросмотр";
+          const heading = document.createElement("h3");
+          heading.textContent = "Новый вариант";
           const source = document.createElement("p");
           source.className = "summary-candidate-source";
           const sourceLabel = candidate?.provenance?.source_revision_label
@@ -1635,21 +1726,33 @@
           source.textContent = candidate?.provenance?.source_result_id
             ? sourceLabel
             : "Источник: подтверждённая расшифровка недоступна";
-          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 8) : [];
+          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
           if (previewItems.length) {
-            const list = document.createElement("ul");
-            previewItems.forEach((item) => {
-              const entry = document.createElement("li");
-              entry.textContent = `${item.category || "Итог"}: ${item.text || item.truth_label || "Без текста"}`;
-              list.append(entry);
-            });
-            preview.append(heading, source, list);
+            const grouped = candidateSections
+              .map(([key, label]) => [
+                key,
+                label,
+                previewItems.filter((item) => item.category === key)
+              ])
+              .filter(([, , items]) => items.length);
+            const primary = grouped.filter(([key]) => ["summary", "action_items", "decisions"].includes(key));
+            const secondary = grouped.filter(([key]) => !["summary", "action_items", "decisions"].includes(key));
+            preview.append(heading, source);
+            appendCandidateSections(preview, primary);
+            if (secondary.length) {
+              const more = document.createElement("details");
+              more.className = "summary-candidate-more";
+              const summary = document.createElement("summary");
+              summary.textContent = `Ещё разделы · ${secondary.length}`;
+              more.append(summary);
+              appendCandidateSections(more, secondary);
+              preview.append(more);
+            }
           } else {
             const empty = document.createElement("p");
             empty.textContent = "Предпросмотр недоступен для этого варианта.";
             preview.append(heading, source, empty);
           }
-          status.append(preview);
         };
         if (candidate.state === "ready") {
           const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
@@ -1675,8 +1778,7 @@
             });
             return;
           }
-          const previewCopy = ` Вариант содержит ${previewItems.length} пунктов.`;
-          showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов.${previewCopy} Текущие итоги сохранены.`, "ready", [
+          showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Текущие итоги сохранены.`, "ready", [
             { text: "Оставить текущие", action: () => resolveCandidate(candidate, false, generation) },
             { text: "Использовать", action: () => resolveCandidate(candidate, true, generation), primary: true }
           ]);
@@ -2522,6 +2624,47 @@
     return `${String(minutes).padStart(2, "0")}:${rest}`;
   };
 
+  const initSourceNavigation = () => {
+    if (document.body.dataset.sourceNavigationReady === "true") return;
+    document.body.dataset.sourceNavigationReady = "true";
+    document.addEventListener("click", (event) => {
+      const control = event.target.closest?.("[data-seek-seconds]");
+      if (!control) return;
+      const seconds = Number.parseFloat(control.dataset.seekSeconds || "0");
+      if (!Number.isFinite(seconds)) return;
+      const sourceJump = control.hasAttribute("data-source-segment");
+      if (sourceJump) activateDetailTab("recording");
+      const player = document.querySelector("[data-playback-player]");
+      if (player) {
+        try {
+          player.currentTime = Math.max(0, seconds);
+          void player.play().catch(() => {});
+        } catch (_error) {
+          // The transcript destination remains available before media metadata loads.
+        }
+      }
+      if (!sourceJump) return;
+      const turns = Array.from(document.querySelectorAll("[data-transcript-turn]"));
+      const sourceSegment = (control.dataset.sourceSegment || "").trim();
+      const exactTarget = sourceSegment
+        ? turns.find((turn) => (
+            (turn.dataset.sourceSegments || "").split(/\s+/).includes(sourceSegment)
+          ))
+        : null;
+      const target = exactTarget || turns.reduce((match, turn) => {
+        const start = Number.parseFloat(turn.dataset.startSeconds || "0");
+        return Number.isFinite(start) && start <= seconds ? turn : match;
+      }, turns[0] || null);
+      if (!target) return;
+      window.requestAnimationFrame(() => {
+        target.scrollIntoView({ block: "center" });
+        target.focus({ preventScroll: true });
+        const live = document.querySelector("[data-playback-live-status]");
+        if (live) live.textContent = `Открыт источник ${formatTime(seconds)} в расшифровке.`;
+      });
+    });
+  };
+
   const initPlayback = () => {
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
       if (shell.dataset.playbackReady === "true") return;
@@ -2634,15 +2777,10 @@
           const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
           seekTo(playbackDuration() * ratio);
         });
-      });
-      document.querySelectorAll("[data-seek-seconds]").forEach((button) => {
-        if (button.dataset.seekReady === "true") return;
-        button.dataset.seekReady = "true";
-        button.addEventListener("click", () => {
-          const seekSeconds = Number.parseFloat(button.dataset.seekSeconds || "0");
-          if (!Number.isFinite(seekSeconds)) return;
-          if (button.closest("[data-outcome-category]")) activateDetailTab("recording");
-          seekTo(seekSeconds, { autoplay: true });
+        track.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          track.click();
         });
       });
       if (speedToggle) {
@@ -4460,6 +4598,7 @@
     initSummaryTemplateSettings();
     initMeetingContextPanels();
     initShareDialogs();
+    initSourceNavigation();
     initPlayback();
     initMeetingDetailAuthorizationRecovery();
     initPlaybackRecoveryPolling();

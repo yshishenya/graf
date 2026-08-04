@@ -49,6 +49,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_meeting_list_page,
     render_meeting_unavailable_page,
     render_settings_page,
+    render_shared_meeting_summary_page,
     render_signup_page,
 )
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
@@ -75,6 +76,32 @@ def _cabinet_css() -> str:
 
 def _cabinet_js() -> str:
     return CABINET_JS.read_text()
+
+
+def test_shared_summary_localizes_and_orders_accepted_categories() -> None:
+    page = render_shared_meeting_summary_page(
+        meeting_title="Синтетическая встреча",
+        occurred_at=datetime(2026, 8, 4, tzinfo=UTC),
+        duration_seconds=600,
+        summary_sections=[
+            {"category": "decisions", "text": "Решение"},
+            {"category": "summary", "text": "Краткий итог"},
+            {
+                "category": "action_items",
+                "text": "Действие",
+                "owner_text": "Алексей",
+                "due_date_text": "завтра",
+            },
+            {"category": "legacy_internal", "text": "Не показывать"},
+        ],
+        authenticated=True,
+    )
+
+    assert page.index("Кратко") < page.index("Действия") < page.index("Решения")
+    assert "Ответственный: Алексей" in page
+    assert "Срок: завтра" in page
+    assert "legacy_internal" not in page
+    assert "Не показывать" not in page
 
 
 def _governance() -> GovernanceActionSummary:
@@ -428,8 +455,7 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'name="confirmation_boundary"' in page
     assert (
         'id="delete-feedback-region" class="delete-feedback-region" '
-        'role="status" aria-live="polite" aria-atomic="true"'
-        in page
+        'role="status" aria-live="polite" aria-atomic="true"' in page
     )
     assert ".delete-feedback-region:empty { display: none; }" in css
     assert '.cabinet-deletion-feedback[data-state="error"]' in css
@@ -496,6 +522,7 @@ def test_meeting_list_rows_render_only_projected_exception_status_and_trusted_ti
         assert "Без календарного контекста" not in list_region
         assert list_region.count("Не удалось обработать") == 1
         assert list_region.count('data-status-kind="failed"') == 1
+        assert "Расшифровка и итоги пока недоступны" in list_region
         assert 'aria-label="Выбрать встречу Проектный синк, 16 июн, 08:00"' in list_region
         assert "16 июн, 08:00" in list_region
         assert "Открыть встречу Проектный синк" in list_region
@@ -555,10 +582,13 @@ def test_meeting_list_uses_ordered_rows_with_separate_open_select_and_delete_con
     second_id = str(second.meeting_id)
     assert (
         f'aria-label="Открыть встречу Запись, 16 июн, 08:00" '
-        f'aria-describedby="meeting-{second_id}-duration"'
+        f'aria-describedby="meeting-{second_id}-duration meeting-{second_id}-readiness"'
         in list_region
     )
-    assert f'<li class="meeting-row cabinet-row" data-meeting-row data-meeting-id="{second_id}">' in list_region
+    assert (
+        f'<li class="meeting-row cabinet-row" data-meeting-row data-meeting-id="{second_id}">'
+        in list_region
+    )
 
 
 def test_meeting_list_hides_destructive_controls_from_read_only_viewers() -> None:
@@ -627,8 +657,7 @@ def test_meeting_list_css_reserves_context_columns_and_exposes_non_hover_access(
 
     assert (
         ".meeting-row.cabinet-row {\n"
-        "  grid-template-columns: 32px 20px minmax(0, 1fr) 32px minmax(84px, auto);"
-        in css
+        "  grid-template-columns: 32px 20px minmax(0, 1fr) 32px minmax(84px, auto);" in css
     )
     assert ".row-select-hit,\n.row-delete-form {\n  width: 32px;\n  height: 32px;" in css
     assert ".meeting-row.is-selected::before" in css
@@ -677,13 +706,11 @@ def test_meeting_list_marks_exceptional_rows_and_keeps_full_safe_accessible_desc
 
     assert (
         f'<li class="meeting-row cabinet-row" data-meeting-row '
-        f'data-meeting-id="{ready_id}">'
-        in page
+        f'data-meeting-id="{ready_id}">' in page
     )
     assert (
         f'<li class="meeting-row cabinet-row has-status" data-meeting-row '
-        f'data-meeting-id="{exceptional_id}">'
-        in page
+        f'data-meeting-id="{exceptional_id}">' in page
     )
     assert f'data-meeting-id="{ready_id}" tabindex=' not in page
     assert f'data-meeting-id="{exceptional_id}" tabindex=' not in page
@@ -691,8 +718,7 @@ def test_meeting_list_marks_exceptional_rows_and_keeps_full_safe_accessible_desc
         'aria-label="Открыть встречу Очень длинное синтетическое название встречи '
         'для проверки сжатия строки без раскрытия данных" '
         f'aria-describedby="meeting-{exceptional_id}-duration '
-        f'meeting-{exceptional_id}-status meeting-{exceptional_id}-time"'
-        in page
+        f'meeting-{exceptional_id}-status meeting-{exceptional_id}-time"' in page
     )
     assert f'id="meeting-{exceptional_id}-time">Без даты</span>' in page
 
@@ -786,10 +812,7 @@ def test_meeting_list_renders_exact_waiting_progress_action_and_empty_states() -
     assert "Отправлено" not in page
     assert page.count(">Нужен выбор</span>") == 1
     assert page.count(">Выбрать встречу</a>") == 1
-    assert (
-        'aria-label="Выбрать встречу Календарный выбор, 16 июн, 08:00"'
-        in page
-    )
+    assert 'aria-label="Выбрать встречу Календарный выбор, 16 июн, 08:00"' in page
     assert page.count(">Аудио готовится</span>") == 1
     assert page.count(">Без аудио</span>") == 1
     assert page.count(">Не удалось обработать</span>") == 1
@@ -887,7 +910,7 @@ def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_determinis
         "captureDeletionFocusFallback",
         "nextRow",
         "previousRow",
-        'error.textContent = `Не удалось удалить ${failures}',
+        "error.textContent = `Не удалось удалить ${failures}",
         'confirm.textContent = "Повторить"',
         "pendingDeleteRows = failedRows",
         "requestMeetingListRefresh",
@@ -986,9 +1009,7 @@ def test_non_empty_meeting_list_does_not_show_first_run_download_handoff() -> No
 def test_active_list_filters_expose_one_reset_without_extra_request_control() -> None:
     response = MeetingListResponse(
         items=[_item()],
-        filters=MeetingFilterState(
-            q="синк", status="processing", access=None, sort="updated_desc"
-        ),
+        filters=MeetingFilterState(q="синк", status="processing", access=None, sort="updated_desc"),
         generated_at=datetime.now(UTC),
     )
 
@@ -1258,7 +1279,7 @@ def test_settings_shell_exposes_calendar_in_sidebar() -> None:
 
     assert 'data-active-nav="settings"' in page
     assert 'data-settings-nav="calendar"' in page
-    assert '>Календари</span>' in page
+    assert ">Календари</span>" in page
     assert 'href="/settings/integrations/calendar"' in page
     assert 'href="/desktop/settings/integrations/calendar"' not in page
 
@@ -1558,10 +1579,11 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
     assert 'data-detail-panel="outcomes" hidden' in page
     assert 'data-detail-panel="recording"' in page
+    assert '<h2 class="sr-only">Итоги</h2>' in page
     assert "const activateDetailTab = (name, { updateUrl = true } = {})" in _cabinet_js()
     assert "Транскрипт готовится" in page
     assert "Поделиться" in page
-    assert 'data-share-dialog-open' in page
+    assert "data-share-dialog-open" in page
     assert "Ещё" in page
     assert 'data-meeting-panel-open="more"' in page
     assert "Видимость для команды" not in page
@@ -1570,6 +1592,17 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Удалить встречу…" not in page
     assert "Request deletion" not in page
     assert "Удалить встречу?" not in page
+
+
+def test_detail_shell_explains_disabled_share_without_hover_only_copy() -> None:
+    review = _review()
+    review.governance.share.state = "disabled"
+
+    page = render_meeting_detail_page(review)
+
+    assert 'aria-describedby="meeting-share-disabled-reason"' in page
+    assert 'id="meeting-share-disabled-reason">Поделиться пока недоступно' in page
+    assert 'title="Поделиться пока недоступно' not in page
 
 
 def test_detail_shell_hides_more_when_no_action_or_detail_is_available() -> None:
@@ -1659,7 +1692,8 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert 'data-seek-seconds="12.5"' in page
     assert 'class="timestamp timestamp-seek"' in page
     script = _cabinet_js()
-    assert "seekTo(seekSeconds, { autoplay: true })" in script
+    assert "player.currentTime = Math.max(0, seconds);" in script
+    assert "void player.play().catch(() => {});" in script
     assert "syncTime();" in script
     assert (
         'toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести")' in script
@@ -1739,6 +1773,7 @@ def test_detail_shell_prefers_derived_turns_and_keeps_raw_fallback_safe() -> Non
     assert "&lt;synthetic merged turn&gt;" in page
     assert "raw fragment must not be rendered when a turn exists" not in page
     assert 'data-seek-seconds="10.0"' in page
+    assert 'data-source-segments="raw-only-id raw-second-id"' in page
     assert "data-playback-transcript" in page
 
 
@@ -1844,6 +1879,8 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert page.count('data-timeline-track role="button"') == 2
     assert 'aria-label="Перейти по дорожке SPEAKER_00"' in page
     assert page.count("data-timeline-playhead") == 2
+    assert 'event.key !== "Enter" && event.key !== " "' in _cabinet_js()
+    assert "track.click();" in _cabinet_js()
     assert page.count("data-lane-segment") == 2
     assert 'title="SPEAKER_00 00:00-00:12"' in page
     assert 'aria-label="SPEAKER_01 00:30-01:30"' in page
@@ -2078,11 +2115,9 @@ def test_detail_shell_keeps_simple_outcomes_copy_without_internal_feature_labels
 
     page = render_meeting_detail_page(review)
 
-    assert "Кратко" in page
-    assert "Решения" in page
-    assert "Действия" in page
-    assert "Продолжение" in page
-    assert "Итоги готовятся" in page
+    assert page.count("Итоги готовятся") == 1
+    assert page.count('class="notes-aggregate-state"') == 1
+    assert 'data-outcome-category="summary"' not in page
     assert "AI notes are reserved for a later feature" not in page
     assert "No generated summary is shown yet" not in page
     assert "Итоги встречи" in page
@@ -2126,6 +2161,7 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
                         start_seconds=12.5,
                         end_seconds=20.0,
                         evidence_kind="segment",
+                        seekable=True,
                     )
                 ],
             )
@@ -2166,8 +2202,15 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
 
 def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> None:
     review = _review()
+    review.playback = PlaybackReviewState(
+        available=True,
+        duration_seconds=120,
+        playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
+    )
 
-    def available(label: str, category: str, items: list[OutcomeItemView]) -> NotesActionCategoryState:
+    def available(
+        label: str, category: str, items: list[OutcomeItemView]
+    ) -> NotesActionCategoryState:
         return NotesActionCategoryState(
             state="available",
             label=label,
@@ -2176,6 +2219,7 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
             copy_key=f"notes.{category}.available",
             items=items,
         )
+
     empty = NotesActionCategoryState(
         state="not_found",
         label="Не найдено",
@@ -2196,9 +2240,27 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
                     source_refs=[
                         OutcomeSourceReferenceView(
                             sequence=0,
+                            transcript_segment_id=uuid4(),
                             start_seconds=12.5,
                             end_seconds=20.0,
                             evidence_kind="segment",
+                            seekable=True,
+                        ),
+                        OutcomeSourceReferenceView(
+                            sequence=1,
+                            transcript_segment_id=uuid4(),
+                            start_seconds=24.0,
+                            end_seconds=28.0,
+                            evidence_kind="segment",
+                            seekable=True,
+                        ),
+                        OutcomeSourceReferenceView(
+                            sequence=2,
+                            transcript_segment_id=uuid4(),
+                            start_seconds=36.0,
+                            end_seconds=40.0,
+                            evidence_kind="segment",
+                            seekable=True,
                         ),
                     ],
                 ),
@@ -2234,6 +2296,7 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
                             start_seconds=45.0,
                             end_seconds=52.0,
                             evidence_kind="segment",
+                            seekable=True,
                         ),
                     ],
                 ),
@@ -2269,20 +2332,75 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
 
     page = render_meeting_detail_page(review)
 
-    assert page.index('data-outcome-category="summary"') < page.index(
-        'data-outcome-category="action_items"'
-    ) < page.index('data-outcome-category="decisions"')
+    assert (
+        page.index('data-outcome-category="summary"')
+        < page.index('data-outcome-category="action_items"')
+        < page.index('data-outcome-category="decisions"')
+    )
     assert "Алексей" in page
     assert "до пятницы" in page
     assert "Ответственный не определён" not in page
     assert "Срок не определён" not in page
     assert 'data-outcome-truth-label="supported"' in page
     assert 'data-seek-seconds="12.5"' in page
+    assert 'data-seek-seconds="24.0"' in page
+    assert 'data-seek-seconds="36.0"' in page
+    assert '<summary aria-label="Показать ещё 1 источник">Ещё 1</summary>' in page
     assert 'data-seek-seconds="45.0"' in page
     assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
-    assert 'data-export-dialog-open' in page
+    assert "data-export-dialog-open" in page
     assert 'data-export-scope="summary"' not in page
     assert 'class="notes-more"' in page
+
+
+def test_detail_shell_hides_source_controls_without_a_valid_destination() -> None:
+    review = _review()
+    source_segment_id = uuid4()
+    available = NotesActionCategoryState(
+        state="available",
+        label="Итоги готовы",
+        reason="Сохранённый результат связан с расшифровкой.",
+        readiness_impact="closes_gap",
+        copy_key="notes.summary.available",
+        items=[
+            OutcomeItemView(
+                category="summary",
+                sequence=0,
+                text="Команда согласовала следующий шаг.",
+                truth_label="supported",
+                source_refs=[
+                    OutcomeSourceReferenceView(
+                        sequence=0,
+                        transcript_segment_id=source_segment_id,
+                        start_seconds=12.5,
+                        end_seconds=20.0,
+                        evidence_kind="segment",
+                        seekable=True,
+                    )
+                ],
+            )
+        ],
+    )
+    unavailable = NotesActionCategoryState(
+        state="not_found",
+        label="Не найдено",
+        reason="В расшифровке нет надёжной опоры для этой категории.",
+        readiness_impact="closes_gap",
+        copy_key="notes.outcomes.not_found",
+    )
+    review.notes_action_truth = NotesActionTruthState(
+        summary=available,
+        decisions=unavailable,
+        action_items=unavailable,
+        followups=unavailable,
+        source_basis="stored_output",
+    )
+
+    page = render_meeting_detail_page(review)
+
+    assert "Команда согласовала следующий шаг." in page
+    assert f'data-source-segment="{source_segment_id}"' not in page
+    assert 'data-seek-seconds="12.5"' not in page
 
 
 def test_detail_shell_does_not_render_non_available_outcome_items() -> None:
@@ -2688,7 +2806,8 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
     assert 'data-playback-skip="-15"' in page
     assert 'data-playback-skip="15"' in page
     assert 'data-seek-seconds="12.5"' in page
-    assert "seekTo(seekSeconds, { autoplay: true })" in _cabinet_js()
+    assert "player.currentTime = Math.max(0, seconds);" in _cabinet_js()
+    assert "void player.play().catch(() => {});" in _cabinet_js()
 
 
 def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog() -> None:

@@ -1,10 +1,34 @@
 # Текущий статус продукта
 
-Date: 2026-07-26
+Date: 2026-08-04
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Implementation update (2026-08-04) — Feature 139 meeting outcome value
+
+- Первый пригодный транскрипт теперь идемпотентно создаёт один вариант «Авто»
+  после быстрого baseline, без model/network I/O внутри транзакции и без замены
+  принятой версии. Disabled, deleting и stale-source состояния fail closed.
+- Общие prompt/schema gates требуют 1–8 уникальных канонических source refs для
+  каждого пункта, запрещают owner/due вне действий и проваливают весь пример при
+  критическом неподтверждённом факте, атрибуции или prompt injection.
+- Owner review использует существующую GRAF IA: «Кратко → Действия → Решения»,
+  owner/due и переход к точной реплике до принятия. Остальные разделы вторичны;
+  dashboard, chat, task hub, новая зависимость или миграция не добавлялись.
+- Accepted truth остаётся единственным источником для full viewer, summary-only,
+  share и export. Summary-only browser entry возвращает локализованный HTML;
+  без реального destination source control не показывается.
+- Synthetic Browser matrix прошла на `1280×720` и `390×844`: horizontal
+  overflow 0, accept/reject, source seek/focus/live announcement и timeline
+  Enter работают. Focused server matrix: `319 passed`; fast CI: `882 passed`;
+  Ruff, Python compile, JavaScript syntax и diff checks прошли.
+- Exact prompt promotion/readback и private synthetic e2e прошли. Gated control
+  prompts оставлены в production; outcome prompts возвращены на совместимый со
+  старым runtime `v3` до deploy, после которого exact `v5` будет назначен снова
+  с подготовленным `v6` rollback. Implementation commit, PR/merge, production
+  deploy и публичный Developer ID package остаются отдельными exact-SHA gates.
 
 ## Canonical macOS public release policy (2026-07-26, current `v2026.07.26.8`)
 

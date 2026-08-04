@@ -187,9 +187,19 @@ def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollo
     async def clear_legacy_hashes() -> None:
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert meeting is not None and result is not None and meeting.current_outcome_set_id is not None
-            outcome = await db.scalar(select(MeetingOutcomeSet).where(MeetingOutcomeSet.id == meeting.current_outcome_set_id))
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert (
+                meeting is not None
+                and result is not None
+                and meeting.current_outcome_set_id is not None
+            )
+            outcome = await db.scalar(
+                select(MeetingOutcomeSet).where(
+                    MeetingOutcomeSet.id == meeting.current_outcome_set_id
+                )
+            )
             assert outcome is not None
             result.source_result_hash = None
             outcome.source_result_hash = None
@@ -230,14 +240,18 @@ def test_cabinet_embedded_route_renders_stored_outcome_categories(client) -> Non
     assert response.status_code == 200
     html = response.text
     assert "Итоги встречи" in html
-    assert "data-outcome-category=\"summary\"" in html
-    assert "data-outcome-state=\"available\"" in html
-    assert "data-outcome-source-basis=\"stored_output\"" in html
+    assert 'data-outcome-category="summary"' in html
+    assert 'data-outcome-state="available"' in html
+    assert 'data-outcome-source-basis="stored_output"' in html
 
 
 def test_cabinet_preserves_transcript_playback_when_outcomes_are_processing(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
-    asyncio.run(_seed_outcome_set(client, meeting_id=meeting_id, status="generating", category_state="processing"))
+    asyncio.run(
+        _seed_outcome_set(
+            client, meeting_id=meeting_id, status="generating", category_state="processing"
+        )
+    )
 
     response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
 
@@ -251,7 +265,9 @@ def test_cabinet_preserves_transcript_playback_when_outcomes_are_processing(clie
     assert payload["notes_action_truth"]["summary"]["items"] == []
 
 
-def test_cabinet_blocks_outcome_content_without_hiding_review_when_generation_failed(client) -> None:
+def test_cabinet_blocks_outcome_content_without_hiding_review_when_generation_failed(
+    client,
+) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     asyncio.run(
         _seed_outcome_set(
@@ -297,7 +313,14 @@ def test_cabinet_renders_partial_outcome_truth_with_available_items(client) -> N
                     "category": "summary",
                     "sequence": 0,
                     "text": "Синтетический итог встречи готов.",
-                    "source_refs_json": [{"sequence": 0, "start_seconds": 0.0, "end_seconds": 12.5, "evidence_kind": "segment"}],
+                    "source_refs_json": [
+                        {
+                            "sequence": 0,
+                            "start_seconds": 0.0,
+                            "end_seconds": 12.5,
+                            "evidence_kind": "segment",
+                        }
+                    ],
                 }
             ],
         )
@@ -313,10 +336,16 @@ def test_cabinet_renders_partial_outcome_truth_with_available_items(client) -> N
     assert truth["action_items"]["state"] == "blocked"
 
 
-def test_cabinet_web_renders_processing_and_blocked_outcomes_in_russian_without_content(client) -> None:
+def test_cabinet_web_renders_processing_and_blocked_outcomes_in_russian_without_content(
+    client,
+) -> None:
     processing_id = create_outcome_ready_meeting(client, "cabinet-outcome-processing-web")
     blocked_id = create_outcome_ready_meeting(client, "cabinet-outcome-blocked-web")
-    asyncio.run(_seed_outcome_set(client, meeting_id=processing_id, status="generating", category_state="processing"))
+    asyncio.run(
+        _seed_outcome_set(
+            client, meeting_id=processing_id, status="generating", category_state="processing"
+        )
+    )
     asyncio.run(
         _seed_outcome_set(
             client,
@@ -334,9 +363,12 @@ def test_cabinet_web_renders_processing_and_blocked_outcomes_in_russian_without_
     assert blocked.status_code == 200
     assert 'data-outcome-source-basis="policy_deferral"' in processing.text
     assert 'data-outcome-state="deferred"' in processing.text
-    assert "Ключевое" in processing.text
+    assert 'class="notes-aggregate-state"' in processing.text
+    assert "Ключевые пункты" not in processing.text
+    assert "data-outcome-category" not in processing.text
     assert "Источник: отложено политикой" in processing.text
     assert 'data-outcome-source-basis="policy_deferral"' in blocked.text
+    assert 'class="notes-aggregate-state"' in blocked.text
     assert "Источник: отложено политикой" in blocked.text
     assert "Синтетический итог встречи готов." not in blocked.text
 
@@ -346,9 +378,16 @@ def test_cabinet_web_and_embedded_routes_render_matching_outcome_truth(client) -
     processing_id = create_outcome_ready_meeting(client, "cabinet-outcome-parity-processing")
     service = _service_module()
     asyncio.run(_generate_and_accept(client, ready_id, service))
-    asyncio.run(_seed_outcome_set(client, meeting_id=processing_id, status="generating", category_state="processing"))
+    asyncio.run(
+        _seed_outcome_set(
+            client, meeting_id=processing_id, status="generating", category_state="processing"
+        )
+    )
 
-    for meeting_id, expected_basis in ((ready_id, "stored_output"), (processing_id, "policy_deferral")):
+    for meeting_id, expected_basis in (
+        (ready_id, "stored_output"),
+        (processing_id, "policy_deferral"),
+    ):
         web = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
         embedded = client.get(f"/desktop/meetings/{meeting_id}", headers=auth_headers())
 
@@ -357,16 +396,21 @@ def test_cabinet_web_and_embedded_routes_render_matching_outcome_truth(client) -
         assert _outcome_source_basis(web.text) == expected_basis
         assert _outcome_source_basis(embedded.text) == expected_basis
         assert _outcome_states(web.text) == _outcome_states(embedded.text)
-        assert set(_outcome_states(web.text)) == {
-            "summary",
-            "key_points",
-            "decisions",
-            "action_items",
-            "followups",
-            "risks",
-            "questions",
-            "evidence",
-        }
+        if expected_basis == "stored_output":
+            assert set(_outcome_states(web.text)) == {
+                "summary",
+                "key_points",
+                "decisions",
+                "action_items",
+                "followups",
+                "risks",
+                "questions",
+                "evidence",
+            }
+        else:
+            assert _outcome_states(web.text) == {}
+            assert 'class="notes-aggregate-state"' in web.text
+            assert 'class="notes-aggregate-state"' in embedded.text
         assert 'class="playback-bar detail-playback"' in web.text
         assert 'class="playback-bar detail-playback"' in embedded.text
 
@@ -426,7 +470,9 @@ async def _seed_outcome_set(
     failure_reason: str | None = None,
 ) -> None:
     async with client.app_state["sessionmaker"]() as db:
-        result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+        result = await db.scalar(
+            select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+        )
         assert result is not None
         states = states or {
             "summary": category_state or "processing",
@@ -481,7 +527,9 @@ async def _seed_outcome_set(
                 )
             )
         if status in {"available", "partial"}:
-            meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id).with_for_update())
+            meeting = await db.scalar(
+                select(Meeting).where(Meeting.id == meeting_id).with_for_update()
+            )
             assert meeting is not None
             meeting.current_outcome_set_id = outcome_set.id
         await db.commit()

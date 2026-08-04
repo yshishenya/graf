@@ -19,6 +19,10 @@ MAX_CONFIG_DEPTH: Final = 12
 MAX_CONFIG_NODES: Final = 256
 ALLOWED_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 PROMPT_VARIABLE_RE = re.compile(r"\{\{([a-z][a-z0-9_]*)\}\}")
+GENERIC_OWNER_LABEL_RE = re.compile(
+    r"^(?:UNKNOWN|REMOTE|LOCAL|SPEAKER(?:[_ -]?[A-Z0-9]+)?|SPEAKER\s+\d+)$",
+    re.IGNORECASE,
+)
 OUTCOME_CONFIG_KEYS: Final = {
     "config_contract_version",
     "model",
@@ -82,6 +86,7 @@ def outcome_schema() -> dict[str, object]:
                         "truth_label": {"type": "string", "enum": ["supported"]},
                         "source_refs": {
                             "type": "array",
+                            "minItems": 1,
                             "maxItems": 8,
                             "items": {
                                 "type": "object",
@@ -387,10 +392,15 @@ def validate_outcome_result(
             item["owner_text"] is not None or item["due_date_text"] is not None
         ):
             raise ValueError("owner and due date are only valid for action items")
+        if isinstance(item["owner_text"], str) and GENERIC_OWNER_LABEL_RE.fullmatch(
+            item["owner_text"].strip()
+        ):
+            raise ValueError("generic speaker label cannot be an action owner")
         refs = item["source_refs"]
-        if not isinstance(refs, list) or len(refs) > 8:
-            raise ValueError("source references are invalid")
+        if not isinstance(refs, list) or not 1 <= len(refs) <= 8:
+            raise ValueError("outcome item requires at least one source reference")
         normalized_refs: list[dict[str, object]] = []
+        seen_refs: set[tuple[str, int]] = set()
         for ref in refs:
             if not isinstance(ref, dict) or set(ref) != {"transcript_segment_id", "sequence"}:
                 raise ValueError("source reference is invalid")
@@ -403,11 +413,18 @@ def validate_outcome_result(
                 or ref["sequence"] < 0
             ):
                 raise ValueError("source reference sequence is invalid")
-            canonical_sequence = int(ref["sequence"])
+            provided_sequence = int(ref["sequence"])
+            canonical_sequence = provided_sequence
             if allowed_segment_sequences is not None:
                 canonical_sequence = allowed_segment_sequences.get(segment_id)
                 if canonical_sequence is None:
                     raise ValueError("source reference is outside the pinned transcript")
+                if provided_sequence != canonical_sequence:
+                    raise ValueError("source reference sequence does not match pinned transcript")
+            ref_key = (segment_id, canonical_sequence)
+            if ref_key in seen_refs:
+                raise ValueError("source references must be unique")
+            seen_refs.add(ref_key)
             normalized_refs.append(
                 {
                     "transcript_segment_id": segment_id,

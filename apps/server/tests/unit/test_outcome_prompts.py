@@ -144,6 +144,15 @@ def test_reflection_and_judges_have_separate_closed_contracts() -> None:
     assert retained.config["config_contract_version"] == 1
 
 
+def test_reflection_prompt_requires_the_complete_json_chat_contract() -> None:
+    from twobrain_rec_server.cli.langfuse_prompts import CONTROL_PROMPTS
+
+    prompt = CONTROL_PROMPTS["graf/prompt-optimization/reflection"][1]
+    assert "complete canonical JSON array" in prompt
+    assert "Return the complete updated JSON array" in prompt
+    assert "no language label" in prompt
+
+
 def test_outcome_validation_preserves_category_truth_and_source_ownership() -> None:
     result = {
         "category_states": {
@@ -200,18 +209,49 @@ def test_outcome_validation_preserves_category_truth_and_source_ownership() -> N
 
     wrong_sequence = deepcopy(result)
     wrong_sequence["items"][0]["source_refs"][0]["sequence"] = 1
-    repaired = validate_outcome_result(
-        wrong_sequence,
-        allowed_categories=["summary", "action_items"],
-        allowed_segment_ids={"seg-1"},
-        allowed_segment_sequences={"seg-1": 0},
-    )
-    assert repaired["items"][0]["source_refs"][0]["sequence"] == 0
+    with pytest.raises(ValueError, match="sequence does not match"):
+        validate_outcome_result(
+            wrong_sequence,
+            allowed_categories=["summary", "action_items"],
+            allowed_segment_ids={"seg-1"},
+            allowed_segment_sequences={"seg-1": 0},
+        )
+    missing_evidence = deepcopy(result)
+    missing_evidence["items"][0]["source_refs"] = []
+    with pytest.raises(ValueError, match="at least one"):
+        validate_outcome_result(
+            missing_evidence,
+            allowed_categories=["summary", "action_items"],
+            allowed_segment_ids={"seg-1"},
+            allowed_segment_sequences={"seg-1": 0},
+        )
+    duplicate_evidence = deepcopy(result)
+    duplicate_evidence["items"][0]["source_refs"] *= 2
+    with pytest.raises(ValueError, match="unique"):
+        validate_outcome_result(
+            duplicate_evidence,
+            allowed_categories=["summary", "action_items"],
+            allowed_segment_ids={"seg-1"},
+            allowed_segment_sequences={"seg-1": 0},
+        )
     unknown_segment = deepcopy(result)
     unknown_segment["items"][0]["source_refs"][0]["transcript_segment_id"] = "seg-2"
     with pytest.raises(ValueError, match="outside the pinned transcript"):
         validate_outcome_result(
             unknown_segment,
+            allowed_categories=["summary", "action_items"],
+            allowed_segment_ids={"seg-1"},
+            allowed_segment_sequences={"seg-1": 0},
+        )
+
+    generic_owner = deepcopy(result)
+    generic_owner["category_states"]["summary"] = "not_found"
+    generic_owner["category_states"]["action_items"] = "available"
+    generic_owner["items"][0]["category"] = "action_items"
+    generic_owner["items"][0]["owner_text"] = "SPEAKER_00"
+    with pytest.raises(ValueError, match="generic speaker label"):
+        validate_outcome_result(
+            generic_owner,
             allowed_categories=["summary", "action_items"],
             allowed_segment_ids={"seg-1"},
             allowed_segment_sequences={"seg-1": 0},
@@ -226,3 +266,66 @@ def test_outcome_prompt_requires_state_item_and_exact_reference_self_checks() ->
     assert "never emit an item for a category outside the requested sections" in system_message
     assert "Copy every source_refs transcript_segment_id and sequence exactly" in system_message
     assert "self-check the closed category set" in system_message
+    assert "A decision is only a final, explicitly adopted position" in system_message
+    assert "An action item is only an explicit commitment or assignment" in system_message
+    assert "greetings, agenda-only statements, filler" in system_message
+    assert "Generic speaker labels" in system_message
+    assert "Use the latest explicitly supported correction" in system_message
+    assert "Omit a cancelled commitment" in system_message
+    assert "keep only the final supported owner" in system_message
+    assert "capture only that supported final state" in system_message
+    assert "do not require an obsolete earlier segment" in system_message
+    assert "use not_inferable" in system_message
+
+
+def test_outcome_schema_requires_at_least_one_source_reference() -> None:
+    schema = outcome_config(schema_name="graf_meeting_outcome_auto_v1")["response_format"][
+        "json_schema"
+    ]["schema"]
+    source_refs = schema["properties"]["items"]["items"]["properties"]["source_refs"]
+    assert source_refs["minItems"] == 1
+    assert source_refs["maxItems"] == 8
+
+
+def test_all_outcome_formats_share_the_same_trust_contract() -> None:
+    from twobrain_rec_server.cli.langfuse_prompts import CONTROL_PROMPTS, desired_prompts
+
+    prompts = desired_prompts()
+    outcome_prompts = {
+        name: value for name, value in prompts.items() if name not in CONTROL_PROMPTS
+    }
+    assert len(outcome_prompts) == 10
+    for prompt_type, prompt, _config in outcome_prompts.values():
+        assert prompt_type == "chat"
+        system_message = prompt[0]["content"]
+        assert "directly support the whole claim" in system_message
+        assert "A decision is only a final" in system_message
+        assert "An action item is only an explicit commitment" in system_message
+
+
+def test_judges_fail_critical_errors_instead_of_averaging_them() -> None:
+    from twobrain_rec_server.cli.langfuse_prompts import CONTROL_PROMPTS
+
+    for name in (
+        "graf/evaluation/meeting-outcome-faithfulness",
+        "graf/evaluation/meeting-outcome-action-items",
+        "graf/evaluation/meeting-outcome-completeness",
+    ):
+        system_message = CONTROL_PROMPTS[name][1][0]["content"]
+        assert "score=0" in system_message
+        assert "Do not average" in system_message
+        assert "lowest" in system_message or "lower" in system_message
+
+    faithfulness = CONTROL_PROMPTS[
+        "graf/evaluation/meeting-outcome-faithfulness"
+    ][1][0]["content"]
+    action_items = CONTROL_PROMPTS[
+        "graf/evaluation/meeting-outcome-action-items"
+    ][1][0]["content"]
+    assert "completeness owns omissions" in faithfulness
+    assert "always generic labels rather than people" in action_items
+    assert "absolute step before any other scoring" in action_items
+    completeness = CONTROL_PROMPTS[
+        "graf/evaluation/meeting-outcome-completeness"
+    ][1][0]["content"]
+    assert "cancelled or retracted commitment is not a required action" in completeness

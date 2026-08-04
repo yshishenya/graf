@@ -118,6 +118,7 @@ from twobrain_rec_server.cabinet.queries import (
     list_cabinet_meetings,
 )
 from twobrain_rec_server.cabinet.rendering import render_shared_meeting_summary_page
+from twobrain_rec_server.cabinet.speakers import candidate_speaker_attribution_is_current
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.db.models import (
     ExternalIdentity,
@@ -157,6 +158,8 @@ from twobrain_rec_server.outcomes.dispatch import (
     finalize_dispatch_for_candidate,
     reconcile_dispatch_intent,
 )
+from twobrain_rec_server.outcomes.models import OutcomeTranscriptSegment
+from twobrain_rec_server.outcomes.service import load_outcome_transcript_segments
 from twobrain_rec_server.outcomes.templates import (
     BUILT_IN_BY_KEY,
     BUILT_IN_TEMPLATES,
@@ -213,9 +216,7 @@ async def _send_internal_share_notification(
         await email_delivery.send_meeting_invitation(
             settings=request.app.state.settings,
             recipient_email=recipient_email,
-            acceptance_url=(
-                f"{str(public_base_url).rstrip('/')}/meetings/{meeting.id}"
-            ),
+            acceptance_url=(f"{str(public_base_url).rstrip('/')}/meetings/{meeting.id}"),
             delivery_key=str(grant.id),
             content_scope=grant.content_scope,
             inviter_name=inviter.display_name if inviter is not None else None,
@@ -333,6 +334,7 @@ def _mark_share_secret_response(response: Response) -> None:
             "X-Robots-Tag": "noindex, nofollow, noarchive",
         }
     )
+
 
 PLAYBACK_BINARY_SCHEMA = {"type": "string", "format": "binary"}
 PLAYBACK_COMMON_HEADERS = {
@@ -553,7 +555,9 @@ async def get_shared_meeting_summary_route(
             meeting_label=meeting.title or "Встреча",
             occurred_at=meeting.started_at or meeting.created_at,
             duration_seconds=meeting.duration_seconds,
-            summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+            summary_sections=[
+                {"category": item.category, "text": item.text or ""} for item in items
+            ],
         )
     )
 
@@ -781,7 +785,9 @@ async def list_summary_templates_route(
     db: AsyncSession | None = DbDependency,
 ) -> SummaryTemplateListResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     personal = (
         await db.scalars(
             select(SummaryTemplate)
@@ -794,9 +800,7 @@ async def list_summary_templates_route(
             .limit(100)
         )
     ).all()
-    workspace = await db.scalar(
-        select(Workspace).where(Workspace.id == tenant_scope.workspace_id)
-    )
+    workspace = await db.scalar(select(Workspace).where(Workspace.id == tenant_scope.workspace_id))
     membership = await db.scalar(
         select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
@@ -866,9 +870,7 @@ async def update_default_summary_template_route(
             title="Default summary format can only be changed by the workspace owner",
         )
     workspace = await db.scalar(
-        select(Workspace)
-        .where(Workspace.id == tenant_scope.workspace_id)
-        .with_for_update()
+        select(Workspace).where(Workspace.id == tenant_scope.workspace_id).with_for_update()
     )
     if workspace is None:
         raise ProblemDetail(status=404, code="workspace_not_found", title="Workspace not found")
@@ -918,7 +920,9 @@ async def _ensure_personal_template_capacity(
         ).all()
     )
     if active_count >= 100:
-        raise ProblemDetail(status=409, code="summary_template_limit", title="Template limit reached")
+        raise ProblemDetail(
+            status=409, code="summary_template_limit", title="Template limit reached"
+        )
 
 
 @router.post(
@@ -935,7 +939,9 @@ async def create_summary_template_route(
     db: AsyncSession | None = DbDependency,
 ) -> SummaryTemplateView:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     await _ensure_personal_template_capacity(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -973,9 +979,14 @@ async def update_summary_template_route(
     db: AsyncSession | None = DbDependency,
 ) -> SummaryTemplateView:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     current = await _owned_personal_template(
-        db, workspace_id=tenant_scope.workspace_id, owner_user_id=principal.user_id, template_id=template_id
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        owner_user_id=principal.user_id,
+        template_id=template_id,
     )
     if current.version != payload.expected_version or current.status != "active":
         raise ProblemDetail(status=409, code="summary_template_conflict", title="Template changed")
@@ -1022,9 +1033,14 @@ async def duplicate_summary_template_route(
     db: AsyncSession | None = DbDependency,
 ) -> SummaryTemplateView:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     source = await _owned_personal_template(
-        db, workspace_id=tenant_scope.workspace_id, owner_user_id=principal.user_id, template_id=template_id
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        owner_user_id=principal.user_id,
+        template_id=template_id,
     )
     await _ensure_personal_template_capacity(
         db,
@@ -1062,9 +1078,14 @@ async def archive_summary_template_route(
     db: AsyncSession | None = DbDependency,
 ) -> SummaryTemplateView:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     template = await _owned_personal_template(
-        db, workspace_id=tenant_scope.workspace_id, owner_user_id=principal.user_id, template_id=template_id
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        owner_user_id=principal.user_id,
+        template_id=template_id,
     )
     template.status = "archived"
     default_workspace = await _workspace_defaulting_to_template(
@@ -1091,9 +1112,14 @@ async def delete_summary_template_route(
     db: AsyncSession | None = DbDependency,
 ) -> Response:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     template = await _owned_personal_template(
-        db, workspace_id=tenant_scope.workspace_id, owner_user_id=principal.user_id, template_id=template_id
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        owner_user_id=principal.user_id,
+        template_id=template_id,
     )
     template.status = "deleted"
     default_workspace = await _workspace_defaulting_to_template(
@@ -1123,7 +1149,9 @@ async def create_summary_candidate_route(
     db: AsyncSession | None = DbDependency,
 ) -> SummaryCandidateResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -1131,10 +1159,18 @@ async def create_summary_candidate_route(
         viewer_user_id=principal.user_id,
     )
     if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
-        raise ProblemDetail(status=403, code="summary_generation_forbidden", title="Summary generation is not available")
+        raise ProblemDetail(
+            status=403,
+            code="summary_generation_forbidden",
+            title="Summary generation is not available",
+        )
     settings = request.app.state.settings
     if not settings.outcome_generation_enabled:
-        raise ProblemDetail(status=503, code="summary_generation_unavailable", title="Summary generation is temporarily unavailable")
+        raise ProblemDetail(
+            status=503,
+            code="summary_generation_unavailable",
+            title="Summary generation is temporarily unavailable",
+        )
     try:
         attempt = await create_summary_candidate(
             db,
@@ -1174,13 +1210,16 @@ async def create_summary_candidate_route(
         "expired": "cancelled",
     }.get(attempt.status)
     if terminal_dispatch_outcome is not None:
-        dispatch_intent = await finalize_dispatch_for_candidate(
-            db,
-            workspace_id=tenant_scope.workspace_id,
-            candidate_id=attempt.candidate_id,
-            outcome=terminal_dispatch_outcome,
-            failure_code=attempt.failure_code,
-        ) or dispatch_intent
+        dispatch_intent = (
+            await finalize_dispatch_for_candidate(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                candidate_id=attempt.candidate_id,
+                outcome=terminal_dispatch_outcome,
+                failure_code=attempt.failure_code,
+            )
+            or dispatch_intent
+        )
     await db.commit()
     if dispatch_intent.state not in {"created", "retryable_failed"} or attempt.status in {
         "candidate",
@@ -1235,12 +1274,19 @@ async def list_summary_candidates_route(
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["Pragma"] = "no-cache"
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
-        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id, viewer_user_id=principal.user_id
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
     )
     if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
-        raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
+        raise ProblemDetail(
+            status=404, code="summary_candidate_not_found", title="Summary candidate not found"
+        )
     meeting = await lock_meeting_fence(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -1372,12 +1418,19 @@ async def preview_summary_candidate_route(
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["Pragma"] = "no-cache"
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
-        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id, viewer_user_id=principal.user_id
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
     )
     if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
-        raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
+        raise ProblemDetail(
+            status=404, code="summary_candidate_not_found", title="Summary candidate not found"
+        )
     meeting = await lock_meeting_fence(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -1396,10 +1449,18 @@ async def preview_summary_candidate_route(
             MeetingOutcomeGenerationAttempt.candidate_id == candidate_id,
         )
     )
-    if attempt is None or attempt.outcome_set_id is None or attempt.status not in {"candidate", "accepted"}:
-        raise ProblemDetail(status=409, code="summary_candidate_unavailable", title="Summary candidate is not ready")
+    if (
+        attempt is None
+        or attempt.outcome_set_id is None
+        or attempt.status not in {"candidate", "accepted"}
+    ):
+        raise ProblemDetail(
+            status=409, code="summary_candidate_unavailable", title="Summary candidate is not ready"
+        )
     if is_expired(attempt.expires_at):
-        raise ProblemDetail(status=409, code="summary_candidate_expired", title="Summary candidate has expired")
+        raise ProblemDetail(
+            status=409, code="summary_candidate_expired", title="Summary candidate has expired"
+        )
     if not await _summary_candidate_source_is_current(db, attempt):
         raise ProblemDetail(
             status=409,
@@ -1407,7 +1468,9 @@ async def preview_summary_candidate_route(
             title="Summary candidate source revision is stale",
         )
     if attempt.status == "accepted" and attempt.outcome_set_id != meeting.current_outcome_set_id:
-        raise ProblemDetail(status=409, code="summary_candidate_unavailable", title="Summary candidate is not ready")
+        raise ProblemDetail(
+            status=409, code="summary_candidate_unavailable", title="Summary candidate is not ready"
+        )
     outcome_set = await db.scalar(
         select(MeetingOutcomeSet).where(
             MeetingOutcomeSet.workspace_id == tenant_scope.workspace_id,
@@ -1416,7 +1479,9 @@ async def preview_summary_candidate_route(
         )
     )
     if outcome_set is None or outcome_set.lifecycle_state != "active":
-        raise ProblemDetail(status=409, code="summary_candidate_unavailable", title="Summary candidate is not ready")
+        raise ProblemDetail(
+            status=409, code="summary_candidate_unavailable", title="Summary candidate is not ready"
+        )
     preview_categories = {
         "summary",
         "key_points",
@@ -1441,26 +1506,13 @@ async def preview_summary_candidate_route(
             .limit(200)
         )
     ).all()
+    segments_by_id = await _summary_candidate_segments_by_id(db, attempt)
     return SummaryCandidatePreviewResponse(
         candidate_id=candidate_id,
         outcome_set_id=attempt.outcome_set_id,
         template_key=attempt.template_key,
         items=[
-            SummaryCandidatePreviewItem(
-                category=item.category,
-                text=item.text or "",
-                owner_text=item.owner_text or "",
-                due_date_text=item.due_date_text or "",
-                truth_label=item.truth_label or "",
-                source_refs=[
-                    str(ref)
-                    for ref in (
-                        item.source_refs_json
-                        if isinstance(item.source_refs_json, list)
-                        else []
-                    )[:32]
-                ],
-            )
+            _summary_candidate_preview_item(item, segments_by_id)
             for item in items
             if item.category in preview_categories
         ],
@@ -1484,12 +1536,19 @@ async def get_summary_candidate_route(
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["Pragma"] = "no-cache"
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
-        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id, viewer_user_id=principal.user_id
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
     )
     if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
-        raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
+        raise ProblemDetail(
+            status=404, code="summary_candidate_not_found", title="Summary candidate not found"
+        )
     meeting = await lock_meeting_fence(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -1509,7 +1568,9 @@ async def get_summary_candidate_route(
         )
     )
     if attempt is None:
-        raise ProblemDetail(status=404, code="summary_candidate_not_found", title="Summary candidate not found")
+        raise ProblemDetail(
+            status=404, code="summary_candidate_not_found", title="Summary candidate not found"
+        )
     if not await _summary_candidate_source_is_current(db, attempt):
         raise ProblemDetail(
             status=409,
@@ -1600,12 +1661,19 @@ async def _resolve_summary_candidate_route(
     db: AsyncSession | None,
 ) -> SummaryCandidateResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
-        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id, viewer_user_id=principal.user_id
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting_id,
+        viewer_user_id=principal.user_id,
     )
     if meeting.created_by_user_id != principal.user_id or decision.state != "owner":
-        raise ProblemDetail(status=403, code="summary_resolution_forbidden", title="Summary action is not available")
+        raise ProblemDetail(
+            status=403, code="summary_resolution_forbidden", title="Summary action is not available"
+        )
     try:
         await resolve_summary_candidate(
             db,
@@ -1676,8 +1744,7 @@ async def create_meeting_share_grant_route(
         "workspace": settings.share_workspace_audience_enabled,
         "team": settings.share_team_audience_enabled,
         "link": (
-            settings.share_public_links_enabled
-            and settings.share_public_links_abuse_gate_approved
+            settings.share_public_links_enabled and settings.share_public_links_abuse_gate_approved
         ),
     }.get(payload.audience_type, True)
     grant, raw_token = await create_scoped_share_grant(
@@ -1712,16 +1779,12 @@ async def create_meeting_share_grant_route(
     return ShareGrantResponse(
         grant=grant_view(grant, display_name="Authenticated user"),
         share_url=(
-            f"/api/v1/cabinet/public-shares/{raw_token}"
-            f"?workspace_id={tenant_scope.workspace_id}"
+            f"/api/v1/cabinet/public-shares/{raw_token}?workspace_id={tenant_scope.workspace_id}"
             if payload.audience_type == "link"
             else (
                 f"/meetings/{meeting_id}"
                 if payload.audience_type == "workspace"
-                else (
-                    f"/api/v1/cabinet/share/{raw_token}"
-                    f"?workspace_id={tenant_scope.workspace_id}"
-                )
+                else (f"/api/v1/cabinet/share/{raw_token}?workspace_id={tenant_scope.workspace_id}")
             )
         ),
         notification_status=notification_status,
@@ -1841,7 +1904,9 @@ async def rotate_meeting_share_link_route(
     db: AsyncSession | None = DbDependency,
 ) -> ShareGrantResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, _ = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -1861,15 +1926,9 @@ async def rotate_meeting_share_link_route(
     return ShareGrantResponse(
         grant=grant_view(grant, display_name="Ссылка"),
         share_url=(
-            (
-                f"/api/v1/cabinet/public-shares/{raw_token}"
-                f"?workspace_id={tenant_scope.workspace_id}"
-            )
+            (f"/api/v1/cabinet/public-shares/{raw_token}?workspace_id={tenant_scope.workspace_id}")
             if grant.audience_type == "link"
-            else (
-                f"/api/v1/cabinet/share/{raw_token}"
-                f"?workspace_id={tenant_scope.workspace_id}"
-            )
+            else (f"/api/v1/cabinet/share/{raw_token}?workspace_id={tenant_scope.workspace_id}")
         ),
         notification_status="not_attempted",
     )
@@ -1900,7 +1959,9 @@ async def create_meeting_share_invitation_route(
             detail="Choose a member of the current workspace instead.",
         )
     if db is None or settings.credential_encryption_key_file is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, _ = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -1973,7 +2034,9 @@ async def revoke_meeting_share_invitation_route(
     db: AsyncSession | None = DbDependency,
 ) -> Response:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, _ = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -2124,10 +2187,7 @@ async def resolve_login_required_share_link_route(
     if recipient_proof.workspace_membership_is_active:
         return RedirectResponse(url=f"/meetings/{meeting.id}", status_code=302)
     return RedirectResponse(
-        url=(
-            f"/shared-meetings/{meeting.id}"
-            f"?workspace_id={workspace_id}"
-        ),
+        url=(f"/shared-meetings/{meeting.id}?workspace_id={workspace_id}"),
         status_code=302,
     )
 
@@ -2157,7 +2217,10 @@ async def resolve_public_meeting_share_route(
             MeetingShareGrant.share_token_hash == hash_share_token(share_token),
             MeetingShareGrant.status == "active",
             MeetingShareGrant.content_scope == "summary_only",
-            (MeetingShareGrant.expires_at.is_(None) | (MeetingShareGrant.expires_at > datetime.now(UTC))),
+            (
+                MeetingShareGrant.expires_at.is_(None)
+                | (MeetingShareGrant.expires_at > datetime.now(UTC))
+            ),
         )
     )
     if grant is None:
@@ -2216,13 +2279,13 @@ async def resolve_public_meeting_share_route(
     await db.commit()
     if "text/html" in request.headers.get("accept", "").lower():
         response = cabinet_html_response(
-                render_shared_meeting_summary_page(
+            render_shared_meeting_summary_page(
                 meeting_title=str(projection["meeting_label"]),
                 occurred_at=projection["occurred_at"],
                 duration_seconds=int(projection["duration_seconds"]),
-                    summary_sections=projection["summary_sections"],
-                    authenticated=False,
-                )
+                summary_sections=projection["summary_sections"],
+                authenticated=False,
+            )
         )
         _mark_share_secret_response(response)
         return response
@@ -2273,14 +2336,13 @@ async def accept_meeting_share_invitation_route(
     if request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
         meeting = await db.get(Meeting, grant.meeting_id)
         if meeting is None:
-            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+            raise ProblemDetail(
+                status=404, code="invitation_not_found", title="Invitation not found"
+            )
         if grant.content_scope == "full_meeting" and grant.can_download and grant.can_export:
             await db.commit()
             return RedirectResponse(
-                url=(
-                    f"/shared-meetings/{meeting.id}"
-                    f"?workspace_id={workspace_id}"
-                ),
+                url=(f"/shared-meetings/{meeting.id}?workspace_id={workspace_id}"),
                 status_code=303,
             )
         items = []
@@ -2300,7 +2362,9 @@ async def accept_meeting_share_invitation_route(
             meeting_label=meeting.title or "Встреча",
             occurred_at=meeting.started_at or meeting.created_at,
             duration_seconds=meeting.duration_seconds,
-            summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+            summary_sections=[
+                {"category": item.category, "text": item.text or ""} for item in items
+            ],
         )
         await db.commit()
         html_response = cabinet_html_response(
@@ -2318,10 +2382,7 @@ async def accept_meeting_share_invitation_route(
     _mark_share_secret_response(response)
     response = ShareGrantResponse(
         grant=grant_view(grant, display_name="Authenticated user"),
-        share_url=(
-            f"/api/v1/cabinet/share/{grant_raw_token}"
-            f"?workspace_id={workspace_id}"
-        ),
+        share_url=(f"/api/v1/cabinet/share/{grant_raw_token}?workspace_id={workspace_id}"),
     )
     return response
 
@@ -2518,9 +2579,7 @@ async def download_shared_meeting_artifact_route(
         principal=principal,
         recipient_scope=recipient_scope,
     )
-    result = await latest_processing_result(
-        db, workspace_id=workspace_id, meeting_id=meeting_id
-    )
+    result = await latest_processing_result(db, workspace_id=workspace_id, meeting_id=meeting_id)
     download = await download_artifact(
         db,
         storage=storage,
@@ -2582,9 +2641,7 @@ async def get_shared_meeting_content_export_capabilities_route(
         meeting_id=meeting_id,
         prefer_latest=True,
     )
-    return await content_export_capabilities(
-        db, meeting=meeting, access=decision, result=result
-    )
+    return await content_export_capabilities(db, meeting=meeting, access=decision, result=result)
 
 
 @router.post(
@@ -2684,9 +2741,7 @@ async def get_meeting_content_export_capabilities_route(
         meeting_id=meeting_id,
         prefer_latest=True,
     )
-    return await content_export_capabilities(
-        db, meeting=meeting, access=decision, result=result
-    )
+    return await content_export_capabilities(db, meeting=meeting, access=decision, result=result)
 
 
 @router.post(
@@ -2757,7 +2812,7 @@ async def create_meeting_content_export_route(
     filename = generated.filename
     headers = {
         "Content-Disposition": (
-            f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}'
+            f"attachment; filename=\"{filename}\"; filename*=UTF-8''{filename}"
         ),
         "Content-Length": str(generated.byte_length),
         "X-Content-Type-Options": "nosniff",
@@ -2988,7 +3043,9 @@ async def _owned_personal_template(
         .with_for_update()
     )
     if template is None:
-        raise ProblemDetail(status=404, code="summary_template_not_found", title="Template not found")
+        raise ProblemDetail(
+            status=404, code="summary_template_not_found", title="Template not found"
+        )
     return template
 
 
@@ -3043,7 +3100,11 @@ def _summary_candidate_response(
     reason_code, retryable, next_action = _summary_candidate_projection(attempt)
     template_definition = BUILT_IN_BY_KEY.get(attempt.template_key or "")
     expiry = normalize_db_timestamp(attempt.expires_at)
-    if state in {"generating", "ready", "blocked"} and expiry is not None and expiry <= datetime.now(UTC):
+    if (
+        state in {"generating", "ready", "blocked"}
+        and expiry is not None
+        and expiry <= datetime.now(UTC)
+    ):
         state = "expired"
     if state == "expired":
         reason_code, retryable, next_action = "temporary_unavailable", True, "retry"
@@ -3135,10 +3196,17 @@ def _summary_candidate_projection(
     code = attempt.failure_code
     projection = {
         "summary_response_invalid": ("result_invalid", False, "new_candidate"),
+        "litellm_invalid_json": ("result_invalid", False, "new_candidate"),
+        "litellm_invalid_response": ("result_invalid", False, "new_candidate"),
+        "litellm_invalid_structured_output": ("result_invalid", False, "new_candidate"),
+        "litellm_request_rejected": ("result_invalid", False, "new_candidate"),
         "summary_transcript_unavailable": ("transcript_unavailable", False, "refresh"),
         "summary_source_unavailable": ("source_unavailable", False, "refresh"),
+        "summary_source_revision_unavailable": ("source_unavailable", False, "refresh"),
         "summary_transcript_changed": ("source_changed", False, "refresh"),
         "outcome_transcript_changed": ("source_changed", False, "refresh"),
+        "summary_source_result_stale": ("source_changed", False, "refresh"),
+        "summary_source_revision_stale": ("source_changed", False, "refresh"),
         "summary_template_unavailable": ("template_unavailable", False, "choose_format"),
         "summary_template_snapshot_invalid": ("template_unavailable", False, "choose_format"),
         "summary_revision_conflict": ("revision_changed", False, "refresh"),
@@ -3146,14 +3214,38 @@ def _summary_candidate_projection(
         "summary_prompt_invalid": ("prompt_invalid", False, "choose_format"),
         "summary_prompt_snapshot_corrupt": ("prompt_invalid", False, "choose_format"),
         "summary_prompt_not_selected": ("prompt_invalid", False, "choose_format"),
+        "summary_prompt_not_pinned": ("prompt_invalid", False, "choose_format"),
+        "summary_prompt_snapshot_invalid": ("prompt_invalid", False, "choose_format"),
         "summary_prompt_resolution_conflict": ("revision_changed", False, "refresh"),
         "generation_call_not_completed": ("content_unavailable", False, "refresh_status"),
         "generation_call_content_incomplete": ("content_unavailable", False, "refresh_status"),
         "generation_call_content_hash_mismatch": ("content_unavailable", False, "refresh_status"),
+        "summary_generation_projection_missing": (
+            "content_unavailable",
+            False,
+            "refresh_status",
+        ),
         "summary_provider_outcome_ambiguous": (
             "provider_outcome_unknown",
             False,
             "refresh_status",
+        ),
+        "summary_provider_attempt_not_retryable": (
+            "provider_outcome_unknown",
+            False,
+            "refresh_status",
+        ),
+        "litellm_outcome_ambiguous": (
+            "provider_outcome_unknown",
+            False,
+            "refresh_status",
+        ),
+        "outcome_transcript_oversize": ("input_too_large", False, "open_meeting"),
+        "outcome_transcript_chunk_oversize": ("input_too_large", False, "open_meeting"),
+        "outcome_transcript_chunk_serialized_oversize": (
+            "input_too_large",
+            False,
+            "open_meeting",
         ),
         "meeting_deleting": ("meeting_deleting", False, "open_meeting"),
         "meeting_deleted": ("meeting_deleted", False, "open_meetings"),
@@ -3192,14 +3284,20 @@ def _summary_candidate_projection(
             True,
             "retry",
         ),
+        "litellm_authentication_failed": ("provider_unavailable", False, "refresh"),
+        "litellm_credential_unavailable": ("provider_unavailable", False, "refresh"),
+        "litellm_not_configured": ("provider_unavailable", False, "refresh"),
     }
     return projection.get(code or "", ("generation_failed", False, "refresh"))
+
+
 async def _summary_candidate_response_async(
     db: AsyncSession,
     attempt: MeetingOutcomeGenerationAttempt,
     current_outcome_set_id: UUID | None,
 ) -> SummaryCandidateResponse:
     source_revision_label = None
+    source_result: ProcessingResult | None = None
     if attempt.source_result_id is not None:
         source_result = await db.scalar(
             select(ProcessingResult).where(
@@ -3219,9 +3317,10 @@ async def _summary_candidate_response_async(
             if source_revision_label is None:
                 source_revision_label = f"Расшифровка · результат {source_result.result_version}"
     preview: list[SummaryCandidatePreviewItem] = []
-    preview_allowed = not is_expired(attempt.expires_at) and (attempt.status == "candidate" or (
-        attempt.status == "accepted" and attempt.outcome_set_id == current_outcome_set_id
-    ))
+    preview_allowed = not is_expired(attempt.expires_at) and (
+        attempt.status == "candidate"
+        or (attempt.status == "accepted" and attempt.outcome_set_id == current_outcome_set_id)
+    )
     if attempt.outcome_set_id is not None and preview_allowed:
         outcome_set = await db.scalar(
             select(MeetingOutcomeSet).where(
@@ -3250,20 +3349,73 @@ async def _summary_candidate_response_async(
                 .limit(24)
             )
         ).all()
-        preview = [
-            SummaryCandidatePreviewItem(
-                category=item.category,
-                sequence=item.sequence,
-                text=item.text,
-                truth_label=item.truth_label,
-            )
-            for item in items
-        ]
+        segments_by_id = await _summary_candidate_segments_by_id(db, attempt)
+        preview = [_summary_candidate_preview_item(item, segments_by_id) for item in items]
     return _summary_candidate_response(
         attempt,
         current_outcome_set_id,
         source_revision_label=source_revision_label,
         preview=preview,
+    )
+
+
+async def _summary_candidate_segments_by_id(
+    db: AsyncSession,
+    attempt: MeetingOutcomeGenerationAttempt,
+) -> dict[str, OutcomeTranscriptSegment]:
+    if attempt.source_result_id is None:
+        return {}
+    result = await db.scalar(
+        select(ProcessingResult).where(
+            ProcessingResult.workspace_id == attempt.workspace_id,
+            ProcessingResult.meeting_id == attempt.meeting_id,
+            ProcessingResult.id == attempt.source_result_id,
+        )
+    )
+    if result is None:
+        return {}
+    return {
+        str(segment.segment_id): segment
+        for segment in await load_outcome_transcript_segments(db, result=result)
+    }
+
+
+def _summary_candidate_preview_item(
+    item: MeetingOutcomeItem,
+    segments_by_id: dict[str, OutcomeTranscriptSegment],
+) -> SummaryCandidatePreviewItem:
+    source_refs = []
+    seen_segment_ids: set[str] = set()
+    for ref in item.source_refs_json if isinstance(item.source_refs_json, list) else []:
+        if not isinstance(ref, dict):
+            continue
+        segment_id = str(ref.get("transcript_segment_id") or "")
+        segment = segments_by_id.get(segment_id)
+        if segment is None or segment_id in seen_segment_ids:
+            continue
+        seen_segment_ids.add(segment_id)
+        source_refs.append(
+            {
+                "transcript_segment_id": segment.segment_id,
+                "sequence": segment.sequence,
+                "start_seconds": float(segment.start_seconds),
+                "end_seconds": float(segment.end_seconds),
+                "speaker_label": segment.speaker_label,
+                "source_role": segment.source_role,
+                "evidence_kind": "segment",
+                "seekable": True,
+            }
+        )
+        if len(source_refs) == 8:
+            break
+    return SummaryCandidatePreviewItem(
+        category=item.category,
+        sequence=item.sequence,
+        text=item.text or "",
+        owner_text=item.owner_text or "",
+        due_date_text=item.due_date_text or "",
+        truth_label=item.truth_label or "",
+        source_refs=source_refs,
     )
 
 
@@ -3299,14 +3451,17 @@ async def _summary_candidate_source_is_current(
             ProcessingResult.id.desc(),
         )
     )
+    speaker_attribution_current = await candidate_speaker_attribution_is_current(db, attempt)
     return (
         latest_result is not None
         and attempt.processing_result_id == latest_result.id
-        and attempt.media_revision_id == (latest_revision.id if latest_revision is not None else None)
+        and attempt.media_revision_id
+        == (latest_revision.id if latest_revision is not None else None)
         and (
             attempt.source_result_hash is None
             or attempt.source_result_hash == latest_result.source_result_hash
         )
+        and speaker_attribution_current
     )
 
 

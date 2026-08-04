@@ -219,8 +219,7 @@ def account_settings_surface(
             for index, identity in enumerate(identity_rows)
         ),
         devices=tuple(
-            account_device_view(device, current_device_id=current_device_id)
-            for device in devices
+            account_device_view(device, current_device_id=current_device_id) for device in devices
         ),
         unavailable=unavailable,
     )
@@ -280,6 +279,7 @@ class MeetingListRowPresentation:
     status_label: str | None
     progress_percent: int | None
     open_accessible_name: str
+    content_readiness_label: str | None = None
 
 
 CALENDAR_CONTEXT_OWNER_REASON_LABELS: dict[str, str] = {
@@ -1522,13 +1522,8 @@ def _localized_datetime(
     timezone_offset_minutes: int | None,
 ) -> datetime:
     localized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-    if (
-        timezone_offset_minutes is not None
-        and -14 * 60 <= timezone_offset_minutes <= 14 * 60
-    ):
-        localized = localized.astimezone(
-            timezone(timedelta(minutes=timezone_offset_minutes))
-        )
+    if timezone_offset_minutes is not None and -14 * 60 <= timezone_offset_minutes <= 14 * 60:
+        localized = localized.astimezone(timezone(timedelta(minutes=timezone_offset_minutes)))
     return localized
 
 
@@ -1579,7 +1574,27 @@ def meeting_list_row_presentation(
         status_label=status_copy,
         progress_percent=progress,
         open_accessible_name=open_name,
+        content_readiness_label=_meeting_list_content_readiness(item),
     )
+
+
+def _meeting_list_content_readiness(item: MeetingListItem) -> str | None:
+    if item.primary_action != "open" and item.status not in {"ready", "partial"}:
+        return None
+    transcript_ready = item.transcript_available
+    outcomes_ready = item.notes_action_truth.source_basis == "stored_output"
+    if transcript_ready and outcomes_ready:
+        return "Расшифровка и итоги готовы"
+    if transcript_ready:
+        outcome_copy = (
+            "итоги готовятся"
+            if item.notes_action_truth.source_basis in {"processing_status", "policy_deferral"}
+            else "итоги недоступны"
+        )
+        return f"Расшифровка готова · {outcome_copy}"
+    if outcomes_ready:
+        return "Итоги готовы · расшифровка недоступна"
+    return "Расшифровка и итоги пока недоступны"
 
 
 def _meeting_list_compact_status(
@@ -1943,12 +1958,16 @@ def summary_template_slot(
         version=(
             outcome_set.template_version
             if outcome_set is not None and outcome_set.template_version is not None
-            else definition.version if definition is not None else None
+            else definition.version
+            if definition is not None
+            else None
         ),
         template_version=(
             outcome_set.template_version
             if outcome_set is not None and outcome_set.template_version is not None
-            else definition.version if definition is not None else None
+            else definition.version
+            if definition is not None
+            else None
         ),
     )
 
@@ -2503,8 +2522,8 @@ def matching_diarization_segment(
         if overlap <= 0:
             continue
         source_match = source_role_label(row.source_role) == segment_source
-        if overlap > best_overlap or (
-            overlap == best_overlap and source_match and not best_source_match
+        if (source_match and not best_source_match) or (
+            source_match == best_source_match and overlap > best_overlap
         ):
             best = row
             best_overlap = overlap
@@ -2970,9 +2989,14 @@ def _outcome_source_basis(outcome_set: MeetingOutcomeSet) -> str:
 def _outcome_item_view(item: MeetingOutcomeItem) -> OutcomeItemView:
     refs = [
         OutcomeSourceReferenceView(
-            **{**ref, "evidence_kind": ref.get("evidence_kind") or "segment"}
+            **{
+                **ref,
+                "evidence_kind": ref.get("evidence_kind") or "segment",
+                "seekable": ref.get("start_seconds") is not None,
+            }
         )
         for ref in item.source_refs_json
+        if isinstance(ref, dict)
     ]
     return OutcomeItemView(
         category=item.category,

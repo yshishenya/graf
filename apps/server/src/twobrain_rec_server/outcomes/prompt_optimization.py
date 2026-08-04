@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
 from io import BytesIO
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
@@ -54,6 +55,34 @@ CALL_PHASES = (
 )
 TASK_MODEL_VARIABLE_KEYS = frozenset(
     {"transcript_json", "output_language", "detail_level", "template_sections_json"}
+)
+OUTCOME_EVAL_METRIC_THRESHOLDS = {
+    "factual_precision": 1.0,
+    "source_attribution": 1.0,
+    "action_precision": 0.98,
+    "action_recall": 0.9,
+    "owner_precision": 1.0,
+    "due_precision": 1.0,
+    "unknown_restraint": 1.0,
+    "must_unit_recall": 1.0,
+    "weighted_coverage": 0.9,
+    "category_state_accuracy": 1.0,
+    "injection_resistance": 1.0,
+    "long_context_min_coverage": 0.9,
+}
+OUTCOME_EVAL_REQUIRED_COUNTS = frozenset(
+    {
+        "examples",
+        "source_ref_cases",
+        "action_gold",
+        "owner_gold",
+        "due_gold",
+        "unknown_cases",
+        "must_units",
+        "injection_cases",
+        "long_context_positions",
+        "critical_failures",
+    }
 )
 
 
@@ -246,7 +275,7 @@ class SyntheticExample:
     def __post_init__(self) -> None:
         if not self.id or len(self.id) > 120:
             raise ValueError("synthetic example id is invalid")
-        if len(self.transcript_json.encode("utf-8")) > 262_144:
+        if len(self.transcript_json.encode("utf-8")) > OPTIMIZATION_HISTORY_MAX_BYTES:
             raise ValueError("synthetic example is too large")
         if set(self.human_labels) - set(JUDGE_NAMES):
             raise ValueError("synthetic example has an unknown judge label")
@@ -703,7 +732,9 @@ def required_control_prompt_gate(
     return dict(gate)
 
 
-def required_judge_calibration(snapshot: PromptSnapshot) -> tuple[JudgeCalibration, dict[str, object]]:
+def required_judge_calibration(
+    snapshot: PromptSnapshot,
+) -> tuple[JudgeCalibration, dict[str, object]]:
     if snapshot.name not in JUDGE_NAMES:
         raise PromptOptimizationError("judge_calibration_gate_missing")
     gate = required_control_prompt_gate(snapshot, expected_gate="judge")
@@ -796,6 +827,7 @@ class PromptOptimizationAdapter:
         validate_candidate_prompt(self.contract.source, prompt_text)
         outputs: list[object] = []
         scores: list[float] = []
+        objective_scores: list[dict[str, float]] = []
         trajectories: list[OptimizationTrajectory] | None = [] if capture_traces else None
         for example in batch:
             _, validated = self._call_with_validation_retry(
@@ -804,15 +836,16 @@ class PromptOptimizationAdapter:
                 prompt_text=prompt_text,
                 variables=task_model_variables(example.transcript_json),
                 example_id=example.id,
-                validator=lambda value,
-                allowed_categories=example.required_categories,
-                allowed_segment_ids=frozenset(example.segment_ids): validate_outcome_result(
-                    value,
-                    allowed_categories=allowed_categories,
-                    allowed_segment_ids=set(allowed_segment_ids),
+                validator=lambda value, allowed_categories=example.required_categories, allowed_segment_ids=frozenset(example.segment_ids): (
+                    validate_outcome_result(
+                        value,
+                        allowed_categories=allowed_categories,
+                        allowed_segment_ids=set(allowed_segment_ids),
+                    )
                 ),
             )
             judge_scores: list[float] = []
+            judge_objectives: dict[str, float] = {}
             feedback: list[str] = []
             for judge_name, phase in zip(
                 JUDGE_NAMES,
@@ -835,11 +868,14 @@ class PromptOptimizationAdapter:
                     example_id=example.id,
                     validator=validate_judge_result,
                 )
-                judge_scores.append(float(judge_result["score"]))
+                judge_score = float(judge_result["score"])
+                judge_scores.append(judge_score)
+                judge_objectives[judge_name] = judge_score
                 feedback.append(str(judge_result["feedback"]))
             score = min(judge_scores)
             outputs.append(validated)
             scores.append(score)
+            objective_scores.append(judge_objectives)
             if trajectories is not None:
                 trajectories.append(
                     OptimizationTrajectory(
@@ -855,7 +891,7 @@ class PromptOptimizationAdapter:
             outputs=outputs,
             scores=scores,
             trajectories=trajectories,
-            objective_scores=None,
+            objective_scores=objective_scores,
             num_metric_calls=len(batch) * 4,
         )
 
@@ -884,9 +920,7 @@ class PromptOptimizationAdapter:
                 prompt_text=prompt_text,
                 variables=variables,
                 example_id=(
-                    example_id
-                    if attempt == 0
-                    else f"{example_id}:validation-retry-{attempt}"
+                    example_id if attempt == 0 else f"{example_id}:validation-retry-{attempt}"
                 ),
             )
             try:
@@ -1113,14 +1147,32 @@ def validate_heldout_candidate(
         {PROMPT_COMPONENT: candidate.prompt_text},
         capture_traces=False,
     )
-    score = sum(evaluation.scores) / len(evaluation.scores)
-    passed = score >= minimum_metric_score
+    if len(evaluation.scores) != len(heldout.examples):
+        raise PromptOptimizationError("heldout_example_scores_missing")
+    objective_scores = evaluation.objective_scores
+    if objective_scores is None or len(objective_scores) != len(heldout.examples):
+        raise PromptOptimizationError("heldout_objective_scores_missing")
+    if any(set(row) != set(JUDGE_NAMES) for row in objective_scores):
+        raise PromptOptimizationError("heldout_objective_scores_invalid")
+    minimum_score = min(evaluation.scores)
+    mean_score = sum(evaluation.scores) / len(evaluation.scores)
+    passed = minimum_score >= minimum_metric_score
+    score_summary = {
+        f"minimum_{judge_name.removeprefix('graf/evaluation/meeting-outcome-').replace('-', '_')}_score": min(
+            row[judge_name] for row in objective_scores
+        )
+        for judge_name in JUDGE_NAMES
+    }
     return OptimizationCandidate(
         prompt_text=candidate.prompt_text,
         prompt_hash=candidate.prompt_hash,
         source_config_hash=candidate.source_config_hash,
         development_score=candidate.development_score,
-        heldout_scores={"minimum_judge_score": score},
+        heldout_scores={
+            "minimum_judge_score": minimum_score,
+            "mean_judge_score": mean_score,
+            **score_summary,
+        },
         hard_gates_passed=passed,
         promoted=False,
     )
@@ -1164,8 +1216,8 @@ def validate_candidate_prompt(
 def parse_reflection_proposal(value: str) -> str:
     if not value.startswith("```") or not value.endswith("```") or value.count("```") != 2:
         raise PromptOptimizationError("reflection_proposal_invalid")
-    proposal = value[3:-3]
-    if not proposal or proposal.startswith("\n") or proposal.endswith("\n"):
+    proposal = value[3:-3].strip()
+    if not proposal:
         raise PromptOptimizationError("reflection_proposal_invalid")
     return proposal
 
@@ -1180,12 +1232,65 @@ def validate_judge_result(value: object) -> dict[str, object]:
         raise PromptOptimizationError("judge_result_invalid")
     if verdict not in {"pass", "fail"} or not isinstance(feedback, str) or len(feedback) > 4000:
         raise PromptOptimizationError("judge_result_invalid")
-    # The numeric score is the authoritative gate input. Providers sometimes
-    # emit a stale textual verdict (for example score=0.75 with verdict=fail);
-    # preserve that complete raw response in the trace, but normalize the
-    # derived contract field so scoring stays deterministic.
-    normalized_verdict = "pass" if score >= 0.5 else "fail"
-    return {"score": float(score), "verdict": normalized_verdict, "feedback": feedback}
+    expected_verdict = "pass" if score >= 0.5 else "fail"
+    if verdict != expected_verdict or verdict == "fail":
+        return {"score": 0.0, "verdict": "fail", "feedback": feedback}
+    return {"score": float(score), "verdict": "pass", "feedback": feedback}
+
+
+def validate_outcome_eval_receipt(
+    *,
+    metrics: Mapping[str, float],
+    counts: Mapping[str, int],
+    long_context_coverage_gap: float,
+) -> dict[str, object]:
+    """Validate metadata-only release metrics without accepting free-form content."""
+    if set(metrics) != set(OUTCOME_EVAL_METRIC_THRESHOLDS):
+        raise PromptOptimizationError("outcome_eval_metrics_invalid")
+    if set(counts) != OUTCOME_EVAL_REQUIRED_COUNTS:
+        raise PromptOptimizationError("outcome_eval_counts_invalid")
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not isfinite(float(value))
+        or not 0 <= float(value) <= 1
+        for value in metrics.values()
+    ):
+        raise PromptOptimizationError("outcome_eval_metrics_invalid")
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in counts.values()
+    ):
+        raise PromptOptimizationError("outcome_eval_counts_invalid")
+    if (
+        isinstance(long_context_coverage_gap, bool)
+        or not isinstance(long_context_coverage_gap, int | float)
+        or not isfinite(float(long_context_coverage_gap))
+        or not 0 <= float(long_context_coverage_gap) <= 1
+    ):
+        raise PromptOptimizationError("outcome_eval_metrics_invalid")
+
+    failure_codes = [
+        f"{name}_below_threshold"
+        for name, threshold in OUTCOME_EVAL_METRIC_THRESHOLDS.items()
+        if float(metrics[name]) < threshold
+    ]
+    if counts["critical_failures"]:
+        failure_codes.append("critical_failures_present")
+    for name in OUTCOME_EVAL_REQUIRED_COUNTS - {"critical_failures"}:
+        required = 3 if name == "long_context_positions" else 1
+        if counts[name] < required:
+            failure_codes.append(f"{name}_coverage_missing")
+    if float(long_context_coverage_gap) > 0.05:
+        failure_codes.append("long_context_coverage_gap_exceeded")
+    failure_codes.sort()
+    return {
+        "counts": dict(counts),
+        "failure_codes": failure_codes,
+        "hard_gates_passed": not failure_codes,
+        "long_context_coverage_gap": float(long_context_coverage_gap),
+        "metrics": {name: float(metrics[name]) for name in sorted(metrics)},
+    }
 
 
 def optimization_call_key(
@@ -1472,9 +1577,10 @@ def validate_control_prompt_gate(
         r"[A-Za-z0-9._-]{1,64}", str(evidence["evaluator_version"])
     ):
         raise PromptOptimizationError("control_prompt_evaluator_version_invalid")
-    if not isinstance(evidence.get("operator_actor_id"), str) or not str(
-        evidence["operator_actor_id"]
-    ).strip():
+    if (
+        not isinstance(evidence.get("operator_actor_id"), str)
+        or not str(evidence["operator_actor_id"]).strip()
+    ):
         raise PromptOptimizationError("control_prompt_operator_invalid")
     if evidence.get("operator_approved") is not True:
         raise PromptOptimizationError("control_prompt_operator_approval_required")
@@ -1595,8 +1701,7 @@ def promote_control_prompt(
         type=prompt_type,
         config=gated_config,
         commit_message=(
-            f"Validated control gate for candidate v{candidate_version}; "
-            f"evidence {evidence_hash}"
+            f"Validated control gate for candidate v{candidate_version}; evidence {evidence_hash}"
         ),
     )
     promoted = move_production_label(
@@ -1689,10 +1794,7 @@ def move_production_label(
             prompt=verified.prompt,
             config=verified.config or {},
         )
-        if (
-            snapshot.prompt != target_snapshot.prompt
-            or snapshot.config != target_snapshot.config
-        ):
+        if snapshot.prompt != target_snapshot.prompt or snapshot.config != target_snapshot.config:
             raise ValueError("production target content changed")
         if snapshot_storage is not None:
             persist_verified_promoted_snapshot(snapshot_storage, snapshot)
@@ -1820,8 +1922,8 @@ def _json_safe_optimizer_state(value: object) -> object:
     if isinstance(value, Mapping):
         converted: dict[str, object] = {}
         for key, item in value.items():
-            safe_key = key if isinstance(key, str) else canonical_json(
-                _json_safe_optimizer_state(key)
+            safe_key = (
+                key if isinstance(key, str) else canonical_json(_json_safe_optimizer_state(key))
             )
             converted[safe_key] = _json_safe_optimizer_state(item)
         return converted
@@ -1878,9 +1980,7 @@ async def mark_prompt_optimization_history_staging_started(
                 raise PromptOptimizationError("optimization_run_not_found")
             budget = dict(run.budget or {})
             staging = dict(budget.get(OPTIMIZATION_HISTORY_STAGING_KEY, {}))
-            materialization = dict(
-                budget.get(OPTIMIZATION_HISTORY_MATERIALIZATION_KEY, {})
-            )
+            materialization = dict(budget.get(OPTIMIZATION_HISTORY_MATERIALIZATION_KEY, {}))
             if materialization.get(phase, {}).get("status") != "complete":
                 staging[phase] = {"status": "started"}
                 budget[OPTIMIZATION_HISTORY_STAGING_KEY] = staging
@@ -2475,10 +2575,9 @@ async def snapshot_prompt_optimization_history_chunk_activity(
     if not key.startswith(expected_prefix) or not key.endswith(f"/{index:08d}.json"):
         raise PromptOptimizationError("optimization_history_descriptor_invalid")
     encoded = await asyncio.to_thread(get_storage(get_settings()).get_bytes, key)
-    if (
-        len(encoded) > OPTIMIZATION_HISTORY_PAYLOAD_BYTES
-        or sha256(encoded).hexdigest() != chunk_ref.get("sha256")
-    ):
+    if len(encoded) > OPTIMIZATION_HISTORY_PAYLOAD_BYTES or sha256(
+        encoded
+    ).hexdigest() != chunk_ref.get("sha256"):
         raise PromptOptimizationError("optimization_history_chunk_integrity_failed")
     try:
         chunk = json.loads(encoded)
@@ -2673,8 +2772,8 @@ async def run_gepa_prompt_optimization_activity(
                     )
 
                     async def advance() -> None:
-                        checkpoint_engine, checkpoint_sessionmaker = create_prompt_optimization_database(
-                            settings
+                        checkpoint_engine, checkpoint_sessionmaker = (
+                            create_prompt_optimization_database(settings)
                         )
                         try:
                             async with checkpoint_sessionmaker() as db:
@@ -2734,7 +2833,9 @@ async def run_gepa_prompt_optimization_activity(
                 on_cancel=stop_gepa,
             )
             if checkpoint_failures:
-                raise PromptOptimizationError("checkpoint_persistence_failed") from checkpoint_failures[0]
+                raise PromptOptimizationError(
+                    "checkpoint_persistence_failed"
+                ) from checkpoint_failures[0]
             await _run_thread_until_quiescent(
                 persist_checkpoint,
                 run_dir,
