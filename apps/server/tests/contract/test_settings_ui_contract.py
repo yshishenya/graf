@@ -95,12 +95,16 @@ def test_settings_sidebar_uses_vertical_accessible_layout_without_horizontal_onl
         encoding="utf-8"
     )
     navigation_css = css[css.index(".settings-navigation {") : css.index(".settings-scope-badge")]
+    back_css = css[
+        css.index(".settings-navigation__back {") : css.index(".settings-navigation__back:hover")
+    ]
 
     assert "overflow-x: auto" not in navigation_css
     assert "min-height: 44px" in navigation_css
     assert ".settings-navigation__item:focus-visible" in navigation_css
     assert ".settings-navigation__item-icon" in navigation_css
     assert ".settings-navigation__back" in navigation_css
+    assert "align-items: flex-start" in back_css
     assert "color: var(--muted)" in navigation_css
     assert "grid-template-columns: 1fr" in css[css.index("@media (max-width: 640px)") :]
 
