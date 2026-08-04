@@ -7,7 +7,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
-from twobrain_rec_server.db.models import MeetingSpeakerName, ProcessingAuditEvent
+from twobrain_rec_server.db.models import (
+    MeetingOutcomeGenerationAttempt,
+    MeetingSpeakerName,
+    ProcessingAuditEvent,
+)
+from twobrain_rec_server.processing.fences import (
+    lock_meeting_fence,
+    meeting_is_deleted_or_deleting,
+)
+
+SPEAKER_ATTRIBUTION_EVENT_TYPES = {
+    "speaker_display_name_set",
+    "speaker_display_name_cleared",
+}
 
 
 def normalize_speaker_name(value: str) -> str:
@@ -33,6 +46,17 @@ async def save_speaker_name(
     actor_user_id: UUID,
     known_speaker_keys: set[str],
 ) -> str | None:
+    meeting = await lock_meeting_fence(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
+    if meeting is None or meeting_is_deleted_or_deleting(meeting):
+        raise ProblemDetail(
+            status=409,
+            code="meeting_deleting",
+            title="Встреча удаляется",
+        )
     if speaker_key not in known_speaker_keys:
         raise ProblemDetail(status=404, code="speaker_not_found", title="Спикер не найден")
     name = normalize_speaker_name(display_name)
@@ -55,12 +79,15 @@ async def save_speaker_name(
                 )
             )
         else:
+            if row.display_name == name:
+                return name
             row.display_name = name
             row.updated_by_user_id = actor_user_id
         event_type = "speaker_display_name_set"
     else:
-        if row is not None:
-            await db.delete(row)
+        if row is None:
+            return None
+        await db.delete(row)
         event_type = "speaker_display_name_cleared"
     db.add(
         ProcessingAuditEvent(
@@ -72,3 +99,38 @@ async def save_speaker_name(
         )
     )
     return name or None
+
+
+async def speaker_attribution_revision(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> str:
+    event_id = await db.scalar(
+        select(ProcessingAuditEvent.id)
+        .where(
+            ProcessingAuditEvent.workspace_id == workspace_id,
+            ProcessingAuditEvent.meeting_id == meeting_id,
+            ProcessingAuditEvent.event_type.in_(SPEAKER_ATTRIBUTION_EVENT_TYPES),
+        )
+        .order_by(ProcessingAuditEvent.created_at.desc(), ProcessingAuditEvent.id.desc())
+        .limit(1)
+    )
+    return str(event_id or "")
+
+
+async def candidate_speaker_attribution_is_current(
+    db: AsyncSession,
+    attempt: MeetingOutcomeGenerationAttempt,
+) -> bool:
+    if attempt.status == "accepted":
+        return True
+    stored_revision = (attempt.metadata_json or {}).get("speaker_attribution_revision")
+    return isinstance(
+        stored_revision, str
+    ) and stored_revision == await speaker_attribution_revision(
+        db,
+        workspace_id=attempt.workspace_id,
+        meeting_id=attempt.meeting_id,
+    )

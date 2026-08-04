@@ -349,10 +349,32 @@ def test_meeting_list_row_presentation_is_immutable_and_keeps_one_status_slot() 
     assert presentation.status_kind is None
     assert presentation.status_label is None
     assert presentation.progress_percent is None
+    assert presentation.content_readiness_label == "Расшифровка и итоги пока недоступны"
     assert presentation.open_accessible_name == "Открыть встречу Запись, 16 июн, 08:00"
     assert updated.time_label == "Обновлено 16 июн, 11:30"
     with pytest.raises(FrozenInstanceError):
         presentation.display_title = "Другое"  # type: ignore[misc]
+
+
+def test_meeting_list_row_presentation_exposes_content_readiness_without_extra_status() -> None:
+    item = _list_item(
+        transcript_available=True,
+        playback=PlaybackPreparationState(
+            state="available",
+            reason_code="canonical_ready",
+            label="Аудио готово",
+            can_play=True,
+        ),
+    )
+
+    processing = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+    item.notes_action_truth.source_basis = "stored_output"
+    ready = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert processing.content_readiness_label == "Расшифровка готова · итоги готовятся"
+    assert ready.content_readiness_label == "Расшифровка и итоги готовы"
+    assert processing.status_label is None
+    assert ready.status_label is None
 
 
 def test_meeting_list_row_presentation_never_relabels_meeting_time_as_update_time() -> None:
@@ -592,7 +614,9 @@ def test_meeting_list_presentation_status_projects_terminal_uploads_as_failed(
     assert view_models.meeting_list_presentation_status(deleting_item) == "deleted_future"
 
 
-@pytest.mark.parametrize("calendar_state", ["matched_auto", "matched_user", "no_context", "cleared_by_user"])
+@pytest.mark.parametrize(
+    "calendar_state", ["matched_auto", "matched_user", "no_context", "cleared_by_user"]
+)
 def test_meeting_list_ready_state_suppresses_playback_and_calendar_normality(
     calendar_state: str,
 ) -> None:
@@ -635,16 +659,22 @@ def test_recording_time_labels_use_started_at_with_truthful_fallbacks() -> None:
 def test_meeting_list_time_label_is_shared_with_visible_search_projection() -> None:
     value = datetime(2026, 7, 13, 23, 30, tzinfo=UTC)
 
-    assert view_models.meeting_list_time_label(
-        value,
-        timezone_offset_minutes=180,
-        time_basis="meeting",
-    ) == "14 июл, 02:30"
-    assert view_models.meeting_list_time_label(
-        value,
-        timezone_offset_minutes=180,
-        time_basis="updated",
-    ) == "Обновлено 14 июл, 02:30"
+    assert (
+        view_models.meeting_list_time_label(
+            value,
+            timezone_offset_minutes=180,
+            time_basis="meeting",
+        )
+        == "14 июл, 02:30"
+    )
+    assert (
+        view_models.meeting_list_time_label(
+            value,
+            timezone_offset_minutes=180,
+            time_basis="updated",
+        )
+        == "Обновлено 14 июл, 02:30"
+    )
 
 
 def test_safe_title_uses_legacy_local_recording_fallback_without_control_characters() -> None:
@@ -999,6 +1029,49 @@ def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() ->
         "incoming_system": "SPEAKER_01",
         "local_microphone": "SPEAKER_00",
     }
+
+
+def test_matching_diarization_prefers_same_source_then_falls_back() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = TranscriptSegment(
+        id=uuid4(),
+        processing_result_id=result_id,
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        sequence=0,
+        start_seconds=Decimal("0.000"),
+        end_seconds=Decimal("10.000"),
+        text="local audio",
+        source_role="mic",
+    )
+    remote = DiarizationSegment(
+        id=uuid4(),
+        processing_result_id=result_id,
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        sequence=0,
+        start_seconds=Decimal("0.000"),
+        end_seconds=Decimal("9.000"),
+        text="remote audio",
+        speaker_label="REMOTE",
+        source_role="incoming",
+    )
+    local = DiarizationSegment(
+        id=uuid4(),
+        processing_result_id=result_id,
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        sequence=1,
+        start_seconds=Decimal("0.000"),
+        end_seconds=Decimal("8.000"),
+        text="local audio",
+        speaker_label="LOCAL",
+        source_role="mic",
+    )
+
+    assert view_models.matching_diarization_segment(transcript, [remote, local]) is local
+    assert view_models.matching_diarization_segment(transcript, [remote]) is remote
 
 
 def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> None:
@@ -2154,15 +2227,15 @@ def test_processing_state_uses_safe_reason_and_next_action() -> None:
 
 def test_processing_failure_copy_covers_retryable_and_terminal_provider_reasons() -> None:
     assert "Повтор" in view_models.reason_label("mediascribe_timeout")
-    assert view_models.next_action_for_status(
-        "failed", reason_code="mediascribe_rate_limited"
-    ) == "retry_future"
-    assert "некорректный ответ" in view_models.reason_label(
-        "mediascribe_malformed_response"
+    assert (
+        view_models.next_action_for_status("failed", reason_code="mediascribe_rate_limited")
+        == "retry_future"
     )
-    assert view_models.next_action_for_status(
-        "failed", reason_code="mediascribe_malformed_response"
-    ) == "contact_operator"
+    assert "некорректный ответ" in view_models.reason_label("mediascribe_malformed_response")
+    assert (
+        view_models.next_action_for_status("failed", reason_code="mediascribe_malformed_response")
+        == "contact_operator"
+    )
 
 
 def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments() -> None:

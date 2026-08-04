@@ -8,12 +8,20 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from twobrain_rec_server.cabinet.speakers import speaker_attribution_revision
+from twobrain_rec_server.cabinet.view_models import (
+    canonical_speaker_labels,
+    matching_diarization_segment,
+    speaker_label_for_segment,
+)
 from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     MediaRevision,
     Meeting,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingSpeakerName,
     ProcessingResult,
     TranscriptSegment,
 )
@@ -56,7 +64,9 @@ def _baseline_template_provenance() -> tuple[str, int, str]:
         "template_key": definition.key,
         "template_version": definition.version,
     }
-    encoded = json.dumps(config, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    encoded = json.dumps(config, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode(
+        "utf-8"
+    )
     return definition.key, definition.version, sha256(encoded).hexdigest()
 
 
@@ -163,7 +173,15 @@ async def ensure_outcomes_for_processing_result(
         db, result=result, generator_config_hash=generator_config_hash
     )
     initial_trusted_baseline = result.media_revision_id is None
-    transcript_is_available = result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value and result.segment_count > 0
+    transcript_is_available = (
+        result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
+        and result.segment_count > 0
+    )
+    speaker_revision = await speaker_attribution_revision(
+        db,
+        workspace_id=result.workspace_id,
+        meeting_id=result.meeting_id,
+    )
     if existing is not None and existing.failure_reason == "outcomes_generation_failed":
         # Deterministic baseline failures are terminal. Automatic reopen must
         # not recycle this set without a matching candidate lineage; an owner
@@ -193,7 +211,9 @@ async def ensure_outcomes_for_processing_result(
     publishable_initial_baseline = (
         publish_initial_baseline and meeting.current_outcome_set_id is None
     )
-    automatic_candidate_id = None if initial_trusted_baseline or publishable_initial_baseline else uuid4()
+    automatic_candidate_id = (
+        None if initial_trusted_baseline or publishable_initial_baseline else uuid4()
+    )
     replace_blocked_revision = (
         existing is not None
         and not initial_trusted_baseline
@@ -232,7 +252,9 @@ async def ensure_outcomes_for_processing_result(
             expired_attempt.failure_code = "summary_candidate_expired"
             expired_attempt.ended_at = expired_at
     started_at = datetime.now(UTC)
-    candidate_expires_at = started_at + timedelta(hours=24) if automatic_candidate_id is not None else None
+    candidate_expires_at = (
+        started_at + timedelta(hours=24) if automatic_candidate_id is not None else None
+    )
     outcome_set = (None if expired_existing else existing) or await create_outcome_set(
         db,
         workspace_id=result.workspace_id,
@@ -294,12 +316,13 @@ async def ensure_outcomes_for_processing_result(
                 "segment_count": result.segment_count,
                 "transcript_status": result.transcript_status,
                 "failure_source": failure_source,
+                "speaker_attribution_revision": speaker_revision,
             },
         )
         await db.flush()
         return outcome_set
 
-    segments = await _load_transcript_segments(db, result=result)
+    segments = await load_outcome_transcript_segments(db, result=result)
     try:
         payload = generate_outcomes(segments)
     except Exception:
@@ -336,7 +359,10 @@ async def ensure_outcomes_for_processing_result(
             display_format_name="Базовые итоги",
             template_key=template_key,
             template_version=template_version,
-            metadata_json={"segment_count": len(segments)},
+            metadata_json={
+                "segment_count": len(segments),
+                "speaker_attribution_revision": speaker_revision,
+            },
         )
         await db.flush()
         return outcome_set
@@ -352,7 +378,9 @@ async def ensure_outcomes_for_processing_result(
         else:
             outcome_set.revision_state = "candidate"
     outcome_set.generated_at = datetime.now(UTC)
-    outcome_set.latency_ms = max(0, int((outcome_set.generated_at - started_at).total_seconds() * 1000))
+    outcome_set.latency_ms = max(
+        0, int((outcome_set.generated_at - started_at).total_seconds() * 1000)
+    )
     for category, state in payload.category_states.items():
         setattr(outcome_set, f"{category}_state", state)
     outcome_set.content_hash = _payload_hash(payload.items)
@@ -366,7 +394,9 @@ async def ensure_outcomes_for_processing_result(
         processing_result_id=result.id,
         outcome_set_id=outcome_set.id,
         status=(
-            "candidate" if automatic_candidate_id is not None else OutcomeGenerationAttemptStatus.STORED.value
+            "candidate"
+            if automatic_candidate_id is not None
+            else OutcomeGenerationAttemptStatus.STORED.value
         ),
         started_at=started_at,
         ended_at=outcome_set.generated_at,
@@ -387,6 +417,7 @@ async def ensure_outcomes_for_processing_result(
             "segment_count": len(segments),
             "category_count": len(payload.category_states),
             "item_count": len(stored_items),
+            "speaker_attribution_revision": speaker_revision,
         },
     )
     await _accept_initial_outcome_set(
@@ -452,7 +483,9 @@ async def _accept_initial_outcome_set(
     if outcome_set.revision_state in {"candidate", "rejected", "stale", "expired"}:
         return
     outcome_set.revision_state = "accepted"
-    outcome_set.accepted_at = outcome_set.accepted_at or outcome_set.generated_at or datetime.now(UTC)
+    outcome_set.accepted_at = (
+        outcome_set.accepted_at or outcome_set.generated_at or datetime.now(UTC)
+    )
     if meeting.current_outcome_set_id is None:
         meeting.current_outcome_set_id = outcome_set.id
     await db.flush()
@@ -526,13 +559,11 @@ async def _load_current_outcome_set(
             | MeetingOutcomeSet.generator_config_hash.is_(None)
         )
     return await db.scalar(
-        select(MeetingOutcomeSet)
-        .where(*conditions)
-        .order_by(MeetingOutcomeSet.created_at.desc())
+        select(MeetingOutcomeSet).where(*conditions).order_by(MeetingOutcomeSet.created_at.desc())
     )
 
 
-async def _load_transcript_segments(
+async def load_outcome_transcript_segments(
     db: AsyncSession,
     *,
     result: ProcessingResult,
@@ -548,18 +579,52 @@ async def _load_transcript_segments(
             .order_by(TranscriptSegment.sequence.asc(), TranscriptSegment.start_seconds.asc())
         )
     ).all()
-    return [
-        OutcomeTranscriptSegment(
-            segment_id=row.id,
-            sequence=row.sequence,
-            start_seconds=row.start_seconds,
-            end_seconds=row.end_seconds,
-            speaker_label=f"Speaker {row.sequence + 1}",
-            source_role=row.source_role,
-            text=row.text,
+    diarization_rows = (
+        await db.scalars(
+            select(DiarizationSegment)
+            .where(
+                DiarizationSegment.workspace_id == result.workspace_id,
+                DiarizationSegment.meeting_id == result.meeting_id,
+                DiarizationSegment.processing_result_id == result.id,
+            )
+            .order_by(DiarizationSegment.start_seconds, DiarizationSegment.sequence)
         )
-        for row in rows
-    ]
+    ).all()
+    speaker_names = {
+        row.speaker_key: row.display_name
+        for row in (
+            await db.scalars(
+                select(MeetingSpeakerName).where(
+                    MeetingSpeakerName.workspace_id == result.workspace_id,
+                    MeetingSpeakerName.meeting_id == result.meeting_id,
+                )
+            )
+        ).all()
+    }
+    labels_by_key = canonical_speaker_labels(diarization_rows)
+    outcome_segments: list[OutcomeTranscriptSegment] = []
+    for row in rows:
+        diarization = matching_diarization_segment(row, diarization_rows)
+        speaker_label = "UNKNOWN"
+        if diarization is not None and diarization.speaker_label.strip():
+            canonical_label = speaker_label_for_segment(
+                row,
+                diarization,
+                speaker_labels_by_key=labels_by_key,
+            )
+            speaker_label = speaker_names.get(canonical_label.lower(), canonical_label)
+        outcome_segments.append(
+            OutcomeTranscriptSegment(
+                segment_id=row.id,
+                sequence=row.sequence,
+                start_seconds=row.start_seconds,
+                end_seconds=row.end_seconds,
+                speaker_label=speaker_label,
+                source_role=row.source_role,
+                text=row.text,
+            )
+        )
+    return outcome_segments
 
 
 def _payload_hash(items: list[object]) -> str:

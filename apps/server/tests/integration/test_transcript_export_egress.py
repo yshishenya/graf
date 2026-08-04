@@ -118,6 +118,78 @@ def test_implicit_summary_policy_allows_owner_server_mediated_export(client) -> 
     assert exported.status_code == 200
 
 
+def test_unaccepted_candidate_never_replaces_the_exported_summary(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    accepted_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+
+    async def seed_candidate() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, seeds.ready_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
+            )
+            assert meeting is not None and result is not None
+            candidate = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                processing_result_id=result.id,
+                candidate_id=uuid4(),
+                status="available",
+                summary_state="available",
+                key_points_state="not_found",
+                decisions_state="not_found",
+                action_items_state="not_found",
+                followups_state="not_found",
+                risks_state="not_found",
+                questions_state="not_found",
+                evidence_state="not_found",
+                source_kind="litellm",
+                generator_kind="litellm",
+                generator_version="fixture-private-candidate-v1",
+                lifecycle_state="active",
+                revision_state="candidate",
+                generated_at=datetime.now(UTC),
+            )
+            db.add(candidate)
+            await db.flush()
+            db.add(
+                MeetingOutcomeItem(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    outcome_set_id=candidate.id,
+                    category="summary",
+                    sequence=0,
+                    state="available",
+                    text="Непринятый приватный вариант.",
+                    truth_label="supported",
+                    source_refs_json=[],
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_candidate())
+    capability = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+    ).json()
+    exported = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+        json={
+            "content_scope": "summary",
+            "format": "txt",
+            "processing_result_id": capability["processing_result_id"],
+            "outcome_set_id": capability["outcome_set_id"],
+        },
+    )
+
+    assert capability["outcome_set_id"] == str(accepted_id)
+    assert exported.status_code == 200
+    assert "Сохранённый итог." in exported.text
+    assert "Непринятый приватный вариант." not in exported.text
+
+
 def test_authorized_transcript_formats_share_one_revision_and_safe_headers(client) -> None:
     seeds = seed_cabinet_meetings(client)
     set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
@@ -1118,23 +1190,23 @@ async def _seed_stored_summary(
                     source_refs_json=[],
                 ),
                 MeetingOutcomeItem(
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting_id,
-                outcome_set_id=outcome_set.id,
-                category="summary",
-                sequence=0,
-                state="available",
-                text="Сохранённый итог.",
-                truth_label="supported",
-                source_refs_json=[
-                    {
-                        "transcript_segment_id": str(segment.id),
-                        "sequence": segment.sequence,
-                        "start_seconds": float(segment.start_seconds),
-                        "end_seconds": float(segment.end_seconds),
-                        "evidence_kind": "segment",
-                    }
-                ],
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting_id,
+                    outcome_set_id=outcome_set.id,
+                    category="summary",
+                    sequence=0,
+                    state="available",
+                    text="Сохранённый итог.",
+                    truth_label="supported",
+                    source_refs_json=[
+                        {
+                            "transcript_segment_id": str(segment.id),
+                            "sequence": segment.sequence,
+                            "start_seconds": float(segment.start_seconds),
+                            "end_seconds": float(segment.end_seconds),
+                            "evidence_kind": "segment",
+                        }
+                    ],
                 ),
             ]
         )
@@ -1145,9 +1217,7 @@ async def _seed_stored_summary(
 async def _update_transcript_policy(client, meeting_id: UUID, value: str) -> None:
     async with client.app_state["sessionmaker"]() as db:
         policy = await db.scalar(
-            select(MeetingArtifactPolicy).where(
-                MeetingArtifactPolicy.meeting_id == meeting_id
-            )
+            select(MeetingArtifactPolicy).where(MeetingArtifactPolicy.meeting_id == meeting_id)
         )
         assert policy is not None
         policy.transcript_download = value

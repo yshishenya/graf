@@ -174,8 +174,7 @@ def render_share_invitation_accept_page(
         csrf_token=csrf_token,
         content_template="cabinet/pages/share_invitation_content.html",
         accept_action=(
-            f"/api/v1/cabinet/share-invitations/{share_token}/accept"
-            f"?workspace_id={workspace_id}"
+            f"/api/v1/cabinet/share-invitations/{share_token}/accept?workspace_id={workspace_id}"
         ),
         invitation_available=meeting_title is not None,
         meeting_list_href=_base_path(False),
@@ -208,9 +207,42 @@ def render_shared_meeting_summary_page(
         meeting_title=meeting_title,
         occurred_at=occurred_at,
         duration_seconds=duration_seconds,
-        summary_sections=summary_sections,
+        summary_sections=_localized_shared_summary_sections(summary_sections),
         authenticated=authenticated,
     )
+
+
+def _localized_shared_summary_sections(
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    labels = {
+        "summary": "Кратко",
+        "action_items": "Действия",
+        "decisions": "Решения",
+        "key_points": "Ключевые пункты",
+        "followups": "Следующие шаги",
+        "risks": "Риски",
+        "questions": "Вопросы",
+        "evidence": "Подтверждения",
+    }
+    grouped: dict[str, list[dict[str, str]]] = {key: [] for key in labels}
+    for row in rows[:100]:
+        category = str(row.get("category") or "")
+        text = str(row.get("text") or "").strip()
+        if category not in grouped or not text:
+            continue
+        grouped[category].append(
+            {
+                "text": text,
+                "owner_text": str(row.get("owner_text") or "").strip(),
+                "due_date_text": str(row.get("due_date_text") or "").strip(),
+            }
+        )
+    return [
+        {"label": label, "items": grouped[category]}
+        for category, label in labels.items()
+        if grouped[category]
+    ]
 
 
 def render_settings_page(
@@ -652,9 +684,7 @@ def _render_meeting_detail_content(
     current_summary_format_key = review.template.reason or "graf-auto-v1"
     current_summary_format = BUILT_IN_BY_KEY.get(current_summary_format_key)
     shared_api_root = f"/api/v1/cabinet/shared-meetings/{review.meeting.meeting_id}"
-    shared_query = (
-        f"?workspace_id={shared_workspace_id}" if shared_workspace_id is not None else ""
-    )
+    shared_query = f"?workspace_id={shared_workspace_id}" if shared_workspace_id is not None else ""
     playback_path = (
         f"{shared_api_root}/playback{shared_query}"
         if shared_workspace_id is not None
@@ -678,10 +708,14 @@ def _render_meeting_detail_content(
         meeting_duration=cabinet_view_models.format_duration(review.meeting.duration_seconds),
         status_label=_ui_text(review.meeting.status_label),
         media_revision_id=(
-            "" if shared_workspace_id is not None else str(review.provenance.media_revision_id or "")
+            ""
+            if shared_workspace_id is not None
+            else str(review.provenance.media_revision_id or "")
         ),
         local_media_revision_id=(
-            "" if shared_workspace_id is not None else review.provenance.local_media_revision_id or ""
+            ""
+            if shared_workspace_id is not None
+            else review.provenance.local_media_revision_id or ""
         ),
         playback_poll_url=poll_url or "",
         playback_poll_active="true" if review.playback.state == "preparing" else "false",
@@ -721,9 +755,7 @@ def _render_meeting_detail_content(
             if review.content_exports is not None
             else ""
         ),
-        current_summary_format_template_id=(
-            str(review.template.template_id or "")
-        ),
+        current_summary_format_template_id=(str(review.template.template_id or "")),
         summary_settings_href=_settings_path(embedded) + "#summary-formats",
         audio_download_available=(review.governance.download.state == "available"),
         audio_download_href=audio_download_href,
@@ -817,10 +849,17 @@ def _render_meeting_workspace_actions(
     embedded: bool,
     more_actions_available: bool,
 ) -> str:
-    share_disabled = (
-        " disabled aria-disabled=\"true\" title=\"Поделиться пока недоступно по политике встречи\""
-        if review.governance.share.state != "available"
-        else " aria-haspopup=\"dialog\" aria-expanded=\"false\""
+    share_available = review.governance.share.state == "available"
+    share_attributes = (
+        ' aria-haspopup="dialog" aria-expanded="false"'
+        if share_available
+        else ' disabled aria-disabled="true" aria-describedby="meeting-share-disabled-reason"'
+    )
+    share_reason = (
+        ""
+        if share_available
+        else '<span class="sr-only" id="meeting-share-disabled-reason">'
+        "Поделиться пока недоступно по политике встречи</span>"
     )
     share_url = f"{_base_path(embedded)}/{review.meeting.meeting_id}/share"
     more_action = ""
@@ -831,7 +870,8 @@ def _render_meeting_workspace_actions(
               aria-expanded="false">Ещё</button>
         """
     return f"""
-      <button type="button" data-share-dialog-open aria-controls="meeting-share-dialog" hx-get="{share_url}" hx-target="#meeting-share-host" hx-swap="innerHTML"{share_disabled}>Поделиться</button>
+      <button type="button" data-share-dialog-open aria-controls="meeting-share-dialog" hx-get="{share_url}" hx-target="#meeting-share-host" hx-swap="innerHTML"{share_attributes}>Поделиться</button>
+      {share_reason}
       {more_action}
     """
 
@@ -923,7 +963,7 @@ def _render_content_export_dialog(
         <form
           class="content-export-form"
           data-content-export-form
-          data-endpoint="{escape(endpoint or f'/api/v1/cabinet/meetings/{review.meeting.meeting_id}/content-exports')}"
+          data-endpoint="{escape(endpoint or f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/content-exports")}"
           data-processing-result-id="{escape(result_id)}"
           data-outcome-set-id="{escape(outcome_id)}"
           data-csrf-token="{escape(csrf_token or "")}"
@@ -1033,10 +1073,13 @@ def _render_meeting_row(
     id_base = f"meeting-{item.meeting_id}"
     duration_id = f"{id_base}-duration"
     status_id = f"{id_base}-status"
+    readiness_id = f"{id_base}-readiness"
     time_id = f"{id_base}-time"
     described_by = [duration_id]
     if presentation.status_label is not None:
         described_by.append(status_id)
+    if presentation.content_readiness_label is not None:
+        described_by.append(readiness_id)
     described_by.append(time_id)
     link_described_by_value = " ".join(
         described_by[:-1]
@@ -1047,11 +1090,10 @@ def _render_meeting_row(
         presentation,
         meeting_path=meeting_path,
         status_id=status_id,
+        readiness_id=readiness_id,
     )
     meta_html = f'<span class="row-meta">{row_meta}</span>' if row_meta else ""
-    can_manage_lifecycle = (
-        item.access.state == "owner" or item.access.can_manage_team_visibility
-    )
+    can_manage_lifecycle = item.access.state == "owner" or item.access.can_manage_team_visibility
     selection_control = (
         f'<label class="row-select-hit"><input class="row-check" type="checkbox" '
         f'data-meeting-select aria-label="Выбрать встречу {action_context}"></label>'
@@ -1097,6 +1139,7 @@ def _render_meeting_row_meta(
     *,
     meeting_path: str,
     status_id: str,
+    readiness_id: str,
 ) -> str:
     status = ""
     if presentation.status_label is not None:
@@ -1121,16 +1164,20 @@ def _render_meeting_row_meta(
         """
     action = ""
     if presentation.status_kind == "calendar_choice":
-        action_context = escape(
-            f"{presentation.display_title}, {presentation.time_label}"
-        )
+        action_context = escape(f"{presentation.display_title}, {presentation.time_label}")
         action = (
             f'<a class="mini-link calendar-context-list-action" '
             f'href="{meeting_path}#calendar-context-chooser" '
             f'aria-label="Выбрать встречу {action_context}">'
             "Выбрать встречу</a>"
         )
-    return status + progress + action
+    readiness = (
+        f'<span class="meeting-content-readiness" id="{readiness_id}">'
+        f"{escape(presentation.content_readiness_label)}</span>"
+        if presentation.content_readiness_label is not None
+        else ""
+    )
+    return status + progress + readiness + action
 
 
 def _render_upcoming_recurring(response: MeetingListResponse, *, embedded: bool) -> str:
@@ -1456,7 +1503,7 @@ def _render_transcript(
 ) -> str:
     return "\n".join(
         f"""
-          <article class="segment speaker-color-{speaker_palette.get(segment.speaker_key, 0)}" data-transcript-turn data-speaker-key="{escape(segment.speaker_key)}" data-start-seconds="{escape(str(segment.start_seconds))}" data-end-seconds="{escape(str(segment.end_seconds))}" tabindex="-1">
+          <article class="segment speaker-color-{speaker_palette.get(segment.speaker_key, 0)}" data-transcript-turn data-source-segments="{escape(_transcript_source_segment_ids(segment))}" data-speaker-key="{escape(segment.speaker_key)}" data-start-seconds="{escape(str(segment.start_seconds))}" data-end-seconds="{escape(str(segment.end_seconds))}" tabindex="-1">
             {_render_timestamp(segment)}
             <div class="speaker"><span class="dot" aria-hidden="true"></span>{escape(_speaker_display_label(segment.speaker_label))}</div>
             <div class="text">{escape(segment.text)}</div>
@@ -1464,6 +1511,15 @@ def _render_transcript(
         """
         for segment in segments
     )
+
+
+def _transcript_source_segment_ids(
+    segment: TranscriptSegmentView | TranscriptSpeakerTurnView,
+) -> str:
+    source_ids = getattr(segment, "source_segment_ids", None)
+    if source_ids:
+        return " ".join(str(source_id) for source_id in source_ids)
+    return str(getattr(segment, "segment_id", ""))
 
 
 def _render_timestamp(segment: TranscriptSegmentView | TranscriptSpeakerTurnView) -> str:
@@ -1707,11 +1763,36 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
         ("questions", "Questions", review.notes_action_truth.questions),
         ("evidence", "Evidence", review.notes_action_truth.evidence),
     ]
+    aggregate_states = {"processing", "blocked", "unavailable", "deferred", "unsafe"}
+    aggregate_candidates = [
+        state for _, _, state in primary + secondary if state.state in aggregate_states
+    ]
+    priority = {"blocked": 0, "unsafe": 1, "processing": 2, "deferred": 3, "unavailable": 4}
+    aggregate = min(
+        aggregate_candidates,
+        key=lambda state: priority.get(state.state, len(priority)),
+        default=None,
+    )
+    primary = [row for row in primary if row[2].state not in aggregate_states]
+    secondary = [row for row in secondary if row[2].state not in aggregate_states]
+    source_destination_available = review.playback.can_play or bool(review.transcript.segments)
     primary_rows = "".join(
-        _render_notes_outcome_row(category, title, state) for category, title, state in primary
+        _render_notes_outcome_row(
+            category,
+            title,
+            state,
+            source_destination_available=source_destination_available,
+        )
+        for category, title, state in primary
     )
     secondary_rows = "".join(
-        _render_notes_outcome_row(category, title, state) for category, title, state in secondary
+        _render_notes_outcome_row(
+            category,
+            title,
+            state,
+            source_destination_available=source_destination_available,
+        )
+        for category, title, state in secondary
     )
     source = escape(_notes_source_label(review.notes_action_truth.source_basis))
     source_basis = escape(review.notes_action_truth.source_basis)
@@ -1722,6 +1803,28 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     secondary_label = "Дополнительные разделы"
     if secondary_count:
         secondary_label += f" ({secondary_count})"
+    aggregate_html = ""
+    if aggregate is not None:
+        reason = _ui_text(aggregate.reason)
+        aggregate_html = (
+            f'<div class="notes-aggregate-state" data-outcome-state="{escape(aggregate.state)}" '
+            'role="status">'
+            f"<strong>{escape(_ui_text(aggregate.label))}</strong>"
+            + (f"<p>{escape(reason)}</p>" if reason else "")
+            + "</div>"
+        )
+    secondary_html = (
+        f"""
+        <details class="notes-more">
+          <summary>{secondary_label}</summary>
+          <div class="notes-outcomes notes-secondary-outcomes" aria-label="Дополнительные разделы">
+            {secondary_rows}
+          </div>
+        </details>
+        """
+        if secondary_rows
+        else ""
+    )
     return f"""
       <section class="notes" data-outcome-source-basis="{source_basis}" aria-labelledby="meeting-outcomes-title">
         <div class="notes-header">
@@ -1730,15 +1833,11 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
             <p class="notes-source-line">Источник: {source}</p>
           </div>
         </div>
+        {aggregate_html}
         <div class="notes-outcomes notes-primary-outcomes">
           {primary_rows}
         </div>
-        <details class="notes-more">
-          <summary>{secondary_label}</summary>
-          <div class="notes-outcomes notes-secondary-outcomes" aria-label="Дополнительные разделы">
-            {secondary_rows}
-          </div>
-        </details>
+        {secondary_html}
       </section>
     """
 
@@ -1747,10 +1846,19 @@ def _render_notes_outcome_row(
     category: str,
     title: str,
     state: NotesActionCategoryState,
+    *,
+    source_destination_available: bool,
 ) -> str:
     state_name = escape(state.state)
     item_html = (
-        "".join(_render_outcome_item(item) for item in state.items if item.text)
+        "".join(
+            _render_outcome_item(
+                item,
+                source_destination_available=source_destination_available,
+            )
+            for item in state.items
+            if item.text
+        )
         if state.state == "available"
         else ""
     )
@@ -1761,9 +1869,7 @@ def _render_notes_outcome_row(
         if state.state != "available"
         else ""
     )
-    reason_html = (
-        f'<p class="notes-state-copy">{escape(state_reason)}</p>' if state_reason else ""
-    )
+    reason_html = f'<p class="notes-state-copy">{escape(state_reason)}</p>' if state_reason else ""
     return f"""
       <section class="notes-outcome-row notes-section" data-outcome-category="{escape(category)}" data-outcome-state="{state_name}">
         <div class="notes-section-header">
@@ -1778,7 +1884,7 @@ def _render_notes_outcome_row(
     """
 
 
-def _render_outcome_item(item) -> str:
+def _render_outcome_item(item, *, source_destination_available: bool) -> str:
     text = escape(item.text or "")
     if not text:
         return ""
@@ -1804,21 +1910,38 @@ def _render_outcome_item(item) -> str:
         )
 
     source_controls = []
-    for ref in item.source_refs[:2]:
-        if ref.start_seconds is None:
+    for ref in item.source_refs:
+        if not source_destination_available or not ref.seekable or ref.start_seconds is None:
             continue
         seconds = escape(str(ref.start_seconds))
         timestamp = _timecode(int(ref.start_seconds))
         source_label = f"Источник: {timestamp}"
+        segment_id = escape(str(ref.transcript_segment_id or ""))
         source_controls.append(
             f'<button type="button" class="notes-source-link" data-seek-seconds="{seconds}" '
+            f'data-source-segment="{segment_id}" '
             f'data-source-label="{escape(source_label)}" '
             f'aria-label="Открыть источник {escape(timestamp)} в расшифровке">{escape(timestamp)}</button>'
         )
     if source_controls:
+        overflow_count = max(0, len(source_controls) - 2)
+        source_noun = (
+            "источник"
+            if overflow_count == 1
+            else "источника"
+            if overflow_count < 5
+            else "источников"
+        )
+        overflow_html = (
+            f'<details class="notes-source-more"><summary aria-label="Показать ещё {overflow_count} {source_noun}">'
+            f"Ещё {overflow_count}</summary>{''.join(source_controls[2:])}</details>"
+            if overflow_count
+            else ""
+        )
         source_html = (
             '<div class="notes-item-sources"><span class="notes-source-label">Источник:</span>'
-            + "".join(source_controls)
+            + "".join(source_controls[:2])
+            + overflow_html
             + "</div>"
         )
     else:

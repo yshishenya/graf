@@ -253,7 +253,10 @@ async def embedded_meeting_detail_page(
         )
     if response.access is not None and not response.access.can_view_full_meeting:
         return RedirectResponse(
-            url=f"/api/v1/cabinet/meetings/{parsed_meeting_id}/shared-summary",
+            url=(
+                f"/shared-meetings/{parsed_meeting_id}"
+                f"?workspace_id={tenant_scope.workspace_id}"
+            ),
             status_code=302,
         )
     if _is_hx_request(request):

@@ -25,6 +25,7 @@ from twobrain_rec_server.mediascribe.import_results import (
     result_digest,
 )
 from twobrain_rec_server.mediascribe.schemas import MediaScribePollResponse, MediaScribeResult
+from twobrain_rec_server.outcomes.ai_service import ensure_automatic_summary_candidate
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.fences import (
@@ -557,6 +558,7 @@ async def poll_and_import_mediascribe_result(
     workflow: ProcessingWorkflow,
     job: MediaScribeJob,
     mediascribe_client: object,
+    outcome_generation_enabled: bool = False,
 ) -> ImportProcessingResult:
     if job.external_job_id is None:
         await store.set_workflow_status(db, workflow, ProcessingStatus.FAILED_TERMINAL, reason_code="missing_external_job_id", terminal=True)
@@ -703,6 +705,12 @@ async def poll_and_import_mediascribe_result(
     except ProcessingLifecycleBlocked as exc:
         await _cancel_stale_processing(db, workflow=workflow, reason=exc)
         return ImportProcessingResult(imported=True, status=ProcessingStatus.CANCELED)
+    if outcome_generation_enabled:
+        await ensure_automatic_summary_candidate(
+            db,
+            workspace_id=result_row.workspace_id,
+            meeting_id=result_row.meeting_id,
+        )
     await store.set_workflow_status(db, workflow, ProcessingStatus.PROCESSED, reason_code=result.failure_reason, terminal=True)
     await _record_import_diagnostic(db, workflow=workflow, job=job, result=result)
     return ImportProcessingResult(imported=True, status=ProcessingStatus.PROCESSED)

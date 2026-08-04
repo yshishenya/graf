@@ -37,7 +37,10 @@ def test_validation_retry_uses_distinct_observable_call_key() -> None:
     assert result == {"attempt": 2}
 
 
-def test_judge_verdict_is_derived_from_numeric_score() -> None:
+def test_judge_fail_or_inconsistent_verdict_is_a_per_example_hard_failure() -> None:
     assert validate_judge_result(
         {"score": 0.75, "verdict": "fail", "feedback": "bounded feedback"}
-    ) == {"score": 0.75, "verdict": "pass", "feedback": "bounded feedback"}
+    ) == {"score": 0.0, "verdict": "fail", "feedback": "bounded feedback"}
+    assert validate_judge_result(
+        {"score": 0.4, "verdict": "fail", "feedback": "bounded feedback"}
+    ) == {"score": 0.0, "verdict": "fail", "feedback": "bounded feedback"}

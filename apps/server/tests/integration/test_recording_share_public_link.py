@@ -3,6 +3,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 from cryptography.fernet import Fernet
 from sqlalchemy import select
@@ -69,9 +70,12 @@ def test_summary_only_user_cannot_open_full_meeting_routes(client) -> None:
     assert "Итоги встречи" in html_summary.text
     assert "audio" not in html_summary.text.lower()
     set_artifact_policy(client, seeds.ready_id, summary_download="allowed")
-    assert client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers_for()
-    ).status_code == 404
+    assert (
+        client.get(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers_for()
+        ).status_code
+        == 404
+    )
     summary = client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/shared-summary",
         headers=auth_headers_for(),
@@ -96,21 +100,119 @@ def test_summary_only_user_cannot_open_full_meeting_routes(client) -> None:
     assert scoped_access["can_share"] is False
     assert scoped_access["can_download"] is False
     assert scoped_access["can_export"] is False
-    assert client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/activity",
+    assert (
+        client.get(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/activity",
+            headers=auth_headers_for(),
+        ).status_code
+        == 404
+    )
+    browser = client.get(
+        f"/meetings/{seeds.ready_id}",
         headers=auth_headers_for(),
-    ).status_code == 404
+        follow_redirects=False,
+    )
+    assert browser.status_code == 200
+    assert browser.headers["content-type"].startswith("text/html")
+    assert browser.headers["cache-control"] == "private, no-store"
+    assert "Итоги встречи" in browser.text
     embedded = client.get(
         f"/desktop/meetings/{seeds.ready_id}",
         headers=auth_headers_for(),
         follow_redirects=False,
     )
     assert embedded.status_code == 302
-    assert embedded.headers["location"].endswith(f"/{seeds.ready_id}/shared-summary")
-    assert client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/summary",
+    assert embedded.headers["location"].startswith(
+        f"/shared-meetings/{seeds.ready_id}?workspace_id="
+    )
+
+
+def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    asyncio.run(_seed_external_full_summary(client, seeds.ready_id))
+
+    async def seed_candidate() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, seeds.ready_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
+            )
+            assert meeting is not None and result is not None
+            candidate = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                processing_result_id=result.id,
+                candidate_id=uuid4(),
+                status="available",
+                summary_state="available",
+                key_points_state="not_found",
+                decisions_state="not_found",
+                action_items_state="not_found",
+                followups_state="not_found",
+                risks_state="not_found",
+                questions_state="not_found",
+                evidence_state="not_found",
+                source_kind="litellm",
+                generator_kind="litellm",
+                generator_version="fixture-private-candidate-v1",
+                lifecycle_state="active",
+                revision_state="candidate",
+                generated_at=datetime.now(UTC),
+            )
+            db.add(candidate)
+            await db.flush()
+            db.add(
+                MeetingOutcomeItem(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    outcome_set_id=candidate.id,
+                    category="summary",
+                    sequence=0,
+                    state="available",
+                    text="Непринятый приватный вариант.",
+                    truth_label="supported",
+                    source_refs_json=[],
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_candidate())
+    add_workspace_user(client)
+    share = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+        headers=auth_headers(),
+        json={
+            "audience_type": "user",
+            "audience_id": str(SHARED_USER_ID),
+            "content_scope": "summary_only",
+            "can_download": False,
+            "can_export": False,
+        },
+    )
+    api_summary = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shared-summary",
         headers=auth_headers_for(),
-    ).status_code == 409
+    )
+    html_summary = client.get(
+        share.json()["share_url"],
+        headers={**auth_headers_for(), "Accept": "text/html"},
+    )
+
+    assert share.status_code == 201
+    assert api_summary.status_code == 200
+    assert html_summary.status_code == 200
+    assert "Сохранённый итог." in api_summary.text
+    assert "Сохранённый итог." in html_summary.text
+    assert "Непринятый приватный вариант." not in api_summary.text
+    assert "Непринятый приватный вариант." not in html_summary.text
+    assert (
+        client.get(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/summary",
+            headers=auth_headers_for(),
+        ).status_code
+        == 409
+    )
 
 
 def test_summary_only_recipient_cannot_upgrade_own_share_grant(client) -> None:
@@ -178,10 +280,13 @@ def test_view_only_full_meeting_grant_cannot_download_or_export(client) -> None:
     )
     assert share.status_code == 201
 
-    assert client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/transcript",
-        headers=viewer_headers,
-    ).status_code == 409
+    assert (
+        client.get(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/transcript",
+            headers=viewer_headers,
+        ).status_code
+        == 409
+    )
     capabilities = client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
         headers=viewer_headers,
@@ -271,10 +376,13 @@ def test_revoked_user_grant_can_be_recreated_and_revoked_again(client) -> None:
     )
     assert first.status_code == 201
     first_grant_id = first.json()["grant"]["grant_id"]
-    assert client.delete(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/{first_grant_id}",
-        headers=auth_headers(),
-    ).status_code == 204
+    assert (
+        client.delete(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/{first_grant_id}",
+            headers=auth_headers(),
+        ).status_code
+        == 204
+    )
 
     second = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
@@ -284,10 +392,13 @@ def test_revoked_user_grant_can_be_recreated_and_revoked_again(client) -> None:
     assert second.status_code == 201
     second_grant_id = second.json()["grant"]["grant_id"]
     assert second_grant_id != first_grant_id
-    assert client.delete(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/{second_grant_id}",
-        headers=auth_headers(),
-    ).status_code == 204
+    assert (
+        client.delete(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/{second_grant_id}",
+            headers=auth_headers(),
+        ).status_code
+        == 204
+    )
 
 
 def test_revoked_public_link_can_be_recreated(client) -> None:
@@ -311,11 +422,14 @@ def test_revoked_public_link_can_be_recreated(client) -> None:
             json=payload,
         )
         assert first.status_code == 201
-        assert client.delete(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/"
-            f"{first.json()['grant']['grant_id']}",
-            headers=auth_headers(),
-        ).status_code == 204
+        assert (
+            client.delete(
+                f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/"
+                f"{first.json()['grant']['grant_id']}",
+                headers=auth_headers(),
+            ).status_code
+            == 204
+        )
 
         second = client.post(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
@@ -427,7 +541,9 @@ def test_expired_and_revoked_invitations_can_be_recreated(client) -> None:
     assert outcome_unknown.status == "revoked"
 
 
-def test_external_invitation_accepts_from_another_workspace_and_resolves_share(client, tmp_path) -> None:
+def test_external_invitation_accepts_from_another_workspace_and_resolves_share(
+    client, tmp_path
+) -> None:
     from uuid import UUID
 
     seeds = seed_cabinet_meetings(client)
@@ -734,7 +850,9 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
     assert state not in replay.text
     assert magic_csrf_match.group(1) not in replay.text
 
-    async def read_bootstrap_result() -> tuple[ExternalIdentity, WorkspaceMembership, MeetingShareGrant, MeetingShareInvitation]:
+    async def read_bootstrap_result() -> tuple[
+        ExternalIdentity, WorkspaceMembership, MeetingShareGrant, MeetingShareInvitation
+    ]:
         async with client.app_state["sessionmaker"]() as db:
             identity = await db.scalar(
                 select(ExternalIdentity).where(ExternalIdentity.email == recipient_email)
@@ -778,7 +896,9 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
     assert invitation.account_created_email_failure_code == "postal_delivery_disabled"
 
 
-def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(client, tmp_path) -> None:
+def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
+    client, tmp_path
+) -> None:
     seeds = seed_cabinet_meetings(client)
     audio_body = add_retained_playback_m4a(client, seeds.ready_id, b"shared-recording-m4a")
     set_artifact_policy(
@@ -887,7 +1007,14 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(cl
     assert capability_payload["transcript"]["state"] == "available"
     assert capability_payload["summary"]["state"] == "available"
     assert capability_payload["combined"]["state"] == "available"
-    assert capability_payload["formats"]["transcript"] == ["txt", "md", "csv", "xlsx", "json", "srt"]
+    assert capability_payload["formats"]["transcript"] == [
+        "txt",
+        "md",
+        "csv",
+        "xlsx",
+        "json",
+        "srt",
+    ]
     assert capability_payload["formats"]["summary"] == ["txt", "md", "xlsx", "json"]
     assert capability_payload["formats"]["combined"] == ["txt", "md", "xlsx", "json"]
 
@@ -1070,7 +1197,9 @@ async def _seed_external_full_summary(client, meeting_id) -> None:
         await db.commit()
 
 
-def test_account_created_notification_failure_cannot_break_committed_acceptance(monkeypatch) -> None:
+def test_account_created_notification_failure_cannot_break_committed_acceptance(
+    monkeypatch,
+) -> None:
     request = SimpleNamespace(
         app=SimpleNamespace(
             state=SimpleNamespace(
@@ -1141,13 +1270,16 @@ def test_enabled_broader_audiences_have_no_dead_share_paths(client) -> None:
         )
         assert workspace_share.status_code == 201
         assert workspace_share.json()["share_url"] == f"/meetings/{seeds.ready_id}"
-        assert client.get(
-            workspace_share.json()["share_url"],
-            headers=auth_headers_for(
-                user_id=workspace_user_id,
-                device_id=workspace_device_id,
-            ),
-        ).status_code == 200
+        assert (
+            client.get(
+                workspace_share.json()["share_url"],
+                headers=auth_headers_for(
+                    user_id=workspace_user_id,
+                    device_id=workspace_device_id,
+                ),
+            ).status_code
+            == 200
+        )
 
         team_share = client.post(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",

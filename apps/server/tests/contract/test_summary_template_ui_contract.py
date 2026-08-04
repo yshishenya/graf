@@ -18,6 +18,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeSet,
     ProcessingResult,
     SummaryTemplate,
+    TranscriptSegment,
     Workspace,
     WorkspaceMembership,
 )
@@ -88,6 +89,36 @@ def test_candidate_ui_preserves_current_notes_until_explicit_accept() -> None:
     assert "request_intent_id" in script
     assert "manual_refresh" in script
     assert '/${candidate.candidate_id}/${accept ? "accept" : "reject"}' in script
+    assert "if (status) status.hidden = true;\n            clearPreview();" in script
+    assert 'if (code === "summary_source_revision_stale") clearPreview();' in script
+
+
+def test_candidate_preview_is_localized_compact_and_source_navigable() -> None:
+    script = CABINET_JS.read_text(encoding="utf-8")
+
+    labels = [
+        '["summary", "Кратко"]',
+        '["action_items", "Действия"]',
+        '["decisions", "Решения"]',
+        '["key_points", "Ключевые пункты"]',
+    ]
+    assert [script.index(label) for label in labels] == sorted(
+        script.index(label) for label in labels
+    )
+    assert "Ответственный" in script
+    assert "Срок" in script
+    assert "source.dataset.sourceSegment" in script
+    assert "const overflow = refs.slice(2)" in script
+    assert "notes-source-more" in script
+    assert "const sourceNoun = overflow.length === 1" in script
+    assert "Показать ещё ${overflow.length} ${sourceNoun}" in script
+    assert 'activateDetailTab("recording")' in script
+    assert "control.dataset.sourceSegment" in script
+    assert "turn.dataset.sourceSegments" in script
+    assert ".includes(sourceSegment)" in script
+    assert "const target = exactTarget ||" in script
+    assert "target.focus({ preventScroll: true })" in script
+    assert '${item.category || "Итог"}' not in script
     assert "window.location.reload()" in script
     assert "JSON.stringify({" in script
     assert "template: activeTemplate" in script
@@ -103,7 +134,7 @@ def test_candidate_ui_preserves_current_notes_until_explicit_accept() -> None:
     assert "const latestFailure = candidates.find" in script
     assert "candidate.template_version" in script
     assert 'candidate.next_action === "new_candidate"' in script
-    assert 'action: () => requestCurrentRefresh()' in script
+    assert "action: () => requestCurrentRefresh()" in script
     assert "loadPreview(candidate, generation).then" in script
     assert "Предпросмотр пока недоступен" in script
     assert "source_revision_label" in script
@@ -378,7 +409,8 @@ def test_worker_failure_wins_when_temporal_dispatch_ack_races(client) -> None:
             async with client.app_state["sessionmaker"]() as db:
                 attempt = await db.scalar(
                     select(MeetingOutcomeGenerationAttempt).where(
-                        MeetingOutcomeGenerationAttempt.candidate_id == UUID(payload["candidate_id"])
+                        MeetingOutcomeGenerationAttempt.candidate_id
+                        == UUID(payload["candidate_id"])
                     )
                 )
                 assert attempt is not None
@@ -421,7 +453,8 @@ def test_worker_failure_wins_when_temporal_dispatch_ack_races(client) -> None:
             async with client.app_state["sessionmaker"]() as db:
                 attempt = await db.scalar(
                     select(MeetingOutcomeGenerationAttempt).where(
-                        MeetingOutcomeGenerationAttempt.candidate_id == UUID(payload["candidate_id"])
+                        MeetingOutcomeGenerationAttempt.candidate_id
+                        == UUID(payload["candidate_id"])
                     )
                 )
                 assert attempt is not None
@@ -759,6 +792,25 @@ def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert meeting is not None and result is not None
+            segments = (
+                await db.scalars(
+                    select(TranscriptSegment)
+                    .where(TranscriptSegment.processing_result_id == result.id)
+                    .order_by(TranscriptSegment.sequence)
+                )
+            ).all()
+            assert len(segments) == 2
+            legacy_refs = [
+                {
+                    "transcript_segment_id": str(segments[index % len(segments)].id),
+                    "sequence": segments[index % len(segments)].sequence,
+                    "start_seconds": 999,
+                    "end_seconds": 1000,
+                    "source_role": "untrusted",
+                    "evidence_kind": "segment",
+                }
+                for index in range(40)
+            ]
             attempt = await create_summary_candidate(
                 db,
                 workspace_id=WORKSPACE_ID,
@@ -798,7 +850,7 @@ def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
                         owner_text="",
                         due_date_text="",
                         truth_label="supported",
-                        source_refs_json=[f"legacy-ref-{index}" for index in range(40)],
+                        source_refs_json=legacy_refs,
                     )
                     for sequence in range(205)
                 ]
@@ -821,9 +873,17 @@ def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
             attempt.outcome_set_id = outcome_set.id
             attempt.status = "candidate"
             await db.commit()
-            return attempt.candidate_id
+            return attempt.candidate_id, {
+                str(segment.id): {
+                    "sequence": segment.sequence,
+                    "start_seconds": float(segment.start_seconds),
+                    "end_seconds": float(segment.end_seconds),
+                    "source_role": segment.source_role,
+                }
+                for segment in segments
+            }
 
-    candidate_id = client.portal.call(seed_candidate)
+    candidate_id, canonical_segments = client.portal.call(seed_candidate)
     preview = client.get(
         f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
         headers=auth_headers(),
@@ -835,7 +895,16 @@ def test_owner_preview_is_private_and_cross_workspace_is_hidden(client) -> None:
     assert preview.json()["items"][0]["category"] == "summary"
     assert len(preview.json()["items"]) == 200
     assert all(item["category"] == "summary" for item in preview.json()["items"])
-    assert all(len(item["source_refs"]) == 32 for item in preview.json()["items"])
+    assert all(len(item["source_refs"]) == 2 for item in preview.json()["items"])
+    first_ref = preview.json()["items"][0]["source_refs"][0]
+    assert first_ref["transcript_segment_id"] in canonical_segments
+    assert {
+        "sequence": first_ref["sequence"],
+        "start_seconds": first_ref["start_seconds"],
+        "end_seconds": first_ref["end_seconds"],
+        "source_role": first_ref["source_role"],
+    } == canonical_segments[first_ref["transcript_segment_id"]]
+    assert first_ref["seekable"] is True
     listed = client.get(
         f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates",
         headers=auth_headers(),
@@ -975,7 +1044,7 @@ def test_candidate_ui_ignores_stale_loads_and_retries_existing_poll() -> None:
     # A new manual generation remains an explicit terminal-state action, not a
     # recovery path for a transient poll failure.
     assert 'requestIntent: "manual_refresh"' in script
-    assert 'candidateErrorAction(code, activeTemplate, error)' in script
+    assert "candidateErrorAction(code, activeTemplate, error)" in script
     assert 'error?.name === "TypeError"' in script
     assert 'candidate.state === "blocked"' in script
 
@@ -986,10 +1055,19 @@ def test_summary_selector_keyboard_focus_and_candidate_projection_are_simple(cli
 
     for key in ("ArrowUp", "ArrowDown", "Home", "End", "Escape"):
         assert key in script
-    assert 'button.focus({ preventScroll: true })' in script
+    assert "button.focus({ preventScroll: true })" in script
     assert "trapModalFocus(dialog, event)" in script
     states = set(schema["SummaryCandidateResponse"]["properties"]["state"]["enum"])
-    assert states == {"generating", "ready", "accepted", "closed", "failed", "blocked", "stale", "expired"}
+    assert states == {
+        "generating",
+        "ready",
+        "accepted",
+        "closed",
+        "failed",
+        "blocked",
+        "stale",
+        "expired",
+    }
     assert states.isdisjoint({"queued", "blocked_dependency", "candidate", "cancelled"})
 
 
@@ -1012,12 +1090,38 @@ def test_candidate_projection_keeps_terminal_dependency_reasons_actionable() -> 
         "generation_call_content_hash_mismatch": ("content_unavailable", False, "refresh_status"),
     }
     for code, expected in cases.items():
-        assert _summary_candidate_projection(
-            SimpleNamespace(status="failed", failure_code=code)
-        ) == expected
-    assert _summary_candidate_projection(
-        SimpleNamespace(status="rejected", failure_code=None)
-    ) == ("dismissed", False, "new_candidate")
+        assert (
+            _summary_candidate_projection(SimpleNamespace(status="failed", failure_code=code))
+            == expected
+        )
+    assert _summary_candidate_projection(SimpleNamespace(status="rejected", failure_code=None)) == (
+        "dismissed",
+        False,
+        "new_candidate",
+    )
+
+
+def test_candidate_projection_distinguishes_invalid_refused_oversize_and_ambiguous_states() -> None:
+    from types import SimpleNamespace
+
+    cases = [
+        ("litellm_invalid_structured_output", ("result_invalid", False, "new_candidate")),
+        ("litellm_request_rejected", ("result_invalid", False, "new_candidate")),
+        ("outcome_transcript_oversize", ("input_too_large", False, "open_meeting")),
+        (
+            "summary_provider_outcome_ambiguous",
+            ("provider_outcome_unknown", False, "refresh_status"),
+        ),
+        ("litellm_credential_unavailable", ("provider_unavailable", False, "refresh")),
+    ]
+
+    for failure_code, expected in cases:
+        assert (
+            _summary_candidate_projection(
+                SimpleNamespace(status="failed", failure_code=failure_code)
+            )
+            == expected
+        )
 
 
 def test_workspace_default_format_is_persisted_and_returned_by_list_api(client) -> None:
@@ -1148,6 +1252,7 @@ def test_duplicate_personal_template_respects_active_template_limit(client) -> N
             await db.commit()
 
     client.portal.call(seed_templates)
+
     async def load_source_id() -> object:
         async with client.app_state["sessionmaker"]() as db:
             source = await db.scalar(
@@ -1179,9 +1284,10 @@ def test_default_format_contract_is_migrated_and_explicit(client) -> None:
 
     operation = schema["paths"]["/api/v1/cabinet/summary-templates/default"]["put"]
     assert operation["operationId"] == "updateDefaultSummaryTemplate"
-    assert "can_manage_default" in schema["components"]["schemas"][
-        "SummaryTemplateListResponse"
-    ]["properties"]
+    assert (
+        "can_manage_default"
+        in schema["components"]["schemas"]["SummaryTemplateListResponse"]["properties"]
+    )
     for field in (
         "default_summary_template_key",
         "default_summary_template_id",

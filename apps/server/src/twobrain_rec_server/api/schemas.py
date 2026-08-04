@@ -1204,17 +1204,13 @@ ArtifactEgressStateValue = Literal[
 ArtifactAction = Literal["download", "export", "disabled"]
 ContentExportScope = Literal["transcript", "summary", "combined"]
 ContentExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt"]
-CONTENT_EXPORT_FORMATS_BY_SCOPE: dict[
-    ContentExportScope, tuple[ContentExportFormat, ...]
-] = {
+CONTENT_EXPORT_FORMATS_BY_SCOPE: dict[ContentExportScope, tuple[ContentExportFormat, ...]] = {
     "transcript": ("txt", "md", "csv", "xlsx", "json", "srt"),
     "summary": ("txt", "md", "xlsx", "json"),
     "combined": ("txt", "md", "xlsx", "json"),
 }
 CONTENT_EXPORT_FORMATS = frozenset(
-    format_name
-    for formats in CONTENT_EXPORT_FORMATS_BY_SCOPE.values()
-    for format_name in formats
+    format_name for formats in CONTENT_EXPORT_FORMATS_BY_SCOPE.values() for format_name in formats
 )
 ContentExportReadinessState = Literal[
     "available",
@@ -1279,6 +1275,7 @@ SummaryCandidateReasonCode = Literal[
     "prompt_invalid",
     "provider_outcome_unknown",
     "content_unavailable",
+    "input_too_large",
     "generation_in_progress",
     "meeting_deleting",
     "meeting_deleted",
@@ -1334,9 +1331,7 @@ class CreateSummaryTemplateRequest(BaseModel):
 
     @field_validator("sections")
     @classmethod
-    def require_unique_sections(
-        cls, value: list[SummarySection]
-    ) -> list[SummarySection]:
+    def require_unique_sections(cls, value: list[SummarySection]) -> list[SummarySection]:
         if len(value) != len(set(value)):
             raise ValueError("summary sections must be unique")
         return value
@@ -1420,7 +1415,7 @@ class SummaryCandidatePreviewItem(BaseModel):
     owner_text: str = ""
     due_date_text: str = ""
     truth_label: str = ""
-    source_refs: list[str] = Field(default_factory=list, max_length=32)
+    source_refs: list["OutcomeSourceReferenceView"] = Field(default_factory=list, max_length=8)
 
 
 class SummaryCandidateResponse(BaseModel):
@@ -1635,7 +1630,9 @@ class CreateShareGrantRequest(BaseModel):
 class ShareGrantResponse(BaseModel):
     grant: ShareGrantView
     share_url: str
-    notification_status: Literal["sent", "not_available", "failed", "outcome_unknown", "not_attempted"] = "not_attempted"
+    notification_status: Literal[
+        "sent", "not_available", "failed", "outcome_unknown", "not_attempted"
+    ] = "not_attempted"
 
 
 class CreateExportPackageRequest(BaseModel):
@@ -1783,6 +1780,7 @@ class OutcomeSourceReferenceView(BaseModel):
     speaker_label: str | None = None
     source_role: str | None = None
     evidence_kind: OutcomeEvidenceKind
+    seekable: bool = False
 
 
 class OutcomeItemView(BaseModel):

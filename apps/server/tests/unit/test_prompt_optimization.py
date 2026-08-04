@@ -16,8 +16,12 @@ from twobrain_rec_server.cli.langfuse_prompts import (
     sync_prompts,
 )
 from twobrain_rec_server.outcomes.prompt_optimization import (
+    OUTCOME_EVAL_METRIC_THRESHOLDS,
+    OptimizationCandidate,
     PromptOptimizationError,
     PromptOptimizationReconciliationError,
+    SyntheticExample,
+    SyntheticManifest,
     _commit_database_until_quiescent,
     _publish_optimization_terminal_observation,
     _run_thread_until_quiescent,
@@ -28,6 +32,7 @@ from twobrain_rec_server.outcomes.prompt_optimization import (
     load_verified_promoted_snapshot,
     move_production_label,
     optimization_terminal_observation_id,
+    parse_reflection_proposal,
     persist_verified_promoted_snapshot,
     promote_control_prompt,
     promote_prompt_candidate_activity,
@@ -37,7 +42,10 @@ from twobrain_rec_server.outcomes.prompt_optimization import (
     publish_unlabelled_candidate,
     required_judge_calibration,
     rollback_prompt_production_label_activity,
+    validate_candidate_prompt,
     validate_control_prompt_gate,
+    validate_heldout_candidate,
+    validate_outcome_eval_receipt,
 )
 from twobrain_rec_server.outcomes.prompts import (
     CONTROL_GATE_CONFIG_KEY,
@@ -47,7 +55,9 @@ from twobrain_rec_server.outcomes.prompts import (
 
 
 @pytest.mark.anyio
-async def test_cancel_during_label_move_commits_promoted_state_and_keeps_rollback_authority() -> None:
+async def test_cancel_during_label_move_commits_promoted_state_and_keeps_rollback_authority() -> (
+    None
+):
     started = threading.Event()
     release = threading.Event()
     state: dict[str, object] = {
@@ -128,9 +138,7 @@ async def test_cancel_during_db_commit_finishes_boundary_without_split_brain(
         try:
             await _commit_database_until_quiescent(
                 Database(),
-                cancellation_observed=(
-                    cancellation_observed if operation == "candidate" else None
-                ),
+                cancellation_observed=(cancellation_observed if operation == "candidate" else None),
                 complete_after_cancel=True,
             )
             if operation == "candidate" and cancellation_observed.is_set():
@@ -168,6 +176,15 @@ def _source():
         prompt=prompt,
         config=config,
     )
+
+
+def test_reflection_accepts_a_whitespace_padded_complete_chat_prompt() -> None:
+    source = _source()
+    proposal = parse_reflection_proposal(f"```\n{canonical_json(source.prompt)}\n```")
+
+    assert validate_candidate_prompt(source, proposal).canonical_hash == source.canonical_hash
+    with pytest.raises(PromptOptimizationError, match="candidate_"):
+        validate_candidate_prompt(source, parse_reflection_proposal("```\nmessage only\n```"))
 
 
 def test_candidate_publication_has_no_manual_label_and_never_auto_promotes() -> None:
@@ -454,23 +471,19 @@ async def test_cancel_during_session_exit_or_engine_dispose_keeps_activity_coher
         status=(
             "candidate"
             if operation in {"persisted_candidate", "promotion"}
-            else "promoted" if operation == "rollback" else "running"
+            else "promoted"
+            if operation == "rollback"
+            else "running"
         ),
         approval_state="approved",
         approval_action_id=UUID("20000000-0000-0000-0000-000000000002"),
         approval_expires_at=(
-            datetime.now(UTC) + timedelta(days=1)
-            if operation == "persisted_candidate"
-            else None
+            datetime.now(UTC) + timedelta(days=1) if operation == "persisted_candidate" else None
         ),
         prompt_name=source.name,
         source_prompt_version=source.version,
-        candidate_prompt_version=(
-            candidate.version if operation != "candidate" else None
-        ),
-        candidate_prompt_hash=(
-            candidate.canonical_hash if operation != "candidate" else None
-        ),
+        candidate_prompt_version=(candidate.version if operation != "candidate" else None),
+        candidate_prompt_hash=(candidate.canonical_hash if operation != "candidate" else None),
         candidate_config_hash=(
             prompt_config_hash(candidate.config) if operation != "candidate" else None
         ),
@@ -826,7 +839,7 @@ def test_verified_promoted_snapshot_is_owner_controlled_fallback() -> None:
     assert restored.canonical_hash == source.canonical_hash
 
 
-def test_control_prompt_sync_creates_unlabelled_candidates(monkeypatch) -> None:
+def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch) -> None:
     import langfuse
 
     class Client:
@@ -859,12 +872,216 @@ def test_control_prompt_sync_creates_unlabelled_candidates(monkeypatch) -> None:
     control_creates = [row for row in client.created if row["name"] in CONTROL_PROMPTS]
     outcome_creates = [row for row in client.created if row["name"] not in CONTROL_PROMPTS]
     assert control_creates and all(row["labels"] == [] for row in control_creates)
-    assert outcome_creates and all(row["labels"] == ["production"] for row in outcome_creates)
+    assert outcome_creates and all(row["labels"] == [] for row in outcome_creates)
     assert all(
         f"config-contract-v{row['config']['config_contract_version']}" in row["tags"]
         for row in client.created
     )
     assert sum(value.startswith("created-control-candidate:") for value in outcomes) == 4
+    assert sum(value.startswith("created-outcome-candidate:") for value in outcomes) == 10
+
+
+def test_prompt_sync_treats_an_older_production_contract_as_change_required(
+    monkeypatch,
+) -> None:
+    import langfuse
+
+    prompt_name = "graf/meeting-outcome/auto"
+    prompt_type, prompt, _config = desired_prompts()[prompt_name]
+
+    class Client:
+        def get_prompt(self, name, **_kwargs):
+            if name == prompt_name:
+                return Mock(
+                    version=3,
+                    prompt=prompt,
+                    config={"config_contract_version": 1},
+                )
+            raise RuntimeError("not seeded")
+
+        def flush(self) -> None:
+            pass
+
+        def shutdown(self) -> None:
+            pass
+
+    monkeypatch.setattr(langfuse, "Langfuse", lambda **_kwargs: Client())
+
+    outcomes = sync_prompts(
+        base_url="https://langfuse.invalid",
+        public_key="pk-test",
+        secret_key="sk-test",
+        apply=False,
+    )
+
+    assert f"change-required:{prompt_name}" in outcomes
+
+
+def test_heldout_gate_uses_worst_example_instead_of_mean() -> None:
+    first = SyntheticExample(
+        id="heldout-1",
+        transcript_json='[{"id":"segment"}]',
+        segment_ids=frozenset({"segment"}),
+        required_categories=("summary",),
+    )
+    second = SyntheticExample(
+        id="heldout-2",
+        transcript_json='[{"id":"segment-2"}]',
+        segment_ids=frozenset({"segment-2"}),
+        required_categories=("summary",),
+    )
+    heldout = SyntheticManifest.create(
+        ref="synthetic://heldout/v1",
+        split="heldout",
+        version="v1",
+        examples=(first, second),
+    )
+    candidate = OptimizationCandidate(
+        prompt_text="prompt",
+        prompt_hash="a" * 64,
+        source_config_hash="b" * 64,
+        development_score=1,
+    )
+    adapter = Mock()
+    adapter.evaluate.return_value = SimpleNamespace(
+        scores=[1.0, 0.2],
+        objective_scores=[
+            {name: 1.0 for name in CONTROL_PROMPTS if name.startswith("graf/evaluation/")},
+            {name: 0.2 for name in CONTROL_PROMPTS if name.startswith("graf/evaluation/")},
+        ],
+    )
+
+    result = validate_heldout_candidate(
+        adapter=adapter,
+        candidate=candidate,
+        heldout=heldout,
+        minimum_metric_score=0.5,
+    )
+
+    assert result.hard_gates_passed is False
+    assert result.heldout_scores == {
+        "minimum_judge_score": 0.2,
+        "mean_judge_score": 0.6,
+        "minimum_faithfulness_score": 0.2,
+        "minimum_action_items_score": 0.2,
+        "minimum_completeness_score": 0.2,
+    }
+
+
+def test_outcome_eval_receipt_requires_separate_metrics_and_must_unit_coverage() -> None:
+    counts = {
+        "examples": 12,
+        "source_ref_cases": 12,
+        "action_gold": 6,
+        "owner_gold": 3,
+        "due_gold": 3,
+        "unknown_cases": 4,
+        "must_units": 18,
+        "injection_cases": 2,
+        "long_context_positions": 3,
+        "critical_failures": 0,
+    }
+    metrics = {name: 1.0 for name in OUTCOME_EVAL_METRIC_THRESHOLDS}
+
+    passed = validate_outcome_eval_receipt(
+        metrics=metrics,
+        counts=counts,
+        long_context_coverage_gap=0.04,
+    )
+    failed = validate_outcome_eval_receipt(
+        metrics={**metrics, "action_recall": 0.89},
+        counts={**counts, "critical_failures": 1},
+        long_context_coverage_gap=0.06,
+    )
+
+    assert passed["hard_gates_passed"] is True
+    assert passed["failure_codes"] == []
+    assert set(passed) == {
+        "counts",
+        "failure_codes",
+        "hard_gates_passed",
+        "long_context_coverage_gap",
+        "metrics",
+    }
+    assert failed["hard_gates_passed"] is False
+    assert failed["failure_codes"] == [
+        "action_recall_below_threshold",
+        "critical_failures_present",
+        "long_context_coverage_gap_exceeded",
+    ]
+
+
+def test_adversarial_outcome_manifest_covers_action_and_unknown_restraint_cases() -> None:
+    fixtures = (
+        SyntheticExample(
+            id="explicit-action-owner-relative-due",
+            transcript_json=(
+                '[{"id":"00000000-0000-0000-0000-000000000001","sequence":0,'
+                '"speaker_label":"Анна","text":"Я отправлю план до пятницы"}]'
+            ),
+            segment_ids=frozenset({"00000000-0000-0000-0000-000000000001"}),
+            required_categories=("action_items",),
+        ),
+        SyntheticExample(
+            id="proposal-is-not-action",
+            transcript_json=(
+                '[{"id":"00000000-0000-0000-0000-000000000002","sequence":0,'
+                '"speaker_label":"SPEAKER_00","text":"Можно было бы отправить план"}]'
+            ),
+            segment_ids=frozenset({"00000000-0000-0000-0000-000000000002"}),
+            required_categories=("action_items",),
+        ),
+        SyntheticExample(
+            id="cancelled-and-reassigned-action",
+            transcript_json=(
+                '[{"id":"00000000-0000-0000-0000-000000000003","sequence":0,'
+                '"speaker_label":"Анна","text":"Я отправлю план"},'
+                '{"id":"00000000-0000-0000-0000-000000000004","sequence":1,'
+                '"speaker_label":"Борис","text":"Нет, план отправлю я; задача Анны отменена"}]'
+            ),
+            segment_ids=frozenset(
+                {
+                    "00000000-0000-0000-0000-000000000003",
+                    "00000000-0000-0000-0000-000000000004",
+                }
+            ),
+            required_categories=("action_items",),
+        ),
+        SyntheticExample(
+            id="unknown-speaker-never-owner",
+            transcript_json=(
+                '[{"id":"00000000-0000-0000-0000-000000000005","sequence":0,'
+                '"speaker_label":"UNKNOWN","text":"Я проверю доступы"}]'
+            ),
+            segment_ids=frozenset({"00000000-0000-0000-0000-000000000005"}),
+            required_categories=("action_items",),
+        ),
+    )
+    manifest = SyntheticManifest.create(
+        ref="synthetic://meeting-outcome-value/adversarial/v1",
+        split="heldout",
+        version="v1",
+        examples=fixtures,
+    )
+
+    assert [example.id for example in manifest.examples] == [
+        "explicit-action-owner-relative-due",
+        "proposal-is-not-action",
+        "cancelled-and-reassigned-action",
+        "unknown-speaker-never-owner",
+    ]
+    assert len(manifest.sha256) == 64
+
+
+def test_synthetic_example_accepts_runtime_sized_long_context() -> None:
+    example = SyntheticExample(
+        id="long-context-middle",
+        transcript_json="x" * 300_000,
+        segment_ids=frozenset({"segment"}),
+        required_categories=("summary",),
+    )
+
+    assert len(example.transcript_json) == 300_000
 
 
 def test_control_prompt_gate_requires_real_reflection_and_judge_evidence() -> None:

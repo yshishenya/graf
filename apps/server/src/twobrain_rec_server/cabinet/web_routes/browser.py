@@ -836,10 +836,22 @@ async def meeting_detail_page(
             csrf_token=_csrf_token_for_principal(request, principal),
         )
     if response.access is not None and not response.access.can_view_full_meeting:
-        return RedirectResponse(
-            url=f"/api/v1/cabinet/meetings/{parsed_meeting_id}/shared-summary",
-            status_code=302,
+        shared_summary = cabinet_html_response(
+            await _render_shared_summary_for_grant(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                meeting_id=parsed_meeting_id,
+            )
         )
+        shared_summary.headers.update(
+            {
+                "Cache-Control": "private, no-store",
+                "Pragma": "no-cache",
+                "Referrer-Policy": "no-referrer",
+                "X-Robots-Tag": "noindex, nofollow, noarchive",
+            }
+        )
+        return shared_summary
     if _is_hx_request(request):
         return cabinet_html_response(
             render_meeting_detail_fragment(

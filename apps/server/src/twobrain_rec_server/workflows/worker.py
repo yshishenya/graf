@@ -249,6 +249,7 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                     workflow=workflow,
                     job=job,
                     mediascribe_client=mediascribe_client,
+                    outcome_generation_enabled=settings.outcome_generation_enabled,
                 )
                 if import_result.status == ProcessingStatus.PROCESSED:
                     return {"meeting_id": payload["meeting_id"], "processing_status": "processed"}

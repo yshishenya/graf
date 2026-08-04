@@ -41,6 +41,8 @@
         </div>
         <button type="button" class="button quiet" data-summary-refresh-button>Обновить итоги</button>
       </div>
+      {% else %}
+      <h2 class="sr-only">Итоги</h2>
       {% endif %}
       <div class="summary-candidate-status" data-summary-candidate-status role="status" aria-live="polite" aria-atomic="true" hidden></div>
       <div class="summary-candidate-preview" data-summary-candidate-preview hidden></div>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from hashlib import sha256
 from uuid import uuid4
 
@@ -10,13 +11,16 @@ from sqlalchemy import select
 
 from tests.fixtures.cabinet import create_outcome_ready_meeting
 from twobrain_rec_server.cabinet.egress import current_outcome_set
+from twobrain_rec_server.cabinet.speakers import save_speaker_name
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
+    DiarizationSegment,
     GenerationCall,
     MediaScribeJob,
     Meeting,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeSet,
+    MeetingSpeakerName,
     ProcessingResult,
     SummaryTemplate,
 )
@@ -24,14 +28,17 @@ from twobrain_rec_server.ingest.desktop_sync import (
     _latest_processing_result as latest_desktop_result,
 )
 from twobrain_rec_server.outcomes.ai_service import (
+    AI_GENERATOR_VERSION,
     OutcomeGenerationTerminalError,
     _candidate_segments,
+    _canonical_source_refs,
     _stored_prompt_snapshot,
     create_summary_candidate,
     execute_candidate_generation,
     resolve_summary_candidate,
 )
 from twobrain_rec_server.outcomes.generator import canonical_transcript
+from twobrain_rec_server.outcomes.models import OutcomeTranscriptSegment
 from twobrain_rec_server.outcomes.prompts import outcome_config, prompt_snapshot_hash
 from twobrain_rec_server.processing.store import latest_processing_result as latest_store_result
 from twobrain_rec_server.workflows.outcome_generation_workflow import (
@@ -105,7 +112,11 @@ def test_latest_processing_result_prefers_version_over_import_time(client) -> No
                 meeting_id=current.meeting_id,
                 media_revision_id=current.media_revision_id,
             )
-            return newer.id, desktop.id if desktop is not None else None, store.id if store is not None else None
+            return (
+                newer.id,
+                desktop.id if desktop is not None else None,
+                store.id if store is not None else None,
+            )
 
     newer_id, desktop_id, store_id = asyncio.run(run())
     assert desktop_id == newer_id
@@ -124,7 +135,166 @@ def test_invalid_pinned_prompt_is_terminal_and_not_retryable() -> None:
 
     with pytest.raises(OutcomeGenerationTerminalError, match="summary_prompt_snapshot_corrupt"):
         _stored_prompt_snapshot(attempt)
-    assert "OutcomeGenerationTerminalError" in outcome_generation_retry_policy().non_retryable_error_types
+    assert (
+        "OutcomeGenerationTerminalError"
+        in outcome_generation_retry_policy().non_retryable_error_types
+    )
+
+
+def test_ai_source_refs_use_canonical_pinned_segment_metadata() -> None:
+    segment = OutcomeTranscriptSegment(
+        segment_id=uuid4(),
+        sequence=4,
+        start_seconds=Decimal("12.345"),
+        end_seconds=Decimal("18.765"),
+        speaker_label="Алексей",
+        source_role="system",
+        text="Подтверждённое решение.",
+    )
+
+    assert _canonical_source_refs(
+        [
+            {
+                "transcript_segment_id": str(segment.segment_id),
+                "sequence": 4,
+                "evidence_kind": "decision",
+                "start_seconds": 999,
+                "source_role": "untrusted",
+            }
+        ],
+        [segment],
+    ) == [
+        {
+            "transcript_segment_id": str(segment.segment_id),
+            "sequence": 4,
+            "start_seconds": 12.345,
+            "end_seconds": 18.765,
+            "speaker_label": "Алексей",
+            "source_role": "system",
+            "evidence_kind": "decision",
+        }
+    ]
+    assert AI_GENERATOR_VERSION == "outcomes-ai-v1"
+
+
+def test_candidate_segments_use_stable_confirmed_speaker_name(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "stable-candidate-speaker")
+
+    async def run() -> list[str]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert result is not None
+            diarization = (
+                await db.scalars(
+                    select(DiarizationSegment)
+                    .where(DiarizationSegment.processing_result_id == result.id)
+                    .order_by(DiarizationSegment.sequence)
+                )
+            ).all()
+            assert len(diarization) == 2
+            for row in diarization:
+                row.speaker_label = "same-person"
+            db.add(
+                MeetingSpeakerName(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    speaker_key="speaker_00",
+                    display_name="Алексей",
+                    updated_by_user_id=meeting.created_by_user_id,
+                )
+            )
+            attempt = MeetingOutcomeGenerationAttempt(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                source_result_id=result.id,
+            )
+            await db.flush()
+            return [segment.speaker_label for segment in await _candidate_segments(db, attempt)]
+
+    assert asyncio.run(run()) == ["Алексей", "Алексей"]
+
+
+def test_candidate_segments_prefer_same_source_speaker_during_overlap(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "same-source-candidate-speaker")
+
+    async def run() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            diarization = (
+                await db.scalars(
+                    select(DiarizationSegment)
+                    .where(DiarizationSegment.processing_result_id == result.id)
+                    .order_by(DiarizationSegment.sequence)
+                )
+            ).all()
+            assert len(diarization) == 2
+            local, remote = diarization
+            local.end_seconds = Decimal("8.000")
+            local.speaker_label = "local-person"
+            remote.start_seconds = Decimal("0.000")
+            remote.end_seconds = Decimal("9.000")
+            remote.speaker_label = "remote-person"
+            db.add_all(
+                [
+                    MeetingSpeakerName(
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        speaker_key="speaker_00",
+                        display_name="Локальный участник",
+                        updated_by_user_id=meeting.created_by_user_id,
+                    ),
+                    MeetingSpeakerName(
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        speaker_key="speaker_01",
+                        display_name="Удалённый участник",
+                        updated_by_user_id=meeting.created_by_user_id,
+                    ),
+                ]
+            )
+            attempt = MeetingOutcomeGenerationAttempt(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                source_result_id=result.id,
+            )
+            await db.flush()
+            return (await _candidate_segments(db, attempt))[0].speaker_label
+
+    assert asyncio.run(run()) == "Локальный участник"
+
+
+def test_candidate_segments_use_unknown_without_diarization(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "unknown-candidate-speaker")
+
+    async def run() -> list[str]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            await db.execute(
+                DiarizationSegment.__table__.delete().where(
+                    DiarizationSegment.processing_result_id == result.id
+                )
+            )
+            attempt = MeetingOutcomeGenerationAttempt(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                source_result_id=result.id,
+            )
+            await db.flush()
+            return [segment.speaker_label for segment in await _candidate_segments(db, attempt)]
+
+    assert asyncio.run(run()) == ["UNKNOWN", "UNKNOWN"]
 
 
 def test_candidate_request_is_idempotent_and_does_not_replace_accepted_notes(client) -> None:
@@ -172,7 +342,9 @@ def test_rejected_revision_baseline_is_not_reopened_by_automatic_reconcile(clien
     async def run() -> tuple[object, object, object]:
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
             assert meeting is not None and result is not None
             accepted = await service.ensure_outcomes_for_processing_result(db, result=result)
             accepted.revision_state = "rejected"
@@ -235,7 +407,11 @@ def test_review_reads_the_accepted_pointer_instead_of_the_newest_outcome(client)
 
     assert selected_id == accepted_id
     assert selected_id != candidate_id
-def test_archived_personal_template_replays_pinned_candidate_but_cannot_start_new_one(client) -> None:
+
+
+def test_archived_personal_template_replays_pinned_candidate_but_cannot_start_new_one(
+    client,
+) -> None:
     meeting_id = create_outcome_ready_meeting(client, "archived-template-replay")
 
     async def run():
@@ -270,7 +446,9 @@ def test_archived_personal_template_replays_pinned_candidate_but_cannot_start_ne
             template.status = "archived"
             await db.flush()
             replay = await create_summary_candidate(db, **kwargs)
-            with pytest.raises(OutcomeGenerationTerminalError, match="summary_template_unavailable"):
+            with pytest.raises(
+                OutcomeGenerationTerminalError, match="summary_template_unavailable"
+            ):
                 await create_summary_candidate(
                     db,
                     **kwargs,
@@ -293,7 +471,9 @@ def test_same_format_requires_explicit_refresh_and_refresh_is_idempotent(client)
         )
         async with client.app_state["sessionmaker"]() as seed_db:
             seed_meeting = await seed_db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-            result = await seed_db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            result = await seed_db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
             assert seed_meeting is not None and result is not None
             accepted = await service.ensure_outcomes_for_processing_result(seed_db, result=result)
             accepted.revision_state = "accepted"
@@ -301,8 +481,14 @@ def test_same_format_requires_explicit_refresh_and_refresh_is_idempotent(client)
             await seed_db.commit()
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert meeting is not None and result is not None and meeting.current_outcome_set_id is not None
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert (
+                meeting is not None
+                and result is not None
+                and meeting.current_outcome_set_id is not None
+            )
             with pytest.raises(OutcomeGenerationTerminalError, match="same_format_noop"):
                 await create_summary_candidate(
                     db,
@@ -445,7 +631,9 @@ def test_manual_refresh_does_not_reuse_accepted_ai_candidate(client) -> None:
         )
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
             assert meeting is not None and result is not None
             accepted = await service.ensure_outcomes_for_processing_result(db, result=result)
             accepted.revision_state = "accepted"
@@ -503,16 +691,12 @@ def test_active_refresh_reuses_candidate_across_intent_ids(client) -> None:
                 "expected_current_outcome_set_id": meeting.current_outcome_set_id,
                 "request_intent": "manual_refresh",
             }
-            first = await create_summary_candidate(
-                db, **kwargs, request_intent_id=uuid4()
-            )
+            first = await create_summary_candidate(db, **kwargs, request_intent_id=uuid4())
             # Prompt pinning may replace the mutable provider snapshot hash;
             # active dedupe must remain anchored to the immutable input/config.
             first.generator_config_hash = "pinned-provider-snapshot"
             await db.flush()
-            replay = await create_summary_candidate(
-                db, **kwargs, request_intent_id=uuid4()
-            )
+            replay = await create_summary_candidate(db, **kwargs, request_intent_id=uuid4())
             await db.commit()
             return first.candidate_id, replay.candidate_id
 
@@ -605,17 +789,11 @@ def test_expired_active_refresh_is_closed_before_new_intent(client) -> None:
                 "request_intent": "manual_refresh",
             }
             intent_id = uuid4()
-            first = await create_summary_candidate(
-                db, **kwargs, request_intent_id=intent_id
-            )
+            first = await create_summary_candidate(db, **kwargs, request_intent_id=intent_id)
             first.expires_at = datetime.now(UTC) - timedelta(seconds=1)
             await db.flush()
-            exact_replay = await create_summary_candidate(
-                db, **kwargs, request_intent_id=intent_id
-            )
-            replay = await create_summary_candidate(
-                db, **kwargs, request_intent_id=uuid4()
-            )
+            exact_replay = await create_summary_candidate(db, **kwargs, request_intent_id=intent_id)
+            replay = await create_summary_candidate(db, **kwargs, request_intent_id=uuid4())
             await db.commit()
             return first, exact_replay, replay
 
@@ -635,7 +813,9 @@ def test_superseded_accepted_candidate_is_not_reused_for_a_new_format_request(cl
         )
         async with client.app_state["sessionmaker"]() as seed_db:
             seed_meeting = await seed_db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-            result = await seed_db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            result = await seed_db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
             assert seed_meeting is not None and result is not None
             accepted = await service.ensure_outcomes_for_processing_result(seed_db, result=result)
             accepted.revision_state = "accepted"
@@ -643,8 +823,14 @@ def test_superseded_accepted_candidate_is_not_reused_for_a_new_format_request(cl
             await seed_db.commit()
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert meeting is not None and result is not None and meeting.current_outcome_set_id is not None
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert (
+                meeting is not None
+                and result is not None
+                and meeting.current_outcome_set_id is not None
+            )
             first = await create_summary_candidate(
                 db,
                 workspace_id=meeting.workspace_id,
@@ -695,7 +881,9 @@ def test_superseded_accepted_format_does_not_reopen_when_selected_again(client) 
         )
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
             assert meeting is not None and result is not None
             baseline = await service.ensure_outcomes_for_processing_result(db, result=result)
             baseline.revision_state = "accepted"
@@ -862,6 +1050,143 @@ def test_accept_candidate_is_atomic_and_rejects_stale_expected_revision(client) 
     assert actor is not None
 
 
+def test_speaker_name_change_stales_candidate_before_acceptance(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "speaker-freshness-fence")
+
+    async def run() -> tuple[str, str | None, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            attempt = await create_summary_candidate(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                requested_by_user_id=meeting.created_by_user_id,
+                template_key="graf-auto-v1",
+                template_id=None,
+                template_version=1,
+                expected_current_outcome_set_id=None,
+            )
+            candidate = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=attempt.media_revision_id,
+                processing_result_id=attempt.source_result_id,
+                candidate_id=attempt.candidate_id,
+                status="available",
+                generator_version=f"test:{attempt.candidate_id}",
+                revision_state="candidate",
+            )
+            db.add(candidate)
+            await db.flush()
+            attempt.outcome_set_id = candidate.id
+            attempt.status = "candidate"
+            candidate_id = attempt.candidate_id
+            workspace_id = meeting.workspace_id
+            creator_id = meeting.created_by_user_id
+            await db.commit()
+
+        assert candidate_id is not None
+        async with client.app_state["sessionmaker"]() as db:
+            await save_speaker_name(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                speaker_key="speaker_00",
+                display_name="Алексей",
+                actor_user_id=creator_id,
+                known_speaker_keys={"speaker_00"},
+            )
+            await db.commit()
+
+        async with client.app_state["sessionmaker"]() as db:
+            with pytest.raises(
+                OutcomeGenerationTerminalError,
+                match="summary_source_revision_stale",
+            ):
+                await resolve_summary_candidate(
+                    db,
+                    workspace_id=workspace_id,
+                    meeting_id=meeting_id,
+                    candidate_id=candidate_id,
+                    requested_by_user_id=creator_id,
+                    accept=True,
+                    expected_current_outcome_set_id=None,
+                )
+            await db.commit()
+            persisted = await db.scalar(
+                select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
+                )
+            )
+            outcome = await db.scalar(
+                select(MeetingOutcomeSet).where(MeetingOutcomeSet.candidate_id == candidate_id)
+            )
+            assert persisted is not None and outcome is not None
+            return persisted.status, persisted.failure_code, outcome.revision_state
+
+    status, failure_code, revision_state = asyncio.run(run())
+    assert status == "stale"
+    assert failure_code == "summary_source_revision_stale"
+    assert revision_state == "stale"
+
+
+def test_speaker_name_change_rekeys_generation_and_stales_active_attempt(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "speaker-generation-rekey")
+
+    async def run() -> tuple:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            kwargs = {
+                "workspace_id": meeting.workspace_id,
+                "meeting_id": meeting.id,
+                "requested_by_user_id": meeting.created_by_user_id,
+                "template_key": "graf-auto-v1",
+                "template_id": None,
+                "template_version": 1,
+                "expected_current_outcome_set_id": meeting.current_outcome_set_id,
+            }
+            first = await create_summary_candidate(db, **kwargs)
+            first_revision = (first.metadata_json or {}).get("speaker_attribution_revision")
+            await save_speaker_name(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                speaker_key="speaker_00",
+                display_name="Алексей",
+                actor_user_id=meeting.created_by_user_id,
+                known_speaker_keys={"speaker_00"},
+            )
+            await db.flush()
+            second = await create_summary_candidate(db, **kwargs)
+            attempts = (
+                await db.scalars(
+                    select(MeetingOutcomeGenerationAttempt).where(
+                        MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                        MeetingOutcomeGenerationAttempt.generator_version == AI_GENERATOR_VERSION,
+                    )
+                )
+            ).all()
+            await db.rollback()
+            return (
+                first.candidate_id,
+                second.candidate_id,
+                first.status,
+                first.failure_code,
+                first_revision,
+                (second.metadata_json or {}).get("speaker_attribution_revision"),
+                len(attempts),
+            )
+
+    first_id, second_id, status, code, first_revision, second_revision, count = asyncio.run(run())
+    assert first_id != second_id
+    assert (status, code) == ("stale", "summary_source_revision_stale")
+    assert first_revision == ""
+    assert isinstance(second_revision, str) and second_revision
+    assert count == 2
+
+
 def test_reject_stale_candidate_closes_it_after_a_new_transcript_result(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
 
@@ -915,7 +1240,9 @@ def test_reject_stale_candidate_closes_it_after_a_new_transcript_result(client) 
             db.add(newer)
             await db.flush()
 
-            with pytest.raises(OutcomeGenerationTerminalError, match="summary_source_revision_stale"):
+            with pytest.raises(
+                OutcomeGenerationTerminalError, match="summary_source_revision_stale"
+            ):
                 await resolve_summary_candidate(
                     db,
                     workspace_id=meeting.workspace_id,
@@ -1022,7 +1349,9 @@ def test_resolving_an_already_accepted_candidate_cannot_reject_the_current_point
     assert status == "accepted"
 
 
-def test_new_source_after_reservation_is_blocked_before_litellm_egress(client, tmp_path, monkeypatch) -> None:
+def test_new_source_after_reservation_is_blocked_before_litellm_egress(
+    client, tmp_path, monkeypatch
+) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     key_path = tmp_path / "litellm-key"
     key_path.write_text("test-key", encoding="utf-8")

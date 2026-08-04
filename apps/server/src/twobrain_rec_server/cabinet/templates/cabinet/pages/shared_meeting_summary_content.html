@@ -11,8 +11,18 @@
       <div class="shared-summary__sections">
         {% for section in summary_sections %}
           <article class="shared-summary__section">
-            <h2>{{ section.get("category") or "Итоги" }}</h2>
-            <p>{{ section.get("text") or "" }}</p>
+            <h2>{{ section.get("label") or "Итоги" }}</h2>
+            {% for item in section.get("items", []) %}
+              <div class="shared-summary__item">
+                <p>{{ item.get("text") or "" }}</p>
+                {% if item.get("owner_text") or item.get("due_date_text") %}
+                  <p class="muted shared-summary__meta">
+                    {% if item.get("owner_text") %}<span>Ответственный: {{ item.get("owner_text") }}</span>{% endif %}
+                    {% if item.get("due_date_text") %}<span>Срок: {{ item.get("due_date_text") }}</span>{% endif %}
+                  </p>
+                {% endif %}
+              </div>
+            {% endfor %}
           </article>
         {% endfor %}
       </div>
