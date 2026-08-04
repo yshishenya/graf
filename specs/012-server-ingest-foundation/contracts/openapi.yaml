@@ -13588,6 +13588,10 @@ components:
           - category_state
           - source_hint
           title: Evidence Kind
+        seekable:
+          type: boolean
+          title: Seekable
+          default: false
       type: object
       required:
       - evidence_kind
@@ -14855,9 +14859,9 @@ components:
           default: ''
         source_refs:
           items:
-            type: string
+            $ref: '#/components/schemas/OutcomeSourceReferenceView'
           type: array
-          maxItems: 32
+          maxItems: 8
           title: Source Refs
       type: object
       required:
@@ -15015,6 +15019,7 @@ components:
             - prompt_invalid
             - provider_outcome_unknown
             - content_unavailable
+            - input_too_large
             - generation_in_progress
             - meeting_deleting
             - meeting_deleted
