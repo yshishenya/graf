@@ -53,9 +53,23 @@ def _safe_json(payload: dict[str, Any]) -> str:
     return serialized
 
 
-def _request_json(origin: str, path: str, token: str) -> tuple[int, dict[str, Any] | None, str | None]:
+def _request_json(
+    origin: str,
+    path: str,
+    token: str | None = None,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any] | None, str | None]:
     url = f"{origin}{path}"
-    req = request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+    headers = {"Accept": "application/json"}
+    data = None
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if payload is not None:
+        data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = request.Request(url, data=data, method=method, headers=headers)
     try:
         with request.urlopen(req, timeout=15) as response:
             body = response.read().decode("utf-8")

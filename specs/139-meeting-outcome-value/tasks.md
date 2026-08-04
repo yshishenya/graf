@@ -213,7 +213,7 @@ commit only after T001–T045 are complete and evidence is green.
 SHAs and with the required approvals/signing identities.
 
 - [X] T046 Create the approved implementation commit, push `codex/139-meeting-outcome-value` and open a ready Russian PR with task/issue/evidence links
-- [ ] T047 Wait for GRAF validation and review, address failures without bypasses, then merge the exact green PR SHA to `master`
+- [X] T047 Wait for GRAF validation and review, address failures without bypasses, then merge the exact green PR SHA to `master` (PR #4851, merge `81bd01b102c86a6ec79cb3f7bba5dae3e812b4ee`; GRAF validation run `30954305938`)
 - [ ] T048 Run the full release-candidate lane and `infra/scripts/cd-remote.sh --dry-run --branch master`; execute production deploy only after the explicit deploy gate
 - [ ] T049 Re-promote exact outcome `v5` against the compatible deployed SHA, verify prepared `v6` rollback, then run production health/readiness, automatic-candidate, accepted/share and metadata-only smoke checks and record exact runtime SHA in release evidence
 - [ ] T050 Prepare the next CalVer release, Developer ID-signed/notarized/stapled public macOS package, Russian GitHub Release and compatible update/publication assets using `scripts/prepare-release.sh` and the repository release procedure

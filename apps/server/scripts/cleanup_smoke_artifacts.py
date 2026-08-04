@@ -135,6 +135,10 @@ async def _delete_smoke_meeting_rows(
             "delete from processing_dependency_states where meeting_id=:meeting_id",
         ),
         (
+            "dispatch_intents",
+            "delete from dispatch_intents where meeting_id=:meeting_id",
+        ),
+        (
             "meeting_outcome_generation_attempts",
             """
             delete from meeting_outcome_generation_attempts
@@ -380,6 +384,7 @@ async def cleanup_smoke_artifacts(
                 "diarization_segments",
                 "processing_audit_events",
                 "processing_dependency_states",
+                "dispatch_intents",
                 "meeting_outcome_generation_attempts",
                 "meeting_outcome_items",
                 "meeting_outcome_sets",

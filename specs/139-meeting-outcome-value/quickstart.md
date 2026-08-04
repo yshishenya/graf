@@ -72,6 +72,38 @@ unlabelled candidates. Production promotion допускается после:
 - human judge calibration и operator approval;
 - rollback target и protected sole mutation credential readiness.
 
+Для production label transition используется только metadata-only manifest
+`evidence/prompt-promotion.json`; скрипт проверяет exact target hash, ожидаемый
+source version, protected label capability и независимый production readback:
+
+```sh
+python scripts/promote_outcome_prompts.py \
+  --manifest ../../specs/139-meeting-outcome-value/evidence/prompt-promotion.json \
+  --mode promote \
+  --public-key-file /run/secrets/twobrain_langfuse_public_key \
+  --secret-key-file /run/secrets/twobrain_langfuse_secret_key \
+  --protected-label-capability-verified
+```
+
+Rollback rehearsal выполняет последовательность `promote → rollback → restore`
+и печатает только prompt names, versions и hashes.
+
+На production checkout manifest передаётся в одноразовый maintenance container:
+
+```sh
+PROMPT_MANIFEST="$PWD/specs/139-meeting-outcome-value/evidence/prompt-promotion.json"
+for mode in promote rollback restore; do
+  docker compose -f infra/docker-compose.yml run --rm --no-deps -T \
+    -v "$PROMPT_MANIFEST:/tmp/prompt-promotion.json:ro" rec-maintenance \
+    python scripts/promote_outcome_prompts.py \
+    --manifest /tmp/prompt-promotion.json \
+    --mode "$mode" \
+    --public-key-file /run/secrets/twobrain_langfuse_public_key \
+    --secret-key-file /run/secrets/twobrain_langfuse_secret_key \
+    --protected-label-capability-verified
+done
+```
+
 Committed receipt содержит hashes/versions/counts/metrics/error codes, но не
 content или free-form feedback.
 
@@ -96,6 +128,18 @@ Implementation commit предлагается только после focused +
 ```sh
 infra/scripts/ci-local.sh --full
 infra/scripts/cd-remote.sh --dry-run --branch master
+```
+
+После совместимого deploy live smoke проходит synthetic transcript → один
+automatic candidate → accept → summary-only public share → anonymous readback;
+затем существующий smoke cleanup удаляет meeting, auth session и storage
+артефакты. В evidence сохраняются только route statuses, state values и runtime
+SHA.
+
+Его запускают отдельно после восстановления v5:
+
+```sh
+TWOBRAIN_OUTCOME_SMOKE_ENABLED=true infra/scripts/run-production-smoke.sh --execute
 ```
 
 `--execute`, merge, tag/GitHub Release и public Developer ID package выполняются
