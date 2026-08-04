@@ -1,0 +1,15 @@
+{
+  "feature": "139-meeting-outcome-value",
+  "prompts": [
+    {"name": "graf/meeting-outcome/auto", "production_version": 3, "target_version": 5, "target_hash": "c3f0e9de6f17e4e4d07c7c5b4e15c3585c3bd2bd75344e6f53ce1ea048e0c2ce", "rollback_version": 6, "rollback_hash": "4d8ce870196a3d0e2a6e8b3cc69738ed6bb64bf624ec27a39c3cfd87e7912ee7"},
+    {"name": "graf/meeting-outcome/outline", "production_version": 3, "target_version": 5, "target_hash": "a02f6a8352b82d8bff34810c4681e8db71d560d99b951df59786565d0510b9e7", "rollback_version": 6, "rollback_hash": "00b30a00cbcfd6e09a5600a2fc63628143ac9c0052ef2f43bb3ce2648c7b6f35"},
+    {"name": "graf/meeting-outcome/meeting-minutes", "production_version": 3, "target_version": 5, "target_hash": "e4a16292a15c6988515ff66a3d9d9ab5a7283f8d6a253fc235c67d8e60d34f55", "rollback_version": 6, "rollback_hash": "c63b65436bd8fecf8983ed78e438fb8c591fb58550120088c99f292a516bcc67"},
+    {"name": "graf/meeting-outcome/project-sync", "production_version": 3, "target_version": 5, "target_hash": "9bd59e99ebac669fe06f7cca6b7fe70b1b11aba9fbf396952b0225fa916f2e5c", "rollback_version": 6, "rollback_hash": "83608c73dd18c73794ac7b462b58744a8cb5400eff027c81e0deae9796559f42"},
+    {"name": "graf/meeting-outcome/weekly-team-meeting", "production_version": 3, "target_version": 5, "target_hash": "00cd1ecf073beb3e0dd18be51cc802bb99c05015a70874c7839d0933a4a3701f", "rollback_version": 6, "rollback_hash": "01c10b652c55a1a581ab16d82c6597300267011ca97115699c7b0e7745a3a9fd"},
+    {"name": "graf/meeting-outcome/one-to-one", "production_version": 3, "target_version": 5, "target_hash": "d71acfd4877428d3bd882691bb8799eccea24efd2d90c4c47669f0eb9d8a642c", "rollback_version": 6, "rollback_hash": "8df462458e38b629fcae2da8dafe04472ef81b438283fb8e9884e2665bdeea85"},
+    {"name": "graf/meeting-outcome/client-status-update", "production_version": 3, "target_version": 5, "target_hash": "32f5c330cbaf8ec7b39ceb2de62670db662d28479e7d835bf01bf9878b172f04", "rollback_version": 6, "rollback_hash": "eac2654efe411f4d305969f7ce7053d532b0def905c1d8300237f35dd5ef077b"},
+    {"name": "graf/meeting-outcome/interview", "production_version": 3, "target_version": 5, "target_hash": "9ba22014c0da549120887b692a997a8b7c05bca77dfd669b565736c43d9b6a82", "rollback_version": 6, "rollback_hash": "1bcb6f75730c369fbf9bf502d669cbf8545dd599599f9b9564ed2c283a2a5092"},
+    {"name": "graf/meeting-outcome/sales-discovery", "production_version": 3, "target_version": 5, "target_hash": "5440ed16636879512e44639ee7055673671410f843a59408bbf24331ddce78ea", "rollback_version": 6, "rollback_hash": "50cb99419e419f8116ed5150be249ed20705daff66a75bc9fc35dd7c6599624a"},
+    {"name": "graf/meeting-outcome/custom", "production_version": 3, "target_version": 5, "target_hash": "3236d6e8cd2c86c16a4eb5655bbc2e7767a5a3f1af33951338ac6d46759c8ce8", "rollback_version": 6, "rollback_hash": "8d488b3d25014ccb16f9efc72bb02b7b1cea51086528204933fb294e8d077ad3"}
+  ]
+}

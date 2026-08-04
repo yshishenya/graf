@@ -277,3 +277,51 @@ def test_smoke_upload_wrapper_dry_run_uses_internal_smoke_identity(tmp_path: Pat
 
     assert '"smoke_identity_class": "internal_smoke"' in output
     assert '"would_upload": true' in output
+
+
+def test_production_smoke_runs_metadata_only_outcome_value_path() -> None:
+    runtime = (REPO_ROOT / "infra/scripts/run-production-smoke.sh").read_text()
+    assert "seed_smoke_outcome.py" in runtime
+    assert "prove_meeting_outcome_live.py" in runtime
+    assert 'OUTCOME_SMOKE_ENABLED="${TWOBRAIN_OUTCOME_SMOKE_ENABLED:-false}"' in runtime
+    assert 'if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]' in runtime
+    assert "accept_state accepted" in runtime
+    assert "public_projection_state ready" in runtime
+
+
+def test_outcome_live_proof_dry_run_is_metadata_safe(tmp_path: Path) -> None:
+    script = REPO_ROOT / "apps/server/scripts/prove_meeting_outcome_live.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--api",
+            "https://rec.2brain.pro",
+            "--token-file",
+            str(tmp_path / "outcome-token"),
+            "--run-id",
+            "feature-139-outcome-dry-run",
+            "--meeting-id",
+            "10000000-0000-0000-0000-000000000139",
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
+    )
+    payload = json.loads(result.stdout)
+    assert payload["proof_id"] == "feature-139-meeting-outcome-live"
+    assert payload["candidate_state"] == "deferred"
+    assert payload["cleanup_state"] == "deferred"
+    assert "bearer" not in result.stdout.lower()
+    assert "cookie" not in result.stdout.lower()
+
+
+def test_outcome_prompt_manifest_is_versioned_and_hash_only() -> None:
+    manifest = json.loads(
+        (REPO_ROOT / "specs/139-meeting-outcome-value/evidence/prompt-promotion.json").read_text()
+    )
+    assert len(manifest["prompts"]) == 10
+    assert all(len(item["target_hash"]) == 64 for item in manifest["prompts"])
+    assert all(len(item["rollback_hash"]) == 64 for item in manifest["prompts"])
+    assert "content" not in json.dumps(manifest).lower()

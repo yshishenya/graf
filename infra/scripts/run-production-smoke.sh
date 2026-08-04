@@ -89,11 +89,14 @@ SMOKE_AUTH_CLEANUP_JSON="$SMOKE_RUN_DIR/auth-cleanup.json"
 SMOKE_ARTIFACT_CLEANUP_JSON="$SMOKE_RUN_DIR/artifact-cleanup.json"
 SMOKE_ARTIFACT_JSON="$SMOKE_RUN_DIR/artifact.json"
 SMOKE_UPLOAD_JSON="$SMOKE_RUN_DIR/upload.json"
+SMOKE_OUTCOME_SEED_JSON="$SMOKE_RUN_DIR/outcome-seed.json"
+SMOKE_OUTCOME_PROOF_JSON="$SMOKE_RUN_DIR/outcome-proof.json"
 SMOKE_AUTH_CLEANUP_ERR="$SMOKE_RUN_DIR/auth-cleanup.err"
 SMOKE_ARTIFACT_CLEANUP_ERR="$SMOKE_RUN_DIR/artifact-cleanup.err"
 SMOKE_AUTH_SESSION_ID=""
 SMOKE_AUTH_CLEANED="0"
 SMOKE_ARTIFACTS_CLEANED="0"
+OUTCOME_SMOKE_ENABLED="${TWOBRAIN_OUTCOME_SMOKE_ENABLED:-false}"
 
 cleanup_smoke_container_files() {
   local mode="${1:-required}"
@@ -274,6 +277,30 @@ docker compose -f infra/docker-compose.yml exec -T rec-api \
   --token-file "$SMOKE_TOKEN_FILE" \
   --artifact "$SMOKE_ARTIFACT_DIR" >"$SMOKE_UPLOAD_JSON"
 
+outcome_seed_result='{"status":"skipped"}'
+outcome_proof_result='{"status":"skipped"}'
+if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]; then
+  SMOKE_MEETING_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["meeting_id"])' "$SMOKE_UPLOAD_JSON")"
+  docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+    python scripts/seed_smoke_outcome.py \
+    --run-id "$RUN_ID" \
+    --meeting-id "$SMOKE_MEETING_ID" \
+    --execute >"$SMOKE_OUTCOME_SEED_JSON"
+
+  docker compose -f infra/docker-compose.yml exec -T rec-api \
+    python scripts/prove_meeting_outcome_live.py \
+    --api "${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}" \
+    --token-file "$SMOKE_TOKEN_FILE" \
+    --run-id "$RUN_ID" \
+    --meeting-id "$SMOKE_MEETING_ID" \
+    --execute >"$SMOKE_OUTCOME_PROOF_JSON"
+  require_json_status "$SMOKE_OUTCOME_PROOF_JSON" accept_state accepted
+  require_json_status "$SMOKE_OUTCOME_PROOF_JSON" share_state created
+  require_json_status "$SMOKE_OUTCOME_PROOF_JSON" public_projection_state ready
+  outcome_seed_result="$(cat "$SMOKE_OUTCOME_SEED_JSON")"
+  outcome_proof_result="$(cat "$SMOKE_OUTCOME_PROOF_JSON")"
+fi
+
 cleanup_smoke_auth_session
 cleanup_smoke_artifacts
 cleanup_smoke_container_files required
@@ -289,6 +316,8 @@ smoke_result=pass
 readiness_verdict=infra_smoke_ready
 run_id=$RUN_ID
 upload_result=$upload_result
+outcome_seed_result=$outcome_seed_result
+outcome_proof_result=$outcome_proof_result
 auth_cleanup_result=$auth_cleanup_result
 cleanup_result=$cleanup_result
 EOF
