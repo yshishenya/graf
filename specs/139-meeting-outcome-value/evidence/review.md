@@ -1,6 +1,6 @@
 # Final review receipt
 
-Дата: `2026-08-04`
+Дата: `2026-08-05`
 Lane: significant/high-risk AI, user workflow, privacy/access and release.
 
 ## Product and UX
@@ -36,6 +36,13 @@ Lane: significant/high-risk AI, user workflow, privacy/access and release.
   addition to prompt and judge policy.
 - No accepted/share/export authorization broadening, transcript masking policy
   change, credential storage or deletion promise was introduced.
+- Pre-merge targeted review found two P1 and two P2 regressions before merge:
+  speaker-attribution lineage reuse, duplicate automatic replay after manual
+  supersession, stale preview retention and suppressed playback errors. All
+  four were fixed at their shared boundaries and the same reviewer returned
+  `APPROVE` on the corrected diff.
+- Regression evidence after the fixes: `138 passed` across the affected
+  candidate/generation/UI suites and `883 passed` in canonical fast CI.
 
 ## Simplification and independent review
 

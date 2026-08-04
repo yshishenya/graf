@@ -31,12 +31,21 @@ deploy/package не заявлены.
 - Command: `infra/scripts/ci-local.sh --fast`.
 - Post-rebase rerun date: `2026-08-05`.
 - Result: `ci_local_result=pass mode=fast`.
-- Server unit suite: `882 passed`, `0 failed`, `2` known non-feature warnings,
-  `51.94s`.
+- Server unit suite after targeted review fixes: `883 passed`, `0 failed`, `2`
+  known non-feature warnings, `63.57s`.
 - Server Ruff and Python compile: pass.
 - macOS removed-legacy-audio architecture guard: pass; Swift lane skipped as
   designed by fast mode.
 - Isolated PostgreSQL container cleanup: pass.
+
+## Post-review regression lane
+
+- Four new focused regression cases: `4 passed`, `0 failed`.
+- Full affected candidate revision, automatic generation, summary UI contract
+  and cabinet shell suites: `138 passed`, `0 failed`, `2` known non-feature
+  warnings, `73.75s`.
+- Independent targeted re-review: all two P1 and two P2 findings `FIXED`;
+  verdict `APPROVE`.
 
 ## Prompt release gate
 

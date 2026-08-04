@@ -1131,6 +1131,62 @@ def test_speaker_name_change_stales_candidate_before_acceptance(client) -> None:
     assert revision_state == "stale"
 
 
+def test_speaker_name_change_rekeys_generation_and_stales_active_attempt(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "speaker-generation-rekey")
+
+    async def run() -> tuple:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            kwargs = {
+                "workspace_id": meeting.workspace_id,
+                "meeting_id": meeting.id,
+                "requested_by_user_id": meeting.created_by_user_id,
+                "template_key": "graf-auto-v1",
+                "template_id": None,
+                "template_version": 1,
+                "expected_current_outcome_set_id": meeting.current_outcome_set_id,
+            }
+            first = await create_summary_candidate(db, **kwargs)
+            first_revision = (first.metadata_json or {}).get("speaker_attribution_revision")
+            await save_speaker_name(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                speaker_key="speaker_00",
+                display_name="Алексей",
+                actor_user_id=meeting.created_by_user_id,
+                known_speaker_keys={"speaker_00"},
+            )
+            await db.flush()
+            second = await create_summary_candidate(db, **kwargs)
+            attempts = (
+                await db.scalars(
+                    select(MeetingOutcomeGenerationAttempt).where(
+                        MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+                        MeetingOutcomeGenerationAttempt.generator_version == AI_GENERATOR_VERSION,
+                    )
+                )
+            ).all()
+            await db.rollback()
+            return (
+                first.candidate_id,
+                second.candidate_id,
+                first.status,
+                first.failure_code,
+                first_revision,
+                (second.metadata_json or {}).get("speaker_attribution_revision"),
+                len(attempts),
+            )
+
+    first_id, second_id, status, code, first_revision, second_revision, count = asyncio.run(run())
+    assert first_id != second_id
+    assert (status, code) == ("stale", "summary_source_revision_stale")
+    assert first_revision == ""
+    assert isinstance(second_revision, str) and second_revision
+    assert count == 2
+
+
 def test_reject_stale_candidate_closes_it_after_a_new_transcript_result(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
 

@@ -90,6 +90,7 @@ def test_candidate_ui_preserves_current_notes_until_explicit_accept() -> None:
     assert "manual_refresh" in script
     assert '/${candidate.candidate_id}/${accept ? "accept" : "reject"}' in script
     assert "if (status) status.hidden = true;\n            clearPreview();" in script
+    assert 'if (code === "summary_source_revision_stale") clearPreview();' in script
 
 
 def test_candidate_preview_is_localized_compact_and_source_navigable() -> None:

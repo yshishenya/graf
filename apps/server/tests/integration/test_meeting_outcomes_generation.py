@@ -16,6 +16,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    ProcessingAuditEvent,
     ProcessingResult,
     Workspace,
 )
@@ -273,6 +274,79 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
     assert status == "queued"
     assert attempt_count == intent_count == 1
     assert intent_state == "created"
+
+
+def test_automatic_replay_stays_one_shot_after_manual_supersession(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "automatic-summary-replay")
+
+    async def replay_after_supersession() -> tuple:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            first = await ensure_automatic_summary_candidate(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+            )
+            assert first is not None and first.candidate_id is not None
+            generated = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=result.id,
+                candidate_id=first.candidate_id,
+                status="available",
+                generator_version=f"test:auto:{first.candidate_id}",
+                revision_state="superseded",
+            )
+            replacement = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=result.id,
+                candidate_id=None,
+                status="available",
+                generator_version="test:manual-replacement",
+                revision_state="accepted",
+            )
+            db.add_all([generated, replacement])
+            await db.flush()
+            first.status = "accepted"
+            first.outcome_set_id = generated.id
+            meeting.current_outcome_set_id = replacement.id
+            db.add(
+                ProcessingAuditEvent(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    actor_user_id=meeting.created_by_user_id,
+                    event_type="speaker_display_name_set",
+                    metadata_json={"speaker_key": "speaker_00"},
+                )
+            )
+            await db.flush()
+            replay = await ensure_automatic_summary_candidate(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+            )
+            attempts = await db.scalar(
+                select(func.count())
+                .select_from(MeetingOutcomeGenerationAttempt)
+                .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
+            )
+            intents = await db.scalar(
+                select(func.count())
+                .select_from(DispatchIntent)
+                .where(DispatchIntent.meeting_id == meeting_id)
+            )
+            await db.rollback()
+            assert replay is not None
+            return first.candidate_id, replay.candidate_id, int(attempts or 0), int(intents or 0)
+
+    first_id, replay_id, attempt_count, intent_count = asyncio.run(replay_after_supersession())
+    assert replay_id == first_id
+    assert attempt_count == intent_count == 1
 
 
 def test_automatic_candidate_skips_invalid_policy_and_deleting_meeting(client) -> None:

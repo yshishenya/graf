@@ -1693,12 +1693,13 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert 'class="timestamp timestamp-seek"' in page
     script = _cabinet_js()
     assert "player.currentTime = Math.max(0, seconds);" in script
-    assert "void player.play().catch(() => {});" in script
+    assert "void player.play().catch(() => reportPlaybackFailure(player));" in script
+    assert 'toggle.setAttribute("aria-label", "Воспроизвести");' in script
     assert "syncTime();" in script
     assert (
         'toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести")' in script
     )
-    assert 'player.addEventListener("error", reportPlaybackFailure)' in script
+    assert 'player.addEventListener("error", reportFailure)' in script
     assert "recoverySignature(currentPlayback) === recoverySignature(nextPlayback)" in script
     assert "currentPlayback.replaceWith(nextPlayback)" in script
     assert "currentTranscript.replaceWith(nextTranscript)" in script
@@ -2807,7 +2808,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
     assert 'data-playback-skip="15"' in page
     assert 'data-seek-seconds="12.5"' in page
     assert "player.currentTime = Math.max(0, seconds);" in _cabinet_js()
-    assert "void player.play().catch(() => {});" in _cabinet_js()
+    assert "void player.play().catch(() => reportPlaybackFailure(player));" in _cabinet_js()
 
 
 def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog() -> None:

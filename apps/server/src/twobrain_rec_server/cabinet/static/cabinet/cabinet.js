@@ -1583,6 +1583,7 @@
           if (isMeetingDetailRecoveredError(error)) return;
           if (generation !== candidateRequestGeneration) return;
           const code = error instanceof Error ? error.message : "";
+          if (code === "summary_source_revision_stale") clearPreview();
           showStatus(candidateErrorCopy(code), "failed", [retryCandidateAction(code)]);
         } finally {
           if (generation === candidateRequestGeneration) setBusy(false);
@@ -2624,6 +2625,16 @@
     return `${String(minutes).padStart(2, "0")}:${rest}`;
   };
 
+  const reportPlaybackFailure = (player) => {
+    const shell = player?.closest?.("[data-playback-shell]");
+    const playbackError = shell?.querySelector("[data-playback-error]");
+    if (playbackError) playbackError.hidden = false;
+    const toggle = shell?.querySelector("[data-playback-toggle]");
+    if (!toggle) return;
+    toggle.textContent = "▶";
+    toggle.setAttribute("aria-label", "Воспроизвести");
+  };
+
   const initSourceNavigation = () => {
     if (document.body.dataset.sourceNavigationReady === "true") return;
     document.body.dataset.sourceNavigationReady = "true";
@@ -2638,9 +2649,9 @@
       if (player) {
         try {
           player.currentTime = Math.max(0, seconds);
-          void player.play().catch(() => {});
+          void player.play().catch(() => reportPlaybackFailure(player));
         } catch (_error) {
-          // The transcript destination remains available before media metadata loads.
+          reportPlaybackFailure(player);
         }
       }
       if (!sourceJump) return;
@@ -2684,13 +2695,10 @@
         toggle.textContent = playing ? "Ⅱ" : "▶";
         toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести");
       };
-      const reportPlaybackFailure = () => {
-        if (playbackError) playbackError.hidden = false;
-        setToggleState(false);
-      };
+      const reportFailure = () => reportPlaybackFailure(player);
       const play = () => {
         if (playbackError) playbackError.hidden = true;
-        return player.play().catch(reportPlaybackFailure);
+        return player.play().catch(reportFailure);
       };
       const playbackDuration = () => {
         if (Number.isFinite(player.duration) && player.duration > 0) return player.duration;
@@ -2750,7 +2758,7 @@
         setToggleState(false);
       });
       player.addEventListener("ended", () => setToggleState(false));
-      player.addEventListener("error", reportPlaybackFailure);
+      player.addEventListener("error", reportFailure);
       toggle?.addEventListener("click", () => {
         if (player.paused) play();
         else player.pause();
