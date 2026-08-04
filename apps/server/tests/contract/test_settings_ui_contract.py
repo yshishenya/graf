@@ -109,6 +109,21 @@ def test_settings_sidebar_uses_vertical_accessible_layout_without_horizontal_onl
     assert "grid-template-columns: 1fr" in css[css.index("@media (max-width: 640px)") :]
 
 
+def test_settings_sidebar_sticky_rail_stays_aligned_with_page_header() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
+        encoding="utf-8"
+    )
+    sticky_layout_css = css[
+        css.index(".settings-page > .settings-navigation,") : css.index(
+            ".settings-page > :not(.settings-navigation),"
+        )
+    ]
+
+    assert "position: sticky" in sticky_layout_css
+    assert "top: 0" in sticky_layout_css
+
+
 def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     page = render_settings_page()
 
