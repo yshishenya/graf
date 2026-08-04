@@ -49,3 +49,11 @@ deploy/package не заявлены.
 - Outcome labels were returned to exact `v3` after the e2e so the currently
   deployed old runtime remains compatible; final `v5` move is post-deploy.
 - No CI bypass or `skip-local-CI` option was used.
+
+## PR handoff
+
+- Ready PR: `#4851` (`codex/139-meeting-outcome-value` -> `master`).
+- Implementation SHA at PR creation:
+  `b5c6dc52aab4833ed9ea2dd27a08acc7e7233504`.
+- Production deploy, final outcome `v5` promotion and public package remain
+  explicitly outside this pre-merge receipt.
