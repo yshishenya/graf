@@ -35,7 +35,7 @@ def test_production_smoke_executes_setup_and_cleanup_only_in_maintenance_runtime
     script = REPO_ROOT / "infra/scripts/run-production-smoke.sh"
     text = script.read_text(encoding="utf-8")
 
-    assert text.count("run --rm --no-deps -T rec-maintenance") == 5
+    assert text.count("run --rm --no-deps -T rec-maintenance") == 6
     assert "python scripts/seed_smoke_identity.py" in text
     assert "exec -T rec-api \\\n+  python scripts/seed_smoke_identity.py" not in text
     assert 'exec -T rec-api "${cleanup_args[@]}"' not in text
