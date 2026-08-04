@@ -2,13 +2,13 @@
 {% import "cabinet/components/sections.html" as sections %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
+    <div class="settings-page__content">
     <header class="cabinet-topbar settings-page__topbar">
       <div class="page-title">
         <h1>Аккаунт и безопасность</h1>
       </div>
     </header>
-    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
-
     {% if provider_link_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_link_result }}</p>{% endif %}
     {% if device_revoke_result %}<p class="settings-status" role="status" aria-live="polite">{{ device_revoke_result }}</p>{% endif %}
     {% if account_surface.unavailable %}
@@ -50,5 +50,6 @@
       {% else %}<p class="settings-empty-state" role="status">Зарегистрированных устройств пока нет.</p>{% endif %}
     </section>
     {% endif %}
+    </div>
   </div>
 </main>
