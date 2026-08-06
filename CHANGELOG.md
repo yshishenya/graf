@@ -15,9 +15,7 @@
 - _Пока нет записей._
 
 ### Исправлено
-- Feature `134-email-login-webview`: macOS embedded WebView больше не превращает
-  ответы email-формы входа в повторный GET к POST endpoint, поэтому форма кода
-  остаётся доступной для завершения входа.
+- _Пока нет записей._
 
 ### Безопасность
 - _Пока нет записей._
@@ -27,6 +25,35 @@
 
 ### Операции
 - _Пока нет записей._
+
+## [2026.08.06.1] - 2026-08-06
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Совместимость сохранена: server auth contract, cookies, email delivery,
+  Yandex OAuth и native capture не менялись; миграции не требуются.
+
+### Исправлено
+- Feature `134-email-login-webview`: macOS embedded WebView больше не превращает
+  ответы email-формы входа в повторный GET к POST endpoint, поэтому форма кода
+  остаётся доступной для завершения входа.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Release подготовлен после PR #4939 и связан с issue #4734.
+
+### Операции
+- Validation: canonical `infra/scripts/ci-local.sh` прошёл; 647 macOS tests,
+  2512 server tests, strict RLS 42 tests, lint, compile, compose config и
+  deployment evidence scan прошли.
+- Known limitation: remote GitHub Actions checks для PR дважды столкнулись с
+  временной ошибкой GitHub `Service Unavailable` на setup action metadata;
+  production smoke после deploy остаётся обязательным подтверждением.
 
 ## [2026.08.05.1] - 2026-08-05
 
