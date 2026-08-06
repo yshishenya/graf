@@ -94,3 +94,14 @@ held-out claim.
   completeness `v7`.
 - After merged SHA deploy, T049 повторно назначает exact outcome `v5`, проверяет
   prepared `v6` rollback и только затем запускает production smoke.
+
+## Post-deploy receipt — `2026-08-06`
+
+- Runtime SHA: `50fef018add21a3677e4100327b5c506b98f647c`.
+- Exact outcome prompts: `v5` restored after `v5 → v6 → v5` rollback rehearsal;
+  metadata-only hash verification passed for all 10 allowlisted prompts.
+- Production outcome smoke: health/readiness `200/200`, candidate `ready`, accept
+  `200/accepted`; synthetic cleanup completed.
+- Public-link step returned the expected fail-closed `403 share_policy_blocked`
+  because both public-link gates remain disabled. No public-link enablement or
+  security-boundary override was performed.
