@@ -66,3 +66,20 @@ deploy/package не заявлены.
   `b5c6dc52aab4833ed9ea2dd27a08acc7e7233504`.
 - Production deploy, final outcome `v5` promotion and public package remain
   explicitly outside this pre-merge receipt.
+
+## Production and public-release closeout
+
+- Exact full release gate and guarded deploy passed on `master` SHA
+  `50fef018add21a3677e4100327b5c506b98f647c`; the remote checkout is clean and
+  runs migration head `0043_initial_outcome_reconcile`.
+- Remote backup/restore rehearsal, disposable RLS, Temporal/processing-worker
+  readiness and standard production smoke passed.
+- Outcome prompts were promoted `v3 → v5`, rolled back to prepared `v6`, and
+  restored to exact `v5`; hashes were checked without printing prompt text.
+- Metadata-only live outcome smoke passed health `200/200`, automatic candidate
+  `ready`, and owner accept `200/accepted`. The requested anonymous public readback
+  is intentionally blocked by production policy (`share_policy_blocked`, public
+  links and abuse gate disabled); no user content or residue was retained.
+- Public release `v2026.08.05.1` is published from the same SHA. Apple ZIP and
+  PKG notarization were accepted, both artifacts were stapled and Gatekeeper
+  accepted them. Sparkle continuity validator passed against `v2026.08.04.4`.
