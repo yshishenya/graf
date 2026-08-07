@@ -1,4 +1,5 @@
 import pytest
+
 from twobrain_rec_server.billing.registry import (
     RegistryInputError,
     RegistryPart,
