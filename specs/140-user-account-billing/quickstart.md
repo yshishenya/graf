@@ -11,12 +11,14 @@ environment.
 ```sh
 .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
 git diff --check
-rg -n 'NEEDS CLARIFICATION|\[FEATURE\]|\[DATE\]|TODO|TBD' \
+rg -n 'NEEDS CLARIFICATION|\[FEATURE\]|\[DATE\]|TODO' \
   specs/140-user-account-billing/{spec.md,plan.md,research.md,data-model.md,contracts}
 ```
 
 Expected: prerequisites resolve feature `140`, diff check is clean and the
-placeholder scan returns no match.
+implementation-placeholder scan returns no match. Product-market `TBD` markers
+are intentionally retained in `research.md`/`plan.md` until external evidence
+and approvals exist; they are launch gates, not implementation placeholders.
 
 ## Focused implementation validation
 
@@ -51,8 +53,8 @@ elsewhere; real-shop canary is a separate approved release step.
 - Public launch remains blocked by the production gates below: durable provider
   registry/reconciliation worker, account-close and full notification flows,
   test-shop evidence, accessibility/usability review and finance/legal approval.
-- Cross-artifact analyze pass found no unresolved implementation placeholders; the feature has
-  87 tasks (74 validated complete, 13 still open), including explicit product-market
+- Cross-artifact analyze pass found no unresolved critical implementation blockers; the feature has
+  87 tasks (76 validated complete, 11 still open), including explicit product-market
   closeout tasks T084–T087 and the remaining account, storage-lifecycle, reconciliation,
   UX/security and real test-shop tasks, so this branch is not a public-launch completion
   claim.

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.auth import revoke_device
@@ -13,6 +14,7 @@ from twobrain_rec_server.auth.account_closure import (
     cancel_account_close,
     schedule_account_close,
 )
+from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
@@ -32,7 +34,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _csrf_token_for_principal,
 )
-from twobrain_rec_server.db.models import BillingNotificationPreference
+from twobrain_rec_server.db.models import AuthSession, BillingNotificationPreference, UserIdentity
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
@@ -45,6 +47,7 @@ ProviderLinkResultQuery = Query(default=None, max_length=48, alias="provider_lin
 DeviceRevokeResultQuery = Query(default=None, max_length=24, alias="device_revoke")
 NotificationResultQuery = Query(default=None, max_length=24, alias="notification")
 AccountCloseResultQuery = Query(default=None, max_length=24, alias="account_close")
+ProfileResultQuery = Query(default=None, max_length=24, alias="profile")
 
 
 async def _render_settings(
@@ -61,6 +64,7 @@ async def _render_settings(
     device_revoke: str | None = None,
     notification: str | None = None,
     account_close: str | None = None,
+    profile: str | None = None,
 ) -> HTMLResponse:
     workspace_spaces = ()
     workspace_join_offers = ()
@@ -115,6 +119,10 @@ async def _render_settings(
             device_revoke_result=device_revoke,
             notification_result=notification,
             account_close_result=account_close,
+            profile_result=profile,
+            account_active=(
+                "security" if request.url.path.endswith("/account/security") else "profile"
+            ),
             notification_preferences=notification_preferences,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
@@ -204,6 +212,7 @@ async def settings_account_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -217,6 +226,7 @@ async def settings_account_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        profile=profile,
     )
 
 
@@ -278,12 +288,140 @@ async def save_settings_notifications(
     return RedirectResponse("/settings/notifications?notification=saved", status_code=303)
 
 
+async def _save_account_profile(
+    db: AsyncSession,
+    *,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+    request: Request,
+) -> None:
+    form = await request.form()
+    display_name = " ".join(str(form.get("display_name") or "").split())
+    if len(display_name) > 240:
+        raise ProblemDetail(status=422, code="profile_display_name_too_long", title="Имя слишком длинное")
+    user = await db.get(UserIdentity, principal.user_id, with_for_update=True)
+    if user is None:
+        raise ProblemDetail(status=404, code="account_not_found", title="Аккаунт не найден")
+    user.display_name = display_name or None
+    await write_auth_audit_event(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        actor_user_id=principal.user_id,
+        user_id=principal.user_id,
+        event_type="account_profile_updated",
+        metadata={"fields": ["display_name"]},
+    )
+    await db.commit()
+
+
+async def _revoke_account_session(
+    db: AsyncSession,
+    *,
+    session_id: UUID,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+) -> None:
+    if session_id == principal.session_id or session_id == tenant_scope.auth_session_id:
+        raise ProblemDetail(status=422, code="current_session_revoke_forbidden", title="Текущую сессию нельзя отозвать этой кнопкой")
+    session = await db.scalar(
+        select(AuthSession)
+        .where(
+            AuthSession.id == session_id,
+            AuthSession.workspace_id == tenant_scope.workspace_id,
+            AuthSession.user_id == principal.user_id,
+        )
+        .with_for_update()
+    )
+    if session is None:
+        raise ProblemDetail(status=404, code="auth_session_not_found", title="Сессия не найдена")
+    session.status = "revoked"
+    await write_auth_audit_event(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        actor_user_id=principal.user_id,
+        user_id=principal.user_id,
+        event_type="auth_session_revoked",
+        provider=session.provider,
+        metadata={"session_id": str(session.id)},
+    )
+    await db.commit()
+
+
+@router.post(
+    "/settings/account/profile",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_settings_account_profile(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    return RedirectResponse("/account/profile?profile=saved", status_code=303)
+
+
+@router.post(
+    "/desktop/settings/account/profile",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_embedded_settings_account_profile(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    return RedirectResponse("/desktop/account/profile?profile=saved", status_code=303)
+
+
+@router.post(
+    "/settings/account/sessions/{session_id}/revoke",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_settings_session(
+    session_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_account_session(db, session_id=session_id, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/account/security?session=revoked", status_code=303)
+
+
+@router.post(
+    "/desktop/settings/account/sessions/{session_id}/revoke",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_embedded_settings_session(
+    session_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_account_session(db, session_id=session_id, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/desktop/account/security?session=revoked", status_code=303)
+
+
 @router.get("/account", response_class=HTMLResponse, include_in_schema=False)
 async def account_center_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
     account_close: str | None = AccountCloseResultQuery,
+    profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -299,6 +437,7 @@ async def account_center_page(
         provider_link=provider_link,
         device_revoke=device_revoke,
         account_close=account_close,
+        profile=profile,
     )
 
 
@@ -309,6 +448,7 @@ async def account_profile_security_alias_page(
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
     account_close: str | None = AccountCloseResultQuery,
+    profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -324,6 +464,7 @@ async def account_profile_security_alias_page(
         provider_link=provider_link,
         device_revoke=device_revoke,
         account_close=account_close,
+        profile=profile,
     )
 
 
@@ -631,6 +772,7 @@ async def embedded_account_center_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -644,6 +786,7 @@ async def embedded_account_center_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        profile=profile,
     )
 
 
@@ -654,6 +797,7 @@ async def embedded_account_profile_security_alias_page(
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
     account_close: str | None = AccountCloseResultQuery,
+    profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -668,6 +812,7 @@ async def embedded_account_profile_security_alias_page(
         provider_link=provider_link,
         device_revoke=device_revoke,
         account_close=account_close,
+        profile=profile,
     )
 
 

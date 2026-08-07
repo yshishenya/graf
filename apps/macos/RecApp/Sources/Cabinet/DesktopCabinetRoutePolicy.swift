@@ -401,9 +401,20 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         if tail.isEmpty || (tail.count == 1 && ["recording", "summaries", "workspace", "account", "notifications"].contains(tail[0])) {
             return true
         }
+        if tail.count == 2,
+           tail[0] == "account",
+           ["profile", "security", "notifications"].contains(tail[1]) {
+            return true
+        }
         if tail.count == 4,
            tail[0] == "account",
            tail[1] == "devices",
+           tail[3] == "revoke" {
+            return isSafeMeetingId(tail[2])
+        }
+        if tail.count == 4,
+           tail[0] == "account",
+           tail[1] == "sessions",
            tail[3] == "revoke" {
             return isSafeMeetingId(tail[2])
         }

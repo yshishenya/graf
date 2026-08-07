@@ -258,6 +258,36 @@ def test_settings_device_mutation_requires_web_csrf() -> None:
     assert all("require_web_csrf" in values for values in dependencies.values())
 
 
+def test_account_profile_and_session_mutations_are_csrf_protected() -> None:
+    expected = {
+        "/settings/account/profile",
+        "/desktop/settings/account/profile",
+        "/settings/account/sessions/{session_id}/revoke",
+        "/desktop/settings/account/sessions/{session_id}/revoke",
+    }
+    routes = {
+        route.path: route
+        for route in settings_router.routes
+        if isinstance(route, APIRoute)
+    }
+    assert expected <= routes.keys()
+    for path in expected:
+        dependencies = {
+            getattr(dependency.call, "__name__", "")
+            for dependency in routes[path].dependant.dependencies
+            if dependency.call is not None
+        }
+        assert "require_web_csrf" in dependencies
+
+
+def test_account_surface_template_contains_profile_preference_and_session_controls() -> None:
+    page = render_settings_page(category="account")
+    for label in ("Профиль", "Язык интерфейса", "Часовой пояс", "Системная", "Активные сессии"):
+        assert label in page
+    assert "data-account-preferences" in page
+    assert "session_token_hash" not in page
+
+
 def test_account_markup_accepts_only_safe_presentation_fields() -> None:
     provider = AccountProviderView(
         provider="yandex",

@@ -79,6 +79,7 @@ from twobrain_rec_server.calendar.service import (
 )
 from twobrain_rec_server.db.models import (
     AccountClosureRequest,
+    AuthSession,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarSettingsPreference,
@@ -100,6 +101,7 @@ from twobrain_rec_server.db.models import (
     TranscriptSegment,
     UploadPart,
     UploadSession,
+    UserIdentity,
     Workspace,
     WorkspaceProviderLinkState,
 )
@@ -174,7 +176,9 @@ async def get_account_settings_surface(
     from datetime import UTC, datetime
 
     from twobrain_rec_server.auth.account_closure import close_view
-    from twobrain_rec_server.cabinet.view_models import account_settings_surface
+    from twobrain_rec_server.cabinet.view_models import AccountProfileView, account_settings_surface
+
+    user = await db.get(UserIdentity, tenant_scope.user_id)
 
     identities = tuple(
         await db.scalars(
@@ -193,6 +197,16 @@ async def get_account_settings_surface(
             .order_by(RegisteredDevice.created_at.desc())
         )
     )
+    sessions = tuple(
+        await db.scalars(
+            select(AuthSession)
+            .where(
+                AuthSession.workspace_id == tenant_scope.workspace_id,
+                AuthSession.user_id == tenant_scope.user_id,
+            )
+            .order_by(AuthSession.last_seen_at.desc(), AuthSession.created_at.desc())
+        )
+    )
     closure = await db.scalar(
         select(AccountClosureRequest)
         .where(
@@ -203,8 +217,17 @@ async def get_account_settings_surface(
         .order_by(AccountClosureRequest.requested_at.desc())
     )
     return account_settings_surface(
+        profile=AccountProfileView(
+            display_name=(user.display_name if user and user.display_name else "Без имени"),
+            primary_email=next(
+                (identity.email for identity in identities if identity.email and identity.is_verified),
+                None,
+            ),
+        ),
         identities=identities,
         devices=devices,
+        sessions=sessions,
+        current_session_id=tenant_scope.auth_session_id,
         current_device_id=tenant_scope.device_id,
         account_close=(close_view(closure, now=datetime.now(UTC)) if closure else None),
     )

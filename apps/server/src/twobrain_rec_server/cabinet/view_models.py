@@ -56,6 +56,7 @@ from twobrain_rec_server.calendar.service import (
     dedupe_calendar_events,
 )
 from twobrain_rec_server.db.models import (
+    AuthSession,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarSettingsPreference,
@@ -160,9 +161,31 @@ class AccountDeviceView:
 
 
 @dataclass(frozen=True, slots=True)
+class AccountSessionView:
+    session_id: UUID
+    provider_label: str
+    status_label: str
+    last_seen_at: datetime | None
+    expires_at: datetime
+    current: bool
+    can_revoke: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AccountProfileView:
+    display_name: str
+    primary_email: str | None = None
+    locale: str = "ru-RU"
+    timezone: str = "Europe/Moscow"
+    theme: str = "system"
+
+
+@dataclass(frozen=True, slots=True)
 class AccountSettingsSurface:
+    profile: AccountProfileView | None = None
     providers: tuple[AccountProviderView, ...] = ()
     devices: tuple[AccountDeviceView, ...] = ()
+    sessions: tuple[AccountSessionView, ...] = ()
     unavailable: bool = False
     account_close: AccountCloseView | None = None
 
@@ -207,22 +230,48 @@ def account_device_view(
     )
 
 
+def account_session_view(
+    session: AuthSession,
+    *,
+    current_session_id: UUID | None,
+) -> AccountSessionView:
+    provider_label = PROVIDER_LINK_LABELS.get(session.provider, "Способ входа")
+    status_label = "Активна" if session.status == "active" else "Отозвана"
+    current = session.id == current_session_id
+    return AccountSessionView(
+        session_id=session.id,
+        provider_label=provider_label,
+        status_label=status_label,
+        last_seen_at=session.last_seen_at,
+        expires_at=session.expires_at,
+        current=current,
+        can_revoke=session.status == "active" and not current,
+    )
+
+
 def account_settings_surface(
     *,
+    profile: AccountProfileView | None = None,
     identities: Iterable[ExternalIdentity] = (),
     devices: Iterable[RegisteredDevice] = (),
+    sessions: Iterable[AuthSession] = (),
+    current_session_id: UUID | None = None,
     current_device_id: UUID | None = None,
     unavailable: bool = False,
     account_close: AccountCloseView | None = None,
 ) -> AccountSettingsSurface:
     identity_rows = tuple(identities)
     return AccountSettingsSurface(
+        profile=profile,
         providers=tuple(
             account_provider_view(identity, primary=index == 0)
             for index, identity in enumerate(identity_rows)
         ),
         devices=tuple(
             account_device_view(device, current_device_id=current_device_id) for device in devices
+        ),
+        sessions=tuple(
+            account_session_view(session, current_session_id=current_session_id) for session in sessions
         ),
         unavailable=unavailable,
         account_close=account_close,
