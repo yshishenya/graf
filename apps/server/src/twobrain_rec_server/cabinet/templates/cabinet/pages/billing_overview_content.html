@@ -1,5 +1,8 @@
 {% import "cabinet/components/settings_navigation.html" as settings_ui %}
 {% import "cabinet/components/sections.html" as sections %}
+{% set billing_owner = billing_owner|default(False) %}
+{% set billing_role = billing_role|default(None) %}
+{% set trial_state = trial_state|default("unavailable") %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/meetings") }}
@@ -12,20 +15,24 @@
         <h2 id="billing-plan-title">{{ plan.label }}</h2>
         {% if billing_result|default(None) == "pending" %}<p class="notice" role="status" aria-live="polite">Платёж уже создан. Проверяем его статус; повторную оплату пока не предлагаем.</p>
         {% elif billing_result|default(None) == "returned" %}<p class="notice" role="status" aria-live="polite">Вы вернулись из ЮKassa. Доступ включится только после подтверждения платежа.</p>
-        {% elif billing_result|default(None) == "unavailable" %}<p class="notice" role="alert">Не удалось открыть оплату. Проверьте историю платежей или повторите позже.</p>{% endif %}
+        {% elif billing_result|default(None) == "unavailable" %}<p class="notice" role="alert">Не удалось открыть оплату. Проверьте историю платежей или повторите позже.</p>
+        {% elif billing_result|default(None) == "owner_only" %}<p class="notice" role="status">Оплатой и платежными данными управляет владелец пространства.</p>{% endif %}
         {% if plan_code == "free" %}
         <p>Обработка: <strong>{{ processing_used_label }} из {{ free_processing_limit_label }} (18 000 сек)</strong>. Платные тарифы обрабатывают встречи без лимита по времени.</p>
-        {% if processing_threshold == "approaching" %}<p class="notice" role="status" aria-live="polite">Использовано 80% месячного лимита обработки. Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}. {% if trial_eligible|default(False) %}<a href="/billing">Начать 7 дней бесплатно</a> или {% endif %}<a href="/billing/checkout">Выбрать «Личный»</a>; подождать сброса можно без перехода.</p>{% elif processing_threshold == "exhausted" %}<p class="notice" role="status" aria-live="polite">Лимит обработки исчерпан до {{ processing_reset_at_label }}. Можно <a href="/meetings?archive_audio=false#manual-upload">обработать встречу без сохранения аудио</a> или подождать сброса; платный тариф остаётся необязательным.</p>{% endif %}
+        {% if processing_threshold == "approaching" %}<p class="notice" role="status" aria-live="polite">Использовано 80% месячного лимита обработки. Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}. {% if billing_owner and trial_eligible|default(False) %}<a href="/billing">Начать 7 дней бесплатно</a> или {% endif %}{% if billing_owner %}<a href="/billing/checkout">Выбрать «Личный»</a>{% endif %} подождать сброса можно без перехода.</p>{% elif processing_threshold == "exhausted" %}<p class="notice" role="status" aria-live="polite">Лимит обработки исчерпан до {{ processing_reset_at_label }}. Можно <a href="/meetings?archive_audio=false#manual-upload">обработать встречу без сохранения аудио</a> или подождать сброса; платный тариф остаётся необязательным.</p>{% endif %}
         {% else %}<p>Обработка: <strong>Без лимита по минутам и встречам</strong>. Хранилище оплачивается отдельно от обработки.</p>{% endif %}
-        {% if trial_expired|default(False) %}<p class="notice" role="status" aria-live="polite">Платный режим закончился {{ trial_ends_at_label }}. Сейчас действует Free; повторного списания без отдельного подтверждения нет. <a href="/billing/checkout">Выбрать «Личный»</a> или <a href="/billing">остаться на Free</a>.</p>{% elif plan_code == "trial" and trial_days_left is not none and trial_days_left <= 3 and trial_days_left > 1 %}<p class="notice" role="status" aria-live="polite">Пробный период заканчивается {{ trial_ends_at_label }} (через {{ trial_remaining_label }}). После окончания автоматически включится Free. <a href="/billing/checkout">Выбрать «Личный»</a> или <a href="/billing">остаться на Free</a>.</p>{% elif plan_code == "trial" and trial_days_left == 1 %}<p class="notice" role="status" aria-live="polite">Пробный период заканчивается {{ trial_ends_at_label }} (через {{ trial_remaining_label }}). После окончания автоматически включится Free. <a href="/billing/checkout">Выбрать «Личный»</a> или <a href="/billing">остаться на Free</a>; списания без отдельного подтверждения не будет.</p>{% endif %}
-        {% if billing_enabled %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p class="muted" role="status">Оплата пока недоступна: магазин не включён.</p>{% endif %}
-        {% if plan_code != "free" %}<a class="button quiet" href="/billing/subscription">Управлять подпиской</a>{% endif %}
-        {% if plan_code == "free" %}
-        {% if trial_result == "activated" %}<p role="status" aria-live="polite">Пробный период активирован на 7 дней.</p>{% elif trial_result == "already" %}<p role="status" aria-live="polite">Пробный период уже использован.</p>{% elif trial_result == "confirmation_required" %}<p role="alert">Подтвердите запуск пробного периода кнопкой ещё раз.</p>{% elif trial_result == "unavailable" %}<p role="status" aria-live="polite">Пробный период доступен только после подтверждённого входа.</p>{% endif %}
-        <form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet" type="submit">Попробовать «Личный» 7 дней</button></form>
-        {% endif %}
+        {% if billing_owner and trial_expired|default(False) %}<p class="notice" role="status" aria-live="polite">Платный режим закончился {{ trial_ends_at_label }}. Сейчас действует Free; повторного списания без отдельного подтверждения нет. <a href="/billing/checkout">Выбрать «Личный»</a> или <a href="/billing">остаться на Free</a>.</p>{% elif billing_owner and plan_code == "trial" and trial_days_left is not none and trial_days_left <= 3 and trial_days_left > 1 %}<p class="notice" role="status" aria-live="polite">Пробный период заканчивается {{ trial_ends_at_label }} (через {{ trial_remaining_label }}). После окончания автоматически включится Free. <a href="/billing/checkout">Выбрать «Личный»</a> или <a href="/billing">остаться на Free</a>.</p>{% elif billing_owner and plan_code == "trial" and trial_days_left == 1 %}<p class="notice" role="status" aria-live="polite">Пробный период заканчивается {{ trial_ends_at_label }} (через {{ trial_remaining_label }}). После окончания автоматически включится Free. <a href="/billing/checkout">Выбрать «Личный»</a> или <a href="/billing">остаться на Free</a>; списания без отдельного подтверждения не будет.</p>{% endif %}
+        {% if billing_owner %}
+          {% if billing_enabled %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p class="muted" role="status">Оплата пока недоступна: магазин не включён.</p>{% endif %}
+          {% if plan_code != "free" %}<a class="button quiet" href="/billing/subscription">Управлять подпиской</a>{% endif %}
+          {% if plan_code == "free" %}
+          {% if trial_result == "activated" %}<p role="status" aria-live="polite">Пробный период активирован на 7 дней.</p>{% elif trial_result == "already" or trial_state == "already" %}<p role="status" aria-live="polite">Пробный период уже использован.</p>{% elif trial_result == "verification_required" or trial_state == "verification_required" %}<p role="alert"><button class="button quiet" type="button" disabled aria-disabled="true">Начать 7 дней бесплатно</button> Подтвердите email, чтобы начать 7 дней бесплатно. <a href="/account/security">Открыть аккаунт и безопасность</a>.</p>{% elif trial_result == "confirmation_required" %}<p role="alert">Подтвердите запуск пробного периода кнопкой ещё раз.</p>{% elif trial_result == "unavailable" or trial_state == "unavailable" %}<p role="status" aria-live="polite">Пробный период доступен только владельцу личного пространства после подтверждённого входа.</p>{% endif %}
+          {% if trial_state == "eligible" %}<form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet" type="submit">Попробовать «Личный» 7 дней</button></form>{% endif %}
+          {% endif %}
+        {% elif billing_role == "owner" %}<p class="notice" role="status">Для этого пространства назначен другой владелец биллинга. Чтобы стать новым владельцем, подтвердите новую оплату с автопродлением на странице выбора тарифа. <a href="/billing/checkout">Открыть выбор тарифа</a>.</p>
+        {% else %}<p class="notice" role="status">Оплатой и платежными данными управляет владелец пространства. Здесь доступны только сводка использования и хранилища.</p><p class="muted">Возврат оформляется только письмом в поддержку; автоматической заявки в продукте нет.</p><p class="muted"><a href="/billing/payment-method" aria-disabled="true">Способ оплаты</a> и <a href="/billing/storage" aria-disabled="true">увеличение хранилища</a> доступны только владельцу.</p>{% endif %}
       </section>
-      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
+      {% if billing_owner %}<p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>{% endif %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-storage-title">
         <h2 id="billing-storage-title">Хранилище</h2>
         <p><strong>{{ storage_used }} байт</strong> из <strong>{{ storage_capacity_label }} байт</strong> · состояние: {{ storage_threshold }}</p>
@@ -33,8 +40,9 @@
         <p class="muted">Размер учитывает нормализованный файл встречи. Лимит хранения не ограничивает обработку.</p>
         {% if storage_threshold in ["80%", "95%"] %}<p class="notice" role="status" aria-live="polite">Хранилище заполнено на {{ storage_threshold }}. Можно удалить старые записи, увеличить хранилище или продолжить обработку без сохранения аудио.</p>{% elif storage_threshold == "full" %}<p class="notice" role="status" aria-live="polite">Хранилище заполнено. Новое аудио не сохраняется в архив, но обработку можно запустить без сохранения аудио: расшифровка и заметки останутся, исходный звук — нет.</p>{% endif %}
         <a class="button quiet" href="/billing/usage">Открыть использование</a>
-        <a class="button quiet" href="/billing/storage">Настроить хранилище</a>
+        {% if billing_owner %}<a class="button quiet" href="/billing/storage">Настроить хранилище</a>{% endif %}
       </section>
+      {% if billing_owner %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-method-title">
         <h2 id="billing-method-title">Способ оплаты</h2>
         <p class="muted">Сохранённая карта нужна только для разрешённых регулярных списаний.</p>
@@ -50,6 +58,7 @@
         <p>Друг получит 10% скидки на первую оплату, а вы — 7 дней за месяц или 30 дней за год после подтверждения.</p>
         <a class="button quiet" href="/referrals">Открыть реферальную систему</a>
       </section>
+      {% endif %}
     </div>
   </div>
 </main>

@@ -224,6 +224,12 @@
 
 **Дата повторной проверки**: 2026-08-07.
 
+Сравнительные страницы зафиксированы одной проверкой `observed_at_utc=
+2026-08-07T17:27:43Z`. Для каждой строки учитываются locale/география, выбранный
+monthly/annual или региональный selector, аудитория и seat semantics, cadence,
+валюта/tax disclosure и точная единица лимита. Внешние страницы не дают
+основания переносить FX/PPP или налоговые предположения в российскую цену.
+
 - **Observed trial benchmark**: Krisp публикует 7-day trial без
   карты с unlimited transcription/recording. Это сопоставимо с
   GRAF Trial, но не с GRAF `Free`.
@@ -236,12 +242,13 @@
   одинаковой retention и media-size модели.
 - **Observed individual-paid benchmark**: на проверенных USD
   pages Krisp Core указывает $16 monthly/$8 monthly equivalent
-  when billed annually и 10 GB; Otter Pro — $16.99 monthly/$8.49 annual
-  equivalent, 1 200 in-app minutes и unlimited storage; Fireflies Pro —
-  $18 monthly/$10 annual equivalent и 8 000 storage minutes. Это
-  mutable per-seat offers другой географии/валюты; они не
-  доказывают Russian willingness-to-pay и не обосновывают FX/PPP
-  вывод для 790 ₽/7 900 ₽.
+  when billed annually и 10 GB; Otter Pro показывает несколько блоков
+  регионального selector (в одном блоке $16.99/$8.49 и в другом $8.33/$4.17),
+  1 200 in-app minutes и unlimited storage; Notta Pro — 1 800 minutes/month;
+  Fireflies Pro — $18 monthly/$10 annual equivalent и 8 000 storage minutes.
+  Это mutable per-seat offers другой географии/валюты, с неодинаковыми tax и
+  unit semantics; они не доказывают Russian willingness-to-pay и не
+  обосновывают FX/PPP вывод для 790 ₽/7 900 ₽.
 - **Inference**: рыночный benchmark подтверждает паттерны,
   но не подтверждает GRAF price/packaging. `Free 300 минут`,
   `Личный` 2 GB, 5/20/100/500 GB ladder и ценность

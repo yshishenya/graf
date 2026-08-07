@@ -25,6 +25,7 @@ def test_096_inventory_covers_all_current_and_future_browser_page_classes() -> N
         "billing_storage_addons",
         "billing_checkout",
         "billing_history",
+        "billing_invoice",
         "billing_referrals",
         "recording_list",
         "meeting_result_detail",
@@ -76,6 +77,7 @@ def test_financial_pages_are_fail_closed_for_browser_analytics() -> None:
         "billing_storage_addons",
         "billing_checkout",
         "billing_history",
+        "billing_invoice",
         "billing_referrals",
     }
     policies = {

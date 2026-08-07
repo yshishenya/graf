@@ -83,6 +83,22 @@ async def _seed_personal_workspace(client) -> tuple[UUID, UUID]:
 
 def test_trial_requires_explicit_confirmation_and_is_one_per_identity(client) -> None:
     workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+
+    async def seed_verified_identity() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                ExternalIdentity(
+                    user_id=USER_ID,
+                    provider="email",
+                    provider_subject=f"verified-{USER_ID}",
+                    email="verified@example.test",
+                    is_verified=True,
+                    is_active=True,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_verified_identity())
     token, session_id = asyncio.run(
         _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
     )

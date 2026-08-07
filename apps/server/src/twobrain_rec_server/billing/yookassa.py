@@ -27,6 +27,7 @@ ALLOWED_YOOKASSA_HOSTS = frozenset(
         "yoomoney.ru",
     }
 )
+ALLOWED_YOOKASSA_API_HOSTS = frozenset({"api.yookassa.ru", "api.yookassa.test"})
 
 
 def is_allowed_confirmation_url(value: object) -> bool:
@@ -59,9 +60,10 @@ class YooKassaClient:
         parsed_base_url = urlsplit(self._base_url)
         if (
             parsed_base_url.scheme != "https"
-            or parsed_base_url.hostname not in ALLOWED_YOOKASSA_HOSTS
+            or parsed_base_url.hostname not in ALLOWED_YOOKASSA_API_HOSTS
             or parsed_base_url.username
             or parsed_base_url.password
+            or parsed_base_url.path not in ("", "/")
             or parsed_base_url.query
             or parsed_base_url.fragment
         ):

@@ -37,12 +37,17 @@ gross-margin floor, fair-use sensitivity и stop threshold.
 
 ## Dated comparable context и проверка единиц
 
-| Источник | Наблюдение | Что переносимо | Что не переносимо |
-|---|---|---|---|
-| Krisp pricing, 2026 | individual trial/paid и finite storage | прозрачный trial + storage disclosure | USD, география, чужая storage semantics |
-| Otter pricing, 2026 | free minutes и paid unlimited-storage pattern | необходимость явно разделять usage и archive | минуты/seat и pricing другой валюты |
-| Fireflies pricing/storage, 2026 | hybrid credits/storage limits | finite dimension можно объяснять отдельно | team/seat limits и provider cost profile |
-| Krisp/Otter/Fireflies pages | annual/monthly comparison | показывать today/next amount | нельзя выводить WTP РФ через FX/PPP |
+`observed_at_utc` — момент нашей фиксации страницы, а не дата изменения
+прайсинга провайдером. Цены указаны ровно в отображаемой валюте; tax/VAT,
+региональный selector и FX/PPP нормализацию мы не применяем.
+
+| Источник | observed_at_utc | География/locale/tax и selector | Аудитория/seat | Cadence и точные units | Что переносимо | Что не переносимо |
+|---|---|---|---|---|---|---|
+| Krisp pricing | 2026-08-07T17:27:43Z | USD; публичная глобальная страница; налог не указан | individual/small teams; Core $16 monthly или $8 monthly equivalent annually | 7-day trial без карты; Core 10 GB storage; Advanced 60 GB; цены per user/month | прозрачный trial, annual comparison, явное раскрытие storage | USD, география, seat и чужая storage semantics |
+| Otter pricing | 2026-08-07T17:27:43Z | USD; страница показывает несколько региональных/selector блоков, поэтому значение нужно фиксировать вместе с выбранным блоком; tax не указан | Basic individual; Pro individuals/small teams, `/user/month` | Basic 300 transcription minutes/month; Pro 1,200 in-app recording minutes и unlimited storage; monthly/annual | необходимость отдельно объяснять processing usage и archive | минуты/seat, regional alternate values, pricing другой валюты |
+| Notta pricing | 2026-08-07T17:27:43Z | USD; locale EN; annual selector показывает 40% OFF; tax не указан | Free/Pro one-seat individual; Business seats; Enterprise custom | Free 120 transcription minutes/month и 3 minutes/conversation; Pro 1,800 minutes/month; Business unlimited transcription | явный free ceiling, no-card copy, separate add-ons | bot/file quotas, seat semantics и currency |
+| Fireflies pricing/storage | 2026-08-07T17:27:43Z | USD; monthly/annual selector; tax не указан | Free individuals; Pro/Business/Enterprise per seat | Free 400 mins storage/team; Pro 8,000 mins storage/seat; Business/Enterprise unlimited storage | отдельное объяснение storage/credits и annual comparison | team/seat limits, video/storage minute semantics и provider COGS |
+| Krisp/Otter/Notta/Fireflies pages | 2026-08-07T17:27:43Z | сравнение без FX/PPP и без предположения одинаковых налогов | смешанные individual/team plans | cadence, quota unit и retention semantics различаются | показывать today/next amount и unit definition | нельзя выводить WTP РФ или оптимальность 790/7 900 ₽ |
 
 ## Формула до появления production telemetry
 

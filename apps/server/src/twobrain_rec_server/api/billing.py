@@ -50,7 +50,7 @@ def _inbox(request: Request) -> WebhookInbox:
     return inbox
 
 
-@router.post("/webhook", status_code=202, include_in_schema=False)
+@router.post("/webhook", status_code=200, include_in_schema=False)
 async def billing_webhook(
     request: Request,
     x_billing_webhook_secret: str | None = Header(default=None, alias="X-Billing-Webhook-Secret"),
@@ -59,7 +59,7 @@ async def billing_webhook(
     return await _handle_billing_webhook(request, x_billing_webhook_secret, environment=None)
 
 
-@router.post("/providers/yookassa/webhook/{environment}", status_code=202, include_in_schema=False)
+@router.post("/providers/yookassa/webhook/{environment}", status_code=200, include_in_schema=False)
 async def billing_provider_webhook(
     environment: str,
     request: Request,
@@ -83,6 +83,10 @@ async def _handle_billing_webhook(
             raise ProviderEventError("provider environment is invalid")
         if environment is not None and environment != configured_environment:
             raise ProviderEventError("provider environment does not match configured shop")
+        # The reverse proxy must inject this secret only after validating the
+        # YooKassa source network and TLS. The app itself stays fail-closed;
+        # reconciliation GETs are an additional authenticity check, not an
+        # authorization boundary.
         secret = read_webhook_secret(settings.billing_yookassa_webhook_secret_file)
         validate_webhook_secret(supplied=x_billing_webhook_secret, expected=secret)
         if not _is_json_content_type(request.headers.get("content-type")):
@@ -110,7 +114,7 @@ async def _handle_billing_webhook(
         # A provider event without our immutable workspace metadata cannot be
         # safely attached to a tenant. Keep the response retryable and do not
         # create an unauditable cross-workspace record.
-        return JSONResponse(status_code=202, content={"status": "deferred_without_workspace"})
+        return JSONResponse(status_code=200, content={"status": "deferred_without_workspace"})
 
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is None:
@@ -152,4 +156,4 @@ async def _handle_billing_webhook(
     except (ValueError, IntegrityError):
         return JSONResponse(status_code=503, content={"status": "deferred_store_error"})
     request.app.state.billing_last_webhook_metadata = redacted_event_metadata(event)
-    return JSONResponse(status_code=202, content={"status": result})
+    return JSONResponse(status_code=200, content={"status": result})

@@ -23,9 +23,19 @@
   явное подтверждение email в signup/share flow реактивирует только identity
   того же active account и не создаёт duplicate provider subject;
 - billing tables включены в RLS inventory.
+- Trial eligibility дополнительно требует active+verified `ExternalIdentity` и
+  ownership `Workspace`; `UserIdentity.status=active` сам по себе не считается
+  подтверждением.
+- Designated `billing_owner_id` проверяется на финансовых страницах и
+  mutation paths; successor-owner checkout остаётся отдельным re-consent
+  сценарием и переводит ownership только после создания hosted payment.
+- Оба webhook-маршрута fail-closed без `X-Billing-Webhook-Secret`; production
+  reverse proxy обязан передавать этот заголовок только после allowlist сетей
+  YooKassa и TLS-проверки. Authoritative provider GET остаётся reconciliation,
+  а не заменой ingress-аутентификации.
 
-Команды evidence: `uv run ruff check src tests`, focused billing tests и
-`git diff --check`. Production approval требует отдельной проверки deployment
+Команды evidence: `uv run ruff check src tests`, 58 focused billing/security/UI
+tests и `git diff --check`. Production approval требует отдельной проверки deployment
 secrets, PostHog/Yandex configuration и RLS against a live PostgreSQL instance.
 Codex Security Deep Scan в этой сессии не стартовал: managed filesystem
 permission profile не был предоставлен; локальные contract/unit/webhook checks

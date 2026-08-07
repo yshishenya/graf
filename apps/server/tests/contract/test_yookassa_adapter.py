@@ -86,6 +86,19 @@ def test_yookassa_client_rejects_unallowlisted_api_host(tmp_path: Path) -> None:
         YooKassaClient(settings)
 
 
+def test_yookassa_client_rejects_versioned_base_path(tmp_path: Path) -> None:
+    secret = tmp_path / "secret"
+    secret.write_text("synthetic", encoding="utf-8")
+    settings = Settings(
+        billing_yookassa_base_url="https://api.yookassa.test/v3",
+        billing_yookassa_shop_id="shop-test",
+        billing_yookassa_secret_file=secret,
+    )
+
+    with pytest.raises(YooKassaConfigurationError, match="allowlisted"):
+        YooKassaClient(settings)
+
+
 @pytest.mark.asyncio
 async def test_yookassa_adapter_uses_hosted_redirect_and_saved_method_consent(tmp_path: Path) -> None:
     secret = tmp_path / "secret"

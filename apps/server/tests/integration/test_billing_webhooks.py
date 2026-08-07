@@ -1,7 +1,10 @@
 import inspect
+from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from starlette.requests import Request
 
 from twobrain_rec_server.api.billing import SUPPORTED_PROVIDER_EVENTS, _handle_billing_webhook
 from twobrain_rec_server.billing.provider_events import (
@@ -10,6 +13,7 @@ from twobrain_rec_server.billing.provider_events import (
     parse_provider_event,
 )
 from twobrain_rec_server.billing.yookassa import YooKassaClient
+from twobrain_rec_server.config import Settings
 
 
 def _payload(event_id: str, *, created_at: str = "2026-08-06T09:00:00Z") -> dict[str, object]:
@@ -75,6 +79,33 @@ def test_webhook_request_path_only_persists_signal_and_defers_provider_reads() -
     assert "get_payment" not in source
     assert "list_refunds" not in source
     assert "grant_confirmed_payment" not in source
+
+
+@pytest.mark.asyncio
+async def test_provider_webhook_without_proxy_secret_fails_closed(tmp_path: Path) -> None:
+    secret = tmp_path / "webhook-secret"
+    secret.write_text("expected-secret", encoding="utf-8")
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            settings=Settings(
+                billing_yookassa_base_url="https://api.yookassa.test",
+                billing_yookassa_shop_id="shop-1",
+                billing_yookassa_webhook_secret_file=secret,
+            )
+        )
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/billing/providers/yookassa/webhook/test",
+            "headers": [(b"content-type", b"application/json")],
+            "query_string": b"",
+            "app": app,
+        }
+    )
+    response = await _handle_billing_webhook(request, None, environment="test")
+    assert response.status_code == 401
 
 
 def test_payment_method_active_is_observed_without_granting_authority() -> None:

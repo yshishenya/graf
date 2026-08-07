@@ -19,6 +19,9 @@
   сценарии; есть backup/restore evidence.
 - [ ] YooKassa: test/prod shop разделены, webhook secret и encryption key
   ротированы, provider capabilities подтверждены письменно.
+- [ ] Reverse proxy принимает webhook только из опубликованных сетей YooKassa
+  по TLS и добавляет `X-Billing-Webhook-Secret`; приложение отклоняет запросы
+  без этого заголовка. Прямой публичный доступ к backend webhook запрещён.
 
 ## Canary procedure
 

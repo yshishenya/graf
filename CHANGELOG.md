@@ -9,6 +9,10 @@
 ## [Unreleased]
 
 ### Добавлено
+- Повторная security-проверка биллинга: trial требует активный verified
+  `ExternalIdentity` и реального owner workspace, designated billing owner
+  ограничивает финансовые маршруты, successor проходит отдельный hosted
+  re-consent, а YooKassa webhook без proxy-injected secret отклоняется.
 - В биллинге показаны точные остаток Free-обработки и срок trial до секунды,
   а сценарий «без сохранения аудио» открывает ручную загрузку с отключённым
   архивированием.

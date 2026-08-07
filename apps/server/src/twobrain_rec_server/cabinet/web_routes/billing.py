@@ -9,6 +9,7 @@ import httpx
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
@@ -63,6 +64,7 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
+    ExternalIdentity,
     FreeUsageWindow,
     PromotionCampaign,
     PromotionRedemption,
@@ -134,6 +136,77 @@ def trial_remaining_label(*, trial_ends_at: datetime | None, now: datetime) -> s
     return f"{days} дн. {hours} ч."
 
 
+async def _billing_role(
+    db: AsyncSession | None,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+) -> str | None:
+    if db is None:
+        return None
+    membership = await db.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
+            WorkspaceMembership.user_id == principal.user_id,
+            WorkspaceMembership.status == "active",
+        )
+    )
+    return membership.role if membership is not None else None
+
+
+def _can_manage_billing(
+    *,
+    role: str | None,
+    subscription: WorkspaceSubscription | None,
+    principal: AuthenticatedPrincipal,
+) -> bool:
+    return role == "owner" and (
+        subscription is None or subscription.billing_owner_id in {None, principal.user_id}
+    )
+
+
+async def _trial_eligibility_state(
+    db: AsyncSession | None,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+) -> str:
+    """Return a user-safe trial state before rendering or mutating controls."""
+    if db is None:
+        return "unavailable"
+    identity = await db.get(UserIdentity, principal.user_id)
+    used = await db.scalar(select(TrialActivation.id).where(TrialActivation.user_id == principal.user_id))
+    if used is not None:
+        return "already"
+    membership = await db.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
+            WorkspaceMembership.user_id == principal.user_id,
+            WorkspaceMembership.status == "active",
+        )
+    )
+    workspace = await db.get(Workspace, tenant_scope.workspace_id)
+    if (
+        identity is None
+        or membership is None
+        or membership.role != "owner"
+        or workspace is None
+        or workspace.kind != "personal"
+        or workspace.owner_user_id != principal.user_id
+    ):
+        return "unavailable"
+    verified_identity = await db.scalar(
+        select(ExternalIdentity.id).where(
+            ExternalIdentity.user_id == principal.user_id,
+            ExternalIdentity.is_active.is_(True),
+            ExternalIdentity.is_verified.is_(True),
+        )
+    )
+    if identity.status != "active" or verified_identity is None:
+        return "verification_required"
+    return "eligible"
+
+
 @router.get("/billing", response_class=HTMLResponse, include_in_schema=False)
 async def billing_overview_page(
     request: Request,
@@ -158,14 +231,14 @@ async def billing_overview_page(
         trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
     )
     plan = plan_descriptor(plan_code)  # type: ignore[arg-type]
-    trial_eligible = False
-    if db is not None and plan_code == "free":
-        trial_eligible = (
-            await db.scalar(
-                select(TrialActivation.id).where(TrialActivation.user_id == principal.user_id)
-            )
-            is None
-        )
+    role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
+    billing_owner = _can_manage_billing(role=role, subscription=subscription, principal=principal)
+    trial_state = (
+        await _trial_eligibility_state(db, tenant_scope=tenant_scope, principal=principal)
+        if plan_code == "free" and billing_owner
+        else "unavailable"
+    )
+    trial_eligible = trial_state == "eligible"
     trial_days_left, trial_ends_at_label, trial_expired = trial_surface(
         raw_plan_code=raw_plan_code,
         effective_plan_code_value=plan_code,
@@ -251,6 +324,9 @@ async def billing_overview_page(
         trial_remaining_label=trial_remaining,
         trial_expired=trial_expired,
         trial_eligible=trial_eligible,
+        trial_state=trial_state,
+        billing_owner=billing_owner,
+        billing_role=role,
         billing_result=billing_result,
     )
     return cabinet_html_response(content)
@@ -269,6 +345,17 @@ async def activate_billing_trial(
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     if confirmation != "start_trial":
         return RedirectResponse("/billing?trial=confirmation_required", status_code=303)
+    eligibility_state = await _trial_eligibility_state(
+        db,
+        tenant_scope=tenant_scope,
+        principal=principal,
+    )
+    if eligibility_state == "verification_required":
+        return RedirectResponse("/billing?trial=verification_required", status_code=303)
+    if eligibility_state == "already":
+        return RedirectResponse("/billing?trial=already", status_code=303)
+    if eligibility_state != "eligible":
+        return RedirectResponse("/billing?trial=unavailable", status_code=303)
     identity = await db.scalar(
         select(UserIdentity)
         .where(UserIdentity.id == principal.user_id)
@@ -295,7 +382,9 @@ async def activate_billing_trial(
             workspace_kind=workspace.kind if workspace is not None else "",
             already_used=existing is not None,
         )
-    except (PermissionError, ValueError):
+    except PermissionError:
+        return RedirectResponse("/billing?trial=unavailable", status_code=303)
+    except ValueError:
         return RedirectResponse("/billing?trial=already", status_code=303)
     if subscription is not None and subscription.billing_owner_id not in {None, principal.user_id}:
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
@@ -323,7 +412,11 @@ async def activate_billing_trial(
         subscription.plan_code = "trial"
         subscription.capacity_bytes = 500_000_000
         subscription.trial_ends_at = trial.ends_at
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return RedirectResponse("/billing?trial=already", status_code=303)
     return RedirectResponse("/billing?trial=activated", status_code=303)
 
 
@@ -370,14 +463,14 @@ async def billing_usage_page(
         paid_through=subscription.paid_through if subscription is not None else None,
         trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
     )
-    trial_eligible = False
-    if db is not None and plan_code == "free":
-        trial_eligible = (
-            await db.scalar(
-                select(TrialActivation.id).where(TrialActivation.user_id == principal.user_id)
-            )
-            is None
-        )
+    role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
+    billing_owner = _can_manage_billing(role=role, subscription=subscription, principal=principal)
+    trial_state = (
+        await _trial_eligibility_state(db, tenant_scope=tenant_scope, principal=principal)
+        if plan_code == "free" and billing_owner
+        else "unavailable"
+    )
+    trial_eligible = trial_state == "eligible"
     if subscription is not None and plan_code in {"trial", "personal"}:
         capacity = subscription.capacity_bytes
     if db is not None:
@@ -406,6 +499,8 @@ async def billing_usage_page(
         ),
         processing_reset_at_label=window_end.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)"),
         trial_eligible=trial_eligible,
+        billing_owner=billing_owner,
+        billing_role=role,
         processing_unlimited=plan_code in {"trial", "personal"},
         storage_used=projection.used_bytes,
         storage_reserved=projection.reserved_bytes,
@@ -428,6 +523,9 @@ async def billing_subscription_page(
         subscription = await db.scalar(
             select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
         )
+    role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
+    if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
     now = datetime.now(UTC)
     active = subscription is not None and subscription.paid_through is not None and subscription.paid_through > now
     content = _page_shell(
@@ -454,6 +552,8 @@ async def billing_payment_method_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
+    if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
     method = None
     if db is not None:
         method = await db.scalar(
@@ -493,6 +593,9 @@ async def billing_storage_page(
         subscription = await db.scalar(
             select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
         )
+    role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
+    if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
     current_capacity = subscription.capacity_bytes if subscription is not None else FREE_STORAGE_BYTES
     content = _page_shell(
         "Увеличение хранилища",
@@ -532,8 +635,10 @@ async def _billing_owner_subscription(
         .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
         .with_for_update()
     )
-    if subscription is None or subscription.billing_owner_id != principal.user_id:
+    if subscription is None or subscription.billing_owner_id not in {None, principal.user_id}:
         return None
+    if subscription.billing_owner_id is None:
+        subscription.billing_owner_id = principal.user_id
     return subscription
 
 
@@ -639,7 +744,10 @@ async def billing_checkout_page(
     request: Request,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
+    if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
     content = _page_shell(
         "Выбор тарифа",
         embedded=False,
@@ -683,6 +791,11 @@ async def start_billing_checkout(
                 WorkspaceMembership.user_id == principal.user_id,
                 WorkspaceMembership.status == "active",
             ).with_for_update()
+        )
+        subscription = await db.scalar(
+            select(WorkspaceSubscription)
+            .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+            .with_for_update()
         )
         if membership is None or membership.role != "owner":
             return RedirectResponse("/billing/checkout?result=owner_only", status_code=303)
@@ -887,6 +1000,10 @@ async def start_billing_checkout(
             raise YooKassaProviderError("YooKassa confirmation is unavailable")
         operation.provider_id = provider_id
         operation.state = "provider_pending"
+        if subscription is not None and subscription.billing_owner_id != principal.user_id:
+            # An owner who replaced the designated billing owner must make a
+            # fresh hosted payment before future renewals can use this account.
+            subscription.billing_owner_id = principal.user_id
         operation.request_snapshot = {**operation.request_snapshot, "confirmation_url": confirmation_url}
         await db.commit()
         return RedirectResponse(confirmation_url, status_code=303)
@@ -918,6 +1035,17 @@ async def billing_history_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
+    subscription = None
+    if db is not None:
+        subscription = await db.scalar(
+            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+        )
+    if not _can_manage_billing(
+        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
+        subscription=subscription,
+        principal=principal,
+    ):
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
     invoices: list[dict[str, object]] = []
     if db is not None:
         rows = await db.scalars(
@@ -973,6 +1101,17 @@ async def billing_invoice_detail_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
+    subscription = None
+    if db is not None:
+        subscription = await db.scalar(
+            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+        )
+    if not _can_manage_billing(
+        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
+        subscription=subscription,
+        principal=principal,
+    ):
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
     invoice = None
     if db is not None:
         invoice = await db.scalar(
