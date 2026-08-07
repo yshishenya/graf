@@ -334,7 +334,7 @@ DEFAULT_PAGE_CLASS_POLICIES: tuple[PageClassAnalyticsPolicy, ...] = (
     ),
     _policy(
         "billing_referrals",
-        ("/billing/referrals",),
+        ("/referrals", "/account/referrals", "/billing/referrals"),
         yandex_state="blocked",
         sensitivity="financial",
         dashboard_purpose="billing_safe_events_only",
