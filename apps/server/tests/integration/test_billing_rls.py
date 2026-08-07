@@ -13,11 +13,11 @@ pytest_plugins = ("tests.integration.test_rls_postgres_policies",)
 
 
 def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
-    migration_source = next(
-        Path(__file__).parents[2].glob(
-            "src/twobrain_rec_server/db/migrations/versions/0044_user_account_billing.py"
-        )
-    ).read_text(encoding="utf-8")
+    migration_root = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions"
+    migration_source = "\n".join(
+        (migration_root / name).read_text(encoding="utf-8")
+        for name in ("0044_user_account_billing.py", "0045_billing_entitlement_grants.py")
+    )
     for table_name in (
         "workspace_subscriptions",
         "trial_activations",
@@ -32,6 +32,7 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
         "time_credit_ledger_entries",
         "billing_audit_events",
         "billing_notification_deliveries",
+        "billing_entitlement_grants",
         "billing_webhook_events",
         "referral_attributions",
     ):

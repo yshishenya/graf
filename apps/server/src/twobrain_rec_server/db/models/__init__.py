@@ -7,6 +7,7 @@ from twobrain_rec_server.db.models.admin import (
 )
 from twobrain_rec_server.db.models.billing import (
     BillingAuditEvent,
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
@@ -122,6 +123,7 @@ __all__ = [
     "AdminAuditEvent",
     "BillingAuditEvent",
     "BillingInvoice",
+    "BillingEntitlementGrant",
     "BillingNotificationDelivery",
     "BillingOperation",
     "BillingPaymentMethod",

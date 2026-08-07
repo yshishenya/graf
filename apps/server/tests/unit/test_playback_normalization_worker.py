@@ -150,7 +150,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
         def connect(self) -> ConnectionContext:
             return ConnectionContext(self.version)
 
-    await require_schema_head(Engine("0044_user_account_billing"))
+    await require_schema_head(Engine("0045_billing_entitlement_grants"))
     with pytest.raises(RuntimeError, match="schema head is unavailable"):
         await require_schema_head(Engine("0037_auth_rate_limit_buckets"))
     with pytest.raises(RuntimeError, match="schema head is unavailable"):
@@ -160,7 +160,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0044_user_account_billing"
+    assert packaged_schema_head() == "0045_billing_entitlement_grants"
 
 
 @pytest.mark.anyio

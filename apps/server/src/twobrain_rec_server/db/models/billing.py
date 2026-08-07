@@ -86,6 +86,27 @@ class BillingInvoice(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BillingEntitlementGrant(Base):
+    __tablename__ = "billing_entitlement_grants"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "invoice_id", name="uq_billing_entitlement_grant_invoice"),
+        Index("ix_billing_entitlement_grants_workspace_period", "workspace_id", "starts_at", "ends_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    invoice_id: Mapped[UUID] = mapped_column(ForeignKey("billing_invoices.id"), nullable=False)
+    provider_payment_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    plan_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    cycle: Mapped[str] = mapped_column(String(16), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="provider_confirmed")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class BillingOperation(Base):
     __tablename__ = "billing_operations"
     __table_args__ = (UniqueConstraint("workspace_id", "idempotency_key", name="uq_billing_operations_key"),)

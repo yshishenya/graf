@@ -15,6 +15,7 @@ from twobrain_rec_server.billing.catalog import (
 )
 from twobrain_rec_server.db.models import (
     BillingAuditEvent,
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
     WorkspaceMembership,
@@ -110,7 +111,12 @@ async def grant_confirmed_payment(
     if invoice is None or invoice.amount_minor != amount_minor or invoice.currency != currency:
         operation.state = "reconciliation_gap"
         return "amount_mismatch"
-    if invoice.status == "succeeded":
+    existing_grant = await db.scalar(
+        select(BillingEntitlementGrant)
+        .where(BillingEntitlementGrant.workspace_id == workspace_id, BillingEntitlementGrant.invoice_id == invoice.id)
+        .with_for_update()
+    )
+    if existing_grant is not None:
         return "duplicate"
     snapshot = operation.request_snapshot
     plan_code = snapshot.get("plan_code")
@@ -130,6 +136,19 @@ async def grant_confirmed_payment(
         return "owner_missing"
     paid_at = paid_at.astimezone(UTC)
     paid_through = _add_paid_interval(paid_at, cycle)
+    db.add(
+        BillingEntitlementGrant(
+            workspace_id=workspace_id,
+            invoice_id=invoice.id,
+            provider_payment_id=provider_payment_id,
+            plan_code=plan_code,
+            cycle=cycle,
+            starts_at=paid_at,
+            ends_at=paid_through,
+            amount_minor=amount_minor,
+            currency=currency,
+        )
+    )
     subscription = await db.scalar(
         select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id).with_for_update()
     )

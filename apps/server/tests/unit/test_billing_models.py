@@ -1,6 +1,7 @@
 from sqlalchemy import UniqueConstraint
 
 from twobrain_rec_server.db.models import (
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
@@ -24,6 +25,7 @@ def test_billing_models_are_workspace_bound_or_account_bound() -> None:
         WorkspaceSubscription,
         BillingInvoice,
         BillingOperation,
+        BillingEntitlementGrant,
         BillingNotificationDelivery,
         BillingPaymentMethod,
         ObservedProviderRefund,
