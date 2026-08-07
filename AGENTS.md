@@ -236,6 +236,29 @@ appcast update. Every later public update must be Developer ID→Developer ID.
 Local/ad-hoc/self-signed identities may appear only in explicitly isolated test
 fixtures or historical receipts, never as a current release instruction.
 
+### GRAF desktop updater — обязательная граница
+
+Backend/GitHub Release и обновление приложения GRAF — разные публикации. Новый
+серверный tag сам по себе не появляется в Sparkle: публичный канал считается
+обновлённым только когда live
+`https://rec.2brain.pro/static/public/downloads/graf-appcast.xml` содержит
+строго большую версию и доступный подписанный `GRAF-<version>.zip`.
+
+Рабочий путь: создать draft Release с notarized Developer ID candidate ZIP,
+предыдущим ZIP, русскими release notes и свежим metadata-only Keychain
+attestation; вручную запустить `.github/workflows/sign-graf-app-update.yml` с
+`master`; после успешной проверки опубликовать versioned ZIP/PKG и checksum на
+download host, а `graf-appcast.xml` заменить последним. Workflow только
+подписывает и загружает assets в draft GitHub Release — production feed он не
+меняет.
+
+Перед closeout всегда сверять версию установленного
+`/Applications/GRAF.app/Contents/Info.plist` с live appcast и повторно проверять
+HTTPS, размер, SHA-256, Sparkle-подпись и Gatekeeper. Ненотаризованный локальный
+build нельзя публиковать или считать update candidate. Проверенный receipt:
+`v2026.08.05.1`, workflow run `31071458619`,
+`docs/deployments/2brain-rec/release-v2026.08.05.1.md`.
+
 Implementation commits require explicit user approval after validation. Spec Kit
 documentation auto-commits may run only through user-approved Spec Kit hooks.
 Never reset or discard user changes.
