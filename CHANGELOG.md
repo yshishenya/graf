@@ -56,6 +56,9 @@
 - Известное ограничение: GitHub Actions full lanes для PR были пропущены
   конфигурацией workflow; fast lanes прошли, а полный gate подтверждён локальным
   canonical CI. Production smoke остаётся обязательной проверкой релиза.
+- Deployment: `deploy_result=pass` на SHA `74e574f9`; backup и restore rehearsal,
+  staged smoke cleanup (37 DB rows, 3 object keys, residue `[]`), readiness,
+  workers, automatic dispatch и public health прошли.
 
 ## [2026.08.06.1] - 2026-08-06
 
