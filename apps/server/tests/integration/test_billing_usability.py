@@ -26,11 +26,14 @@ def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
         / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html"
     ).read_text(encoding="utf-8")
     assert "Использовано 80% месячного лимита обработки" in overview
+    assert "Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}" in overview
     assert "После окончания автоматически включится Free" in overview
+    assert "Платный режим закончился" in overview
+    assert "через {{ trial_remaining_label }}" in overview
     assert "можно запустить без сохранения аудио" in overview
+    assert 'href="/meetings?archive_audio=false#manual-upload"' in overview
     assert "Переход на «Личный» необязателен" in usage
     assert "Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}" in usage
-    assert "Платный режим закончился" in overview
     assert "Увеличить хранилище" in usage
     assert "удалить старые записи" in usage
     assert "обработать без сохранения аудио" in usage

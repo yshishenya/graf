@@ -6,8 +6,9 @@
 
 ## Перед canary
 
-- Продовый сайт/return URL: `https://rec.2brain.pro`; YooKassa shopId:
-  `1430118`; API protocol: YooKassa HTTP API. Webhook production endpoint:
+- Название и сайт магазина для checkout: `https://rec.2brain.pro`; return URL:
+  `https://rec.2brain.pro`. YooKassa shopId: `1430118`; API protocol: YooKassa
+  HTTP API. Webhook production endpoint:
   `https://rec.2brain.pro/api/v1/billing/providers/yookassa/webhook/production`.
 - [ ] Product: утверждены `Free`/Trial/`Личный`, storage ladder и fair-use copy.
 - [ ] Unit economics/finance/accounting: подтверждены COGS, gross-margin floor,

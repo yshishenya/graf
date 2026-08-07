@@ -3548,6 +3548,15 @@
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) closeDialog();
     });
+
+    if (window.location.hash === "#manual-upload") {
+      const trigger = document.querySelector("[data-manual-upload-open]");
+      if (trigger) {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("archive_audio") === "false" && archiveInput) archiveInput.checked = false;
+        openDialog(trigger);
+      }
+    }
   };
 
   const setRailPinned = (shell, toggle, pinned) => {

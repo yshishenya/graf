@@ -25,7 +25,7 @@ from twobrain_rec_server.billing.usage import (
     SourceRange,
     moscow_window_for,
 )
-from twobrain_rec_server.cabinet.web_routes.billing import trial_surface
+from twobrain_rec_server.cabinet.web_routes.billing import trial_remaining_label, trial_surface
 
 
 def test_catalog_uses_exact_launch_capacities_and_thresholds() -> None:
@@ -68,8 +68,22 @@ def test_trial_surface_exposes_exact_moscow_end_and_expired_state() -> None:
         now=now,
     )
     assert days_left == 3
-    assert end_label == "09.08.2026, 15:00 (МСК)"
+    assert end_label == "09.08.2026, 15:00:00 (МСК)"
     assert expired is False
+
+    two_days_and_twenty_three_hours = datetime(2026, 8, 6, 13, 0, tzinfo=UTC)
+    days_left, _, _ = trial_surface(
+        raw_plan_code="trial",
+        effective_plan_code_value="trial",
+        trial_ends_at=ends_at,
+        now=two_days_and_twenty_three_hours,
+    )
+    assert days_left == 2
+    assert trial_remaining_label(trial_ends_at=ends_at, now=two_days_and_twenty_three_hours) == "2 дн. 23 ч."
+
+    almost_three_days = datetime(2026, 8, 9, 11, 0, tzinfo=UTC)
+    assert trial_remaining_label(trial_ends_at=ends_at, now=almost_three_days) == "0 дн. 1 ч."
+    assert trial_remaining_label(trial_ends_at=ends_at, now=ends_at) is None
 
     _, _, expired = trial_surface(
         raw_plan_code="trial",

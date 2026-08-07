@@ -58,3 +58,13 @@ def test_manual_upload_exposes_explicit_archive_choice_and_transmits_it() -> Non
     assert 'data-manual-upload-archive checked' in fragment
     assert "исходное аудио после обработки" in fragment
     assert 'data.append("archive_audio", activity.archiveAudio ? "true" : "false")' in script
+
+
+def test_no_archive_upgrade_cta_opens_manual_upload_with_archive_disabled() -> None:
+    usage = (TEMPLATE_ROOT / "billing_usage_content.html").read_text(encoding="utf-8")
+    script = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'href="/meetings?archive_audio=false#manual-upload"' in usage
+    assert 'window.location.hash === "#manual-upload"' in script
+    assert 'params.get("archive_audio") === "false"' in script
