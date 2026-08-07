@@ -210,16 +210,17 @@ async def finalize_account_close(
     identity = await db.get(UserIdentity, request.requested_by_user_id, with_for_update=True)
     if identity is not None:
         identity.status = "closed"
-    await db.execute(
-        AuthSession.__table__.update()
-        .where(AuthSession.user_id == request.requested_by_user_id)
-        .values(status="revoked")
-    )
-    await db.execute(
-        RegisteredDevice.__table__.update()
-        .where(RegisteredDevice.user_id == request.requested_by_user_id)
-        .values(status="revoked", registration_state="revoked")
-    )
+    sessions = (
+        await db.scalars(select(AuthSession).where(AuthSession.user_id == request.requested_by_user_id))
+    ).all()
+    for session in sessions:
+        session.status = "revoked"
+    devices = (
+        await db.scalars(select(RegisteredDevice).where(RegisteredDevice.user_id == request.requested_by_user_id))
+    ).all()
+    for device in devices:
+        device.status = "revoked"
+        device.registration_state = "revoked"
     await db.execute(
         WorkspaceMembership.__table__.update()
         .where(
