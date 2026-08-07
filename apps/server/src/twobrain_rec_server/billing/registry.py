@@ -58,6 +58,24 @@ class RegistryGap:
     severity: str = "high"
 
 
+@dataclass(frozen=True, slots=True)
+class RegistryPart:
+    """One operator-provided report part; content is consumed, never returned."""
+
+    part_name: str
+    content: str
+    expected_empty: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryImport:
+    """Metadata-only result of importing one payments or refunds report set."""
+
+    summaries: tuple[RegistrySummary, ...]
+    completeness: RegistryCompleteness
+    gaps: tuple[RegistryGap, ...]
+
+
 def summarize_registry_csv(
     content: str,
     *,
@@ -128,6 +146,86 @@ def summarize_registry_csv(
         part_name=part_name,
         expected_empty=expected_empty,
     )
+
+
+def import_registry_reports(
+    parts: tuple[RegistryPart, ...],
+    *,
+    registry_kind: str,
+    environment: str,
+    required_parts: tuple[str, ...],
+    required_columns: tuple[str, ...],
+    report_date: str,
+    owner: str,
+    shop_id: str | None = None,
+    schema_version: str | None = None,
+    language: str | None = None,
+    config_version: str | None = None,
+) -> RegistryImport:
+    """Validate a complete official report set and emit safe reconciliation evidence.
+
+    The caller may provide multipart payments *or* refunds reports, but never a
+    combined set. CSV bytes are parsed only long enough to calculate row and
+    content/header hashes; the returned object contains no report rows.
+    """
+    if not parts:
+        raise RegistryInputError("registry report parts are missing")
+    summaries: list[RegistrySummary] = []
+    for part in parts:
+        if not isinstance(part, RegistryPart):
+            raise RegistryInputError("registry report part is invalid")
+        _validate_meta("part_name", part.part_name)
+        summary = summarize_registry_csv(
+            part.content,
+            registry_kind=registry_kind,
+            environment=environment,
+            required_columns=required_columns,
+            shop_id=shop_id,
+            report_date=report_date,
+            schema_version=schema_version,
+            language=language,
+            config_version=config_version,
+            part_name=part.part_name,
+            expected_empty=part.expected_empty,
+        )
+        if part.expected_empty and summary.row_count:
+            raise RegistryInputError("expected-empty registry part contains rows")
+        summaries.append(summary)
+
+    completeness = assess_registry_completeness(
+        registry_kind=registry_kind,
+        required_parts=required_parts,
+        observed_parts=tuple(summary.part_name for summary in summaries if summary.part_name is not None),
+        expected_empty_parts=tuple(
+            summary.part_name
+            for summary in summaries
+            if summary.expected_empty and summary.part_name is not None
+        ),
+    )
+    gaps: list[RegistryGap] = []
+    if completeness.missing_parts:
+        gaps.append(
+            build_registry_gap(
+                registry_kind=registry_kind,
+                environment=environment,
+                report_date=report_date,
+                reason="missing_part",
+                owner=owner,
+                evidence_sha256=completeness.completeness_sha256,
+            )
+        )
+    if completeness.duplicate_parts:
+        gaps.append(
+            build_registry_gap(
+                registry_kind=registry_kind,
+                environment=environment,
+                report_date=report_date,
+                reason="duplicate_part",
+                owner=owner,
+                evidence_sha256=completeness.completeness_sha256,
+            )
+        )
+    return RegistryImport(tuple(summaries), completeness, tuple(gaps))
 
 
 def registry_parts_complete(*, required_parts: tuple[str, ...], observed_parts: set[str]) -> bool:

@@ -44,7 +44,7 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Latest local evidence (2026-08-07)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 1001 server unit tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1003 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
 - Focused billing/account/storage/accessibility/security/UI contracts: PASS,
   51 tests; separate disposable-PostgreSQL lifecycle sample: 19 tests.
@@ -55,9 +55,14 @@ elsewhere; real-shop canary is a separate approved release step.
   source-retention policy approval, Russia-first JTBD/WTP/COGS evidence and
   finance/legal approval.
 - Cross-artifact analyze pass found no unresolved critical implementation blockers; the feature has
-  87 tasks (81 validated complete, 6 still open), including explicit product-market
-  closeout tasks T084–T087 and the remaining UX/security and real test-shop gates,
-  so this branch is not a public-launch completion claim.
+  87 tasks (73 validated complete, 14 still open), including runtime gaps T029,
+  T036, T047, T053, T075–T078 and explicit product-market/UX/security closeout
+  tasks T079–T080, T083–T085, T087, so this branch is not a public-launch
+  completion claim.
+- Billing ownership-loss guard revokes recurring authority under a subscription
+  row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
+  20-page safety limit. These are covered by focused disposable-PostgreSQL and
+  adapter/webhook tests; registry import and live provider evidence remain open.
 - Лендинг и публичные страницы проверяются отдельным ручным проходом по
   [landing-review.md](../../docs/evidence/140-user-account-billing/landing-review.md);
   серверные тесты не закрывают визуальную, accessibility и moderated-usability

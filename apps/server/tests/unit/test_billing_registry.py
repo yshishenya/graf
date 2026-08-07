@@ -1,9 +1,10 @@
 import pytest
-
 from twobrain_rec_server.billing.registry import (
     RegistryInputError,
+    RegistryPart,
     assess_registry_completeness,
     build_registry_gap,
+    import_registry_reports,
     registry_parts_complete,
     summarize_registry_csv,
 )
@@ -103,4 +104,51 @@ def test_registry_completeness_hash_and_owned_gap_are_deterministic() -> None:
             reason="missing_part",
             owner="billing-ops",
             evidence_sha256="provider-id",
+        )
+
+
+def test_registry_import_keeps_payment_refund_set_and_emits_metadata_gap() -> None:
+    imported = import_registry_reports(
+        (
+            RegistryPart("part-01", "payment_id,amount\npay-1,790.00\n"),
+        ),
+        registry_kind="payments",
+        environment="production",
+        required_parts=("part-01", "part-02"),
+        required_columns=("payment_id", "amount"),
+        report_date="2026-08-07",
+        owner="billing-ops",
+    )
+    assert imported.completeness.missing_parts == ("part-02",)
+    assert len(imported.summaries) == 1
+    assert imported.gaps[0].reason == "missing_part"
+    assert not hasattr(imported, "payment_id")
+
+
+def test_registry_import_accepts_configured_empty_part_without_gap() -> None:
+    imported = import_registry_reports(
+        (
+            RegistryPart("part-01", "refund_id,amount\n", expected_empty=True),
+        ),
+        registry_kind="refunds",
+        environment="production",
+        required_parts=("part-01",),
+        required_columns=("refund_id", "amount"),
+        report_date="2026-08-07",
+        owner="billing-ops",
+    )
+    assert imported.completeness.complete
+    assert imported.gaps == ()
+
+
+def test_registry_import_rejects_rows_in_configured_empty_part() -> None:
+    with pytest.raises(RegistryInputError, match="expected-empty"):
+        import_registry_reports(
+            (RegistryPart("part-01", "refund_id,amount\nref-1,1.00\n", expected_empty=True),),
+            registry_kind="refunds",
+            environment="production",
+            required_parts=("part-01",),
+            required_columns=("refund_id", "amount"),
+            report_date="2026-08-07",
+            owner="billing-ops",
         )
