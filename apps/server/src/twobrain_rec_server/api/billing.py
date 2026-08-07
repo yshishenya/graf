@@ -54,6 +54,13 @@ SUPPORTED_PROVIDER_EVENTS = frozenset(
 MAX_BILLING_WEBHOOK_BYTES = 256 * 1024
 
 
+def _is_json_content_type(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    media_type = value.split(";", 1)[0].strip().lower()
+    return media_type == "application/json"
+
+
 def _inbox(request: Request) -> WebhookInbox:
     inbox = getattr(request.app.state, "billing_webhook_inbox", None)
     if inbox is None:
@@ -71,6 +78,8 @@ async def billing_webhook(
     try:
         secret = read_webhook_secret(settings.billing_yookassa_webhook_secret_file)
         validate_webhook_secret(supplied=x_billing_webhook_secret, expected=secret)
+        if not _is_json_content_type(request.headers.get("content-type")):
+            raise ProviderEventError("provider event content type is invalid")
         body = await request.body()
         if len(body) > MAX_BILLING_WEBHOOK_BYTES:
             raise ProviderEventError("provider event is too large")

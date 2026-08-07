@@ -1,4 +1,4 @@
-from twobrain_rec_server.api.billing import MAX_BILLING_WEBHOOK_BYTES
+from twobrain_rec_server.api.billing import MAX_BILLING_WEBHOOK_BYTES, _is_json_content_type
 from twobrain_rec_server.billing.trial import require_trial_activation
 from twobrain_rec_server.billing.yookassa import is_allowed_confirmation_url
 
@@ -36,3 +36,10 @@ def test_confirmation_url_is_yookassa_allowlisted_https_only() -> None:
 
 def test_billing_webhook_has_bounded_body_budget() -> None:
     assert MAX_BILLING_WEBHOOK_BYTES == 256 * 1024
+
+
+def test_billing_webhook_requires_json_content_type() -> None:
+    assert _is_json_content_type("application/json")
+    assert _is_json_content_type("application/json; charset=utf-8")
+    assert not _is_json_content_type("text/plain")
+    assert not _is_json_content_type(None)
