@@ -25,8 +25,19 @@ def test_webhook_inbox_is_idempotent_and_detects_conflicting_replay() -> None:
     first = parse_provider_event(_payload("evt-1"))
     assert inbox.accept(first) == "accepted"
     assert inbox.accept(first) == "duplicate"
+    extra_amount_metadata = parse_provider_event(
+        {
+            **_payload("evt-1"),
+            "object": {**_payload("evt-1")["object"], "amount": {"value": "79.00", "secret": "must-not-hash"}},
+        }
+    )
+    assert extra_amount_metadata.payload_hash == first.payload_hash
     conflict = parse_provider_event({**_payload("evt-1"), "event": "payment.canceled"})
     assert inbox.accept(conflict) == "replay_conflict"
+    amount_conflict = parse_provider_event(
+        {**_payload("evt-1"), "object": {**_payload("evt-1")["object"], "amount": {"value": "80.00"}}}
+    )
+    assert inbox.accept(amount_conflict) == "replay_conflict"
 
 
 def test_webhook_parser_accepts_out_of_order_timestamps_but_rejects_malformed() -> None:

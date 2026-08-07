@@ -183,10 +183,14 @@ async def get_account_settings_surface(
     identities = tuple(
         await db.scalars(
             select(ExternalIdentity)
-            .where(ExternalIdentity.user_id == tenant_scope.user_id)
+            .where(
+                ExternalIdentity.user_id == tenant_scope.user_id,
+                ExternalIdentity.is_active.is_(True),
+            )
             .order_by(ExternalIdentity.created_at.asc())
         )
     )
+    verified_identity_count = sum(1 for identity in identities if identity.is_verified)
     devices = tuple(
         await db.scalars(
             select(RegisteredDevice)
@@ -223,12 +227,16 @@ async def get_account_settings_surface(
                 (identity.email for identity in identities if identity.email and identity.is_verified),
                 None,
             ),
+            locale=(user.locale if user else "ru-RU"),
+            timezone=(user.timezone if user else "Europe/Moscow"),
+            theme=(user.theme if user else "system"),
         ),
         identities=identities,
         devices=devices,
         sessions=sessions,
         current_session_id=tenant_scope.auth_session_id,
         current_device_id=tenant_scope.device_id,
+        can_unlink_provider=lambda identity: identity.is_verified and verified_identity_count > 1,
         account_close=(close_view(closure, now=datetime.now(UTC)) if closure else None),
     )
 

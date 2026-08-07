@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from fastapi.routing import APIRoute
 
 from twobrain_rec_server.auth.account_closure import AccountCloseView
+from twobrain_rec_server.auth.workspace_onboarding import WorkspaceAccessView
 from twobrain_rec_server.cabinet.rendering import render_settings_page
 from twobrain_rec_server.cabinet.view_models import (
     AccountProfileView,
@@ -13,6 +15,7 @@ from twobrain_rec_server.cabinet.view_models import (
 )
 from twobrain_rec_server.cabinet.web_routes.referrals import router as referrals_router
 from twobrain_rec_server.cabinet.web_routes.settings import router
+from twobrain_rec_server.cabinet.web_routes.spaces import router as spaces_router
 
 
 def test_account_close_routes_have_browser_and_desktop_variants_with_csrf_dependency() -> None:
@@ -48,6 +51,49 @@ def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
     assert "Выйти на всех устройствах" in page
     assert 'action="/settings/account/sessions/revoke-others"' in page
     assert 'action="/settings/account/devices/revoke-others"' in page
+
+
+def test_workspace_switch_and_join_routes_are_csrf_protected_in_browser_and_desktop() -> None:
+    routes = {
+        route.path: route
+        for route in spaces_router.routes
+        if isinstance(route, APIRoute)
+    }
+    expected = {
+        "/settings/spaces/{workspace_id}/activate",
+        "/desktop/settings/spaces/{workspace_id}/activate",
+        "/settings/join-offers/{offer_id}/{action}",
+        "/desktop/settings/join-offers/{offer_id}/{action}",
+    }
+    assert expected <= routes.keys()
+    for path in expected:
+        dependency_names = {
+            getattr(dependency.call, "__name__", "")
+            for dependency in routes[path].dependant.dependencies
+            if dependency.call is not None
+        }
+        assert "require_web_csrf" in dependency_names
+
+
+def test_workspace_settings_copy_keeps_role_boundary_and_no_js_switch_fallback() -> None:
+    page = render_settings_page(
+        category="workspace",
+        csrf_token="safe-csrf",
+        workspace_spaces=(
+            WorkspaceAccessView(
+                id=UUID("00000000-0000-0000-0000-000000000001"),
+                name="Команда",
+                kind="team",
+                role="member",
+                active=False,
+            ),
+        ),
+    )
+
+    assert "Участник" in page
+    assert "Принятие приглашения не переносит личные записи" in page
+    assert "return_to_settings=true" in page
+    assert 'method="post"' in page
 
 
 def test_account_security_renders_bulk_result_as_persistent_status() -> None:

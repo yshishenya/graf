@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from hashlib import sha256
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
@@ -16,6 +17,7 @@ from twobrain_rec_server.auth.account_closure import (
 )
 from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
+from twobrain_rec_server.auth.provider_links import recovery_safe_unlink_allowed
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
     list_workspace_join_offers,
@@ -38,6 +40,7 @@ from twobrain_rec_server.db.models import (
     AuthSession,
     AuthSessionDeviceBinding,
     BillingNotificationPreference,
+    ExternalIdentity,
     RegisteredDevice,
     UserIdentity,
 )
@@ -55,6 +58,8 @@ SessionResultQuery = Query(default=None, max_length=24, alias="session")
 NotificationResultQuery = Query(default=None, max_length=24, alias="notification")
 AccountCloseResultQuery = Query(default=None, max_length=24, alias="account_close")
 ProfileResultQuery = Query(default=None, max_length=24, alias="profile")
+PreferencesResultQuery = Query(default=None, max_length=24, alias="preferences")
+ProviderUnlinkResultQuery = Query(default=None, max_length=48, alias="provider_unlink")
 
 
 async def _render_settings(
@@ -73,6 +78,8 @@ async def _render_settings(
     notification: str | None = None,
     account_close: str | None = None,
     profile: str | None = None,
+    preferences: str | None = None,
+    provider_unlink: str | None = None,
 ) -> HTMLResponse:
     workspace_spaces = ()
     workspace_join_offers = ()
@@ -129,6 +136,8 @@ async def _render_settings(
             notification_result=notification,
             account_close_result=account_close,
             profile_result=profile,
+            preferences_result=preferences,
+            provider_unlink_result=provider_unlink,
             account_active=(
                 "security" if request.url.path.endswith("/account/security") else "profile"
             ),
@@ -223,6 +232,8 @@ async def settings_account_page(
     device_revoke: str | None = DeviceRevokeResultQuery,
     session: str | None = SessionResultQuery,
     profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -238,6 +249,8 @@ async def settings_account_page(
         device_revoke=device_revoke,
         session=session,
         profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
     )
 
 
@@ -321,6 +334,96 @@ async def _save_account_profile(
         user_id=principal.user_id,
         event_type="account_profile_updated",
         metadata={"fields": ["display_name"]},
+    )
+    await db.commit()
+
+
+def _account_preference_value(form: object, name: str, allowed: frozenset[str]) -> str:
+    value = str(getattr(form, "get", lambda _name: "")(name) or "")
+    if value not in allowed:
+        raise ProblemDetail(
+            status=422,
+            code=f"invalid_account_{name}",
+            title="Недопустимое значение настройки аккаунта",
+        )
+    return value
+
+
+async def _save_account_preferences(
+    db: AsyncSession,
+    *,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+    request: Request,
+) -> None:
+    form = await request.form()
+    user = await db.get(UserIdentity, principal.user_id, with_for_update=True)
+    if user is None or user.organization_id != tenant_scope.organization_id:
+        raise ProblemDetail(status=404, code="account_not_found", title="Аккаунт не найден")
+    user.locale = _account_preference_value(form, "locale", frozenset({"ru-RU", "en-US"}))
+    user.timezone = _account_preference_value(
+        form, "timezone", frozenset({"Europe/Moscow", "UTC"})
+    )
+    user.theme = _account_preference_value(form, "theme", frozenset({"system", "dark", "light"}))
+    await write_auth_audit_event(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        actor_user_id=principal.user_id,
+        user_id=principal.user_id,
+        event_type="account_preferences_updated",
+        metadata={"fields": ["locale", "timezone", "theme"]},
+    )
+    await db.commit()
+
+
+async def _unlink_account_provider(
+    db: AsyncSession,
+    *,
+    identity_id: UUID,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+) -> None:
+    identity = await db.scalar(
+        select(ExternalIdentity)
+        .where(
+            ExternalIdentity.id == identity_id,
+            ExternalIdentity.user_id == principal.user_id,
+            ExternalIdentity.is_active.is_(True),
+        )
+        .with_for_update()
+    )
+    if identity is None:
+        raise ProblemDetail(status=404, code="login_method_not_found", title="Способ входа не найден")
+    identities = list(
+        await db.scalars(
+            select(ExternalIdentity)
+            .where(
+                ExternalIdentity.user_id == principal.user_id,
+                ExternalIdentity.is_active.is_(True),
+            )
+            .with_for_update()
+        )
+    )
+    verified_count = sum(1 for item in identities if item.is_verified)
+    if not recovery_safe_unlink_allowed(
+        verified_identity_count=verified_count,
+        target_is_verified=identity.is_verified,
+    ):
+        raise ProblemDetail(
+            status=422,
+            code="recovery_path_required",
+            title="Сначала подключите другой подтверждённый способ восстановления",
+        )
+    identity.is_active = False
+    identity.is_verified = False
+    await write_auth_audit_event(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        actor_user_id=principal.user_id,
+        user_id=principal.user_id,
+        provider=identity.provider,
+        event_type="provider_unlinked",
+        metadata={"identity_id_sha256": sha256(str(identity.id).encode("utf-8")).hexdigest()},
     )
     await db.commit()
 
@@ -493,6 +596,102 @@ async def save_embedded_settings_account_profile(
 
 
 @router.post(
+    "/settings/account/preferences",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_settings_account_preferences(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _save_account_preferences(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    return RedirectResponse("/account/profile?preferences=saved", status_code=303)
+
+
+@router.post(
+    "/desktop/settings/account/preferences",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_embedded_settings_account_preferences(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _save_account_preferences(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    return RedirectResponse("/desktop/account/profile?preferences=saved", status_code=303)
+
+
+async def _unlink_provider_action(
+    *,
+    identity_id: UUID,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+    db: AsyncSession | None,
+    embedded: bool,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _unlink_account_provider(
+        db,
+        identity_id=identity_id,
+        principal=principal,
+        tenant_scope=tenant_scope,
+    )
+    return RedirectResponse(
+        f"{'/desktop' if embedded else ''}/account/profile?provider_unlink=success",
+        status_code=303,
+    )
+
+
+@router.post(
+    "/settings/account/providers/{identity_id}/unlink",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def unlink_settings_account_provider(
+    identity_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _unlink_provider_action(
+        identity_id=identity_id,
+        principal=principal,
+        tenant_scope=tenant_scope,
+        db=db,
+        embedded=False,
+    )
+
+
+@router.post(
+    "/desktop/settings/account/providers/{identity_id}/unlink",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def unlink_embedded_settings_account_provider(
+    identity_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _unlink_provider_action(
+        identity_id=identity_id,
+        principal=principal,
+        tenant_scope=tenant_scope,
+        db=db,
+        embedded=True,
+    )
+
+
+@router.post(
     "/settings/account/sessions/revoke-others",
     include_in_schema=False,
     dependencies=[WebCSRFDependency],
@@ -566,6 +765,8 @@ async def account_center_page(
     session: str | None = SessionResultQuery,
     account_close: str | None = AccountCloseResultQuery,
     profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -583,6 +784,8 @@ async def account_center_page(
         session=session,
         account_close=account_close,
         profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
     )
 
 
@@ -595,6 +798,8 @@ async def account_profile_security_alias_page(
     session: str | None = SessionResultQuery,
     account_close: str | None = AccountCloseResultQuery,
     profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -612,6 +817,8 @@ async def account_profile_security_alias_page(
         session=session,
         account_close=account_close,
         profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
     )
 
 
@@ -876,6 +1083,8 @@ async def embedded_settings_account_page(
     device_revoke: str | None = DeviceRevokeResultQuery,
     session: str | None = SessionResultQuery,
     account_close: str | None = AccountCloseResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -891,6 +1100,8 @@ async def embedded_settings_account_page(
         device_revoke=device_revoke,
         session=session,
         account_close=account_close,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
     )
 
 
@@ -939,6 +1150,8 @@ async def embedded_account_center_page(
     device_revoke: str | None = DeviceRevokeResultQuery,
     session: str | None = SessionResultQuery,
     profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -954,6 +1167,8 @@ async def embedded_account_center_page(
         device_revoke=device_revoke,
         session=session,
         profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
     )
 
 
@@ -966,6 +1181,8 @@ async def embedded_account_profile_security_alias_page(
     session: str | None = SessionResultQuery,
     account_close: str | None = AccountCloseResultQuery,
     profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -982,6 +1199,8 @@ async def embedded_account_profile_security_alias_page(
         session=session,
         account_close=account_close,
         profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
     )
 
 

@@ -17,12 +17,12 @@ manual UX gates.
 | Temporal billing maintenance | закрыто | `tests/contract/test_billing_reconciliation_workflow.py`, `tests/unit/test_billing_maintenance.py` |
 | Storage admission | закрыто для выбранных сценариев | fail-closed artifact/expiry checks; DB/object-stat/supersede lifecycle проходит focused disposable-PostgreSQL evidence |
 | Source WAV retention/COGS | реализовано с внешним gate | production gate-поля, exact-byte evidence и opt-in/fail-closed worker wiring есть; policy approval остаётся launch gate |
-| Desktop billing handoff | частично | browser-owned route policy и dedicated Swift test; one-time handoff state ещё не реализован |
+| Desktop billing handoff | закрыто для выбранных сценариев | browser-owned route policy, one-time browser handoff guards and dedicated Swift test; live browser/network matrix remains external |
 | Security/accessibility/usability | interim | automated suites pass; live/manual review ещё обязателен |
 | Product-market/pricing | hypothesis | интервью, WTP, 30-day usage, COGS и margin approval отсутствуют |
 
-После последней проверки: **87 задач, 78 закрыты, 9 открыты**. Открытые
-задачи: T017, T020, T023, T079, T080, T083, T084, T085, T087.
+После последней проверки: **87 задач, 81 закрыта, 6 открыты**. Открытые
+задачи: T079, T080, T083, T084, T085, T087.
 
 ## Findings
 

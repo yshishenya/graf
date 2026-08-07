@@ -95,6 +95,26 @@ AUTH_RATE_LIMIT_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0037_auth_rate_limit_buckets.py"
 )
+BILLING_FOUNDATION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0044_user_account_billing.py"
+)
+BILLING_ENTITLEMENT_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0045_billing_entitlement_grants.py"
+)
+BILLING_PROMOTIONS_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0046_billing_promotions.py"
+)
+BILLING_NOTIFICATION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0048_billing_notification_preferences.py"
+)
+ACCOUNT_CLOSURE_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0049_account_closure_requests.py"
+)
 PRODUCTION_SMOKE_SETUP_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0023_production_smoke_setup.py"
@@ -129,6 +149,11 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + LEGACY_LINEAGE_MIGRATION.read_text(encoding="utf-8")
         + SHARE_INVITATION_AUTH_LOOKUP_MIGRATION.read_text(encoding="utf-8")
         + AUTH_RATE_LIMIT_MIGRATION.read_text(encoding="utf-8")
+        + BILLING_FOUNDATION_MIGRATION.read_text(encoding="utf-8")
+        + BILLING_ENTITLEMENT_MIGRATION.read_text(encoding="utf-8")
+        + BILLING_PROMOTIONS_MIGRATION.read_text(encoding="utf-8")
+        + BILLING_NOTIFICATION_MIGRATION.read_text(encoding="utf-8")
+        + ACCOUNT_CLOSURE_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):
@@ -151,6 +176,7 @@ def test_migration_and_contract_share_maintenance_operations() -> None:
         + LIFECYCLE_RECONCILIATION_MIGRATION.read_text(encoding="utf-8")
         + LEGACY_LINEAGE_MIGRATION.read_text(encoding="utf-8")
         + OUTCOME_BASELINE_MIGRATION.read_text(encoding="utf-8")
+        + BILLING_FOUNDATION_MIGRATION.read_text(encoding="utf-8")
     )
 
     for operation_name in sorted(RLS_ALLOWED_MAINTENANCE_OPERATIONS):

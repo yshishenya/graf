@@ -10,7 +10,7 @@
 ## Product Positioning And Audience
 
 - [ ] CHK001 Определён ли один первичный self-service сегмент для launch с его job-to-be-done, частотой встреч, willingness-to-pay и причиной выбрать GRAF, а не только общее «самостоятельный пользователь»? [Gap, Spec §Scope Summary, §Actors And Authority]
-- [ ] CHK002 Зафиксирована ли проверяемая ценностная иерархия `system-audio-first capture → контроль/приватность → transcript/notes → predictable billing`, которая объясняет выбор GRAF при более щедрых storage/free предложениях части конкурентов? [Gap, Research §R11]
+- [x] CHK002 Зафиксирована ли проверяемая ценностная иерархия `system-audio-first capture → контроль/приватность → transcript/notes → predictable billing`, которая объясняет выбор GRAF при более щедрых storage/free предложениях части конкурентов, с явным разделением гипотезы и факта? [Hypothesis, Research §R11, product-market.md §JTBD]
 - [x] CHK003 Явно ли отделены personal self-service launch и team/enterprise sales-assisted future без ложных seat/admin обещаний? [Scope, Spec §Product Decisions, §Out Of Scope]
 - [x] CHK004 Обосновано ли clean-room использование Krisp/Otter/Notta/Fireflies как pattern evidence, а не как источник копируемой IA, copy или trade dress? [Consistency, Research §R6–R7, Spec §FR-081]
 
@@ -73,11 +73,15 @@
 
 ## Initial Audit Result
 
-- Закрыто требованиями: 37/40; 3 пункта остаются launch-blocking до внешней
+- Закрыто требованиями: 38/40; 2 пункта остаются launch-blocking до внешней
   product-market валидации.
-- Открыто: CHK001, CHK002, CHK009.
+- Открыто: CHK001, CHK009. CHK002 закрыт на уровне формулировки и
+  проверяемого протокола; доказательство предпочтения сегмента остаётся частью
+  T084 и не подменяется этой отметкой.
 - Ключевой вывод: transaction/trust/IA requirements и measurement contract взаимно согласованы; public-launch readiness = **BLOCKED**, потому что ещё не подтверждены первичный сегмент/JTBD, ценностная иерархия и dated target-segment/WTP evidence для упаковки.
-- Closeout mapping: T084 закрывает CHK001–CHK002; T085 — CHK009; T086 закрывает CHK025/CHK035/CHK036/CHK040; T087 — CHK013 и cross-artifact recheck.
+- Closeout mapping: T084 закрывает CHK001 и валидирует гипотезу CHK002; T085 —
+  CHK009; T086 закрывает CHK025/CHK035/CHK036/CHK040; T087 — CHK013 и
+  cross-artifact recheck.
 
 ## Evidence Baseline
 

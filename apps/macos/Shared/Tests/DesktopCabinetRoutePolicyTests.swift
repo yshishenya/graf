@@ -67,6 +67,7 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             "/desktop/settings/account/profile",
             "/desktop/settings/account/security",
             "/desktop/settings/account/notifications",
+            "/desktop/settings/account/providers/7f3d6f9f-0f7f-4c13-a9af-000000000033/unlink",
             "/desktop/settings/account/sessions/7f3d6f9f-0f7f-4c13-a9af-000000000033/revoke",
             "/desktop/settings/account/sessions/revoke-others",
             "/desktop/settings/notifications",

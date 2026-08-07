@@ -56,6 +56,16 @@ class YooKassaClient:
         if settings.billing_yookassa_base_url is None or not settings.billing_yookassa_shop_id:
             raise YooKassaConfigurationError("YooKassa is not configured")
         self._base_url = str(settings.billing_yookassa_base_url).rstrip("/")
+        parsed_base_url = urlsplit(self._base_url)
+        if (
+            parsed_base_url.scheme != "https"
+            or parsed_base_url.hostname not in ALLOWED_YOOKASSA_HOSTS
+            or parsed_base_url.username
+            or parsed_base_url.password
+            or parsed_base_url.query
+            or parsed_base_url.fragment
+        ):
+            raise YooKassaConfigurationError("YooKassa API base URL is not allowlisted")
         self._shop_id = settings.billing_yookassa_shop_id
         self._provider_floor_minor = settings.billing_provider_floor_minor
         self._secret = _read_secret(settings.billing_yookassa_secret_file)

@@ -303,9 +303,10 @@
 ## Resolved unknowns and launch gates
 
 Архитектурных research unknowns нет. Product-market hypotheses
-о целевом сегменте/JTBD, WTP, base/add-on packaging, ценностной
-иерархии, campaign economics и launch business thresholds остаются
-неразрешёнными blocking research questions. Следующие технические
+о целевом сегменте/JTBD, WTP, base/add-on packaging, campaign economics и
+launch business thresholds остаются неразрешёнными blocking research
+questions. Ценностная иерархия уже зафиксирована как проверяемая гипотеза,
+но её preference evidence ещё не собрана. Следующие технические
 и внешние параметры также намеренно не придумываются и
 блокируют production checkout: add-on prices/COGS/value, transcription-source
 retention deadline, real-shop recurring/zero-binding/manual-refund observation,

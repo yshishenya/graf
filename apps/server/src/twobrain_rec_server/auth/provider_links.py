@@ -147,6 +147,7 @@ async def create_link_intent(
         select(ExternalIdentity).where(
             ExternalIdentity.user_id == principal.user_id,
             ExternalIdentity.provider == session.provider,
+            ExternalIdentity.is_active.is_(True),
         )
     )
     if source is None:
@@ -313,6 +314,9 @@ async def confirm_provider_link(
             actor_user_id=principal.user_id,
         )
         raise ProviderLinkError("provider_link_conflict")
+    if identity is not None and identity.user_id == principal.user_id:
+        identity.is_active = True
+        identity.is_verified = True
     if identity is None:
         try:
             async with db.begin_nested():

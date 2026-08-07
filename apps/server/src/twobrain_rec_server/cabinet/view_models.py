@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
@@ -147,6 +147,8 @@ class AccountProviderView:
     status_label: str
     primary: bool
     connected_at: datetime | None
+    can_unlink: bool = False
+    identity_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +196,7 @@ def account_provider_view(
     identity: ExternalIdentity,
     *,
     primary: bool = False,
+    can_unlink: bool = False,
 ) -> AccountProviderView:
     return AccountProviderView(
         provider=identity.provider,
@@ -201,6 +204,8 @@ def account_provider_view(
         status_label="Подключён" if identity.is_verified else "Проверка не завершена",
         primary=primary,
         connected_at=identity.last_seen_at or identity.created_at,
+        can_unlink=can_unlink,
+        identity_id=identity.id,
     )
 
 
@@ -257,6 +262,7 @@ def account_settings_surface(
     sessions: Iterable[AuthSession] = (),
     current_session_id: UUID | None = None,
     current_device_id: UUID | None = None,
+    can_unlink_provider: Callable[[ExternalIdentity], bool] | None = None,
     unavailable: bool = False,
     account_close: AccountCloseView | None = None,
 ) -> AccountSettingsSurface:
@@ -264,7 +270,11 @@ def account_settings_surface(
     return AccountSettingsSurface(
         profile=profile,
         providers=tuple(
-            account_provider_view(identity, primary=index == 0)
+            account_provider_view(
+                identity,
+                primary=index == 0,
+                can_unlink=(can_unlink_provider(identity) if can_unlink_provider else False),
+            )
             for index, identity in enumerate(identity_rows)
         ),
         devices=tuple(

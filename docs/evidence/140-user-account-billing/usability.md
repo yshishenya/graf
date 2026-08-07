@@ -22,7 +22,8 @@ separate public landing review. Screenshots/video и participant evidence не
 способ входа нельзя отключить без другого способа восстановления. Desktop route
 policy пропускает account aliases и `/desktop/settings/notifications`.
 
-Evidence: 32 server contract/unit tests, 15 macOS `DesktopCabinetRoutePolicyTests`
-и targeted Ruff pass (2026-08-07). Это автоматизированный interim evidence;
+Evidence: 32 server contract/unit tests, 15 macOS `DesktopCabinetRoutePolicyTests`,
+plus 2 disposable-PostgreSQL lifecycle tests for server-side preferences and
+recovery-safe provider unlink (2026-08-07). Это автоматизированный interim evidence;
 ручные проверки keyboard-only, 200% reflow, reduced motion на реальном браузере,
 screen reader, clean-room и moderated findability остаются открытыми.

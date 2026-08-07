@@ -186,6 +186,7 @@ async def share_invitation_continuation(
             await session.scalars(
                 select(ExternalIdentity.email).where(
                     ExternalIdentity.user_id == principal.user_id,
+                    ExternalIdentity.is_active.is_(True),
                     ExternalIdentity.is_verified.is_(True),
                     ExternalIdentity.email.is_not(None),
                 )
@@ -427,10 +428,11 @@ async def share_invitation_magic_link(
                 select(ExternalIdentity.id).where(
                     func.lower(ExternalIdentity.email) == recipient_email,
                     ExternalIdentity.is_verified.is_(True),
+                    ExternalIdentity.is_active.is_(True),
                 )
             )
             account_created = existing_identity_id is None
-            user = await _ensure_email_registration_user(
+            user, account_created = await _ensure_email_registration_user(
                 session,
                 workspace=workspace,
                 email=recipient_email,

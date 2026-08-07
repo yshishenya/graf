@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -85,6 +86,20 @@ from twobrain_rec_server.product_analytics.browser_context import (
 router = APIRouter(tags=["cabinet-web"])
 
 MOSCOW = ZoneInfo("Europe/Moscow")
+
+
+def billing_checkout_return_url(request: Request) -> str:
+    """Build a canonical HTTPS callback URL; never trust the inbound Host header."""
+    configured = getattr(request.app.state.settings, "public_base_url", None)
+    if configured is None:
+        raise YooKassaConfigurationError("billing public callback URL is unavailable")
+    try:
+        parsed = urlsplit(str(configured))
+    except ValueError as exc:
+        raise YooKassaConfigurationError("billing public callback URL is invalid") from exc
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise YooKassaConfigurationError("billing public callback URL is invalid")
+    return f"{str(configured).rstrip('/')}{request.app.url_path_for('billing_checkout_return')}"
 
 
 def trial_surface(
@@ -826,7 +841,7 @@ async def start_billing_checkout(
                 )
             )
         await db.commit()
-        return_url = str(request.url_for("billing_checkout_return"))
+        return_url = billing_checkout_return_url(request)
         async with YooKassaClient(settings) as provider:
             payment = await provider.create_payment(
                 amount_minor=preview.payable_amount_minor,

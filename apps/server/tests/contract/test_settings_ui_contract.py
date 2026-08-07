@@ -9,8 +9,10 @@ from twobrain_rec_server.cabinet.rendering import render_settings_page
 from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
     AccountProviderView,
+    account_settings_surface,
 )
 from twobrain_rec_server.cabinet.web_routes.settings import router as settings_router
+from twobrain_rec_server.db.models import ExternalIdentity
 
 
 def test_settings_overview_exposes_supported_categories_and_group_labels() -> None:
@@ -280,12 +282,51 @@ def test_account_profile_and_session_mutations_are_csrf_protected() -> None:
         assert "require_web_csrf" in dependencies
 
 
+def test_account_preferences_and_provider_unlink_are_csrf_protected() -> None:
+    expected = {
+        "/settings/account/preferences",
+        "/desktop/settings/account/preferences",
+        "/settings/account/providers/{identity_id}/unlink",
+        "/desktop/settings/account/providers/{identity_id}/unlink",
+    }
+    routes = {
+        route.path: route
+        for route in settings_router.routes
+        if isinstance(route, APIRoute)
+    }
+    assert expected <= routes.keys()
+    for path in expected:
+        dependencies = {
+            getattr(dependency.call, "__name__", "")
+            for dependency in routes[path].dependant.dependencies
+            if dependency.call is not None
+        }
+        assert "require_web_csrf" in dependencies
+
+
 def test_account_surface_template_contains_profile_preference_and_session_controls() -> None:
     page = render_settings_page(category="account")
     for label in ("Профиль", "Язык интерфейса", "Часовой пояс", "Системная", "Активные сессии"):
         assert label in page
     assert "data-account-preferences" in page
     assert "session_token_hash" not in page
+    assert 'method="post"' in page
+    assert "/settings/account/preferences" in page
+
+
+def test_account_surface_exposes_unlink_only_for_recovery_safe_provider() -> None:
+    first = ExternalIdentity(
+        id=uuid4(), user_id=uuid4(), provider="yandex", provider_subject="one", is_verified=True
+    )
+    second = ExternalIdentity(
+        id=uuid4(), user_id=first.user_id, provider="vk", provider_subject="two", is_verified=True
+    )
+    surface = account_settings_surface(
+        identities=(first, second),
+        can_unlink_provider=lambda identity: identity.is_verified,
+    )
+    page = render_settings_page(category="account", account_surface=surface)
+    assert page.count("/settings/account/providers/") == 2
 
 
 def test_account_markup_accepts_only_safe_presentation_fields() -> None:

@@ -2900,32 +2900,10 @@
     document.querySelectorAll("[data-account-preferences]").forEach((form) => {
       if (form.dataset.accountPreferencesReady === "true") return;
       form.dataset.accountPreferencesReady = "true";
-      const storageKey = "graf.account.preferences.v1";
-      const allowed = {
-        locale: new Set(["ru-RU", "en-US"]),
-        timezone: new Set(["Europe/Moscow", "UTC"]),
-        theme: new Set(["system", "dark", "light"]),
-      };
-      const read = () => {
-        try { return JSON.parse(window.localStorage.getItem(storageKey) || "{}"); }
-        catch (_) { return {}; }
-      };
       const applyTheme = (theme) => {
         document.documentElement.dataset.theme = theme === "system" ? "" : theme;
         document.documentElement.style.colorScheme = theme === "system" ? "" : theme;
       };
-      const saved = read();
-      ["locale", "timezone", "theme"].forEach((name) => {
-        const value = String(saved[name] || "");
-        if (!allowed[name].has(value)) return;
-        const field = form.elements.namedItem(name);
-        if (!field) return;
-        if (field instanceof RadioNodeList) {
-          field.value = value;
-        } else {
-          field.value = value;
-        }
-      });
       const currentTheme = form.elements.namedItem("theme")?.value || "system";
       applyTheme(currentTheme);
       const locale = form.elements.namedItem("locale")?.value;
@@ -2934,23 +2912,18 @@
         if (event.target?.name === "theme") applyTheme(event.target.value);
         if (event.target?.name === "locale") document.documentElement.lang = event.target.value.slice(0, 2);
       });
-      form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const values = {
-          locale: String(form.elements.namedItem("locale")?.value || "ru-RU"),
-          timezone: String(form.elements.namedItem("timezone")?.value || "Europe/Moscow"),
-          theme: String(form.elements.namedItem("theme")?.value || "system"),
-        };
-        try { window.localStorage.setItem(storageKey, JSON.stringify(values)); } catch (_) {}
-        applyTheme(values.theme);
-        document.documentElement.lang = values.locale.slice(0, 2);
+      form.addEventListener("submit", () => {
+        // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
         const status = form.querySelector("[data-settings-form-status]");
-        if (status) { status.textContent = "Настройки сохранены в этом браузере."; status.hidden = false; }
+        if (status) { status.textContent = "Сохраняем настройки…"; status.hidden = false; }
         const submit = form.querySelector("button[type='submit']");
         if (submit) submit.disabled = false;
-        form.dataset.state = "pristine";
       });
-      form.addEventListener("reset", () => window.setTimeout(() => applyTheme("system"), 0));
+      form.addEventListener("reset", () => window.setTimeout(() => {
+        applyTheme(form.elements.namedItem("theme")?.value || "system");
+        const locale = form.elements.namedItem("locale")?.value;
+        if (locale) document.documentElement.lang = locale.slice(0, 2);
+      }, 0));
     });
   };
 

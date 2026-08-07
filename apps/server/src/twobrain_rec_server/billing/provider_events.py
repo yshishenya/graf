@@ -59,11 +59,23 @@ def parse_provider_event(payload: dict[str, Any]) -> ProviderEvent:
             workspace_id = UUID(str(metadata["workspace_id"]))
         except (ValueError, TypeError):
             raise ProviderEventError("provider workspace metadata is malformed") from None
+    provider_object = payload["object"]
+    raw_amount = provider_object.get("amount")
+    safe_amount = {
+        field: str(raw_amount[field])[:64]
+        for field in ("value", "currency")
+        if isinstance(raw_amount, dict) and isinstance(raw_amount.get(field), (str, int, float))
+    }
     safe_payload = {
         "id": event_id,
         "event": event_type,
         "object_id": object_id,
         "workspace_id": str(workspace_id) if workspace_id else "",
+        # Include only bounded, non-content fields in the replay fingerprint.
+        # The raw provider body is never persisted or logged.
+        "created_at": occurred_at.isoformat(),
+        "status": str(provider_object.get("status", "")),
+        "amount": safe_amount,
     }
     digest = sha256(repr(sorted(safe_payload.items())).encode()).hexdigest()
     return ProviderEvent(event_id, event_type, object_id, occurred_at, digest, workspace_id)

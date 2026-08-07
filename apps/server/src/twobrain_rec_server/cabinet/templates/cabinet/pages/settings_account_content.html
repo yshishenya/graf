@@ -12,6 +12,7 @@
     </header>
     {{ account_ui.navigation(embedded=embedded, active=account_active, csrf_token=csrf_token) }}
     {% if provider_link_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_link_result }}</p>{% endif %}
+    {% if provider_unlink_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_unlink_result }}</p>{% endif %}
     {% if device_revoke_result %}<p class="settings-status" role="status" aria-live="polite">{{ device_revoke_result }}</p>{% endif %}
     {% if session_result %}<p class="settings-status" role="status" aria-live="polite">{{ session_result }}</p>{% endif %}
     {% if account_close_result %}<p class="settings-status" role="status" aria-live="polite">{{ account_close_result }}</p>{% endif %}
@@ -19,6 +20,7 @@
     <section class="settings-section settings-unavailable-card" role="status" aria-live="polite"><h2>Данные аккаунта временно недоступны</h2><p class="muted">Попробуйте обновить страницу. Пока данные не загружены, мы не показываем частичную или непроверенную информацию.</p></section>
     {% else %}
     {% if profile_result %}<p class="settings-status" role="status" aria-live="polite">{{ profile_result }}</p>{% endif %}
+    {% if preferences_result %}<p class="settings-status" role="status" aria-live="polite">{{ preferences_result }}</p>{% endif %}
     <section class="settings-section cabinet-card" aria-labelledby="account-profile-title">
       <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-profile-title">Профиль</h2><p class="muted">Имя отображается в кабинете. Подтверждённый способ входа нельзя изменить из этого поля.</p></div></div>
       {% if account_surface.profile %}
@@ -33,17 +35,18 @@
       {% endif %}
     </section>
     <section class="settings-section cabinet-card" aria-labelledby="account-preferences-title">
-      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-preferences-title">Язык, часовой пояс и тема</h2><p class="muted">Предпросмотр применяется сразу и сохраняется в этом браузере или WebView.</p></div></div>
-      <form class="account-preferences-form" data-account-preferences data-settings-form>
+      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-preferences-title">Язык, часовой пояс и тема</h2><p class="muted">Предпросмотр применяется сразу, а после сохранения настройки действуют на всех ваших устройствах.</p></div></div>
+      <form class="account-preferences-form" data-account-preferences data-settings-form method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
+        {{ sections.csrf_field(csrf_token) }}
         <label class="field-label" for="account-locale">Язык интерфейса</label>
-        <select id="account-locale" name="locale"><option value="ru-RU">Русский</option><option value="en-US">English</option></select>
+        <select id="account-locale" name="locale"><option value="ru-RU"{% if account_surface.profile and account_surface.profile.locale == 'ru-RU' %} selected{% endif %}>Русский</option><option value="en-US"{% if account_surface.profile and account_surface.profile.locale == 'en-US' %} selected{% endif %}>English</option></select>
         <label class="field-label" for="account-timezone">Часовой пояс</label>
-        <select id="account-timezone" name="timezone"><option value="Europe/Moscow">Москва (Europe/Moscow)</option><option value="UTC">UTC</option></select>
-        <fieldset><legend class="field-label">Тема</legend><label><input type="radio" name="theme" value="system" checked> Системная</label><label><input type="radio" name="theme" value="dark"> Тёмная</label><label><input type="radio" name="theme" value="light"> Светлая</label></fieldset>
+        <select id="account-timezone" name="timezone"><option value="Europe/Moscow"{% if account_surface.profile and account_surface.profile.timezone == 'Europe/Moscow' %} selected{% endif %}>Москва (Europe/Moscow)</option><option value="UTC"{% if account_surface.profile and account_surface.profile.timezone == 'UTC' %} selected{% endif %}>UTC</option></select>
+        <fieldset><legend class="field-label">Тема</legend><label><input type="radio" name="theme" value="system"{% if not account_surface.profile or account_surface.profile.theme == 'system' %} checked{% endif %}> Системная</label><label><input type="radio" name="theme" value="dark"{% if account_surface.profile and account_surface.profile.theme == 'dark' %} checked{% endif %}> Тёмная</label><label><input type="radio" name="theme" value="light"{% if account_surface.profile and account_surface.profile.theme == 'light' %} checked{% endif %}> Светлая</label></fieldset>
         <div class="account-profile-form__actions"><button class="button" type="submit">Сохранить настройки</button><button class="button quiet" type="reset">Отменить</button></div>
         <p class="settings-form-status" data-settings-form-status hidden></p>
       </form>
-      <noscript><p class="muted">Для сохранения темы включите JavaScript или используйте системную тему.</p></noscript>
+      <noscript><p class="muted">Без JavaScript сохранение работает обычной кнопкой формы; предпросмотр применится после обновления страницы.</p></noscript>
     </section>
     <section class="settings-section cabinet-card" aria-labelledby="account-providers-title">
       <div class="settings-section__heading">
@@ -52,7 +55,7 @@
       {% if account_surface.providers %}
       <ul class="settings-choice-list" aria-label="Подключённые способы входа">
         {% for provider in account_surface.providers %}
-        <li class="settings-choice-row"><div><strong>{{ provider.label }}</strong><span class="muted">{{ provider.status_label }}{% if provider.primary %} · Основной{% endif %}</span></div></li>
+        <li class="settings-choice-row"><div><strong>{{ provider.label }}</strong><span class="muted">{{ provider.status_label }}{% if provider.primary %} · Основной{% endif %}</span></div>{% if provider.can_unlink and provider.identity_id %}<form action="{{ '/desktop/settings/account/providers/' if embedded else '/settings/account/providers/' }}{{ provider.identity_id }}/unlink" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отключить этот способ входа?">Отключить</button></form>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}

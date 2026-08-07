@@ -4,7 +4,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from twobrain_rec_server.billing.yookassa import YooKassaClient
+from twobrain_rec_server.billing.yookassa import YooKassaClient, YooKassaConfigurationError
 from twobrain_rec_server.config import Settings
 
 
@@ -71,6 +71,19 @@ async def test_yookassa_adapter_does_not_allow_zero_payment(tmp_path: Path) -> N
                 idempotence_key="op-floor",
                 metadata={},
             )
+
+
+def test_yookassa_client_rejects_unallowlisted_api_host(tmp_path: Path) -> None:
+    secret = tmp_path / "test-secret"
+    secret.write_text("test-secret", encoding="utf-8")
+    settings = Settings(
+        billing_yookassa_base_url="https://evil.example.test",
+        billing_yookassa_shop_id="shop-1",
+        billing_yookassa_secret_file=secret,
+    )
+
+    with pytest.raises(YooKassaConfigurationError, match="allowlisted"):
+        YooKassaClient(settings)
 
 
 @pytest.mark.asyncio

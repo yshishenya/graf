@@ -271,6 +271,7 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                         )
                         .where(
                             ExternalIdentity.email.is_not(None),
+                            ExternalIdentity.is_active.is_(True),
                             ExternalIdentity.is_verified.is_(True),
                         )
                         .group_by(ExternalIdentity.user_id)
@@ -1552,6 +1553,7 @@ async def send_account_created_email_activity(payload: dict[str, str]) -> dict[s
             identity = await db.scalar(
                 select(ExternalIdentity).where(
                     ExternalIdentity.user_id == user_id,
+                    ExternalIdentity.is_active.is_(True),
                     ExternalIdentity.is_verified.is_(True),
                     ExternalIdentity.email.is_not(None),
                 )

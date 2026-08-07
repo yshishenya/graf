@@ -37,7 +37,16 @@ def lock_billing_row(statement: Select[tuple[object]]) -> Select[tuple[object]]:
 
 
 def safe_audit_metadata(values: dict[str, object]) -> dict[str, str]:
-    blocked = ("token", "secret", "payload", "card", "email_body", "meeting")
+    blocked = (
+        "token",
+        "secret",
+        "payload",
+        "card",
+        "email",
+        "meeting",
+        "provider",
+        "object_id",
+    )
     return {
         str(key): str(value)[:160]
         for key, value in values.items()

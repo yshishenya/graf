@@ -442,6 +442,12 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
             }
             return tail[2] == "confirm" && isSafeMeetingId(tail[1])
         }
+        if tail.count == 4,
+           tail[0] == "account",
+           tail[1] == "providers",
+           tail[3] == "unlink" {
+            return isSafeMeetingId(tail[2])
+        }
         if tail.count == 3, tail[0] == "spaces", tail[2] == "activate" {
             return isSafeMeetingId(tail[1])
         }

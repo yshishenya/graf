@@ -1157,7 +1157,10 @@ async def get_me(
     identities = (
         await db.execute(
             select(ExternalIdentity)
-            .where(ExternalIdentity.user_id == principal.user_id)
+            .where(
+                ExternalIdentity.user_id == principal.user_id,
+                ExternalIdentity.is_active.is_(True),
+            )
             .order_by(ExternalIdentity.created_at.asc())
         )
     ).scalars().all()

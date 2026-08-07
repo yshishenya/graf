@@ -202,6 +202,7 @@ async def _send_internal_share_notification(
         .where(
             ExternalIdentity.user_id == recipient_user_id,
             ExternalIdentity.email.is_not(None),
+            ExternalIdentity.is_active.is_(True),
             ExternalIdentity.is_verified.is_(True),
         )
         .order_by(ExternalIdentity.created_at.asc())
@@ -281,6 +282,7 @@ async def _verified_invitation_address_hashes(
             await session.scalars(
                 select(ExternalIdentity.email).where(
                     ExternalIdentity.user_id == recipient_scope.user_id,
+                    ExternalIdentity.is_active.is_(True),
                     ExternalIdentity.is_verified.is_(True),
                     ExternalIdentity.email.is_not(None),
                 )

@@ -146,6 +146,7 @@ async def _user_by_external_identity(
             and_(
                 ExternalIdentity.provider == provider,
                 ExternalIdentity.provider_subject == provider_subject,
+                ExternalIdentity.is_active.is_(True),
             )
         )
     )
@@ -250,8 +251,17 @@ async def _create_scoped_user(
                 )
             )
             if existing_identity is not None:
+                if not existing_identity.is_active:
+                    raise CallbackFlowError(
+                        "identity_subject_inactive",
+                        "identity is no longer linked to an active account",
+                    ) from exc
                 existing_user = await db.get(UserIdentity, existing_identity.user_id)
-                if existing_user is not None and existing_user.organization_id == organization_id:
+                if (
+                    existing_identity.is_active
+                    and existing_user is not None
+                    and existing_user.organization_id == organization_id
+                ):
                     await apply_tenant_context(
                         db,
                         WorkspaceAuthContext(

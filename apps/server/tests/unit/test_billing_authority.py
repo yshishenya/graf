@@ -36,7 +36,14 @@ def test_authority_version_and_audit_redaction_fail_closed() -> None:
     with pytest.raises(BillingAuthorizationError):
         require_authority_version(expected=2, actual=1)
     assert "FOR UPDATE" in str(lock_billing_row(select(BillingOperation)).compile()).upper()
-    assert safe_audit_metadata({"provider_token": "secret", "state": "paid"}) == {"state": "paid"}
+    assert safe_audit_metadata(
+        {
+            "provider_token": "secret",
+            "support_email": "owner@example.test",
+            "provider_object_id": "pay-123",
+            "state": "paid",
+        }
+    ) == {"state": "paid"}
 
 
 def test_operation_outcomes_and_emergency_stop() -> None:

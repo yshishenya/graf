@@ -1,10 +1,18 @@
 import inspect
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 from fastapi.routing import APIRoute
+from starlette.requests import Request
 
-from twobrain_rec_server.billing.yookassa import YooKassaClient
-from twobrain_rec_server.cabinet.web_routes.billing import router as billing_web_router
+from twobrain_rec_server.billing.yookassa import YooKassaClient, YooKassaConfigurationError
+from twobrain_rec_server.cabinet.web_routes.billing import (
+    billing_checkout_return_url,
+)
+from twobrain_rec_server.cabinet.web_routes.billing import (
+    router as billing_web_router,
+)
 from twobrain_rec_server.product_analytics.page_inventory import get_page_class_policy
 
 FINANCIAL_PAGE_CLASSES = (
@@ -70,3 +78,26 @@ def test_product_has_no_yookassa_refund_mutation() -> None:
 
     assert not hasattr(YooKassaClient, "create_refund")
     assert '"POST", "/v3/refunds' not in source
+
+
+def test_billing_callback_url_uses_configured_public_origin_not_request_host() -> None:
+    app = SimpleNamespace(
+        state=SimpleNamespace(settings=SimpleNamespace(public_base_url="https://rec.2brain.pro")),
+        url_path_for=lambda _name: "/billing/checkout/return",
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/billing/checkout/return",
+            "headers": [(b"host", b"attacker.example")],
+            "query_string": b"",
+            "app": app,
+        }
+    )
+
+    assert billing_checkout_return_url(request) == "https://rec.2brain.pro/billing/checkout/return"
+
+    request.app.state.settings.public_base_url = "https://[invalid"
+    with pytest.raises(YooKassaConfigurationError, match="callback URL is invalid"):
+        billing_checkout_return_url(request)

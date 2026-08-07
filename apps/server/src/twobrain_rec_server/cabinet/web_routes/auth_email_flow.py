@@ -270,20 +270,20 @@ async def _consume_email_login_code(
     workspace, user = await _resolve_email_login_user(db, workspace_id=workspace_id, email=email)
     registered = False
     if workspace is not None and user is None and allow_registration:
-        user = await _ensure_email_registration_user(
+        user, registered = await _ensure_email_registration_user(
             db,
             workspace=workspace,
             email=email,
             now=now,
         )
-        registered = True
-        await _bind_referral_attribution(
-            db,
-            workspace_id=workspace.id,
-            user_id=user.id,
-            token=request.cookies.get("graf_referral_token"),
-            now=now,
-        )
+        if registered:
+            await _bind_referral_attribution(
+                db,
+                workspace_id=workspace.id,
+                user_id=user.id,
+                token=request.cookies.get("graf_referral_token"),
+                now=now,
+            )
     if workspace is None or user is None:
         state.result = "failed"
         state.used_at = now
@@ -395,6 +395,7 @@ async def _resolve_email_login_user(
             .where(
                 UserIdentity.organization_id == workspace.organization_id,
                 UserIdentity.status == "active",
+                ExternalIdentity.is_active.is_(True),
                 func.lower(ExternalIdentity.email) == email,
             )
             .order_by(ExternalIdentity.created_at.asc())
@@ -449,7 +450,7 @@ async def _ensure_email_registration_user(
     workspace: Workspace,
     email: str,
     now: datetime,
-) -> UserIdentity:
+) -> tuple[UserIdentity, bool]:
     await apply_tenant_context(
         db,
         WorkspaceAuthContext(
@@ -465,6 +466,7 @@ async def _ensure_email_registration_user(
             .where(
                 UserIdentity.organization_id == workspace.organization_id,
                 UserIdentity.status == "active",
+                ExternalIdentity.is_active.is_(True),
                 func.lower(ExternalIdentity.email) == email,
             )
             .order_by(ExternalIdentity.created_at.asc())
@@ -483,7 +485,37 @@ async def _ensure_email_registration_user(
         )
         identity.is_verified = True
         identity.last_seen_at = now
-        return user
+        return user, False
+
+    inactive = (
+        await db.execute(
+            select(ExternalIdentity, UserIdentity)
+            .join(UserIdentity, UserIdentity.id == ExternalIdentity.user_id)
+            .where(
+                UserIdentity.organization_id == workspace.organization_id,
+                UserIdentity.status == "active",
+                ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER,
+                ExternalIdentity.is_active.is_(False),
+                func.lower(ExternalIdentity.email) == email,
+            )
+            .order_by(ExternalIdentity.created_at.asc())
+        )
+    ).first()
+    if inactive is not None:
+        identity, user = inactive
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=workspace.id,
+                organization_id=workspace.organization_id,
+                user_id=user.id,
+                context_kind="auth_bootstrap",
+            ),
+        )
+        identity.is_active = True
+        identity.is_verified = True
+        identity.last_seen_at = now
+        return user, False
 
     display_name = email.partition("@")[0].replace(".", " ").replace("_", " ").title() or email
     user = UserIdentity(
@@ -519,7 +551,7 @@ async def _ensure_email_registration_user(
         )
     )
     await db.flush()
-    return user
+    return user, True
 
 
 async def _resolve_email_browser_device(

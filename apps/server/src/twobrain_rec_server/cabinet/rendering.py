@@ -264,6 +264,8 @@ def render_settings_page(
     notification_result: str | None = None,
     account_close_result: str | None = None,
     profile_result: str | None = None,
+    preferences_result: str | None = None,
+    provider_unlink_result: str | None = None,
     account_active: str = "profile",
     notification_preferences: object | None = None,
 ) -> str:
@@ -281,6 +283,9 @@ def render_settings_page(
         "provider_link_denied": "Подключение не разрешено текущей политикой.",
         "provider_link_expired": "Срок подключения истёк. Начните заново.",
     }.get(provider_link_result)
+    provider_unlink_result_copy = {
+        "success": "Способ входа отключён. Остальные подтверждённые способы сохранены.",
+    }.get(provider_unlink_result)
     device_revoke_result_copy = {
         "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
         "others_revoked": "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным.",
@@ -322,6 +327,7 @@ def render_settings_page(
         "summary_formats": BUILT_IN_TEMPLATES,
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
         "provider_link_result": provider_link_result_copy,
+        "provider_unlink_result": provider_unlink_result_copy,
         "device_revoke_result": device_revoke_result_copy,
         "session_result": {
             "revoked": "Сеанс завершён.",
@@ -333,6 +339,9 @@ def render_settings_page(
             "canceled": "Закрытие аккаунта отменено.",
         }.get(account_close_result),
         "profile_result": {"saved": "Профиль сохранён."}.get(profile_result),
+        "preferences_result": {"saved": "Настройки языка, часового пояса и темы сохранены."}.get(
+            preferences_result
+        ),
         "account_active": account_active,
         "notification_preferences": notification_preferences or NotificationPreferences(),
     }

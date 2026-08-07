@@ -30,16 +30,16 @@ Date: 2026-08-04
   доставляет verified recipients через Postal и не помечает сообщения delivered
   до provider success.
 - Контрольный проход Feature 140 добавил browser/desktop account IA aliases,
-  bounded maintenance counters для зависших billing operations и storage
-  projection, а также миграцию 0051 для no-archive admission facts. Локальный
-  credential-free test-shop harness проходит, но реальное прохождение выбора
-  через ingest/processing, YooKassa canary, end-to-end purge/COGS evidence и
-  moderated UX review остаются launch gates.
-- Fast lane после изменений: 994 server unit tests, Ruff, Python compile и
-  disposable migration проходят. Полный public launch остаётся gated: test-shop
-  evidence, durable provider registry/reconciliation, account-close/notification
-  flows, accessibility/usability evidence и approved finance/legal sign-off ещё
-  должны быть закрыты до включения checkout.
+  server-owned profile/preferences (migration 0053), recovery-safe provider
+  unlink, bounded maintenance counters для зависших billing operations и
+  storage projection. Локальный credential-free test-shop harness проходит,
+  но YooKassa canary, end-to-end purge/COGS evidence и moderated UX review
+  остаются launch gates.
+- Fast lane и focused account/security suites после изменений проходят; миграция
+  проверена на disposable PostgreSQL. Полный public launch остаётся gated:
+  test-shop canary, live security/RLS, accessibility/usability, product-market
+  WTP/COGS и approved finance/legal sign-off ещё должны быть закрыты до
+  включения checkout.
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и

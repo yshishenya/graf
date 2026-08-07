@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
+from twobrain_rec_server.auth.callbacks import _user_by_external_identity
 from twobrain_rec_server.auth.provider_links import (
     expire_if_needed,
     recovery_safe_unlink_allowed,
@@ -52,6 +54,22 @@ def test_unlink_guard_preserves_at_least_one_recovery_path() -> None:
     )
     assert not recovery_safe_unlink_allowed(verified_identity_count=1, target_is_verified=True)
     assert not recovery_safe_unlink_allowed(verified_identity_count=2, target_is_verified=False)
+
+
+async def test_unlinked_external_identity_is_excluded_from_provider_login_lookup() -> None:
+    db = AsyncMock()
+
+    assert (
+        await _user_by_external_identity(
+            db,
+            organization_id=uuid4(),
+            provider="yandex",
+            provider_subject="inactive-subject",
+        )
+        is None
+    )
+    query = str(db.scalar.await_args.args[0])
+    assert "external_identities.is_active" in query
 
 
 async def test_verified_candidate_is_stored_only_after_provider_callback() -> None:

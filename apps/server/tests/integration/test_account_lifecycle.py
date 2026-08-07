@@ -19,6 +19,7 @@ from twobrain_rec_server.db.models import (
     AuthAuditEvent,
     AuthSession,
     AuthSessionDeviceBinding,
+    ExternalIdentity,
     RegisteredDevice,
     TrialActivation,
     UserIdentity,
@@ -298,6 +299,70 @@ def test_account_close_owner_cooling_cancel_and_finalization_revoke_access(clien
             assert auth_session is not None and auth_session.status == "revoked"
 
     asyncio.run(assert_revoked())
+
+
+def test_account_preferences_persist_and_provider_unlink_keeps_recovery_path(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+
+    preferences = client.post(
+        "/settings/account/preferences",
+        headers=headers,
+        data={"locale": "en-US", "timezone": "UTC", "theme": "dark"},
+        follow_redirects=False,
+    )
+    assert preferences.status_code == 303
+    assert preferences.headers["location"].endswith("/account/profile?preferences=saved")
+
+    identity_ids: list[UUID] = []
+
+    async def seed_identities() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            for provider, subject in (("yandex", "prefs-yandex"), ("vk", "prefs-vk")):
+                identity = ExternalIdentity(
+                    user_id=USER_ID,
+                    provider=provider,
+                    provider_subject=subject,
+                    email=f"{subject}@example.test",
+                    is_verified=True,
+                    is_active=True,
+                )
+                db.add(identity)
+                await db.flush()
+                identity_ids.append(identity.id)
+            await db.commit()
+
+    asyncio.run(seed_identities())
+    unlinked = client.post(
+        f"/settings/account/providers/{identity_ids[0]}/unlink",
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert unlinked.status_code == 303
+    assert unlinked.headers["location"].endswith("/account/profile?provider_unlink=success")
+
+    blocked = client.post(
+        f"/settings/account/providers/{identity_ids[1]}/unlink",
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 422
+    assert blocked.json()["code"] == "recovery_path_required"
+
+    async def assert_persisted() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            user = await db.get(UserIdentity, USER_ID)
+            first = await db.get(ExternalIdentity, identity_ids[0])
+            second = await db.get(ExternalIdentity, identity_ids[1])
+            assert user is not None
+            assert (user.locale, user.timezone, user.theme) == ("en-US", "UTC", "dark")
+            assert first is not None and first.is_active is False and first.is_verified is False
+            assert second is not None and second.is_active is True and second.is_verified is True
+
+    asyncio.run(assert_persisted())
 
 
 def test_account_security_bulk_actions_revoke_only_other_sessions_and_devices(client) -> None:

@@ -55,10 +55,9 @@ elsewhere; real-shop canary is a separate approved release step.
   source-retention policy approval, Russia-first JTBD/WTP/COGS evidence and
   finance/legal approval.
 - Cross-artifact analyze pass found no unresolved critical implementation blockers; the feature has
-  87 tasks (78 validated complete, 9 still open), including explicit product-market
-  closeout tasks T084–T087 and the remaining account, storage-lifecycle, reconciliation,
-  UX/security and real test-shop tasks, so this branch is not a public-launch completion
-  claim.
+  87 tasks (81 validated complete, 6 still open), including explicit product-market
+  closeout tasks T084–T087 and the remaining UX/security and real test-shop gates,
+  so this branch is not a public-launch completion claim.
 - Лендинг и публичные страницы проверяются отдельным ручным проходом по
   [landing-review.md](../../docs/evidence/140-user-account-billing/landing-review.md);
   серверные тесты не закрывают визуальную, accessibility и moderated-usability

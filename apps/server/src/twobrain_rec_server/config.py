@@ -538,6 +538,8 @@ class Settings(BaseSettings):
             return self
         if self.billing_yookassa_base_url is None or self.billing_yookassa_base_url.scheme != "https":
             raise ValueError("enabled billing requires an HTTPS YooKassa base URL")
+        if self.public_base_url is None or self.public_base_url.scheme != "https":
+            raise ValueError("enabled billing requires an HTTPS public_base_url")
         if (
             not self.billing_yookassa_shop_id
             or self.billing_yookassa_secret_file is None

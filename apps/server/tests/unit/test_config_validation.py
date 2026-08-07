@@ -41,6 +41,33 @@ def test_web_production_runtime_still_rejects_default_csrf_secret() -> None:
         _production_settings(web_csrf_secret="twobrain_rec_dev_web_csrf_secret")
 
 
+def test_enabled_billing_requires_canonical_https_public_origin(tmp_path) -> None:
+    secret = tmp_path / "yookassa-secret"
+    webhook = tmp_path / "yookassa-webhook"
+    secret.write_text("test", encoding="utf-8")
+    webhook.write_text("test", encoding="utf-8")
+    with pytest.raises(ValidationError, match="public_base_url"):
+        Settings(
+            billing_checkout_enabled=True,
+            billing_yookassa_base_url="https://api.yookassa.test",
+            billing_yookassa_shop_id="shop-test",
+            billing_yookassa_secret_file=secret,
+            billing_yookassa_webhook_secret_file=webhook,
+            billing_support_email="support@example.test",
+        )
+
+    settings = Settings(
+        billing_checkout_enabled=True,
+        public_base_url="https://rec.2brain.pro",
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_shop_id="shop-test",
+        billing_yookassa_secret_file=secret,
+        billing_yookassa_webhook_secret_file=webhook,
+        billing_support_email="support@example.test",
+    )
+    assert settings.public_base_url is not None
+
+
 def test_default_upload_part_contract_is_one_gib() -> None:
     assert Settings().max_upload_part_bytes == 1_073_741_824
 
