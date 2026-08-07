@@ -14,124 +14,47 @@ Context policy: keep always-on rules and pointers here; put task-specific
 procedures in one scoped guidance file and read that file only when relevant.
 Do not duplicate a detailed rule between this file and `docs/agent-guidance/`.
 
-## Project Context
+## Project context and routing
 
-Product: `GRAF`, a self-hosted meeting capture and transcription product
-with a macOS system-audio-first MVP. The former separate audio-routing
-implementation is removed legacy and is not a recoverable product option.
+Product: `GRAF`, a self-hosted meeting capture and transcription product with a
+macOS system-audio-first MVP. Removed legacy audio routing is not recoverable.
 
-Primary baseline document:
+- Product baseline: `docs/prd-voice-layer-final.md`.
+- Merged implementation status: `docs/current-product-status.md`.
+- Guidance index: `docs/agent-guidance/README.md`.
 
-- `docs/prd-voice-layer-final.md`
+Read the guidance index first, then only the file for the task:
 
-Treat `docs/prd-voice-layer-final.md` as the product baseline until a Spec Kit
-feature spec supersedes a specific slice of it.
+- `codex-worktrees.md` — project root and worktree source of truth.
+- `spec-kit-flow.md` — risk lanes and Spec Kit sequence.
+- `product-gates.md` — capture, privacy, AI, deletion, and clean-room gates.
+- `tracker-policy.md` and `github-issue-canon.md` — tasks and GitHub issues.
+- `release-and-validation.md` — CI, deployment, release, and evidence.
+- `macos-notarization.md` — Developer ID, notarization, stapling, and Sparkle.
 
-Current implementation status after merged feature slices:
+Closer nested `AGENTS.md` files govern their subtree. Until one exists, this
+file and `docs/agent-guidance/` are the project guidance surface.
 
-- `docs/current-product-status.md`
+## Workspace and source of truth
 
-## Instruction Map
+Start new Crisp Codex sessions from `/Users/yshishenya/Documents/crisp`.
+Do not infer active work from a physical `.codex/worktrees` folder name. Anchor
+work from the current branch, `specs/<number>-<slug>/`, `.specify/feature.json`,
+and the active `tasks.md`. Use permanent worktrees only when explicitly asked;
+otherwise Codex worktrees are disposable.
 
-Read these project-owned guidance files when the task touches their area:
+Use the Codex skill names for Spec Kit, including `$speckit-specify`,
+`$speckit-plan`, `$speckit-analyze`, `$speckit-taskstoissues`, and
+`$speckit-implement`; the guidance index has the complete sequence.
 
-- `docs/agent-guidance/README.md` - map of agent guidance sources.
-- `docs/agent-guidance/codex-worktrees.md` - Codex project root, worktree, and
-  source-of-truth rules.
-- `docs/agent-guidance/spec-kit-flow.md` - full Spec Kit command sequence,
-  clarify/checklist/analyze loops, task rules, and commit checkpoints.
-- `docs/agent-guidance/product-gates.md` - product, privacy, capture, AI,
-  deletion, and clean-room gates.
-- `docs/agent-guidance/tracker-policy.md` - `tasks.md`, GitHub issues, Russian
-  issue language, and retired Linear policy.
-- `docs/agent-guidance/release-and-validation.md` - local CI, deployment,
-  changelog, release, and evidence rules.
-- `docs/agent-guidance/github-issue-canon.md` - required GitHub issue format.
+## Development flow
 
-If a nested `AGENTS.md` is added later for a subproject, the closer file governs
-work under that subtree. Until then, this root guide and `docs/agent-guidance/`
-are the project guidance surface.
-
-## Codex Project And Worktree Rules
-
-Start new Crisp Codex sessions from the canonical local checkout:
-
-- `/Users/yshishenya/Documents/crisp`
-
-Do not use an old feature worktree as the Codex project root for new work. The
-physical folder name under `.codex/worktrees` is not a source of truth. Anchor
-feature work from:
-
-- the current Git branch;
-- `specs/<number>-<slug>/`;
-- `.specify/feature.json`;
-- the active `tasks.md`.
-
-Use a permanent worktree named after the feature only when the user explicitly
-wants a long-lived feature workspace. Otherwise, treat Codex-managed worktrees
-as disposable per-thread environments.
-
-## Spec Kit Command Style
-
-This repo was initialized with Codex skills mode. Use skill names in
-conversation:
-
-- `$speckit-constitution`
-- `$speckit-specify`
-- `$speckit-clarify`
-- `$speckit-plan`
-- `$speckit-checklist`
-- `$speckit-tasks`
-- `$speckit-analyze`
-- `$speckit-taskstoissues`
-- `$speckit-implement`
-
-The upstream Spec Kit docs often show slash commands such as
-`/speckit.specify`; in this repo, use the equivalent Codex skill name above.
-
-## Required Development Flow
-
-Start by choosing the work lane from
-`docs/agent-guidance/spec-kit-flow.md`: read-only investigation, docs-only,
-tiny low-risk code, active Spec Kit slice, significant/high-risk feature, or
-release/deploy. Record the selected risk/validation lane in the final response
-or PR.
-
-For every new feature, architectural slice, significant change, or high-risk
-change, follow:
-
-```text
-$speckit-constitution
-$speckit-specify
-$speckit-clarify
-$speckit-plan
-$speckit-checklist
-$speckit-tasks
-$speckit-analyze
-$speckit-taskstoissues
-$speckit-implement
-```
-
-Run `$speckit-constitution` when governance changes are needed. For normal
-feature work, start at `$speckit-specify`, then clarify, plan, checklist, tasks,
-analyze, GitHub issue sync, and implement. Small documentation-only edits and
-tiny low-risk code changes may be direct when they avoid high-risk areas and
-use the scoped validation lane.
-
-Use `docs/agent-guidance/spec-kit-flow.md` for the detailed rules. In short:
-
-- specs describe what and why, not implementation details;
-- clarify is mandatory for high-risk capture, privacy, auth, backend, infra,
-  deletion, diagnostics, and UX work;
-- plans must pass constitution gates and create supporting artifacts such as
-  `research.md`, `data-model.md`, `contracts/`, and `quickstart.md` when
-  relevant;
-- checklists validate requirement quality, not implementation behavior;
-- tasks must be dependency ordered, story-scoped, independently testable, and
-  use exact file paths;
-- analyze must be clean of critical blockers before implementation;
-- implementation must follow `tasks.md` and mark completed tasks `[X]` only
-  after validation.
+Choose a risk/validation lane from `docs/agent-guidance/spec-kit-flow.md` and
+record it in the final response or PR. Docs-only and tiny low-risk changes may
+use the scoped lane. New features, architectural slices, and high-risk work
+use the full Spec Kit sequence; `$speckit-constitution` is for governance
+changes. Clarify is mandatory for capture, privacy, auth, backend,
+infrastructure, deletion, diagnostics, and high-risk UX work.
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
@@ -139,126 +62,34 @@ shell commands, and other important information, read the current plan
 at specs/141-smoke-cleanup-fk/plan.md
 <!-- SPECKIT END -->
 
-## Tracking And GitHub Issues
+## Tracking and product gates
 
 `tasks.md` is the implementation source of truth. GitHub issues are the external
-tracker for execution, review, PR links, status comments, closure comments, and
-validation evidence.
+tracker. Use `$speckit-taskstoissues` after planning when executable tasks and a
+GitHub remote exist; follow the tracker policy and managed issue-canon block
+below. Do not use Linear.
 
-Use `$speckit-taskstoissues` for every implementation feature slice after
-planning and analysis when the repository remote is GitHub and `tasks.md` exists
-with executable tasks.
+For capture, transcription, storage, AI, auth, deletion, diagnostics,
+deployment, or user-facing workflow, read the constitution, product baseline,
+current status, and `product-gates.md` before editing. Keep the MVP
+system-audio-first, preserve visible manual capture controls, never put
+MediaScribe credentials in the desktop app, and keep deletion copy within GRAF's
+control. UI must pass clean-room and brand-distance review.
 
-All GitHub issues created for this repository, whether manually, through
-`$speckit-taskstoissues`, or through direct `gh issue create`, must follow:
+## Validation and release
 
-- `docs/agent-guidance/tracker-policy.md`
-- `docs/agent-guidance/github-issue-canon.md`
+Use `release-and-validation.md` for the selected lane and closeout evidence.
+Default anchors are `infra/scripts/ci-local.sh`,
+`infra/scripts/cd-remote.sh --dry-run` before production execution, and
+`./scripts/prepare-release.sh YYYY.MM.DD.N` for product releases.
 
-For Spec Kit task-backed GitHub issues, use exactly this title shape in this
-repository: `[<feature>][<priority>][<area>] T###: <русский результат>`.
-Do not use bare `T###: ...` titles in this repository.
+Public GRAF macOS distribution is Developer ID-only. Notarization, stapling,
+Gatekeeper, Sparkle signature, and live appcast checks are mandatory; the full
+procedure is in `macos-notarization.md`. Never publish a non-notarized build.
 
-Do not create issues in a repository that does not match the configured git
-remote. Do not create duplicate GitHub issues; search by feature number, task
-ID, issue URL, and title first.
-
-Linear is not part of the active workflow. Do not run Linear sync, create Linear
-issues, or treat missing Linear links as blockers.
-
-## Product Gates
-
-Any feature touching capture, transcription, storage, AI, auth, deletion,
-diagnostics, deployment, or user-facing workflow must preserve the gates in:
-
-- `.specify/memory/constitution.md`
-- `docs/prd-voice-layer-final.md`
-- `docs/current-product-status.md`
-- `docs/agent-guidance/product-gates.md`
-
-Non-negotiable reminders:
-
-- macOS system-audio-first MVP; any future advanced routing requires a new
-  approved design and implementation rather than reviving removed legacy code.
-- Capture-critical implementation is platform-native by default.
-- Manual start/stop remains available, active capture is visible locally, and
-  one-action stop is always available.
-- Desktop app never sends audio directly to MediaScribe and never stores
-  MediaScribe credentials.
-- Langfuse and the retained Generation Call ledger intentionally retain the
-  complete plaintext transcript and model request/response/result, while
-  Temporal History intentionally retains the complete plaintext transcript for
-  internal-MVP observability. Do not add transcript encryption, redaction,
-  masking, truncation, or GRAF-managed trace/history deletion unless a later
-  approved feature changes this policy. Committed evidence and screenshots still
-  exclude meeting content.
-- Deletion copy must not promise universal erasure outside `GRAF` control.
-- UI must be clean-room and pass brand-distance review.
-
-## Validation, Git, And Release
-
-Use `docs/agent-guidance/release-and-validation.md` for full rules.
-
-Default validation anchors:
-
-- fast local CI: `infra/scripts/ci-local.sh --fast`
-- full local CI: `infra/scripts/ci-local.sh --full`
-- production deploy/smoke: `infra/scripts/cd-remote.sh --dry-run` then
-  `infra/scripts/cd-remote.sh --execute` when the release gate is met
-- release prep: `./scripts/prepare-release.sh YYYY.MM.DD.N`
-
-### CI/CD protocol for agents
-
-Use the selected validation lane in this order:
-
-1. During implementation, run focused tests or checks for the changed code.
-2. Before opening or updating a code PR, run `infra/scripts/ci-local.sh --fast`.
-   The **GRAF validation** workflow repeats the fast server lane and macOS
-   build automatically for every PR to `master`; record its result in the PR.
-3. A green fast lane permits an ordinary PR merge. It is not release approval
-   and does not replace focused checks for high-risk work.
-4. For a release candidate, deployment, or early full-baseline request, run the
-   manual **GRAF validation** workflow with `lane=full`, or run
-   `infra/scripts/ci-local.sh --full` locally.
-5. Production deployment starts only from a clean, synced target branch with
-   `infra/scripts/cd-remote.sh --dry-run --branch <branch>`, explicit user
-   approval, then `infra/scripts/cd-remote.sh --execute --branch <branch>`.
-   Execute runs `infra/scripts/ci-local.sh --full` for the pinned SHA before
-   any remote mutation.
-
-Never use `--skip-local-ci` to make ordinary work faster. It is an emergency
-operator bypass and requires explicit user approval that names the incident and
-accepts the omitted full local gate. A public macOS update remains a separate
-signed, notarized release procedure.
-
-Public macOS distribution is Developer ID-only: the app must use Developer ID
-Application, the package must use Developer ID Installer, and notarization,
-stapling and Gatekeeper checks must pass before any public mutation. The
-published `v2026.07.26.6` is the one-time manual `.pkg` bootstrap from the
-historical self-signed lineage; it must not be staged as an ordinary Sparkle
-appcast update. Every later public update must be Developer ID→Developer ID.
-Local/ad-hoc/self-signed identities may appear only in explicitly isolated test
-fixtures or historical receipts, never as a current release instruction.
-
-### GRAF desktop updater — обязательная граница
-
-Backend/GitHub Release и обновление приложения GRAF — разные публикации. Новый
-серверный tag сам по себе не появляется в Sparkle: публичный канал считается
-обновлённым только когда live
-`https://rec.2brain.pro/static/public/downloads/graf-appcast.xml` содержит
-строго большую версию и доступный подписанный `GRAF-<version>.zip`.
-
-Полный рецепт сборки, notarization, stapling, Sparkle-публикации и closeout
-вынесен в `docs/agent-guidance/macos-notarization.md`; читать его только для
-macOS packaging/release-задач. Ненотаризованный локальный build нельзя
-публиковать или считать update candidate.
-
-Implementation commits require explicit user approval after validation. Spec Kit
-documentation auto-commits may run only through user-approved Spec Kit hooks.
-Never reset or discard user changes.
-
-Maintain `CHANGELOG.md` for feature slices that change behavior, architecture,
-UX, QA expectations, operations, or release readiness.
+Implementation commits require explicit user approval after validation. Never
+reset or discard user changes. Update `CHANGELOG.md` for behavior, architecture,
+UX/QA, operations, or release-readiness changes.
 
 <!-- SPECKIT RELEASE VERSIONING START -->
 ## Правила релизов и версий
