@@ -76,6 +76,28 @@ class RegistryImport:
     gaps: tuple[RegistryGap, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class RegistryImportBundle:
+    """Metadata-only result for the required independent daily report sets.
+
+    YooKassa exports payments and refunds as separate report kinds.  Keeping
+    the two imports as named fields makes it impossible for a caller to
+    accidentally treat one combined CSV as a complete accounting day.  The
+    original report rows are never returned.
+    """
+
+    payments: RegistryImport
+    refunds: RegistryImport
+
+    @property
+    def gaps(self) -> tuple[RegistryGap, ...]:
+        return self.payments.gaps + self.refunds.gaps
+
+    @property
+    def complete(self) -> bool:
+        return self.payments.completeness.complete and self.refunds.completeness.complete and not self.gaps
+
+
 def summarize_registry_csv(
     content: str,
     *,
@@ -226,6 +248,61 @@ def import_registry_reports(
             )
         )
     return RegistryImport(tuple(summaries), completeness, tuple(gaps))
+
+
+def import_registry_bundle(
+    *,
+    payments: tuple[RegistryPart, ...],
+    refunds: tuple[RegistryPart, ...],
+    environment: str,
+    report_date: str,
+    owner: str,
+    payments_required_parts: tuple[str, ...],
+    refunds_required_parts: tuple[str, ...],
+    payments_required_columns: tuple[str, ...],
+    refunds_required_columns: tuple[str, ...],
+    shop_id: str | None = None,
+    schema_version: str | None = None,
+    language: str | None = None,
+    config_version: str | None = None,
+) -> RegistryImportBundle:
+    """Import the two independent daily registry sets as one safe result.
+
+    The function deliberately accepts separate ``payments`` and ``refunds``
+    arguments and validates both with the same shop/environment/report
+    metadata.  A caller must provide an explicit (possibly expected-empty)
+    report part for each kind; omitting one kind cannot be mistaken for a
+    complete day.  Only hashes, counts and owned metadata gaps survive.
+    """
+    if not payments or not refunds:
+        raise RegistryInputError("payments and refunds registry sets are required")
+    payment_import = import_registry_reports(
+        payments,
+        registry_kind="payments",
+        environment=environment,
+        required_parts=payments_required_parts,
+        required_columns=payments_required_columns,
+        report_date=report_date,
+        owner=owner,
+        shop_id=shop_id,
+        schema_version=schema_version,
+        language=language,
+        config_version=config_version,
+    )
+    refund_import = import_registry_reports(
+        refunds,
+        registry_kind="refunds",
+        environment=environment,
+        required_parts=refunds_required_parts,
+        required_columns=refunds_required_columns,
+        report_date=report_date,
+        owner=owner,
+        shop_id=shop_id,
+        schema_version=schema_version,
+        language=language,
+        config_version=config_version,
+    )
+    return RegistryImportBundle(payments=payment_import, refunds=refund_import)
 
 
 def registry_parts_complete(*, required_parts: tuple[str, ...], observed_parts: set[str]) -> bool:

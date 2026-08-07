@@ -9,6 +9,15 @@
 ## [Unreleased]
 
 ### Добавлено
+- Receipt truth теперь проходит монотонный metadata-only projection с
+  idempotent уведомлением о доступности чека; entitlement grant остаётся
+  append-only и duplicate payment callback не меняет уже успешную операцию.
+- Reconciliation сохраняет scoped payment/refund receipt observations в
+  bounded projection, а registry принимает только независимые payments и
+  refunds наборы с completeness hash и gap ownership.
+- Закрыты implementation-срезы renewal/reconciliation/maintenance: Temporal
+  workflows, stuck-operation/storage/add-on/time-credit maintenance и
+  агрегированные launch diagnostics подтверждены focused и fast CI.
 - Production Compose теперь монтирует YooKassa API/webhook и referral secrets
   только через Docker secrets; при выключенном checkout используется безопасный
   disabled-placeholder, а deploy script проверяет реальные файлы перед canary.

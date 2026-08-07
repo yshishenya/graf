@@ -21,6 +21,7 @@ from twobrain_rec_server.billing.payment_methods import (
     validate_payment_method_key_version,
 )
 from twobrain_rec_server.billing.promotions import redeem_invoice_promo
+from twobrain_rec_server.billing.receipts import ReceiptRegistration, merge_receipt_registration
 from twobrain_rec_server.billing.referral_rewards import create_pending_credit
 from twobrain_rec_server.db.models import (
     BillingAuditEvent,
@@ -118,6 +119,7 @@ async def grant_confirmed_payment(
     saved_payment_method: SavedPaymentMethod | None = None,
     payment_method_key: bytes | None = None,
     payment_method_key_version: str = "billing-v1",
+    receipt_registration: ReceiptRegistration | None = None,
 ) -> str:
     """Grant one immutable invoice only after provider GET confirms its amount."""
     operation = await db.scalar(
@@ -140,6 +142,17 @@ async def grant_confirmed_payment(
     )
     if existing_grant is not None:
         return "duplicate"
+    receipt_became_available = False
+    if receipt_registration is not None:
+        try:
+            updated_snapshot, receipt_became_available = merge_receipt_registration(
+                invoice.plan_snapshot,
+                status=receipt_registration,
+            )
+        except ValueError:
+            operation.state = "reconciliation_gap"
+            return "receipt_mismatch"
+        invoice.plan_snapshot = updated_snapshot
     snapshot = operation.request_snapshot
     plan_code = snapshot.get("plan_code")
     cycle = snapshot.get("cycle")
@@ -151,7 +164,7 @@ async def grant_confirmed_payment(
             WorkspaceMembership.workspace_id == workspace_id,
             WorkspaceMembership.role == "owner",
             WorkspaceMembership.status == "active",
-        ).order_by(WorkspaceMembership.created_at)
+        ).order_by(WorkspaceMembership.user_id)
     )
     if owner is None:
         operation.state = "reconciliation_gap"
@@ -220,7 +233,7 @@ async def grant_confirmed_payment(
         and saved_payment_method is not None
         and payment_method_key is not None
     )
-    subscription.recurring_authority_version += 1
+    subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
     subscription.application_version = (subscription.application_version or 0) + 1
     invoice.status = "succeeded"
     operation.state = "succeeded"
@@ -261,6 +274,16 @@ async def grant_confirmed_payment(
         payload={"invoice": invoice.safe_number, "action_path": "/billing"},
         marketing_allowed=False,
     )
+    if receipt_became_available:
+        await enqueue_billing_notification(
+            db,
+            workspace_id=workspace_id,
+            recipient_id=owner.user_id,
+            event_id=f"receipt:{invoice.id}:available",
+            kind=BillingNotification.RECEIPT_AVAILABLE,
+            payload={"invoice": invoice.safe_number, "action_path": f"/billing/invoices/{invoice.safe_number}"},
+            marketing_allowed=False,
+        )
     await db.flush()
     return "granted"
 

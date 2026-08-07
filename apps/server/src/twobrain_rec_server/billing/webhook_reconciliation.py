@@ -9,6 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
+from twobrain_rec_server.billing.events import enqueue_billing_notification
+from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.payment_methods import (
     extract_saved_bank_card,
     read_billing_encryption_key,
@@ -23,6 +25,7 @@ from twobrain_rec_server.billing.reconciliation import (
     extract_payment_observation,
     extract_receipt_observation,
     extract_refund_observation,
+    record_observed_receipt,
     record_observed_refund,
     saved_bank_card_confirmed,
 )
@@ -31,7 +34,12 @@ from twobrain_rec_server.billing.yookassa import (
     YooKassaConfigurationError,
     YooKassaProviderError,
 )
-from twobrain_rec_server.db.models import BillingInvoice, BillingOperation, BillingWebhookEvent
+from twobrain_rec_server.db.models import (
+    BillingInvoice,
+    BillingOperation,
+    BillingWebhookEvent,
+    WorkspaceMembership,
+)
 
 if TYPE_CHECKING:
     from twobrain_rec_server.config import Settings
@@ -89,6 +97,7 @@ async def reconcile_pending_initial_checkout_operations(
                             recurring_method_confirmed=saved_bank_card_confirmed(payload),
                             saved_payment_method=extract_saved_bank_card(payload),
                             payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
+                            receipt_registration=observation.receipt_registration,
                         )
                         counters["succeeded"] += 1
                     elif observation.status == "canceled":
@@ -194,6 +203,7 @@ async def _reconcile_event(
                 recurring_method_confirmed=saved_bank_card_confirmed(payload),
                 saved_payment_method=extract_saved_bank_card(payload),
                 payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
+                receipt_registration=observation.receipt_registration,
             )
         if observation.status == "canceled":
             await release_payment_promo(
@@ -217,27 +227,55 @@ async def _reconcile_event(
     if event.event_type.startswith("receipt."):
         payload = await provider.get_receipt(event.object_id)
         observation = extract_receipt_observation(payload, scope=scope)
-        if observation.parent_kind == "payment":
+        result = await record_observed_receipt(
+            db,
+            workspace_id=event.workspace_id,
+            observation=observation,
+            source="webhook",
+            observed_at=event.received_at,
+        )
+        if result == "unmatched":
+            raise ProviderObservationError("provider receipt parent was not found")
+        if result == "conflict":
+            raise ProviderObservationError("provider receipt observation conflicts with stored truth")
+        if observation.parent_kind == "payment" and result in {"inserted", "updated"}:
             operation = await db.scalar(
                 select(BillingOperation).where(
                     BillingOperation.workspace_id == event.workspace_id,
                     BillingOperation.provider_id == observation.provider_parent_id,
                 )
             )
+            invoice = None
             if operation is not None:
                 invoice = await db.scalar(
-                    select(BillingInvoice)
-                    .where(
+                    select(BillingInvoice).where(
                         BillingInvoice.workspace_id == event.workspace_id,
                         BillingInvoice.operation_id == operation.id,
                     )
-                    .with_for_update()
                 )
-                if invoice is not None:
-                    invoice.plan_snapshot = {
-                        **(invoice.plan_snapshot or {}),
-                        "receipt_registration": observation.status,
-                    }
+            if invoice is not None and observation.status == "succeeded":
+                owner = await db.scalar(
+                    select(WorkspaceMembership)
+                    .where(
+                        WorkspaceMembership.workspace_id == event.workspace_id,
+                        WorkspaceMembership.role == "owner",
+                        WorkspaceMembership.status == "active",
+                    )
+                    .order_by(WorkspaceMembership.user_id)
+                )
+                if owner is not None:
+                    await enqueue_billing_notification(
+                        db,
+                        workspace_id=event.workspace_id,
+                        recipient_id=owner.user_id,
+                        event_id=f"receipt:{invoice.id}:available",
+                        kind=BillingNotification.RECEIPT_AVAILABLE,
+                        payload={
+                            "invoice": invoice.safe_number,
+                            "action_path": f"/billing/invoices/{invoice.safe_number}",
+                        },
+                        marketing_allowed=False,
+                    )
         return "receipt_observed"
     raise ProviderEventError("unsupported provider event")
 

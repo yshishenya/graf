@@ -6,11 +6,13 @@ metadata-only реестром незакрытых доказательств.
 
 Автономная реализация account-close/source lifecycle, playback quota admission,
 add-on/payment-method transitions и billing primitives закрыта задачами T029,
-T038, T039, T042, T043, T051 и частью T053/T075–T078. Refund webhook backstop теперь проходит
-bounded cursor pagination YooKassa (до 20 страниц, с защитой от повторного
-cursor), но полный registry import и monitoring для этих задач ещё не доказаны.
-Агрегированные admin metrics и отдельный readiness diagnostic уже доступны,
-но live dashboard/alert routing и stop-all-charges drill остаются открытыми.
+T036, T038, T039, T042, T043, T047, T051, T053 и T075–T077. Refund webhook
+backstop проходит bounded cursor pagination YooKassa (до 20 страниц, с защитой
+от повторного cursor); payments/refunds registry теперь импортируется только
+раздельными metadata-only наборами с completeness hash и gap ownership.
+Агрегированные admin metrics, maintenance workflows и отдельный readiness
+diagnostic доступны, но live dashboard/alert routing и stop-all-charges drill
+остаются операционными launch-gates T078.
 Остаются
 evidence/gates: moderated
 accessibility/usability and landing review, live security/RLS review, product-
@@ -32,11 +34,12 @@ evidence в launch runbook.
 - reconciler создаёт и обслуживает только заранее существующие `renewal`
   operations: автоматическое создание и списание renewal до публичного запуска
   не доказано;
-- receipt payload/contact snapshot не подключены к YooKassa payment request;
-  нужен merchant test-shop canary с проверкой 54-ФЗ и чека;
-- processing free-cap и paid-unlimited helpers ещё не подключены к admission
-  путям ingest/processing, поэтому публичный checkout должен оставаться
-  выключенным до runtime evidence;
+- receipt registration truth теперь сохраняется монотонно и metadata-only,
+  а receipt contact snapshot/54-ФЗ поведение всё ещё требует merchant
+  test-shop canary;
+- processing free-cap и paid-unlimited helpers подключены к admission и
+  проходят focused regression; public checkout всё равно остаётся выключенным
+  до controlled canary и finance/legal/security/QA sign-off;
 - storage admission подключён к публикации canonical playback, но нужен
   PostgreSQL/RLS прогон с истёкшим trial/paid cutoff и replacement/deletion
   сценариями;

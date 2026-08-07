@@ -5,6 +5,7 @@ from twobrain_rec_server.billing.registry import (
     RegistryPart,
     assess_registry_completeness,
     build_registry_gap,
+    import_registry_bundle,
     import_registry_reports,
     registry_parts_complete,
     summarize_registry_csv,
@@ -152,4 +153,42 @@ def test_registry_import_rejects_rows_in_configured_empty_part() -> None:
             required_columns=("refund_id", "amount"),
             report_date="2026-08-07",
             owner="billing-ops",
+        )
+
+
+def test_registry_bundle_requires_independent_payment_and_refund_sets() -> None:
+    bundle = import_registry_bundle(
+        payments=(RegistryPart("part-01", "payment_id,amount\npay-1,790.00\n"),),
+        refunds=(RegistryPart("part-01", "refund_id,amount\n", expected_empty=True),),
+        environment="production",
+        report_date="2026-08-07",
+        owner="billing-ops",
+        payments_required_parts=("part-01",),
+        refunds_required_parts=("part-01",),
+        payments_required_columns=("payment_id", "amount"),
+        refunds_required_columns=("refund_id", "amount"),
+        shop_id="shop-1",
+        schema_version="v1",
+        language="ru-RU",
+        config_version="cfg-1",
+    )
+    assert bundle.complete
+    assert bundle.payments.summaries[0].registry_kind == "payments"
+    assert bundle.refunds.summaries[0].expected_empty is True
+    assert not hasattr(bundle, "payment_id")
+    assert not hasattr(bundle, "refund_id")
+
+
+def test_registry_bundle_cannot_omit_one_report_kind() -> None:
+    with pytest.raises(RegistryInputError, match="payments and refunds"):
+        import_registry_bundle(
+            payments=(RegistryPart("part-01", "payment_id,amount\n"),),
+            refunds=(),
+            environment="production",
+            report_date="2026-08-07",
+            owner="billing-ops",
+            payments_required_parts=("part-01",),
+            refunds_required_parts=("part-01",),
+            payments_required_columns=("payment_id", "amount"),
+            refunds_required_columns=("refund_id", "amount"),
         )

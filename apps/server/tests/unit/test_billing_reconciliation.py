@@ -14,6 +14,7 @@ from twobrain_rec_server.billing.reconciliation import (
     extract_payment_observation,
     extract_receipt_observation,
     extract_refund_observation,
+    merge_receipt_observation_snapshot,
     saved_bank_card_confirmed,
 )
 
@@ -220,3 +221,70 @@ def test_observation_identity_is_scoped_by_environment_and_shop() -> None:
         )
         == "inserted"
     )
+
+
+def test_receipt_snapshot_is_scoped_bounded_and_monotonic() -> None:
+    pending = extract_receipt_observation(
+        {
+            "id": "receipt-1",
+            "type": "payment",
+            "payment_id": "pay-1",
+            "status": "pending",
+        },
+        scope=SCOPE,
+    )
+    succeeded = extract_receipt_observation(
+        {
+            "id": "receipt-1",
+            "type": "payment",
+            "payment_id": "pay-1",
+            "status": "succeeded",
+            "registered_at": NOW.isoformat(),
+        },
+        scope=SCOPE,
+    )
+    snapshot, result = merge_receipt_observation_snapshot(
+        {}, pending, source="webhook", observed_at=NOW
+    )
+    assert result == "inserted"
+    snapshot, result = merge_receipt_observation_snapshot(
+        snapshot, succeeded, source="poll", observed_at=NOW
+    )
+    assert result == "updated"
+    assert snapshot["receipt_registration"] == "succeeded"
+    assert snapshot["receipt_observations"]["test:shop-1:receipt-1"]["provider_parent_id"] == "pay-1"
+
+    _, result = merge_receipt_observation_snapshot(
+        snapshot, pending, source="registry", observed_at=NOW
+    )
+    assert result == "conflict"
+
+    refund_receipt = extract_receipt_observation(
+        {
+            "id": "receipt-refund-1",
+            "type": "refund",
+            "refund_id": "refund-1",
+            "status": "succeeded",
+        },
+        scope=SCOPE,
+    )
+    snapshot, result = merge_receipt_observation_snapshot(
+        snapshot, refund_receipt, source="registry", observed_at=NOW
+    )
+    assert result == "inserted"
+    assert snapshot["receipt_registration"] == "succeeded"
+    assert len(snapshot["receipt_observations"]) == 2
+
+    canceled_refund_receipt = extract_receipt_observation(
+        {
+            "id": "receipt-refund-2",
+            "type": "refund",
+            "refund_id": "refund-2",
+            "status": "canceled",
+        },
+        scope=SCOPE,
+    )
+    _, result = merge_receipt_observation_snapshot(
+        snapshot, canceled_refund_receipt, source="registry", observed_at=NOW
+    )
+    assert result == "inserted"

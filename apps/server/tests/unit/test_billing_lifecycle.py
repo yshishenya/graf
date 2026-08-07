@@ -9,7 +9,12 @@ from twobrain_rec_server.billing.notifications import (
     build_notification,
     notification_copy,
 )
-from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
+from twobrain_rec_server.billing.receipts import (
+    ReceiptState,
+    merge_receipt_registration,
+    receipt_label,
+    receipt_state_for_registration,
+)
 from twobrain_rec_server.billing.renewal import renewal_due, resolve_renewal
 from twobrain_rec_server.billing.storage_addons import (
     choose_storage_addon,
@@ -66,6 +71,31 @@ def test_receipt_history_and_notification_copy_is_safe() -> None:
     assert receipt_label(ReceiptState.AVAILABLE) == "Открыть чек"
     event = build_notification(event_id="evt-1", kind=BillingNotification.PAYMENT_SUCCEEDED, payload={"invoice": "INV-1", "provider_token": "secret"})
     assert event.safe_payload == {"invoice": "INV-1"}
+
+
+def test_receipt_registration_is_authoritative_monotonic_and_idempotent() -> None:
+    snapshot = {"plan_code": "personal", "cycle": "month"}
+    pending, became_available = merge_receipt_registration(snapshot, status="pending")
+    assert pending["receipt_registration"] == "pending"
+    assert became_available is False
+
+    available, became_available = merge_receipt_registration(pending, status="succeeded")
+    assert available["receipt_registration"] == "succeeded"
+    assert became_available is True
+
+    duplicate, became_available = merge_receipt_registration(available, status="succeeded")
+    assert duplicate == available
+    assert became_available is False
+
+    with pytest.raises(ValueError, match="regressive"):
+        merge_receipt_registration(available, status="pending")
+    with pytest.raises(ValueError, match="invalid"):
+        merge_receipt_registration(snapshot, status="unknown")
+
+    assert receipt_state_for_registration(None) is ReceiptState.UNKNOWN
+    assert receipt_state_for_registration("pending") is ReceiptState.PENDING
+    assert receipt_state_for_registration("succeeded") is ReceiptState.AVAILABLE
+    assert receipt_state_for_registration("canceled") is ReceiptState.FAILED
 
 
 def test_notification_outbox_is_idempotent_and_keeps_finance_notices() -> None:

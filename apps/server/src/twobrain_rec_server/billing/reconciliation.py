@@ -20,6 +20,9 @@ from twobrain_rec_server.db.models import (
 
 ObservationSource = Literal["webhook", "poll", "registry"]
 ReceiptRegistration = Literal["pending", "succeeded", "canceled"]
+ReceiptObservationResult = Literal["inserted", "duplicate", "updated", "unmatched", "conflict"]
+
+_MAX_RECEIPT_OBSERVATIONS = 16
 
 
 class ProviderObservationError(ValueError):
@@ -215,6 +218,165 @@ class ObservationRecords:
         return self._records[observation_key(observation)]
 
 
+def merge_receipt_observation_snapshot(
+    snapshot: Mapping[str, Any],
+    observation: ReceiptObservation,
+    *,
+    source: ObservationSource,
+    observed_at: datetime,
+) -> tuple[dict[str, Any], ReceiptObservationResult]:
+    """Merge safe receipt truth without allowing an out-of-order regression.
+
+    Invoices predate a dedicated receipt table, so receipt observations live in
+    a bounded metadata-only projection on the invoice.  The provider payload is
+    never copied: only scoped identifiers, state and timestamps survive.  A
+    small map allows payment and refund receipts to coexist while its hard cap
+    prevents provider-controlled metadata growth.
+    """
+    if source not in {"webhook", "poll", "registry"}:
+        raise ProviderObservationError("provider observation source is invalid")
+    seen_at = _aware_utc(observed_at)
+    if not isinstance(snapshot, Mapping):
+        raise ProviderObservationError("invoice snapshot is invalid")
+
+    merged = dict(snapshot)
+    raw_records = merged.get("receipt_observations")
+    records: dict[str, dict[str, Any]] = {}
+    if raw_records is not None:
+        if not isinstance(raw_records, Mapping):
+            raise ProviderObservationError("receipt observation projection is invalid")
+        for key, value in raw_records.items():
+            if isinstance(key, str) and isinstance(value, Mapping):
+                records[key] = dict(value)
+
+    scope_key = _receipt_observation_key(observation)
+    current = records.get(scope_key)
+    legacy_status = merged.get("receipt_registration")
+    if legacy_status is not None and legacy_status not in {"pending", "succeeded", "canceled"}:
+        raise ProviderObservationError("invoice receipt status is invalid")
+    if current is None and len(records) >= _MAX_RECEIPT_OBSERVATIONS:
+        return merged, "conflict"
+    if current is not None:
+        if (
+            current.get("provider_receipt_id") != observation.provider_receipt_id
+            or current.get("parent_kind") != observation.parent_kind
+            or current.get("provider_parent_id") != observation.provider_parent_id
+            or current.get("environment") != observation.scope.environment
+            or current.get("shop_id") != observation.scope.shop_id
+        ):
+            return merged, "conflict"
+        previous_status = current.get("status")
+        if previous_status not in {"pending", "succeeded", "canceled"}:
+            raise ProviderObservationError("receipt observation status is invalid")
+        if not _receipt_state_advances(previous_status, observation.status):
+            return merged, "conflict"
+        if previous_status == observation.status:
+            return merged, "duplicate"
+
+    # Legacy snapshots can have a status but no provider receipt identity.  Do
+    # not let a late weaker signal regress the user-visible state while the
+    # identity is being backfilled.
+    if (
+        observation.parent_kind == "payment"
+        and current is None
+        and isinstance(legacy_status, str)
+        and not _receipt_state_advances(legacy_status, observation.status)
+    ):
+        return merged, "conflict"
+
+    records[scope_key] = {
+        "provider_receipt_id": observation.provider_receipt_id,
+        "parent_kind": observation.parent_kind,
+        "provider_parent_id": observation.provider_parent_id,
+        "environment": observation.scope.environment,
+        "shop_id": observation.scope.shop_id,
+        "status": observation.status,
+        "registered_at": observation.registered_at.isoformat() if observation.registered_at else None,
+        "source": source,
+        "observed_at": seen_at.isoformat(),
+    }
+    merged["receipt_observations"] = records
+    # Keep the existing UI projection, but only move it forward.
+    if observation.parent_kind == "payment" and (
+        legacy_status is None or _receipt_state_advances(legacy_status, observation.status)
+    ):
+        merged["receipt_registration"] = observation.status
+    return merged, "inserted" if current is None else "updated"
+
+
+def _receipt_observation_key(observation: ReceiptObservation) -> str:
+    return ":".join(
+        (
+            observation.scope.environment,
+            observation.scope.shop_id,
+            observation.provider_receipt_id,
+        )
+    )
+
+
+async def record_observed_receipt(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    observation: ReceiptObservation,
+    source: ObservationSource = "webhook",
+    observed_at: datetime | None = None,
+) -> ReceiptObservationResult:
+    """Persist bounded receipt truth without changing entitlement or refunds."""
+    invoice: BillingInvoice | None
+    if observation.parent_kind == "payment":
+        operation = await db.scalar(
+            select(BillingOperation)
+            .where(
+                BillingOperation.workspace_id == workspace_id,
+                BillingOperation.provider_id == observation.provider_parent_id,
+            )
+            .with_for_update()
+        )
+        invoice = None
+        if operation is not None:
+            invoice = await db.scalar(
+                select(BillingInvoice)
+                .where(
+                    BillingInvoice.workspace_id == workspace_id,
+                    BillingInvoice.operation_id == operation.id,
+                )
+                .with_for_update()
+            )
+    else:
+        observed_refund = await db.scalar(
+            select(ObservedProviderRefund)
+            .where(
+                ObservedProviderRefund.workspace_id == workspace_id,
+                ObservedProviderRefund.shop_environment == observation.scope.environment,
+                ObservedProviderRefund.provider_refund_id == observation.provider_parent_id,
+            )
+            .with_for_update()
+        )
+        invoice = None
+        if observed_refund is not None:
+            invoice = await db.scalar(
+                select(BillingInvoice)
+                .where(
+                    BillingInvoice.workspace_id == workspace_id,
+                    BillingInvoice.id == observed_refund.invoice_id,
+                )
+                .with_for_update()
+            )
+    if invoice is None:
+        return "unmatched"
+    merged, result = merge_receipt_observation_snapshot(
+        invoice.plan_snapshot,
+        observation,
+        source=source,
+        observed_at=observed_at or datetime.now(UTC),
+    )
+    if result in {"inserted", "updated"}:
+        invoice.plan_snapshot = merged
+        await db.flush()
+    return result
+
+
 async def record_observed_refund(
     db: AsyncSession,
     *,
@@ -242,6 +404,7 @@ async def record_observed_refund(
         return "conflict"
     existing = await db.scalar(
         select(ObservedProviderRefund).where(
+            ObservedProviderRefund.workspace_id == workspace_id,
             ObservedProviderRefund.shop_environment == observation.scope.environment,
             ObservedProviderRefund.provider_refund_id == observation.provider_refund_id,
         ).with_for_update()
