@@ -15,7 +15,9 @@
 - _Пока нет записей._
 
 ### Исправлено
-- _Пока нет записей._
+- Feature `141-smoke-cleanup-fk`: production smoke cleanup учитывает строки,
+  связанные с media revision, и больше не блокирует deploy FK-ошибкой при
+  удалении синтетических данных.
 
 ### Безопасность
 - _Пока нет записей._
@@ -24,7 +26,11 @@
 - _Пока нет записей._
 
 ### Операции
-- _Пока нет записей._
+- Добавлены disposable Postgres regression-сценарии для cleanup, повторного
+  запуска и безопасного release rollback.
+- Validation: focused unit `7 passed`, disposable Postgres smoke `3 passed`,
+  canonical `infra/scripts/ci-local.sh` прошёл: 647 macOS tests, 2513 server
+  tests, strict RLS 42 tests, lint, compile, compose config и evidence scan.
 
 ## [2026.08.06.1] - 2026-08-06
 

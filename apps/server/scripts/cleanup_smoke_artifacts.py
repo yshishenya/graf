@@ -25,6 +25,24 @@ async def _table_exists(conn, table_name: str) -> bool:
     return bool(result.scalar())
 
 
+async def _column_exists(conn, table_name: str, column_name: str) -> bool:
+    result = await conn.execute(
+        text(
+            """
+            select exists (
+                select 1
+                from information_schema.columns
+                where table_schema = current_schema()
+                  and table_name = :table_name
+                  and column_name = :column_name
+            )
+            """
+        ),
+        {"table_name": table_name, "column_name": column_name},
+    )
+    return bool(result.scalar())
+
+
 def _maintenance_context() -> MaintenanceTenantContext:
     return MaintenanceTenantContext(
         operation_name="production_smoke_cleanup",
@@ -102,9 +120,21 @@ async def _delete_smoke_meeting_rows(
     meeting_id: str,
     session_ids: list[str],
     available_tables: set[str],
+    processing_dependency_has_revision: bool,
 ) -> int:
     removed_rows = 0
     meeting_params = {"meeting_id": meeting_id}
+    processing_dependency_delete = (
+        "delete from processing_dependency_states where meeting_id=:meeting_id"
+    )
+    if processing_dependency_has_revision:
+        processing_dependency_delete = """
+            delete from processing_dependency_states
+            where meeting_id=:meeting_id
+               or media_revision_id in (
+                   select id from media_revisions where meeting_id=:meeting_id
+               )
+        """
     ordered_meeting_deletes = [
         (
             "calendar_audit_events",
@@ -132,7 +162,7 @@ async def _delete_smoke_meeting_rows(
         ),
         (
             "processing_dependency_states",
-            "delete from processing_dependency_states where meeting_id=:meeting_id",
+            processing_dependency_delete,
         ),
         (
             "dispatch_intents",
@@ -413,6 +443,9 @@ async def cleanup_smoke_artifacts(
                 "meetings",
             }
             available_tables = await _available_tables(conn, table_names)
+            processing_dependency_has_revision = await _column_exists(
+                conn, "processing_dependency_states", "media_revision_id"
+            )
             await apply_tenant_context_to_connection(
                 conn,
                 TenantDatabaseContext(
@@ -429,6 +462,7 @@ async def cleanup_smoke_artifacts(
                     meeting_id=discovered_meeting_id,
                     session_ids=sessions_by_meeting[discovered_meeting_id],
                     available_tables=available_tables,
+                    processing_dependency_has_revision=processing_dependency_has_revision,
                 )
 
             await apply_tenant_context_to_connection(conn, _maintenance_context())
