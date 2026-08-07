@@ -19,6 +19,9 @@ def test_096_inventory_covers_all_current_and_future_browser_page_classes() -> N
         "onboarding",
         "settings",
         "billing_overview",
+        "billing_plans",
+        "billing_discounts",
+        "billing_checkout_status",
         "billing_usage",
         "billing_subscription",
         "billing_payment_method",
@@ -71,6 +74,9 @@ def test_yandex_preserves_093_public_scope_and_blocks_high_risk_pages() -> None:
 def test_financial_pages_are_fail_closed_for_browser_analytics() -> None:
     expected = {
         "billing_overview",
+        "billing_plans",
+        "billing_discounts",
+        "billing_checkout_status",
         "billing_usage",
         "billing_subscription",
         "billing_payment_method",

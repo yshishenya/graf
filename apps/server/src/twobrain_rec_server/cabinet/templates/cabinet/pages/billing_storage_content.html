@@ -14,10 +14,10 @@
         <h3>Доступные варианты</h3>
         <ul class="settings-choice-list" aria-label="Варианты хранилища">
           {% for capacity in addon_options %}
-          <li class="settings-choice-row"><span>{{ capacity }} байт всего</span><button class="button quiet" type="button" disabled>Увеличить до {{ capacity }} байт</button></li>
+          <li class="settings-choice-row"><span>{{ capacity }} байт всего</span><span class="muted" role="status">Увеличить до {{ capacity }} байт: цена не опубликована — покупка недоступна</span></li>
           {% endfor %}
         </ul>
-        <p class="muted">Покупка дополнения будет доступна после подтверждения ценовой версии магазина.</p>
+        <p class="muted">Покупка дополнения будет доступна после подтверждения ценовой версии магазина. До этого новая платёжная операция не создаётся.</p>
         {% elif not billing_enabled %}
         <p role="status">Платные дополнения пока недоступны: магазин не включён.</p>
         {% else %}

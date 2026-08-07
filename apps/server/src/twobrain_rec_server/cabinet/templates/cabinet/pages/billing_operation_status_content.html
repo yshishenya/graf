@@ -1,0 +1,16 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing") }}
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar"><div class="page-title"><h1>Статус платежа</h1><p class="muted">GRAF показывает только локальное состояние и ждёт подтверждения ЮKassa.</p></div></header>
+      <section class="settings-section cabinet-card" aria-labelledby="billing-operation-title">
+        <h2 id="billing-operation-title">{{ invoice.safe_number }}</h2>
+        <p role="status" aria-live="polite"><strong>{{ operation_state_label }}</strong></p>
+        <dl class="settings-definition-list"><div><dt>Сумма</dt><dd>{{ amount_label }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ updated_at_label or "ещё не выполнялась" }}</dd></div></dl>
+        {% if operation_state in ["scheduled", "provider_pending", "unknown"] %}<p>Повторно оплачивать пока нельзя: неизвестный или ожидающий результат сначала сверяется с провайдером.</p><a class="button quiet" href="/billing/checkout/status/{{ invoice.safe_number }}">Проверить статус</a>{% elif operation_state == "method_required" %}<p>Для продолжения нужен подтверждённый способ оплаты.</p><a class="button" href="/billing/payment-method">Добавить способ оплаты</a>{% elif operation_state == "succeeded" %}<p>Платёж подтверждён. Доступ и чек обновляются отдельным reconciliation-процессом.</p>{% elif operation_state in ["canceled", "failed"] %}<p>Платёж не выполнен. Можно начать новую попытку.</p><a class="button" href="/billing/checkout">Попробовать снова</a>{% else %}<p>Операция не найдена в локальном состоянии. Обратитесь в поддержку с номером платежа.</p>{% endif %}
+      </section>
+      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
+    </div>
+  </div>
+</main>

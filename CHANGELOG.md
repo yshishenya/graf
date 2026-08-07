@@ -9,6 +9,11 @@
 ## [Unreleased]
 
 ### Добавлено
+- Сводка биллинга теперь показывает paid-through/bonus-through, дату и сумму
+  следующего списания, безопасный способ оплаты и последний invoice; добавлены
+  страницы `/billing/plans`, `/billing/discounts` и workspace-scoped проверка
+  статуса платежа. Storage add-on остаётся fail-closed до approved price
+  version, а usage UI явно сообщает stale/unavailable projection.
 - Ошибка промокода теперь сохраняет безопасный нормализованный ввод на пять
   минут в HttpOnly cookie без попадания кода в URL/referrer; copy-кнопки
   платежей и реферальной ссылки получили keyboard-safe clipboard fallback и

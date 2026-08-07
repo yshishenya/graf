@@ -25,7 +25,11 @@ from twobrain_rec_server.billing.usage import (
     SourceRange,
     moscow_window_for,
 )
-from twobrain_rec_server.cabinet.web_routes.billing import trial_remaining_label, trial_surface
+from twobrain_rec_server.cabinet.web_routes.billing import (
+    trial_phase,
+    trial_remaining_label,
+    trial_surface,
+)
 
 
 def test_catalog_uses_exact_launch_capacities_and_thresholds() -> None:
@@ -92,6 +96,13 @@ def test_trial_surface_exposes_exact_moscow_end_and_expired_state() -> None:
         now=now,
     )
     assert expired is True
+
+
+def test_trial_phase_keeps_the_last_24_hours_visible() -> None:
+    ends_at = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
+    assert trial_phase(trial_ends_at=ends_at, now=datetime(2026, 8, 6, 12, 0, tzinfo=UTC)) == "t_minus_3"
+    assert trial_phase(trial_ends_at=ends_at, now=datetime(2026, 8, 8, 12, 0, tzinfo=UTC)) == "t_minus_1"
+    assert trial_phase(trial_ends_at=ends_at, now=ends_at) is None
 
 
 def test_free_ledger_deduplicates_ranges_and_keeps_reservation_window() -> None:

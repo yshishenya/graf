@@ -14,7 +14,7 @@ class BillingEmergencyStop(RuntimeError):
     pass
 
 
-CHECKOUT_BLOCKING_STATES = frozenset({"scheduled", "provider_pending", "unknown"})
+CHECKOUT_BLOCKING_STATES = frozenset({"scheduled", "provider_pending", "unknown", "method_required"})
 
 
 def blocks_new_checkout(operation_state: str) -> bool:

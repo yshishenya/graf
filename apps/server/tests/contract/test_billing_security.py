@@ -17,6 +17,9 @@ from twobrain_rec_server.product_analytics.page_inventory import get_page_class_
 
 FINANCIAL_PAGE_CLASSES = (
     "billing_overview",
+    "billing_plans",
+    "billing_discounts",
+    "billing_checkout_status",
     "billing_usage",
     "billing_subscription",
     "billing_payment_method",

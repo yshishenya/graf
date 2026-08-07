@@ -44,7 +44,7 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Latest local evidence (2026-08-07)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 1012 server tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1013 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
 - Focused billing/account/storage/accessibility/security/UI contracts: PASS;
   latest boundary suite: 43 tests; separate disposable-PostgreSQL lifecycle

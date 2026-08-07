@@ -170,7 +170,8 @@
   как non-authoritative estimates.
 - **Evidence**: current v5 successful package содержит `manifest.json`,
   `meeting-review.m4a` и один `meeting-transcription.wav`; failed package может
-  иметь только manifest. Measured playback ≈29.4 MB/h; поэтому 250 MB≈8.5h,
+  иметь только manifest. Internal provisional playback estimate ≈29.4 MB/h;
+  reproducible benchmark evidence is still required. Поэтому 250 MB≈8.5h,
   500 MB≈17h, 2 GB≈68.1h. Transcription WAV ≈115.2 MB/h, но его customer quota
   contribution = 0; он остаётся lifecycle-accounted recovery artifact.
 - **Decision**: accepted deletion/account-close finalization немедленно убирает

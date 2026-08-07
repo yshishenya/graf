@@ -24,6 +24,9 @@ def test_every_billing_screen_keeps_payment_help_after_the_primary_panel() -> No
         "billing_checkout_content.html",
         "billing_history_content.html",
         "billing_invoice_content.html",
+        "billing_plans_content.html",
+        "billing_discounts_content.html",
+        "billing_operation_status_content.html",
     ):
         html = (TEMPLATE_ROOT / name).read_text(encoding="utf-8")
         assert "Нужна помощь с оплатой?" in html
