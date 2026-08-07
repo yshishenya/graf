@@ -31,6 +31,8 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
     assert "250 000 000 байт" in html
     assert "только письмом" in html
     assert "автоматической заявки" in html
+    assert "/billing/payment-method" in html
+    assert "/billing/storage" in html
 
 
 def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> None:
@@ -87,3 +89,31 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
     assert 'name="recurring_consent"' in html
     assert "required" in html
     assert "регулярное списание" in html
+
+
+def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:
+    common = {
+        "embedded": False,
+        "settings_navigation": settings_category_navigation(active="billing"),
+        "settings_active": "billing",
+    }
+    method_html = render_template(
+        "cabinet/pages/billing_payment_method_content.html",
+        **common,
+        method_label="•••• 4242",
+        method_kind="bank_card",
+        billing_enabled=True,
+    )
+    storage_html = render_template(
+        "cabinet/pages/billing_storage_content.html",
+        **common,
+        current_capacity=2_000_000_000,
+        addon_options=(5_000_000_000, 20_000_000_000),
+        eligible=True,
+        billing_enabled=True,
+    )
+    assert "•••• 4242" in method_html
+    assert "Данные карты не проходят через GRAF" in method_html
+    assert "meeting-review.m4a" in storage_html
+    assert "Исходный WAV" in storage_html
+    assert "Увеличить до 5000000000 байт" in storage_html

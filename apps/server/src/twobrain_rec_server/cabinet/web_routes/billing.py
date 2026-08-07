@@ -47,6 +47,7 @@ from twobrain_rec_server.db.models import (
     BillingAuditEvent,
     BillingInvoice,
     BillingOperation,
+    BillingPaymentMethod,
     FreeUsageWindow,
     StorageReservation,
     TrialActivation,
@@ -263,6 +264,71 @@ async def billing_subscription_page(
         subscription=subscription,
         active=active,
         result=request.query_params.get("result"),
+    )
+    return cabinet_html_response(content)
+
+
+@router.get("/billing/payment-method", response_class=HTMLResponse, include_in_schema=False)
+async def billing_payment_method_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    method = None
+    if db is not None:
+        method = await db.scalar(
+            select(BillingPaymentMethod).where(
+                BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+                BillingPaymentMethod.owner_user_id == principal.user_id,
+                BillingPaymentMethod.is_default.is_(True),
+                BillingPaymentMethod.state == "active",
+            )
+        )
+    content = _page_shell(
+        "Способ оплаты",
+        embedded=False,
+        active_nav="settings",
+        settings_active="billing",
+        csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
+        product_analytics_provider=build_request_browser_provider_context(
+            request, "billing_payment_method", principal=principal, tenant_scope=tenant_scope
+        ),
+        content_template="cabinet/pages/billing_payment_method_content.html",
+        method_label=method.masked_label if method is not None else None,
+        method_kind=method.kind if method is not None else None,
+        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+    )
+    return cabinet_html_response(content)
+
+
+@router.get("/billing/storage", response_class=HTMLResponse, include_in_schema=False)
+async def billing_storage_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    subscription = None
+    if db is not None:
+        subscription = await db.scalar(
+            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+        )
+    current_capacity = subscription.capacity_bytes if subscription is not None else FREE_STORAGE_BYTES
+    content = _page_shell(
+        "Увеличение хранилища",
+        embedded=False,
+        active_nav="settings",
+        settings_active="billing",
+        csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
+        product_analytics_provider=build_request_browser_provider_context(
+            request, "billing_storage_addons", principal=principal, tenant_scope=tenant_scope
+        ),
+        content_template="cabinet/pages/billing_storage_content.html",
+        current_capacity=current_capacity,
+        addon_options=(5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000),
+        eligible=subscription is not None and subscription.plan_code == "personal",
+        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
     )
     return cabinet_html_response(content)
 
