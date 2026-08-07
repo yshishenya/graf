@@ -218,6 +218,10 @@ class Settings(BaseSettings):
     retention_meeting_delete_after_days: PositiveInt | None = Field(default=365)
     retention_backup_expiry_days: PositiveInt | None = Field(default=30)
     retention_local_buffer_expiry_days: PositiveInt | None = Field(default=7)
+    # Normal transcription-source purge is opt-in until product/privacy/legal
+    # approve a concrete recovery policy; missing configuration is fail-closed.
+    retention_source_audio_days: PositiveInt | None = Field(default=None)
+    retention_source_audio_policy_version: str = "unconfigured"
     auth_storage_region_tag: str = "ru"
     auth_ru_local_storage_attested: bool = False
 
@@ -367,6 +371,15 @@ class Settings(BaseSettings):
         if value < 90:
             raise ValueError("product_analytics_retention_min_days must be at least 90")
         return value
+
+    @model_validator(mode="after")
+    def validate_source_retention_safety(self) -> "Settings":
+        if self.retention_source_audio_days is not None and (
+            not self.retention_source_audio_policy_version.strip()
+            or self.retention_source_audio_policy_version == "unconfigured"
+        ):
+            raise ValueError("source audio retention requires an explicit policy version")
+        return self
 
     @model_validator(mode="after")
     def validate_playback_normalization_safety(self) -> "Settings":

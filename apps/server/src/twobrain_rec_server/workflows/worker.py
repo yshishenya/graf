@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from html import escape
 from typing import Any
@@ -56,6 +56,7 @@ from twobrain_rec_server.deletion.local_purge import reconcile_expired_local_pur
 from twobrain_rec_server.deletion.service import (
     fanout_account_close_deletions,
     reconcile_deletion_purges,
+    reconcile_source_retention_purges,
     reconcile_transient_media_purges,
 )
 from twobrain_rec_server.domain.statuses import ProcessingStatus
@@ -770,6 +771,17 @@ async def run_deletion_purge_reconciler(settings: Any, temporal_client: object) 
                         storage=storage,
                         limit=20,
                     )
+                    if settings.retention_source_audio_days is not None:
+                        await reconcile_source_retention_purges(
+                            db,
+                            storage=storage,
+                            retention_period=timedelta(
+                                days=settings.retention_source_audio_days
+                            ),
+                            policy_version=settings.retention_source_audio_policy_version,
+                            backup_expiry_days=settings.retention_backup_expiry_days,
+                            limit=20,
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Form, Request
@@ -83,6 +84,28 @@ from twobrain_rec_server.product_analytics.browser_context import (
 
 router = APIRouter(tags=["cabinet-web"])
 
+MOSCOW = ZoneInfo("Europe/Moscow")
+
+
+def trial_surface(
+    *,
+    raw_plan_code: str,
+    effective_plan_code_value: str,
+    trial_ends_at: datetime | None,
+    now: datetime,
+) -> tuple[int | None, str | None, bool]:
+    """Return days-left, exact Moscow end label and the expired-trial state."""
+    if trial_ends_at is None:
+        return None, None, False
+    end_label = trial_ends_at.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)")
+    expired = raw_plan_code == "trial" and trial_ends_at <= now and effective_plan_code_value == "free"
+    days_left = (
+        max(0, (trial_ends_at.date() - now.date()).days)
+        if effective_plan_code_value == "trial"
+        else None
+    )
+    return days_left, end_label, expired
+
 
 @router.get("/billing", response_class=HTMLResponse, include_in_schema=False)
 async def billing_overview_page(
@@ -108,9 +131,20 @@ async def billing_overview_page(
         trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
     )
     plan = plan_descriptor(plan_code)  # type: ignore[arg-type]
-    trial_days_left = None
-    if plan_code == "trial" and subscription is not None and subscription.trial_ends_at is not None:
-        trial_days_left = max(0, (subscription.trial_ends_at.date() - now.date()).days)
+    trial_eligible = False
+    if db is not None and plan_code == "free":
+        trial_eligible = (
+            await db.scalar(
+                select(TrialActivation.id).where(TrialActivation.user_id == principal.user_id)
+            )
+            is None
+        )
+    trial_days_left, trial_ends_at_label, trial_expired = trial_surface(
+        raw_plan_code=raw_plan_code,
+        effective_plan_code_value=plan_code,
+        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
+        now=now,
+    )
     effective_capacity = (
         subscription.capacity_bytes
         if subscription is not None and plan_code in {"trial", "personal"}
@@ -175,6 +209,9 @@ async def billing_overview_page(
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         trial_result=trial_result,
         trial_days_left=trial_days_left,
+        trial_ends_at_label=trial_ends_at_label,
+        trial_expired=trial_expired,
+        trial_eligible=trial_eligible,
         billing_result=billing_result,
     )
     return cabinet_html_response(content)
@@ -263,11 +300,11 @@ async def billing_usage_page(
     processing_used = 0
     processing_reserved = 0
     reserved_bytes = 0
+    window_start, window_end = moscow_window_for(now)
     if db is not None:
         subscription = await db.scalar(
             select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
         )
-        window_start, _ = moscow_window_for(now)
         window = await db.scalar(
             select(FreeUsageWindow).where(
                 FreeUsageWindow.workspace_id == tenant_scope.workspace_id,
@@ -294,6 +331,14 @@ async def billing_usage_page(
         paid_through=subscription.paid_through if subscription is not None else None,
         trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
     )
+    trial_eligible = False
+    if db is not None and plan_code == "free":
+        trial_eligible = (
+            await db.scalar(
+                select(TrialActivation.id).where(TrialActivation.user_id == principal.user_id)
+            )
+            is None
+        )
     if subscription is not None and plan_code in {"trial", "personal"}:
         capacity = subscription.capacity_bytes
     if db is not None:
@@ -316,6 +361,12 @@ async def billing_usage_page(
         processing_used_label=format_duration(processing_used),
         free_processing_limit_label=format_duration(FREE_PROCESSING_SECONDS),
         processing_threshold=classify_free_processing(committed_seconds=processing_used),
+        processing_remaining=max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved),
+        processing_remaining_label=format_duration(
+            max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved)
+        ),
+        processing_reset_at_label=window_end.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)"),
+        trial_eligible=trial_eligible,
         processing_unlimited=plan_code in {"trial", "personal"},
         storage_used=projection.used_bytes,
         storage_reserved=projection.reserved_bytes,

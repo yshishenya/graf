@@ -34,7 +34,13 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _csrf_token_for_principal,
 )
-from twobrain_rec_server.db.models import AuthSession, BillingNotificationPreference, UserIdentity
+from twobrain_rec_server.db.models import (
+    AuthSession,
+    AuthSessionDeviceBinding,
+    BillingNotificationPreference,
+    RegisteredDevice,
+    UserIdentity,
+)
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
@@ -45,6 +51,7 @@ WorkspaceOfferResultQuery = Query(default=None, max_length=24, alias="workspace_
 WorkspaceSwitchResultQuery = Query(default=None, max_length=24, alias="space_switch")
 ProviderLinkResultQuery = Query(default=None, max_length=48, alias="provider_link")
 DeviceRevokeResultQuery = Query(default=None, max_length=24, alias="device_revoke")
+SessionResultQuery = Query(default=None, max_length=24, alias="session")
 NotificationResultQuery = Query(default=None, max_length=24, alias="notification")
 AccountCloseResultQuery = Query(default=None, max_length=24, alias="account_close")
 ProfileResultQuery = Query(default=None, max_length=24, alias="profile")
@@ -62,6 +69,7 @@ async def _render_settings(
     space_switch: str | None = None,
     provider_link: str | None = None,
     device_revoke: str | None = None,
+    session: str | None = None,
     notification: str | None = None,
     account_close: str | None = None,
     profile: str | None = None,
@@ -117,6 +125,7 @@ async def _render_settings(
             account_surface=account_surface,
             provider_link_result=provider_link,
             device_revoke_result=device_revoke,
+            session_result=session,
             notification_result=notification,
             account_close_result=account_close,
             profile_result=profile,
@@ -212,6 +221,7 @@ async def settings_account_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
     profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -226,6 +236,7 @@ async def settings_account_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        session=session,
         profile=profile,
     )
 
@@ -347,6 +358,106 @@ async def _revoke_account_session(
     await db.commit()
 
 
+async def _revoke_other_account_sessions(
+    db: AsyncSession,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+) -> int:
+    sessions = list(
+        await db.scalars(
+            select(AuthSession)
+            .where(
+                AuthSession.workspace_id == tenant_scope.workspace_id,
+                AuthSession.user_id == principal.user_id,
+                AuthSession.status == "active",
+                AuthSession.id != tenant_scope.auth_session_id,
+            )
+            .with_for_update()
+        )
+    )
+    for session in sessions:
+        session.status = "revoked"
+    if sessions:
+        await write_auth_audit_event(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            actor_user_id=principal.user_id,
+            user_id=principal.user_id,
+            event_type="auth_sessions_revoked",
+            metadata={"scope": "other_sessions", "count": len(sessions)},
+        )
+    await db.commit()
+    return len(sessions)
+
+
+async def _revoke_other_account_devices(
+    db: AsyncSession,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+) -> tuple[int, int]:
+    devices = list(
+        await db.scalars(
+            select(RegisteredDevice)
+            .where(
+                RegisteredDevice.workspace_id == tenant_scope.workspace_id,
+                RegisteredDevice.user_id == principal.user_id,
+                RegisteredDevice.status == "active",
+                RegisteredDevice.id != tenant_scope.device_id,
+            )
+            .with_for_update()
+        )
+    )
+    device_ids = [device.id for device in devices]
+    sessions = []
+    bindings = []
+    if device_ids:
+        sessions = list(
+            await db.scalars(
+                select(AuthSession)
+                .where(
+                    AuthSession.workspace_id == tenant_scope.workspace_id,
+                    AuthSession.user_id == principal.user_id,
+                    AuthSession.status == "active",
+                    AuthSession.device_id.in_(device_ids),
+                )
+                .with_for_update()
+            )
+        )
+        bindings = list(
+            await db.scalars(
+                select(AuthSessionDeviceBinding)
+                .where(AuthSessionDeviceBinding.registered_device_id.in_(device_ids))
+                .with_for_update()
+            )
+        )
+    for device in devices:
+        device.status = "revoked"
+        device.registration_state = "revoked"
+        device.revoked_by = principal.user_id
+    for session in sessions:
+        session.status = "revoked"
+    for binding in bindings:
+        binding.device_state = "blocked"
+        binding.revocation_reason = "device_revoked"
+    if devices or sessions:
+        await write_auth_audit_event(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            actor_user_id=principal.user_id,
+            user_id=principal.user_id,
+            event_type="auth_devices_revoked",
+            metadata={
+                "scope": "other_devices",
+                "device_count": len(devices),
+                "session_count": len(sessions),
+            },
+        )
+    await db.commit()
+    return len(devices), len(sessions)
+
+
 @router.post(
     "/settings/account/profile",
     include_in_schema=False,
@@ -379,6 +490,38 @@ async def save_embedded_settings_account_profile(
         raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
     await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
     return RedirectResponse("/desktop/account/profile?profile=saved", status_code=303)
+
+
+@router.post(
+    "/settings/account/sessions/revoke-others",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_other_settings_sessions(
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/account/security?session=others_revoked", status_code=303)
+
+
+@router.post(
+    "/desktop/settings/account/sessions/revoke-others",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_other_embedded_settings_sessions(
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/desktop/account/security?session=others_revoked", status_code=303)
 
 
 @router.post(
@@ -420,6 +563,7 @@ async def account_center_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
     account_close: str | None = AccountCloseResultQuery,
     profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
@@ -436,6 +580,7 @@ async def account_center_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        session=session,
         account_close=account_close,
         profile=profile,
     )
@@ -447,6 +592,7 @@ async def account_profile_security_alias_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
     account_close: str | None = AccountCloseResultQuery,
     profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
@@ -463,6 +609,7 @@ async def account_profile_security_alias_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        session=session,
         account_close=account_close,
         profile=profile,
     )
@@ -607,6 +754,22 @@ async def cancel_embedded_account_close_page(
 
 
 @router.post(
+    "/settings/account/devices/revoke-others",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_other_settings_devices(
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_other_account_devices(db, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/account/security?device_revoke=others_revoked", status_code=303)
+
+
+@router.post(
     "/settings/account/devices/{device_id}/revoke",
     include_in_schema=False,
     dependencies=[WebCSRFDependency],
@@ -711,6 +874,7 @@ async def embedded_settings_account_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
     account_close: str | None = AccountCloseResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -725,6 +889,7 @@ async def embedded_settings_account_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        session=session,
         account_close=account_close,
     )
 
@@ -772,6 +937,7 @@ async def embedded_account_center_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
     profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -786,6 +952,7 @@ async def embedded_account_center_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        session=session,
         profile=profile,
     )
 
@@ -796,6 +963,7 @@ async def embedded_account_profile_security_alias_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
     account_close: str | None = AccountCloseResultQuery,
     profile: str | None = ProfileResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
@@ -811,6 +979,7 @@ async def embedded_account_profile_security_alias_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        session=session,
         account_close=account_close,
         profile=profile,
     )
@@ -833,6 +1002,22 @@ async def embedded_account_notifications_alias_page(
         db=db,
         notification=notification,
     )
+
+
+@router.post(
+    "/desktop/settings/account/devices/revoke-others",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_other_embedded_settings_devices(
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_other_account_devices(db, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/desktop/account/security?device_revoke=others_revoked", status_code=303)
 
 
 @router.post(

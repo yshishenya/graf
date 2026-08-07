@@ -57,6 +57,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case blockedUnknownRoute = "blocked_unknown_route"
     case openExternalSafeLink = "open_external_safe_link"
     case openBrowserOwnedBilling = "open_browser_owned_billing"
+    case openBrowserOwnedAccount = "open_browser_owned_account"
     case openBrowserOwnedAdmin = "open_browser_owned_admin"
     case invalidURL = "invalid_url"
 }
@@ -249,6 +250,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Откройте тариф и оплату в браузере."
             )
         }
+        if isBrowserOwnedAccountRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .external),
+                decision: .openExternally,
+                reason: .openBrowserOwnedAccount,
+                userMessage: "Откройте раздел аккаунта в браузере."
+            )
+        }
         if isFutureGovernanceRoute(components) {
             return block(path: path, kind: .unsupported, reason: .blockedFutureGovernance, message: "This action opens in a future browser-owned release.")
         }
@@ -418,6 +427,12 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
            tail[3] == "revoke" {
             return isSafeMeetingId(tail[2])
         }
+        if tail.count == 3,
+           tail[0] == "account",
+           ["devices", "sessions"].contains(tail[1]),
+           tail[2] == "revoke-others" {
+            return true
+        }
         if tail.count == 2, tail[0] == "provider-links" {
             return isSafeMeetingId(tail[1])
         }
@@ -476,6 +491,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         }
         if components == ["billing", "checkout", "return"] { return true }
         return components.count == 3 && components[1] == "invoices" && isSafeMeetingId(components[2])
+    }
+
+    private func isBrowserOwnedAccountRoute(_ components: [String]) -> Bool {
+        components == ["referrals"] || components == ["account", "referrals"]
     }
 
     private func isNativeCaptureControlRoute(_ components: [String]) -> Bool {

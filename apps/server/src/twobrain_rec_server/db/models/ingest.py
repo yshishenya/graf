@@ -180,6 +180,23 @@ class TrackArtifact(Base):
     derivation_kind: Mapped[str | None] = mapped_column(String(64))
     source_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64))
     validation_version: Mapped[str | None] = mapped_column(String(80))
+    # Current v5 ``media`` and legacy ``microphone``/``system`` sources are
+    # lifecycle-accounted but never customer-quota chargeable.  Playback
+    # verification and transcript import are independent retention gates.
+    source_lifecycle_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="not_source"
+    )
+    source_transcript_imported_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    source_playback_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    source_retention_policy_version: Mapped[str | None] = mapped_column(String(120))
+    source_retention_purge_due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    source_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

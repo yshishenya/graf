@@ -10,9 +10,10 @@
         <h1>Аккаунт и безопасность</h1>
       </div>
     </header>
-    {{ account_ui.navigation(embedded=embedded, active=account_active) }}
+    {{ account_ui.navigation(embedded=embedded, active=account_active, csrf_token=csrf_token) }}
     {% if provider_link_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_link_result }}</p>{% endif %}
     {% if device_revoke_result %}<p class="settings-status" role="status" aria-live="polite">{{ device_revoke_result }}</p>{% endif %}
+    {% if session_result %}<p class="settings-status" role="status" aria-live="polite">{{ session_result }}</p>{% endif %}
     {% if account_close_result %}<p class="settings-status" role="status" aria-live="polite">{{ account_close_result }}</p>{% endif %}
     {% if account_surface.unavailable %}
     <section class="settings-section settings-unavailable-card" role="status" aria-live="polite"><h2>Данные аккаунта временно недоступны</h2><p class="muted">Попробуйте обновить страницу. Пока данные не загружены, мы не показываем частичную или непроверенную информацию.</p></section>
@@ -67,7 +68,11 @@
     <noscript><p class="settings-status" role="status">Настройки аккаунта работают без JavaScript: отправка форм откроет страницу с результатом.</p></noscript>
 
     <section class="settings-section cabinet-card" aria-labelledby="account-devices-title">
-      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-devices-title">Зарегистрированные устройства</h2><p class="muted">Список показывает только безопасные метаданные. Текущее устройство нельзя отозвать из этой страницы.</p></div></div>
+      <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-devices-title">Зарегистрированные устройства</h2><p class="muted">Список показывает только безопасные метаданные. Кнопка ниже завершит доступ на остальных устройствах, текущее устройство останется активным.</p></div></div>
+      <form class="settings-actions" action="{{ '/desktop/settings/account/devices/revoke-others' if embedded else '/settings/account/devices/revoke-others' }}" method="post">
+        {{ sections.csrf_field(csrf_token) }}
+        <button class="button quiet" type="submit" data-confirm="Выйти на всех остальных устройствах?">Выйти на всех устройствах</button>
+      </form>
       {% if account_surface.devices %}
       <ul class="settings-choice-list" aria-label="Зарегистрированные устройства">
         {% for device in account_surface.devices %}
@@ -83,10 +88,14 @@
     </section>
     <section class="settings-section cabinet-card" aria-labelledby="account-sessions-title">
       <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-sessions-title">Активные сессии</h2><p class="muted">Отозванная сессия теряет доступ. Текущую сессию можно завершить через «Выйти».</p></div></div>
+      <form class="settings-actions" action="{{ '/desktop/settings/account/sessions/revoke-others' if embedded else '/settings/account/sessions/revoke-others' }}" method="post">
+        {{ sections.csrf_field(csrf_token) }}
+        <button class="button quiet" type="submit" data-confirm="Завершить остальные сеансы?">Завершить остальные сеансы</button>
+      </form>
       {% if account_surface.sessions %}
       <ul class="settings-choice-list" aria-label="Активные сессии">
         {% for session in account_surface.sessions %}
-        <li class="settings-choice-row"><div><strong>{{ session.provider_label }}{% if session.current %} · Текущая сессия{% endif %}</strong><span class="muted">{{ session.status_label }}{% if session.last_seen_at %} · Последняя активность: {{ session.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>{% if session.can_revoke %}<form action="{{ '/desktop/settings/account/sessions/' if embedded else '/settings/account/sessions/' }}{{ session.session_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отозвать эту сессию?">Отозвать</button></form>{% endif %}</li>
+        <li class="settings-choice-row"><div><strong>{{ session.provider_label }}{% if session.current %} · Текущая сессия{% endif %}</strong><span class="muted">{{ session.status_label }}{% if session.last_seen_at %} · Последняя активность: {{ session.last_seen_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>{% if session.can_revoke %}<form action="{{ '/desktop/settings/account/sessions/' if embedded else '/settings/account/sessions/' }}{{ session.session_id }}/revoke" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Завершить этот сеанс?">Завершить сеанс</button></form>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Активных сессий не найдено.</p>{% endif %}

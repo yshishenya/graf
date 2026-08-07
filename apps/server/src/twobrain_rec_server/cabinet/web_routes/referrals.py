@@ -30,6 +30,7 @@ router = APIRouter(tags=["cabinet-web"])
 
 
 @router.get("/referrals", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/account/referrals", response_class=HTMLResponse, include_in_schema=False)
 async def referrals_page(
     request: Request,
     tenant_scope: TenantScope = WebTenantDependency,

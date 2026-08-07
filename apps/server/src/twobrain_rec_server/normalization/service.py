@@ -19,6 +19,10 @@ from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.source_lifecycle import (
+    clear_source_playback_verification,
+    mark_source_playback_verified,
+)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     MediaRevision,
@@ -2858,6 +2862,13 @@ async def publish_uploaded_attempt(
             )
         )
     )
+    if prior_playback:
+        await clear_source_playback_verification(
+            db,
+            workspace_id=job.workspace_id,
+            meeting_id=job.meeting_id,
+            media_revision_id=job.media_revision_id,
+        )
     for artifact in prior_playback:
         _supersede_playback_artifact(artifact)
     canonical = TrackArtifact(
@@ -2882,6 +2893,13 @@ async def publish_uploaded_attempt(
     db.add(canonical)
     await db.flush()
     publication_time = datetime.now(UTC)
+    await mark_source_playback_verified(
+        db,
+        workspace_id=job.workspace_id,
+        meeting_id=job.meeting_id,
+        media_revision_id=job.media_revision_id,
+        verified_at=publication_time,
+    )
     ensure_attempt_transition(AttemptState.UPLOADED, AttemptState.PUBLISHED)
     attempt.state = AttemptState.PUBLISHED.value
     attempt.published_track_artifact_id = canonical.id
@@ -2903,6 +2921,8 @@ async def publish_uploaded_attempt(
         "audio_stream_count": attempt.source_audio_stream_count,
         "full_decode_passed": bool(attempt.full_decode_passed),
         "moov_before_mdat": bool(attempt.moov_before_mdat),
+        "output_byte_length": attempt.output_byte_length,
+        "canonical_byte_length": canonical.byte_length,
     }
     _add_job_audit_event(
         db,

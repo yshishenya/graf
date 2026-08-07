@@ -16,7 +16,16 @@ from twobrain_rec_server.api.schemas import (
     DeletionVerificationReport,
     LocalPurgeTask,
 )
-from twobrain_rec_server.billing.storage import logically_release_playback_quota
+from twobrain_rec_server.billing.source_lifecycle import (
+    SOURCE_TRACK_ROLES,
+    SourceLifecycleState,
+    source_cogs_evidence,
+    source_lifecycle_state_for_gates,
+)
+from twobrain_rec_server.billing.storage import (
+    CANONICAL_PLAYBACK_PROFILE,
+    logically_release_playback_quota,
+)
 from twobrain_rec_server.calendar.lifecycle import account_meeting_calendar_context_deletion
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -1007,6 +1016,10 @@ async def reconcile_transient_media_purges(
 
         for artifact in artifacts:
             artifact.status = "purged"
+            if artifact.track_role in SOURCE_TRACK_ROLES:
+                artifact.source_lifecycle_state = SourceLifecycleState.PURGED.value
+                artifact.source_purged_at = now
+                artifact.source_retention_purge_due_at = None
             if artifact.track_role == TrackRole.PLAYBACK.value:
                 artifact.normalization_profile_version = None
                 artifact.validated_at = None
@@ -1044,6 +1057,204 @@ async def reconcile_transient_media_purges(
         workflow.transient_purged_at = now
         await db.commit()
         purged += 1
+    return purged
+
+
+async def reconcile_source_retention_purges(
+    db: AsyncSession,
+    *,
+    storage: object | None,
+    retention_period: timedelta | None,
+    policy_version: str,
+    backup_expiry_days: int | None,
+    now: datetime | None = None,
+    limit: int = 20,
+) -> int:
+    """Purge current/legacy transcription sources only after both gates.
+
+    This worker is intentionally fail-closed: an absent/invalid policy, a
+    missing gate, a deleted/deleting meeting or an invalid byte count leaves
+    the source recoverable.  Accepted deletion is handled by the mandatory
+    meeting purge path and therefore takes precedence over this scan.
+    """
+
+    if retention_period is None or retention_period <= timedelta(0) or not policy_version.strip():
+        return 0
+    now = now or datetime.now(UTC)
+    candidate_ids = tuple(
+        await db.scalars(
+            select(TrackArtifact.id)
+            .where(
+                TrackArtifact.track_role.in_(tuple(SOURCE_TRACK_ROLES)),
+                TrackArtifact.status.not_in({"purged", "deleted"}),
+                TrackArtifact.source_lifecycle_state != SourceLifecycleState.PURGED.value,
+            )
+            .order_by(TrackArtifact.created_at.asc(), TrackArtifact.id.asc())
+            .limit(max(1, min(limit, 100)))
+        )
+    )
+    purged = 0
+    for artifact_id in candidate_ids:
+        meeting = await db.scalar(
+            select(Meeting)
+            .join(TrackArtifact, TrackArtifact.meeting_id == Meeting.id)
+            .where(TrackArtifact.id == artifact_id)
+            .with_for_update(of=Meeting)
+            .execution_options(populate_existing=True)
+        )
+        if meeting is None or meeting.deleted_at is not None or (
+            meeting.deletion_state or DeletionState.NONE.value
+        ) != DeletionState.NONE.value:
+            continue
+        candidate_artifact = await db.scalar(
+            select(TrackArtifact).where(
+                TrackArtifact.id == artifact_id,
+                TrackArtifact.workspace_id == meeting.workspace_id,
+            )
+        )
+        if candidate_artifact is None:
+            continue
+        # Match deletion/normalization lock order: Meeting -> job -> source
+        # artifact.  This prevents a retention scan from racing publication.
+        await db.scalars(
+            select(PlaybackNormalizationJob)
+            .where(
+                PlaybackNormalizationJob.workspace_id == meeting.workspace_id,
+                PlaybackNormalizationJob.meeting_id == meeting.id,
+                (
+                    PlaybackNormalizationJob.media_revision_id
+                    == candidate_artifact.media_revision_id
+                    if candidate_artifact.media_revision_id is not None
+                    else PlaybackNormalizationJob.media_revision_id.is_(None)
+                ),
+            )
+            .with_for_update()
+        )
+        artifact = await db.scalar(
+            select(TrackArtifact)
+            .where(
+                TrackArtifact.id == artifact_id,
+                TrackArtifact.workspace_id == meeting.workspace_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if (
+            artifact is None
+            or artifact.track_role not in SOURCE_TRACK_ROLES
+            or artifact.status in {"purged", "deleted"}
+            or artifact.source_lifecycle_state == SourceLifecycleState.PURGED.value
+        ):
+            continue
+        active_playback = await db.scalar(
+            select(TrackArtifact.id).where(
+                TrackArtifact.workspace_id == artifact.workspace_id,
+                TrackArtifact.meeting_id == artifact.meeting_id,
+                (
+                    TrackArtifact.media_revision_id == artifact.media_revision_id
+                    if artifact.media_revision_id is not None
+                    else TrackArtifact.media_revision_id.is_(None)
+                ),
+                TrackArtifact.track_role == TrackRole.PLAYBACK.value,
+                TrackArtifact.status == "stored",
+                TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE,
+                TrackArtifact.validated_at.is_not(None),
+            )
+        )
+        if active_playback is None:
+            artifact.source_playback_verified_at = None
+            artifact.source_retention_policy_version = None
+            artifact.source_retention_purge_due_at = None
+            artifact.source_lifecycle_state = SourceLifecycleState.RECOVERABLE.value
+            continue
+
+        state, deadline = source_lifecycle_state_for_gates(
+            transcript_imported_at=artifact.source_transcript_imported_at,
+            playback_verified_at=artifact.source_playback_verified_at,
+            now=now,
+            retention_period=retention_period,
+        )
+        artifact.source_retention_policy_version = policy_version
+        artifact.source_retention_purge_due_at = deadline
+        if state is not SourceLifecycleState.PURGE_DUE:
+            artifact.source_lifecycle_state = state.value
+            continue
+        if artifact.byte_length <= 0 or not artifact.storage_object_key:
+            artifact.source_lifecycle_state = SourceLifecycleState.RECOVERABLE.value
+            artifact.source_retention_purge_due_at = None
+            continue
+
+        artifact.source_lifecycle_state = SourceLifecycleState.PURGE_PENDING.value
+        journal = await db.scalar(
+            select(PurgeJournal)
+            .where(
+                PurgeJournal.workspace_id == artifact.workspace_id,
+                PurgeJournal.meeting_id == artifact.meeting_id,
+                PurgeJournal.artifact_class == "source_retention",
+                PurgeJournal.object_key == artifact.storage_object_key,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if journal is None:
+            journal = PurgeJournal(
+                workspace_id=artifact.workspace_id,
+                meeting_id=artifact.meeting_id,
+                artifact_class="source_retention",
+                object_key=artifact.storage_object_key,
+                state="pending",
+                safe_reason="source_retention_gate_passed",
+            )
+            db.add(journal)
+            await _flush_or_fail_closed(db)
+        journal.metadata_json = source_cogs_evidence(
+            byte_length=artifact.byte_length,
+            policy_version=policy_version,
+            backup_expiry_days=backup_expiry_days,
+        )
+        if journal.state == "terminal_unknown":
+            continue
+        if journal.state == "purged":
+            journal.state = "pending"
+            journal.attempt_count = 0
+            journal.completed_at = None
+            journal.next_retry_at = None
+            journal.safe_reason = "source_object_reintroduced"
+        if journal.state == "retryable_failed" and journal.next_retry_at is not None and journal.next_retry_at > now:
+            continue
+        _ensure_storage_delete_capability(storage)
+        journal.state = "deleting"
+        journal.attempt_count += 1
+        journal.started_at = now
+        journal.next_retry_at = now + timedelta(seconds=STORAGE_CALL_TIMEOUT_SECONDS)
+        await _flush_or_fail_closed(db)
+        try:
+            if await _storage_object_exists(storage, artifact.storage_object_key):
+                await _delete_storage_object(storage, artifact.storage_object_key)
+                if await _storage_object_exists(storage, artifact.storage_object_key):
+                    raise RuntimeError("source_storage_delete_unverified")
+        except Exception:
+            journal.state = "retryable_failed"
+            journal.safe_reason = "source_storage_delete_failed"
+            journal.next_retry_at = now + timedelta(
+                seconds=min(3600, 15 * (2 ** min(journal.attempt_count - 1, 8)))
+            )
+            artifact.source_lifecycle_state = SourceLifecycleState.PURGE_PENDING.value
+            await db.commit()
+            continue
+        journal.state = "purged"
+        journal.completed_at = now
+        journal.next_retry_at = None
+        journal.safe_reason = "source_object_deleted_verified"
+        artifact.status = "purged"
+        artifact.source_lifecycle_state = SourceLifecycleState.PURGED.value
+        artifact.source_purged_at = now
+        artifact.source_retention_purge_due_at = None
+        await db.commit()
+        purged += 1
+    # Persist deadline recomputation/reopen and terminal-journal evidence even
+    # when no object was eligible for physical deletion in this scan.
+    await db.commit()
     return purged
 
 
@@ -1656,6 +1867,10 @@ async def _purge_server_controlled_content(
 
     for artifact in artifacts:
         artifact.status = "purged"
+        if artifact.track_role in SOURCE_TRACK_ROLES:
+            artifact.source_lifecycle_state = SourceLifecycleState.PURGED.value
+            artifact.source_purged_at = now
+            artifact.source_retention_purge_due_at = None
         if artifact.track_role == "playback":
             artifact.normalization_profile_version = None
             artifact.validated_at = None

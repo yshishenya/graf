@@ -1,9 +1,8 @@
 """Lifecycle decisions for transcription sources and no-archive processing.
 
-This module is deliberately storage-provider agnostic.  The database/object-store
-workers persist the returned timestamps and states; keeping the cutoff rules in a
-small pure module makes retries, Temporal replays and maintenance scans use the
-same decision without relying on wall-clock arithmetic in individual workers.
+The cutoff rules stay small and pure so retries, Temporal replays and
+maintenance scans use the same decision without duplicating wall-clock logic.
+The gate writers use lazy database imports and never touch an object store.
 """
 
 from __future__ import annotations
@@ -11,6 +10,20 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+SOURCE_RETENTION_POLICY_UNCONFIGURED = "unconfigured"
+SOURCE_TRACK_ROLES = frozenset({"media", "microphone", "system"})
+SOURCE_TRACK_FILENAMES = frozenset({
+    "meeting-transcription.wav",
+    "mic.wav",
+    "incoming.wav",
+})
 
 TRANSIENT_PURGE_AFTER = timedelta(minutes=15)
 TRANSIENT_HARD_LIFETIME = timedelta(hours=24)
@@ -25,6 +38,16 @@ class TransientMediaState(StrEnum):
     PROCESSING = "processing"
     TERMINAL = "terminal"
     PURGE_DUE = "purge_due"
+    PURGED = "purged"
+
+
+class SourceLifecycleState(StrEnum):
+    """Persisted state for current/legacy transcription source artifacts."""
+
+    NOT_SOURCE = "not_source"
+    RECOVERABLE = "recoverable"
+    PURGE_DUE = "purge_due"
+    PURGE_PENDING = "purge_pending"
     PURGED = "purged"
 
 
@@ -157,6 +180,177 @@ def source_retention_purge_due(
     return deadline is not None and now >= deadline
 
 
+def source_lifecycle_state_for_gates(
+    *,
+    transcript_imported_at: datetime | None,
+    playback_verified_at: datetime | None,
+    now: datetime,
+    retention_period: timedelta | None,
+) -> tuple[SourceLifecycleState, datetime | None]:
+    """Derive a fail-closed state and deadline from the two retention gates.
+
+    ``None`` retention configuration intentionally keeps the source recoverable;
+    normal source deletion is never enabled by an implicit default.
+    """
+
+    _require_aware(now)
+    if transcript_imported_at is None or playback_verified_at is None:
+        return SourceLifecycleState.RECOVERABLE, None
+    if retention_period is None:
+        return SourceLifecycleState.RECOVERABLE, None
+    deadline = source_retention_deadline(
+        transcript_imported_at=transcript_imported_at,
+        playback_verified_at=playback_verified_at,
+        retention_period=retention_period,
+    )
+    return (
+        SourceLifecycleState.PURGE_DUE if now >= deadline else SourceLifecycleState.RECOVERABLE,
+        deadline,
+    )
+
+
+def source_cogs_evidence(
+    *,
+    byte_length: int,
+    policy_version: str,
+    backup_expiry_days: int | None,
+) -> dict[str, int | str | None]:
+    """Return metadata-only accounting evidence; no estimated cost replaces bytes."""
+
+    if byte_length <= 0:
+        raise SourceLifecycleError("source byte length must be positive")
+    if not policy_version.strip():
+        raise SourceLifecycleError("source policy version is required")
+    if backup_expiry_days is not None and backup_expiry_days < 0:
+        raise SourceLifecycleError("backup expiry days cannot be negative")
+    return {
+        "actual_primary_bytes": byte_length,
+        "customer_quota_bytes": 0,
+        "backup_expiry_days": backup_expiry_days,
+        "policy_version": policy_version,
+        "cogs_status": "exact_bytes_recorded_cost_model_external",
+    }
+
+
+async def mark_source_transcript_imported(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+    imported_at: datetime,
+) -> int:
+    """Record the transcript gate for current or legacy source artifacts."""
+
+    return await _mark_source_gate(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+        imported_at=imported_at,
+        field_name="source_transcript_imported_at",
+    )
+
+
+async def mark_source_playback_verified(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+    verified_at: datetime,
+) -> int:
+    """Record the verified canonical-playback gate for source artifacts."""
+
+    return await _mark_source_gate(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+        imported_at=verified_at,
+        field_name="source_playback_verified_at",
+    )
+
+
+async def clear_source_playback_verification(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+) -> int:
+    """Reopen source recovery when its verified playback is superseded/lost."""
+
+    rows = await _source_rows(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+    changed = 0
+    for row in rows:
+        if row.source_playback_verified_at is not None:
+            row.source_playback_verified_at = None
+            row.source_retention_purge_due_at = None
+            row.source_retention_policy_version = None
+            row.source_lifecycle_state = SourceLifecycleState.RECOVERABLE.value
+            changed += 1
+    return changed
+
+
+async def _mark_source_gate(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+    imported_at: datetime,
+    field_name: str,
+) -> int:
+    _require_aware(imported_at)
+    rows = await _source_rows(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+    changed = 0
+    for row in rows:
+        if row.source_lifecycle_state == SourceLifecycleState.PURGED.value:
+            continue
+        if getattr(row, field_name) != imported_at:
+            setattr(row, field_name, imported_at)
+            changed += 1
+        if row.source_lifecycle_state == SourceLifecycleState.NOT_SOURCE.value:
+            row.source_lifecycle_state = SourceLifecycleState.RECOVERABLE.value
+    return changed
+
+
+async def _source_rows(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+) -> list[object]:
+    from sqlalchemy import select
+
+    from twobrain_rec_server.db.models import TrackArtifact
+
+    query = select(TrackArtifact).where(
+        TrackArtifact.workspace_id == workspace_id,
+        TrackArtifact.meeting_id == meeting_id,
+        TrackArtifact.track_role.in_(tuple(SOURCE_TRACK_ROLES)),
+        TrackArtifact.status.not_in({"purged", "deleted"}),
+    )
+    query = query.where(
+        TrackArtifact.media_revision_id.is_(None)
+        if media_revision_id is None
+        else TrackArtifact.media_revision_id == media_revision_id
+    )
+    return list((await db.scalars(query.with_for_update())).all())
+
+
 def _require_aware(value: datetime) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
         raise SourceLifecycleError("lifecycle timestamps must be timezone-aware")
@@ -169,10 +363,19 @@ def _replace(value: TransientMediaAdmission, **changes: object) -> TransientMedi
 __all__ = [
     "TRANSIENT_HARD_LIFETIME",
     "TRANSIENT_PURGE_AFTER",
+    "SOURCE_RETENTION_POLICY_UNCONFIGURED",
+    "SOURCE_TRACK_FILENAMES",
+    "SOURCE_TRACK_ROLES",
     "SourceLifecycleError",
+    "SourceLifecycleState",
     "TransientMediaAdmission",
     "TransientMediaState",
     "admit_transient_media",
     "source_retention_deadline",
     "source_retention_purge_due",
+    "source_lifecycle_state_for_gates",
+    "source_cogs_evidence",
+    "mark_source_transcript_imported",
+    "mark_source_playback_verified",
+    "clear_source_playback_verification",
 ]

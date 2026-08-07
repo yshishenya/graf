@@ -44,17 +44,18 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Latest local evidence (2026-08-07)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 996 server unit tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1001 server unit tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
-- Focused PostgreSQL billing RLS, migration, OpenAPI and settings contracts:
-  PASS, 40 tests.
+- Focused billing/account/storage/accessibility/security/UI contracts: PASS,
+  51 tests; separate disposable-PostgreSQL lifecycle sample: 19 tests.
 - Focused billing lifecycle, notification and subscription tests: PASS; no
   commit, push or checkout enablement was performed.
-- Public launch remains blocked by the production gates below: durable provider
-  registry/reconciliation worker, account-close and full notification flows,
-  test-shop evidence, accessibility/usability review and finance/legal approval.
+- Public launch remains blocked by the production gates below: real merchant
+  test-shop/canary evidence, accessibility/usability and live security review,
+  source-retention policy approval, Russia-first JTBD/WTP/COGS evidence and
+  finance/legal approval.
 - Cross-artifact analyze pass found no unresolved critical implementation blockers; the feature has
-  87 tasks (76 validated complete, 11 still open), including explicit product-market
+  87 tasks (78 validated complete, 9 still open), including explicit product-market
   closeout tasks T084–T087 and the remaining account, storage-lifecycle, reconciliation,
   UX/security and real test-shop tasks, so this branch is not a public-launch completion
   claim.

@@ -25,6 +25,7 @@ from twobrain_rec_server.billing.usage import (
     SourceRange,
     moscow_window_for,
 )
+from twobrain_rec_server.cabinet.web_routes.billing import trial_surface
 
 
 def test_catalog_uses_exact_launch_capacities_and_thresholds() -> None:
@@ -55,6 +56,28 @@ def test_effective_entitlement_obeys_paid_cutoff() -> None:
         paid_through=datetime(2026, 8, 7, tzinfo=UTC),
         trial_ends_at=None,
     ) == "personal"
+
+
+def test_trial_surface_exposes_exact_moscow_end_and_expired_state() -> None:
+    now = datetime(2026, 8, 6, 12, 0, tzinfo=UTC)
+    ends_at = datetime(2026, 8, 9, 12, 0, tzinfo=UTC)
+    days_left, end_label, expired = trial_surface(
+        raw_plan_code="trial",
+        effective_plan_code_value="trial",
+        trial_ends_at=ends_at,
+        now=now,
+    )
+    assert days_left == 3
+    assert end_label == "09.08.2026, 15:00 (МСК)"
+    assert expired is False
+
+    _, _, expired = trial_surface(
+        raw_plan_code="trial",
+        effective_plan_code_value="free",
+        trial_ends_at=now,
+        now=now,
+    )
+    assert expired is True
 
 
 def test_free_ledger_deduplicates_ranges_and_keeps_reservation_window() -> None:

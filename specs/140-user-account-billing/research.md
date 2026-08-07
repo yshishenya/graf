@@ -294,7 +294,7 @@
 
 Источники: [Авито Работа × МТС Линк](https://www.cnews.ru/news/line/2026-06-29_avito_rabota_i_mts_link),
 [Ведомости](https://www.vedomosti.ru/society/news/2025/08/12/1130975-svoimi-delami),
-[РБК/ТеДо](https://companies.rbc.ru/news/tnjbHt1DDx/vyipuscheno-issledovanie-rossijskogo-ryinka-instrumentov-transkribatsii/),
+[ТеДо, press-center](https://tedo.ru/press-center/news-031126),
 [AHD × Yandex B2B Tech](https://yandex.ru/company/news/25-02-2026-01).
 
 **Статус**: proxy evidence улучшает обоснование сегмента и JTBD, но T084/T085

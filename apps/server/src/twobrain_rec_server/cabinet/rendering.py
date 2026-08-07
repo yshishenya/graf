@@ -260,6 +260,7 @@ def render_settings_page(
     account_surface: cabinet_view_models.AccountSettingsSurface | None = None,
     provider_link_result: str | None = None,
     device_revoke_result: str | None = None,
+    session_result: str | None = None,
     notification_result: str | None = None,
     account_close_result: str | None = None,
     profile_result: str | None = None,
@@ -282,6 +283,7 @@ def render_settings_page(
     }.get(provider_link_result)
     device_revoke_result_copy = {
         "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
+        "others_revoked": "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным.",
         "failed": "Не удалось отозвать устройство. Попробуйте ещё раз.",
     }.get(device_revoke_result)
     content_templates = {
@@ -321,6 +323,10 @@ def render_settings_page(
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
         "provider_link_result": provider_link_result_copy,
         "device_revoke_result": device_revoke_result_copy,
+        "session_result": {
+            "revoked": "Сеанс завершён.",
+            "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
+        }.get(session_result),
         "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(notification_result),
         "account_close_result": {
             "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",

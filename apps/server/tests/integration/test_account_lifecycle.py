@@ -16,6 +16,7 @@ from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_worksp
 from twobrain_rec_server.billing.trial import require_trial_activation
 from twobrain_rec_server.db.models import (
     AccountClosureRequest,
+    AuthAuditEvent,
     AuthSession,
     AuthSessionDeviceBinding,
     RegisteredDevice,
@@ -27,7 +28,9 @@ from twobrain_rec_server.db.models import (
 )
 
 
-async def _issue_web_session(client, *, user_id: UUID, workspace_id: UUID, device_id: UUID) -> tuple[str, UUID]:
+async def _issue_web_session(
+    client, *, user_id: UUID, workspace_id: UUID, device_id: UUID
+) -> tuple[str, UUID]:
     async with client.app_state["sessionmaker"]() as db:
         issued = await issue_auth_session(
             db,
@@ -49,7 +52,11 @@ async def _issue_web_session(client, *, user_id: UUID, workspace_id: UUID, devic
 
 def _bind_web_session(client, *, token: str, session_id: UUID) -> dict[str, str]:
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, token)
-    return {"X-CSRF-Token": issue_csrf_token(session_id=session_id, secret=str(client.app.state.web_csrf_secret))}
+    return {
+        "X-CSRF-Token": issue_csrf_token(
+            session_id=session_id, secret=str(client.app.state.web_csrf_secret)
+        )
+    }
 
 
 async def _seed_personal_workspace(client) -> tuple[UUID, UUID]:
@@ -138,7 +145,9 @@ def test_trial_requires_explicit_confirmation_and_is_one_per_identity(client) ->
 
     asyncio.run(seed_other_workspace())
     token, session_id = asyncio.run(
-        _issue_web_session(client, user_id=USER_ID, workspace_id=other_workspace_id, device_id=other_device_id)
+        _issue_web_session(
+            client, user_id=USER_ID, workspace_id=other_workspace_id, device_id=other_device_id
+        )
     )
     headers = _bind_web_session(client, token=token, session_id=session_id)
     already_used = client.post(
@@ -152,7 +161,13 @@ def test_trial_requires_explicit_confirmation_and_is_one_per_identity(client) ->
 
     async def count_trials() -> int:
         async with client.app_state["sessionmaker"]() as db:
-            return len((await db.scalars(select(TrialActivation).where(TrialActivation.user_id == USER_ID))).all())
+            return len(
+                (
+                    await db.scalars(
+                        select(TrialActivation).where(TrialActivation.user_id == USER_ID)
+                    )
+                ).all()
+            )
 
     assert asyncio.run(count_trials()) == 1
 
@@ -191,7 +206,7 @@ def test_trial_expiry_projects_free_without_grace_period(client) -> None:
     asyncio.run(expire_trial())
     response = client.get("/billing")
     assert response.status_code == 200
-    assert "<h2 id=\"billing-plan-title\">Free</h2>" in response.text
+    assert '<h2 id="billing-plan-title">Free</h2>' in response.text
     assert "Пробный период активирован" not in response.text
 
 
@@ -283,6 +298,127 @@ def test_account_close_owner_cooling_cancel_and_finalization_revoke_access(clien
             assert auth_session is not None and auth_session.status == "revoked"
 
     asyncio.run(assert_revoked())
+
+
+def test_account_security_bulk_actions_revoke_only_other_sessions_and_devices(client) -> None:
+    workspace_id, current_device_id = asyncio.run(_seed_personal_workspace(client))
+    current_token, current_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=workspace_id,
+            device_id=current_device_id,
+        )
+    )
+    other_device_id = uuid4()
+    far_device_id = uuid4()
+
+    async def seed_devices() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            for device_id, label in ((other_device_id, "other"), (far_device_id, "far")):
+                db.add(
+                    RegisteredDevice(
+                        id=device_id,
+                        workspace_id=workspace_id,
+                        user_id=USER_ID,
+                        device_public_id=f"bulk-{label}-{device_id}",
+                        platform="web",
+                        client_version="test",
+                        status="active",
+                        registration_state="approved",
+                        trusted_by=USER_ID,
+                    )
+                )
+            await db.commit()
+
+    asyncio.run(seed_devices())
+    _, other_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=workspace_id,
+            device_id=other_device_id,
+        )
+    )
+    _, far_session_id = asyncio.run(
+        _issue_web_session(
+            client,
+            user_id=USER_ID,
+            workspace_id=workspace_id,
+            device_id=far_device_id,
+        )
+    )
+    headers = _bind_web_session(client, token=current_token, session_id=current_session_id)
+
+    sessions_response = client.post(
+        "/settings/account/sessions/revoke-others",
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert sessions_response.status_code == 303
+    assert sessions_response.headers["location"].endswith("session=others_revoked")
+
+    async def assert_other_sessions_revoked() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            current = await db.get(AuthSession, current_session_id)
+            other = await db.get(AuthSession, other_session_id)
+            far = await db.get(AuthSession, far_session_id)
+            audit = await db.scalar(
+                select(AuthAuditEvent)
+                .where(
+                    AuthAuditEvent.workspace_id == workspace_id,
+                    AuthAuditEvent.event_type == "auth_sessions_revoked",
+                )
+                .order_by(AuthAuditEvent.created_at.desc())
+            )
+            assert current is not None and current.status == "active"
+            assert other is not None and other.status == "revoked"
+            assert far is not None and far.status == "revoked"
+            assert audit is not None and audit.metadata_json["scope"] == "other_sessions"
+
+    asyncio.run(assert_other_sessions_revoked())
+
+    devices_response = client.post(
+        "/settings/account/devices/revoke-others",
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert devices_response.status_code == 303
+    assert devices_response.headers["location"].endswith("device_revoke=others_revoked")
+
+    async def assert_other_devices_revoked() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            current_device = await db.get(RegisteredDevice, current_device_id)
+            other_device = await db.get(RegisteredDevice, other_device_id)
+            far_device = await db.get(RegisteredDevice, far_device_id)
+            current = await db.get(AuthSession, current_session_id)
+            other_binding = await db.scalar(
+                select(AuthSessionDeviceBinding).where(
+                    AuthSessionDeviceBinding.auth_session_id == other_session_id
+                )
+            )
+            far_binding = await db.scalar(
+                select(AuthSessionDeviceBinding).where(
+                    AuthSessionDeviceBinding.auth_session_id == far_session_id
+                )
+            )
+            audit = await db.scalar(
+                select(AuthAuditEvent)
+                .where(
+                    AuthAuditEvent.workspace_id == workspace_id,
+                    AuthAuditEvent.event_type == "auth_devices_revoked",
+                )
+                .order_by(AuthAuditEvent.created_at.desc())
+            )
+            assert current_device is not None and current_device.status == "active"
+            assert other_device is not None and other_device.status == "revoked"
+            assert far_device is not None and far_device.status == "revoked"
+            assert current is not None and current.status == "active"
+            assert other_binding is not None and other_binding.device_state == "blocked"
+            assert far_binding is not None and far_binding.device_state == "blocked"
+            assert audit is not None and audit.metadata_json["scope"] == "other_devices"
+
+    asyncio.run(assert_other_devices_revoked())
 
 
 def test_trial_verification_gate_rejects_unverified_identity() -> None:

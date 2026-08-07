@@ -68,7 +68,7 @@ hypothesis до целевого теста.
 
 Источники: [Авито Работа × МТС Линк, 2026](https://www.cnews.ru/news/line/2026-06-29_avito_rabota_i_mts_link),
 [Ведомости, 2025](https://www.vedomosti.ru/society/news/2025/08/12/1130975-svoimi-delami),
-[РБК/ТеДо, рынок транскрибации](https://companies.rbc.ru/news/tnjbHt1DDx/vyipuscheno-issledovanie-rossijskogo-ryinka-instrumentov-transkribatsii/),
+[ТеДо, рынок транскрибации](https://tedo.ru/press-center/news-031126),
 [AHD × Yandex B2B Tech, 2026](https://yandex.ru/company/news/25-02-2026-01).
 
 Эти proxy-сигналы закрывают только context/evidence часть T084. Интервью,

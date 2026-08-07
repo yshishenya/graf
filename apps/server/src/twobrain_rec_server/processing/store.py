@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.billing.source_lifecycle import (
     TRANSIENT_HARD_LIFETIME,
     TRANSIENT_PURGE_AFTER,
+    mark_source_transcript_imported,
 )
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -1429,7 +1430,19 @@ async def persist_processing_result(
     existing.failure_reason = result.failure_reason
     existing.failure_source = result.failure_source
     existing.source_result_hash = source_result_hash
-    existing.imported_at = datetime.now(UTC)
+    imported_at = datetime.now(UTC)
+    existing.imported_at = imported_at
+    if (
+        result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE
+        and result.transcript
+    ):
+        await mark_source_transcript_imported(
+            db,
+            workspace_id=job.workspace_id,
+            meeting_id=job.meeting_id,
+            media_revision_id=job.media_revision_id,
+            imported_at=imported_at,
+        )
 
     for segment in result.transcript:
         db.add(

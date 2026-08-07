@@ -29,3 +29,8 @@ def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     assert "После окончания автоматически включится Free" in overview
     assert "можно запустить без сохранения аудио" in overview
     assert "Переход на «Личный» необязателен" in usage
+    assert "Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}" in usage
+    assert "Платный режим закончился" in overview
+    assert "Увеличить хранилище" in usage
+    assert "удалить старые записи" in usage
+    assert "обработать без сохранения аудио" in usage

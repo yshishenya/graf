@@ -6,8 +6,11 @@ from twobrain_rec_server.billing.source_lifecycle import (
     TRANSIENT_HARD_LIFETIME,
     TRANSIENT_PURGE_AFTER,
     SourceLifecycleError,
+    SourceLifecycleState,
     TransientMediaState,
     admit_transient_media,
+    source_cogs_evidence,
+    source_lifecycle_state_for_gates,
     source_retention_deadline,
     source_retention_purge_due,
 )
@@ -93,3 +96,47 @@ def test_source_retention_policy_reopens_when_a_gate_is_lost() -> None:
         )
     with pytest.raises(SourceLifecycleError):
         admit_transient_media(now=NOW.replace(tzinfo=None), source_bytes=1, archive_requested=False)
+
+
+def test_source_gate_state_is_fail_closed_and_reopens_after_policy_or_gate_loss() -> None:
+    state, deadline = source_lifecycle_state_for_gates(
+        transcript_imported_at=NOW,
+        playback_verified_at=None,
+        now=NOW + timedelta(days=99),
+        retention_period=timedelta(days=7),
+    )
+    assert state is SourceLifecycleState.RECOVERABLE
+    assert deadline is None
+
+    due_state, due_at = source_lifecycle_state_for_gates(
+        transcript_imported_at=NOW,
+        playback_verified_at=NOW,
+        now=NOW + timedelta(days=7),
+        retention_period=timedelta(days=7),
+    )
+    assert due_state is SourceLifecycleState.PURGE_DUE
+    assert due_at == NOW + timedelta(days=7)
+
+    unconfigured_state, unconfigured_deadline = source_lifecycle_state_for_gates(
+        transcript_imported_at=NOW,
+        playback_verified_at=NOW,
+        now=NOW + timedelta(days=30),
+        retention_period=None,
+    )
+    assert unconfigured_state is SourceLifecycleState.RECOVERABLE
+    assert unconfigured_deadline is None
+
+
+def test_source_cogs_evidence_keeps_exact_bytes_and_zero_customer_quota() -> None:
+    evidence = source_cogs_evidence(
+        byte_length=115_200_123,
+        policy_version="source-audio-v1",
+        backup_expiry_days=30,
+    )
+    assert evidence == {
+        "actual_primary_bytes": 115_200_123,
+        "customer_quota_bytes": 0,
+        "backup_expiry_days": 30,
+        "policy_version": "source-audio-v1",
+        "cogs_status": "exact_bytes_recorded_cost_model_external",
+    }

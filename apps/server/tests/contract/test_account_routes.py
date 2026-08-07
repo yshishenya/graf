@@ -6,7 +6,12 @@ from fastapi.routing import APIRoute
 
 from twobrain_rec_server.auth.account_closure import AccountCloseView
 from twobrain_rec_server.cabinet.rendering import render_settings_page
-from twobrain_rec_server.cabinet.view_models import AccountSettingsSurface
+from twobrain_rec_server.cabinet.view_models import (
+    AccountProfileView,
+    AccountProviderView,
+    AccountSettingsSurface,
+)
+from twobrain_rec_server.cabinet.web_routes.referrals import router as referrals_router
 from twobrain_rec_server.cabinet.web_routes.settings import router
 
 
@@ -22,12 +27,42 @@ def test_account_close_routes_have_browser_and_desktop_variants_with_csrf_depend
     assert ("/desktop/settings/account/close/cancel", ("POST",)) in routes
 
 
-def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:
-    paths = {
-        route.path
+def test_account_security_has_bulk_session_and_device_controls_with_browser_variants() -> None:
+    routes = {
+        (route.path, tuple(route.methods or ()))
         for route in router.routes
         if isinstance(route, APIRoute)
     }
+    assert {
+        ("/settings/account/sessions/revoke-others", ("POST",)),
+        ("/desktop/settings/account/sessions/revoke-others", ("POST",)),
+        ("/settings/account/devices/revoke-others", ("POST",)),
+        ("/desktop/settings/account/devices/revoke-others", ("POST",)),
+    } <= routes
+
+
+def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
+    page = render_settings_page(category="account", csrf_token="safe-csrf")
+
+    assert "Завершить остальные сеансы" in page
+    assert "Выйти на всех устройствах" in page
+    assert 'action="/settings/account/sessions/revoke-others"' in page
+    assert 'action="/settings/account/devices/revoke-others"' in page
+
+
+def test_account_security_renders_bulk_result_as_persistent_status() -> None:
+    page = render_settings_page(
+        category="account",
+        device_revoke_result="others_revoked",
+        session_result="others_revoked",
+    )
+
+    assert "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным." in page
+    assert "Остальные сеансы завершены. Текущая сессия остаётся активной." in page
+
+
+def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:
+    paths = {route.path for route in router.routes if isinstance(route, APIRoute)}
     assert {
         "/account/profile",
         "/account/security",
@@ -36,6 +71,67 @@ def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:
         "/desktop/account/security",
         "/desktop/account/notifications",
     } <= paths
+
+
+def test_account_menu_has_the_six_canonical_actions_and_csrf_logout_fallback() -> None:
+    page = render_settings_page(category="account", csrf_token="safe-csrf")
+
+    for label in (
+        "Профиль",
+        "Безопасность",
+        "Уведомления",
+        "Тариф и оплата",
+        "Пригласить друзей",
+        "Выйти",
+    ):
+        assert label in page
+    assert 'href="/billing"' in page
+    assert 'href="/referrals"' in page
+    assert '<form class="account-navigation__logout" method="post" action="/logout">' in page
+    assert '<input type="hidden" name="csrf_token" value="safe-csrf">' in page
+    assert '<input type="hidden" name="next" value="/login?next=/meetings">' in page
+
+
+def test_embedded_account_menu_keeps_money_and_referrals_as_browser_handoffs() -> None:
+    page = render_settings_page(embedded=True, category="account", csrf_token="embedded-csrf")
+
+    assert 'href="/billing"' in page
+    assert 'href="/referrals"' in page
+    assert (
+        '<form class="account-navigation__logout" method="post" action="/desktop/meetings">' in page
+    )
+    assert '<input type="hidden" name="next" value="/login?next=/desktop/meetings">' in page
+
+
+def test_referrals_router_exposes_account_alias_without_duplicate_business_flow() -> None:
+    paths = {route.path for route in referrals_router.routes if isinstance(route, APIRoute)}
+    assert {"/referrals", "/account/referrals"} <= paths
+
+
+def test_unverified_identity_surface_never_renders_an_unverified_email_as_login() -> None:
+    page = render_settings_page(
+        category="account",
+        account_surface=AccountSettingsSurface(
+            profile=AccountProfileView(display_name="Без имени", primary_email=None),
+            providers=(
+                AccountProviderView(
+                    provider="email",
+                    label="Email",
+                    status_label="Проверка не завершена",
+                    primary=True,
+                    connected_at=None,
+                ),
+            ),
+        ),
+    )
+
+    assert "Подтверждённый email не раскрывается в этой сессии." in page
+    assert "Проверка не завершена" in page
+    assert "Подключённых способов входа пока нет." not in page
+    assert (
+        "<input"
+        not in page.split("Подключённые способы входа", 1)[-1].split("Для безопасности", 1)[0]
+    )
 
 
 def test_account_page_explains_cooling_window_and_no_js_confirmation() -> None:

@@ -68,6 +68,7 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             "/desktop/settings/account/security",
             "/desktop/settings/account/notifications",
             "/desktop/settings/account/sessions/7f3d6f9f-0f7f-4c13-a9af-000000000033/revoke",
+            "/desktop/settings/account/sessions/revoke-others",
             "/desktop/settings/notifications",
             "/desktop/account",
             "/desktop/account/profile",
@@ -77,6 +78,7 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             "/desktop/settings/provider-links/yandex/start",
             "/desktop/settings/provider-links/7f3d6f9f-0f7f-4c13-a9af-000000000033/confirm",
             "/desktop/settings/account/devices/7f3d6f9f-0f7f-4c13-a9af-000000000033/revoke",
+            "/desktop/settings/account/devices/revoke-others",
             "/desktop/settings/spaces/7f3d6f9f-0f7f-4c13-a9af-000000000033/activate",
             "/desktop/settings/join-offers/7f3d6f9f-0f7f-4c13-a9af-000000000033/accept"
         ] {

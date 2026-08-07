@@ -13,11 +13,11 @@
 
 ## Observability
 
-Metrics: create/success/cancel by safe reason, unknown age, webhook lag/dedupe, authoritative-read failure, immediate-Free count, duplicate prevented, storage used/reserved/capacity/gap classes, transient purge deadline/missed-SLA privacy incident, fair-use review deadline/appeal state, add-on/time-credit jobs, observed provider-refund/receipt reconciliation, notice and registry gaps. No refund request/SLA/status metric exists. Alerts contain no amount/email/method/code/provider id.
+Metrics: create/success/cancel by safe reason, unknown age, webhook lag/dedupe, authoritative-read failure, immediate-Free count, duplicate prevented, storage used/reserved/capacity/gap classes, transient purge deadline/missed-SLA privacy incident, source-retention due/reopened/purged/terminal-unknown counts and exact-byte evidence gaps, fair-use review deadline/appeal state, add-on/time-credit jobs, observed provider-refund/receipt reconciliation, notice and registry gaps. No refund request/SLA/status metric exists. Alerts contain no amount/email/method/code/provider id.
 
 ## Incident lifecycle
 
-Missed transient/WAV purge, orphan lifecycle rows, quota projection mismatch
+Missed transient/source-WAV purge, source gate reopening or terminal-unknown rows, orphan lifecycle rows, quota projection mismatch
 and payment/registry gaps enter the same durable lifecycle:
 `detected → contained → owner_assigned → notified → investigating →
 resolved|accepted_risk`. A privacy or money-impacting missed deadline is
@@ -28,7 +28,7 @@ card, email or provider payload.
 
 ## Runbooks
 
-Required: provider outage/unknown/late success and 24-hour key expiry; no-grace cutoff; payment/refund registry gap; payment/refund receipt observation escalation; manual-merchant-refund observation mismatch; charge stop; secret rotation; storage reservation/TrackArtifact projection/add-on repair; transient terminal/forced purge and missed-SLA incident; fair-use create/restrict/appeal/review/clear with 24-hour escalation; time-credit correction; account close; backup/restore, migration rollback and disk-full. Product runbooks contain no refund calculation, approval or execution step.
+Required: provider outage/unknown/late success and 24-hour key expiry; no-grace cutoff; payment/refund registry gap; payment/refund receipt observation escalation; manual-merchant-refund observation mismatch; charge stop; secret rotation; storage reservation/TrackArtifact projection/add-on repair; transient/source terminal/forced purge and missed-SLA incident; source-retention gate reopen/terminal-unknown escalation; fair-use create/restrict/appeal/review/clear with 24-hour escalation; time-credit correction; account close; backup/restore, migration rollback and disk-full. Product runbooks contain no refund calculation, approval or execution step.
 
 ## Launch matrix
 
