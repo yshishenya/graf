@@ -15,12 +15,14 @@
         {% elif billing_result|default(None) == "unavailable" %}<p class="notice" role="alert">Не удалось открыть оплату. Проверьте историю платежей или повторите позже.</p>{% endif %}
         {% if plan_code == "free" %}
         <p>Обработка: <strong>{{ processing_used_label }} из {{ free_processing_limit_label }} (18 000 сек)</strong>. Платные тарифы обрабатывают встречи без лимита по времени.</p>
+        {% if processing_threshold == "approaching" %}<p class="notice" role="status" aria-live="polite">Использовано 80% месячного лимита обработки. Можно продолжить в Free или посмотреть «Личный» без лимита по минутам.</p>{% elif processing_threshold == "exhausted" %}<p class="notice" role="status" aria-live="polite">Месячный лимит обработки исчерпан. Новые секунды будут доступны с началом следующего месяца; платный тариф остаётся необязательным.</p>{% endif %}
         {% else %}<p>Обработка: <strong>Без лимита по минутам и встречам</strong>. Хранилище оплачивается отдельно от обработки.</p>{% endif %}
+        {% if plan_code == "trial" and trial_days_left is not none and trial_days_left <= 3 and trial_days_left > 1 %}<p class="notice" role="status" aria-live="polite">Пробный период заканчивается через {{ trial_days_left }} дн. После окончания автоматически включится Free; платный тариф можно выбрать отдельно.</p>{% elif plan_code == "trial" and trial_days_left == 1 %}<p class="notice" role="status" aria-live="polite">Пробный период заканчивается завтра. После окончания автоматически включится Free; списания без отдельного подтверждения не будет.</p>{% endif %}
         {% if billing_enabled %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p class="muted" role="status">Оплата пока недоступна: магазин не включён.</p>{% endif %}
         {% if plan_code != "free" %}<a class="button quiet" href="/billing/subscription">Управлять подпиской</a>{% endif %}
         {% if plan_code == "free" %}
-        {% if trial_result == "activated" %}<p role="status" aria-live="polite">Пробный период активирован на 7 дней.</p>{% elif trial_result == "already" %}<p role="status" aria-live="polite">Пробный период уже использован.</p>{% elif trial_result == "unavailable" %}<p role="status" aria-live="polite">Пробный период доступен только после подтверждённого входа.</p>{% endif %}
-        <form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button quiet" type="submit">Попробовать «Личный» 7 дней</button></form>
+        {% if trial_result == "activated" %}<p role="status" aria-live="polite">Пробный период активирован на 7 дней.</p>{% elif trial_result == "already" %}<p role="status" aria-live="polite">Пробный период уже использован.</p>{% elif trial_result == "confirmation_required" %}<p role="alert">Подтвердите запуск пробного периода кнопкой ещё раз.</p>{% elif trial_result == "unavailable" %}<p role="status" aria-live="polite">Пробный период доступен только после подтверждённого входа.</p>{% endif %}
+        <form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="confirmation" value="start_trial"><button class="button quiet" type="submit">Попробовать «Личный» 7 дней</button></form>
         {% endif %}
       </section>
       <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
@@ -29,6 +31,7 @@
         <p><strong>{{ storage_used }} байт</strong> из <strong>{{ storage_capacity_label }} байт</strong> · состояние: {{ storage_threshold }}</p>
           {% if storage_reserved|default(0) %}<p class="muted">В обработке зарезервировано: {{ storage_reserved }} байт.</p>{% endif %}
         <p class="muted">Размер учитывает нормализованный файл встречи. Лимит хранения не ограничивает обработку.</p>
+        {% if storage_threshold in ["80%", "95%"] %}<p class="notice" role="status" aria-live="polite">Хранилище заполнено на {{ storage_threshold }}. Можно удалить старые записи, увеличить хранилище или продолжить обработку без сохранения аудио.</p>{% elif storage_threshold == "full" %}<p class="notice" role="status" aria-live="polite">Хранилище заполнено. Новое аудио не сохраняется в архив, но обработку можно запустить без сохранения аудио: расшифровка и заметки останутся, исходный звук — нет.</p>{% endif %}
         <a class="button quiet" href="/billing/usage">Открыть использование</a>
         <a class="button quiet" href="/billing/storage">Настроить хранилище</a>
       </section>

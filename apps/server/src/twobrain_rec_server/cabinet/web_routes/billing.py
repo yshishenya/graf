@@ -67,6 +67,7 @@ from twobrain_rec_server.db.models import (
     ReferralAttribution,
     StorageReservation,
     TrialActivation,
+    UserIdentity,
     Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
@@ -107,6 +108,9 @@ async def billing_overview_page(
         trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
     )
     plan = plan_descriptor(plan_code)  # type: ignore[arg-type]
+    trial_days_left = None
+    if plan_code == "trial" and subscription is not None and subscription.trial_ends_at is not None:
+        trial_days_left = max(0, (subscription.trial_ends_at.date() - now.date()).days)
     effective_capacity = (
         subscription.capacity_bytes
         if subscription is not None and plan_code in {"trial", "personal"}
@@ -170,6 +174,7 @@ async def billing_overview_page(
         processing_threshold=classify_free_processing(committed_seconds=processing_used),
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         trial_result=trial_result,
+        trial_days_left=trial_days_left,
         billing_result=billing_result,
     )
     return cabinet_html_response(content)
@@ -186,6 +191,13 @@ async def activate_billing_trial(
 ) -> RedirectResponse:
     if db is None or not principal.auth_via_session:
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
+    if confirmation != "start_trial":
+        return RedirectResponse("/billing?trial=confirmation_required", status_code=303)
+    identity = await db.scalar(
+        select(UserIdentity)
+        .where(UserIdentity.id == principal.user_id)
+        .with_for_update()
+    )
     existing = await db.scalar(select(TrialActivation).where(TrialActivation.user_id == principal.user_id))
     membership = await db.scalar(
         select(WorkspaceMembership).where(
@@ -202,7 +214,7 @@ async def activate_billing_trial(
     )
     try:
         require_trial_activation(
-            identity_status="active",
+            identity_status=identity.status if identity is not None else "",
             membership_role=membership.role if membership is not None else "",
             workspace_kind=workspace.kind if workspace is not None else "",
             already_used=existing is not None,

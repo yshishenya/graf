@@ -1,3 +1,4 @@
+import inspect
 from uuid import UUID
 
 import pytest
@@ -5,6 +6,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.workflows import worker as workflow_worker
 from twobrain_rec_server.workflows.billing_reconciliation_workflow import (
     BillingReconciliationWorkflow,
     billing_reconciliation_retry_policy,
@@ -31,6 +33,10 @@ def test_reconciliation_workflow_is_bounded_and_uses_a_dedicated_queue() -> None
     policy = billing_reconciliation_retry_policy()
     assert policy.maximum_attempts == 12
     assert "BillingReconciliationInvalidPayload" in policy.non_retryable_error_types
+    source = inspect.getsource(workflow_worker.run_worker)
+    assert "BillingReconciliationWorkflow" in source
+    assert "BILLING_RECONCILIATION_ACTIVITY_NAME" in source
+    assert "billing_reconciliation_task_queue(settings)" in source
 
 
 @pytest.mark.anyio

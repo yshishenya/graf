@@ -1460,7 +1460,7 @@ def settings_category_navigation(
             id=category_id,
             label=label,
             scope_label=scope_label,
-            href=base + suffix,
+            href="/billing" if embedded and category_id == "billing" else base + suffix,
             group_label=group_label,
             icon=icon,
         )

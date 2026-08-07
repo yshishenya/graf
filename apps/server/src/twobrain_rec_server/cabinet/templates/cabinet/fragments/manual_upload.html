@@ -40,6 +40,11 @@
         <span>Название</span>
         <input type="text" name="title" maxlength="500" autocomplete="off" placeholder="Например, созвон по продукту" data-manual-upload-title>
       </label>
+      <label class="manual-upload-archive-choice">
+        <span>Хранение аудио</span>
+        <span><input type="checkbox" name="archive_audio" value="true" data-manual-upload-archive checked> Сохранить аудио для последующего прослушивания</span>
+        <small class="muted">Если снять отметку, GRAF сохранит расшифровку и заметки, но удалит исходное аудио после обработки. На Free расходуются секунды обработки.</small>
+      </label>
     </div>
     <input type="hidden" name="duration_seconds" data-manual-upload-duration>
     <input type="hidden" name="local_recording_id" data-manual-upload-local-id>

@@ -75,13 +75,16 @@ def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> 
             assert 'role="group"' in markup
             assert f'href="{"/desktop" if embedded else ""}/meetings"' in markup
             for category_id, suffix in expected_suffixes.items():
+                expected_href = (
+                    "/billing" if embedded and category_id == "billing" else prefix + suffix
+                )
                 assert re.search(
-                    rf'<a[^>]+href="{re.escape(prefix + suffix)}"[^>]*'
+                    rf'<a[^>]+href="{re.escape(expected_href)}"[^>]*'
                     rf'data-settings-nav="{category_id}"[^>]*>',
                     markup,
                 ) or re.search(
                     rf'<a[^>]+data-settings-nav="{category_id}"[^>]*'
-                    rf'href="{re.escape(prefix + suffix)}"[^>]*>',
+                    rf'href="{re.escape(expected_href)}"[^>]*>',
                     markup,
                 )
                 assert re.search(

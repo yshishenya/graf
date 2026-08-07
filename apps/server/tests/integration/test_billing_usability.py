@@ -14,3 +14,18 @@ def test_billing_ia_contract_names_recoverable_states() -> None:
     contract = (ROOT / "specs/140-user-account-billing/contracts/account-ia-ux-ui-cx.md").read_text(encoding="utf-8")
     for phrase in ("Обработать без сохранения аудио", "Отключить автопродление", "Нужна помощь с оплатой?"):
         assert phrase in contract
+
+
+def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
+    overview = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html"
+    ).read_text(encoding="utf-8")
+    usage = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html"
+    ).read_text(encoding="utf-8")
+    assert "Использовано 80% месячного лимита обработки" in overview
+    assert "После окончания автоматически включится Free" in overview
+    assert "можно запустить без сохранения аудио" in overview
+    assert "Переход на «Личный» необязателен" in usage

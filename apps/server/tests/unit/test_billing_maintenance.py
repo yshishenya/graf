@@ -58,6 +58,9 @@ def test_billing_maintenance_returns_only_safe_counters(monkeypatch) -> None:
         "storage_projections_checked": 0,
         "storage_addons_checked": 0,
         "pending_notifications": 0,
+        "storage_addon_operations_projected": 0,
+        "storage_addon_operations_scheduled": 0,
+        "storage_addon_gaps": 0,
     }
 
 
@@ -73,8 +76,35 @@ def test_billing_maintenance_classifies_stuck_operation_and_projects_addon(monke
     class RowsDb(_FakeDb):
         def __init__(self):
             super().__init__()
-            self.rows = [[operation], [workspace_id], []]
-            self.scalar_rows = [SimpleNamespace(capacity_bytes=20_000_000_000), 5]
+            addon_operation = SimpleNamespace(
+                state="succeeded",
+                workspace_id=workspace_id,
+                kind="storage_upgrade",
+                updated_at=None,
+                request_snapshot={
+                    "addon_capacity_bytes": 20_000_000_000,
+                    "effective_at": "2026-08-01T00:00:00+00:00",
+                    "ends_at": "2026-09-01T00:00:00+00:00",
+                    "cycle": "month",
+                },
+            )
+            self.addon_operation = addon_operation
+            self.rows = [[addon_operation], [operation], [workspace_id], []]
+            self.scalar_rows = [
+                SimpleNamespace(
+                    capacity_bytes=2_000_000_000,
+                    plan_code="personal",
+                    cycle="month",
+                    paid_through=datetime(2026, 9, 1, tzinfo=UTC),
+                    application_version=1,
+                ),
+                SimpleNamespace(
+                    capacity_bytes=20_000_000_000,
+                    plan_code="personal",
+                    application_version=2,
+                ),
+                5,
+            ]
             self.added = []
 
         async def scalars(self, query):
@@ -111,5 +141,7 @@ def test_billing_maintenance_classifies_stuck_operation_and_projects_addon(monke
     assert result["released_storage_reservations"] == 2
     assert result["storage_projections_checked"] == 1
     assert result["storage_addons_checked"] == 1
+    assert result["storage_addon_operations_projected"] == 1
     assert result["pending_notifications"] == 5
-    assert len(db.added) == 1
+    assert db.addon_operation.state == "succeeded_projected"
+    assert len(db.added) == 2

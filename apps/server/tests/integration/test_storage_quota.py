@@ -1,3 +1,8 @@
+import asyncio
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from uuid import uuid4
+
 import pytest
 
 from twobrain_rec_server.billing.catalog import (
@@ -14,9 +19,23 @@ from twobrain_rec_server.billing.storage import (
     StorageReservation,
     admit_storage,
     commit_object_bytes,
+    commit_storage_reservation,
     is_chargeable_playback_artifact,
     release_storage,
+    reserve_storage,
 )
+
+
+class _ScalarQueueSession:
+    def __init__(self, *rows: object) -> None:
+        self.rows = list(rows)
+        self.flushed = False
+
+    async def scalar(self, _query: object) -> object:
+        return self.rows.pop(0)
+
+    async def flush(self) -> None:
+        self.flushed = True
 
 
 def test_storage_projection_uses_exact_decimal_capacities_and_thresholds() -> None:
@@ -79,3 +98,135 @@ def test_only_active_canonical_playback_object_counts_toward_customer_quota() ->
     assert not is_chargeable_playback_artifact(
         status="stored", **{**common, "track_role": "media"}
     )
+
+
+def test_transcription_and_legacy_source_filenames_never_count_as_playback_quota() -> None:
+    for filename in ("meeting-transcription.wav", "mic.wav", "incoming.wav"):
+        assert not is_chargeable_playback_artifact(
+            track_role="playback",
+            status="stored",
+            normalization_profile_version=CANONICAL_PLAYBACK_PROFILE,
+            storage_object_key=f"workspace/meeting/{filename}",
+        )
+
+
+def test_storage_reservation_rejects_expiry_at_or_before_admission() -> None:
+    now = datetime(2026, 8, 7, 9, 0, tzinfo=UTC)
+
+    async def reserve() -> None:
+        with pytest.raises(ValueError, match="expiry must be in the future"):
+            await reserve_storage(
+                _ScalarQueueSession(),
+                workspace_id=uuid4(),
+                reservation_key="expired",
+                declared_bytes=1,
+                capacity_bytes=10,
+                now=now,
+                expires_at=now,
+            )
+
+    asyncio.run(reserve())
+
+
+def test_storage_commit_requires_verified_canonical_artifact_and_fresh_reservation() -> None:
+    now = datetime(2026, 8, 7, 9, 0, tzinfo=UTC)
+    workspace_id = uuid4()
+    reservation_id = uuid4()
+    artifact_id = uuid4()
+    reservation = SimpleNamespace(
+        id=reservation_id,
+        workspace_id=workspace_id,
+        state="active",
+        expires_at=now + timedelta(minutes=1),
+        committed_bytes=0,
+        declared_bytes=100,
+        artifact_id=None,
+    )
+    unverified_artifact = SimpleNamespace(
+        id=artifact_id,
+        workspace_id=workspace_id,
+        track_role="media",
+        status="stored",
+        normalization_profile_version=None,
+        storage_object_key="workspace/meeting/meeting-transcription.wav",
+        byte_length=80,
+    )
+
+    async def commit() -> None:
+        with pytest.raises(StorageAdmissionError, match="verified canonical playback"):
+            await commit_storage_reservation(
+                _ScalarQueueSession(reservation, unverified_artifact),
+                reservation_id=reservation_id,
+                artifact_id=artifact_id,
+                actual_bytes=80,
+                now=now,
+            )
+
+    asyncio.run(commit())
+    assert reservation.committed_bytes == 0
+
+
+def test_storage_commit_rejects_expired_reservation_before_artifact_lookup() -> None:
+    now = datetime(2026, 8, 7, 9, 0, tzinfo=UTC)
+    reservation = SimpleNamespace(
+        id=uuid4(),
+        workspace_id=uuid4(),
+        state="active",
+        expires_at=now - timedelta(seconds=1),
+        committed_bytes=0,
+        declared_bytes=100,
+        artifact_id=None,
+    )
+
+    async def commit() -> None:
+        with pytest.raises(StorageAdmissionError, match="expired"):
+            await commit_storage_reservation(
+                _ScalarQueueSession(reservation),
+                reservation_id=reservation.id,
+                artifact_id=uuid4(),
+                actual_bytes=80,
+                now=now,
+            )
+
+    asyncio.run(commit())
+
+
+def test_storage_commit_accepts_only_exact_verified_playback_bytes() -> None:
+    now = datetime(2026, 8, 7, 9, 0, tzinfo=UTC)
+    workspace_id = uuid4()
+    reservation_id = uuid4()
+    artifact_id = uuid4()
+    reservation = SimpleNamespace(
+        id=reservation_id,
+        workspace_id=workspace_id,
+        state="active",
+        expires_at=now + timedelta(minutes=1),
+        committed_bytes=0,
+        declared_bytes=100,
+        artifact_id=None,
+    )
+    artifact = SimpleNamespace(
+        id=artifact_id,
+        workspace_id=workspace_id,
+        track_role="playback",
+        status="stored",
+        normalization_profile_version=CANONICAL_PLAYBACK_PROFILE,
+        storage_object_key="workspace/meeting/meeting-review.m4a",
+        byte_length=73,
+    )
+
+    async def commit() -> None:
+        db = _ScalarQueueSession(reservation, artifact)
+        assert await commit_storage_reservation(
+            db,
+            reservation_id=reservation_id,
+            artifact_id=artifact_id,
+            actual_bytes=73,
+            now=now,
+        ) == 73
+        assert db.flushed is True
+
+    asyncio.run(commit())
+    assert reservation.committed_bytes == 73
+    assert reservation.artifact_id == artifact_id
+    assert reservation.state == "committed"

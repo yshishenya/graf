@@ -202,6 +202,8 @@ async def reserve_storage(
     if declared_bytes <= 0 or not reservation_key.strip():
         raise ValueError("storage reservation is invalid")
     now = now or datetime.now(UTC)
+    if expires_at is not None and expires_at <= now:
+        raise ValueError("storage reservation expiry must be in the future")
     workspace = await db.scalar(select(Workspace).where(Workspace.id == workspace_id).with_for_update())
     if workspace is None:
         raise ValueError("workspace is missing")
@@ -240,8 +242,10 @@ async def commit_storage_reservation(
     reservation_id: UUID,
     artifact_id: UUID | None,
     actual_bytes: int,
+    now: datetime | None = None,
 ) -> int:
     """Commit exact normalized object-stat bytes to a reservation."""
+    now = now or datetime.now(UTC)
     reservation = await db.scalar(
         select(StorageReservationRow).where(StorageReservationRow.id == reservation_id).with_for_update()
     )
@@ -251,10 +255,31 @@ async def commit_storage_reservation(
         return reservation.committed_bytes
     if reservation.state != "active":
         raise ValueError("storage reservation is not active")
+    if reservation.expires_at is not None and reservation.expires_at <= now:
+        raise StorageAdmissionError("storage reservation has expired")
+    if artifact_id is None:
+        raise StorageAdmissionError("storage reservation requires a verified playback artifact")
     if actual_bytes <= 0:
         raise ValueError("object bytes must be positive")
     if actual_bytes > reservation.declared_bytes:
         raise StorageAdmissionError("object stat exceeds reservation")
+    artifact = await db.scalar(
+        select(TrackArtifact)
+        .where(
+            TrackArtifact.id == artifact_id,
+            TrackArtifact.workspace_id == reservation.workspace_id,
+        )
+        .with_for_update()
+    )
+    if artifact is None or not is_chargeable_playback_artifact(
+        track_role=artifact.track_role,
+        status=artifact.status,
+        normalization_profile_version=artifact.normalization_profile_version,
+        storage_object_key=artifact.storage_object_key,
+    ):
+        raise StorageAdmissionError("storage reservation artifact is not verified canonical playback")
+    if artifact.byte_length != actual_bytes:
+        raise StorageAdmissionError("object stat does not match verified artifact bytes")
     reservation.committed_bytes = actual_bytes
     reservation.artifact_id = artifact_id
     reservation.state = "committed"

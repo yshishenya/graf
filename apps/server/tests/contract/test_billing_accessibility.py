@@ -45,3 +45,16 @@ def test_account_close_has_no_js_confirmation_fallback() -> None:
     assert 'method="post"' in template
     assert "Закрыть аккаунт" in template
     assert "csrf" in template.lower()
+
+
+def test_manual_upload_exposes_explicit_archive_choice_and_transmits_it() -> None:
+    fragment = (
+        ROOT
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html"
+    ).read_text(encoding="utf-8")
+    script = (
+        ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+    ).read_text(encoding="utf-8")
+    assert 'data-manual-upload-archive checked' in fragment
+    assert "исходное аудио после обработки" in fragment
+    assert 'data.append("archive_audio", activity.archiveAudio ? "true" : "false")' in script

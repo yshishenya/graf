@@ -68,6 +68,13 @@
   counters для stuck billing operations/storage projections и локальный
   credential-free test-shop harness; no-archive admission facts сохраняются
   отдельной миграцией 0051.
+- Финансовые маршруты из embedded-настроек теперь явно передаются во внешний
+  браузер; macOS policy не встраивает checkout и не принимает финансовые
+  параметры в URL.
+- Storage reservation commit теперь fail-closed проверяет срок, workspace,
+  verified canonical playback-artifact и точное совпадение object-stat bytes;
+  добавлены disposable-PostgreSQL сценарии trial/account-close и Temporal
+  add-on projection evidence.
 
 ### Изменено
 - Trial приведён к спецификации: ровно 7 календарных дней без карты и автосписания.

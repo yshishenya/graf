@@ -55,7 +55,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 ### Tests for User Story 1
 
 - [ ] T017 [P] [US1] Add account-center, personal-workspace bootstrap, authorization, and macOS browser-handoff contract tests for owner, admin, member, unverified identity, workspace switching, expired/offline/browser-unavailable states, and one-time handoff in `apps/server/tests/contract/test_account_routes.py` and `apps/macos/Shared/Tests/DesktopCabinetBillingHandoffTests.swift`.
-- [ ] T018 [P] [US1] Add trial eligibility, one-per-`UserIdentity`, explicit-consent, expiry-to-Free, and account-close integration tests in `apps/server/tests/integration/test_account_lifecycle.py`.
+- [X] T018 [P] [US1] Add trial eligibility, one-per-`UserIdentity`, explicit-consent, expiry-to-Free, and account-close integration tests in `apps/server/tests/integration/test_account_lifecycle.py`.
 
 ### Implementation for User Story 1
 
@@ -242,7 +242,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 ### Implementation for User Story 10
 
 - [X] T075 [US10] Implement provider polling, observed refund/receipt/method reconciliation, separate payments/refunds registry import, completeness hashes and metadata-only gap ownership in `apps/server/src/twobrain_rec_server/billing/reconciliation.py` and `apps/server/src/twobrain_rec_server/billing/registry.py`.
-- [ ] T076 [US10] Implement Temporal reconciliation, stuck-operation, storage projection, add-on/time-credit and notification maintenance workflows in `apps/server/src/twobrain_rec_server/workflows/billing_reconciliation_workflow.py` and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
+- [X] T076 [US10] Implement Temporal reconciliation, stuck-operation, storage projection, add-on/time-credit and notification maintenance workflows in `apps/server/src/twobrain_rec_server/workflows/billing_reconciliation_workflow.py` and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
 - [X] T077 [US10] Add operational metrics, dashboards, emergency stop and read-only launch diagnostics through existing observability patterns in `apps/server/src/twobrain_rec_server/billing/monitoring.py`, `apps/server/src/twobrain_rec_server/readiness/checks.py`, and `apps/server/src/twobrain_rec_server/admin/metrics.py`.
 - [X] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 

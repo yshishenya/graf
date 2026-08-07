@@ -3017,6 +3017,7 @@
     const fileCard = dialog.querySelector("[data-manual-upload-file-card]");
     const fileName = dialog.querySelector("[data-manual-upload-file-name]");
     const titleInput = dialog.querySelector("[data-manual-upload-title]");
+    const archiveInput = dialog.querySelector("[data-manual-upload-archive]");
     const durationInput = dialog.querySelector("[data-manual-upload-duration]");
     const localIdInput = dialog.querySelector("[data-manual-upload-local-id]");
     const fileMeta = dialog.querySelector("[data-manual-upload-file-meta]");
@@ -3065,6 +3066,7 @@
       selectedFile = null;
       if (fileInput) fileInput.value = "";
       if (titleInput) titleInput.value = "";
+      if (archiveInput) archiveInput.checked = true;
       if (durationInput) durationInput.value = "";
       if (localIdInput) localIdInput.value = "";
       resetFilePreview();
@@ -3186,7 +3188,7 @@
       activeUploadActivities.clear();
     };
 
-    const createUploadActivity = ({ file, title, duration, localId }) => {
+    const createUploadActivity = ({ file, title, duration, localId, archiveAudio }) => {
       const host = ensureUploadHost();
       uploadCounter += 1;
       const row = document.createElement("article");
@@ -3221,6 +3223,7 @@
         title,
         duration,
         localId,
+        archiveAudio,
         state: "queued",
         xhr: null,
         accepted: false,
@@ -3277,6 +3280,7 @@
       data.append("file", activity.file);
       data.append("duration_seconds", String(activity.duration));
       data.append("local_recording_id", activity.localId);
+      data.append("archive_audio", activity.archiveAudio ? "true" : "false");
       if (activity.title) data.append("title", activity.title);
 
       const xhr = new XMLHttpRequest();
@@ -3502,7 +3506,8 @@
         file: selectedFile,
         title,
         duration,
-        localId: localIdInput.value
+        localId: localIdInput.value,
+        archiveAudio: archiveInput?.checked !== false,
       });
       startActivityUpload(activity);
       closeDialog();
