@@ -27,6 +27,29 @@
 ### Операции
 - _Пока нет записей._
 
+## [2026.08.07.2] - 2026-08-07
+
+### Добавлено
+- Выпущено публичное Sparkle-обновление GRAF с обычным Developer ID →
+  Developer ID переходом.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Исправлен вход по email в macOS embedded WebView: ответ email-формы больше
+  не превращается в повторный GET к POST endpoint.
+
+### Безопасность
+- ZIP и PKG прошли Apple notarization, stapling и Gatekeeper.
+
+### Документы
+- Release receipt: `docs/deployments/2brain-rec/release-v2026.08.07.2.md`.
+
+### Операции
+- Sparkle workflow `31173368610` прошёл; live appcast и versioned assets
+  опубликованы после проверки checksums.
+
 ## [2026.08.07.1] - 2026-08-07
 
 
