@@ -21,7 +21,12 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _csrf_token_for_principal,
 )
-from twobrain_rec_server.db.models import ReferralAttribution
+from twobrain_rec_server.db.models import ReferralAttribution, Workspace
+from twobrain_rec_server.db.tenant_context import (
+    WorkspaceAuthContext,
+    apply_tenant_context,
+    apply_tenant_scope,
+)
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
@@ -42,10 +47,19 @@ async def referrals_page(
         secret = secret_path.read_text(encoding="utf-8").strip() if secret_path is not None and secret_path.is_file() else ""
     except OSError:
         secret = ""
-    token = create_referral_token(user_id=principal.user_id, secret=secret) if secret else ""
+    workspace = await db.scalar(select(Workspace).where(Workspace.id == tenant_scope.workspace_id)) if db is not None else None
+    can_invite = workspace is not None and workspace.kind == "personal" and workspace.owner_user_id == principal.user_id
+    token = create_referral_token(user_id=principal.user_id, secret=secret) if secret and can_invite else ""
     token_hash = referral_token_hash(token) if token else None
     if db is not None and token_hash is not None:
-        attribution = await db.scalar(select(ReferralAttribution).where(ReferralAttribution.token_hash == token_hash))
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(workspace_id=tenant_scope.workspace_id, user_id=principal.user_id),
+        )
+        try:
+            attribution = await db.scalar(select(ReferralAttribution).where(ReferralAttribution.token_hash == token_hash))
+        finally:
+            await apply_tenant_scope(db, tenant_scope)
         if attribution is None:
             db.add(
                 ReferralAttribution(

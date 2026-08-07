@@ -126,7 +126,12 @@ async def mature_pending_credits(db: AsyncSession, *, now: datetime, rolling_day
             select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == row.workspace_id).with_for_update()
         )
         if subscription is None:
-            row.state = "rejected"
+            continue
+        if (
+            subscription.plan_code != "personal"
+            or subscription.paid_through is None
+            or subscription.paid_through.astimezone(UTC) <= current
+        ):
             continue
         start = subscription.paid_through.astimezone(UTC) if subscription.paid_through and subscription.paid_through > current else current
         row.days = days

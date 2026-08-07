@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
-
 from twobrain_rec_server.billing.reconciliation import (
     ObservationRecords,
     ProviderObservationError,
@@ -90,7 +89,7 @@ def test_provider_refund_observation_is_idempotently_bound_without_refund_mutati
 
     class FakeDb:
         def __init__(self):
-            self.values = [operation, invoice, None, None]
+            self.values = [operation, invoice, None, 0, None]
             self.added = []
 
         async def scalar(self, _query):

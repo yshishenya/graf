@@ -35,6 +35,7 @@ from twobrain_rec_server.billing.promotions import (
     promo_code_hash,
 )
 from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
+from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
 from twobrain_rec_server.billing.storage import StorageProjection, project_active_playback_storage
 from twobrain_rec_server.billing.subscription import (
@@ -77,6 +78,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import (
+    AuthReferralLookupContext,
     WorkspaceAuthContext,
     apply_tenant_context,
     apply_tenant_scope,
@@ -552,7 +554,13 @@ async def billing_payment_method_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
-    if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+    subscription = None
+    if db is not None:
+        subscription = await db.scalar(
+            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+        )
+    role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
+    if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     method = None
     if db is not None:
@@ -596,7 +604,23 @@ async def billing_storage_page(
     role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
     if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
-    current_capacity = subscription.capacity_bytes if subscription is not None else FREE_STORAGE_BYTES
+    now = datetime.now(UTC)
+    effective_plan = (
+        effective_plan_code(
+            plan_code=subscription.plan_code,
+            state=subscription.state,
+            now=now,
+            paid_through=subscription.paid_through,
+            trial_ends_at=subscription.trial_ends_at,
+        )
+        if subscription is not None
+        else "free"
+    )
+    current_capacity = (
+        subscription.capacity_bytes
+        if subscription is not None and effective_plan in {"trial", "personal"}
+        else FREE_STORAGE_BYTES
+    )
     content = _page_shell(
         "Увеличение хранилища",
         embedded=False,
@@ -609,7 +633,7 @@ async def billing_storage_page(
         content_template="cabinet/pages/billing_storage_content.html",
         current_capacity=current_capacity,
         addon_options=(5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000),
-        eligible=subscription is not None and subscription.plan_code == "personal",
+        eligible=effective_plan == "personal",
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
     )
     return cabinet_html_response(content)
@@ -808,6 +832,22 @@ async def start_billing_checkout(
             return RedirectResponse("/billing/checkout?result=invalid", status_code=303)
         if not recurring_consent:
             return RedirectResponse("/billing/checkout?result=consent_required", status_code=303)
+
+        # Idempotency recovery must not re-run mutable promo/referral checks.
+        # A retried request can carry the same reservation and should recover
+        # the original hosted URL even after the campaign window changed.
+        existing = await db.scalar(
+            select(BillingOperation).where(
+                BillingOperation.workspace_id == tenant_scope.workspace_id,
+                BillingOperation.idempotency_key == key,
+            ).with_for_update()
+        )
+        if existing is not None:
+            confirmation_url = existing.request_snapshot.get("confirmation_url")
+            if is_allowed_confirmation_url(confirmation_url):
+                return RedirectResponse(confirmation_url, status_code=303)
+            return RedirectResponse("/billing?result=pending", status_code=303)
+
         promo: PromoCode | None = None
         promo_campaign: PromotionCampaign | None = None
         if promo_code and promo_code.strip():
@@ -824,7 +864,7 @@ async def start_billing_checkout(
                     select(func.count(PromotionRedemption.id)).where(
                         PromotionRedemption.workspace_id == tenant_scope.workspace_id,
                         PromotionRedemption.campaign_id == promo_campaign.id,
-                        PromotionRedemption.state.in_(("reserved", "redeemed")),
+                        PromotionRedemption.state == "redeemed",
                     )
                 )
                 promo = PromoCode(
@@ -844,6 +884,7 @@ async def start_billing_checkout(
                     cycle=cycle,
                     now=datetime.now(UTC),
                     workspace_redemptions=int(used or 0),
+                    active_reservations=promo_campaign.reserved_count,
                 )
             except (PromoError, ValueError):
                 return RedirectResponse("/billing/checkout?result=promo_invalid", status_code=303)
@@ -851,17 +892,39 @@ async def start_billing_checkout(
         # invitee is now paying from a different personal workspace. Use the
         # narrowly-scoped auth-public RLS lookup for this one read, then restore
         # the request tenant context before any billing mutation.
-        await apply_tenant_context(
-            db,
-            WorkspaceAuthContext(workspace_id=tenant_scope.workspace_id, user_id=principal.user_id),
-        )
+        referred = None
         try:
-            referred = await db.scalar(
-                select(ReferralAttribution).where(
-                    ReferralAttribution.invitee_user_id == principal.user_id,
-                    ReferralAttribution.state == "bound",
+            referral_cookie = request.cookies.get("graf_referral_token")
+            if referral_cookie:
+                token_hash = referral_token_hash(validate_referral_token(referral_cookie))
+                await apply_tenant_context(
+                    db,
+                    AuthReferralLookupContext(
+                        workspace_id=tenant_scope.workspace_id,
+                        user_id=principal.user_id,
+                        token_hash=token_hash,
+                    ),
                 )
-            )
+                referred = await db.scalar(
+                    select(ReferralAttribution).where(
+                        ReferralAttribution.token_hash == token_hash,
+                        ReferralAttribution.invitee_user_id == principal.user_id,
+                        ReferralAttribution.state == "bound",
+                    )
+                )
+            else:
+                await apply_tenant_context(
+                    db,
+                    WorkspaceAuthContext(workspace_id=tenant_scope.workspace_id, user_id=principal.user_id),
+                )
+                referred = await db.scalar(
+                    select(ReferralAttribution).where(
+                        ReferralAttribution.invitee_user_id == principal.user_id,
+                        ReferralAttribution.state == "bound",
+                    )
+                )
+        except ValueError:
+            referred = None
         finally:
             await apply_tenant_scope(db, tenant_scope)
         referral_candidate = (
@@ -893,17 +956,6 @@ async def start_billing_checkout(
             promo=promo,
             provider_floor_minor=settings.billing_provider_floor_minor,
         )
-        existing = await db.scalar(
-            select(BillingOperation).where(
-                BillingOperation.workspace_id == tenant_scope.workspace_id,
-                BillingOperation.idempotency_key == key,
-            ).with_for_update()
-        )
-        if existing is not None:
-            confirmation_url = existing.request_snapshot.get("confirmation_url")
-            if is_allowed_confirmation_url(confirmation_url):
-                return RedirectResponse(confirmation_url, status_code=303)
-            return RedirectResponse("/billing?result=pending", status_code=303)
         unresolved_checkout = await db.scalar(
             select(BillingOperation)
             .where(
@@ -963,8 +1015,20 @@ async def start_billing_checkout(
         db.add(invoice)
         await db.flush()
         if promo is not None and promo_campaign is not None:
-            db.add(
-                PromotionRedemption(
+            redemption = await db.scalar(
+                select(PromotionRedemption)
+                .where(
+                    PromotionRedemption.workspace_id == tenant_scope.workspace_id,
+                    PromotionRedemption.campaign_id == promo_campaign.id,
+                )
+                .with_for_update()
+            )
+            if redemption is not None and redemption.state not in {"released", "expired"}:
+                await db.rollback()
+                return RedirectResponse("/billing/checkout?result=promo_invalid", status_code=303)
+            promo_campaign.reserved_count += 1
+            if redemption is None:
+                redemption = PromotionRedemption(
                     campaign_id=promo_campaign.id,
                     workspace_id=tenant_scope.workspace_id,
                     invoice_id=invoice.id,
@@ -976,7 +1040,18 @@ async def start_billing_checkout(
                     state="reserved",
                     expires_at=datetime.now(UTC) + timedelta(minutes=15),
                 )
-            )
+                db.add(redemption)
+            else:
+                redemption.invoice_id = invoice.id
+                redemption.reservation_key = key
+                redemption.code_hash = promo_code_hash(promo.code)
+                redemption.list_amount_minor = preview.list_amount_minor
+                redemption.payable_amount_minor = preview.payable_amount_minor
+                redemption.discount_percent = promo.discount_percent
+                redemption.state = "reserved"
+                redemption.expires_at = datetime.now(UTC) + timedelta(minutes=15)
+                redemption.released_at = None
+                redemption.redeemed_at = None
         await db.commit()
         return_url = billing_checkout_return_url(request)
         async with YooKassaClient(settings) as provider:

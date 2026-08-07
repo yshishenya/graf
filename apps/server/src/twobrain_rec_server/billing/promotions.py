@@ -217,12 +217,15 @@ async def redeem_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: datet
     if row.state != "reserved":
         return "none"
     campaign = await db.scalar(select(PromotionCampaign).where(PromotionCampaign.id == row.campaign_id).with_for_update())
-    if campaign is None or not campaign.enabled or campaign.redeemed_count >= campaign.max_redemptions:
+    if campaign is None or campaign.redeemed_count >= campaign.max_redemptions:
         row.state = "released"
         row.released_at = _aware(now)
+        if campaign is not None:
+            campaign.reserved_count = max(0, campaign.reserved_count - 1)
         return "none"
     row.state = "redeemed"
     row.redeemed_at = _aware(now)
+    campaign.reserved_count = max(0, campaign.reserved_count - 1)
     campaign.redeemed_count += 1
     await db.flush()
     return "redeemed"
@@ -235,8 +238,13 @@ async def release_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: date
     )
     if row is None or row.state != "reserved":
         return False
+    campaign = await db.scalar(
+        select(PromotionCampaign).where(PromotionCampaign.id == row.campaign_id).with_for_update()
+    )
     row.state = "released"
     row.released_at = _aware(now)
+    if campaign is not None:
+        campaign.reserved_count = max(0, campaign.reserved_count - 1)
     await db.flush()
     return True
 
@@ -263,21 +271,27 @@ async def release_payment_promo(
 
 
 async def expire_promo_reservations(db: AsyncSession, *, now: datetime) -> int:
-    """Maintenance hook; expired reservations are never counted as redemptions."""
+    """Release only pre-provider reservations; provider-pending stays locked."""
     current = _aware(now)
-    rows = await db.scalars(
-        select(PromotionRedemption)
+    rows = await db.execute(
+        select(PromotionRedemption, BillingOperation, PromotionCampaign)
+        .join(BillingInvoice, BillingInvoice.id == PromotionRedemption.invoice_id)
+        .join(BillingOperation, BillingOperation.id == BillingInvoice.operation_id)
+        .join(PromotionCampaign, PromotionCampaign.id == PromotionRedemption.campaign_id)
         .where(
             PromotionRedemption.state == "reserved",
             PromotionRedemption.expires_at.is_not(None),
             PromotionRedemption.expires_at <= current,
+            BillingOperation.state == "scheduled",
+            BillingOperation.provider_id.is_(None),
         )
         .with_for_update()
     )
     expired = 0
-    for row in rows:
+    for row, _operation, campaign in rows:
         row.state = "expired"
         row.released_at = current
+        campaign.reserved_count = max(0, campaign.reserved_count - 1)
         expired += 1
     await db.flush()
     return expired

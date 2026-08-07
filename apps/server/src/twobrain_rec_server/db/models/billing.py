@@ -52,6 +52,7 @@ class PromotionCampaign(Base):
     discount_percent: Mapped[int] = mapped_column(Integer, nullable=False)
     max_redemptions: Mapped[int] = mapped_column(Integer, nullable=False)
     redeemed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reserved_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool] = mapped_column(nullable=False, default=False)

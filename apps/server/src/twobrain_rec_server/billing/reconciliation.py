@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.referral_rewards import reverse_credit_for_payment
@@ -234,6 +234,12 @@ async def record_observed_refund(
     )
     if invoice is None:
         return "unmatched"
+    if (
+        observation.amount_minor <= 0
+        or observation.amount_minor > invoice.amount_minor
+        or observation.currency != invoice.currency
+    ):
+        return "conflict"
     existing = await db.scalar(
         select(ObservedProviderRefund).where(
             ObservedProviderRefund.shop_environment == observation.scope.environment,
@@ -244,6 +250,15 @@ async def record_observed_refund(
         if existing.amount_minor != observation.amount_minor or existing.currency != observation.currency:
             return "conflict"
         return "duplicate"
+    refunded_total = await db.scalar(
+        select(func.coalesce(func.sum(ObservedProviderRefund.amount_minor), 0)).where(
+            ObservedProviderRefund.invoice_id == invoice.id,
+            ObservedProviderRefund.currency == invoice.currency,
+            ObservedProviderRefund.status == "succeeded",
+        )
+    )
+    if int(refunded_total or 0) + observation.amount_minor > invoice.amount_minor:
+        return "conflict"
     db.add(
         ObservedProviderRefund(
             workspace_id=workspace_id,

@@ -9,6 +9,14 @@
 ## [Unreleased]
 
 ### Добавлено
+- Runtime closeout: idempotent checkout восстанавливает hosted URL до
+  повторной promo-проверки; campaign-level reservation counter сериализует
+  промокоды, provider-pending резерв не истекает, а освобождённая резервация
+  может быть переиспользована.
+- Refund observations проверяют валюту, сумму и cumulative partial-refund cap;
+  canonical playback проходит storage reserve/commit с effective plan cutoff;
+  production config проверяет оба YooKassa secret-файла. Добавлена миграция
+  `0054_promotion_reservation_counter` и `0055_referral_owner_lookup`.
 - Повторная security-проверка биллинга: trial требует активный verified
   `ExternalIdentity` и реального owner workspace, designated billing owner
   ограничивает финансовые маршруты, successor проходит отдельный hosted

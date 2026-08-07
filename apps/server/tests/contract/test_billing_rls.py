@@ -50,3 +50,6 @@ def test_referral_binding_uses_a_token_scoped_context() -> None:
     assert "auth_referral_lookup" in source
     assert "app.referral_token_hash" in source
     assert "invitee_user_id = rec_current_user_id()" in source
+    owner_policy = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0055_referral_owner_lookup.py"
+    owner_source = owner_policy.read_text(encoding="utf-8")
+    assert "inviter_user_id = rec_current_user_id()" in owner_source

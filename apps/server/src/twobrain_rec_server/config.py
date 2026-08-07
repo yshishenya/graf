@@ -656,6 +656,12 @@ class Settings(BaseSettings):
             "billing_referral_secret_file": (
                 self.billing_referral_secret_file if self.billing_checkout_enabled else None
             ),
+            "billing_yookassa_secret_file": (
+                self.billing_yookassa_secret_file if self.billing_checkout_enabled else None
+            ),
+            "billing_yookassa_webhook_secret_file": (
+                self.billing_yookassa_webhook_secret_file if self.billing_checkout_enabled else None
+            ),
             "support_incident_github_token_file": self.support_incident_github_token_file,
             "product_analytics_posthog_project_key_file": self.product_analytics_posthog_project_key_file,
             "product_analytics_yandex_oauth_token_file": self.product_analytics_yandex_oauth_token_file,
