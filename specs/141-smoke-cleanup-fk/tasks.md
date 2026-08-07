@@ -34,8 +34,8 @@
 ## Phase 5: Polish and release validation
 
 - [X] T008 Run `git diff --check` and `infra/scripts/ci-local.sh` from the clean Feature 141 worktree; record pass evidence without secrets in `CHANGELOG.md` if behavior changed.
-- [ ] T009 Run `infra/scripts/cd-remote.sh --dry-run --branch master`, then execute the pinned release deploy with `infra/scripts/cd-remote.sh --execute --branch master`; require backup, restore rehearsal, health, smoke cleanup, and rollback evidence before release completion.
-- [ ] T010 Prepare and publish the next CalVer GitHub Release only after deploy reports `deploy_result=pass`, including Russian notes, validation evidence, compatibility/no migration, issue/PR links, and known limitations.
+- [X] T009 Run `infra/scripts/cd-remote.sh --dry-run --branch master`, then execute the pinned release deploy with `infra/scripts/cd-remote.sh --execute --branch master`; require backup, restore rehearsal, health, smoke cleanup, and rollback evidence before release completion.
+- [X] T010 Prepare and publish the next CalVer GitHub Release only after deploy reports `deploy_result=pass`, including Russian notes, validation evidence, compatibility/no migration, issue/PR links, and known limitations.
 
 ## Dependencies and Execution Order
 
