@@ -28,11 +28,23 @@ def test_settings_overview_and_categories_are_reachable_in_browser_and_embedded_
 
 
 def test_account_center_aliases_are_reachable_from_cabinet_navigation(client) -> None:
-    for path in ("/account", "/desktop/account"):
+    for path in (
+        "/account",
+        "/account/profile",
+        "/account/security",
+        "/account/notifications",
+        "/desktop/account",
+        "/desktop/account/profile",
+        "/desktop/account/security",
+        "/desktop/account/notifications",
+    ):
         response = client.get(path, headers=auth_headers())
         assert response.status_code == 200, path
-        assert 'data-settings-nav="account"' in response.text
-        assert "Аккаунт и безопасность" in response.text
+        if "notifications" in path:
+            assert "Дополнительные уведомления" in response.text
+        else:
+            assert 'data-settings-nav="account"' in response.text
+            assert "Аккаунт и безопасность" in response.text
 
 
 def test_settings_sidebar_is_present_and_calendar_maps_to_parent_category(client) -> None:

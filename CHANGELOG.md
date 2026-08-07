@@ -64,6 +64,10 @@
   подтверждение регулярного способа оплаты остаётся за authoritative payment
   GET; реферальные ссылки используют настроенный `public_base_url` и истекают
   через 30 дней.
+- Добавлены account IA aliases для browser/desktop handoff, bounded maintenance
+  counters для stuck billing operations/storage projections и локальный
+  credential-free test-shop harness; no-archive admission facts сохраняются
+  отдельной миграцией 0051.
 
 ### Изменено
 - Trial приведён к спецификации: ровно 7 календарных дней без карты и автосписания.

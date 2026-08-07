@@ -29,6 +29,12 @@ Date: 2026-08-04
   хранит только metadata-only gap ownership; notification worker только
   доставляет verified recipients через Postal и не помечает сообщения delivered
   до provider success.
+- Контрольный проход Feature 140 добавил browser/desktop account IA aliases,
+  bounded maintenance counters для зависших billing operations и storage
+  projection, а также миграцию 0051 для no-archive admission facts. Локальный
+  credential-free test-shop harness проходит, но реальное прохождение выбора
+  через ingest/processing, YooKassa canary, end-to-end purge/COGS evidence и
+  moderated UX review остаются launch gates.
 - Fast lane после изменений: 994 server unit tests, Ruff, Python compile и
   disposable migration проходят. Полный public launch остаётся gated: test-shop
   evidence, durable provider registry/reconciliation, account-close/notification

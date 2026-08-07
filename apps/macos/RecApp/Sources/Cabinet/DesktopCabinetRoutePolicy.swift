@@ -375,6 +375,12 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     }
 
     private func isSettingsRoute(_ components: [String]) -> Bool {
+        if components.count >= 2,
+           components[0] == "desktop",
+           components[1] == "account" {
+            let tail = Array(components.dropFirst(2))
+            return tail.isEmpty || (tail.count == 1 && ["profile", "security", "notifications"].contains(tail[0]))
+        }
         guard components.count >= 2,
               components[0] == "desktop",
               components[1] == "settings"
@@ -383,7 +389,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         }
 
         let tail = Array(components.dropFirst(2))
-        if tail.isEmpty || (tail.count == 1 && ["recording", "summaries", "workspace", "account"].contains(tail[0])) {
+        if tail.isEmpty || (tail.count == 1 && ["recording", "summaries", "workspace", "account", "notifications"].contains(tail[0])) {
             return true
         }
         if tail.count == 4,

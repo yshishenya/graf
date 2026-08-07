@@ -22,6 +22,22 @@ def test_account_close_routes_have_browser_and_desktop_variants_with_csrf_depend
     assert ("/desktop/settings/account/close/cancel", ("POST",)) in routes
 
 
+def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:
+    paths = {
+        route.path
+        for route in router.routes
+        if isinstance(route, APIRoute)
+    }
+    assert {
+        "/account/profile",
+        "/account/security",
+        "/account/notifications",
+        "/desktop/account/profile",
+        "/desktop/account/security",
+        "/desktop/account/notifications",
+    } <= paths
+
+
 def test_account_page_explains_cooling_window_and_no_js_confirmation() -> None:
     page = render_settings_page(category="account")
     assert "Закрытие аккаунта" in page

@@ -65,6 +65,9 @@ class UploadSession(Base):
     upload_strategy: Mapped[str] = mapped_column(String(64), default="server_mediated")
     status: Mapped[str] = mapped_column(String(64), default="pending")
     processing_status: Mapped[str] = mapped_column(String(64), default="not_submitted")
+    # Explicit user choice.  Existing sessions remain archival by default;
+    # transient/no-archive processing is persisted on this same upload row.
+    archive_audio: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(240))
     expected_track_roles: Mapped[list] = mapped_column(JSON, default=list)
     expected_track_sizes: Mapped[dict] = mapped_column(JSON, default=dict)

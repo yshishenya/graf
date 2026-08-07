@@ -302,6 +302,50 @@ async def account_center_page(
     )
 
 
+@router.get("/account/profile", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/account/security", response_class=HTMLResponse, include_in_schema=False)
+async def account_profile_security_alias_page(
+    request: Request,
+    provider_link: str | None = ProviderLinkResultQuery,
+    device_revoke: str | None = DeviceRevokeResultQuery,
+    account_close: str | None = AccountCloseResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    """Stable account IA aliases; both views share the verified account surface."""
+    return await _render_settings(
+        request,
+        category="account",
+        embedded=False,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        provider_link=provider_link,
+        device_revoke=device_revoke,
+        account_close=account_close,
+    )
+
+
+@router.get("/account/notifications", response_class=HTMLResponse, include_in_schema=False)
+async def account_notifications_alias_page(
+    request: Request,
+    notification: str | None = NotificationResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="notifications",
+        embedded=False,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        notification=notification,
+    )
+
+
 async def _account_close_action(
     request: Request,
     *,
@@ -600,6 +644,49 @@ async def embedded_account_center_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+    )
+
+
+@router.get("/desktop/account/profile", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/desktop/account/security", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_account_profile_security_alias_page(
+    request: Request,
+    provider_link: str | None = ProviderLinkResultQuery,
+    device_revoke: str | None = DeviceRevokeResultQuery,
+    account_close: str | None = AccountCloseResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="account",
+        embedded=True,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        provider_link=provider_link,
+        device_revoke=device_revoke,
+        account_close=account_close,
+    )
+
+
+@router.get("/desktop/account/notifications", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_account_notifications_alias_page(
+    request: Request,
+    notification: str | None = NotificationResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="notifications",
+        embedded=True,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        notification=notification,
     )
 
 

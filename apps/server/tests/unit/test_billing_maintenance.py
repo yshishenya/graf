@@ -22,6 +22,10 @@ class _FakeDb:
         # the SQL expression itself is owned by the integration/RLS suite.
         return _ScalarResult([])
 
+    async def scalar(self, query):
+        self.calls.append(query)
+        return 0
+
     async def flush(self):
         return None
 
@@ -44,4 +48,11 @@ def test_billing_maintenance_returns_only_safe_counters(monkeypatch) -> None:
             _FakeDb(), now=datetime(2026, 8, 7, tzinfo=UTC)
         )
     )
-    assert result == {"expired_promos": 2, "matured_credits": 3, "released_storage_reservations": 0}
+    assert result == {
+        "expired_promos": 2,
+        "matured_credits": 3,
+        "released_storage_reservations": 0,
+        "stuck_operations": 0,
+        "storage_projections_checked": 0,
+        "pending_notifications": 0,
+    }

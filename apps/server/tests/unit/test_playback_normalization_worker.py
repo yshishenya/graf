@@ -160,7 +160,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0050_referral_token_lookup_context"
+    assert packaged_schema_head() == "0051_transient_media_lifecycle"
 
 
 @pytest.mark.anyio
