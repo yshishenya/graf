@@ -12,6 +12,28 @@
 - _Пока нет записей._
 
 ### Изменено
+- Совместимость сохранена: auth-контракты, cookies, email delivery, Yandex OAuth
+  и native capture не менялись; миграции базы данных не требуются.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Feature 141 и PR #4950: revision-aware production smoke cleanup.
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.07.1] - 2026-08-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
 - _Пока нет записей._
 
 ### Исправлено
@@ -31,6 +53,9 @@
 - Validation: focused unit `7 passed`, disposable Postgres smoke `3 passed`,
   canonical `infra/scripts/ci-local.sh` прошёл: 647 macOS tests, 2513 server
   tests, strict RLS 42 tests, lint, compile, compose config и evidence scan.
+- Известное ограничение: GitHub Actions full lanes для PR были пропущены
+  конфигурацией workflow; fast lanes прошли, а полный gate подтверждён локальным
+  canonical CI. Production smoke остаётся обязательной проверкой релиза.
 
 ## [2026.08.06.1] - 2026-08-06
 
