@@ -29,6 +29,12 @@ Date: 2026-08-04
   хранит только metadata-only gap ownership; notification worker только
   доставляет verified recipients через Postal и не помечает сообщения delivered
   до provider success.
+- Processing admission теперь резервирует точные Free-секунды до запуска Temporal,
+  оставляет Trial/Личный безлимитными, коммитит transcript ranges без двойного
+  списания и освобождает hold при terminal/deletion/transient-hard-timeout.
+- Production Compose монтирует YooKassa API/webhook и referral secrets только
+  server-side через Docker secrets; checkout и canary остаются выключенными до
+  внешних finance/legal/security/QA подтверждений.
 - Контрольный проход Feature 140 добавил browser/desktop account IA aliases,
   server-owned profile/preferences (migration 0053), recovery-safe provider
   unlink, bounded maintenance counters для зависших billing operations и

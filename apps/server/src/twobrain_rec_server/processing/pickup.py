@@ -1,14 +1,32 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.billing.entitlements import (
+    effective_plan_code,
+    entitlement_for_plan,
+    processing_admission,
+)
+from twobrain_rec_server.billing.usage import (
+    QuotaExceeded,
+    moscow_window_for,
+    reserve_free_usage,
+)
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.db.models import Meeting, UploadSession
+from twobrain_rec_server.db.models import (
+    FreeUsageWindow,
+    MediaRevision,
+    Meeting,
+    UploadSession,
+    UsageReservation,
+    WorkspaceSubscription,
+)
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import MeetingStatus, ProcessingStatus
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
@@ -199,6 +217,26 @@ async def pick_up_processing(
             await db.rollback()
             result.blocked_count += 1
             continue
+
+        usage_admitted = await _reserve_processing_usage(
+            db,
+            workspace_id=workspace_id,
+            media_revision=media_revision,
+            archive_audio=meeting_archive_audio,
+        )
+        if usage_admitted is False:
+            await _block_meeting(
+                db,
+                meeting,
+                media_revision_id=media_revision_id,
+                source_fingerprint=source_fingerprint,
+                reason_code=reasons.BLOCKED_FREE_PROCESSING_EXHAUSTED,
+                expected_meeting_status=expected_meeting_status,
+                expected_media_revision_id=media_revision_id,
+                archive_audio=meeting_archive_audio,
+            )
+            result.blocked_count += 1
+            continue
         try:
             started = await start_processing_workflow(
                 temporal_client=temporal_client,
@@ -211,6 +249,12 @@ async def pick_up_processing(
             )
         except Exception:
             await cancel_workflow_best_effort(temporal_client, processing_workflow_id(media_revision_id))
+            if usage_admitted:
+                await store.release_processing_usage_reservation(
+                    db,
+                    workspace_id=workspace_id,
+                    media_revision_id=media_revision_id,
+                )
             await _block_meeting(
                 db,
                 meeting,
@@ -240,6 +284,12 @@ async def pick_up_processing(
         except ProcessingLifecycleBlocked:
             await db.rollback()
             await cancel_workflow_best_effort(temporal_client, started.workflow_id)
+            if usage_admitted:
+                await store.release_processing_usage_reservation(
+                    db,
+                    workspace_id=workspace_id,
+                    media_revision_id=media_revision_id,
+                )
             result.blocked_count += 1
             continue
         event_type = "workflow_duplicate_reused" if started.reused else "workflow_started"
@@ -257,6 +307,66 @@ async def pick_up_processing(
             result.started_count += 1
         result.meeting_ids.append(meeting.id)
     return result
+
+
+async def _reserve_processing_usage(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    media_revision: MediaRevision,
+    archive_audio: bool,
+) -> UsageReservation | None | bool:
+    """Reserve Free seconds once, while leaving paid/trial processing unlimited."""
+    duration_seconds = media_revision.duration_seconds
+    if not isinstance(duration_seconds, int) or isinstance(duration_seconds, bool) or duration_seconds <= 0:
+        return False
+    now = datetime.now(UTC)
+    subscription = await db.scalar(
+        select(WorkspaceSubscription)
+        .where(WorkspaceSubscription.workspace_id == workspace_id)
+        .with_for_update()
+    )
+    effective_plan = effective_plan_code(
+        plan_code=(subscription.plan_code if subscription is not None else "free"),
+        state=(subscription.state if subscription is not None else "free"),
+        now=now,
+        paid_through=subscription.paid_through if subscription is not None else None,
+        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
+    )
+    entitlement = entitlement_for_plan(plan_code=effective_plan)
+    window_start, _ = moscow_window_for(now)
+    window = await db.scalar(
+        select(FreeUsageWindow).where(
+            FreeUsageWindow.workspace_id == workspace_id,
+            FreeUsageWindow.window_start == window_start,
+        )
+    )
+    committed = int(window.committed_seconds) if window is not None else 0
+    admitted, _reason = processing_admission(
+        entitlement=entitlement,
+        committed_free_seconds=committed,
+        accepted_seconds=duration_seconds,
+        save_audio=archive_audio,
+    )
+    if not admitted:
+        return False
+    if entitlement.processing_unlimited:
+        return None
+    reservation_key = f"processing:{media_revision.id}"
+    try:
+        reservation = await reserve_free_usage(
+            db,
+            workspace_id=workspace_id,
+            reservation_key=reservation_key,
+            declared_seconds=duration_seconds,
+            now=now,
+            expires_at=now + timedelta(hours=24),
+        )
+    except QuotaExceeded:
+        await db.rollback()
+        return False
+    await db.commit()
+    return reservation
 
 
 async def _candidate_meetings(

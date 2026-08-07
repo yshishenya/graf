@@ -21,8 +21,8 @@ manual UX gates.
 | Security/accessibility/usability | interim | automated suites pass; live/manual review ещё обязателен |
 | Product-market/pricing | hypothesis | интервью, WTP, 30-day usage, COGS и margin approval отсутствуют |
 
-После последней проверки: **87 задач, 73 закрыты, 14 открыты**. Открытые
-задачи: T029, T036, T047, T053, T075–T080, T083–T085, T087.
+После последней проверки: **87 задач, 74 закрыты, 13 открыты**. Открытые
+задачи: T036, T047, T053, T075–T080, T083–T085, T087.
 
 ## Findings
 

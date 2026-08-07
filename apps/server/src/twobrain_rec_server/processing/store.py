@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -14,6 +15,12 @@ from twobrain_rec_server.billing.source_lifecycle import (
     TRANSIENT_HARD_LIFETIME,
     TRANSIENT_PURGE_AFTER,
     mark_source_transcript_imported,
+)
+from twobrain_rec_server.billing.usage import (
+    SourceRange,
+    commit_free_usage_ranges,
+    find_free_usage_reservation,
+    release_free_usage,
 )
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -545,6 +552,12 @@ async def cancel_stale_revision_workflows(
         workflow.status = ProcessingStatus.CANCELED.value
         workflow.last_reason_code = reason_code
         workflow.ended_at = workflow.ended_at or now
+        await release_processing_usage_reservation(
+            db,
+            workspace_id=workflow.workspace_id,
+            media_revision_id=workflow.media_revision_id,
+            meeting_id=workflow.meeting_id,
+        )
     if stale_workflows:
         await db.commit()
     return len(stale_workflows)
@@ -746,6 +759,12 @@ async def set_workflow_status(
         current.status = ProcessingStatus.CANCELED.value
         current.last_reason_code = "meeting_deleting"
         current.ended_at = datetime.now(UTC)
+        await release_processing_usage_reservation(
+            db,
+            workspace_id=current.workspace_id,
+            media_revision_id=current.media_revision_id,
+            meeting_id=current.meeting_id,
+        )
         await db.commit()
         raise ProcessingLifecycleBlocked("meeting_deleting")
     current = await db.scalar(
@@ -771,6 +790,12 @@ async def set_workflow_status(
         current.ended_at = datetime.now(UTC)
         if not current.archive_audio:
             _mark_transient_terminal(current, now=current.ended_at)
+        await release_processing_usage_reservation(
+            db,
+            workspace_id=current.workspace_id,
+            media_revision_id=current.media_revision_id,
+            meeting_id=current.meeting_id,
+        )
     await _sync_meeting_processing_status(
         db,
         workspace_id=current.workspace_id,
@@ -1472,6 +1497,11 @@ async def persist_processing_result(
                 source_role=segment.source_role,
             )
         )
+    await _commit_processing_usage(
+        db,
+        job=job,
+        transcript=result.transcript,
+    )
     await set_dependency_state(
         db,
         workspace_id=job.workspace_id,
@@ -1483,6 +1513,62 @@ async def persist_processing_result(
     )
     await db.commit()
     return existing
+
+
+def _processing_usage_reservation_key(*, media_revision_id: UUID | None, meeting_id: UUID) -> str:
+    return f"processing:{media_revision_id or meeting_id}"
+
+
+async def _commit_processing_usage(
+    db: AsyncSession,
+    *,
+    job: MediaScribeJob,
+    transcript: list[object],
+) -> int:
+    reservation = await find_free_usage_reservation(
+        db,
+        workspace_id=job.workspace_id,
+        reservation_key=_processing_usage_reservation_key(
+            media_revision_id=job.media_revision_id,
+            meeting_id=job.meeting_id,
+        ),
+    )
+    if reservation is None or reservation.state != "active":
+        return 0
+    source_id = job.source_fingerprint or f"meeting:{job.meeting_id}"
+    ranges: list[SourceRange] = []
+    for segment in transcript:
+        start = max(0, math.floor(float(segment.start_seconds)))
+        end = math.floor(float(segment.end_seconds))
+        if end > start:
+            ranges.append(SourceRange(source_id, start, end))
+    return await commit_free_usage_ranges(
+        db,
+        reservation_id=reservation.id,
+        ranges=ranges,
+    )
+
+
+async def release_processing_usage_reservation(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    media_revision_id: UUID | None,
+    meeting_id: UUID | None = None,
+) -> bool:
+    if media_revision_id is None and meeting_id is None:
+        return False
+    reservation = await find_free_usage_reservation(
+        db,
+        workspace_id=workspace_id,
+        reservation_key=_processing_usage_reservation_key(
+            media_revision_id=media_revision_id,
+            meeting_id=meeting_id or media_revision_id,
+        ),
+    )
+    if reservation is None:
+        return False
+    return await release_free_usage(db, reservation_id=reservation.id)
 
 
 async def latest_processing_result(

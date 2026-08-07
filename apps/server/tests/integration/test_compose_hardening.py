@@ -182,6 +182,9 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
         "twobrain_smoke_credential",
         "twobrain_web_csrf_secret",
         "twobrain_support_incident_github_token",
+        "twobrain_yookassa_secret",
+        "twobrain_yookassa_webhook_secret",
+        "twobrain_billing_referral_secret",
     ]:
         assert secret_name in secrets
 
@@ -194,7 +197,13 @@ def test_production_compose_declares_docker_secret_files_for_required_secret_cla
         "twobrain_smoke_credential",
         "twobrain_web_csrf_secret",
         "twobrain_support_incident_github_token",
+        "twobrain_yookassa_secret",
+        "twobrain_yookassa_webhook_secret",
+        "twobrain_billing_referral_secret",
     } <= api_secret_sources
+    assert api["environment"]["TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE"] == "/run/secrets/twobrain_yookassa_secret"
+    assert api["environment"]["TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE"] == "/run/secrets/twobrain_yookassa_webhook_secret"
+    assert api["environment"]["TWOBRAIN_BILLING_REFERRAL_SECRET_FILE"] == "/run/secrets/twobrain_billing_referral_secret"
     assert (
         api["environment"]["TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE"]
         == "/run/secrets/twobrain_support_incident_github_token"
@@ -481,6 +490,9 @@ def test_private_group_runtime_secrets_are_only_mounted_by_group_enabled_service
         "twobrain_yandex_client_secret",
         "twobrain_vk_client_secret",
         "twobrain_support_incident_github_token",
+        "twobrain_yookassa_secret",
+        "twobrain_yookassa_webhook_secret",
+        "twobrain_billing_referral_secret",
         "twobrain_mediascribe_api_key",
         "twobrain_minio_api_access_key",
         "twobrain_minio_api_secret_key",

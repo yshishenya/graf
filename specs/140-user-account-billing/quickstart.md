@@ -55,8 +55,8 @@ elsewhere; real-shop canary is a separate approved release step.
   source-retention policy approval, Russia-first JTBD/WTP/COGS evidence and
   finance/legal approval.
 - Cross-artifact analyze pass found no unresolved critical implementation blockers; the feature has
-  87 tasks (73 validated complete, 14 still open), including runtime gaps T029,
-  T036, T047, T053, T075–T078 and explicit product-market/UX/security closeout
+  87 tasks (74 validated complete, 13 still open), including runtime gaps T036,
+  T047, T053, T075–T078 and explicit product-market/UX/security closeout
   tasks T079–T080, T083–T085, T087, so this branch is not a public-launch
   completion claim.
 - Billing ownership-loss guard revokes recurring authority under a subscription

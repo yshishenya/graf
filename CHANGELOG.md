@@ -9,6 +9,9 @@
 ## [Unreleased]
 
 ### Добавлено
+- Production Compose теперь монтирует YooKassa API/webhook и referral secrets
+  только через Docker secrets; при выключенном checkout используется безопасный
+  disabled-placeholder, а deploy script проверяет реальные файлы перед canary.
 - Runtime closeout: idempotent checkout восстанавливает hosted URL до
   повторной promo-проверки; campaign-level reservation counter сериализует
   промокоды, provider-pending резерв не истекает, а освобождённая резервация

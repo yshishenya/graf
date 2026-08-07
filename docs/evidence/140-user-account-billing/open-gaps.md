@@ -4,9 +4,9 @@
 case и не обещание пользователю; документ служит только внутренним
 metadata-only реестром незакрытых доказательств.
 
-Автономная реализация account-close/source lifecycle, add-on/payment-method
-transitions и billing primitives закрыта задачами T038, T039, T042, T043,
-T051 и частью T053/T075–T078. Refund webhook backstop теперь проходит
+Автономная реализация account-close/source lifecycle, playback quota admission,
+add-on/payment-method transitions и billing primitives закрыта задачами T029,
+T038, T039, T042, T043, T051 и частью T053/T075–T078. Refund webhook backstop теперь проходит
 bounded cursor pagination YooKassa (до 20 страниц, с защитой от повторного
 cursor), но полный registry import и monitoring для этих задач ещё не доказаны.
 Агрегированные admin metrics и отдельный readiness diagnostic уже доступны,

@@ -95,6 +95,7 @@ from twobrain_rec_server.normalization.statuses import (
 )
 from twobrain_rec_server.processing.fences import ensure_deletion_fence
 from twobrain_rec_server.processing.lifecycle import MEDIA_REVISION_DELETION_SAFE_REASON
+from twobrain_rec_server.processing.store import release_processing_usage_reservation
 
 TERMINAL_REQUEST_STATES = {
     DeletionState.COMPLETE.value,
@@ -1055,6 +1056,12 @@ async def reconcile_transient_media_purges(
             temporary_object.last_error = None
         workflow.transient_state = "purged"
         workflow.transient_purged_at = now
+        await release_processing_usage_reservation(
+            db,
+            workspace_id=workflow.workspace_id,
+            media_revision_id=workflow.media_revision_id,
+            meeting_id=workflow.meeting_id,
+        )
         await db.commit()
         purged += 1
     return purged
@@ -2616,6 +2623,12 @@ async def _mark_outcomes_deleting(
         workflow.status = "canceled"
         workflow.last_reason_code = "meeting_deleting"
         workflow.ended_at = datetime.now(UTC)
+        await release_processing_usage_reservation(
+            db,
+            workspace_id=workflow.workspace_id,
+            media_revision_id=workflow.media_revision_id,
+            meeting_id=workflow.meeting_id,
+        )
         if workflow.workflow_id:
             workflow_ids.append(workflow.workflow_id)
 

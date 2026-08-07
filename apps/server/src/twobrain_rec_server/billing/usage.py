@@ -172,6 +172,16 @@ async def reserve_free_usage(
         ).with_for_update()
     )
     if existing is not None:
+        if existing.state == "released":
+            # A retry of the same source lineage may reuse its reservation key.
+            # Keep already committed ranges immutable and restore only the
+            # uncommitted hold; this avoids charging a retry twice.
+            remaining = max(0, existing.declared_seconds - existing.committed_seconds)
+            if remaining:
+                existing.state = "active"
+                existing.expires_at = expires_at or now + timedelta(minutes=15)
+                window.reserved_seconds += remaining
+                await db.flush()
         return existing
     active_reserved = await db.scalar(
         select(func.coalesce(func.sum(UsageReservationRow.declared_seconds - UsageReservationRow.committed_seconds), 0)).where(
@@ -257,6 +267,23 @@ async def release_free_usage(
         )
     await db.flush()
     return True
+
+
+async def find_free_usage_reservation(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    reservation_key: str,
+) -> UsageReservationRow | None:
+    """Find one processing reservation without exposing provider/content data."""
+    return await db.scalar(
+        select(UsageReservationRow)
+        .where(
+            UsageReservationRow.workspace_id == workspace_id,
+            UsageReservationRow.idempotency_key == reservation_key,
+        )
+        .with_for_update()
+    )
 
 
 def _subtract_source_range(
