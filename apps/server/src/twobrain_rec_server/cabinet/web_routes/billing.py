@@ -30,6 +30,7 @@ from twobrain_rec_server.billing.promotions import (
     check_eligibility,
     promo_code_hash,
 )
+from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
 from twobrain_rec_server.billing.storage import StorageProjection, project_active_playback_storage
 from twobrain_rec_server.billing.subscription import (
@@ -807,6 +808,7 @@ async def billing_history_page(
                     "created_at": invoice.created_at,
                     "amount_label": f"{invoice.amount_minor / 100:.2f} {invoice.currency}",
                     "status": invoice.status,
+                    "detail_url": f"/billing/invoices/{invoice.safe_number}",
                     "refund_mailto": refund_mailto,
                 }
             )
@@ -825,5 +827,60 @@ async def billing_history_page(
         content_template="cabinet/pages/billing_history_content.html",
         invoices=invoices,
         support_email=request.app.state.settings.billing_support_email,
+    )
+    return cabinet_html_response(content)
+
+
+@router.get("/billing/invoices/{safe_number}", response_class=HTMLResponse, include_in_schema=False)
+async def billing_invoice_detail_page(
+    safe_number: str,
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    invoice = None
+    if db is not None:
+        invoice = await db.scalar(
+            select(BillingInvoice).where(
+                BillingInvoice.workspace_id == tenant_scope.workspace_id,
+                BillingInvoice.safe_number == safe_number,
+            )
+        )
+    if invoice is None:
+        return RedirectResponse("/billing/history?result=not_found", status_code=303)
+    snapshot = invoice.plan_snapshot if isinstance(invoice.plan_snapshot, dict) else {}
+    receipt_value = snapshot.get("receipt_registration")
+    try:
+        receipt_state = ReceiptState(receipt_value) if isinstance(receipt_value, str) else ReceiptState.UNKNOWN
+    except ValueError:
+        receipt_state = ReceiptState.UNKNOWN
+    refund_mailto = None
+    support_email = request.app.state.settings.billing_support_email
+    if support_email:
+        try:
+            refund_mailto = build_refund_mailto(support_email=support_email, safe_invoice_number=invoice.safe_number)
+        except ValueError:
+            refund_mailto = None
+    content = _page_shell(
+        "Платёж",
+        embedded=False,
+        active_nav="settings",
+        settings_active="billing",
+        csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
+        product_analytics_provider=build_request_browser_provider_context(
+            request, "billing_invoice", principal=principal, tenant_scope=tenant_scope
+        ),
+        content_template="cabinet/pages/billing_invoice_content.html",
+        invoice={
+            "safe_number": invoice.safe_number,
+            "created_at": invoice.created_at,
+            "amount_label": f"{invoice.amount_minor / 100:.2f} {invoice.currency}",
+            "status": invoice.status,
+            "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
+            "receipt_label": receipt_label(receipt_state),
+            "refund_mailto": refund_mailto,
+        },
+        support_email=support_email,
     )
     return cabinet_html_response(content)

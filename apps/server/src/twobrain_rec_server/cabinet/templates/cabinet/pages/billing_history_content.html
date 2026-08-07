@@ -14,6 +14,7 @@
           <li class="settings-choice-row">
             <div><strong>{{ invoice.amount_label }}</strong><span class="muted">{{ invoice.safe_number }} · {{ invoice.status }}{% if invoice.created_at %} · {{ invoice.created_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span></div>
             <div class="settings-actions">
+              <a class="button quiet" href="{{ invoice.detail_url }}">Открыть</a>
               <button class="button quiet" type="button" data-copy-value="{{ invoice.safe_number }}">Скопировать номер платежа</button>
               {% if support_email %}<button class="button quiet" type="button" data-copy-value="{{ support_email }}">Скопировать email</button>{% endif %}
               {% if invoice.refund_mailto %}<a class="button quiet" href="{{ invoice.refund_mailto }}">Написать письмо</a>{% endif %}
