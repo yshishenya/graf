@@ -71,6 +71,21 @@ def test_product_analytics_api_is_disabled_by_default() -> None:
     assert event_response.json()["code"] == "product_analytics_disabled"
 
 
+def test_product_analytics_ingress_rejects_oversized_json_before_validation() -> None:
+    settings = Settings(product_analytics_enabled=True)
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/product-analytics/events",
+            content=b"{" + b"a" * 262_144 + b"}",
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["code"] == "product_analytics_body_too_large"
+
+
 def test_synthetic_source_to_first_value_funnel_is_safe_and_server_mediated() -> None:
     identity = build_safe_identity(user_source_id="user-094")
     service = ProductAnalyticsIngestService(

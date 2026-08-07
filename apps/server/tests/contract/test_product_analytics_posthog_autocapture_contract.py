@@ -109,7 +109,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "page_class": "settings",
-                "role": "owner@example.test",
+                "role": "tab",
                 "analytics_action": "calendar_settings_opened",
                 "identity_state": "authenticated_pseudonymous",
                 "workspace_pseudonym": "graf_pseudo_workspace_c0ffee0000000000",
@@ -123,8 +123,19 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "page_class": "settings",
-                "role": "owner@example.test",
+                "role": "tab",
                 "analytics_action": "access_token",
+                "sensitivity": "product",
+            },
+        )
+        private_identity = client.post(
+            "/api/v1/product-analytics/posthog-web-capture",
+            json={
+                "distinct_id": "graf_pseudo_user_c0ffee0000000000",
+                "event_type": "click",
+                "page_class": "settings",
+                "role": "owner@example.test",
+                "analytics_action": "calendar_settings_opened",
                 "sensitivity": "product",
             },
         )
@@ -142,5 +153,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
     assert safe.json()["status"] == "dry_run"
     assert secret.status_code == 400
     assert secret.json()["code"] == "posthog_autocapture_rejected"
+    assert private_identity.status_code == 400
+    assert private_identity.json()["code"] == "posthog_autocapture_rejected"
     assert raw_identity.status_code == 400
     assert raw_identity.json()["code"] == "posthog_autocapture_identity_rejected"

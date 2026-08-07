@@ -9,6 +9,17 @@
 ## [Unreleased]
 
 ### Добавлено
+- Ошибка промокода теперь сохраняет безопасный нормализованный ввод на пять
+  минут в HttpOnly cookie без попадания кода в URL/referrer; copy-кнопки
+  платежей и реферальной ссылки получили keyboard-safe clipboard fallback и
+  live status.
+- Browser PostHog autocapture теперь проходит полный forbidden-field guard,
+  поэтому email-like DOM metadata отклоняется до provider delivery.
+- Provider payment/receipt IDs теперь валидируются до authenticated GET, а
+  публичный analytics ingress ограничен 256 KiB и bounded IP rate limit.
+- Billing canary quickstart и launch runbook расширены разделением test/prod,
+  capability evidence, four-eyes sign-off, emergency stop и rollback drill;
+  реальные canary/sign-offs по-прежнему остаются внешним gate.
 - Receipt truth теперь проходит монотонный metadata-only projection с
   idempotent уведомлением о доступности чека; entitlement grant остаётся
   append-only и duplicate payment callback не меняет уже успешную операцию.

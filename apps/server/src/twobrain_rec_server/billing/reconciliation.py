@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.provider_events import validate_provider_identifier
 from twobrain_rec_server.billing.referral_rewards import reverse_credit_for_payment
 from twobrain_rec_server.db.models import (
     BillingInvoice,
@@ -473,13 +474,10 @@ def referral_correction_needed(*, observed_status: str, referral_credit_state: s
 
 
 def _provider_id(value: object) -> str:
-    if not isinstance(value, str) or not 1 <= len(value) <= 160:
-        raise ProviderObservationError("provider identifier is invalid")
-    if value != value.strip() or not all(
-        char.isascii() and (char.isalnum() or char in "-_.") for char in value
-    ):
-        raise ProviderObservationError("provider identifier is invalid")
-    return value
+    try:
+        return validate_provider_identifier(value)
+    except ValueError:
+        raise ProviderObservationError("provider identifier is invalid") from None
 
 
 def _money(value: object) -> tuple[int, str]:

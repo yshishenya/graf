@@ -23,6 +23,9 @@
   явное подтверждение email в signup/share flow реактивирует только identity
   того же active account и не создаёт duplicate provider subject;
 - billing tables включены в RLS inventory.
+- Browser PostHog autocapture теперь проходит тот же forbidden-field guard,
+  что и server-built activation events; email-like DOM metadata получает
+  fail-closed `posthog_autocapture_rejected` и не отправляется provider.
 - Trial eligibility дополнительно требует active+verified `ExternalIdentity` и
   ownership `Workspace`; `UserIdentity.status=active` сам по себе не считается
   подтверждением.
@@ -33,10 +36,19 @@
   reverse proxy обязан передавать этот заголовок только после allowlist сетей
   YooKassa и TLS-проверки. Authoritative provider GET остаётся reconciliation,
   а не заменой ingress-аутентификации.
+- Provider object IDs проходят общий ASCII allowlist (`[A-Za-z0-9._-]`, 1–160
+  символов) до сохранения и до credential-bearing GET; path traversal/query
+  injection в payment/receipt URL закрыты отрицательным тестом.
+- Product-analytics POST ingress ограничен 256 KiB до Pydantic и имеет bounded
+  process-local IP limiter (120 запросов/60 секунд); production edge всё равно
+  обязан применять distributed limit для нескольких API replicas.
 
-Команды evidence: `uv run ruff check src tests`, 58 focused billing/security/UI
-tests и `git diff --check`. Production approval требует отдельной проверки deployment
-secrets, PostHog/Yandex configuration и RLS against a live PostgreSQL instance.
-Codex Security Deep Scan в этой сессии не стартовал: managed filesystem
-permission profile не был предоставлен; локальные contract/unit/webhook checks
-выше являются ручным interim evidence, а не заменой live security review.
+Команды evidence: `uv run ruff check src tests`, focused billing/security/UI и
+PostHog autocapture tests (43 targeted checks), `git diff --check`. Стандартный
+Codex Security preflight завершён со статусом `ready` (warn: в текущем desktop
+runtime доступно 3 usable worker slots вместо рекомендованных 6); независимый
+read-only baseline просмотрел 54 файла и дал два исправленных findings.
+Production approval требует отдельной проверки deployment secrets,
+PostHog/Yandex configuration, distributed edge rate limit и RLS against a live
+PostgreSQL instance. Локальные contract/unit/webhook checks и static baseline
+не заменяют live security review.

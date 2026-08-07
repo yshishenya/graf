@@ -10,7 +10,7 @@
       <section class="settings-section cabinet-card" aria-labelledby="billing-checkout-title">
         <h2 id="billing-checkout-title">{{ plan.label }}</h2>
         <p>Без лимита по времени обработки. В тариф входит 2 000 000 000 байт хранения.</p>
-        {% if checkout_result == "owner_only" %}<p role="alert">Оплатить тариф может только владелец пространства.</p>{% elif checkout_result == "consent_required" %}<p role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>{% elif checkout_result == "unavailable" %}<p role="alert">Оплата временно недоступна. Повторите попытку позже.</p>{% elif checkout_result == "pending" %}<p role="status">Платёж уже создан. Проверьте историю платежей.</p>{% elif checkout_result == "promo_invalid" %}<p role="alert">Промокод недействителен, не подходит для выбранного периода или уже использован.</p>{% endif %}
+        {% if checkout_result == "owner_only" %}<p role="alert">Оплатить тариф может только владелец пространства.</p>{% elif checkout_result == "consent_required" %}<p role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>{% elif checkout_result == "unavailable" %}<p role="alert">Оплата временно недоступна. Повторите попытку позже.</p>{% elif checkout_result == "pending" %}<p role="status">Платёж уже создан. Проверьте историю платежей.</p>{% elif checkout_result == "promo_invalid" %}<p id="billing-checkout-error" role="alert">Промокод недействителен, не подходит для выбранного периода или уже использован. Проверьте код и отправьте форму ещё раз.</p>{% endif %}
         {% if billing_enabled %}
         <form action="/billing/checkout/start" method="post">
           {{ sections.csrf_field(csrf_token|default(None)) }}
@@ -23,7 +23,7 @@
             </div>
           </fieldset>
           <label for="billing-promo">Промокод <span class="muted">(если у вас есть действующий код)</span></label>
-          <input id="billing-promo" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48">
+          <input id="billing-promo" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48" value="{{ checkout_promo_code|default('') }}"{% if checkout_result == "promo_invalid" %} aria-describedby="billing-checkout-error"{% endif %}>
           <label><input type="checkbox" name="recurring_consent" value="true" required> Согласен на регулярное списание до отключения автопродления.</label>
         </form>
         {% else %}<p role="status">Оплата пока недоступна: магазин не включён.</p>{% endif %}

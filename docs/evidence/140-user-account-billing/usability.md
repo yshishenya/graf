@@ -5,7 +5,8 @@
 
 Автоматизированно проверяются русские labels, explicit destructive actions,
 no-JavaScript POST fallback, `aria-live` status blocks, visible copy about
-finite storage/unlimited processing и отсутствие refund form/status in product.
+finite storage/unlimited processing, recoverable promo errors и работа
+keyboard-triggered copy controls без передачи значения в analytics.
 
 Manual gate remains: ≥90% discovery of primary actions in 2 minutes, cancel in
 ≤3 screens/60 seconds, keyboard-only path, 200% reflow, reduced motion and
@@ -22,7 +23,8 @@ separate public landing review. Screenshots/video и participant evidence не
 способ входа нельзя отключить без другого способа восстановления. Desktop route
 policy пропускает account aliases и `/desktop/settings/notifications`.
 
-Evidence: 32 server contract/unit tests, 15 macOS `DesktopCabinetRoutePolicyTests`,
+Evidence: 32 server contract/unit tests plus 13 billing accessibility/UI
+checks, 15 macOS `DesktopCabinetRoutePolicyTests`,
 plus 2 disposable-PostgreSQL lifecycle tests for server-side preferences and
 recovery-safe provider unlink (2026-08-07). Это автоматизированный interim evidence;
 ручные проверки keyboard-only, 200% reflow, reduced motion на реальном браузере,

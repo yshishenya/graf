@@ -44,25 +44,28 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Latest local evidence (2026-08-07)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 1007 server tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1012 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
-- Focused billing/account/storage/accessibility/security/UI contracts: PASS,
-  51 tests; separate disposable-PostgreSQL lifecycle sample: 19 tests.
+- Focused billing/account/storage/accessibility/security/UI contracts: PASS;
+  latest boundary suite: 43 tests; separate disposable-PostgreSQL lifecycle
+  sample: 19 tests.
 - Focused billing lifecycle, notification and subscription tests: PASS; no
-  commit, push or checkout enablement was performed.
+  checkout enablement was performed; evidence is committed locally at the
+  current feature SHA and has not been pushed.
 - Public launch remains blocked by the production gates below: real merchant
   test-shop/canary evidence, accessibility/usability and live security review,
   source-retention policy approval, Russia-first JTBD/WTP/COGS evidence and
   finance/legal approval.
 - Cross-artifact analyze pass found no unresolved critical implementation blockers; the feature has
-  87 tasks (74 validated complete, 13 still open), including runtime gaps T036,
-  T047, T053, T075–T078 and explicit product-market/UX/security closeout
-  tasks T079–T080, T083–T085, T087, so this branch is not a public-launch
-  completion claim.
+  87 tasks (80 validated complete, 7 still open). T036, T047, T053 and
+  T075–T077 are implementation-complete with focused evidence; provider IDs and
+  anonymous analytics ingress now have explicit boundary guards. T078 remains
+  the controlled canary/sign-off gate, alongside T079–T080 and T083–T085/T087.
+  This branch is not a public-launch completion claim.
 - Billing ownership-loss guard revokes recurring authority under a subscription
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
   20-page safety limit. These are covered by focused disposable-PostgreSQL and
-  adapter/webhook tests; registry import and live provider evidence remain open.
+  adapter/webhook tests; live provider evidence and manual sign-offs remain open.
 - Лендинг и публичные страницы проверяются отдельным ручным проходом по
   [landing-review.md](../../docs/evidence/140-user-account-billing/landing-review.md);
   серверные тесты не закрывают визуальную, accessibility и moderated-usability
@@ -185,6 +188,160 @@ elsewhere; real-shop canary is a separate approved release step.
     preserving cancel/payment-data refusal, history/static support instruction,
     Record/Stop, deletion and export. Backup/restore, migration rollback,
     disk-full and registry-gap drills leave owned metadata-only evidence.
+
+## T078. Canary evidence packet (операционный runbook)
+
+Этот раздел описывает, как собрать доказательства для controlled canary. Он не
+является разрешением включить checkout и не заменяет подписи. До выполнения
+всех gates `TWOBRAIN_BILLING_CHECKOUT_ENABLED` должен оставаться `false` в
+защищённой production-конфигурации; `TWOBRAIN_BILLING_EMERGENCY_STOP` обычно
+`false` при выключенном checkout и переключается в `true` при остановке.
+В evidence нельзя писать
+секреты, содержимое webhook/CSV, реальные payment/refund/provider IDs, номера
+карт, email покупателей, аудио или текст встреч. Для связи используется только
+локальный `evidence_ref` и хэш/точный SHA релиза.
+
+### A. Разделение окружений
+
+| Граница | Test shop | Production / controlled real shop |
+| --- | --- | --- |
+| YooKassa | Отдельный тестовый магазин и отдельные API/webhook secrets; идентификатор не коммитится | Магазин `1430118`, отдельные secrets; production secret files доступны только `rec-api` |
+| Приложение | Изолированный test host, callback и return URL; отдельные DB, object bucket и Temporal namespace | `https://rec.2brain.pro`, production DB/bucket/Temporal namespace; публичный callback принимает только production events |
+| Конфигурация | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` по умолчанию; включается на короткое окно теста | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` до четырёх-eyes approval; emergency stop остаётся готовым к немедленному включению |
+| Данные | Только синтетические пользователи, планы, media metadata и provider doubles/test objects | Только заранее allowlisted synthetic/consented canary identity; не копировать test DB, secrets, receipts или webhook payload в production |
+| Ротация | Ротировать test secret после завершения сессии или утечки | Ротировать перед первым включением и после любого инцидента; проверять права файлов (`0600`, владелец deploy operator) |
+
+Перед каждой сессией оператор сверяет `release_sha`, migration head, target
+environment и hostname. Несовпадение любой пары останавливает сессию. Test
+shop не доказывает production capability: для real shop нужна отдельная запись
+своего наблюдения и отдельная подпись.
+
+### B. Формат capability evidence (metadata-only)
+
+Одна запись на одну capability, без provider payload:
+
+```text
+evidence_ref: <local-random-ref>
+release_sha: <40-char-git-sha>
+environment: test-shop | controlled-real-shop
+shop_ref: test-shop-<internal-ticket> | production-shop-1430118
+observed_at_utc: <RFC3339>
+operator_role: <role, no personal secret>
+approver_role: <independent role>
+capability: initial_payment | saved_method | recurring_charge |
+  authoritative_get | webhook_ingest | receipt_observation |
+  manual_full_refund_observation | manual_partial_refund_observation |
+  zero_amount_binding | renewal_failure_to_free
+result: pass | fail | blocked | not_tested
+source: contract | provider_test_shop | controlled_real_shop | registry_poll
+safe_observation: <bounded outcome, no IDs or payload>
+revalidation_due_utc: <RFC3339>
+incident_ref: <empty or metadata-only internal reference>
+```
+
+`zero_amount_binding` получает `blocked`, если возможность не подтверждена
+самим shop; в этом случае self-service replacement остаётся выключенным. Для
+каждого `pass` сохраняются только exact SHA, время, bounded result, hash
+evidence-файла и владелец gap. Истёкшая запись, смена магазина/secret,
+миграции, изменения receipt/VAT/recurring capability или incident автоматически
+делают запись `stale` и возвращают checkout в fail-closed состояние.
+
+### C. Test-shop sequence
+
+1. Создать disposable test database/bucket/Temporal namespace и synthetic owner;
+   подтвердить, что production hostname и production secret files недоступны.
+2. На точном SHA выполнить focused suite и credential-free E2E:
+
+   ```sh
+   cd apps/server
+   uv run pytest tests/contract/test_billing_launch_gates.py -q
+   uv run pytest tests/e2e/test_billing_test_shop.py -q
+   cd ../..
+   ```
+
+3. В течение разрешённого окна проверить monthly и annual initial payment,
+   duplicate/out-of-order webhook, browser timeout, saved-method consent,
+   authoritative GET и receipt lines. Объект return URL или webhook сам по себе
+   не создаёт entitlement.
+4. Проверить один renewal success и один provider-confirmed failure: после
+   failure доступ сразу проецируется в Free, без grace/retry; unknown блокирует
+   pay-again и не создаёт вторую charge key. Проверить late success/refusal
+   precedence и exactly-once grant.
+5. В merchant cabinet (не через GRAF) выполнить test-only full и partial refund,
+   если shop это поддерживает. GRAF только наблюдает webhook/GET/list/registry;
+   ожидается ноль refund mutation calls и отсутствие refund status в UI.
+6. Зафиксировать каждую capability в форме B, провести независимую проверку
+   redaction/RLS/CSRF и удалить disposable test data по штатной процедуре.
+
+Остановка test-shop сессии обязательна при mismatch amount/currency, receipt,
+shop/environment, duplicate grant, unexpected provider mutation, leaked
+secret или попытке записать customer content. В таких случаях evidence имеет
+`result=fail`, а не `pass`.
+
+### D. Controlled real-shop sequence
+
+Real-shop canary начинается только после заполненных sign-off полей в разделе
+E, backup/restore reference и dry-run release gate. Cohort — одна заранее
+allowlisted identity и один операторский слот; расширение cohort запрещено до
+closeout записи. Обязательная последовательность:
+
+1. Проверить exact SHA, migration/backup evidence, production secret mounts,
+   webhook TLS/source filtering, emergency-stop и read-only reconciliation.
+2. Выполнить base plan + один разрешённый add-on payment. Подтвердить
+   authoritative GET, webhook, exact receipt, entitlement и storage projection.
+3. Провести согласованный renewal failure → immediate Free (тестовый метод
+   провайдера или иной заранее одобренный безопасный сценарий), затем проверить
+   no-grace/no-retry и late-outcome precedence. Не создавать вторую операцию.
+4. В merchant cabinet вручную выполнить full и partial refund. В GRAF проверить
+   только read-only webhook/GET/list/registry convergence, bounded gap ownership
+   и отсутствие customer-facing refund result/notification.
+5. Сохранить metadata-only packet: exact SHA, capability rows, migration and
+   backup references, metrics snapshot, stop/rollback rehearsal result and
+   two-person decision. Любая незакрытая gap/неподтверждённая capability
+   останавливает rollout и оставляет checkout disabled.
+
+### E. Four-eyes sign-off record
+
+| Gate | Required approver role | Status (`pending/pass/fail`) | `evidence_ref` | Valid until / trigger | Date + initials |
+| --- | --- | --- | --- | --- | --- |
+| Product: plan, storage ladder, fair-use and cohort | `product` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
+| Finance/accounting: COGS, VAT/54-ФЗ, receipt and ledger retention | `finance/accounting` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
+| Legal: offer, recurring consent, immediate-Free and email-only refund boundary | `legal` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
+| Security/QA: RLS, CSRF, redaction, provider boundary, accessibility and rollback | `security/qa` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
+| Infrastructure/on-call: backup, restore, TLS, secret rotation and stop path | `infrastructure/on-call` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
+| Canary decision: executor and independent approver are different people | `release owner + independent approver` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
+
+`pass` допустим только при наличии evidence_ref и независимого approver.
+Подпись действует только для указанного SHA, магазина и cohort. При изменении
+кода, схемы, цены, receipt/VAT, provider capability, secrets, cohort или
+unresolved incident все записи становятся `stale`; checkout и renewal снова
+выключаются.
+
+### F. Stop/rollback rehearsal
+
+До real-shop canary оператор в test shop выполняет dry-run остановки и записывает
+результат. Emergency stop должен:
+
+- выставить в защищённой deployment-конфигурации
+  `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` и
+  `TWOBRAIN_BILLING_EMERGENCY_STOP=true`, затем пройти
+  `infra/scripts/cd-remote.sh --dry-run`; `--execute` разрешён только отдельным
+  release approver;
+- заблокировать новые checkout, zero-binding и automatic renewal mutations,
+  сохранив cancel/refusal, payment history, support email, Record/Stop,
+  deletion и export;
+- сохранить только metadata-only incident (`incident_ref`, severity, owner,
+  deadline, exact SHA); не удалять ledger, не менять entitlement задним числом
+  и не запускать refund из GRAF;
+- после устранения причины выполнить backup/restore и migration compatibility
+  checks, затем вернуть checkout только новой парой подписей. Для rollback
+  приложения использовать [общий rollback runbook](../../docs/deployments/2brain-rec/rollback-runbook.md);
+  downgrade схемы без утверждённого backup запрещён.
+
+Evidence rehearsal считается `pass`, если после stop провайдерные mutation
+возвращают fail-closed, текущий оплаченный срок не меняется, а локальная запись
+инцидента не содержит provider/payment/refund ID или payload. Любой другой
+результат блокирует real-shop canary.
 
 ## Production gate — separate approved release step
 

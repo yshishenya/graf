@@ -4642,6 +4642,57 @@
     });
   };
 
+  const copyBillingText = async (value) => {
+    if (!value) throw new Error("clipboard_empty");
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(value);
+        return;
+      } catch {
+        // Fall through to the native textarea fallback when permissions deny
+        // clipboard access (common in embedded or non-secure contexts).
+      }
+    }
+    const fallback = document.createElement("textarea");
+    fallback.value = value;
+    fallback.setAttribute("readonly", "true");
+    fallback.style.position = "fixed";
+    fallback.style.opacity = "0";
+    document.body.append(fallback);
+    fallback.select();
+    try {
+      if (!document.execCommand("copy")) throw new Error("clipboard_unavailable");
+    } finally {
+      fallback.remove();
+    }
+  };
+
+  const initBillingCopyControls = () => {
+    document.querySelectorAll("[data-copy-value], [data-copy-target]").forEach((button) => {
+      if (button.dataset.copyReady === "true") return;
+      button.dataset.copyReady = "true";
+      button.addEventListener("click", async () => {
+        const targetId = button.dataset.copyTarget;
+        const target = targetId ? document.getElementById(targetId) : null;
+        const value = targetId ? target?.value || target?.textContent?.trim() : button.dataset.copyValue;
+        let status = button.parentElement?.querySelector("[data-copy-status]");
+        if (!status) {
+          status = document.createElement("span");
+          status.dataset.copyStatus = "true";
+          status.setAttribute("role", "status");
+          status.setAttribute("aria-live", "polite");
+          button.parentElement?.append(status);
+        }
+        try {
+          await copyBillingText(value);
+          status.textContent = "Скопировано.";
+        } catch {
+          status.textContent = "Не удалось скопировать. Выделите текст вручную.";
+        }
+      });
+    });
+  };
+
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
@@ -4667,6 +4718,7 @@
     initAccountPreferences();
     initSettingsConfirmations();
     initShareInvitationAutoAccept();
+    initBillingCopyControls();
   };
 
   const initShareInvitationAutoAccept = () => {

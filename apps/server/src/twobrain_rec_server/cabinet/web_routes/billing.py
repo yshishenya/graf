@@ -32,6 +32,7 @@ from twobrain_rec_server.billing.promotions import (
     PromoError,
     check_eligibility,
     choose_best_discount,
+    normalize_promo,
     promo_code_hash,
 )
 from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
@@ -88,6 +89,45 @@ from twobrain_rec_server.product_analytics.browser_context import (
 )
 
 router = APIRouter(tags=["cabinet-web"])
+
+_CHECKOUT_PROMO_COOKIE = "graf_checkout_promo"
+_CHECKOUT_PROMO_COOKIE_MAX_AGE = 5 * 60
+
+
+def _checkout_result_redirect(
+    request: Request,
+    result: str,
+    *,
+    promo_code: str | None = None,
+) -> RedirectResponse:
+    """Keep only the recoverable checkout field across a result redirect.
+
+    The cookie is short-lived, HttpOnly and scoped to checkout routes. Promo
+    codes are not financial identifiers, but they still must not enter a URL
+    query string where browser history, referrer or analytics could capture
+    them.
+    """
+
+    response = RedirectResponse(f"/billing/checkout?result={result}", status_code=303)
+    try:
+        value = normalize_promo(promo_code) if promo_code else ""
+    except PromoError:
+        # Never put unvalidated form bytes into a response header. A malformed
+        # code is cheap to re-enter; preserving a valid normalized value is
+        # enough for recoverable expiry/capacity errors.
+        value = ""
+        response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
+    if value:
+        response.set_cookie(
+            _CHECKOUT_PROMO_COOKIE,
+            value=value,
+            max_age=_CHECKOUT_PROMO_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+            path="/billing/checkout",
+        )
+    return response
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 
@@ -772,6 +812,7 @@ async def billing_checkout_page(
 ) -> HTMLResponse:
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
+    checkout_promo_code = request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
     content = _page_shell(
         "Выбор тарифа",
         embedded=False,
@@ -789,8 +830,12 @@ async def billing_checkout_page(
         plan=plan_descriptor("personal"),
         checkout_idempotency_key=f"web-{principal.user_id}-{uuid4().hex}",
         checkout_result=request.query_params.get("result"),
+        checkout_promo_code=checkout_promo_code,
     )
-    return cabinet_html_response(content)
+    response = cabinet_html_response(content)
+    if checkout_promo_code:
+        response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
+    return response
 
 
 @router.post("/billing/checkout/start", response_class=HTMLResponse, include_in_schema=False)
@@ -887,7 +932,7 @@ async def start_billing_checkout(
                     active_reservations=promo_campaign.reserved_count,
                 )
             except (PromoError, ValueError):
-                return RedirectResponse("/billing/checkout?result=promo_invalid", status_code=303)
+                return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code)
         # Referral attribution belongs to the inviter's workspace, while the
         # invitee is now paying from a different personal workspace. Use the
         # narrowly-scoped auth-public RLS lookup for this one read, then restore
@@ -1025,7 +1070,7 @@ async def start_billing_checkout(
             )
             if redemption is not None and redemption.state not in {"released", "expired"}:
                 await db.rollback()
-                return RedirectResponse("/billing/checkout?result=promo_invalid", status_code=303)
+                return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code)
             promo_campaign.reserved_count += 1
             if redemption is None:
                 redemption = PromotionRedemption(

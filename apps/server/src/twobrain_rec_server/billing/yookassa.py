@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from twobrain_rec_server.billing.provider_events import validate_provider_identifier
 from twobrain_rec_server.config import Settings
 
 
@@ -113,7 +114,7 @@ class YooKassaClient:
         return await self._request("POST", "/v3/payments", payload, idempotence_key=idempotence_key)
 
     async def get_payment(self, payment_id: str) -> dict[str, Any]:
-        return await self._request("GET", f"/v3/payments/{payment_id}")
+        return await self._request("GET", f"/v3/payments/{validate_provider_identifier(payment_id)}")
 
     async def list_refunds(
         self,
@@ -134,7 +135,7 @@ class YooKassaClient:
         return await self._request("GET", "/v3/refunds", params=params or None)
 
     async def get_receipt(self, receipt_id: str) -> dict[str, Any]:
-        return await self._request("GET", f"/v3/receipts/{receipt_id}")
+        return await self._request("GET", f"/v3/receipts/{validate_provider_identifier(receipt_id)}")
 
     async def _request(
         self,

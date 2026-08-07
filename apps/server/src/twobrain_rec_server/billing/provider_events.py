@@ -12,6 +12,17 @@ class ProviderEventError(ValueError):
     pass
 
 
+def validate_provider_identifier(value: object) -> str:
+    """Return a provider id safe to use as one API path segment."""
+    if not isinstance(value, str) or not 1 <= len(value) <= 160:
+        raise ValueError("provider identifier is invalid")
+    if value != value.strip() or not all(
+        char.isascii() and (char.isalnum() or char in "-_.") for char in value
+    ):
+        raise ValueError("provider identifier is invalid")
+    return value
+
+
 def validate_webhook_secret(*, supplied: str | None, expected: str | None) -> None:
     if not supplied or not expected or not hmac.compare_digest(supplied.strip(), expected.strip()):
         raise ProviderEventError("provider webhook authentication failed")
@@ -44,11 +55,11 @@ def parse_provider_event(payload: dict[str, Any]) -> ProviderEvent:
     try:
         event_id = str(payload["id"]).strip()
         event_type = str(payload["event"]).strip()
-        object_id = str(payload["object"]["id"]).strip()
+        object_id = validate_provider_identifier(payload["object"]["id"])
         occurred_at = datetime.fromisoformat(str(payload["object"].get("created_at", "")).replace("Z", "+00:00"))
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         raise ProviderEventError("malformed provider event") from exc
-    if not event_id or not event_type or not object_id:
+    if not event_id or not event_type:
         raise ProviderEventError("provider event identifiers are required")
     if occurred_at.tzinfo is None:
         occurred_at = occurred_at.replace(tzinfo=UTC)

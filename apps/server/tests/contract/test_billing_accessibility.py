@@ -40,6 +40,48 @@ def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
     assert "Перейти к оплате" not in html
 
 
+def test_checkout_promo_error_preserves_safe_input_and_associates_error() -> None:
+    from twobrain_rec_server.billing.catalog import plan_descriptor
+    from twobrain_rec_server.cabinet.templates import render_template
+    from twobrain_rec_server.cabinet.view_models import settings_category_navigation
+
+    html = render_template(
+        "cabinet/pages/billing_checkout_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plan=plan_descriptor("personal"),
+        billing_enabled=True,
+        checkout_idempotency_key="synthetic-key",
+        checkout_result="promo_invalid",
+        checkout_promo_code="WELCOME10",
+    )
+    assert 'id="billing-checkout-error" role="alert"' in html
+    assert 'id="billing-promo"' in html
+    assert 'value="WELCOME10"' in html
+    assert 'aria-describedby="billing-checkout-error"' in html
+
+
+def test_cabinet_css_declares_reflow_focus_and_reduced_motion_guards() -> None:
+    css = (
+        ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
+    ).read_text(encoding="utf-8")
+    assert "@media (max-width: 640px)" in css
+    assert "@media (prefers-reduced-motion: reduce)" in css
+    assert ":focus-visible" in css
+    assert ".skip-link:focus" in css
+
+
+def test_billing_copy_controls_have_a_keyboard_safe_browser_handler() -> None:
+    script = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'querySelectorAll("[data-copy-value], [data-copy-target]")' in script
+    assert 'role", "status"' in script
+    assert 'document.execCommand("copy")' in script
+
+
 def test_account_close_has_no_js_confirmation_fallback() -> None:
     template = (TEMPLATE_ROOT / "settings_account_content.html").read_text(encoding="utf-8")
     assert 'method="post"' in template

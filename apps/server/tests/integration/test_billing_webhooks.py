@@ -53,6 +53,11 @@ def test_webhook_parser_accepts_out_of_order_timestamps_but_rejects_malformed() 
         parse_provider_event({"id": "evt-bad", "event": "payment.succeeded", "object": {}})
 
 
+def test_webhook_parser_rejects_path_manipulation_in_provider_object_id() -> None:
+    with pytest.raises(ProviderEventError):
+        parse_provider_event({**_payload("evt-path"), "object": {"id": "../refunds", "created_at": "2026-08-06T09:00:00Z"}})
+
+
 def test_webhook_reconciliation_has_authoritative_get_and_list_fallbacks() -> None:
     assert hasattr(YooKassaClient, "get_payment")
     assert hasattr(YooKassaClient, "list_refunds")

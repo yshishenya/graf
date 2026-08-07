@@ -1,10 +1,13 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from starlette.requests import Request
+
 from twobrain_rec_server.billing.catalog import plan_descriptor
 from twobrain_rec_server.billing.usage import format_duration
 from twobrain_rec_server.cabinet.templates import render_template
 from twobrain_rec_server.cabinet.view_models import settings_category_navigation
+from twobrain_rec_server.cabinet.web_routes.billing import _checkout_result_redirect
 
 
 def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None:
@@ -89,6 +92,33 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
     assert 'name="recurring_consent"' in html
     assert "required" in html
     assert "регулярное списание" in html
+
+
+def test_checkout_result_redirect_keeps_promo_out_of_url_and_uses_short_lived_cookie() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "scheme": "https",
+            "server": ("graf.test", 443),
+            "path": "/billing/checkout/start",
+            "headers": [],
+            "query_string": b"",
+        }
+    )
+    response = _checkout_result_redirect(request, "promo_invalid", promo_code="WELCOME10")
+    assert response.headers["location"] == "/billing/checkout?result=promo_invalid"
+    cookie = response.headers["set-cookie"]
+    assert "graf_checkout_promo=WELCOME10" in cookie
+    assert "Max-Age=300" in cookie
+    assert "Path=/billing/checkout" in cookie
+    assert "HttpOnly" in cookie
+    assert "SameSite=lax" in cookie
+    assert "Secure" in cookie
+
+    malformed = _checkout_result_redirect(request, "promo_invalid", promo_code="bad\ncode")
+    assert 'graf_checkout_promo=""' in malformed.headers["set-cookie"]
+    assert "Max-Age=0" in malformed.headers["set-cookie"]
 
 
 def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:

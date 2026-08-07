@@ -13,11 +13,15 @@ backstop проходит bounded cursor pagination YooKassa (до 20 стран
 Агрегированные admin metrics, maintenance workflows и отдельный readiness
 diagnostic доступны, но live dashboard/alert routing и stop-all-charges drill
 остаются операционными launch-gates T078.
-Остаются
-evidence/gates: moderated
-accessibility/usability and landing review, live security/RLS review, product-
-market segment/JTBD, WTP/COGS, upgrade-copy and final cross-artifact closeout
-(T079–T085, T087).
+Операционный canary runbook и quickstart теперь описывают разделение test/prod,
+capability evidence, four-eyes sign-off, emergency stop и rollback; фактический
+canary/sign-off остаётся T078. Автоматическая часть T079 усилилась
+recoverable promo error, keyboard-safe copy и focus/reflow checks; T080 получил
+provider-boundary forbidden-field guard для browser PostHog, provider-ID
+path validation и bounded analytics ingress. Остаются
+evidence/gates: moderated accessibility/usability и landing review, live
+security/RLS review, product-market segment/JTBD, WTP/COGS, upgrade-copy и
+финальный cross-artifact closeout (T078–T085, T087).
 
 Checkout, binding и renewal mutation нельзя включать, пока владельцы Product,
 Finance/Accounting, Legal, Security и QA не внесут версии решений и exact-SHA
