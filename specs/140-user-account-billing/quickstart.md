@@ -42,13 +42,13 @@ Use disposable PostgreSQL for RLS/locking/concurrency tests. Provider tests use
 YooKassa test shop where supported and synthetic doubles/official-format CSV
 elsewhere; real-shop canary is a separate approved release step.
 
-### Latest local evidence (2026-08-07)
+### Latest local evidence (2026-08-08)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 1013 server tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1014 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
 - Focused billing/account/storage/accessibility/security/UI contracts: PASS;
-  latest boundary suite: 43 tests; separate disposable-PostgreSQL lifecycle
-  sample: 19 tests.
+  latest billing/security/UI suite: 123 tests; separate disposable-PostgreSQL
+  billing/RLS/storage/registry sample: 30 tests.
 - Focused billing lifecycle, notification and subscription tests: PASS; no
   checkout enablement was performed; evidence is committed locally at the
   current feature SHA and has not been pushed.
@@ -66,6 +66,16 @@ elsewhere; real-shop canary is a separate approved release step.
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
   20-page safety limit. These are covered by focused disposable-PostgreSQL and
   adapter/webhook tests; live provider evidence and manual sign-offs remain open.
+- Current migration head for the billing branch is `0056_billing_catalog_write_rls`:
+  plan and promotion catalog rows remain readable in request/worker contexts,
+  but inserts/updates require the maintenance role. Webhook bodies are read in
+  bounded chunks without relying on `Content-Length`; enabling billing also
+  requires non-empty provider, webhook and referral secret files plus a valid
+  support address.
+- Checkout keeps exact prices out of the rendered page while the store is
+  disabled. The discounts screen validates a code without reserving it and
+  offers `Применить`/`Удалить`; payment-method removal revokes only GRAF's
+  local recurring authority and is refused while renewal remains enabled.
 - Лендинг и публичные страницы проверяются отдельным ручным проходом по
   [landing-review.md](../../docs/evidence/140-user-account-billing/landing-review.md);
   серверные тесты не закрывают визуальную, accessibility и moderated-usability
@@ -74,6 +84,10 @@ elsewhere; real-shop canary is a separate approved release step.
   completeness hashes and owned metadata-only gaps; notification maintenance
   delivers only verified recipients through the existing Postal sender and
   marks delivery after provider success.
+- The post-review hardening pass also passed the chunked-webhook bound,
+  non-empty-secret/support-email configuration checks and catalog write-RLS
+  contract. These are implementation evidence only; live proxy/RLS and
+  merchant canary evidence remain required.
 
 ## Required scenario evidence
 

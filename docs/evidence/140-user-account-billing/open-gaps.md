@@ -1,6 +1,6 @@
 # Открытые launch-gates Feature 140
 
-Статус на 2026-08-07: public launch **BLOCKED**. Это не продуктовый refund
+Статус на 2026-08-08: public launch **BLOCKED**. Это не продуктовый refund
 case и не обещание пользователю; документ служит только внутренним
 metadata-only реестром незакрытых доказательств.
 
@@ -49,3 +49,14 @@ evidence в launch runbook.
   сценариями;
 - proxy-level allowlist для webhook описан в runbook, но его фактическая
   конфигурация и live RLS не предъявлены.
+
+## Ремедиация 2026-08-08
+
+- Исправлены локальные P1 hardening gaps: chunked webhook body bounded до
+  `256 KiB`, startup-проверка непустых provider/webhook/referral secrets и
+  support email, write-RLS для глобального billing catalog, явные промо/карта
+  действия и безопасные reconciliation labels.
+- Не закрыты без внешнего доступа: live proxy/firewall/TLS и PostgreSQL RLS
+  probe, test-shop/real-shop canary, merchant/finance/legal/security/QA
+  sign-offs, moderated usability/landing, интервью/WTP/usage/COGS и финальный
+  Spec Kit closeout. Поэтому public launch остаётся **BLOCKED**.

@@ -50,6 +50,18 @@ def _inbox(request: Request) -> WebhookInbox:
     return inbox
 
 
+async def _read_bounded_webhook_body(request: Request) -> bytes:
+    """Read chunked requests without buffering an attacker-controlled body."""
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_BILLING_WEBHOOK_BYTES:
+            raise ProviderEventError("provider event is too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post("/webhook", status_code=200, include_in_schema=False)
 async def billing_webhook(
     request: Request,
@@ -98,9 +110,7 @@ async def _handle_billing_webhook(
                     raise ProviderEventError("provider event is too large")
             except ValueError as exc:
                 raise ProviderEventError("provider content length is invalid") from exc
-        body = await request.body()
-        if len(body) > MAX_BILLING_WEBHOOK_BYTES:
-            raise ProviderEventError("provider event is too large")
+        body = await _read_bounded_webhook_body(request)
         payload = json.loads(body)
         if not isinstance(payload, dict):
             raise ProviderEventError("provider event must be an object")

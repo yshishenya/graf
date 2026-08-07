@@ -1,4 +1,5 @@
 {% import "cabinet/components/settings_navigation.html" as settings_ui %}
+{% import "cabinet/components/sections.html" as sections %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing") }}
@@ -8,11 +9,13 @@
       </header>
       <section class="settings-section cabinet-card" aria-labelledby="billing-method-title">
         <h2 id="billing-method-title">Сохранённый способ оплаты</h2>
+        {% set payment_result = result|default(None) %}{% set renewal_is_allowed = renewal_allowed|default(False) %}{% set paid_until = paid_until_label|default(None) %}
+        {% if payment_result == "renewal_on" %}<p class="notice" role="alert">Сначала отключите автопродление, чтобы удалить способ оплаты. Действующее списание не меняется этой страницей.</p>{% elif payment_result == "removed" %}<p class="notice" role="status" aria-live="polite">Способ оплаты удалён из GRAF. Новых списаний с него не будет.</p>{% elif payment_result == "none" %}<p class="notice" role="status">Сохранённого способа оплаты уже нет.</p>{% elif payment_result == "conflict" %}<p class="notice" role="alert">Состояние изменилось в другой вкладке. Обновите страницу.</p>{% endif %}
         {% if method_label %}
         <p><strong>{{ method_label }}</strong>{% if method_kind %} · {{ method_kind }}{% endif %}</p>
         <p class="muted">Он будет использован только для разрешённых регулярных списаний владельца пространства.</p>
         <p class="muted">Данные карты не проходят через GRAF.</p>
-        <a class="button" href="/billing/checkout">Изменить способ оплаты</a>
+        <div class="settings-actions"><a class="button" href="/billing/checkout">Изменить способ оплаты</a><details><summary class="button quiet">Удалить способ оплаты</summary><p class="muted">Удаление уберёт полномочие GRAF использовать этот способ оплаты. {% if renewal_is_allowed %}Сначала отключите автопродление; эта попытка ничего не удалит.{% elif paid_until %}Доступ к оплаченному тарифу сохранится до {{ paid_until }}.{% else %}Текущий доступ не изменится.{% endif %}</p><form action="/billing/payment-method/delete" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button quiet" type="submit">Подтвердить удаление</button></form></details></div>
         {% else %}
         <p role="status">Сохранённого способа оплаты нет.</p>
         <p class="muted">Добавление выполняется во время защищённой оплаты. Данные карты не проходят через GRAF.</p>

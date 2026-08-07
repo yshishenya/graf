@@ -6,7 +6,11 @@ from uuid import uuid4
 import pytest
 from starlette.requests import Request
 
-from twobrain_rec_server.api.billing import SUPPORTED_PROVIDER_EVENTS, _handle_billing_webhook
+from twobrain_rec_server.api.billing import (
+    MAX_BILLING_WEBHOOK_BYTES,
+    SUPPORTED_PROVIDER_EVENTS,
+    _handle_billing_webhook,
+)
 from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
     WebhookInbox,
@@ -85,6 +89,47 @@ def test_webhook_request_path_only_persists_signal_and_defers_provider_reads() -
     assert "get_payment" not in source
     assert "list_refunds" not in source
     assert "grant_confirmed_payment" not in source
+
+
+@pytest.mark.asyncio
+async def test_chunked_webhook_body_is_bounded_before_json_parse(tmp_path: Path) -> None:
+    secret = tmp_path / "webhook-secret"
+    secret.write_text("expected-secret", encoding="utf-8")
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            settings=Settings(
+                billing_yookassa_base_url="https://api.yookassa.test",
+                billing_yookassa_shop_id="shop-1",
+                billing_yookassa_webhook_secret_file=secret,
+            )
+        )
+    )
+    payload = b"{" + b"x" * MAX_BILLING_WEBHOOK_BYTES + b"}"
+    sent = False
+
+    async def receive() -> dict[str, object]:
+        nonlocal sent
+        if sent:
+            return {"type": "http.disconnect"}
+        sent = True
+        return {"type": "http.request", "body": payload, "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/billing/providers/yookassa/webhook/test",
+            "headers":[
+                (b"content-type", b"application/json"),
+                (b"x-billing-webhook-secret", b"expected-secret"),
+            ],
+            "query_string": b"",
+            "app": app,
+        },
+        receive,
+    )
+    response = await _handle_billing_webhook(request, "expected-secret", environment="test")
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio

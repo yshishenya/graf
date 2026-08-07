@@ -147,3 +147,76 @@ def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:
     assert "meeting-review.m4a" in storage_html
     assert "Исходный WAV" in storage_html
     assert "Увеличить до 5000000000 байт" in storage_html
+
+
+def test_payment_method_and_discount_screens_expose_recoverable_owner_actions() -> None:
+    common = {
+        "embedded": False,
+        "settings_navigation": settings_category_navigation(active="billing"),
+        "settings_active": "billing",
+        "csrf_token": "synthetic-csrf",
+    }
+    method_html = render_template(
+        "cabinet/pages/billing_payment_method_content.html",
+        **common,
+        method_label="•••• 4242",
+        method_kind="bank_card",
+        method_present=True,
+        renewal_allowed=False,
+        paid_until_label="08.08.2026, 12:00 (МСК)",
+        billing_enabled=True,
+        result=None,
+    )
+    discounts_html = render_template(
+        "cabinet/pages/billing_discounts_content.html",
+        **common,
+        active_promotions=[],
+        redemptions=[],
+        billing_owner=True,
+        billing_enabled=True,
+        result=None,
+    )
+    assert 'action="/billing/payment-method/delete"' in method_html
+    assert "Удалить способ оплаты" in method_html
+    assert "08.08.2026, 12:00 (МСК)" in method_html
+    assert 'action="/billing/discounts/apply"' in discounts_html
+    assert 'action="/billing/discounts/remove"' in discounts_html
+    assert "Применить" in discounts_html
+    assert "Удалить" in discounts_html
+
+
+def test_payment_method_delete_guard_remains_visible_when_renewal_is_enabled() -> None:
+    html = render_template(
+        "cabinet/pages/billing_payment_method_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        method_label="•••• 4242",
+        method_kind="bank_card",
+        method_present=True,
+        renewal_allowed=True,
+        paid_until_label="08.08.2026, 12:00 (МСК)",
+        billing_enabled=True,
+        result=None,
+    )
+    assert 'action="/billing/payment-method/delete"' in html
+    assert "Сначала отключите автопродление" in html
+    assert "Подтвердить удаление" in html
+
+
+def test_checkout_hides_publishable_price_when_store_is_disabled() -> None:
+    html = render_template(
+        "cabinet/pages/billing_checkout_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plan=plan_descriptor("personal"),
+        billing_enabled=False,
+        checkout_idempotency_key="synthetic-key",
+        checkout_result=None,
+    )
+    assert "магазин не включён" in html
+    assert 'name="cycle" value="month"' not in html
+    assert "Оплатить 790 ₽" not in html

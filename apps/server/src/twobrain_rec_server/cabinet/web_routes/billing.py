@@ -208,6 +208,9 @@ def _operation_state_label(state: str | None) -> str:
         "scheduled": "Платёж подготовлен",
         "provider_pending": "Ожидаем подтверждение ЮKassa",
         "unknown": "Проверяем результат платежа",
+        "pending_reconciliation": "Ожидаем сверку с ЮKassa",
+        "reconciliation_gap": "Нужна ручная сверка платежа",
+        "manual_resolution": "Нужна ручная сверка платежа",
         "method_required": "Нужен способ оплаты",
         "succeeded": "Платёж подтверждён",
         "canceled": "Платёж отменён",
@@ -654,8 +657,56 @@ async def billing_discounts_page(
         redemptions=redemptions,
         billing_owner=billing_owner,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
+
+
+@router.post("/billing/discounts/apply", response_class=HTMLResponse, include_in_schema=False)
+async def apply_billing_discount(
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+    promo_code: str | None = Form(default=None, max_length=48),
+) -> RedirectResponse:
+    """Validate a code without reserving it; reservation belongs to checkout."""
+    if db is None or await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
+    try:
+        normalized = normalize_promo(promo_code or "")
+    except PromoError:
+        return RedirectResponse("/billing/discounts?result=invalid", status_code=303)
+    campaign = await db.scalar(
+        select(PromotionCampaign).where(
+            PromotionCampaign.code_hash == promo_code_hash(normalized),
+            PromotionCampaign.enabled.is_(True),
+        )
+    )
+    if campaign is None:
+        return RedirectResponse("/billing/discounts?result=invalid", status_code=303)
+    now = datetime.now(UTC)
+    if (campaign.starts_at is not None and campaign.starts_at > now) or (
+        campaign.ends_at is not None and campaign.ends_at <= now
+    ):
+        return RedirectResponse("/billing/discounts?result=invalid", status_code=303)
+    return _checkout_result_redirect(request, "promo_applied", promo_code=normalized)
+
+
+@router.post("/billing/discounts/remove", response_class=HTMLResponse, include_in_schema=False)
+async def remove_billing_discount(
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None or await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
+    response = RedirectResponse("/billing/discounts?result=removed", status_code=303)
+    response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
+    return response
 
 
 @router.get("/billing/checkout/status/{safe_number}", response_class=HTMLResponse, include_in_schema=False)
@@ -968,9 +1019,61 @@ async def billing_payment_method_page(
         content_template="cabinet/pages/billing_payment_method_content.html",
         method_label=method.masked_label if method is not None else None,
         method_kind=method.kind if method is not None else None,
+        method_present=method is not None,
+        renewal_allowed=bool(subscription is not None and subscription.recurring_allowed),
+        paid_until_label=_billing_datetime_label(subscription.paid_through) if subscription is not None else None,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
+
+
+@router.post("/billing/payment-method/delete", response_class=HTMLResponse, include_in_schema=False)
+async def delete_billing_payment_method(
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    """Revoke GRAF's saved-method authority; YooKassa remains merchant-owned."""
+    if db is None or not principal.auth_via_session:
+        return RedirectResponse("/billing/payment-method?result=unavailable", status_code=303)
+    subscription = await _billing_owner_subscription(db, tenant_scope=tenant_scope, principal=principal)
+    if subscription is None:
+        return RedirectResponse("/billing/payment-method?result=owner_only", status_code=303)
+    if subscription.recurring_allowed:
+        return RedirectResponse("/billing/payment-method?result=renewal_on", status_code=303)
+    method = await db.scalar(
+        select(BillingPaymentMethod)
+        .where(
+            BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+            BillingPaymentMethod.owner_user_id == principal.user_id,
+            BillingPaymentMethod.is_default.is_(True),
+            BillingPaymentMethod.state == "active",
+        )
+        .with_for_update()
+    )
+    if method is None:
+        return RedirectResponse("/billing/payment-method?result=none", status_code=303)
+    method.state = "revoked"
+    method.is_default = False
+    subscription.recurring_authority_version += 1
+    subscription.application_version += 1
+    db.add(
+        BillingAuditEvent(
+            workspace_id=tenant_scope.workspace_id,
+            actor_user_id=principal.user_id,
+            action="payment_method.revoke_authority",
+            target_kind="billing_payment_method",
+            target_ref=str(method.id),
+            outcome="success",
+            reason_code="owner_confirmed",
+            metadata_json={"authority_version": subscription.recurring_authority_version},
+        )
+    )
+    await db.commit()
+    return RedirectResponse("/billing/payment-method?result=removed", status_code=303)
 
 
 @router.get("/billing/storage", response_class=HTMLResponse, include_in_schema=False)

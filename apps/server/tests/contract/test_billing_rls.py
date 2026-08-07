@@ -53,3 +53,10 @@ def test_referral_binding_uses_a_token_scoped_context() -> None:
     owner_policy = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0055_referral_owner_lookup.py"
     owner_source = owner_policy.read_text(encoding="utf-8")
     assert "inviter_user_id = rec_current_user_id()" in owner_source
+
+
+def test_billing_catalog_is_readable_but_maintenance_only_writable() -> None:
+    migration = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0056_billing_catalog_write_rls.py"
+    source = migration.read_text(encoding="utf-8")
+    assert "rec_context_kind() in ('request', 'worker')" in source
+    assert "with check (rec_maintenance_allowed())" in source

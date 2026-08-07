@@ -544,9 +544,21 @@ class Settings(BaseSettings):
             not self.billing_yookassa_shop_id
             or self.billing_yookassa_secret_file is None
             or self.billing_yookassa_webhook_secret_file is None
+            or self.billing_referral_secret_file is None
         ):
-            raise ValueError("enabled billing requires YooKassa shop, secret and webhook secret files")
-        if not self.billing_support_email or any(char in self.billing_support_email for char in "\r\n"):
+            raise ValueError("enabled billing requires YooKassa shop, provider/webhook and referral secret files")
+        for field_name, path in (
+            ("billing_yookassa_secret_file", self.billing_yookassa_secret_file),
+            ("billing_yookassa_webhook_secret_file", self.billing_yookassa_webhook_secret_file),
+            ("billing_referral_secret_file", self.billing_referral_secret_file),
+        ):
+            if not path.is_file() or not path.read_text(encoding="utf-8").strip():
+                raise ValueError(f"enabled billing requires a non-empty {field_name}")
+        if (
+            not self.billing_support_email
+            or any(char in self.billing_support_email for char in "\r\n")
+            or not _is_valid_email_address(self.billing_support_email)
+        ):
             raise ValueError("enabled billing requires a safe support email")
         if self.billing_provider_floor_minor <= 0:
             raise ValueError("billing provider floor must be positive")

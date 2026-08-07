@@ -66,6 +66,17 @@ def test_checkout_promo_error_preserves_safe_input_and_associates_error() -> Non
     assert 'aria-describedby="billing-checkout-error"' in html
 
 
+def test_payment_method_delete_and_discount_actions_have_csrf_and_labels() -> None:
+    method = (TEMPLATE_ROOT / "billing_payment_method_content.html").read_text(encoding="utf-8")
+    discounts = (TEMPLATE_ROOT / "billing_discounts_content.html").read_text(encoding="utf-8")
+    assert 'action="/billing/payment-method/delete" method="post"' in method
+    assert "Удалить способ оплаты" in method
+    assert 'action="/billing/discounts/apply" method="post"' in discounts
+    assert 'action="/billing/discounts/remove" method="post"' in discounts
+    assert "Применить" in discounts
+    assert "Удалить" in discounts
+
+
 def test_cabinet_css_declares_reflow_focus_and_reduced_motion_guards() -> None:
     css = (
         ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"

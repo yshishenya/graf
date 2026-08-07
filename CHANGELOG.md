@@ -44,7 +44,14 @@
 - Refund observations проверяют валюту, сумму и cumulative partial-refund cap;
   canonical playback проходит storage reserve/commit с effective plan cutoff;
   production config проверяет оба YooKassa secret-файла. Добавлена миграция
-  `0054_promotion_reservation_counter` и `0055_referral_owner_lookup`.
+  `0054_promotion_reservation_counter`, `0055_referral_owner_lookup` и
+  `0056_billing_catalog_write_rls`.
+- Checkout скрывает publishable price до включения магазина, а страницы скидок
+  и способа оплаты получили CSRF-защищённые действия `Применить`/`Удалить` и
+  безопасное локальное удаление authority без вызова refund/payment API.
+- Webhook body читается потоково с bounded cap даже без `Content-Length`; startup
+  billing gate требует непустые YooKassa/webhook/referral secret-файлы и
+  валидный support email.
 - Billing reconciliation дополнительно опрашивает сохранённые initial checkout
   payments через YooKassa GET при потерянном webhook; POST-timeout без
   сохранённого provider id остаётся ручным gap.

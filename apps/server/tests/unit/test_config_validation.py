@@ -44,8 +44,10 @@ def test_web_production_runtime_still_rejects_default_csrf_secret() -> None:
 def test_enabled_billing_requires_canonical_https_public_origin(tmp_path) -> None:
     secret = tmp_path / "yookassa-secret"
     webhook = tmp_path / "yookassa-webhook"
+    referral = tmp_path / "referral-secret"
     secret.write_text("test", encoding="utf-8")
     webhook.write_text("test", encoding="utf-8")
+    referral.write_text("test", encoding="utf-8")
     with pytest.raises(ValidationError, match="public_base_url"):
         Settings(
             billing_checkout_enabled=True,
@@ -53,7 +55,8 @@ def test_enabled_billing_requires_canonical_https_public_origin(tmp_path) -> Non
             billing_yookassa_shop_id="shop-test",
             billing_yookassa_secret_file=secret,
             billing_yookassa_webhook_secret_file=webhook,
-            billing_support_email="support@example.test",
+            billing_referral_secret_file=referral,
+            billing_support_email="support@example.invalid",
         )
 
     settings = Settings(
@@ -63,9 +66,29 @@ def test_enabled_billing_requires_canonical_https_public_origin(tmp_path) -> Non
         billing_yookassa_shop_id="shop-test",
         billing_yookassa_secret_file=secret,
         billing_yookassa_webhook_secret_file=webhook,
-        billing_support_email="support@example.test",
+        billing_referral_secret_file=referral,
+        billing_support_email="support@example.invalid",
     )
     assert settings.public_base_url is not None
+
+
+def test_enabled_billing_rejects_malformed_support_email(tmp_path) -> None:
+    paths = []
+    for name in ("yookassa", "webhook", "referral"):
+        path = tmp_path / name
+        path.write_text("test", encoding="utf-8")
+        paths.append(path)
+    with pytest.raises(ValidationError, match="support email"):
+        Settings(
+            billing_checkout_enabled=True,
+            public_base_url="https://rec.2brain.pro",
+            billing_yookassa_base_url="https://api.yookassa.test",
+            billing_yookassa_shop_id="shop-test",
+            billing_yookassa_secret_file=paths[0],
+            billing_yookassa_webhook_secret_file=paths[1],
+            billing_referral_secret_file=paths[2],
+            billing_support_email="support\nBcc:x@example.invalid",
+        )
 
 
 def test_default_upload_part_contract_is_one_gib() -> None:
