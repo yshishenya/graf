@@ -11,6 +11,7 @@ from twobrain_rec_server.billing.payment_methods import (
     extract_saved_bank_card,
     read_billing_encryption_key,
 )
+from twobrain_rec_server.billing.promotions import release_payment_promo
 from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
     WebhookInbox,
@@ -139,6 +140,13 @@ async def billing_webhook(
                             payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
                         )
                     else:
+                        if observation.status == "canceled":
+                            await release_payment_promo(
+                                db,
+                                workspace_id=event.workspace_id,
+                                provider_payment_id=observation.provider_payment_id,
+                                now=observation.provider_created_at,
+                            )
                         reconcile_status = "observed"
                     stored.state = "reconciled" if reconcile_status in {"granted", "duplicate", "observed"} else "reconciliation_gap"
                     await db.commit()

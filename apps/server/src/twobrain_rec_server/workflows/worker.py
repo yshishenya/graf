@@ -15,6 +15,7 @@ from twobrain_rec_server.auth.email_delivery import (
     send_account_created_email,
     send_meeting_invitation,
 )
+from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
 from twobrain_rec_server.billing.operations import provider_key_is_expired
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import get_settings
@@ -344,6 +345,23 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                         )
                     )
                 else:
+                    grant_starts_at = now
+                    if not key_expired and subscription is not None and subscription.paid_through is not None:
+                        grant_starts_at = max(grant_starts_at, subscription.paid_through.astimezone(UTC))
+                    grant_status = await grant_confirmed_renewal(
+                        db,
+                        workspace_id=workspace_id,
+                        provider_payment_id=provider_id,
+                        amount_minor=invoice.amount_minor,
+                        currency=invoice.currency,
+                        grant_starts_at=grant_starts_at,
+                    )
+                    if grant_status not in {"granted", "duplicate"}:
+                        raise ApplicationError(
+                            "billing_renewal_entitlement_projection_failed",
+                            type="BillingRenewalProviderMismatch",
+                            non_retryable=True,
+                        )
                     operation.state = "succeeded"
                     if subscription is not None:
                         subscription.renewal_resolution = (

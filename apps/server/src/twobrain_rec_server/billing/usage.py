@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -38,7 +38,7 @@ class SourceRange:
     end_second: int
 
     def __post_init__(self) -> None:
-        if self.start_second < 0 or self.end_second <= self.start_second:
+        if not self.source_id.strip() or self.start_second < 0 or self.end_second <= self.start_second:
             raise ValueError("source range must be a non-empty positive interval")
 
     @property
@@ -93,12 +93,16 @@ class FreeUsageLedger:
         reservation = self._reservations.get(reservation_id)
         if reservation is None or reservation.state != "active":
             raise ValueError("reservation is not active")
-        seen = set(self._accepted_ranges)
         unique: list[SourceRange] = []
+        intervals: dict[str, list[tuple[int, int]]] = {}
+        for item in self._accepted_ranges:
+            intervals.setdefault(item.source_id, []).append((item.start_second, item.end_second))
         for item in ranges:
-            if item not in seen:
-                unique.append(item)
-                seen.add(item)
+            portions = _subtract_source_range(item, intervals.get(item.source_id, []))
+            unique.extend(portions)
+            intervals.setdefault(item.source_id, []).extend(
+                (part.start_second, part.end_second) for part in portions
+            )
         accepted_seconds = sum(item.seconds for item in unique)
         if accepted_seconds > reservation.remaining_seconds:
             raise QuotaOverrun("accepted source range exceeds its reservation")
@@ -140,6 +144,7 @@ async def reserve_free_usage(
     reservation_key: str,
     declared_seconds: int,
     now: datetime,
+    expires_at: datetime | None = None,
 ) -> UsageReservationRow:
     """Reserve exact seconds in the Moscow calendar window under a row lock."""
     if declared_seconds <= 0 or not reservation_key.strip():
@@ -173,6 +178,7 @@ async def reserve_free_usage(
             UsageReservationRow.workspace_id == workspace_id,
             UsageReservationRow.window_id == window.id,
             UsageReservationRow.state == "active",
+            (UsageReservationRow.expires_at.is_(None) | (UsageReservationRow.expires_at > now)),
         )
     )
     if window.committed_seconds + int(active_reserved or 0) + declared_seconds > window.included_seconds:
@@ -183,10 +189,93 @@ async def reserve_free_usage(
         window_id=window.id,
         idempotency_key=reservation_key,
         declared_seconds=declared_seconds,
+        expires_at=expires_at or now + timedelta(minutes=15),
     )
     db.add(reservation)
+    window.reserved_seconds += declared_seconds
     await db.flush()
     return reservation
+
+
+async def release_expired_free_usage(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    now: datetime,
+) -> int:
+    """Release stale reservations and return the number of released rows."""
+    rows = list(
+        await db.scalars(
+            select(UsageReservationRow)
+            .where(
+                UsageReservationRow.workspace_id == workspace_id,
+                UsageReservationRow.state == "active",
+                UsageReservationRow.expires_at.is_not(None),
+                UsageReservationRow.expires_at <= now,
+            )
+            .with_for_update()
+        )
+    )
+    for reservation in rows:
+        reservation.state = "released"
+        window = await db.scalar(
+            select(FreeUsageWindow).where(FreeUsageWindow.id == reservation.window_id).with_for_update()
+        )
+        if window is not None:
+            window.reserved_seconds = max(
+                0,
+                window.reserved_seconds
+                - max(0, reservation.declared_seconds - reservation.committed_seconds),
+            )
+    await db.flush()
+    return len(rows)
+
+
+async def release_free_usage(
+    db: AsyncSession,
+    *,
+    reservation_id: UUID,
+) -> bool:
+    """Release an active reservation without changing committed usage."""
+    reservation = await db.scalar(
+        select(UsageReservationRow).where(UsageReservationRow.id == reservation_id).with_for_update()
+    )
+    if reservation is None or reservation.state != "active":
+        return False
+    reservation.state = "released"
+    window = await db.scalar(
+        select(FreeUsageWindow).where(FreeUsageWindow.id == reservation.window_id).with_for_update()
+    )
+    if window is not None:
+        window.reserved_seconds = max(
+            0,
+            window.reserved_seconds
+            - max(0, reservation.declared_seconds - reservation.committed_seconds),
+        )
+    await db.flush()
+    return True
+
+
+def _subtract_source_range(
+    candidate: SourceRange,
+    existing: list[tuple[int, int]],
+) -> list[SourceRange]:
+    """Return candidate portions not already committed for the same source."""
+    cursor = candidate.start_second
+    segments: list[SourceRange] = []
+    for start, end in sorted(existing):
+        if end <= cursor:
+            continue
+        if start >= candidate.end_second:
+            break
+        if start > cursor:
+            segments.append(SourceRange(candidate.source_id, cursor, min(start, candidate.end_second)))
+        cursor = max(cursor, end)
+        if cursor >= candidate.end_second:
+            break
+    if cursor < candidate.end_second:
+        segments.append(SourceRange(candidate.source_id, cursor, candidate.end_second))
+    return segments
 
 
 async def commit_free_usage_ranges(
@@ -208,8 +297,14 @@ async def commit_free_usage_ranges(
             UsageLedgerEntry.source_id.in_([item.source_id for item in ranges]),
         )
     )
-    existing = {(row.source_id, row.start_second, row.end_second) for row in existing_rows}
-    unique = [item for item in ranges if (item.source_id, item.start_second, item.end_second) not in existing]
+    intervals: dict[str, list[tuple[int, int]]] = {}
+    for row in existing_rows:
+        intervals.setdefault(row.source_id, []).append((row.start_second, row.end_second))
+    unique: list[SourceRange] = []
+    for item in ranges:
+        portions = _subtract_source_range(item, intervals.get(item.source_id, []))
+        unique.extend(portions)
+        intervals.setdefault(item.source_id, []).extend((part.start_second, part.end_second) for part in portions)
     accepted = sum(item.seconds for item in unique)
     if accepted > reservation.declared_seconds - reservation.committed_seconds:
         raise QuotaOverrun("accepted source range exceeds its reservation")
@@ -229,5 +324,9 @@ async def commit_free_usage_ranges(
     window.committed_seconds += accepted
     if reservation.committed_seconds == reservation.declared_seconds:
         reservation.state = "committed"
+    window.reserved_seconds = max(
+        0,
+        window.reserved_seconds - accepted,
+    )
     await db.flush()
     return accepted

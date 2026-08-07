@@ -198,6 +198,28 @@ async def settings_account_page(
     )
 
 
+@router.get("/account", response_class=HTMLResponse, include_in_schema=False)
+async def account_center_page(
+    request: Request,
+    provider_link: str | None = ProviderLinkResultQuery,
+    device_revoke: str | None = DeviceRevokeResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    """Stable account-center entry point used by the cabinet navigation."""
+    return await _render_settings(
+        request,
+        category="account",
+        embedded=False,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        provider_link=provider_link,
+        device_revoke=device_revoke,
+    )
+
+
 @router.post(
     "/settings/account/devices/{device_id}/revoke",
     include_in_schema=False,
@@ -300,6 +322,27 @@ async def embedded_settings_workspace_page(
 
 @router.get("/desktop/settings/account", response_class=HTMLResponse, include_in_schema=False)
 async def embedded_settings_account_page(
+    request: Request,
+    provider_link: str | None = ProviderLinkResultQuery,
+    device_revoke: str | None = DeviceRevokeResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="account",
+        embedded=True,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        provider_link=provider_link,
+        device_revoke=device_revoke,
+    )
+
+
+@router.get("/desktop/account", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_account_center_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,

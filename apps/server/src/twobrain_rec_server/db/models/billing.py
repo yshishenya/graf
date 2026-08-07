@@ -38,6 +38,57 @@ class BillingPlanVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class PromotionCampaign(Base):
+    """Versioned, operator-created campaign; raw promo codes are never stored."""
+
+    __tablename__ = "promotion_campaigns"
+    __table_args__ = (UniqueConstraint("code_hash", name="uq_promotion_campaigns_code_hash"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    campaign_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    plan_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    cycle: Mapped[str | None] = mapped_column(String(16))
+    discount_percent: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_redemptions: Mapped[int] = mapped_column(Integer, nullable=False)
+    redeemed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    policy_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromotionRedemption(Base):
+    """One atomic reservation/redemption bound to one invoice."""
+
+    __tablename__ = "promotion_redemptions"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "reservation_key",
+            name="uq_promotion_redemptions_workspace_reservation_key",
+        ),
+        UniqueConstraint("workspace_id", "campaign_id", name="uq_promotion_redemptions_workspace_campaign"),
+        Index("ix_promotion_redemptions_invoice", "invoice_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    campaign_id: Mapped[UUID] = mapped_column(ForeignKey("promotion_campaigns.id"), nullable=False)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    invoice_id: Mapped[UUID] = mapped_column(ForeignKey("billing_invoices.id"), nullable=False)
+    reservation_key: Mapped[str] = mapped_column(String(240), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    list_amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    payable_amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    discount_percent: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
+    reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class WorkspaceSubscription(Base):
     __tablename__ = "workspace_subscriptions"
 

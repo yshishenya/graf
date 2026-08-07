@@ -10,7 +10,7 @@
       <section class="settings-section cabinet-card" aria-labelledby="billing-checkout-title">
         <h2 id="billing-checkout-title">{{ plan.label }}</h2>
         <p>Без лимита по времени обработки. В тариф входит 2 000 000 000 байт хранения.</p>
-        {% if checkout_result == "owner_only" %}<p role="alert">Оплатить тариф может только владелец пространства.</p>{% elif checkout_result == "consent_required" %}<p role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>{% elif checkout_result == "unavailable" %}<p role="alert">Оплата временно недоступна. Повторите попытку позже.</p>{% elif checkout_result == "pending" %}<p role="status">Платёж уже создан. Проверьте историю платежей.</p>{% endif %}
+        {% if checkout_result == "owner_only" %}<p role="alert">Оплатить тариф может только владелец пространства.</p>{% elif checkout_result == "consent_required" %}<p role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>{% elif checkout_result == "unavailable" %}<p role="alert">Оплата временно недоступна. Повторите попытку позже.</p>{% elif checkout_result == "pending" %}<p role="status">Платёж уже создан. Проверьте историю платежей.</p>{% elif checkout_result == "promo_invalid" %}<p role="alert">Промокод недействителен, не подходит для выбранного периода или уже использован.</p>{% endif %}
         {% if billing_enabled %}
         <form action="/billing/checkout/start" method="post">
           {{ sections.csrf_field(csrf_token|default(None)) }}
@@ -20,6 +20,8 @@
             <option value="month">Месяц — 790 ₽</option>
             <option value="year">Год — 7 900 ₽</option>
           </select>
+          <label for="billing-promo">Промокод <span class="muted">(если у вас есть действующий код)</span></label>
+          <input id="billing-promo" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48">
           <label><input type="checkbox" name="recurring_consent" value="true" required> Согласен на регулярное списание до отключения автопродления.</label>
           <button class="button" type="submit">Перейти к оплате</button>
         </form>

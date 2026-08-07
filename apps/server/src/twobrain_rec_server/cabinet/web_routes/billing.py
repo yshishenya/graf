@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import httpx
@@ -20,6 +20,12 @@ from twobrain_rec_server.billing.catalog import (
 from twobrain_rec_server.billing.checkout import build_checkout_intent, checkout_preview
 from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.operations import BillingEmergencyStop, require_billing_enabled
+from twobrain_rec_server.billing.promotions import (
+    PromoCode,
+    PromoError,
+    check_eligibility,
+    promo_code_hash,
+)
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
 from twobrain_rec_server.billing.storage import StorageProjection, project_active_playback_storage
 from twobrain_rec_server.billing.subscription import (
@@ -49,6 +55,9 @@ from twobrain_rec_server.db.models import (
     BillingOperation,
     BillingPaymentMethod,
     FreeUsageWindow,
+    PromotionCampaign,
+    PromotionRedemption,
+    ReferralAttribution,
     StorageReservation,
     TrialActivation,
     WorkspaceMembership,
@@ -90,7 +99,34 @@ async def billing_overview_page(
         else FREE_STORAGE_BYTES
     )
     storage_used = 0
+    storage_reserved = 0
     processing_used = 0
+    if db is not None:
+        window_start, _ = moscow_window_for(now)
+        window = await db.scalar(
+            select(FreeUsageWindow).where(
+                FreeUsageWindow.workspace_id == tenant_scope.workspace_id,
+                FreeUsageWindow.window_start == window_start,
+            )
+        )
+        processing_used = window.committed_seconds if window is not None else 0
+        storage_reserved = int(
+            await db.scalar(
+                select(func.coalesce(func.sum(StorageReservation.declared_bytes - StorageReservation.committed_bytes), 0)).where(
+                    StorageReservation.workspace_id == tenant_scope.workspace_id,
+                    StorageReservation.state == "active",
+                    (StorageReservation.expires_at.is_(None) | (StorageReservation.expires_at > now)),
+                )
+            )
+            or 0
+        )
+        projection = await project_active_playback_storage(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            capacity_bytes=effective_capacity,
+            reserved_bytes=storage_reserved,
+        )
+        storage_used = projection.used_bytes
     content = _page_shell(
         "Тариф и оплата",
         embedded=False,
@@ -107,6 +143,7 @@ async def billing_overview_page(
         plan=plan,
         plan_code=plan_code,
         storage_used=storage_used,
+        storage_reserved=storage_reserved,
         storage_capacity=effective_capacity,
         storage_threshold=classify_storage_threshold(
             used_bytes=storage_used,
@@ -176,6 +213,7 @@ async def billing_usage_page(
     now = datetime.now(UTC)
     subscription = None
     processing_used = 0
+    processing_reserved = 0
     reserved_bytes = 0
     if db is not None:
         subscription = await db.scalar(
@@ -189,10 +227,12 @@ async def billing_usage_page(
             )
         )
         processing_used = window.committed_seconds if window is not None else 0
+        processing_reserved = window.reserved_seconds if window is not None else 0
         reserved = await db.scalar(
             select(func.coalesce(func.sum(StorageReservation.declared_bytes - StorageReservation.committed_bytes), 0)).where(
                 StorageReservation.workspace_id == tenant_scope.workspace_id,
                 StorageReservation.state == "active",
+                (StorageReservation.expires_at.is_(None) | (StorageReservation.expires_at > now)),
             )
         )
         reserved_bytes = int(reserved or 0)
@@ -224,6 +264,7 @@ async def billing_usage_page(
         content_template="cabinet/pages/billing_usage_content.html",
         plan_code=plan_code,
         processing_used=processing_used,
+        processing_reserved=processing_reserved,
         processing_used_label=format_duration(processing_used),
         free_processing_limit_label=format_duration(FREE_PROCESSING_SECONDS),
         processing_threshold=classify_free_processing(committed_seconds=processing_used),
@@ -492,6 +533,7 @@ async def start_billing_checkout(
     cycle: str = Form(default="month", max_length=16),
     idempotency_key: str = Form(default="", max_length=240),
     recurring_consent: bool = Form(default=False),
+    promo_code: str | None = Form(default=None, max_length=48),
 ) -> RedirectResponse:
     settings = request.app.state.settings
     if db is None:
@@ -515,7 +557,67 @@ async def start_billing_checkout(
             return RedirectResponse("/billing/checkout?result=invalid", status_code=303)
         if not recurring_consent:
             return RedirectResponse("/billing/checkout?result=consent_required", status_code=303)
-        preview = checkout_preview(plan_code="personal", cycle=cycle, provider_floor_minor=settings.billing_provider_floor_minor)
+        promo: PromoCode | None = None
+        promo_campaign: PromotionCampaign | None = None
+        if promo_code and promo_code.strip():
+            try:
+                promo_campaign = await db.scalar(
+                    select(PromotionCampaign).where(
+                        PromotionCampaign.code_hash == promo_code_hash(promo_code),
+                        PromotionCampaign.enabled.is_(True),
+                    ).with_for_update()
+                )
+                if promo_campaign is None:
+                    raise PromoError("Промокод не распознан")
+                used = await db.scalar(
+                    select(func.count(PromotionRedemption.id)).where(
+                        PromotionRedemption.workspace_id == tenant_scope.workspace_id,
+                        PromotionRedemption.campaign_id == promo_campaign.id,
+                        PromotionRedemption.state.in_(("reserved", "redeemed")),
+                    )
+                )
+                promo = PromoCode(
+                    code=promo_code,
+                    discount_percent=promo_campaign.discount_percent,
+                    plan_code=promo_campaign.plan_code,
+                    max_redemptions=promo_campaign.max_redemptions,
+                    redeemed=promo_campaign.redeemed_count,
+                    cycle=promo_campaign.cycle,
+                    campaign_version=promo_campaign.campaign_version,
+                    starts_at=promo_campaign.starts_at,
+                    ends_at=promo_campaign.ends_at,
+                )
+                check_eligibility(
+                    promo=promo,
+                    plan_code="personal",
+                    cycle=cycle,
+                    now=datetime.now(UTC),
+                    workspace_redemptions=int(used or 0),
+                )
+            except (PromoError, ValueError):
+                return RedirectResponse("/billing/checkout?result=promo_invalid", status_code=303)
+        referral_discount = False
+        if promo is None:
+            referred = await db.scalar(
+                select(ReferralAttribution).where(
+                    # ponytail: do not broaden tenant reads until token-hash
+                    # scoped auth-public RLS is available.
+                    ReferralAttribution.workspace_id == tenant_scope.workspace_id,
+                    ReferralAttribution.invitee_user_id == principal.user_id,
+                    ReferralAttribution.state == "bound",
+                ).with_for_update()
+            )
+            if referred is not None and referred.inviter_user_id != principal.user_id:
+                # System benefit, not an operator campaign: it cannot stack with
+                # a configured promo and is recorded only in the invoice snapshot.
+                promo = PromoCode("REFERRAL_INTRO", 10, "personal", 1, campaign_version="referral-v1")
+                referral_discount = True
+        preview = checkout_preview(
+            plan_code="personal",
+            cycle=cycle,
+            promo=promo,
+            provider_floor_minor=settings.billing_provider_floor_minor,
+        )
         existing = await db.scalar(
             select(BillingOperation).where(
                 BillingOperation.workspace_id == tenant_scope.workspace_id,
@@ -539,27 +641,45 @@ async def start_billing_checkout(
                 "cycle": preview.cycle,
                 "list_amount_minor": preview.list_amount_minor,
                 "payable_amount_minor": preview.payable_amount_minor,
-                "promo_code": preview.promo_code,
+                "promo_code_hash": promo_code_hash(promo.code) if promo is not None else None,
+                "referral_discount": referral_discount,
                 "recurring_consent": True,
             },
         )
         db.add(operation)
-        db.add(
-            BillingInvoice(
-                workspace_id=tenant_scope.workspace_id,
-                operation_id=intent.operation_id,
-                safe_number=intent.invoice_number,
-                amount_minor=preview.payable_amount_minor,
-                plan_snapshot={
-                    "plan_code": preview.plan_code,
-                    "cycle": preview.cycle,
-                    "list_amount_minor": preview.list_amount_minor,
-                    "payable_amount_minor": preview.payable_amount_minor,
-                    "promo_code": preview.promo_code,
-                    "recurring_consent": True,
-                },
-            )
+        invoice = BillingInvoice(
+            workspace_id=tenant_scope.workspace_id,
+            operation_id=intent.operation_id,
+            safe_number=intent.invoice_number,
+            amount_minor=preview.payable_amount_minor,
+            plan_snapshot={
+                "plan_code": preview.plan_code,
+                "cycle": preview.cycle,
+                "list_amount_minor": preview.list_amount_minor,
+                "payable_amount_minor": preview.payable_amount_minor,
+                "promo_code_hash": promo_code_hash(promo.code) if promo is not None else None,
+                "campaign_version": promo.campaign_version if promo is not None else None,
+                "referral_discount": referral_discount,
+                "recurring_consent": True,
+            },
         )
+        db.add(invoice)
+        await db.flush()
+        if promo is not None and promo_campaign is not None:
+            db.add(
+                PromotionRedemption(
+                    campaign_id=promo_campaign.id,
+                    workspace_id=tenant_scope.workspace_id,
+                    invoice_id=invoice.id,
+                    reservation_key=key,
+                    code_hash=promo_code_hash(promo.code),
+                    list_amount_minor=preview.list_amount_minor,
+                    payable_amount_minor=preview.payable_amount_minor,
+                    discount_percent=promo.discount_percent,
+                    state="reserved",
+                    expires_at=datetime.now(UTC) + timedelta(minutes=15),
+                )
+            )
         await db.commit()
         return_url = str(request.url_for("billing_checkout_return"))
         async with YooKassaClient(settings) as provider:
@@ -595,8 +715,21 @@ async def start_billing_checkout(
                     BillingOperation.id == intent.operation_id,
                 ).with_for_update()
             )
-            if unresolved is not None and unresolved.state == "scheduled":
-                unresolved.state = "unknown"
+            if unresolved is not None:
+                if unresolved.state == "scheduled":
+                    unresolved.state = "unknown"
+                invoice = await db.scalar(
+                    select(BillingInvoice).where(BillingInvoice.operation_id == unresolved.id).with_for_update()
+                )
+                if invoice is not None:
+                    redemption = await db.scalar(
+                        select(PromotionRedemption)
+                        .where(PromotionRedemption.invoice_id == invoice.id)
+                        .with_for_update()
+                    )
+                    if redemption is not None and redemption.state == "reserved":
+                        redemption.state = "released"
+                        redemption.released_at = datetime.now(UTC)
                 await db.commit()
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
 

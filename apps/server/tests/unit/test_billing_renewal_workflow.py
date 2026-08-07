@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import inspect
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     BillingInvoice,
@@ -29,6 +31,60 @@ from twobrain_rec_server.workflows.worker import (
 
 OPERATION_ID = UUID("11111111-1111-4111-8111-111111111111")
 WORKSPACE_ID = UUID("22222222-2222-4222-8222-222222222222")
+
+
+@pytest.mark.anyio
+async def test_confirmed_renewal_extends_paid_through_once() -> None:
+    class FakeDb:
+        def __init__(self, values):
+            self.values = iter(values)
+            self.added = []
+
+        async def scalar(self, _query):
+            return next(self.values)
+
+        def add(self, value):
+            self.added.append(value)
+
+        async def flush(self):
+            return None
+
+    operation = BillingOperation(
+        id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        kind="renewal",
+        idempotency_key="renewal-1",
+        provider_id="pay-renewal-1",
+        request_snapshot={"plan_code": "personal", "cycle": "month"},
+    )
+    invoice = BillingInvoice(
+        workspace_id=WORKSPACE_ID,
+        operation_id=OPERATION_ID,
+        safe_number="INV-RENEWAL-1",
+        amount_minor=79_000,
+        currency="RUB",
+    )
+    subscription = WorkspaceSubscription(
+        workspace_id=WORKSPACE_ID,
+        state="free",
+        plan_code="free",
+        paid_through=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    db = FakeDb([operation, invoice, None, subscription])
+
+    result = await grant_confirmed_renewal(
+        db,
+        workspace_id=WORKSPACE_ID,
+        provider_payment_id="pay-renewal-1",
+        amount_minor=79_000,
+        currency="RUB",
+        grant_starts_at=datetime(2026, 8, 7, tzinfo=UTC),
+    )
+
+    assert result == "granted"
+    assert subscription.plan_code == "personal"
+    assert subscription.paid_through == datetime(2026, 9, 7, tzinfo=UTC)
+    assert any(getattr(row, "source", None) == "renewal_provider_confirmed" for row in db.added)
 
 
 def test_renewal_identity_and_payload_are_bounded() -> None:
@@ -56,6 +112,7 @@ def test_renewal_retry_repeats_only_authoritative_observation() -> None:
     assert "BillingRenewalProviderMismatch" in policy.non_retryable_error_types
     source = inspect.getsource(run_billing_renewal_activity)
     assert ".get_payment(" in source
+    assert "grant_confirmed_renewal" in source
     assert ".create_payment(" not in source
     assert ".create_refund(" not in source
 

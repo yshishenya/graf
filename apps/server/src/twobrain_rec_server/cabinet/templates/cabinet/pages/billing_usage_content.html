@@ -9,7 +9,7 @@
       <section class="settings-section cabinet-card" aria-labelledby="usage-processing-title">
         <h2 id="usage-processing-title">Обработка</h2>
         {% if processing_unlimited %}<p><strong>Без лимита по минутам и встречам</strong>. Ограничение хранения показывается отдельно.</p>
-        {% else %}<p><strong>{{ processing_used_label }}</strong> из <strong>{{ free_processing_limit_label }}</strong> в текущем календарном месяце по Москве.</p><p>Состояние: {{ processing_threshold }}.</p>{% endif %}
+        {% else %}<p><strong>{{ processing_used_label }}</strong> из <strong>{{ free_processing_limit_label }}</strong> в текущем календарном месяце по Москве.</p>{% if processing_reserved %}<p>В обработке зарезервировано: <strong>{{ processing_reserved }} сек</strong>.</p>{% endif %}<p>Состояние: {{ processing_threshold }}.</p>{% endif %}
       </section>
       <section class="settings-section cabinet-card" aria-labelledby="usage-storage-title">
         <h2 id="usage-storage-title">Хранилище</h2>

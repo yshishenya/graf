@@ -40,7 +40,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - [X] T011 Create migration `apps/server/src/twobrain_rec_server/db/migrations/versions/0044_user_account_billing.py` after current revision `0043_initial_outcome_reconcile`, including constraints, indexes, RLS policies, and downgrade safety for all foundational billing tables.
 - [X] T012 Implement workspace/owner authorization, recurring-authority version checks, row locks, and metadata-only audit helpers by reusing `apps/server/src/twobrain_rec_server/auth/dependencies.py`, `apps/server/src/twobrain_rec_server/db/tenant_context.py`, and new `apps/server/src/twobrain_rec_server/billing/authority.py`.
 - [X] T013 Implement the server-only YooKassa client with allowlisted operations for payment, saved-method binding, GET/list observation, and receipt observation in `apps/server/src/twobrain_rec_server/billing/yookassa.py`; keep credentials out of desktop and browser code.
-- [ ] T014 Implement idempotent webhook ingestion, signature/allowlist validation, provider GET/list reconciliation hooks, and safe event redaction in `apps/server/src/twobrain_rec_server/api/billing.py` and `apps/server/src/twobrain_rec_server/billing/provider_events.py`.
+- [X] T014 Implement idempotent webhook ingestion, signature/allowlist validation, provider GET/list reconciliation hooks, and safe event redaction in `apps/server/src/twobrain_rec_server/api/billing.py` and `apps/server/src/twobrain_rec_server/billing/provider_events.py`.
 - [X] T015 Implement shared billing locks, operation outcome classification (`success`, `canceled`, `unknown`), provider-key expiry handling, and emergency-stop checks in `apps/server/src/twobrain_rec_server/billing/operations.py`.
 - [X] T016 Register billing routes, workflow modules, and worker dependencies through the existing composition points in `apps/server/src/twobrain_rec_server/main.py`, `apps/server/src/twobrain_rec_server/cabinet/web.py`, and `apps/server/src/twobrain_rec_server/workflows/worker.py`.
 
@@ -81,11 +81,11 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Implementation for User Story 2
 
-- [ ] T027 [US2] Implement Free usage windows, exact-second reservations/commit ledger, and entitlement checks in `apps/server/src/twobrain_rec_server/billing/usage.py`.
-- [ ] T028 [US2] Implement storage capacity projection and reservation from active normalized `TrackArtifact.byte_length` for `meeting-review.m4a`, with no duplicate object inventory, in `apps/server/src/twobrain_rec_server/billing/storage.py`.
+- [X] T027 [US2] Implement Free usage windows, exact-second reservations/commit ledger, and entitlement checks in `apps/server/src/twobrain_rec_server/billing/usage.py`.
+- [X] T028 [US2] Implement storage capacity projection and reservation from active normalized `TrackArtifact.byte_length` for `meeting-review.m4a`, with no duplicate object inventory, in `apps/server/src/twobrain_rec_server/billing/storage.py`.
 - [ ] T029 [US2] Integrate playback quota admission, `Обработать без сохранения аудио`, transient 15-minute purge, and 24-hour hard lifetime into `apps/server/src/twobrain_rec_server/ingest/store.py`, `apps/server/src/twobrain_rec_server/processing/store.py`, and `apps/server/src/twobrain_rec_server/workflows/processing_workflow.py`.
 - [ ] T030 [US2] Extend current/legacy source lifecycle and deletion purge so WAV is recoverable only under approved policy, exact normalized writer bytes are recorded, COGS/backup retention evidence is available, and every source immediately enters mandatory purge after accepted deletion in `apps/server/src/twobrain_rec_server/db/models/lifecycle.py`, `apps/server/src/twobrain_rec_server/deletion/retention.py`, `apps/server/src/twobrain_rec_server/deletion/report.py`, and `apps/server/src/twobrain_rec_server/normalization/service.py`.
-- [ ] T031 [US2] Add usage/storage dashboard, capacity explanation, archive-full states, and explicit unlimited-versus-storage copy in `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`.
+- [X] T031 [US2] Add usage/storage dashboard, capacity explanation, archive-full states, and explicit unlimited-versus-storage copy in `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`.
 
 **Checkpoint**: Usage and storage truth are visible and enforceable without limiting paid processing minutes or blocking processing when the user chooses no audio archive.
 
@@ -102,10 +102,10 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Implementation for User Story 3
 
-- [ ] T034 [US3] Implement versioned catalog, checkout intent, immutable invoice snapshot, and payable amount calculation in `apps/server/src/twobrain_rec_server/billing/checkout.py`.
-- [ ] T035 [US3] Implement owner-only checkout preview, hosted redirect, CSRF protection, safe pending/unknown/error states, and callback projection in `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py` and `apps/server/src/twobrain_rec_server/api/billing.py`.
-- [ ] T036 [US3] Implement authoritative payment/receipt confirmation and append-only entitlement grants in `apps/server/src/twobrain_rec_server/billing/entitlements.py` and `apps/server/src/twobrain_rec_server/billing/receipts.py`.
-- [ ] T037 [US3] Add billing hub, plan comparison, monthly/yearly confirmation, hosted-return banners, and receipt CTA templates in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html`.
+- [X] T034 [US3] Implement versioned catalog, checkout intent, immutable invoice snapshot, and payable amount calculation in `apps/server/src/twobrain_rec_server/billing/checkout.py`.
+- [X] T035 [US3] Implement owner-only checkout preview, hosted redirect, CSRF protection, safe pending/unknown/error states, and callback projection in `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py` and `apps/server/src/twobrain_rec_server/api/billing.py`.
+- [X] T036 [US3] Implement authoritative payment/receipt confirmation and append-only entitlement grants in `apps/server/src/twobrain_rec_server/billing/entitlements.py` and `apps/server/src/twobrain_rec_server/billing/receipts.py`.
+- [X] T037 [US3] Add billing hub, plan comparison, monthly/yearly confirmation, hosted-return banners, and receipt CTA templates in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html`.
 
 **Checkpoint**: Initial purchase works in test shop with no client-side credentials, no duplicate payable invoice, and no premature paid entitlement.
 
@@ -142,7 +142,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Implementation for User Story 5
 
-- [ ] T046 [US5] Implement one-operation renewal scheduling, exact `paid_through` cutoff, and Free projection in `apps/server/src/twobrain_rec_server/billing/renewal.py`.
+- [X] T046 [US5] Implement one-operation renewal scheduling, exact `paid_through` cutoff, and Free projection in `apps/server/src/twobrain_rec_server/billing/renewal.py`.
 - [ ] T047 [US5] Implement Temporal renewal workflow, provider-key recovery, expiry gap, late-success incident, and refusal precedence in `apps/server/src/twobrain_rec_server/workflows/billing_renewal_workflow.py` and `apps/server/src/twobrain_rec_server/billing/renewal_resolution.py`.
 - [ ] T048 [US5] Add renewal reminder, failure-to-Free, unknown, late-success and manual-resume notifications in `apps/server/src/twobrain_rec_server/billing/notifications.py` and `apps/server/src/twobrain_rec_server/support/outbox.py`.
 - [ ] T049 [US5] Render next-charge, paid-through, renewal-off, pending-resolution and Free fallback states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html`.
@@ -182,9 +182,9 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Implementation for User Story 7
 
-- [ ] T058 [US7] Implement versioned promo catalog, eligibility, normalization, reservation, redemption snapshot and safe error classes in `apps/server/src/twobrain_rec_server/billing/promotions.py`.
-- [ ] T059 [US7] Integrate promo preview/revalidation with checkout invoice locking and authoritative cancellation release in `apps/server/src/twobrain_rec_server/billing/checkout.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`.
-- [ ] T060 [US7] Add promo field, selected-discount explanation, and accessible recoverable error states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html`.
+- [X] T058 [US7] Implement versioned promo catalog, eligibility, normalization, reservation, redemption snapshot and safe error classes in `apps/server/src/twobrain_rec_server/billing/promotions.py`.
+- [X] T059 [US7] Integrate promo preview/revalidation with checkout invoice locking and authoritative cancellation release in `apps/server/src/twobrain_rec_server/billing/checkout.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`.
+- [X] T060 [US7] Add promo field, selected-discount explanation, and accessible recoverable error states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html`.
 
 **Checkpoint**: A promo can change only the approved initial payable invoice and never creates a zero-total or ambiguous pending checkout.
 
@@ -201,9 +201,9 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Implementation for User Story 8
 
-- [ ] T063 [US8] Implement opaque first-touch referral attribution, campaign versioning, identity binding, risk signals, and masked history in `apps/server/src/twobrain_rec_server/billing/referrals.py`.
-- [ ] T064 [US8] Implement invitee 10% first-period discount and inviter append-only seven/thirty-day credit ledger with maturity, expiry, cap and bounded reversal in `apps/server/src/twobrain_rec_server/billing/referral_rewards.py`.
-- [ ] T065 [US8] Integrate referral discount selection, paid-success trigger, observed-refund correction, and renewal anchor projection in `apps/server/src/twobrain_rec_server/billing/checkout.py`, `apps/server/src/twobrain_rec_server/billing/reconciliation.py`, and `apps/server/src/twobrain_rec_server/billing/subscription.py`.
+- [X] T063 [US8] Implement opaque first-touch referral attribution, campaign versioning, identity binding, risk signals, and masked history in `apps/server/src/twobrain_rec_server/billing/referrals.py`.
+- [X] T064 [US8] Implement invitee 10% first-period discount and inviter append-only seven/thirty-day credit ledger with maturity, expiry, cap and bounded reversal in `apps/server/src/twobrain_rec_server/billing/referral_rewards.py`.
+- [X] T065 [US8] Integrate referral discount selection, paid-success trigger, observed-refund correction, and renewal anchor projection in `apps/server/src/twobrain_rec_server/billing/checkout.py`, `apps/server/src/twobrain_rec_server/billing/reconciliation.py`, and `apps/server/src/twobrain_rec_server/billing/subscription.py`.
 - [ ] T066 [US8] Add invite link, progress/history, paid-through/bonus-through/next-charge copy and anti-abuse-safe states in `apps/server/src/twobrain_rec_server/cabinet/web_routes/referrals.py` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/referrals_content.html`.
 
 **Checkpoint**: Referral incentives reduce paid price or add service time only; no cash payout, withdrawable balance, or separate affiliate cabinet exists.

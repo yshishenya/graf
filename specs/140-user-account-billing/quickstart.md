@@ -42,7 +42,7 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Latest local evidence (2026-08-07)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 928 server unit tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 939 server unit tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
 - Focused PostgreSQL billing RLS, migration, OpenAPI and settings contracts:
   PASS, 40 tests.
@@ -52,7 +52,7 @@ elsewhere; real-shop canary is a separate approved release step.
   registry/reconciliation worker, account-close and full notification flows,
   test-shop evidence, accessibility/usability review and finance/legal approval.
 - Cross-artifact analyze pass found no unresolved implementation placeholders; the feature has
-  87 tasks (19 validated complete, 68 still open), including explicit product-market
+  87 tasks (34 validated complete, 53 still open), including explicit product-market
   closeout tasks T084–T087, so this branch is not a
   public-launch completion claim.
 - Лендинг и публичные страницы проверяются отдельным ручным проходом по

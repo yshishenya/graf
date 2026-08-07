@@ -2,7 +2,9 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from twobrain_rec_server.billing.referral_rewards import mature_credit
+import pytest
+
+from twobrain_rec_server.billing.referral_rewards import mature_credit, payment_source_ref
 from twobrain_rec_server.billing.referrals import (
     create_referral_token,
     first_payment_reward,
@@ -65,3 +67,28 @@ def test_first_touch_binding_is_single_use_and_masks_no_identity() -> None:
     assert attribution.invitee_user_id == invitee
     assert attribution.state == "bound"
     assert attribution.bound_at == datetime(2026, 8, 7, tzinfo=UTC)
+
+
+def test_annual_credit_waits_for_maturity_and_cap_is_bounded() -> None:
+    paid_at = datetime(2026, 8, 1, tzinfo=UTC)
+    reward = first_payment_reward(paid_at=paid_at, cycle="year")
+    assert mature_credit(
+        reward=reward,
+        source_ref=payment_source_ref("pay-1"),
+        granted_rolling_days=179,
+        now=paid_at + timedelta(days=15),
+    ).days == 1
+    assert mature_credit(
+        reward=reward,
+        source_ref=payment_source_ref("pay-2"),
+        granted_rolling_days=180,
+        now=paid_at + timedelta(days=15),
+    ) is None
+    assert mature_credit(
+        reward=reward,
+        source_ref=payment_source_ref("pay-3"),
+        granted_rolling_days=0,
+        now=paid_at + timedelta(days=13),
+    ) is None
+    with pytest.raises(ValueError):
+        payment_source_ref("provider id with spaces")

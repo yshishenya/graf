@@ -17,12 +17,14 @@ Date: 2026-08-04
   checks и audit rows, а также отдельный exact-byte/second usage screen.
 - Provider payment success теперь требует server-side GET и immutable amount/
   currency match; entitlement period сохраняется append-only в migration 0045.
+- Реферальная привязка теперь использует token-hash-scoped auth callback и
+  owner-scoped RLS для начисления в workspace пригласившего (migration 0047).
 - Refund success остаётся merchant-cabinet процессом: GRAF только наблюдает
   подтверждённый GET/list результат и сохраняет безопасную связь с invoice.
 - Billing notifications получили транзакционный DB-backed metadata-only outbox
   с uniqueness/delivery state и Russian-first finance copy; worker delivery
   remains a launch gate.
-- Fast lane после изменений: 928 server unit tests, Ruff, Python compile и
+- Fast lane после изменений: 939 server unit tests, Ruff, Python compile и
   disposable migration проходят. Полный public launch остаётся gated: test-shop
   evidence, durable provider registry/reconciliation, account-close/notification
   flows, accessibility/usability evidence и approved finance/legal sign-off ещё

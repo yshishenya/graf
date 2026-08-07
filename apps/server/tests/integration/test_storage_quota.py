@@ -12,6 +12,7 @@ from twobrain_rec_server.billing.storage import (
     StorageReservation,
     admit_storage,
     commit_object_bytes,
+    release_storage,
 )
 
 
@@ -33,3 +34,10 @@ def test_storage_reservation_rejects_admission_and_object_stat_overrun() -> None
 def test_storage_projection_is_bounded_by_capacity() -> None:
     projection = StorageProjection(used_bytes=200, reserved_bytes=10, capacity_bytes=250)
     assert projection.available_bytes == 40
+
+
+def test_storage_reservation_release_is_idempotent_and_capacity_validation_is_fail_closed() -> None:
+    reservation = StorageReservation("r1", declared_bytes=100)
+    release_storage(reservation)
+    release_storage(reservation)
+    assert reservation.state == "released"

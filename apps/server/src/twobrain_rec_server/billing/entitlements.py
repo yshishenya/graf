@@ -13,7 +13,11 @@ from twobrain_rec_server.billing.catalog import (
     PlanCode,
     storage_capacity_bytes,
 )
+from twobrain_rec_server.billing.events import enqueue_billing_notification
+from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.payment_methods import SavedPaymentMethod, seal_provider_reference
+from twobrain_rec_server.billing.promotions import redeem_invoice_promo
+from twobrain_rec_server.billing.referral_rewards import create_pending_credit
 from twobrain_rec_server.db.models import (
     BillingAuditEvent,
     BillingEntitlementGrant,
@@ -86,7 +90,8 @@ def _add_paid_interval(moment: datetime, cycle: str) -> datetime:
         month = 1 if moment.month == 12 else moment.month + 1
         return moment.replace(year=year, month=month, day=min(moment.day, calendar.monthrange(year, month)[1]))
     if cycle == "year":
-        return moment.replace(year=moment.year + 1)
+        year = moment.year + 1
+        return moment.replace(year=year, day=min(moment.day, calendar.monthrange(year, moment.month)[1]))
     raise ValueError("paid cycle is invalid")
 
 
@@ -199,14 +204,120 @@ async def grant_confirmed_payment(
         and payment_method_key is not None
     )
     subscription.recurring_authority_version += 1
-    subscription.application_version += 1
+    subscription.application_version = (subscription.application_version or 0) + 1
     invoice.status = "succeeded"
     operation.state = "succeeded"
+    await redeem_invoice_promo(db, invoice_id=invoice.id, now=paid_at)
+    await create_pending_credit(
+        db,
+        workspace_id=workspace_id,
+        invitee_user_id=owner.user_id,
+        provider_payment_id=provider_payment_id,
+        paid_at=paid_at,
+        cycle=cycle,
+    )
     db.add(
         BillingAuditEvent(
             workspace_id=workspace_id,
             actor_user_id=owner.user_id,
             action="entitlement.grant_confirmed_payment",
+            target_kind="billing_invoice",
+            target_ref=invoice.safe_number,
+            outcome="success",
+            reason_code="provider_get_confirmed",
+            metadata_json={"amount_minor": str(amount_minor), "currency": currency},
+        )
+    )
+    await enqueue_billing_notification(
+        db,
+        workspace_id=workspace_id,
+        recipient_id=owner.user_id,
+        event_id=f"payment:{invoice.id}:succeeded",
+        kind=BillingNotification.PAYMENT_SUCCEEDED,
+        payload={"invoice": invoice.safe_number, "action_path": "/billing"},
+        marketing_allowed=False,
+    )
+    await db.flush()
+    return "granted"
+
+
+async def grant_confirmed_renewal(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    provider_payment_id: str,
+    amount_minor: int,
+    currency: str,
+    grant_starts_at: datetime,
+) -> str:
+    """Project one GET-confirmed renewal into the append-only entitlement ledger."""
+    operation = await db.scalar(
+        select(BillingOperation)
+        .where(
+            BillingOperation.workspace_id == workspace_id,
+            BillingOperation.provider_id == provider_payment_id,
+            BillingOperation.kind == "renewal",
+        )
+        .with_for_update()
+    )
+    if operation is None:
+        return "unmatched"
+    invoice = await db.scalar(
+        select(BillingInvoice).where(BillingInvoice.operation_id == operation.id).with_for_update()
+    )
+    if invoice is None or invoice.amount_minor != amount_minor or invoice.currency != currency:
+        operation.state = "reconciliation_gap"
+        return "amount_mismatch"
+    existing = await db.scalar(
+        select(BillingEntitlementGrant)
+        .where(
+            BillingEntitlementGrant.workspace_id == workspace_id,
+            BillingEntitlementGrant.invoice_id == invoice.id,
+        )
+        .with_for_update()
+    )
+    if existing is not None:
+        return "duplicate"
+    snapshot = operation.request_snapshot
+    cycle = snapshot.get("cycle")
+    if snapshot.get("plan_code") != "personal" or cycle not in {"month", "year"}:
+        operation.state = "reconciliation_gap"
+        return "snapshot_invalid"
+    subscription = await db.scalar(
+        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id).with_for_update()
+    )
+    if subscription is None:
+        operation.state = "reconciliation_gap"
+        return "subscription_missing"
+    starts_at = grant_starts_at.astimezone(UTC)
+    ends_at = _add_paid_interval(starts_at, cycle)
+    db.add(
+        BillingEntitlementGrant(
+            workspace_id=workspace_id,
+            invoice_id=invoice.id,
+            provider_payment_id=provider_payment_id,
+            plan_code="personal",
+            cycle=cycle,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            amount_minor=amount_minor,
+            currency=currency,
+            source="renewal_provider_confirmed",
+        )
+    )
+    subscription.state = "personal"
+    subscription.plan_code = "personal"
+    subscription.cycle = cycle
+    subscription.paid_through = ends_at
+    subscription.renewal_resolution = "succeeded"
+    subscription.application_version = (subscription.application_version or 0) + 1
+    invoice.status = "succeeded"
+    operation.state = "succeeded"
+    db.add(
+        BillingAuditEvent(
+            workspace_id=workspace_id,
+            actor_user_id=subscription.billing_owner_id,
+            action="entitlement.grant_confirmed_renewal",
             target_kind="billing_invoice",
             target_ref=invoice.safe_number,
             outcome="success",

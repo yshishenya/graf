@@ -82,3 +82,27 @@ def test_notification_outbox_is_idempotent_and_keeps_finance_notices() -> None:
         payload={"invoice": "INV-2", "email": "private@example.com", "provider_id": "pay-1"},
     )
     assert unsafe.safe_payload == {"invoice": "INV-2"}
+
+
+def test_notification_preferences_retry_and_safe_action_path() -> None:
+    outbox = NotificationOutbox()
+    optional = build_notification(
+        event_id="evt-storage",
+        kind=BillingNotification.STORAGE_THRESHOLD,
+        payload={"action_path": "/billing/usage", "storage": "private"},
+    )
+    assert optional.safe_payload == {"action_path": "/billing/usage"}
+    assert outbox.enqueue(optional, recipient_id="user-1", marketing_allowed=False) is None
+    mandatory = build_notification(
+        event_id="evt-late",
+        kind=BillingNotification.RENEWAL_LATE_SUCCESS,
+        payload={"invoice": "INV-3", "action_path": "/billing"},
+    )
+    assert outbox.enqueue(mandatory, recipient_id="user-1", marketing_allowed=False) is not None
+    failed = outbox.mark_failed(
+        event_id="evt-late",
+        recipient_id="user-1",
+        channel="email",
+        error_code="smtp_timeout",
+    )
+    assert failed.state == "retry" and failed.attempts == 1

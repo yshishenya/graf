@@ -10,7 +10,13 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.db.models import BillingInvoice, BillingOperation, ObservedProviderRefund
+from twobrain_rec_server.billing.referral_rewards import reverse_credit_for_payment
+from twobrain_rec_server.db.models import (
+    BillingInvoice,
+    BillingOperation,
+    ObservedProviderRefund,
+    WorkspaceSubscription,
+)
 
 ObservationSource = Literal["webhook", "poll", "registry"]
 ReceiptRegistration = Literal["pending", "succeeded", "canceled"]
@@ -249,6 +255,16 @@ async def record_observed_refund(
             source="provider_observation",
             status="succeeded",
         )
+    )
+    subscription = await db.scalar(
+        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id)
+    )
+    await reverse_credit_for_payment(
+        db,
+        workspace_id=workspace_id,
+        provider_payment_id=observation.provider_payment_id,
+        now=observation.provider_created_at,
+        invitee_user_id=subscription.billing_owner_id if subscription is not None else None,
     )
     await db.flush()
     return "inserted"

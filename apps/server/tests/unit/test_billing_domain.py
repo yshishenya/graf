@@ -78,6 +78,14 @@ def test_free_ledger_rejects_overrun_without_negative_remaining() -> None:
     assert ledger.remaining_seconds == FREE_PROCESSING_SECONDS
 
 
+def test_free_ledger_does_not_charge_overlapping_source_ranges() -> None:
+    ledger = FreeUsageLedger.for_moment(datetime.now(UTC))
+    ledger.reserve("job-1", 20)
+    assert ledger.commit("job-1", [SourceRange("track", 0, 10)]) == 10
+    assert ledger.commit("job-1", [SourceRange("track", 5, 15)]) == 5
+    assert ledger.committed_seconds == 15
+
+
 def test_storage_uses_exact_object_stat_and_rejects_overrun() -> None:
     projection = StorageProjection(used_bytes=100, reserved_bytes=50, capacity_bytes=200)
     admit_storage(projection, 50)

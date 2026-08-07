@@ -73,7 +73,6 @@ async def _bind_referral_attribution(
     attribution = await db.scalar(
         select(ReferralAttribution)
         .where(
-            ReferralAttribution.workspace_id == workspace_id,
             ReferralAttribution.token_hash == token_hash,
             ReferralAttribution.invitee_user_id.is_(None),
             ReferralAttribution.state == "issued",

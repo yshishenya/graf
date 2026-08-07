@@ -23,6 +23,7 @@
       <section class="settings-section cabinet-card" aria-labelledby="billing-storage-title">
         <h2 id="billing-storage-title">Хранилище</h2>
         <p><strong>{{ storage_used }} байт</strong> из <strong>{{ storage_capacity_label }} байт</strong> · состояние: {{ storage_threshold }}</p>
+        {% if storage_reserved %}<p class="muted">В обработке зарезервировано: {{ storage_reserved }} байт.</p>{% endif %}
         <p class="muted">Размер учитывает нормализованный файл встречи. Лимит хранения не ограничивает обработку.</p>
         <a class="button quiet" href="/billing/usage">Открыть использование</a>
         <a class="button quiet" href="/billing/storage">Настроить хранилище</a>

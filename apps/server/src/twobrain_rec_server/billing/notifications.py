@@ -14,12 +14,30 @@ from twobrain_rec_server.db.models import BillingNotificationDelivery
 
 class BillingNotification(StrEnum):
     TRIAL_ENDING = "trial_ending"
+    TRIAL_EXPIRED = "trial_expired"
     PAYMENT_SUCCEEDED = "payment_succeeded"
     PAYMENT_FAILED = "payment_failed"
     STORAGE_THRESHOLD = "storage_threshold"
     RECEIPT_AVAILABLE = "receipt_available"
     REFERRAL_CREDIT = "referral_credit"
     RENEWAL_UNKNOWN = "renewal_unknown"
+    RENEWAL_LATE_SUCCESS = "renewal_late_success"
+    FAIR_USE_REVIEW = "fair_use_review"
+    ACCOUNT_CLOSE = "account_close"
+
+
+MANDATORY_NOTIFICATION_KINDS = frozenset(
+    {
+        BillingNotification.TRIAL_EXPIRED,
+        BillingNotification.PAYMENT_SUCCEEDED,
+        BillingNotification.PAYMENT_FAILED,
+        BillingNotification.RECEIPT_AVAILABLE,
+        BillingNotification.RENEWAL_UNKNOWN,
+        BillingNotification.RENEWAL_LATE_SUCCESS,
+        BillingNotification.FAIR_USE_REVIEW,
+        BillingNotification.ACCOUNT_CLOSE,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +53,8 @@ class NotificationDelivery:
     recipient_id: str
     channel: str
     state: str = "pending"
+    attempts: int = 0
+    last_error_code: str | None = None
 
 
 class NotificationOutbox:
@@ -53,11 +73,7 @@ class NotificationOutbox:
     ) -> NotificationDelivery | None:
         if not recipient_id.strip() or channel not in {"email", "in_app"}:
             raise ValueError("notification recipient or channel is invalid")
-        if channel == "email" and not marketing_allowed and event.kind not in {
-            BillingNotification.PAYMENT_SUCCEEDED,
-            BillingNotification.PAYMENT_FAILED,
-            BillingNotification.RENEWAL_UNKNOWN,
-        }:
+        if channel == "email" and not marketing_allowed and event.kind not in MANDATORY_NOTIFICATION_KINDS:
             return None
         key = (event.event_id, recipient_id, channel)
         existing = self._rows.get(key)
@@ -70,9 +86,39 @@ class NotificationOutbox:
     def mark_delivered(self, *, event_id: str, recipient_id: str, channel: str) -> NotificationDelivery:
         key = (event_id, recipient_id, channel)
         row = self._rows[key]
-        delivered = NotificationDelivery(row.event_id, row.recipient_id, row.channel, "delivered")
+        delivered = NotificationDelivery(
+            row.event_id,
+            row.recipient_id,
+            row.channel,
+            "delivered",
+            row.attempts,
+            row.last_error_code,
+        )
         self._rows[key] = delivered
         return delivered
+
+    def mark_failed(
+        self,
+        *,
+        event_id: str,
+        recipient_id: str,
+        channel: str,
+        error_code: str,
+        retryable: bool = True,
+    ) -> NotificationDelivery:
+        key = (event_id, recipient_id, channel)
+        row = self._rows[key]
+        attempts = row.attempts + 1
+        failed = NotificationDelivery(
+            row.event_id,
+            row.recipient_id,
+            row.channel,
+            "retry" if retryable and attempts < 5 else "failed",
+            attempts,
+            error_code[:64],
+        )
+        self._rows[key] = failed
+        return failed
 
 
 class DurableNotificationOutbox:
@@ -90,11 +136,7 @@ class DurableNotificationOutbox:
     ) -> BillingNotificationDelivery | None:
         if channel not in {"email", "in_app"}:
             raise ValueError("notification channel is invalid")
-        if channel == "email" and not marketing_allowed and event.kind not in {
-            BillingNotification.PAYMENT_SUCCEEDED,
-            BillingNotification.PAYMENT_FAILED,
-            BillingNotification.RENEWAL_UNKNOWN,
-        }:
+        if channel == "email" and not marketing_allowed and event.kind not in MANDATORY_NOTIFICATION_KINDS:
             return None
         row = await db.scalar(
             select(BillingNotificationDelivery)
@@ -119,6 +161,34 @@ class DurableNotificationOutbox:
         )
         db.add(row)
         await db.flush()
+        return row
+
+    async def mark_failed(
+        self,
+        db: AsyncSession,
+        *,
+        workspace_id: UUID,
+        event_id: str,
+        recipient_id: UUID,
+        channel: str,
+        error_code: str,
+        retryable: bool = True,
+    ) -> BillingNotificationDelivery:
+        row = await db.scalar(
+            select(BillingNotificationDelivery)
+            .where(
+                BillingNotificationDelivery.workspace_id == workspace_id,
+                BillingNotificationDelivery.event_id == event_id,
+                BillingNotificationDelivery.recipient_id == recipient_id,
+                BillingNotificationDelivery.channel == channel,
+            )
+            .with_for_update()
+        )
+        if row is None:
+            raise ValueError("notification delivery is missing")
+        row.attempts += 1
+        row.last_error_code = error_code[:64]
+        row.state = "retry" if retryable and row.attempts < 5 else "failed"
         return row
 
     async def mark_delivered(
@@ -153,12 +223,16 @@ def notification_copy(event: NotificationEvent) -> tuple[str, str]:
     suffix = f" Номер платежа: {invoice}." if invoice else ""
     copy = {
         BillingNotification.TRIAL_ENDING: ("Пробный период скоро закончится", "Выберите тариф, чтобы сохранить платную обработку."),
+        BillingNotification.TRIAL_EXPIRED: ("Пробный период закончился", "Платный режим отключён. Выберите тариф, чтобы продолжить."),
         BillingNotification.PAYMENT_SUCCEEDED: ("Платёж подтверждён", f"Оплата прошла успешно.{suffix}"),
         BillingNotification.PAYMENT_FAILED: ("Не удалось продлить подписку", "Платный доступ завершён, выбран бесплатный тариф."),
         BillingNotification.STORAGE_THRESHOLD: ("Заканчивается место", "Проверьте использование хранилища или увеличьте его ёмкость."),
         BillingNotification.RECEIPT_AVAILABLE: ("Чек доступен", "Откройте историю платежей, чтобы посмотреть чек."),
         BillingNotification.REFERRAL_CREDIT: ("Начислен реферальный бонус", "Дополнительные дни применены к вашему оплачиваемому периоду."),
         BillingNotification.RENEWAL_UNKNOWN: ("Проверяем продление", "Статус платежа пока неизвестен. Новое списание не создаём."),
+        BillingNotification.RENEWAL_LATE_SUCCESS: ("Продление подтверждено поздно", "Мы восстановили оплаченный период. Проверьте дату следующего списания."),
+        BillingNotification.FAIR_USE_REVIEW: ("Проверяем использование", "Часть функции временно ограничена. Откройте кабинет и проверьте срок проверки."),
+        BillingNotification.ACCOUNT_CLOSE: ("Закрытие аккаунта", "Проверьте запланированную дату и последствия удаления данных в кабинете."),
     }
     return copy[event.kind]
 
@@ -169,13 +243,20 @@ def build_notification(*, event_id: str, kind: BillingNotification, payload: dic
         BillingNotification.PAYMENT_FAILED: {"invoice"},
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
         BillingNotification.RENEWAL_UNKNOWN: {"invoice"},
+        BillingNotification.RENEWAL_LATE_SUCCESS: {"invoice"},
         BillingNotification.TRIAL_ENDING: set(),
+        BillingNotification.TRIAL_EXPIRED: set(),
         BillingNotification.STORAGE_THRESHOLD: set(),
         BillingNotification.REFERRAL_CREDIT: set(),
+        BillingNotification.FAIR_USE_REVIEW: set(),
+        BillingNotification.ACCOUNT_CLOSE: set(),
     }[kind]
     safe: dict[str, str] = {}
     for key in allowed_keys:
         value = payload.get(key)
         if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}", value):
             safe[key] = value
+    action_path = payload.get("action_path")
+    if isinstance(action_path, str) and re.fullmatch(r"/(?:[A-Za-z0-9_-]+/?){1,8}", action_path):
+        safe["action_path"] = action_path
     return NotificationEvent(event_id, kind, safe)

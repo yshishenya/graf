@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import classify_storage_threshold
-from twobrain_rec_server.db.models import TrackArtifact
+from twobrain_rec_server.db.models import StorageReservation as StorageReservationRow
+from twobrain_rec_server.db.models import TrackArtifact, Workspace
 
 
 @dataclass(slots=True)
@@ -45,6 +47,10 @@ async def project_active_playback_storage(
     reserved_bytes: int = 0,
 ) -> StorageProjection:
     """Project quota from canonical normalized playback artifacts only."""
+    if capacity_bytes <= 0:
+        raise ValueError("storage capacity must be positive")
+    if reserved_bytes < 0:
+        raise ValueError("reserved bytes cannot be negative")
     used = await db.scalar(
         select(func.coalesce(func.sum(TrackArtifact.byte_length), 0)).where(
             TrackArtifact.workspace_id == workspace_id,
@@ -84,3 +90,144 @@ def commit_object_bytes(*, reservation: StorageReservation, actual_bytes: int) -
 def release_storage(reservation: StorageReservation) -> None:
     if reservation.state == "active":
         reservation.state = "released"
+
+
+async def _active_reserved_bytes(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    now: datetime,
+) -> int:
+    reserved = await db.scalar(
+        select(
+            func.coalesce(
+                func.sum(StorageReservationRow.declared_bytes - StorageReservationRow.committed_bytes),
+                0,
+            )
+        ).where(
+            StorageReservationRow.workspace_id == workspace_id,
+            StorageReservationRow.state == "active",
+            (StorageReservationRow.expires_at.is_(None) | (StorageReservationRow.expires_at > now)),
+        )
+    )
+    return max(0, int(reserved or 0))
+
+
+async def reserve_storage(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    reservation_key: str,
+    declared_bytes: int,
+    capacity_bytes: int,
+    now: datetime | None = None,
+    expires_at: datetime | None = None,
+) -> StorageReservationRow:
+    """Atomically reserve playback capacity with idempotent admission.
+
+    A workspace row lock serializes reservations even when there are no
+    existing reservation rows to lock. Object bytes remain authoritative at
+    commit time, so an object-stat mismatch never silently overcharges.
+    """
+    if declared_bytes <= 0 or not reservation_key.strip():
+        raise ValueError("storage reservation is invalid")
+    now = now or datetime.now(UTC)
+    workspace = await db.scalar(select(Workspace).where(Workspace.id == workspace_id).with_for_update())
+    if workspace is None:
+        raise ValueError("workspace is missing")
+    existing = await db.scalar(
+        select(StorageReservationRow)
+        .where(
+            StorageReservationRow.workspace_id == workspace_id,
+            StorageReservationRow.idempotency_key == reservation_key,
+        )
+        .with_for_update()
+    )
+    if existing is not None:
+        return existing
+    reserved = await _active_reserved_bytes(db, workspace_id=workspace_id, now=now)
+    projection = await project_active_playback_storage(
+        db,
+        workspace_id=workspace_id,
+        capacity_bytes=capacity_bytes,
+        reserved_bytes=reserved,
+    )
+    admit_storage(projection, declared_bytes)
+    reservation = StorageReservationRow(
+        workspace_id=workspace_id,
+        idempotency_key=reservation_key,
+        declared_bytes=declared_bytes,
+        expires_at=expires_at or now + timedelta(minutes=15),
+    )
+    db.add(reservation)
+    await db.flush()
+    return reservation
+
+
+async def commit_storage_reservation(
+    db: AsyncSession,
+    *,
+    reservation_id: UUID,
+    artifact_id: UUID | None,
+    actual_bytes: int,
+) -> int:
+    """Commit exact normalized object-stat bytes to a reservation."""
+    reservation = await db.scalar(
+        select(StorageReservationRow).where(StorageReservationRow.id == reservation_id).with_for_update()
+    )
+    if reservation is None:
+        raise ValueError("storage reservation is missing")
+    if reservation.state == "committed":
+        return reservation.committed_bytes
+    if reservation.state != "active":
+        raise ValueError("storage reservation is not active")
+    if actual_bytes <= 0:
+        raise ValueError("object bytes must be positive")
+    if actual_bytes > reservation.declared_bytes:
+        raise StorageAdmissionError("object stat exceeds reservation")
+    reservation.committed_bytes = actual_bytes
+    reservation.artifact_id = artifact_id
+    reservation.state = "committed"
+    await db.flush()
+    return actual_bytes
+
+
+async def release_storage_reservation(
+    db: AsyncSession,
+    *,
+    reservation_id: UUID,
+) -> bool:
+    """Release an active reservation without changing playback usage."""
+    reservation = await db.scalar(
+        select(StorageReservationRow).where(StorageReservationRow.id == reservation_id).with_for_update()
+    )
+    if reservation is None or reservation.state != "active":
+        return False
+    reservation.state = "released"
+    await db.flush()
+    return True
+
+
+async def release_expired_storage_reservations(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    now: datetime,
+) -> int:
+    """Close 15-minute transient reservations so capacity becomes reusable."""
+    rows = list(
+        await db.scalars(
+            select(StorageReservationRow)
+            .where(
+                StorageReservationRow.workspace_id == workspace_id,
+                StorageReservationRow.state == "active",
+                StorageReservationRow.expires_at.is_not(None),
+                StorageReservationRow.expires_at <= now,
+            )
+            .with_for_update()
+        )
+    )
+    for reservation in rows:
+        reservation.state = "released"
+    await db.flush()
+    return len(rows)
