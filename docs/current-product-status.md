@@ -15,6 +15,8 @@ Date: 2026-08-04
   boundaries. Trial исправлен до ровно 7 календарных дней.
 - Добавлены owner-only cancel/resume controls с CSRF, row-lock, authority-version
   checks и audit rows, а также отдельный exact-byte/second usage screen.
+- Provider payment success теперь требует server-side GET и immutable amount/
+  currency match; entitlement period сохраняется append-only в migration 0045.
 - Billing notifications получили транзакционный DB-backed metadata-only outbox
   с uniqueness/delivery state и Russian-first finance copy; worker delivery
   remains a launch gate.
