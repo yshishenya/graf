@@ -96,6 +96,7 @@ async def grant_confirmed_payment(
     amount_minor: int,
     currency: str,
     paid_at: datetime,
+    recurring_method_confirmed: bool = False,
 ) -> str:
     """Grant one immutable invoice only after provider GET confirms its amount."""
     operation = await db.scalar(
@@ -162,7 +163,7 @@ async def grant_confirmed_payment(
     subscription.capacity_bytes = storage_capacity_bytes("personal")
     subscription.paid_through = paid_through
     subscription.billing_anchor = paid_at
-    subscription.recurring_allowed = bool(snapshot.get("recurring_consent"))
+    subscription.recurring_allowed = bool(snapshot.get("recurring_consent")) and recurring_method_confirmed
     subscription.recurring_authority_version += 1
     subscription.application_version += 1
     invoice.status = "succeeded"

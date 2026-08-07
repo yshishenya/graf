@@ -22,6 +22,9 @@
   суммы/валюты и создают append-only entitlement grant; добавлена миграция 0045.
 - Provider-confirmed refunds теперь наблюдаются через YooKassa GET/list и
   связываются с исходным invoice без refund mutation или изменения entitlement.
+- Hosted checkout передаёт в YooKassa `save_payment_method` только после
+  обязательного recurring consent; recurring authority включается лишь при
+  подтверждённом сохранении bank-card методом провайдера.
 - Owner-only управление подпиской: отключение/возобновление автопродления с
   CSRF, row-lock, проверкой версии и metadata-only audit-событием; отдельный
   экран точного использования и playback-хранилища.

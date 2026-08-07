@@ -20,6 +20,7 @@ from twobrain_rec_server.billing.reconciliation import (
     extract_payment_observation,
     extract_refund_observation,
     record_observed_refund,
+    saved_bank_card_confirmed,
 )
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
@@ -129,6 +130,7 @@ async def billing_webhook(
                             amount_minor=observation.amount_minor,
                             currency=observation.currency,
                             paid_at=observation.provider_created_at,
+                            recurring_method_confirmed=saved_bank_card_confirmed(provider_payload),
                         )
                     else:
                         reconcile_status = "observed"

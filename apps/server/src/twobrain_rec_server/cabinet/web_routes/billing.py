@@ -574,6 +574,7 @@ async def start_billing_checkout(
                     "invoice_number": intent.invoice_number,
                     "return_url": return_url,
                 },
+                save_payment_method=True,
             )
         confirmation = payment.get("confirmation")
         confirmation_url = confirmation.get("confirmation_url") if isinstance(confirmation, dict) else None

@@ -9,6 +9,7 @@ from twobrain_rec_server.billing.reconciliation import (
     extract_payment_observation,
     extract_receipt_observation,
     extract_refund_observation,
+    saved_bank_card_confirmed,
 )
 
 NOW = datetime(2026, 8, 6, 12, tzinfo=UTC)
@@ -36,6 +37,12 @@ def test_payment_observation_extracts_only_bounded_provider_truth() -> None:
     assert observation.receipt_registration == "pending"
     assert not hasattr(observation, "metadata")
     assert not hasattr(observation, "payment_method")
+
+
+def test_saved_method_projection_exposes_only_safe_capability() -> None:
+    assert saved_bank_card_confirmed({"payment_method": {"type": "bank_card", "saved": True, "id": "secret"}})
+    assert not saved_bank_card_confirmed({"payment_method": {"type": "bank_card", "saved": False}})
+    assert not saved_bank_card_confirmed({"payment_method": {"type": "sbp", "saved": True}})
 
 
 def test_refund_observation_accepts_only_confirmed_positive_refunds() -> None:

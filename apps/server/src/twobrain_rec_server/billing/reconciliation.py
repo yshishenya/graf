@@ -95,6 +95,12 @@ def extract_payment_observation(
     )
 
 
+def saved_bank_card_confirmed(payload: Mapping[str, Any]) -> bool:
+    """Return only the safe capability bit; provider method identifiers never enter the ledger."""
+    method = payload.get("payment_method")
+    return isinstance(method, Mapping) and method.get("type") == "bank_card" and method.get("saved") is True
+
+
 def extract_refund_observation(
     payload: Mapping[str, Any],
     *,
