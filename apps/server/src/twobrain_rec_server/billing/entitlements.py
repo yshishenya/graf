@@ -15,7 +15,11 @@ from twobrain_rec_server.billing.catalog import (
 )
 from twobrain_rec_server.billing.events import enqueue_billing_notification
 from twobrain_rec_server.billing.notifications import BillingNotification
-from twobrain_rec_server.billing.payment_methods import SavedPaymentMethod, seal_provider_reference
+from twobrain_rec_server.billing.payment_methods import (
+    SavedPaymentMethod,
+    seal_provider_reference,
+    validate_payment_method_key_version,
+)
 from twobrain_rec_server.billing.promotions import redeem_invoice_promo
 from twobrain_rec_server.billing.referral_rewards import create_pending_credit
 from twobrain_rec_server.db.models import (
@@ -95,6 +99,13 @@ def _add_paid_interval(moment: datetime, cycle: str) -> datetime:
     raise ValueError("paid cycle is invalid")
 
 
+def recurring_actor_matches_current_owner(*, snapshot_actor: object, current_owner_id: UUID) -> bool:
+    try:
+        return UUID(str(snapshot_actor)) == current_owner_id
+    except (TypeError, ValueError):
+        return False
+
+
 async def grant_confirmed_payment(
     db: AsyncSession,
     *,
@@ -106,6 +117,7 @@ async def grant_confirmed_payment(
     recurring_method_confirmed: bool = False,
     saved_payment_method: SavedPaymentMethod | None = None,
     payment_method_key: bytes | None = None,
+    payment_method_key_version: str = "billing-v1",
 ) -> str:
     """Grant one immutable invoice only after provider GET confirms its amount."""
     operation = await db.scalar(
@@ -144,6 +156,10 @@ async def grant_confirmed_payment(
     if owner is None:
         operation.state = "reconciliation_gap"
         return "owner_missing"
+    recurring_actor_matches = recurring_actor_matches_current_owner(
+        snapshot_actor=snapshot.get("billing_actor_user_id"),
+        current_owner_id=owner.user_id,
+    )
     paid_at = paid_at.astimezone(UTC)
     paid_through = _add_paid_interval(paid_at, cycle)
     db.add(
@@ -172,7 +188,7 @@ async def grant_confirmed_payment(
     subscription.capacity_bytes = storage_capacity_bytes("personal")
     subscription.paid_through = paid_through
     subscription.billing_anchor = paid_at
-    if saved_payment_method is not None and payment_method_key is not None:
+    if saved_payment_method is not None and payment_method_key is not None and recurring_actor_matches:
         methods = await db.scalars(
             select(BillingPaymentMethod)
             .where(
@@ -189,7 +205,7 @@ async def grant_confirmed_payment(
                 workspace_id=workspace_id,
                 owner_user_id=owner.user_id,
                 encrypted_provider_ref=seal_provider_reference(saved_payment_method.provider_ref, payment_method_key),
-                key_version="billing-v1",
+                key_version=validate_payment_method_key_version(payment_method_key_version),
                 kind=saved_payment_method.kind,
                 masked_label=saved_payment_method.masked_label,
                 state="active",
@@ -199,6 +215,7 @@ async def grant_confirmed_payment(
         )
     subscription.recurring_allowed = (
         bool(snapshot.get("recurring_consent"))
+        and recurring_actor_matches
         and recurring_method_confirmed
         and saved_payment_method is not None
         and payment_method_key is not None
@@ -224,8 +241,15 @@ async def grant_confirmed_payment(
             target_kind="billing_invoice",
             target_ref=invoice.safe_number,
             outcome="success",
-            reason_code="provider_get_confirmed",
-            metadata_json={"amount_minor": str(amount_minor), "currency": currency},
+            reason_code=(
+                "provider_get_confirmed"
+                if recurring_actor_matches
+                else "provider_get_confirmed_recurring_suppressed"
+            ),
+            metadata_json={
+                "currency": currency,
+                "recurring_authority": "current_owner" if recurring_actor_matches else "owner_changed",
+            },
         )
     )
     await enqueue_billing_notification(

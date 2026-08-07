@@ -22,6 +22,7 @@ class BillingNotification(StrEnum):
     REFERRAL_CREDIT = "referral_credit"
     RENEWAL_UNKNOWN = "renewal_unknown"
     RENEWAL_LATE_SUCCESS = "renewal_late_success"
+    RENEWAL_MANUAL_RESUME = "renewal_manual_resume"
     FAIR_USE_REVIEW = "fair_use_review"
     ACCOUNT_CLOSE = "account_close"
 
@@ -34,6 +35,7 @@ MANDATORY_NOTIFICATION_KINDS = frozenset(
         BillingNotification.RECEIPT_AVAILABLE,
         BillingNotification.RENEWAL_UNKNOWN,
         BillingNotification.RENEWAL_LATE_SUCCESS,
+        BillingNotification.RENEWAL_MANUAL_RESUME,
         BillingNotification.FAIR_USE_REVIEW,
         BillingNotification.ACCOUNT_CLOSE,
     }
@@ -231,6 +233,7 @@ def notification_copy(event: NotificationEvent) -> tuple[str, str]:
         BillingNotification.REFERRAL_CREDIT: ("Начислен реферальный бонус", "Дополнительные дни применены к вашему оплачиваемому периоду."),
         BillingNotification.RENEWAL_UNKNOWN: ("Проверяем продление", "Статус платежа пока неизвестен. Новое списание не создаём."),
         BillingNotification.RENEWAL_LATE_SUCCESS: ("Продление подтверждено поздно", "Мы восстановили оплаченный период. Проверьте дату следующего списания."),
+        BillingNotification.RENEWAL_MANUAL_RESUME: ("Подписку можно возобновить", "Продление не подтверждено. Если хотите снова включить автопродление, откройте управление подпиской."),
         BillingNotification.FAIR_USE_REVIEW: ("Проверяем использование", "Часть функции временно ограничена. Откройте кабинет и проверьте срок проверки."),
         BillingNotification.ACCOUNT_CLOSE: ("Закрытие аккаунта", "Проверьте запланированную дату и последствия удаления данных в кабинете."),
     }
@@ -244,6 +247,7 @@ def build_notification(*, event_id: str, kind: BillingNotification, payload: dic
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
         BillingNotification.RENEWAL_UNKNOWN: {"invoice"},
         BillingNotification.RENEWAL_LATE_SUCCESS: {"invoice"},
+        BillingNotification.RENEWAL_MANUAL_RESUME: {"invoice"},
         BillingNotification.TRIAL_ENDING: set(),
         BillingNotification.TRIAL_EXPIRED: set(),
         BillingNotification.STORAGE_THRESHOLD: set(),

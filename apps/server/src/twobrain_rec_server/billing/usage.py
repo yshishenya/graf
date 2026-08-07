@@ -281,6 +281,12 @@ def _subtract_source_range(
     return segments
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 async def commit_free_usage_ranges(
     db: AsyncSession,
     *,
@@ -291,6 +297,21 @@ async def commit_free_usage_ranges(
     reservation = await db.scalar(select(UsageReservationRow).where(UsageReservationRow.id == reservation_id).with_for_update())
     if reservation is None or reservation.state != "active":
         raise ValueError("usage reservation is not active")
+    if reservation.expires_at is not None and _as_utc(reservation.expires_at) <= datetime.now(UTC):
+        # A worker retry must not commit against an expired hold. Release the
+        # remaining projection while the reservation row is already locked.
+        reservation.state = "released"
+        expired_window = await db.scalar(
+            select(FreeUsageWindow).where(FreeUsageWindow.id == reservation.window_id).with_for_update()
+        )
+        if expired_window is not None:
+            expired_window.reserved_seconds = max(
+                0,
+                expired_window.reserved_seconds
+                - max(0, reservation.declared_seconds - reservation.committed_seconds),
+            )
+        await db.flush()
+        raise ValueError("usage reservation has expired")
     window = await db.scalar(select(FreeUsageWindow).where(FreeUsageWindow.id == reservation.window_id).with_for_update())
     if window is None:
         raise ValueError("usage window is missing")

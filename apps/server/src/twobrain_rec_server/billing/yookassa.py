@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -15,6 +16,24 @@ class YooKassaConfigurationError(RuntimeError):
 
 class YooKassaProviderError(RuntimeError):
     pass
+
+
+ALLOWED_YOOKASSA_HOSTS = frozenset(
+    {
+        "api.yookassa.ru",
+        "api.yookassa.test",
+        "yookassa.ru",
+        "yookassa.test",
+        "yoomoney.ru",
+    }
+)
+
+
+def is_allowed_confirmation_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    parsed = urlsplit(value)
+    return parsed.scheme == "https" and parsed.hostname in ALLOWED_YOOKASSA_HOSTS
 
 
 def _read_secret(path: Path | None) -> str:

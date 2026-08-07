@@ -10,6 +10,10 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 
+from twobrain_rec_server.auth.account_closure import (
+    finalize_account_close,
+    list_due_account_closures,
+)
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.email_delivery import (
     EmailLoginDeliveryError,
@@ -331,6 +335,45 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
             except Exception:
                 logger.exception("billing notification reconciliation cycle failed")
             await asyncio.sleep(60)
+    finally:
+        await engine.dispose()
+
+
+async def run_account_closure_reconciler(settings: Any, temporal_client: object | None = None) -> None:
+    """Finalize due account-close cooling windows durably.
+
+    The row is the source of truth and the loop is restart-safe.  A future
+    Temporal workflow may claim the same IDs; row locks make duplicate claims
+    harmless and no meeting deletion is falsely reported as complete here.
+    """
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="graf-maintenance",
+        reason_category="account_close_finalization",
+        feature_area="account",
+    )
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    request_ids = await list_due_account_closures(
+                        db, now=datetime.now(UTC), limit=100
+                    )
+                for request_id in request_ids:
+                    async with sessionmaker() as db:
+                        await apply_tenant_context(db, context)
+                        await finalize_account_close(
+                            db, request_id=request_id, now=datetime.now(UTC)
+                        )
+                        await db.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("account close reconciliation cycle failed")
+            await asyncio.sleep(30)
     finally:
         await engine.dispose()
 

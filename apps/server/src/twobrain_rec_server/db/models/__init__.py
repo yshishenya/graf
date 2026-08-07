@@ -1,3 +1,4 @@
+from twobrain_rec_server.db.models.account_closure import AccountClosureRequest
 from twobrain_rec_server.db.models.admin import (
     AdminAuditEvent,
     UserUsageDaily,
@@ -124,6 +125,7 @@ from twobrain_rec_server.db.models.support import SupportIncident, SupportIncide
 
 __all__ = [
     "AdminAuditEvent",
+    "AccountClosureRequest",
     "BillingAuditEvent",
     "BillingInvoice",
     "BillingEntitlementGrant",

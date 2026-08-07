@@ -94,6 +94,7 @@ from twobrain_rec_server.outcomes.templates import built_in_template_for_version
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 
 if TYPE_CHECKING:
+    from twobrain_rec_server.auth.account_closure import AccountCloseView
     from twobrain_rec_server.db.models import WorkspaceProviderLinkState
 
 
@@ -163,6 +164,7 @@ class AccountSettingsSurface:
     providers: tuple[AccountProviderView, ...] = ()
     devices: tuple[AccountDeviceView, ...] = ()
     unavailable: bool = False
+    account_close: AccountCloseView | None = None
 
 
 def account_provider_view(
@@ -211,6 +213,7 @@ def account_settings_surface(
     devices: Iterable[RegisteredDevice] = (),
     current_device_id: UUID | None = None,
     unavailable: bool = False,
+    account_close: AccountCloseView | None = None,
 ) -> AccountSettingsSurface:
     identity_rows = tuple(identities)
     return AccountSettingsSurface(
@@ -222,6 +225,7 @@ def account_settings_surface(
             account_device_view(device, current_device_id=current_device_id) for device in devices
         ),
         unavailable=unavailable,
+        account_close=account_close,
     )
 
 

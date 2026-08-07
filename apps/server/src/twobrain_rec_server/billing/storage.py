@@ -11,6 +11,9 @@ from twobrain_rec_server.billing.catalog import classify_storage_threshold
 from twobrain_rec_server.db.models import StorageReservation as StorageReservationRow
 from twobrain_rec_server.db.models import TrackArtifact, Workspace
 
+CANONICAL_PLAYBACK_PROFILE = "review_m4a_aac_lc_48k_mono_64k_v1"
+CANONICAL_PLAYBACK_FILENAME = "meeting-review.m4a"
+
 
 @dataclass(slots=True)
 class StorageReservation:
@@ -43,6 +46,28 @@ class StorageAdmissionError(RuntimeError):
     pass
 
 
+def is_chargeable_playback_artifact(
+    *,
+    track_role: str,
+    status: str,
+    normalization_profile_version: str | None,
+    storage_object_key: str,
+) -> bool:
+    """Return whether one artifact contributes to customer storage.
+
+    The filename comparison is path-segment exact.  A similarly suffixed
+    provider temporary (for example ``meeting-review.m4a.tmp``) is never
+    chargeable, and deleted/superseded artifacts release quota immediately.
+    """
+
+    return (
+        track_role == "playback"
+        and status == "stored"
+        and normalization_profile_version == CANONICAL_PLAYBACK_PROFILE
+        and storage_object_key.rsplit("/", 1)[-1] == CANONICAL_PLAYBACK_FILENAME
+    )
+
+
 async def project_active_playback_storage(
     db: AsyncSession,
     *,
@@ -60,8 +85,8 @@ async def project_active_playback_storage(
             TrackArtifact.workspace_id == workspace_id,
             TrackArtifact.track_role == "playback",
             TrackArtifact.status == "stored",
-            TrackArtifact.normalization_profile_version == "review_m4a_aac_lc_48k_mono_64k_v1",
-            TrackArtifact.storage_object_key.endswith("meeting-review.m4a"),
+            TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE,
+            TrackArtifact.storage_object_key.endswith("/meeting-review.m4a"),
         )
     )
     return StorageProjection(
@@ -69,6 +94,47 @@ async def project_active_playback_storage(
         reserved_bytes=max(0, reserved_bytes),
         capacity_bytes=capacity_bytes,
     )
+
+
+async def logically_release_playback_quota(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+) -> int:
+    """Remove a meeting's playback bytes from quota before object purge.
+
+    Deletion owns the physical object purge separately.  Marking the canonical
+    artifact as ``deleted`` under the meeting tombstone releases user quota
+    immediately while keeping its object key available to the purge journal.
+    """
+
+    artifacts = list(
+        await db.scalars(
+            select(TrackArtifact)
+            .where(
+                TrackArtifact.workspace_id == workspace_id,
+                TrackArtifact.meeting_id == meeting_id,
+                TrackArtifact.track_role == "playback",
+                TrackArtifact.status == "stored",
+                TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE,
+            )
+            .with_for_update()
+        )
+    )
+    released = 0
+    for artifact in artifacts:
+        if artifact.storage_object_key.rsplit("/", 1)[-1] != CANONICAL_PLAYBACK_FILENAME:
+            continue
+        released += artifact.byte_length
+        artifact.status = "deleted"
+        artifact.normalization_profile_version = None
+        artifact.validated_at = None
+        artifact.derivation_kind = None
+        artifact.source_fingerprint_sha256 = None
+        artifact.validation_version = None
+    await db.flush()
+    return released
 
 
 def admit_storage(projection: StorageProjection, incoming_bytes: int) -> None:

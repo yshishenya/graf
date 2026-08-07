@@ -19,7 +19,11 @@ from twobrain_rec_server.billing.catalog import (
 )
 from twobrain_rec_server.billing.checkout import build_checkout_intent, checkout_preview
 from twobrain_rec_server.billing.entitlements import effective_plan_code
-from twobrain_rec_server.billing.operations import BillingEmergencyStop, require_billing_enabled
+from twobrain_rec_server.billing.operations import (
+    CHECKOUT_BLOCKING_STATES,
+    BillingEmergencyStop,
+    require_billing_enabled,
+)
 from twobrain_rec_server.billing.promotions import (
     PromoCode,
     PromoError,
@@ -33,12 +37,13 @@ from twobrain_rec_server.billing.subscription import (
     cancel_auto_renewal,
     resume_auto_renewal,
 )
-from twobrain_rec_server.billing.trial import activate_trial
+from twobrain_rec_server.billing.trial import activate_trial, require_trial_activation
 from twobrain_rec_server.billing.usage import format_duration, moscow_window_for
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
     YooKassaProviderError,
+    is_allowed_confirmation_url,
 )
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
@@ -60,6 +65,7 @@ from twobrain_rec_server.db.models import (
     ReferralAttribution,
     StorageReservation,
     TrialActivation,
+    Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
 )
@@ -80,6 +86,7 @@ async def billing_overview_page(
     now = datetime.now(UTC)
     subscription = None
     trial_result = request.query_params.get("trial")
+    billing_result = request.query_params.get("result")
     if db is not None:
         subscription = await db.scalar(
             select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
@@ -156,6 +163,7 @@ async def billing_overview_page(
         processing_threshold=classify_free_processing(committed_seconds=processing_used),
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         trial_result=trial_result,
+        billing_result=billing_result,
     )
     return cabinet_html_response(content)
 
@@ -172,8 +180,30 @@ async def activate_billing_trial(
     if db is None or not principal.auth_via_session:
         return RedirectResponse("/billing?trial=unavailable", status_code=303)
     existing = await db.scalar(select(TrialActivation).where(TrialActivation.user_id == principal.user_id))
-    if existing is not None:
+    membership = await db.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
+            WorkspaceMembership.user_id == principal.user_id,
+            WorkspaceMembership.status == "active",
+        )
+    )
+    workspace = await db.get(Workspace, tenant_scope.workspace_id)
+    subscription = await db.scalar(
+        select(WorkspaceSubscription)
+        .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
+        .with_for_update()
+    )
+    try:
+        require_trial_activation(
+            identity_status="active",
+            membership_role=membership.role if membership is not None else "",
+            workspace_kind=workspace.kind if workspace is not None else "",
+            already_used=existing is not None,
+        )
+    except (PermissionError, ValueError):
         return RedirectResponse("/billing?trial=already", status_code=303)
+    if subscription is not None and subscription.billing_owner_id not in {None, principal.user_id}:
+        return RedirectResponse("/billing?trial=unavailable", status_code=303)
     now = datetime.now(UTC)
     trial = activate_trial(
         user_id=principal.user_id,
@@ -191,7 +221,6 @@ async def activate_billing_trial(
             policy_version=trial.policy_version,
         )
     )
-    subscription = await db.scalar(select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id).with_for_update())
     if subscription is None:
         db.add(WorkspaceSubscription(workspace_id=tenant_scope.workspace_id, billing_owner_id=principal.user_id, state="trial", plan_code="trial", capacity_bytes=500_000_000, trial_ends_at=trial.ends_at))
     else:
@@ -544,7 +573,7 @@ async def start_billing_checkout(
                 WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
                 WorkspaceMembership.user_id == principal.user_id,
                 WorkspaceMembership.status == "active",
-            )
+            ).with_for_update()
         )
         if membership is None or membership.role != "owner":
             return RedirectResponse("/billing/checkout?result=owner_only", status_code=303)
@@ -626,7 +655,22 @@ async def start_billing_checkout(
         )
         if existing is not None:
             confirmation_url = existing.request_snapshot.get("confirmation_url")
-            if isinstance(confirmation_url, str) and confirmation_url:
+            if is_allowed_confirmation_url(confirmation_url):
+                return RedirectResponse(confirmation_url, status_code=303)
+            return RedirectResponse("/billing?result=pending", status_code=303)
+        unresolved_checkout = await db.scalar(
+            select(BillingOperation)
+            .where(
+                BillingOperation.workspace_id == tenant_scope.workspace_id,
+                BillingOperation.kind == "initial_checkout",
+                BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+            )
+            .order_by(BillingOperation.created_at.desc())
+            .with_for_update()
+        )
+        if unresolved_checkout is not None:
+            confirmation_url = unresolved_checkout.request_snapshot.get("confirmation_url")
+            if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
             return RedirectResponse("/billing?result=pending", status_code=303)
         intent = build_checkout_intent(workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview)
@@ -636,6 +680,7 @@ async def start_billing_checkout(
             kind="initial_checkout",
             idempotency_key=intent.idempotency_key,
             state="scheduled",
+            provider_key_expires_at=datetime.now(UTC) + timedelta(hours=24),
             request_snapshot={
                 "plan_code": preview.plan_code,
                 "cycle": preview.cycle,
@@ -644,6 +689,8 @@ async def start_billing_checkout(
                 "promo_code_hash": promo_code_hash(promo.code) if promo is not None else None,
                 "referral_discount": referral_discount,
                 "recurring_consent": True,
+                "billing_actor_user_id": str(principal.user_id),
+                "offer_version": "billing-personal-v1",
             },
         )
         db.add(operation)
@@ -661,6 +708,8 @@ async def start_billing_checkout(
                 "campaign_version": promo.campaign_version if promo is not None else None,
                 "referral_discount": referral_discount,
                 "recurring_consent": True,
+                "billing_actor_user_id": str(principal.user_id),
+                "offer_version": "billing-personal-v1",
             },
         )
         db.add(invoice)
@@ -699,7 +748,7 @@ async def start_billing_checkout(
         confirmation = payment.get("confirmation")
         confirmation_url = confirmation.get("confirmation_url") if isinstance(confirmation, dict) else None
         provider_id = payment.get("id")
-        if not isinstance(provider_id, str) or not provider_id or not isinstance(confirmation_url, str) or not confirmation_url:
+        if not isinstance(provider_id, str) or not provider_id or not is_allowed_confirmation_url(confirmation_url):
             raise YooKassaProviderError("YooKassa confirmation is unavailable")
         operation.provider_id = provider_id
         operation.state = "provider_pending"
@@ -718,18 +767,6 @@ async def start_billing_checkout(
             if unresolved is not None:
                 if unresolved.state == "scheduled":
                     unresolved.state = "unknown"
-                invoice = await db.scalar(
-                    select(BillingInvoice).where(BillingInvoice.operation_id == unresolved.id).with_for_update()
-                )
-                if invoice is not None:
-                    redemption = await db.scalar(
-                        select(PromotionRedemption)
-                        .where(PromotionRedemption.invoice_id == invoice.id)
-                        .with_for_update()
-                    )
-                    if redemption is not None and redemption.state == "reserved":
-                        redemption.state = "released"
-                        redemption.released_at = datetime.now(UTC)
                 await db.commit()
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
 

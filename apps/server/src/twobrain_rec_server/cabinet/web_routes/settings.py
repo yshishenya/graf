@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
@@ -8,6 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.auth import revoke_device
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.auth.account_closure import (
+    cancel_account_close,
+    schedule_account_close,
+)
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
@@ -39,6 +44,7 @@ WorkspaceSwitchResultQuery = Query(default=None, max_length=24, alias="space_swi
 ProviderLinkResultQuery = Query(default=None, max_length=48, alias="provider_link")
 DeviceRevokeResultQuery = Query(default=None, max_length=24, alias="device_revoke")
 NotificationResultQuery = Query(default=None, max_length=24, alias="notification")
+AccountCloseResultQuery = Query(default=None, max_length=24, alias="account_close")
 
 
 async def _render_settings(
@@ -54,6 +60,7 @@ async def _render_settings(
     provider_link: str | None = None,
     device_revoke: str | None = None,
     notification: str | None = None,
+    account_close: str | None = None,
 ) -> HTMLResponse:
     workspace_spaces = ()
     workspace_join_offers = ()
@@ -107,6 +114,7 @@ async def _render_settings(
             provider_link_result=provider_link,
             device_revoke_result=device_revoke,
             notification_result=notification,
+            account_close_result=account_close,
             notification_preferences=notification_preferences,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
@@ -275,6 +283,7 @@ async def account_center_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    account_close: str | None = AccountCloseResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -289,6 +298,126 @@ async def account_center_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        account_close=account_close,
+    )
+
+
+async def _account_close_action(
+    request: Request,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+    db: AsyncSession | None,
+    cancel: bool,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    if not cancel:
+        form = await request.form()
+        if str(form.get("confirm_close") or "") != "Закрыть аккаунт":
+            raise ProblemDetail(status=422, code="account_close_confirmation_required", title="Введите подтверждение закрытия аккаунта")
+    try:
+        if cancel:
+            await cancel_account_close(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                user_id=principal.user_id,
+                now=datetime.now(UTC),
+            )
+            result = "canceled"
+        else:
+            await schedule_account_close(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                user_id=principal.user_id,
+                now=datetime.now(UTC),
+            )
+            result = "scheduled"
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    prefix = "/desktop" if request.url.path.startswith("/desktop/") else ""
+    return RedirectResponse(f"{prefix}/settings/account?account_close={result}", status_code=303)
+
+
+@router.post(
+    "/settings/account/close",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def schedule_account_close_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _account_close_action(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        cancel=False,
+    )
+
+
+@router.post(
+    "/desktop/settings/account/close",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def schedule_embedded_account_close_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _account_close_action(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        cancel=False,
+    )
+
+
+@router.post(
+    "/settings/account/close/cancel",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def cancel_account_close_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _account_close_action(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        cancel=True,
+    )
+
+
+@router.post(
+    "/desktop/settings/account/close/cancel",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def cancel_embedded_account_close_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _account_close_action(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        cancel=True,
     )
 
 
@@ -397,6 +526,7 @@ async def embedded_settings_account_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    account_close: str | None = AccountCloseResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -410,6 +540,7 @@ async def embedded_settings_account_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        account_close=account_close,
     )
 
 

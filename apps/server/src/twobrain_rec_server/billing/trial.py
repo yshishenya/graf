@@ -7,6 +7,22 @@ from uuid import UUID
 TRIAL_DAYS = 7
 
 
+def require_trial_activation(
+    *,
+    identity_status: str,
+    membership_role: str,
+    workspace_kind: str,
+    already_used: bool,
+) -> None:
+    """Fail closed before trial state is created or a subscription is changed."""
+    if identity_status != "active":
+        raise PermissionError("verified identity is required")
+    if membership_role != "owner" or workspace_kind != "personal":
+        raise PermissionError("personal workspace owner is required")
+    if already_used:
+        raise ValueError("trial is already used")
+
+
 @dataclass(frozen=True, slots=True)
 class TrialWindow:
     user_id: UUID

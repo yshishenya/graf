@@ -16,6 +16,7 @@ from twobrain_rec_server.api.schemas import (
     DeletionVerificationReport,
     LocalPurgeTask,
 )
+from twobrain_rec_server.billing.storage import logically_release_playback_quota
 from twobrain_rec_server.calendar.lifecycle import account_meeting_calendar_context_deletion
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -219,6 +220,15 @@ async def request_meeting_deletion(
     meeting.deletion_state = DeletionState.DELETING.value
     meeting.deletion_requested_at = now
     await _flush_or_fail_closed(db)
+    # Quota is a logical projection: release canonical playback bytes under
+    # the committed tombstone before object-store deletion.  The artifact key
+    # remains in the purge journal so physical deletion and retry evidence are
+    # still handled by the existing lifecycle worker.
+    await logically_release_playback_quota(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
     calendar_context_artifact_count = await account_meeting_calendar_context_deletion(
         db,
         meeting=meeting,
@@ -1232,9 +1242,11 @@ async def _purge_server_controlled_content(
         result.materialized_classes.add(DeletionArtifactClass.PLAYBACK_CANDIDATE)
     if any(
         artifact.track_role == "playback"
-        and artifact.status == "stored"
-        and artifact.validated_at is not None
-        and artifact.normalization_profile_version is not None
+        and artifact.status in {"stored", "deleted"}
+        and (
+            artifact.validated_at is not None
+            or artifact.status == "deleted"
+        )
         for artifact in artifacts
     ):
         result.materialized_classes.add(DeletionArtifactClass.PLAYBACK_CANONICAL)

@@ -9,6 +9,15 @@
 ## [Unreleased]
 
 ### Добавлено
+- Добавлено durable закрытие аккаунта с 7-дневным периодом отмены, немедленным
+  отключением будущих списаний, отзывом сессий/устройств после финализации и
+  безопасным no-JS browser/desktop подтверждением.
+- Добавлены fail-closed проверки webhook размера, YooKassa confirmation URL,
+  referral secret из Docker-файла, key-ring для сохранённых payment method и
+  metadata-only billing audit.
+- Storage deletion теперь сразу освобождает playback quota, просроченная Free
+  reservation не может поздно commit-иться, а source-retention policy имеет
+  отдельные deterministic checks для no-archive и 15/24-hour purge.
 - Добавлена публичная страница оферты `/offer` с подтверждёнными тарифами,
   операторскими реквизитами и email-only границей возврата; банковские
   реквизиты намеренно не публикуются.

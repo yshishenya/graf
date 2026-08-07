@@ -59,7 +59,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Implementation for User Story 1
 
-- [ ] T019 [US1] Implement idempotent personal-workspace bootstrap plus account-center view models, owner/member capability projection, and safe navigation using `apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py`, `apps/server/src/twobrain_rec_server/cabinet/view_models.py`, and `apps/server/src/twobrain_rec_server/cabinet/web_routes/account.py`.
+- [X] T019 [US1] Implement idempotent personal-workspace bootstrap plus account-center view models, owner/member capability projection, and safe navigation using `apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py`, `apps/server/src/twobrain_rec_server/cabinet/view_models.py`, and `apps/server/src/twobrain_rec_server/cabinet/web_routes/account.py`.
 - [ ] T020 [P] [US1] Add profile, security, notifications, language/theme, active-session/device screens, recovery-safe login-method unlink guard, and the admin usage label `Использование и лимиты` by extending `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py`, `apps/server/src/twobrain_rec_server/auth/provider_links.py`, `apps/server/src/twobrain_rec_server/admin/view_models.py`, `apps/server/src/twobrain_rec_server/admin/templates/admin/balance.html`, and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`.
 - [X] T021 [US1] Implement explicit trial activation, verification gate, one-time identity eligibility, and expiry projection in `apps/server/src/twobrain_rec_server/billing/trial.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`.
 - [ ] T022 [US1] Implement account-close scheduling, seven-day cancellation, immediate access/quota revocation at accepted deletion, and Temporal finalization integration by extending `apps/server/src/twobrain_rec_server/deletion/service.py`, `apps/server/src/twobrain_rec_server/db/models/deletion.py`, and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
@@ -77,7 +77,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 - [ ] T024 [P] [US2] Add exact-second admission, Moscow-month reservation binding across midnight, 80%/100% Free-threshold copy, overrun rejection, calendar reset, reservation release, partial-success, and no-rollover tests in `apps/server/tests/unit/test_free_usage_ledger.py`.
 - [ ] T025 [P] [US2] Add playback-only storage projection, 80/95/100% thresholds, exact decimal capacities, reservation/object-stat mismatch and supersede handling, add-on capacity, deletion release, normalized writer byte-size, WAV retention/COGS accounting, retention-gate reopening, and source-lifecycle tests in `apps/server/tests/integration/test_storage_quota.py` and `apps/server/tests/contract/test_storage_lifecycle.py`.
-- [ ] T026 [P] [US2] Add processing-without-save and paid-unlimited capability contract tests in `apps/server/tests/contract/test_entitlements_and_ingest_limits.py`.
+- [X] T026 [P] [US2] Add processing-without-save and paid-unlimited capability contract tests in `apps/server/tests/contract/test_entitlements_and_ingest_limits.py`.
 
 ### Implementation for User Story 2
 
@@ -122,7 +122,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Implementation for User Story 4
 
-- [ ] T040 [US4] Implement recurring authority evidence, bank-card binding/replacement, method display masking, and owner-loss revocation in `apps/server/src/twobrain_rec_server/billing/payment_methods.py` and `apps/server/src/twobrain_rec_server/billing/authority.py`.
+- [X] T040 [US4] Implement recurring authority evidence, bank-card binding/replacement, method display masking, and owner-loss revocation in `apps/server/src/twobrain_rec_server/billing/payment_methods.py` and `apps/server/src/twobrain_rec_server/billing/authority.py`.
 - [X] T041 [US4] Implement self-service `Отключить автопродление`, refusal timestamp/version checks, resume preview/consent, and non-blocking optional retention copy in `apps/server/src/twobrain_rec_server/billing/subscription.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`.
 - [ ] T042 [US4] Implement one co-termed storage add-on, capacity transitions, price snapshots, and entitlement projection in `apps/server/src/twobrain_rec_server/billing/storage_addons.py`.
 - [ ] T043 [US4] Add payment-method, renewal-control, and storage-add-on screens with explicit action labels and accessible confirmation states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_payment_method_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html`, and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html`.
@@ -144,7 +144,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 - [X] T046 [US5] Implement one-operation renewal scheduling, exact `paid_through` cutoff, and Free projection in `apps/server/src/twobrain_rec_server/billing/renewal.py`.
 - [X] T047 [US5] Implement Temporal renewal workflow, provider-key recovery, expiry gap, late-success incident, and refusal precedence in `apps/server/src/twobrain_rec_server/workflows/billing_renewal_workflow.py` and `apps/server/src/twobrain_rec_server/billing/renewal_resolution.py`.
-- [ ] T048 [US5] Add renewal reminder, failure-to-Free, unknown, late-success and manual-resume notifications in `apps/server/src/twobrain_rec_server/billing/notifications.py` and `apps/server/src/twobrain_rec_server/support/outbox.py`.
+- [X] T048 [US5] Add renewal reminder, failure-to-Free, unknown, late-success and manual-resume notifications in `apps/server/src/twobrain_rec_server/billing/notifications.py` and `apps/server/src/twobrain_rec_server/support/outbox.py`.
 - [ ] T049 [US5] Render next-charge, paid-through, renewal-off, pending-resolution and Free fallback states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html`.
 
 **Checkpoint**: A failed or unconfirmed renewal never creates a grace period, an automatic retry, or an ambiguous paid state.
@@ -157,15 +157,15 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Tests for User Story 6
 
-- [ ] T050 [P] [US6] Add payment-history/receipt contract tests for masking, safe references, static support copy, mailto sanitization, and no product-side refund mutation in `apps/server/tests/contract/test_payment_history_support.py`.
+- [X] T050 [P] [US6] Add payment-history/receipt contract tests for masking, safe references, static support copy, mailto sanitization, and no product-side refund mutation in `apps/server/tests/contract/test_payment_history_support.py`.
 - [ ] T051 [P] [US6] Add observed provider refund/receipt reconciliation tests for full/partial merchant-cabinet outcomes, missing webhook backstop, referral correction input, and idempotent binding in `apps/server/tests/integration/test_provider_refund_observation.py`.
 
 ### Implementation for User Story 6
 
-- [ ] T052 [US6] Implement immutable payment history, receipt availability, safe invoice reference, and masked method projection in `apps/server/src/twobrain_rec_server/billing/history.py` and `apps/server/src/twobrain_rec_server/billing/receipts.py`.
+- [X] T052 [US6] Implement immutable payment history, receipt availability, safe invoice reference, and masked method projection in `apps/server/src/twobrain_rec_server/billing/history.py` and `apps/server/src/twobrain_rec_server/billing/receipts.py`.
 - [ ] T053 [US6] Implement read-only observed provider refund/receipt reconciliation via webhook signal plus GET/list/registry backstop in `apps/server/src/twobrain_rec_server/billing/reconciliation.py`; do not add a product refund command or mutable user claim entity.
 - [ ] T054 [US6] Add invoice detail and history screens with `Написать письмо`, `Скопировать email`, `Скопировать номер платежа`, safe warnings, and no submission confirmation in `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_history_content.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`.
-- [ ] T055 [US6] Add metadata-only reconciliation audit and ensure support correspondence, card data, meeting content, and raw provider payloads are excluded from logs/analytics in `apps/server/src/twobrain_rec_server/billing/audit.py` and `apps/server/src/twobrain_rec_server/observability/redaction.py`.
+- [X] T055 [US6] Add metadata-only reconciliation audit and ensure support correspondence, card data, meeting content, and raw provider payloads are excluded from logs/analytics in `apps/server/src/twobrain_rec_server/billing/audit.py` and `apps/server/src/twobrain_rec_server/observability/redaction.py`.
 
 **Checkpoint**: Users can find evidence and contact support by email, while refund eligibility, calculation, approval, communication and execution remain an external merchant process.
 

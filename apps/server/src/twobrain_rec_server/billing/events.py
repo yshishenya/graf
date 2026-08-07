@@ -32,6 +32,7 @@ class BillingEvent(StrEnum):
     PAYMENT_FAILED = "payment.failed"
     RENEWAL_UNKNOWN = "renewal.unknown"
     RENEWAL_LATE_SUCCESS = "renewal.late_success"
+    RENEWAL_MANUAL_RESUME = "renewal.manual_resume"
     STORAGE_THRESHOLD = "storage.threshold"
     RECEIPT_AVAILABLE = "receipt.available"
     REFERRAL_CREDIT = "referral.credit"
@@ -46,6 +47,7 @@ _EVENT_NOTIFICATION_KIND: dict[BillingEvent, BillingNotification] = {
     BillingEvent.PAYMENT_FAILED: BillingNotification.PAYMENT_FAILED,
     BillingEvent.RENEWAL_UNKNOWN: BillingNotification.RENEWAL_UNKNOWN,
     BillingEvent.RENEWAL_LATE_SUCCESS: BillingNotification.RENEWAL_LATE_SUCCESS,
+    BillingEvent.RENEWAL_MANUAL_RESUME: BillingNotification.RENEWAL_MANUAL_RESUME,
     BillingEvent.STORAGE_THRESHOLD: BillingNotification.STORAGE_THRESHOLD,
     BillingEvent.RECEIPT_AVAILABLE: BillingNotification.RECEIPT_AVAILABLE,
     BillingEvent.REFERRAL_CREDIT: BillingNotification.REFERRAL_CREDIT,

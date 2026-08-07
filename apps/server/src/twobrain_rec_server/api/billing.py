@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
@@ -49,6 +51,7 @@ SUPPORTED_PROVIDER_EVENTS = frozenset(
         "receipt.waiting_for_cancellation",
     }
 )
+MAX_BILLING_WEBHOOK_BYTES = 256 * 1024
 
 
 def _inbox(request: Request) -> WebhookInbox:
@@ -68,7 +71,10 @@ async def billing_webhook(
     try:
         secret = read_webhook_secret(settings.billing_yookassa_webhook_secret_file)
         validate_webhook_secret(supplied=x_billing_webhook_secret, expected=secret)
-        payload = await request.json()
+        body = await request.body()
+        if len(body) > MAX_BILLING_WEBHOOK_BYTES:
+            raise ProviderEventError("provider event is too large")
+        payload = json.loads(body)
         if not isinstance(payload, dict):
             raise ProviderEventError("provider event must be an object")
         event = parse_provider_event(payload)

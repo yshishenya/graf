@@ -228,6 +228,7 @@ class Settings(BaseSettings):
     billing_yookassa_shop_id: str | None = None
     billing_yookassa_secret_file: Path | None = None
     billing_yookassa_webhook_secret_file: Path | None = None
+    billing_referral_secret_file: Path | None = None
     billing_provider_floor_minor: int = 1
     billing_support_email: str | None = None
     billing_emergency_stop: bool = False
@@ -265,6 +266,7 @@ class Settings(BaseSettings):
         "credential_encryption_key_file",
         "web_csrf_secret_file",
         "share_identity_hash_secret_file",
+        "billing_referral_secret_file",
         "support_incident_github_token_file",
         "langfuse_public_key_file",
         "langfuse_secret_key_file",
@@ -635,6 +637,9 @@ class Settings(BaseSettings):
             ),
             "web_csrf_secret_file": (
                 self.web_csrf_secret_file if self.web_runtime_enabled else None
+            ),
+            "billing_referral_secret_file": (
+                self.billing_referral_secret_file if self.billing_checkout_enabled else None
             ),
             "support_incident_github_token_file": self.support_incident_github_token_file,
             "product_analytics_posthog_project_key_file": self.product_analytics_posthog_project_key_file,

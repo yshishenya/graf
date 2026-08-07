@@ -261,6 +261,7 @@ def render_settings_page(
     provider_link_result: str | None = None,
     device_revoke_result: str | None = None,
     notification_result: str | None = None,
+    account_close_result: str | None = None,
     notification_preferences: object | None = None,
 ) -> str:
     offer_result_copy = {
@@ -319,6 +320,10 @@ def render_settings_page(
         "provider_link_result": provider_link_result_copy,
         "device_revoke_result": device_revoke_result_copy,
         "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(notification_result),
+        "account_close_result": {
+            "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
+            "canceled": "Закрытие аккаунта отменено.",
+        }.get(account_close_result),
         "notification_preferences": notification_preferences or NotificationPreferences(),
     }
     return _page_shell(

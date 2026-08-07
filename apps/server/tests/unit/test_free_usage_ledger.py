@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from twobrain_rec_server.billing.catalog import FREE_PROCESSING_SECONDS
+from twobrain_rec_server.billing.catalog import FREE_PROCESSING_SECONDS, classify_free_processing
 from twobrain_rec_server.billing.usage import (
     MOSCOW,
     FreeUsageLedger,
@@ -45,3 +45,20 @@ def test_free_ledger_releases_failed_reservation_without_rollover() -> None:
     ledger.release("failed")
     assert ledger.remaining_seconds == FREE_PROCESSING_SECONDS
     assert ledger.reserve("new", 60).state == "active"
+
+
+def test_free_threshold_copy_is_distinct_at_80_and_100_percent() -> None:
+    assert classify_free_processing(committed_seconds=14_399) == "normal"
+    assert classify_free_processing(committed_seconds=14_400) == "approaching"
+    assert classify_free_processing(committed_seconds=17_999) == "approaching"
+    assert classify_free_processing(committed_seconds=18_000) == "exhausted"
+
+
+def test_free_ledger_commits_partial_success_without_rounding_or_rollover() -> None:
+    ledger = FreeUsageLedger.for_moment(datetime(2026, 8, 31, 20, 59, tzinfo=UTC))
+    reservation = ledger.reserve("partial", 100)
+    assert ledger.commit("partial", [SourceRange("track", 10, 55)]) == 45
+    assert reservation.state == "active"
+    assert reservation.remaining_seconds == 55
+    assert ledger.commit("partial", [SourceRange("track", 10, 30)]) == 0
+    assert ledger.committed_seconds == 45

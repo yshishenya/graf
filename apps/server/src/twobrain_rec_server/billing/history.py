@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
+
+_MASKED_METHOD_PATTERNS = (
+    re.compile(r"•••• \d{4}"),
+    re.compile(r"card_ending_\d{4}"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,4 +24,7 @@ class PaymentHistoryItem:
 def mask_payment_method(label: str | None) -> str | None:
     if not label:
         return None
-    return label[:32]
+    normalized = label.strip()
+    if any(pattern.fullmatch(normalized) for pattern in _MASKED_METHOD_PATTERNS):
+        return normalized
+    return None

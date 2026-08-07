@@ -15,6 +15,7 @@ from twobrain_rec_server.billing.authority import (
 from twobrain_rec_server.billing.operations import (
     BillingEmergencyStop,
     OperationOutcome,
+    blocks_new_checkout,
     classify_provider_outcome,
     provider_key_is_expired,
     require_billing_enabled,
@@ -43,5 +44,10 @@ def test_operation_outcomes_and_emergency_stop() -> None:
     assert classify_provider_outcome(status_code=504, provider_status=None) is OperationOutcome.UNKNOWN
     now = datetime.now(UTC)
     assert provider_key_is_expired(expires_at=now - timedelta(seconds=1), now=now)
+    assert blocks_new_checkout("scheduled")
+    assert blocks_new_checkout("provider_pending")
+    assert blocks_new_checkout("unknown")
+    assert not blocks_new_checkout("canceled")
+    assert not blocks_new_checkout("succeeded")
     with pytest.raises(BillingEmergencyStop):
         require_billing_enabled(checkout_enabled=True, emergency_stop=True)

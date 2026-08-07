@@ -11,6 +11,7 @@
     </header>
     {% if provider_link_result %}<p class="settings-status" role="status" aria-live="polite">{{ provider_link_result }}</p>{% endif %}
     {% if device_revoke_result %}<p class="settings-status" role="status" aria-live="polite">{{ device_revoke_result }}</p>{% endif %}
+    {% if account_close_result %}<p class="settings-status" role="status" aria-live="polite">{{ account_close_result }}</p>{% endif %}
     {% if account_surface.unavailable %}
     <section class="settings-section settings-unavailable-card" role="status" aria-live="polite"><h2>Данные аккаунта временно недоступны</h2><p class="muted">Попробуйте обновить страницу. Пока данные не загружены, мы не показываем частичную или непроверенную информацию.</p></section>
     {% else %}
@@ -53,6 +54,29 @@
       <h2 id="account-notifications-title">Уведомления</h2>
       <p class="muted">Настройте необязательные подсказки. Обязательные сообщения о платежах, безопасности и закрытии аккаунта сохраняются.</p>
       <a class="button quiet" href="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">Настроить уведомления</a>
+    </section>
+    <section class="settings-section settings-boundary-card account-close-card" aria-labelledby="account-close-title">
+      <span class="settings-scope-badge">Необратимое действие</span>
+      <h2 id="account-close-title">Закрытие аккаунта</h2>
+      {% if account_surface.account_close %}
+      <p role="status" aria-live="polite">Закрытие запланировано на {{ account_surface.account_close.finalize_at.strftime("%d.%m.%Y %H:%M UTC") }}. Будущие списания отключены.</p>
+      {% if account_surface.account_close.can_cancel %}
+      <form action="{{ "/desktop/settings/account/close/cancel" if embedded else "/settings/account/close/cancel" }}" method="post">
+        {{ sections.csrf_field(csrf_token) }}
+        <button class="button quiet" type="submit">Отменить запланированное закрытие</button>
+      </form>
+      {% endif %}
+      {% else %}
+      <p class="muted">После подтверждения начнётся 7-дневный период отмены. Доступ сохраняется до его окончания, а будущие списания отключаются сразу.</p>
+      <p class="muted">Для подтверждения введите: <strong>Закрыть аккаунт</strong>.</p>
+      <form action="{{ "/desktop/settings/account/close" if embedded else "/settings/account/close" }}" method="post">
+        {{ sections.csrf_field(csrf_token) }}
+        <label class="field-label" for="account-close-confirm">Подтверждение</label>
+        <input id="account-close-confirm" name="confirm_close" type="text" required autocomplete="off" aria-describedby="account-close-help">
+        <p id="account-close-help" class="muted">Мы не удаляем данные до окончания периода отмены.</p>
+        <button class="button quiet" type="submit">Запланировать закрытие</button>
+      </form>
+      {% endif %}
     </section>
     {% endif %}
     </div>

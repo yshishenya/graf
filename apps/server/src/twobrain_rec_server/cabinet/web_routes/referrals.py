@@ -32,10 +32,14 @@ async def referrals_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
-    secret = str(getattr(request.app.state.settings, "billing_referral_secret", None) or request.app.state.settings.web_csrf_secret)
-    token = create_referral_token(user_id=principal.user_id, secret=secret)
-    token_hash = referral_token_hash(token)
-    if db is not None:
+    secret_path = getattr(request.app.state.settings, "billing_referral_secret_file", None)
+    try:
+        secret = secret_path.read_text(encoding="utf-8").strip() if secret_path is not None and secret_path.is_file() else ""
+    except OSError:
+        secret = ""
+    token = create_referral_token(user_id=principal.user_id, secret=secret) if secret else ""
+    token_hash = referral_token_hash(token) if token else None
+    if db is not None and token_hash is not None:
         attribution = await db.scalar(select(ReferralAttribution).where(ReferralAttribution.token_hash == token_hash))
         if attribution is None:
             db.add(
@@ -49,7 +53,7 @@ async def referrals_page(
                 )
             )
             await db.commit()
-    link = f"{str(request.base_url).rstrip('/')}/referral/{token}"
+    link = f"{str(request.base_url).rstrip('/')}/referral/{token}" if token else ""
     content = _page_shell(
         "Пригласить друзей",
         embedded=False,

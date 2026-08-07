@@ -14,6 +14,14 @@ class BillingEmergencyStop(RuntimeError):
     pass
 
 
+CHECKOUT_BLOCKING_STATES = frozenset({"scheduled", "provider_pending", "unknown"})
+
+
+def blocks_new_checkout(operation_state: str) -> bool:
+    """Unknown payment truth must reconcile before another charge is allowed."""
+    return operation_state in CHECKOUT_BLOCKING_STATES
+
+
 def require_billing_enabled(*, checkout_enabled: bool, emergency_stop: bool) -> None:
     if emergency_stop:
         raise BillingEmergencyStop("billing operations are temporarily stopped")

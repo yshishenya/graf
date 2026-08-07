@@ -78,6 +78,7 @@ from twobrain_rec_server.calendar.service import (
     list_provider_presets,
 )
 from twobrain_rec_server.db.models import (
+    AccountClosureRequest,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarSettingsPreference,
@@ -170,6 +171,9 @@ async def get_account_settings_surface(
     db: AsyncSession,
     tenant_scope: TenantScope,
 ):
+    from datetime import UTC, datetime
+
+    from twobrain_rec_server.auth.account_closure import close_view
     from twobrain_rec_server.cabinet.view_models import account_settings_surface
 
     identities = tuple(
@@ -189,10 +193,20 @@ async def get_account_settings_surface(
             .order_by(RegisteredDevice.created_at.desc())
         )
     )
+    closure = await db.scalar(
+        select(AccountClosureRequest)
+        .where(
+            AccountClosureRequest.workspace_id == tenant_scope.workspace_id,
+            AccountClosureRequest.requested_by_user_id == tenant_scope.user_id,
+            AccountClosureRequest.state.in_(("scheduled", "finalizing")),
+        )
+        .order_by(AccountClosureRequest.requested_at.desc())
+    )
     return account_settings_surface(
         identities=identities,
         devices=devices,
         current_device_id=tenant_scope.device_id,
+        account_close=(close_view(closure, now=datetime.now(UTC)) if closure else None),
     )
 
 
