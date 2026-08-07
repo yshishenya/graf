@@ -20,6 +20,8 @@
   операции и не создаёт новые charge/refund mutations.
 - Подтверждённые YooKassa платежи теперь проходят server-side GET с проверкой
   суммы/валюты и создают append-only entitlement grant; добавлена миграция 0045.
+- Provider-confirmed refunds теперь наблюдаются через YooKassa GET/list и
+  связываются с исходным invoice без refund mutation или изменения entitlement.
 - Owner-only управление подпиской: отключение/возобновление автопродления с
   CSRF, row-lock, проверкой версии и metadata-only audit-событием; отдельный
   экран точного использования и playback-хранилища.

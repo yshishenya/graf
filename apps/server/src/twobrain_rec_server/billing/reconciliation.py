@@ -5,6 +5,12 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from twobrain_rec_server.db.models import BillingInvoice, BillingOperation, ObservedProviderRefund
 
 ObservationSource = Literal["webhook", "poll", "registry"]
 ReceiptRegistration = Literal["pending", "succeeded", "canceled"]
@@ -195,6 +201,51 @@ class ObservationRecords:
 
     def get(self, observation: ProviderObservation) -> ObservationRecord:
         return self._records[observation_key(observation)]
+
+
+async def record_observed_refund(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    observation: RefundObservation,
+) -> Literal["inserted", "duplicate", "unmatched", "conflict"]:
+    """Persist a provider-confirmed refund observation without product mutation."""
+    operation = await db.scalar(
+        select(BillingOperation)
+        .where(BillingOperation.workspace_id == workspace_id, BillingOperation.provider_id == observation.provider_payment_id)
+        .with_for_update()
+    )
+    if operation is None:
+        return "unmatched"
+    invoice = await db.scalar(
+        select(BillingInvoice).where(BillingInvoice.operation_id == operation.id).with_for_update()
+    )
+    if invoice is None:
+        return "unmatched"
+    existing = await db.scalar(
+        select(ObservedProviderRefund).where(
+            ObservedProviderRefund.shop_environment == observation.scope.environment,
+            ObservedProviderRefund.provider_refund_id == observation.provider_refund_id,
+        ).with_for_update()
+    )
+    if existing is not None:
+        if existing.amount_minor != observation.amount_minor or existing.currency != observation.currency:
+            return "conflict"
+        return "duplicate"
+    db.add(
+        ObservedProviderRefund(
+            workspace_id=workspace_id,
+            invoice_id=invoice.id,
+            shop_environment=observation.scope.environment,
+            provider_refund_id=observation.provider_refund_id,
+            amount_minor=observation.amount_minor,
+            currency=observation.currency,
+            source="provider_observation",
+            status="succeeded",
+        )
+    )
+    await db.flush()
+    return "inserted"
 
 
 @dataclass(frozen=True, slots=True)

@@ -18,6 +18,8 @@ from twobrain_rec_server.billing.reconciliation import (
     ProviderObservationError,
     ProviderScope,
     extract_payment_observation,
+    extract_refund_observation,
+    record_observed_refund,
 )
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
@@ -131,6 +133,33 @@ async def billing_webhook(
                     else:
                         reconcile_status = "observed"
                     stored.state = "reconciled" if reconcile_status in {"granted", "duplicate", "observed"} else "reconciliation_gap"
+                    await db.commit()
+                except (ProviderObservationError, YooKassaConfigurationError, YooKassaProviderError, ValueError, httpx.HTTPError):
+                    await db.rollback()
+                    reconcile_status = "pending_reconciliation"
+            elif stored is not None and result in {"accepted", "duplicate"} and event.event_type == "refund.succeeded":
+                stored.state = "pending_reconciliation"
+                try:
+                    async with YooKassaClient(settings) as provider:
+                        refund_payload = await provider.list_refunds()
+                    items = refund_payload.get("items", [])
+                    if not isinstance(items, list):
+                        items = []
+                    candidate = next(
+                        (item for item in items if isinstance(item, dict) and item.get("id") == event.object_id),
+                        None,
+                    )
+                    if candidate is None:
+                        raise ProviderObservationError("provider refund was not found in GET/list backstop")
+                    scope = ProviderScope(
+                        environment="test" if "test" in str(settings.billing_yookassa_base_url).lower() else "production",
+                        shop_id=settings.billing_yookassa_shop_id,
+                    )
+                    observation = extract_refund_observation(candidate, scope=scope)
+                    reconcile_status = await record_observed_refund(
+                        db, workspace_id=event.workspace_id, observation=observation
+                    )
+                    stored.state = "reconciled" if reconcile_status in {"inserted", "duplicate"} else "reconciliation_gap"
                     await db.commit()
                 except (ProviderObservationError, YooKassaConfigurationError, YooKassaProviderError, ValueError, httpx.HTTPError):
                     await db.rollback()

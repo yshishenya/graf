@@ -17,6 +17,8 @@ Date: 2026-08-04
   checks и audit rows, а также отдельный exact-byte/second usage screen.
 - Provider payment success теперь требует server-side GET и immutable amount/
   currency match; entitlement period сохраняется append-only в migration 0045.
+- Refund success остаётся merchant-cabinet процессом: GRAF только наблюдает
+  подтверждённый GET/list результат и сохраняет безопасную связь с invoice.
 - Billing notifications получили транзакционный DB-backed metadata-only outbox
   с uniqueness/delivery state и Russian-first finance copy; worker delivery
   remains a launch gate.
