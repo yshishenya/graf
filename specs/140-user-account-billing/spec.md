@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-06
 
-**Status**: Planned; implementation not started
+**Status**: Implementation in progress; public launch blocked by open tasks and approval/evidence gates
 
 **Input**: Пользователь просит спроектировать и зафиксировать готовый к публичному запуску личный кабинет GRAF: аккаунт, IA/UX/UI/CX, тарифы, оплату через YooKassa, подписки, платежи, чеки, возвраты, промокоды и реферальную систему; изучить Krisp и сопоставимые продукты, практики и тренды 2026 года; затем перепроверить полноту.
 

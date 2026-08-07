@@ -113,7 +113,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 **Goal**: Allow the owner to bind/replace a bank card, cancel/resume renewal, and purchase exactly one co-termed storage add-on.
 
-**Independent test**: An owner can bind a method with explicit recurring consent, cancel before the next charge, resume with fresh preview, and change total storage without proration or stacking.
+**Independent test**: An owner can bind a method with explicit recurring consent, cancel before the next charge, resume with fresh preview, and change total storage with the sole approved positive mid-cycle pro-rata rule, no hidden base-plan proration, and no stacking.
 
 ### Tests for User Story 4
 
@@ -250,13 +250,17 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ## Phase 13: Polish & Cross-Cutting Concerns
 
-**Purpose**: Close quality, documentation, accessibility, security and release gates after all desired stories pass independently.
+**Purpose**: Close quality, documentation, accessibility, security, product-market and release gates. Interim evidence tasks may complete while stories remain open; T083 is the final cross-artifact closeout and runs only after every selected story and T084–T087 are resolved.
 
 - [ ] T079 [P] Run accessibility, clean-room, moderated usability (≥90% discovery in 2 minutes), and timed cancel (≤3 screens/60 seconds) review for all account/billing templates, keyboard paths, 200% reflow, reduced motion and disabled-JavaScript fallback in `apps/server/tests/contract/test_billing_accessibility.py`, `apps/server/tests/integration/test_billing_usability.py`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, and `docs/evidence/140-user-account-billing/usability.md`.
 - [ ] T080 [P] Run security/redaction review for secrets, RLS, CSRF, provider payloads, PostHog/Yandex masking, audit fields and support-email boundaries in `apps/server/tests/contract/test_billing_security.py` and `docs/agent-guidance/product-gates.md`.
 - [X] T081 Update public behavior, migration impact, operational limitations and Russian release notes in `docs/current-product-status.md`, `CHANGELOG.md`, and `specs/140-user-account-billing/quickstart.md`.
-- [X] T082 Execute focused quickstart scenarios, `git diff --check`, repository checks and `infra/scripts/ci-local.sh --fast`; record evidence and remaining approved gaps in `specs/140-user-account-billing/quickstart.md`.
-- [ ] T083 Run `$speckit-analyze`, resolve all critical blockers, and attach the selected high-risk validation lane and task evidence to `specs/140-user-account-billing/` before issue synchronization or implementation closeout.
+- [X] T082 Execute the interim focused quickstart scenarios, `git diff --check`, repository checks and `infra/scripts/ci-local.sh --fast`; record evidence and remaining approved gaps in `specs/140-user-account-billing/quickstart.md`. Completion records an interim baseline and does not close Phase 13.
+- [ ] T083 After every selected story and T084–T087, run `$speckit-analyze`, resolve all critical blockers, and attach the selected high-risk validation lane and task evidence to `specs/140-user-account-billing/` before issue synchronization or implementation closeout.
+- [ ] T084 [P] Define and evidence the Russia-first primary self-service segment, JTBD, meeting-frequency/problem baseline and testable GRAF value hierarchy in `specs/140-user-account-billing/research.md` and `docs/evidence/140-user-account-billing/product-market.md`.
+- [ ] T085 [P] Validate base price, 250 MB/500 MB/2 GB packaging and 5/20/100/500 GB ladder with dated comparable-plan research, target-user comprehension/WTP, p50/p90/p99 accepted usage, compute/storage/egress/backup COGS, gross-margin floor and fair-use sensitivity in `specs/140-user-account-billing/research.md` and `docs/evidence/140-user-account-billing/pricing-economics.md`.
+- [ ] T086 [P] Define privacy-safe activation/funnel/retention/add-on/manual-reactivation metrics and promo/referral CAC, K-factor, cannibalization, liability, fraud-loss, support-contact and stop/rollback guardrails with owner, cohort, denominator, window, target and decision rule in `specs/140-user-account-billing/contracts/product-metrics.md`.
+- [ ] T087 Add non-coercive contextual upgrade requirements for Free 80%/100%, trial T-3/T-1/expiry and blocked archival admission; incorporate approved T084–T086 decisions into `specs/140-user-account-billing/spec.md` and `specs/140-user-account-billing/contracts/account-ia-ux-ui-cx.md`, then re-run `checklists/product-market-2026.md`.
 
 ## Dependencies & Execution Order
 
@@ -265,7 +269,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - **Setup (Phase 1)**: No dependencies; T001–T004 may run in parallel.
 - **Foundational (Phase 2)**: Depends on Setup; tests T005–T009 must be written and fail before T010–T016. This phase blocks every user story.
 - **User Stories**: US1 and US2 may start after Foundation. US3 depends on catalog/entitlement primitives from US1/US2. US4 depends on US3’s confirmed subscription. US5 depends on US4’s authority. US6 depends on US3’s invoice/receipt and Foundation provider observation. US7 depends on US3 checkout. US8 depends on US3 and US6 observation. US9 depends on lifecycle events from US1–US8. US10 runs after the flows it reconciles and extends US6’s observation with operational registry evidence.
-- **Polish (Phase 13)**: Depends on all selected stories and their evidence; T083 must be clean before `$speckit-taskstoissues` and `$speckit-implement` closeout.
+- **Polish (Phase 13)**: Depends on all selected stories and their evidence; T084–T087 must resolve the product-market gates, then T083 must be clean before final GitHub issue sync and `$speckit-implement` closeout.
 
 ### User Story Dependencies
 

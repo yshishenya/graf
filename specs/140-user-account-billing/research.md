@@ -220,9 +220,66 @@
 `cabinet/web_routes/settings.py`, `workflows/temporal_client.py`,
 `workflows/maintenance_worker.py`.
 
+## R11. Независимая product/market перепроверка 2026
+
+**Дата повторной проверки**: 2026-08-07.
+
+- **Observed trial benchmark**: Krisp публикует 7-day trial без
+  карты с unlimited transcription/recording. Это сопоставимо с
+  GRAF Trial, но не с GRAF `Free`.
+- **Observed perpetual-free benchmark**: Otter Basic публикует 300
+  transcription minutes/month; Notta Free — 120 minutes/month и до
+  3 minutes per conversation; Fireflies Free разделяет
+  transcription credits/unlimited-transcript mode и total stored-meeting minutes,
+  а его актуальная help page указывает 400 minutes storage. Эти
+  единицы нельзя напрямую сравнивать с GRAF playback bytes без
+  одинаковой retention и media-size модели.
+- **Observed individual-paid benchmark**: на проверенных USD
+  pages Krisp Core указывает $16 monthly/$8 monthly equivalent
+  when billed annually и 10 GB; Otter Pro — $16.99 monthly/$8.49 annual
+  equivalent, 1 200 in-app minutes и unlimited storage; Fireflies Pro —
+  $18 monthly/$10 annual equivalent и 8 000 storage minutes. Это
+  mutable per-seat offers другой географии/валюты; они не
+  доказывают Russian willingness-to-pay и не обосновывают FX/PPP
+  вывод для 790 ₽/7 900 ₽.
+- **Inference**: рыночный benchmark подтверждает паттерны,
+  но не подтверждает GRAF price/packaging. `Free 300 минут`,
+  `Личный` 2 GB, 5/20/100/500 GB ladder и ценность
+  system-audio-first capture/privacy/control/no-archive continuation остаются
+  гипотезами. Они требуют Russian target-segment/WTP и usability
+  evidence, а add-on ladder — ещё и demand по capacity distribution.
+- **Decision retained as launch hypothesis**: один paid plan и одна
+  expansion dimension — storage — остаются самой простой
+  моделью для проверки, а не доказанным value-metric fit. Stripe
+  рекомендует начинать с простой модели, но отдельно
+  предупреждает о flat-pricing risk для power users. Production gate
+  поэтому должен включать p50/p90/p99 accepted minutes, compute,
+  storage, egress и backup COGS per usage cohort, gross-margin floor и
+  fair-use sensitivity, а не только стоимость archive bytes.
+- **Decision retained**: trial запускается явно, без карты и
+  автосписания; cancellation остаётся self-service без
+  обязательной причины и с доступом до конца периода. Это
+  совпадает с прозрачным pattern Krisp и избегает dark
+  patterns. Refund не смешивается с cancellation: GRAF даёт
+  safe reference/email, а merchant backoffice вручную делает полный
+  или частичный возврат в YooKassa.
+
+Источники: [Krisp pricing](https://krisp.ai/pricing/),
+[Krisp subscription](https://help.krisp.ai/hc/en-us/articles/5626527210908-How-Krisp-subscription-works),
+[Otter pricing](https://otter.ai/pricing),
+[Notta pricing](https://www.notta.ai/en/pricing/),
+[Fireflies pricing](https://fireflies.ai/pricing?slug=storage),
+[Fireflies storage limits](https://guide.fireflies.ai/articles/2631950139-learn-about-transcription-credits-storage-and-rate-limits-for-meetings),
+[Stripe AI pricing 2026](https://stripe.com/en-sg/resources/more/ai-pricing-models),
+[YooKassa merchant refunds](https://yookassa.ru/docs/support/merchant/payments/refunds).
+
 ## Resolved unknowns and launch gates
 
-Неразрешённых исследовательских маркеров нет. Следующие параметры намеренно не придумываются и
+Архитектурных research unknowns нет. Product-market hypotheses
+о целевом сегменте/JTBD, WTP, base/add-on packaging, ценностной
+иерархии, campaign economics и launch business thresholds остаются
+неразрешёнными blocking research questions. Следующие технические
+и внешние параметры также намеренно не придумываются и
 блокируют production checkout: add-on prices/COGS/value, transcription-source
 retention deadline, real-shop recurring/zero-binding/manual-refund observation,
 merchant entity, public offer/recurring/refund-email wording, 54-ФЗ/VAT/receipt

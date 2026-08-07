@@ -74,9 +74,12 @@ MB; `Личный` — 790 ₽/month or 7 900 ₽/year, unlimited core + 2 GB; �
 co-termed total-capacity add-on 5/20/100/500 GB. Add-on prices и checkout
 остаются выключены до утверждения COGS/value и обязательных launch gates
 
-**Unresolved Clarifications**: none. Неутверждённые цены add-on, retention
-deadline, fiscal/legal wording и real-shop capabilities — явные fail-closed
-launch gates, а не проектные неизвестные.
+**Unresolved Clarifications**: архитектурных нет. Product-market gates
+остаются открытыми: primary Russia-first segment/JTBD, проверяемая
+value hierarchy, WTP/comprehension для base/storage packaging, full usage-cohort
+COGS/gross-margin floor, campaign guardrails и business launch thresholds.
+Неутверждённые цены add-on, retention deadline, fiscal/legal wording и
+real-shop capabilities также являются fail-closed launch gates.
 
 ## Constitution Check
 
