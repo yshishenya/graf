@@ -57,6 +57,8 @@
 
 ### Документы
 - Добавлены Spec Kit артефакты Feature 140 и launch/validation matrix.
+- Зафиксирован отдельный landing review: визуальная, mobile, accessibility,
+  analytics и clean-room проверка не смешиваются с серверным CI.
 
 ### Операции
 - `infra/scripts/ci-local.sh --fast`: 927 тестов, lint и Python compile успешно;

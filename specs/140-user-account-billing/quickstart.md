@@ -55,6 +55,10 @@ elsewhere; real-shop canary is a separate approved release step.
   87 tasks (19 validated complete, 68 still open), including explicit product-market
   closeout tasks T084–T087, so this branch is not a
   public-launch completion claim.
+- Лендинг и публичные страницы проверяются отдельным ручным проходом по
+  [landing-review.md](../../docs/evidence/140-user-account-billing/landing-review.md);
+  серверные тесты не закрывают визуальную, accessibility и moderated-usability
+  проверку.
 
 ## Required scenario evidence
 
