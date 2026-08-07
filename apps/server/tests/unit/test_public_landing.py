@@ -27,6 +27,8 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert "Запуск в Q3" in response.text
     assert response.text.count('href="/download"') >= 2
     assert "Скачать GRAF" in response.text
+    assert "790 ₽" in response.text
+    assert 'data-analytics-section="pricing"' in response.text
     assert response.text.count('href="/login?next=/meetings"') >= 2
     assert 'href="/sign-up?next=/meetings"' not in response.text
     assert "Посмотреть" not in response.text
@@ -180,6 +182,11 @@ def test_public_legal_pages_are_available_without_public_analytics_config(client
         assert "graf-public-analytics-config" not in response.text
         assert "analytics.js" not in response.text
         assert "cookieconsent.umd.js" not in response.text
+
+    offer = client.get("/offer")
+    assert "790 ₽" not in offer.text
+    assert "+7 922" not in offer.text
+    assert "yan@shishenya.ru" in offer.text
 
 
 def test_public_download_analytics_attributes_do_not_change_handoff_destinations(client) -> None:

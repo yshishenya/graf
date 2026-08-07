@@ -204,7 +204,7 @@ def test_public_pages_render_stable_conversion_labels_in_render_only_mode(
     assert landing.status_code == 200
     assert download.status_code == 200
 
-    for section_id in ("hero", "platforms", "outcomes", "trust", "final_cta"):
+    for section_id in ("hero", "platforms", "pricing", "outcomes", "trust", "final_cta"):
         assert f'data-analytics-section="{section_id}"' in landing.text
         assert f'"{section_id}"' in landing.text
 
