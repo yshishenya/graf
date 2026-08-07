@@ -58,6 +58,15 @@ async def public_terms_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/offer", response_class=HTMLResponse, include_in_schema=False)
+async def public_offer_page(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/offer.html",
+        page_title="Публичная оферта GRAF",
+    )
+
+
 @router.get("/analytics-consent", response_class=HTMLResponse, include_in_schema=False)
 async def public_analytics_consent_page(request: Request) -> HTMLResponse:
     return public_template_response(

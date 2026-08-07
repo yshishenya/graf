@@ -162,6 +162,7 @@ def test_public_legal_pages_are_available_without_public_analytics_config(client
         "/privacy": "Политика конфиденциальности",
         "/cookies": "Политика cookies",
         "/terms": "Условия публичного сайта",
+        "/offer": "Публичная оферта GRAF",
         "/analytics-consent": "Согласие на аналитику",
     }
 
@@ -175,6 +176,7 @@ def test_public_legal_pages_are_available_without_public_analytics_config(client
         assert 'href="/cookies"' in response.text
         assert 'href="/terms"' in response.text
         assert 'href="/analytics-consent"' in response.text
+        assert 'href="/offer"' in response.text
         assert "graf-public-analytics-config" not in response.text
         assert "analytics.js" not in response.text
         assert "cookieconsent.umd.js" not in response.text
