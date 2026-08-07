@@ -10,6 +10,10 @@ from sqlalchemy import delete, desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.source_lifecycle import (
+    TRANSIENT_HARD_LIFETIME,
+    TRANSIENT_PURGE_AFTER,
+)
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaRevision,
@@ -559,6 +563,7 @@ async def upsert_processing_workflow(
     source_fingerprint: str | None = None,
     expected_meeting_status: str | None = None,
     expected_media_revision_id: UUID | None = None,
+    archive_audio: bool = True,
 ) -> ProcessingWorkflow:
     now = datetime.now(UTC)
     meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
@@ -623,6 +628,13 @@ async def upsert_processing_workflow(
             .execution_options(populate_existing=True)
         )
     if workflow is not None:
+        if workflow.archive_audio != archive_audio and workflow.status not in {
+            ProcessingStatus.BLOCKED.value,
+            ProcessingStatus.CANCELED.value,
+            ProcessingStatus.FAILED_TERMINAL.value,
+            ProcessingStatus.PROCESSED.value,
+        }:
+            raise ProcessingLifecycleBlocked("processing_archive_mode_conflict")
         try:
             current_status = ProcessingStatus(workflow.status)
         except ValueError:
@@ -652,6 +664,10 @@ async def upsert_processing_workflow(
             deletion_epoch_at_start=int(meeting.deletion_epoch or 0),
             workflow_run_id=workflow_run_id,
             status=status.value,
+            archive_audio=archive_audio,
+            transient_state="processing" if not archive_audio else "not_applicable",
+            transient_admitted_at=now if not archive_audio else None,
+            transient_hard_deadline=(now + TRANSIENT_HARD_LIFETIME) if not archive_audio else None,
             attempt_count=1,
             last_reason_code=reason_code,
             started_at=now,
@@ -667,6 +683,17 @@ async def upsert_processing_workflow(
         ):
             raise ProcessingLifecycleBlocked("processing_source_fingerprint_conflict")
         workflow.source_fingerprint = workflow.source_fingerprint or source_fingerprint
+        if workflow.archive_audio != archive_audio and workflow.status in {
+            ProcessingStatus.BLOCKED.value,
+            ProcessingStatus.CANCELED.value,
+            ProcessingStatus.FAILED_TERMINAL.value,
+            ProcessingStatus.PROCESSED.value,
+        }:
+            workflow.archive_audio = archive_audio
+            if archive_audio:
+                _clear_transient_lifecycle(workflow)
+            else:
+                _start_transient_lifecycle(workflow, now=now)
         workflow.workflow_id = workflow_id
         if workflow_run_id is not None:
             workflow.workflow_run_id = workflow_run_id
@@ -682,6 +709,10 @@ async def upsert_processing_workflow(
             workflow.ended_at = None
         if workflow.started_at is None:
             workflow.started_at = now
+        if not workflow.archive_audio and workflow.transient_admitted_at is None:
+            _start_transient_lifecycle(workflow, now=now)
+    if not archive_audio and status in TERMINAL_PROCESSING_STATUSES:
+        _mark_transient_terminal(workflow, now=now)
     await _sync_meeting_processing_status(
         db,
         workspace_id=workspace_id,
@@ -737,6 +768,8 @@ async def set_workflow_status(
     current.attempt_count += 1
     if terminal:
         current.ended_at = datetime.now(UTC)
+        if not current.archive_audio:
+            _mark_transient_terminal(current, now=current.ended_at)
     await _sync_meeting_processing_status(
         db,
         workspace_id=current.workspace_id,
@@ -746,6 +779,36 @@ async def set_workflow_status(
     )
     await db.commit()
     return current
+
+
+def _start_transient_lifecycle(workflow: ProcessingWorkflow, *, now: datetime) -> None:
+    workflow.archive_audio = False
+    workflow.transient_state = "processing"
+    workflow.transient_admitted_at = workflow.transient_admitted_at or now
+    workflow.transient_hard_deadline = (
+        workflow.transient_hard_deadline or workflow.transient_admitted_at + TRANSIENT_HARD_LIFETIME
+    )
+    workflow.transient_terminal_at = None
+    workflow.transient_purge_due_at = None
+    workflow.transient_purged_at = None
+
+
+def _mark_transient_terminal(workflow: ProcessingWorkflow, *, now: datetime) -> None:
+    if workflow.archive_audio:
+        return
+    _start_transient_lifecycle(workflow, now=now)
+    workflow.transient_state = "terminal"
+    workflow.transient_terminal_at = workflow.transient_terminal_at or now
+    workflow.transient_purge_due_at = workflow.transient_terminal_at + TRANSIENT_PURGE_AFTER
+
+
+def _clear_transient_lifecycle(workflow: ProcessingWorkflow) -> None:
+    workflow.transient_state = "not_applicable"
+    workflow.transient_admitted_at = None
+    workflow.transient_terminal_at = None
+    workflow.transient_purge_due_at = None
+    workflow.transient_hard_deadline = None
+    workflow.transient_purged_at = None
 
 
 async def _sync_meeting_processing_status(

@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.catalog import PERSONAL_STORAGE_BYTES
 from twobrain_rec_server.billing.promotions import expire_promo_reservations
 from twobrain_rec_server.billing.referral_rewards import mature_pending_credits
 from twobrain_rec_server.billing.storage import (
@@ -85,6 +86,7 @@ async def reconcile_billing_maintenance(
     subscription_workspace_ids.update(await db.scalars(reservation_query))
     released_reservations = 0
     storage_projections_checked = 0
+    storage_addons_checked = 0
     for current_workspace_id in sorted(subscription_workspace_ids, key=str)[:MAINTENANCE_BATCH_LIMIT]:
         released_reservations += await release_expired_storage_reservations(
             db,
@@ -101,6 +103,12 @@ async def reconcile_billing_maintenance(
                 capacity_bytes=subscription.capacity_bytes,
             )
             storage_projections_checked += 1
+            # Add-ons are total-capacity selections projected on the
+            # workspace subscription until their dedicated invoice slice is
+            # persisted. Count them for bounded maintenance evidence; do not
+            # mutate capacity or create a provider operation here.
+            if subscription.capacity_bytes > PERSONAL_STORAGE_BYTES:
+                storage_addons_checked += 1
 
     pending_notifications_query = select(func.count(BillingNotificationDelivery.id)).where(
         BillingNotificationDelivery.state.in_(("pending", "retry"))
@@ -117,5 +125,6 @@ async def reconcile_billing_maintenance(
         "released_storage_reservations": released_reservations,
         "stuck_operations": stuck_operations,
         "storage_projections_checked": storage_projections_checked,
+        "storage_addons_checked": storage_addons_checked,
         "pending_notifications": pending_notifications,
     }

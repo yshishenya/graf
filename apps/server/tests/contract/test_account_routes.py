@@ -63,3 +63,14 @@ def test_account_page_projects_scheduled_close_and_cancel_action() -> None:
     assert "Будущие списания отключены" in page
     assert "Отменить запланированное закрытие" in page
     assert 'name="confirm_close"' not in page
+
+
+def test_account_and_notifications_keep_no_js_and_recovery_safe_copy() -> None:
+    account = render_settings_page(category="account", csrf_token="safe-csrf")
+    notifications = render_settings_page(category="notifications", csrf_token="safe-csrf")
+
+    assert "последний подтверждённый способ входа" in account
+    assert "<noscript>" in account
+    assert 'method="post"' in account
+    assert "<noscript>" in notifications
+    assert 'method="post"' in notifications

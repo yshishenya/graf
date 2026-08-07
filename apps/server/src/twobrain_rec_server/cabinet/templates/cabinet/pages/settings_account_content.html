@@ -26,6 +26,7 @@
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
+      <p class="muted" id="account-recovery-help">Для безопасности нельзя отключить последний подтверждённый способ входа. Сначала подключите другой способ восстановления.</p>
       {% if provider_link_options %}
       <div class="settings-actions" aria-label="Добавить способ входа">
         {% for provider in provider_link_options %}
@@ -34,6 +35,7 @@
       </div>
       {% endif %}
     </section>
+    <noscript><p class="settings-status" role="status">Настройки аккаунта работают без JavaScript: отправка форм откроет страницу с результатом.</p></noscript>
 
     <section class="settings-section cabinet-card" aria-labelledby="account-devices-title">
       <div class="settings-section__heading"><div><span class="settings-scope-badge">Личная настройка</span><h2 id="account-devices-title">Зарегистрированные устройства</h2><p class="muted">Список показывает только безопасные метаданные. Текущее устройство нельзя отозвать из этой страницы.</p></div></div>

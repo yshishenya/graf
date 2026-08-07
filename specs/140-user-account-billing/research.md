@@ -273,6 +273,33 @@
 [Stripe AI pricing 2026](https://stripe.com/en-sg/resources/more/ai-pricing-models),
 [YooKassa merchant refunds](https://yookassa.ru/docs/support/merchant/payments/refunds).
 
+## R12. Россия-first proxy evidence (2026-08-07)
+
+- Авито Работа × МТС Линк: опрос более 7 000 работающих показывает 16%
+  постоянной удалённой работы, ещё 9% сезонного hybrid; видеоконференции
+  нужны 26%, автоматическая запись/саммаризация — 15%. Это поддерживает
+  сегмент digital-first специалистов, но не измеряет платную конверсию.
+- Опрос Ventra/Купибилет, опубликованный «Ведомостями» (июль 2025, 1 250
+  респондентов из 17 регионов): 30% тратят от 15 минут на итоги каждой
+  встречи, 9% — более 30 минут; 82% готовы иногда делегировать это ИИ, 6%
+  уже пользуются такими сервисами. Это подтверждает JTBD «не писать итоги
+  вручную», но не доказывает WTP и preference к GRAF.
+- Обзор ТеДо рынка транскрибации выделяет безопасность, скорость,
+  устойчивость и интеграции, а также сегментацию МСБ/крупных заказчиков.
+  Поэтому privacy/control остаются проверяемой гипотезой ценности, а
+  enterprise исключён из self-service launch.
+- AHD × Yandex B2B Tech оценивают рынок ПО РФ в 808 млрд ₽ за 2025 год и
+  отмечают рост cloud/SaaS при требованиях к безопасности и предсказуемым
+  расходам. Это макро-контекст и не является TAM/WTP GRAF.
+
+Источники: [Авито Работа × МТС Линк](https://www.cnews.ru/news/line/2026-06-29_avito_rabota_i_mts_link),
+[Ведомости](https://www.vedomosti.ru/society/news/2025/08/12/1130975-svoimi-delami),
+[РБК/ТеДо](https://companies.rbc.ru/news/tnjbHt1DDx/vyipuscheno-issledovanie-rossijskogo-ryinka-instrumentov-transkribatsii/),
+[AHD × Yandex B2B Tech](https://yandex.ru/company/news/25-02-2026-01).
+
+**Статус**: proxy evidence улучшает обоснование сегмента и JTBD, но T084/T085
+не закрыты без интервью/comprehension/WTP и telemetry-backed COGS.
+
 ## Resolved unknowns and launch gates
 
 Архитектурных research unknowns нет. Product-market hypotheses

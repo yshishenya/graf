@@ -74,6 +74,7 @@ from twobrain_rec_server.domain.statuses import (
     DeletionState,
     LifecycleAuditOutcome,
     OutcomeLifecycleState,
+    TrackRole,
 )
 from twobrain_rec_server.normalization.audit import add_normalization_audit_event
 from twobrain_rec_server.normalization.statuses import (
@@ -853,6 +854,197 @@ async def reconcile_deletion_purges(
             await db.rollback()
             continue
     return reconciled
+
+
+async def reconcile_transient_media_purges(
+    db: AsyncSession,
+    *,
+    storage: object | None,
+    now: datetime | None = None,
+    limit: int = 20,
+) -> int:
+    """Purge persisted no-archive media after terminal/24-hour deadlines.
+
+    The admission and deadlines live on ``ProcessingWorkflow``; object keys
+    are read from the existing TrackArtifact, normalization-attempt and
+    TemporaryUploadObject lifecycle rows.  This deliberately does not delete
+    transcripts/notes and does not use a fake counter as purge evidence.
+    """
+
+    now = now or datetime.now(UTC)
+    rows = list(
+        (
+            await db.scalars(
+                select(ProcessingWorkflow)
+                .where(
+                    ProcessingWorkflow.archive_audio.is_(False),
+                    ProcessingWorkflow.transient_state.in_(
+                        {"admitted", "processing", "terminal", "purge_due"}
+                    ),
+                    (
+                        (ProcessingWorkflow.transient_hard_deadline.is_not(None)
+                         & (ProcessingWorkflow.transient_hard_deadline <= now))
+                        | (ProcessingWorkflow.transient_purge_due_at.is_not(None)
+                           & (ProcessingWorkflow.transient_purge_due_at <= now))
+                    ),
+                )
+                .order_by(ProcessingWorkflow.transient_purge_due_at, ProcessingWorkflow.id)
+                .limit(max(1, min(limit, 100)))
+                .with_for_update(skip_locked=True)
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    )
+    purged = 0
+    for workflow in rows:
+        workflow.transient_state = "purge_due"
+        artifacts = list(
+            await db.scalars(
+                select(TrackArtifact)
+                .where(
+                    TrackArtifact.workspace_id == workflow.workspace_id,
+                    TrackArtifact.meeting_id == workflow.meeting_id,
+                    TrackArtifact.media_revision_id == workflow.media_revision_id,
+                    TrackArtifact.status.not_in({"purged", "deleted"}),
+                )
+                .with_for_update()
+            )
+        )
+        attempts = list(
+            await db.scalars(
+                select(PlaybackNormalizationAttempt)
+                .where(
+                    PlaybackNormalizationAttempt.workspace_id == workflow.workspace_id,
+                    PlaybackNormalizationAttempt.meeting_id == workflow.meeting_id,
+                    PlaybackNormalizationAttempt.media_revision_id == workflow.media_revision_id,
+                    PlaybackNormalizationAttempt.state.not_in({AttemptState.PURGED.value}),
+                )
+                .with_for_update()
+            )
+        )
+        jobs = list(
+            await db.scalars(
+                select(PlaybackNormalizationJob)
+                .where(
+                    PlaybackNormalizationJob.workspace_id == workflow.workspace_id,
+                    PlaybackNormalizationJob.meeting_id == workflow.meeting_id,
+                    PlaybackNormalizationJob.media_revision_id == workflow.media_revision_id,
+                )
+                .with_for_update()
+            )
+        )
+        temporary_objects = list(
+            (
+                await db.scalars(
+                    select(TemporaryUploadObject)
+                    .join(UploadSession, TemporaryUploadObject.upload_session_id == UploadSession.id)
+                    .where(
+                        TemporaryUploadObject.workspace_id == workflow.workspace_id,
+                        TemporaryUploadObject.media_revision_id == workflow.media_revision_id,
+                        UploadSession.workspace_id == workflow.workspace_id,
+                        UploadSession.media_revision_id == workflow.media_revision_id,
+                        TemporaryUploadObject.cleanup_status != "purged",
+                    )
+                    .with_for_update()
+                )
+            ).all()
+        )
+        object_keys = {
+            *(artifact.storage_object_key for artifact in artifacts),
+            *(attempt.storage_object_key for attempt in attempts),
+            *(temporary_object.storage_object_key for temporary_object in temporary_objects),
+        }
+        if object_keys:
+            _ensure_storage_delete_capability(storage)
+        journals = {
+            row.object_key: row
+            for row in (
+                await db.scalars(
+                    select(PurgeJournal)
+                    .where(
+                        PurgeJournal.workspace_id == workflow.workspace_id,
+                        PurgeJournal.meeting_id == workflow.meeting_id,
+                        PurgeJournal.artifact_class == "transient_audio",
+                        PurgeJournal.object_key.in_(object_keys or {""}),
+                    )
+                    .with_for_update()
+                )
+            ).all()
+        }
+        for object_key in sorted(object_keys):
+            if object_key not in journals:
+                journal = PurgeJournal(
+                    workspace_id=workflow.workspace_id,
+                    meeting_id=workflow.meeting_id,
+                    artifact_class="transient_audio",
+                    object_key=object_key,
+                    state="pending",
+                    safe_reason="transient_media_purge",
+                )
+                db.add(journal)
+                journals[object_key] = journal
+        await _flush_or_fail_closed(db)
+        try:
+            for object_key in sorted(object_keys):
+                journal = journals[object_key]
+                if journal.state in {"purged", "superseded"}:
+                    continue
+                journal.state = "deleting"
+                journal.attempt_count += 1
+                journal.started_at = now
+                await _flush_or_fail_closed(db)
+                if await _storage_object_exists(storage, object_key):
+                    await _delete_storage_object(storage, object_key)
+                    if await _storage_object_exists(storage, object_key):
+                        raise RuntimeError("transient_storage_delete_unverified")
+                journal.state = "purged"
+                journal.completed_at = now
+                journal.next_retry_at = None
+                journal.safe_reason = "transient_object_deleted_verified"
+        except Exception:
+            await db.rollback()
+            continue
+
+        for artifact in artifacts:
+            artifact.status = "purged"
+            if artifact.track_role == TrackRole.PLAYBACK.value:
+                artifact.normalization_profile_version = None
+                artifact.validated_at = None
+                artifact.derivation_kind = None
+                artifact.source_fingerprint_sha256 = None
+                artifact.validation_version = None
+        for attempt in attempts:
+            current = AttemptState(attempt.state)
+            if current is not AttemptState.PURGED:
+                ensure_attempt_transition(current, AttemptState.PURGED)
+                attempt.state = AttemptState.PURGED.value
+                attempt.cleanup_reason = NormalizationReason.AUDIO_PURGED.value
+                attempt.cleaned_at = attempt.cleaned_at or now
+        for job in jobs:
+            if job.state in {
+                JobState.QUEUED.value,
+                JobState.RUNNING.value,
+                JobState.PUBLISHING.value,
+                JobState.RETRY_WAIT.value,
+                JobState.READY.value,
+            }:
+                ensure_job_transition(
+                    JobState(job.state),
+                    JobState.CANCELLED,
+                    reason_code=NormalizationReason.AUDIO_PURGED,
+                )
+                job.state = JobState.CANCELLED.value
+                job.reason_code = NormalizationReason.AUDIO_PURGED.value
+                job.cancelled_at = now
+        for temporary_object in temporary_objects:
+            temporary_object.cleanup_status = "purged"
+            temporary_object.failure_reason = None
+            temporary_object.last_error = None
+        workflow.transient_state = "purged"
+        workflow.transient_purged_at = now
+        await db.commit()
+        purged += 1
+    return purged
 
 
 async def _object_key_referenced(

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.db.models import Meeting
+from twobrain_rec_server.db.models import Meeting, UploadSession
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import MeetingStatus, ProcessingStatus
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
@@ -51,6 +51,7 @@ async def pick_up_processing(
     limit: int = 25,
     temporal_client: object | None = None,
     tenant_scope: TenantScope | None = None,
+    archive_audio: bool | None = None,
 ) -> ProcessingPickupResult:
     if tenant_scope is not None:
         await apply_tenant_scope(db, tenant_scope, context_kind="worker")
@@ -69,6 +70,12 @@ async def pick_up_processing(
                 temporal_unavailable = True
 
     for meeting in meetings:
+        meeting_archive_audio = await _archive_audio_for_meeting(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+            requested=archive_audio,
+        )
         expected_meeting_status = meeting.status
         if meeting_is_deleted_or_deleting(meeting):
             result.blocked_count += 1
@@ -92,6 +99,7 @@ async def pick_up_processing(
                     reason_code=reasons.BLOCKED_MISSING_ARTIFACTS,
                     expected_meeting_status=expected_meeting_status,
                     expected_media_revision_id=media_revision.id,
+                    archive_audio=meeting_archive_audio,
                 )
                 result.blocked_count += 1
                 continue
@@ -104,6 +112,7 @@ async def pick_up_processing(
                 reason_code=reasons.BLOCKED_TEMPORAL_UNAVAILABLE,
                 expected_meeting_status=expected_meeting_status,
                 expected_media_revision_id=media_revision_id,
+                archive_audio=meeting_archive_audio,
             )
             result.blocked_count += 1
             continue
@@ -136,6 +145,7 @@ async def pick_up_processing(
                 reason_code=reasons.BLOCKED_INVALID_MEETING_STATE,
                 expected_meeting_status=expected_meeting_status,
                 expected_media_revision_id=media_revision_id,
+                archive_audio=meeting_archive_audio,
             )
             result.blocked_count += 1
             continue
@@ -147,6 +157,7 @@ async def pick_up_processing(
                 source_fingerprint=None,
                 reason_code=reasons.BLOCKED_MISSING_ARTIFACTS,
                 expected_meeting_status=expected_meeting_status,
+                archive_audio=meeting_archive_audio,
             )
             result.blocked_count += 1
             continue
@@ -165,6 +176,7 @@ async def pick_up_processing(
                 reason_code=reasons.BLOCKED_MISSING_ARTIFACTS,
                 expected_meeting_status=expected_meeting_status,
                 expected_media_revision_id=media_revision_id,
+                archive_audio=meeting_archive_audio,
             )
             result.blocked_count += 1
             continue
@@ -181,6 +193,7 @@ async def pick_up_processing(
                 source_fingerprint=source_fingerprint,
                 expected_meeting_status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
                 expected_media_revision_id=media_revision_id,
+                archive_audio=meeting_archive_audio,
             )
         except ProcessingLifecycleBlocked:
             await db.rollback()
@@ -194,6 +207,7 @@ async def pick_up_processing(
                 media_revision_id=media_revision_id,
                 workspace_id=workspace_id,
                 tenant_scope=tenant_scope,
+                archive_audio=meeting_archive_audio,
             )
         except Exception:
             await cancel_workflow_best_effort(temporal_client, processing_workflow_id(media_revision_id))
@@ -205,6 +219,7 @@ async def pick_up_processing(
                 reason_code=reasons.BLOCKED_TEMPORAL_UNAVAILABLE,
                 expected_meeting_status=expected_meeting_status,
                 expected_media_revision_id=media_revision_id,
+                archive_audio=meeting_archive_audio,
             )
             result.blocked_count += 1
             continue
@@ -220,6 +235,7 @@ async def pick_up_processing(
                 source_fingerprint=source_fingerprint,
                 expected_meeting_status=MeetingStatus.INGESTED_PENDING_PROCESSING.value,
                 expected_media_revision_id=media_revision_id,
+                archive_audio=meeting_archive_audio,
             )
         except ProcessingLifecycleBlocked:
             await db.rollback()
@@ -271,6 +287,7 @@ async def _block_meeting(
     reason_code: str,
     expected_meeting_status: str | None = None,
     expected_media_revision_id: UUID | None = None,
+    archive_audio: bool = True,
 ) -> None:
     workflow_ref = media_revision_id or meeting.id
     try:
@@ -285,6 +302,7 @@ async def _block_meeting(
             source_fingerprint=source_fingerprint,
             expected_meeting_status=expected_meeting_status,
             expected_media_revision_id=expected_media_revision_id,
+            archive_audio=archive_audio,
         )
     except ProcessingLifecycleBlocked:
         await db.rollback()
@@ -297,3 +315,31 @@ async def _block_meeting(
         event_type="processing_blocked",
         metadata={"reason_code": reason_code, "workflow_id": workflow.workflow_id},
     )
+
+
+async def _archive_audio_for_meeting(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    requested: bool | None,
+) -> bool:
+    """Resolve the persisted upload choice before creating a workflow.
+
+    The finalized upload session is authoritative.  The optional pickup value
+    is only a compatibility fallback for legacy meetings without a finalized
+    session; it must not let a later retry silently change custody policy.
+    """
+
+    persisted = await db.scalar(
+        select(UploadSession.archive_audio)
+        .where(
+            UploadSession.workspace_id == workspace_id,
+            UploadSession.meeting_id == meeting_id,
+            UploadSession.status == "finalized",
+        )
+        .order_by(UploadSession.created_at.desc(), UploadSession.id.desc())
+    )
+    if persisted is not None:
+        return bool(persisted)
+    return True if requested is None else requested

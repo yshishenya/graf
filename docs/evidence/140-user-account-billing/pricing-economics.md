@@ -34,3 +34,27 @@ gross-margin floor, fair-use sensitivity и stop threshold.
 доказанно оптимальными. Публичные USD pricing pages конкурентов используются
 только как dated comparable context (см. `research.md` R11), без FX/PPP
 экстраполяции.
+
+## Dated comparable context и проверка единиц
+
+| Источник | Наблюдение | Что переносимо | Что не переносимо |
+|---|---|---|---|
+| Krisp pricing, 2026 | individual trial/paid и finite storage | прозрачный trial + storage disclosure | USD, география, чужая storage semantics |
+| Otter pricing, 2026 | free minutes и paid unlimited-storage pattern | необходимость явно разделять usage и archive | минуты/seat и pricing другой валюты |
+| Fireflies pricing/storage, 2026 | hybrid credits/storage limits | finite dimension можно объяснять отдельно | team/seat limits и provider cost profile |
+| Krisp/Otter/Fireflies pages | annual/monthly comparison | показывать today/next amount | нельзя выводить WTP РФ через FX/PPP |
+
+## Формула до появления production telemetry
+
+Для каждого cohort и cadence считать:
+
+`contribution = price_net - compute - normalized_playback_storage - egress - backup - support - payment_fee`
+
+Сохраняются p50/p90/p99 accepted seconds, normalized bytes, retry rate,
+support contacts, refund/chargeback observations и attach/change add-on. До
+накопления ≥30 дней реальных данных значения являются `unknown`, а не нулём;
+checkout и add-on price version остаются fail-closed.
+
+T085 остаётся открытой: внешнее сравнение теперь датировано и нормализовано,
+но target-user comprehension/WTP, observed usage distribution, COGS и
+gross-margin floor ещё не измерены.

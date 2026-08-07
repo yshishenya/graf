@@ -460,6 +460,7 @@ async def create_cabinet_manual_media_upload_route(
         title=upload.title,
         local_recording_id=upload.local_recording_id,
         temporal_client=getattr(request.app.state, "temporal_client", None),
+        archive_audio=upload.archive_audio,
     )
     await commit_if_available(db)
     return ManualMediaUploadResponse(

@@ -56,6 +56,7 @@ from twobrain_rec_server.deletion.local_purge import reconcile_expired_local_pur
 from twobrain_rec_server.deletion.service import (
     fanout_account_close_deletions,
     reconcile_deletion_purges,
+    reconcile_transient_media_purges,
 )
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
@@ -762,6 +763,11 @@ async def run_deletion_purge_reconciler(settings: Any, temporal_client: object) 
                         db,
                         storage=storage,
                         temporal_client=temporal_client,
+                        limit=20,
+                    )
+                    await reconcile_transient_media_purges(
+                        db,
+                        storage=storage,
                         limit=20,
                     )
             except asyncio.CancelledError:

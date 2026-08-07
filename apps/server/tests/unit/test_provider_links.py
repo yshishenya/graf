@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from twobrain_rec_server.auth.provider_links import (
     expire_if_needed,
+    recovery_safe_unlink_allowed,
     scrub_candidate,
     store_verified_candidate,
 )
@@ -40,6 +41,17 @@ def test_scrub_candidate_keeps_only_safe_terminal_state() -> None:
     assert link.status == "conflict"
     assert link.resolution == "identity_conflict"
     assert link.candidate_identity_subject is None
+
+
+def test_unlink_guard_preserves_at_least_one_recovery_path() -> None:
+    assert recovery_safe_unlink_allowed(verified_identity_count=2, target_is_verified=True)
+    assert recovery_safe_unlink_allowed(
+        verified_identity_count=1,
+        target_is_verified=True,
+        has_independent_recovery_path=True,
+    )
+    assert not recovery_safe_unlink_allowed(verified_identity_count=1, target_is_verified=True)
+    assert not recovery_safe_unlink_allowed(verified_identity_count=2, target_is_verified=False)
 
 
 async def test_verified_candidate_is_stored_only_after_provider_callback() -> None:

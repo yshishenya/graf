@@ -127,6 +127,20 @@ def test_settings_sidebar_sticky_rail_stays_aligned_with_page_header() -> None:
     assert "grid-row: 1;" in sticky_layout_css
 
 
+def test_settings_css_has_reduced_motion_and_narrow_reflow_guards() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
+        encoding="utf-8"
+    )
+    reduced_motion = css[css.index("@media (prefers-reduced-motion: reduce)") :]
+    narrow = css[css.index("@media (max-width: 640px)") :]
+
+    assert "transition-duration: .01ms" in reduced_motion
+    assert "animation-duration: .01ms" in reduced_motion
+    assert "grid-template-columns: 1fr" in narrow
+    assert "overflow-x: auto" not in css[css.index(".settings-page,") : css.index(".meeting-title")]
+
+
 def test_settings_content_is_grouped_into_the_second_grid_column() -> None:
     root = Path(__file__).resolve().parents[2]
     css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
