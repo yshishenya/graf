@@ -267,10 +267,6 @@ async def _consume_email_login_code(
             now=now,
         )
         registered = True
-        # Referral attribution belongs to the inviter's workspace.  Re-enter
-        # the token-scoped callback RLS context after bootstrap user creation;
-        # the latter intentionally narrows reads to the signup workspace.
-        await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state_nonce))
         await _bind_referral_attribution(
             db,
             workspace_id=workspace.id,
