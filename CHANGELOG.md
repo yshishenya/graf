@@ -54,7 +54,7 @@
 - Добавлены Spec Kit артефакты Feature 140 и launch/validation matrix.
 
 ### Операции
-- `infra/scripts/ci-local.sh --fast`: 921 тест, lint и Python compile успешно;
+- `infra/scripts/ci-local.sh --fast`: 927 тестов, lint и Python compile успешно;
   checkout остаётся fail-closed до отдельного approved test-shop enablement.
 
 ## [2026.08.05.1] - 2026-08-05
