@@ -24,7 +24,10 @@ Date: 2026-08-04
 - Billing notifications получили транзакционный DB-backed metadata-only outbox
   с uniqueness/delivery state и Russian-first finance copy; worker delivery
   remains a launch gate.
-- Fast lane после изменений: 943 server unit tests, Ruff, Python compile и
+- Provider registry теперь разделяет payments/refunds, проверяет completeness и
+  хранит только metadata-only gap ownership; notification worker только
+  наблюдает backlog до подключения sender.
+- Fast lane после изменений: 948 server unit tests, Ruff, Python compile и
   disposable migration проходят. Полный public launch остаётся gated: test-shop
   evidence, durable provider registry/reconciliation, account-close/notification
   flows, accessibility/usability evidence и approved finance/legal sign-off ещё

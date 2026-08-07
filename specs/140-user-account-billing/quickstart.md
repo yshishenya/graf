@@ -42,7 +42,7 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Latest local evidence (2026-08-07)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 943 server unit tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 948 server unit tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
 - Focused PostgreSQL billing RLS, migration, OpenAPI and settings contracts:
   PASS, 40 tests.
@@ -59,6 +59,9 @@ elsewhere; real-shop canary is a separate approved release step.
   [landing-review.md](../../docs/evidence/140-user-account-billing/landing-review.md);
   серверные тесты не закрывают визуальную, accessibility и moderated-usability
   проверку.
+- Registry primitives keep separate payments/refunds report identities,
+  completeness hashes and owned metadata-only gaps; notification maintenance
+  observes backlog without pretending delivery succeeded.
 
 ## Required scenario evidence
 

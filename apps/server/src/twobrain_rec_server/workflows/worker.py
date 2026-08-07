@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.email_delivery import (
@@ -22,6 +22,7 @@ from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.models import (
     BillingAuditEvent,
     BillingInvoice,
+    BillingNotificationDelivery,
     BillingOperation,
     ExternalIdentity,
     Meeting,
@@ -191,6 +192,44 @@ async def run_billing_renewal_reconciler(settings: Any, temporal_client: object)
                 raise
             except Exception:
                 logger.exception("billing renewal reconciliation cycle failed")
+            await asyncio.sleep(60)
+    finally:
+        await engine.dispose()
+
+
+async def run_billing_notification_reconciler(settings: Any) -> None:
+    """Observe pending notification outbox rows without inventing delivery.
+
+    Actual email/in-app egress is owned by the configured notification sender;
+    this loop keeps durable backlog visible and never marks a message sent on
+    the basis of a worker observation alone.
+    """
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        # Reuse the existing narrowly-approved billing maintenance operation;
+        # the observer is read-only and must not widen the RLS allowlist.
+        operation_name="billing_reconciliation",
+        actor_id="graf-maintenance",
+        reason_category="durable_notification_backlog",
+        feature_area="billing",
+    )
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    pending = await db.scalar(
+                        select(func.count(BillingNotificationDelivery.id)).where(
+                            BillingNotificationDelivery.state.in_(("pending", "retry"))
+                        )
+                    )
+                    if pending:
+                        logger.info("billing notification outbox backlog: %s", int(pending))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("billing notification reconciliation cycle failed")
             await asyncio.sleep(60)
     finally:
         await engine.dispose()
