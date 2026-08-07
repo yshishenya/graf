@@ -30,7 +30,10 @@ from twobrain_rec_server.billing.notifications import (
     notification_copy,
 )
 from twobrain_rec_server.billing.operations import provider_key_is_expired
-from twobrain_rec_server.billing.webhook_reconciliation import reconcile_pending_webhook_events
+from twobrain_rec_server.billing.webhook_reconciliation import (
+    reconcile_pending_initial_checkout_operations,
+    reconcile_pending_webhook_events,
+)
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.models import (
@@ -483,8 +486,14 @@ async def run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[s
             await apply_tenant_context(db, context)
             counters = await reconcile_billing_maintenance(db)
             webhook_counters = await reconcile_pending_webhook_events(db, settings)
+            initial_checkout_counters = await reconcile_pending_initial_checkout_operations(db, settings)
             await db.commit()
-        return {"run_id": safe_payload["run_id"], **counters, **{f"webhook_{k}": v for k, v in webhook_counters.items()}}
+        return {
+            "run_id": safe_payload["run_id"],
+            **counters,
+            **{f"webhook_{k}": v for k, v in webhook_counters.items()},
+            **{f"initial_checkout_{k}": v for k, v in initial_checkout_counters.items()},
+        }
     finally:
         await engine.dispose()
 

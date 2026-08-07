@@ -22,9 +22,9 @@ evidence в launch runbook.
 После повторной проверки выявлены дополнительные блокеры, которые нельзя
 заменять contract/unit evidence:
 
-- initial checkout пока не имеет отдельного provider-GET backstop для случая,
-  когда POST в YooKassa завершился таймаутом после списания; такая операция
-  остаётся `unknown` и требует ручного gap resolution;
+- initial checkout теперь имеет bounded provider-GET backstop для сохранённого
+  `provider_id`; если POST в YooKassa завершился таймаутом до сохранения этого
+  ID, операция всё ещё остаётся `unknown` и требует ручного gap resolution;
 - reconciler создаёт и обслуживает только заранее существующие `renewal`
   operations: автоматическое создание и списание renewal до публичного запуска
   не доказано;

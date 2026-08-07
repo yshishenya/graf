@@ -40,6 +40,81 @@ if TYPE_CHECKING:
 RECONCILABLE_WEBHOOK_STATES = frozenset(("accepted", "pending_reconciliation"))
 
 
+async def reconcile_pending_initial_checkout_operations(
+    db: AsyncSession,
+    settings: Settings,
+    *,
+    limit: int = 100,
+) -> dict[str, int]:
+    """Poll persisted initial payments when the webhook was lost.
+
+    This is observation-only and requires a provider id already persisted by
+    the hosted checkout path; a POST timeout before that id remains a manual
+    reconciliation gap until the provider can be searched by metadata.
+    """
+    if not settings.billing_checkout_enabled:
+        return {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
+    operations = tuple(
+        await db.scalars(
+            select(BillingOperation)
+            .where(
+                BillingOperation.kind == "initial_checkout",
+                BillingOperation.provider_id.is_not(None),
+                BillingOperation.state.in_(("provider_pending", "unknown")),
+            )
+            .order_by(BillingOperation.updated_at, BillingOperation.id)
+            .limit(max(1, min(limit, 500)))
+            .with_for_update()
+        )
+    )
+    counters = {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
+    try:
+        async with YooKassaClient(settings) as provider:
+            environment = "test" if "test" in str(settings.billing_yookassa_base_url).lower() else "production"
+            scope = ProviderScope(environment=environment, shop_id=settings.billing_yookassa_shop_id)
+            for operation in operations:
+                counters["processed"] += 1
+                try:
+                    payload = await provider.get_payment(operation.provider_id or "")
+                    observation = extract_payment_observation(payload, scope=scope)
+                    if observation.status == "succeeded":
+                        await grant_confirmed_payment(
+                            db,
+                            workspace_id=operation.workspace_id,
+                            provider_payment_id=observation.provider_payment_id,
+                            amount_minor=observation.amount_minor,
+                            currency=observation.currency,
+                            paid_at=observation.provider_created_at,
+                            recurring_method_confirmed=saved_bank_card_confirmed(payload),
+                            saved_payment_method=extract_saved_bank_card(payload),
+                            payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
+                        )
+                        counters["succeeded"] += 1
+                    elif observation.status == "canceled":
+                        await release_payment_promo(
+                            db,
+                            workspace_id=operation.workspace_id,
+                            provider_payment_id=observation.provider_payment_id,
+                            now=observation.provider_created_at,
+                        )
+                        operation.state = "canceled"
+                        counters["canceled"] += 1
+                    else:
+                        counters["pending"] += 1
+                except (
+                    ProviderEventError,
+                    ProviderObservationError,
+                    YooKassaConfigurationError,
+                    YooKassaProviderError,
+                    ValueError,
+                    httpx.HTTPError,
+                ):
+                    counters["failed"] += 1
+    except (YooKassaConfigurationError, ValueError):
+        counters["failed"] += len(operations)
+    return counters
+
+
 async def reconcile_pending_webhook_events(
     db: AsyncSession,
     settings: Settings,
