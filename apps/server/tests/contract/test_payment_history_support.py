@@ -78,3 +78,4 @@ def test_invoice_detail_ui_exposes_only_safe_copy_and_mailto_actions() -> None:
     assert "GRAF не создаёт заявку" in template
     assert "не отправляйте данные карты" in template.lower()
     assert "refund_mailto" in template
+    assert "invoice.receipt_url" in template

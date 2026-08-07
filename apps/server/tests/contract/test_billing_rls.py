@@ -42,3 +42,11 @@ def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:
         table_name = model.__tablename__
         assert table_name in migration_source
         assert "_tenant_isolation" in migration_source
+
+
+def test_referral_binding_uses_a_token_scoped_context() -> None:
+    migration = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0050_referral_token_lookup_context.py"
+    source = migration.read_text(encoding="utf-8")
+    assert "auth_referral_lookup" in source
+    assert "app.referral_token_hash" in source
+    assert "invitee_user_id = rec_current_user_id()" in source

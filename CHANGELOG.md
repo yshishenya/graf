@@ -60,6 +60,10 @@
 - Реферальная first-touch привязка получила token-hash-scoped auth lookup для
   разных личных workspace; начисления записываются в workspace пригласившего,
   а не приглашённого.
+- Webhook YooKassa принимает `payment_method.active` как безопасный сигнал,
+  подтверждение регулярного способа оплаты остаётся за authoritative payment
+  GET; реферальные ссылки используют настроенный `public_base_url` и истекают
+  через 30 дней.
 
 ### Изменено
 - Trial приведён к спецификации: ровно 7 календарных дней без карты и автосписания.
@@ -82,7 +86,7 @@
   analytics и clean-room проверка не смешиваются с серверным CI.
 
 ### Операции
-- `infra/scripts/ci-local.sh --fast`: 951 тест, lint и Python compile успешно;
+- `infra/scripts/ci-local.sh --fast`: 992 теста, lint и Python compile успешно;
   checkout остаётся fail-closed до отдельного approved test-shop enablement.
 
 ## [2026.08.05.1] - 2026-08-05

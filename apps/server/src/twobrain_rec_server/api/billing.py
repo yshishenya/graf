@@ -2,18 +2,11 @@ from __future__ import annotations
 
 import json
 
-import httpx
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
-from twobrain_rec_server.billing.payment_methods import (
-    extract_saved_bank_card,
-    read_billing_encryption_key,
-)
-from twobrain_rec_server.billing.promotions import release_payment_promo
 from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
     WebhookInbox,
@@ -21,20 +14,7 @@ from twobrain_rec_server.billing.provider_events import (
     redacted_event_metadata,
     validate_webhook_secret,
 )
-from twobrain_rec_server.billing.reconciliation import (
-    ProviderObservationError,
-    ProviderScope,
-    extract_payment_observation,
-    extract_refund_observation,
-    record_observed_refund,
-    saved_bank_card_confirmed,
-)
-from twobrain_rec_server.billing.yookassa import (
-    YooKassaClient,
-    YooKassaConfigurationError,
-    YooKassaProviderError,
-    read_webhook_secret,
-)
+from twobrain_rec_server.billing.yookassa import YooKassaConfigurationError, read_webhook_secret
 from twobrain_rec_server.db.models import BillingWebhookEvent
 from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
 
@@ -47,6 +27,7 @@ SUPPORTED_PROVIDER_EVENTS = frozenset(
         "payment.waiting_for_capture",
         "payment.pending",
         "refund.succeeded",
+        "payment_method.active",
         "receipt.succeeded",
         "receipt.waiting_for_cancellation",
     }
@@ -74,12 +55,45 @@ async def billing_webhook(
     request: Request,
     x_billing_webhook_secret: str | None = Header(default=None, alias="X-Billing-Webhook-Secret"),
 ) -> JSONResponse:
+    """Backward-compatible webhook path; new provider config uses explicit environment."""
+    return await _handle_billing_webhook(request, x_billing_webhook_secret, environment=None)
+
+
+@router.post("/providers/yookassa/webhook/{environment}", status_code=202, include_in_schema=False)
+async def billing_provider_webhook(
+    environment: str,
+    request: Request,
+    x_billing_webhook_secret: str | None = Header(default=None, alias="X-Billing-Webhook-Secret"),
+) -> JSONResponse:
+    return await _handle_billing_webhook(request, x_billing_webhook_secret, environment=environment)
+
+
+async def _handle_billing_webhook(
+    request: Request,
+    x_billing_webhook_secret: str | None,
+    *,
+    environment: str | None,
+) -> JSONResponse:
     settings = request.app.state.settings
     try:
+        configured_environment = (
+            "test" if "test" in str(settings.billing_yookassa_base_url).lower() else "production"
+        )
+        if environment is not None and environment not in {"test", "production"}:
+            raise ProviderEventError("provider environment is invalid")
+        if environment is not None and environment != configured_environment:
+            raise ProviderEventError("provider environment does not match configured shop")
         secret = read_webhook_secret(settings.billing_yookassa_webhook_secret_file)
         validate_webhook_secret(supplied=x_billing_webhook_secret, expected=secret)
         if not _is_json_content_type(request.headers.get("content-type")):
             raise ProviderEventError("provider event content type is invalid")
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) < 0 or int(content_length) > MAX_BILLING_WEBHOOK_BYTES:
+                    raise ProviderEventError("provider event is too large")
+            except ValueError as exc:
+                raise ProviderEventError("provider content length is invalid") from exc
         body = await request.body()
         if len(body) > MAX_BILLING_WEBHOOK_BYTES:
             raise ProviderEventError("provider event is too large")
@@ -101,7 +115,6 @@ async def billing_webhook(
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is None:
         return JSONResponse(status_code=503, content={"status": "deferred_store_unavailable"})
-    reconcile_status: str | None = None
     try:
         async with sessionmaker() as db:
             await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=event.workspace_id))
@@ -132,70 +145,11 @@ async def billing_webhook(
                     await db.rollback()
                     stored = None
                     result = "duplicate"
-            if stored is not None and result in {"accepted", "duplicate"} and event.event_type.startswith("payment."):
-                stored.state = "pending_reconciliation"
-                try:
-                    async with YooKassaClient(settings) as provider:
-                        provider_payload = await provider.get_payment(event.object_id)
-                    scope = ProviderScope(
-                        environment="test" if "test" in str(settings.billing_yookassa_base_url).lower() else "production",
-                        shop_id=settings.billing_yookassa_shop_id,
-                    )
-                    observation = extract_payment_observation(provider_payload, scope=scope)
-                    if observation.status == "succeeded":
-                        reconcile_status = await grant_confirmed_payment(
-                            db,
-                            workspace_id=event.workspace_id,
-                            provider_payment_id=observation.provider_payment_id,
-                            amount_minor=observation.amount_minor,
-                            currency=observation.currency,
-                            paid_at=observation.provider_created_at,
-                            recurring_method_confirmed=saved_bank_card_confirmed(provider_payload),
-                            saved_payment_method=extract_saved_bank_card(provider_payload),
-                            payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
-                        )
-                    else:
-                        if observation.status == "canceled":
-                            await release_payment_promo(
-                                db,
-                                workspace_id=event.workspace_id,
-                                provider_payment_id=observation.provider_payment_id,
-                                now=observation.provider_created_at,
-                            )
-                        reconcile_status = "observed"
-                    stored.state = "reconciled" if reconcile_status in {"granted", "duplicate", "observed"} else "reconciliation_gap"
-                    await db.commit()
-                except (ProviderObservationError, YooKassaConfigurationError, YooKassaProviderError, ValueError, httpx.HTTPError):
-                    await db.rollback()
-                    reconcile_status = "pending_reconciliation"
-            elif stored is not None and result in {"accepted", "duplicate"} and event.event_type == "refund.succeeded":
-                stored.state = "pending_reconciliation"
-                try:
-                    async with YooKassaClient(settings) as provider:
-                        refund_payload = await provider.list_refunds()
-                    items = refund_payload.get("items", [])
-                    if not isinstance(items, list):
-                        items = []
-                    candidate = next(
-                        (item for item in items if isinstance(item, dict) and item.get("id") == event.object_id),
-                        None,
-                    )
-                    if candidate is None:
-                        raise ProviderObservationError("provider refund was not found in GET/list backstop")
-                    scope = ProviderScope(
-                        environment="test" if "test" in str(settings.billing_yookassa_base_url).lower() else "production",
-                        shop_id=settings.billing_yookassa_shop_id,
-                    )
-                    observation = extract_refund_observation(candidate, scope=scope)
-                    reconcile_status = await record_observed_refund(
-                        db, workspace_id=event.workspace_id, observation=observation
-                    )
-                    stored.state = "reconciled" if reconcile_status in {"inserted", "duplicate"} else "reconciliation_gap"
-                    await db.commit()
-                except (ProviderObservationError, YooKassaConfigurationError, YooKassaProviderError, ValueError, httpx.HTTPError):
-                    await db.rollback()
-                    reconcile_status = "pending_reconciliation"
+            if stored is not None and result in {"accepted", "duplicate"}:
+                if stored.state not in {"reconciled", "reconciliation_gap"}:
+                    stored.state = "pending_reconciliation"
+                await db.commit()
     except (ValueError, IntegrityError):
         return JSONResponse(status_code=503, content={"status": "deferred_store_error"})
     request.app.state.billing_last_webhook_metadata = redacted_event_metadata(event)
-    return JSONResponse(status_code=202, content={"status": reconcile_status or result})
+    return JSONResponse(status_code=202, content={"status": result})

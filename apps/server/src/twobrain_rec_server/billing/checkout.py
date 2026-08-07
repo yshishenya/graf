@@ -40,5 +40,15 @@ def checkout_preview(*, plan_code: str, cycle: str, promo: PromoCode | None = No
     amount = plan.monthly_amount_minor if cycle == "month" else plan.annual_amount_minor
     if amount is None:
         raise ValueError("selected plan is not payable")
-    payable = apply_promo(amount_minor=amount, promo=promo, plan_code=plan_code, provider_floor_minor=provider_floor_minor) if promo else amount
+    payable = (
+        apply_promo(
+            amount_minor=amount,
+            promo=promo,
+            plan_code=plan_code,
+            provider_floor_minor=provider_floor_minor,
+            cycle=cycle,
+        )
+        if promo
+        else amount
+    )
     return CheckoutPreview(plan_code, cycle, amount, payable, promo.code if promo else None)

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from html import escape
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import func, select
 
@@ -22,6 +22,7 @@ from twobrain_rec_server.auth.email_delivery import (
     send_meeting_invitation,
 )
 from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+from twobrain_rec_server.billing.maintenance import reconcile_billing_maintenance
 from twobrain_rec_server.billing.notifications import (
     MANDATORY_NOTIFICATION_KINDS,
     BillingNotification,
@@ -29,9 +30,11 @@ from twobrain_rec_server.billing.notifications import (
     notification_copy,
 )
 from twobrain_rec_server.billing.operations import provider_key_is_expired
+from twobrain_rec_server.billing.webhook_reconciliation import reconcile_pending_webhook_events
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.models import (
+    AccountClosureRequest,
     BillingAuditEvent,
     BillingInvoice,
     BillingNotificationDelivery,
@@ -50,7 +53,10 @@ from twobrain_rec_server.db.tenant_context import (
     apply_tenant_scope,
 )
 from twobrain_rec_server.deletion.local_purge import reconcile_expired_local_purge_tasks
-from twobrain_rec_server.deletion.service import reconcile_deletion_purges
+from twobrain_rec_server.deletion.service import (
+    fanout_account_close_deletions,
+    reconcile_deletion_purges,
+)
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
 from twobrain_rec_server.outcomes.ai_service import (
@@ -74,6 +80,13 @@ from twobrain_rec_server.processing.submit import (
     submit_to_mediascribe,
 )
 from twobrain_rec_server.storage.minio_client import get_storage
+from twobrain_rec_server.workflows.billing_reconciliation_workflow import (
+    BILLING_RECONCILIATION_ACTIVITY_NAME,
+    BillingReconciliationWorkflow,
+    billing_reconciliation_task_queue,
+    start_billing_reconciliation_workflow,
+    validate_billing_reconciliation_payload,
+)
 from twobrain_rec_server.workflows.billing_renewal_workflow import (
     BILLING_RENEWAL_ACTIVITY_NAME,
     BillingRenewalWorkflow,
@@ -208,6 +221,28 @@ async def run_billing_renewal_reconciler(settings: Any, temporal_client: object)
             await asyncio.sleep(60)
     finally:
         await engine.dispose()
+
+
+async def run_billing_reconciliation_reconciler(settings: Any, temporal_client: object) -> None:
+    """Schedule one bounded maintenance workflow per five-minute UTC bucket."""
+    try:
+        while True:
+            bucket = datetime.now(UTC).replace(second=0, microsecond=0)
+            bucket = bucket.replace(minute=(bucket.minute // 5) * 5)
+            run_id = uuid5(NAMESPACE_URL, f"graf-billing-reconciliation:{bucket.isoformat()}")
+            try:
+                await start_billing_reconciliation_workflow(
+                    temporal_client=temporal_client,
+                    settings=settings,
+                    run_id=run_id,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("billing maintenance workflow scheduling failed")
+            await asyncio.sleep(300)
+    except asyncio.CancelledError:
+        raise
 
 
 async def run_billing_notification_reconciler(settings: Any) -> None:
@@ -348,6 +383,7 @@ async def run_account_closure_reconciler(settings: Any, temporal_client: object 
     """
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
+    storage = get_storage(settings)
     context = MaintenanceTenantContext(
         operation_name="billing_reconciliation",
         actor_id="graf-maintenance",
@@ -363,17 +399,89 @@ async def run_account_closure_reconciler(settings: Any, temporal_client: object 
                         db, now=datetime.now(UTC), limit=100
                     )
                 for request_id in request_ids:
-                    async with sessionmaker() as db:
-                        await apply_tenant_context(db, context)
-                        await finalize_account_close(
-                            db, request_id=request_id, now=datetime.now(UTC)
-                        )
-                        await db.commit()
+                    try:
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            request = await db.scalar(
+                                select(AccountClosureRequest)
+                                .where(AccountClosureRequest.id == request_id)
+                                .with_for_update()
+                            )
+                            if request is None or request.state not in {"scheduled", "blocked"}:
+                                continue
+                            # Account closure reuses the already-audited meeting
+                            # deletion path.  If storage or one purge is
+                            # unavailable, keep the close blocked and retry only
+                            # after an operator-visible reconciliation action.
+                            await fanout_account_close_deletions(
+                                db,
+                                workspace_id=request.workspace_id,
+                                storage=storage,
+                                temporal_client=temporal_client,
+                            )
+                            await finalize_account_close(
+                                db, request_id=request_id, now=datetime.now(UTC)
+                            )
+                            await db.commit()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.exception("account close finalization blocked")
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            blocked = await db.scalar(
+                                select(AccountClosureRequest)
+                                .where(AccountClosureRequest.id == request_id)
+                                .with_for_update()
+                            )
+                            if blocked is not None and blocked.state == "scheduled":
+                                blocked.state = "blocked"
+                                blocked.failure_reason = type(exc).__name__[:240]
+                                blocked.metadata_json = {
+                                    **(blocked.metadata_json or {}),
+                                    "blocked_reason": "meeting_deletion_fanout_failed",
+                                }
+                                await db.commit()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("account close reconciliation cycle failed")
             await asyncio.sleep(30)
+    finally:
+        close_storage = getattr(storage, "close", None)
+        if close_storage is not None:
+            close_storage()
+        await engine.dispose()
+
+
+async def run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[str, int | str]:
+    """Run one bounded billing maintenance pass; provider mutations are out of scope."""
+    from temporalio.exceptions import ApplicationError
+
+    try:
+        safe_payload = validate_billing_reconciliation_payload(payload)
+    except ValueError as exc:
+        raise ApplicationError(
+            "billing_reconciliation_payload_invalid",
+            type="BillingReconciliationInvalidPayload",
+            non_retryable=True,
+        ) from exc
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="graf-workflow-worker",
+        reason_category="billing_maintenance",
+        feature_area="billing",
+    )
+    try:
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            counters = await reconcile_billing_maintenance(db)
+            webhook_counters = await reconcile_pending_webhook_events(db, settings)
+            await db.commit()
+        return {"run_id": safe_payload["run_id"], **counters, **{f"webhook_{k}": v for k, v in webhook_counters.items()}}
     finally:
         await engine.dispose()
 
@@ -1645,6 +1753,9 @@ async def run_worker() -> None:
     billing_renewal_activity = activity.defn(name=BILLING_RENEWAL_ACTIVITY_NAME)(
         run_billing_renewal_activity
     )
+    billing_reconciliation_activity = activity.defn(name=BILLING_RECONCILIATION_ACTIVITY_NAME)(
+        run_billing_reconciliation_activity
+    )
     outcome_activities = [
         activity.defn(name="resolve_outcome_prompt_config_activity")(
             resolve_outcome_prompt_config_activity
@@ -1689,7 +1800,14 @@ async def run_worker() -> None:
         activities=[billing_renewal_activity],
         identity=f"{processing_worker_identity()}:billing-renewal",
     )
-    workers = [processing_worker, billing_renewal_worker]
+    billing_reconciliation_worker = Worker(
+        processing_client,
+        task_queue=billing_reconciliation_task_queue(settings),
+        workflows=[BillingReconciliationWorkflow],
+        activities=[billing_reconciliation_activity],
+        identity=f"{processing_worker_identity()}:billing-reconciliation",
+    )
+    workers = [processing_worker, billing_renewal_worker, billing_reconciliation_worker]
     if settings.outcome_generation_enabled:
         traced_client = await connect_temporal_client(
             settings,

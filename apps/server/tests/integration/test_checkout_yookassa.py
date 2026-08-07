@@ -8,6 +8,12 @@ from twobrain_rec_server.billing.provider_events import (
     WebhookInbox,
     parse_provider_event,
 )
+from twobrain_rec_server.billing.reconciliation import (
+    ObservationRecords,
+    ProviderScope,
+    extract_payment_observation,
+    extract_receipt_observation,
+)
 from twobrain_rec_server.billing.yookassa import YooKassaClient, YooKassaProviderError
 from twobrain_rec_server.config import Settings
 
@@ -85,3 +91,43 @@ def test_webhook_duplicate_and_malformed_events_fail_closed() -> None:
     assert inbox.accept(conflict) == "replay_conflict"
     with pytest.raises(ProviderEventError):
         parse_provider_event({"id": "event-2", "event": "payment.succeeded", "object": {}})
+
+
+def test_pending_timeout_can_be_reconciled_by_late_authoritative_success() -> None:
+    scope = ProviderScope(environment="test", shop_id="shop-1")
+    records = ObservationRecords()
+    pending = extract_payment_observation(
+        {
+            "id": "pay-late",
+            "status": "pending",
+            "amount": {"value": "790.00", "currency": "RUB"},
+            "created_at": "2026-08-07T12:00:00Z",
+        },
+        scope=scope,
+    )
+    succeeded = extract_payment_observation(
+        {
+            "id": "pay-late",
+            "status": "succeeded",
+            "amount": {"value": "790.00", "currency": "RUB"},
+            "created_at": "2026-08-07T12:00:00Z",
+        },
+        scope=scope,
+    )
+    assert records.record(pending, source="webhook", observed_at=pending.provider_created_at) == "inserted"
+    assert records.record(succeeded, source="poll", observed_at=succeeded.provider_created_at) == "updated"
+
+
+def test_receipt_observation_is_bound_to_the_same_payment_reference() -> None:
+    scope = ProviderScope(environment="test", shop_id="shop-1")
+    receipt = extract_receipt_observation(
+        {
+            "id": "receipt-pay-late",
+            "type": "payment",
+            "payment_id": "pay-late",
+            "status": "succeeded",
+            "registered_at": "2026-08-07T12:00:01Z",
+        },
+        scope=scope,
+    )
+    assert receipt.provider_parent_id == "pay-late"

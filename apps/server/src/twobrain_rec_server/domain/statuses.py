@@ -301,6 +301,7 @@ class DeletionRequestSource(StrEnum):
     OWNER = "owner"
     ADMIN = "admin"
     RETENTION_JOB = "retention_job"
+    ACCOUNT_CLOSE = "account_close"
 
 
 class DeletionReasonCode(StrEnum):
@@ -308,6 +309,7 @@ class DeletionReasonCode(StrEnum):
     RETENTION_EXPIRED = "retention_expired"
     POLICY_BLOCKED = "policy_blocked"
     RETRY = "retry"
+    ACCOUNT_CLOSE = "account_close"
 
 
 class DeletionArtifactClass(StrEnum):

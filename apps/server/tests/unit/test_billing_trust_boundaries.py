@@ -1,4 +1,12 @@
-from twobrain_rec_server.api.billing import MAX_BILLING_WEBHOOK_BYTES, _is_json_content_type
+from fastapi.routing import APIRoute
+
+from twobrain_rec_server.api.billing import (
+    MAX_BILLING_WEBHOOK_BYTES,
+    _is_json_content_type,
+)
+from twobrain_rec_server.api.billing import (
+    router as billing_router,
+)
 from twobrain_rec_server.billing.trial import require_trial_activation
 from twobrain_rec_server.billing.yookassa import is_allowed_confirmation_url
 
@@ -43,3 +51,13 @@ def test_billing_webhook_requires_json_content_type() -> None:
     assert _is_json_content_type("application/json; charset=utf-8")
     assert not _is_json_content_type("text/plain")
     assert not _is_json_content_type(None)
+
+
+def test_billing_webhook_has_explicit_provider_environment_route() -> None:
+    paths = {
+        route.path
+        for route in billing_router.routes
+        if isinstance(route, APIRoute)
+    }
+    assert "/api/v1/billing/providers/yookassa/webhook/{environment}" in paths
+    assert "/api/v1/billing/webhook" in paths

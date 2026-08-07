@@ -47,6 +47,14 @@ def test_transient_media_hard_lifetime_cuts_off_stuck_processing() -> None:
     assert processing.purge_reason(cutoff) == "hard_lifetime_24_hours"
 
 
+def test_transient_media_hard_lifetime_wins_over_a_late_terminal_purge_deadline() -> None:
+    admission = admit_transient_media(now=NOW, source_bytes=1_000, archive_requested=False)
+    terminal = admission.processing_started().mark_terminal(NOW + timedelta(hours=23, minutes=59))
+
+    assert terminal.purge_deadline == NOW + TRANSIENT_HARD_LIFETIME
+    assert terminal.purge_reason(NOW + TRANSIENT_HARD_LIFETIME) == "hard_lifetime_24_hours"
+
+
 def test_source_retention_waits_for_both_import_and_playback_gates() -> None:
     imported = NOW + timedelta(hours=1)
     verified = NOW + timedelta(hours=2)

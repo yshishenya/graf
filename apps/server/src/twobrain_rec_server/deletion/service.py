@@ -405,6 +405,74 @@ async def lifecycle_for_meeting(*, meeting: Meeting) -> DeletionState:
     return DeletionState(meeting.deletion_state or DeletionState.NONE.value)
 
 
+async def fanout_account_close_deletions(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    storage: object | None,
+    temporal_client: object | None = None,
+    limit: int = 500,
+) -> tuple[UUID, ...]:
+    """Start the existing meeting-deletion workflow for account finalization.
+
+    Account close must not invent a second purge implementation.  This helper
+    snapshots eligible meeting ids, then delegates each row to the same
+    tombstone/quota-release/object-purge path used by owner deletion.  A
+    storage adapter is required so an unavailable object-store fails closed
+    before the account-close request can be marked complete.
+    """
+
+    batch_size = max(1, min(limit, 1000))
+    accepted: list[UUID] = []
+    storage_checked = False
+    while True:
+        meeting_ids = tuple(
+            await db.scalars(
+                select(Meeting.id)
+                .where(
+                    Meeting.workspace_id == workspace_id,
+                    Meeting.deleted_at.is_(None),
+                    or_(
+                        Meeting.deletion_state.is_(None),
+                        Meeting.deletion_state == DeletionState.NONE.value,
+                    ),
+                )
+                .order_by(Meeting.created_at, Meeting.id)
+                .limit(batch_size)
+            )
+        )
+        if not meeting_ids:
+            break
+        if not storage_checked:
+            _ensure_storage_delete_capability(storage)
+            storage_checked = True
+        for meeting_id in meeting_ids:
+            meeting = await db.scalar(
+                select(Meeting)
+                .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
+                .with_for_update()
+            )
+            if meeting is None or meeting.deleted_at is not None or (
+                meeting.deletion_state or DeletionState.NONE.value
+            ) != DeletionState.NONE.value:
+                continue
+            await request_meeting_deletion(
+                db,
+                meeting=meeting,
+                actor_user_id=None,
+                device_id=None,
+                confirmation_boundary=BOUNDED_DELETE_COPY,
+                request_source=DeletionRequestSource.ACCOUNT_CLOSE,
+                reason_code=DeletionReasonCode.ACCOUNT_CLOSE,
+                storage=storage,
+                temporal_client=temporal_client,
+            )
+            accepted.append(meeting_id)
+        if len(meeting_ids) < batch_size:
+            break
+    return tuple(accepted)
+
+
 async def retry_meeting_deletion(
     db: AsyncSession,
     *,

@@ -15,10 +15,13 @@
       {% elif result == "unavailable" %}<p class="notice" role="alert">Управление подпиской сейчас недоступно.</p>{% endif %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-subscription-state-title">
         <h2 id="billing-subscription-state-title">{{ subscription.plan_code if subscription else "Бесплатный" }}</h2>
+        {% if subscription and (subscription.renewal_resolution|default(None)) in ["pending", "unknown", "provider_key_expired", "late_success"] %}
+        <p class="notice" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаём. Если подтверждения не будет, доступ сразу перейдёт на бесплатный тариф.</p>
+        {% endif %}
         {% if active %}
         <p>Оплачено до: <strong>{{ subscription.paid_through }}</strong>.</p>
         {% if subscription.recurring_allowed %}
-        <p>Следующее списание будет выполнено по сохранённому способу оплаты.</p>
+        <p>Следующее списание: <strong>{{ subscription.paid_through }}</strong> по сохранённому способу оплаты.</p>
         <p class="muted">Если передумаете, автопродление можно включить снова до даты окончания доступа.</p>
         <form action="/billing/subscription/cancel" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button quiet" type="submit">Отключить автопродление</button></form>
         {% else %}
@@ -26,7 +29,7 @@
         <p class="muted">Возобновление не создаёт новый платёж: оно разрешает следующее списание после текущего оплаченного периода.</p>
         <form action="/billing/subscription/resume" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button" type="submit">Возобновить автопродление</button></form>
         {% endif %}
-        {% else %}<p>Активной платной подписки нет. После окончания оплаченного периода доступ сразу переходит на бесплатный тариф.</p><a class="button" href="/billing/checkout">Выбрать тариф</a>{% endif %}
+        {% else %}<p>Активной платной подписки нет. После окончания оплаченного периода доступ сразу переходит на бесплатный тариф.</p><p>Следующее списание: <strong>не запланировано</strong>.</p><a class="button" href="/billing/checkout">Выбрать тариф</a>{% endif %}
       </section>
       <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
       <a class="button quiet" href="/billing">Вернуться к тарифу и оплате</a>

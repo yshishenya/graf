@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import Request
@@ -14,7 +14,11 @@ from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
-from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
+from twobrain_rec_server.billing.referrals import (
+    REFERRAL_TOKEN_MAX_AGE_DAYS,
+    referral_token_hash,
+    validate_referral_token,
+)
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
@@ -89,6 +93,12 @@ async def _bind_referral_attribution(
             )
             .with_for_update()
         )
+        touched_at = attribution.first_touched_at if attribution is not None else None
+        if touched_at is not None:
+            if touched_at.tzinfo is None or touched_at.utcoffset() is None:
+                return False
+            if now - touched_at.astimezone(UTC) > timedelta(days=REFERRAL_TOKEN_MAX_AGE_DAYS):
+                return False
         if attribution is None or attribution.inviter_user_id == user_id:
             return False
         attribution.invitee_user_id = user_id

@@ -35,6 +35,7 @@ type TenantRequestContextKind = Literal["request", "worker"]
 type WorkspaceAuthContextKind = Literal["auth_public", "auth_bootstrap"]
 type AuthSessionLookupContextKind = Literal["auth_session_lookup"]
 type AuthCallbackLookupContextKind = Literal["auth_callback_lookup"]
+type AuthReferralLookupContextKind = Literal["auth_referral_lookup"]
 type ShareInvitationLookupContextKind = Literal["share_invitation_lookup"]
 type SharedWithMeLookupContextKind = Literal["shared_with_me_lookup"]
 type MaintenanceContextKind = Literal["maintenance"]
@@ -174,6 +175,22 @@ class AuthCallbackLookupContext:
 
 
 @dataclass(frozen=True, slots=True)
+class AuthReferralLookupContext:
+    """Single-token signup lookup; never grants general cross-workspace reads."""
+
+    workspace_id: UUID
+    user_id: UUID
+    token_hash: str
+    context_kind: AuthReferralLookupContextKind = "auth_referral_lookup"
+
+    def __post_init__(self) -> None:
+        if self.context_kind != "auth_referral_lookup":
+            raise ValueError(f"Unsupported auth_referral_lookup context_kind: {self.context_kind}")
+        if len(self.token_hash) != 64 or any(char not in "0123456789abcdef" for char in self.token_hash):
+            raise ValueError("referral token hash must be lowercase hex")
+
+
+@dataclass(frozen=True, slots=True)
 class ShareInvitationLookupContext:
     workspace_id: UUID
     continuation_nonce: str
@@ -272,6 +289,15 @@ def auth_callback_lookup_settings(context: AuthCallbackLookupContext) -> dict[st
     }
 
 
+def auth_referral_lookup_settings(context: AuthReferralLookupContext) -> dict[str, str]:
+    return {
+        "app.context_kind": context.context_kind,
+        "app.workspace_id": str(context.workspace_id),
+        "app.user_id": str(context.user_id),
+        "app.referral_token_hash": context.token_hash,
+    }
+
+
 def share_invitation_lookup_settings(
     context: ShareInvitationLookupContext,
 ) -> dict[str, str]:
@@ -297,6 +323,7 @@ async def apply_tenant_context(
         | AuthSessionLookupContext
         | WorkspaceAuthContext
         | AuthCallbackLookupContext
+        | AuthReferralLookupContext
         | ShareInvitationLookupContext
         | SharedWithMeLookupContext
     ),
@@ -311,6 +338,8 @@ async def apply_tenant_context(
         settings = workspace_auth_context_settings(context)
     elif isinstance(context, AuthCallbackLookupContext):
         settings = auth_callback_lookup_settings(context)
+    elif isinstance(context, AuthReferralLookupContext):
+        settings = auth_referral_lookup_settings(context)
     elif isinstance(context, ShareInvitationLookupContext):
         settings = share_invitation_lookup_settings(context)
     else:
@@ -334,6 +363,7 @@ async def apply_tenant_context_to_connection(
         | AuthSessionLookupContext
         | WorkspaceAuthContext
         | AuthCallbackLookupContext
+        | AuthReferralLookupContext
         | ShareInvitationLookupContext
         | SharedWithMeLookupContext
     ),
@@ -348,6 +378,8 @@ async def apply_tenant_context_to_connection(
         settings = workspace_auth_context_settings(context)
     elif isinstance(context, AuthCallbackLookupContext):
         settings = auth_callback_lookup_settings(context)
+    elif isinstance(context, AuthReferralLookupContext):
+        settings = auth_referral_lookup_settings(context)
     elif isinstance(context, ShareInvitationLookupContext):
         settings = share_invitation_lookup_settings(context)
     else:

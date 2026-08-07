@@ -1,7 +1,9 @@
+import inspect
 from uuid import uuid4
 
 import pytest
 
+from twobrain_rec_server.api.billing import SUPPORTED_PROVIDER_EVENTS, _handle_billing_webhook
 from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
     WebhookInbox,
@@ -53,3 +55,16 @@ def test_webhook_parser_binds_workspace_only_from_provider_metadata() -> None:
         }
     )
     assert event.workspace_id == workspace_id
+
+
+def test_webhook_request_path_only_persists_signal_and_defers_provider_reads() -> None:
+    source = inspect.getsource(_handle_billing_webhook)
+
+    assert "pending_reconciliation" in source
+    assert "get_payment" not in source
+    assert "list_refunds" not in source
+    assert "grant_confirmed_payment" not in source
+
+
+def test_payment_method_active_is_observed_without_granting_authority() -> None:
+    assert "payment_method.active" in SUPPORTED_PROVIDER_EVENTS

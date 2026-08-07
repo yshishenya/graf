@@ -62,3 +62,45 @@ def test_free_ledger_commits_partial_success_without_rounding_or_rollover() -> N
     assert reservation.remaining_seconds == 55
     assert ledger.commit("partial", [SourceRange("track", 10, 30)]) == 0
     assert ledger.committed_seconds == 45
+
+
+def test_free_ledger_release_after_partial_success_preserves_only_committed_seconds() -> None:
+    ledger = FreeUsageLedger.for_moment(datetime(2026, 8, 6, 12, tzinfo=UTC))
+    reservation = ledger.reserve("partial-release", 100)
+
+    assert ledger.commit("partial-release", [SourceRange("track", 0, 40)]) == 40
+    ledger.release("partial-release")
+
+    assert reservation.state == "released"
+    assert reservation.committed_seconds == 40
+    assert reservation.remaining_seconds == 60
+    assert ledger.committed_seconds == 40
+    assert ledger.remaining_seconds == FREE_PROCESSING_SECONDS - 40
+
+
+def test_free_ledger_deduplicates_overlapping_ranges_but_not_distinct_sources() -> None:
+    ledger = FreeUsageLedger.for_moment(datetime(2026, 8, 6, 12, tzinfo=UTC))
+    ledger.reserve("overlap", 150)
+
+    assert ledger.commit(
+        "overlap",
+        [
+            SourceRange("track-a", 0, 60),
+            SourceRange("track-a", 30, 90),
+            SourceRange("track-b", 0, 60),
+        ],
+    ) == 150
+    assert ledger.committed_seconds == 150
+
+
+def test_free_ledger_reset_starts_a_new_moscow_window_without_rollover() -> None:
+    last_second = datetime(2026, 8, 31, 20, 59, 59, tzinfo=UTC)
+    first_second = last_second + timedelta(seconds=1)
+    previous = FreeUsageLedger.for_moment(last_second)
+    previous.reserve("august", 60)
+    previous.commit("august", [SourceRange("track", 0, 60)])
+    next_window = FreeUsageLedger.for_moment(first_second)
+
+    assert next_window.window_start > previous.window_start
+    assert next_window.committed_seconds == 0
+    assert next_window.remaining_seconds == FREE_PROCESSING_SECONDS

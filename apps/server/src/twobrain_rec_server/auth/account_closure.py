@@ -22,7 +22,7 @@ from twobrain_rec_server.db.models import (
 
 ACCOUNT_CLOSE_COOLING_DAYS = 7
 ACCOUNT_CLOSE_POLICY_VERSION = "account-close-v1"
-ACTIVE_CLOSURE_STATES = frozenset(("scheduled", "finalizing"))
+ACTIVE_CLOSURE_STATES = frozenset(("scheduled", "finalizing", "blocked"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +85,7 @@ def close_view(request: AccountClosureRequest, *, now: datetime) -> AccountClose
         requested_at=_utc(request.requested_at),
         finalize_at=_utc(request.finalize_at),
         policy_version=request.policy_version,
-        can_cancel=request.state == "scheduled" and now_utc < _utc(request.finalize_at),
+        can_cancel=request.state in {"scheduled", "blocked"} and now_utc < _utc(request.finalize_at),
     )
 
 
@@ -149,7 +149,7 @@ async def cancel_account_close(
         .where(
             AccountClosureRequest.workspace_id == workspace_id,
             AccountClosureRequest.requested_by_user_id == user_id,
-            AccountClosureRequest.state == "scheduled",
+            AccountClosureRequest.state.in_(("scheduled", "blocked")),
         )
         .order_by(AccountClosureRequest.requested_at.desc())
         .with_for_update()
@@ -251,7 +251,7 @@ async def list_due_account_closures(
     rows = await db.scalars(
         select(AccountClosureRequest.id)
         .where(
-            AccountClosureRequest.state == "scheduled",
+            AccountClosureRequest.state.in_(("scheduled", "blocked")),
             AccountClosureRequest.finalize_at <= _utc(now),
         )
         .order_by(AccountClosureRequest.finalize_at, AccountClosureRequest.id)

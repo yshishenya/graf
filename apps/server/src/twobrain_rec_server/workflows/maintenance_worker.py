@@ -10,6 +10,7 @@ from twobrain_rec_server.workflows.temporal_client import connect_temporal_clien
 from twobrain_rec_server.workflows.worker import (
     run_account_closure_reconciler,
     run_billing_notification_reconciler,
+    run_billing_reconciliation_reconciler,
     run_billing_renewal_reconciler,
     run_deletion_purge_reconciler,
     run_dispatch_reconciler,
@@ -25,6 +26,7 @@ async def run_maintenance_worker() -> None:
     tasks = [
         asyncio.create_task(run_account_closure_reconciler(settings, temporal_client)),
         asyncio.create_task(run_billing_renewal_reconciler(settings, temporal_client)),
+        asyncio.create_task(run_billing_reconciliation_reconciler(settings, temporal_client)),
         asyncio.create_task(run_billing_notification_reconciler(settings)),
         asyncio.create_task(run_deletion_purge_reconciler(settings, temporal_client)),
         asyncio.create_task(run_legacy_processing_lineage_reconciler(settings)),

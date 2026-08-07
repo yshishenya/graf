@@ -10,7 +10,7 @@
           <div><dt>Сумма</dt><dd>{{ invoice.amount_label }}</dd></div>
           <div><dt>Период</dt><dd>{{ invoice.cycle_label }}</dd></div>
           <div><dt>Статус</dt><dd>{{ invoice.status }}</dd></div>
-          <div><dt>Чек</dt><dd>{{ invoice.receipt_label }}</dd></div>
+          <div><dt>Чек</dt><dd>{% if invoice.receipt_url %}<a href="{{ invoice.receipt_url }}" rel="noopener noreferrer">Открыть чек</a>{% else %}{{ invoice.receipt_label }}{% endif %}</dd></div>
         </dl>
         <div class="settings-actions">
           <button class="button quiet" type="button" data-copy-value="{{ invoice.safe_number }}">Скопировать номер платежа</button>

@@ -28,6 +28,7 @@ from twobrain_rec_server.billing.promotions import (
     PromoCode,
     PromoError,
     check_eligibility,
+    choose_best_discount,
     promo_code_hash,
 )
 from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
@@ -69,6 +70,11 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
+)
+from twobrain_rec_server.db.tenant_context import (
+    WorkspaceAuthContext,
+    apply_tenant_context,
+    apply_tenant_scope,
 )
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
@@ -626,22 +632,46 @@ async def start_billing_checkout(
                 )
             except (PromoError, ValueError):
                 return RedirectResponse("/billing/checkout?result=promo_invalid", status_code=303)
-        referral_discount = False
-        if promo is None:
+        # Referral attribution belongs to the inviter's workspace, while the
+        # invitee is now paying from a different personal workspace. Use the
+        # narrowly-scoped auth-public RLS lookup for this one read, then restore
+        # the request tenant context before any billing mutation.
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(workspace_id=tenant_scope.workspace_id, user_id=principal.user_id),
+        )
+        try:
             referred = await db.scalar(
                 select(ReferralAttribution).where(
-                    # ponytail: do not broaden tenant reads until token-hash
-                    # scoped auth-public RLS is available.
-                    ReferralAttribution.workspace_id == tenant_scope.workspace_id,
                     ReferralAttribution.invitee_user_id == principal.user_id,
                     ReferralAttribution.state == "bound",
-                ).with_for_update()
+                )
             )
-            if referred is not None and referred.inviter_user_id != principal.user_id:
-                # System benefit, not an operator campaign: it cannot stack with
-                # a configured promo and is recorded only in the invoice snapshot.
-                promo = PromoCode("REFERRAL_INTRO", 10, "personal", 1, campaign_version="referral-v1")
-                referral_discount = True
+        finally:
+            await apply_tenant_scope(db, tenant_scope)
+        referral_candidate = (
+            PromoCode("REFERRAL_INTRO", 10, "personal", 1, campaign_version="referral-v1")
+            if referred is not None and referred.inviter_user_id != principal.user_id
+            else None
+        )
+        # Exactly one discount may reach the immutable invoice.  Prefer the
+        # lower payable amount and keep configured-promo first for deterministic
+        # tie handling; the DB reservation is created only for the winner.
+        candidates = tuple(candidate for candidate in (promo, referral_candidate) if candidate is not None)
+        chosen, _ = choose_best_discount(
+            amount_minor=(plan_descriptor("personal").monthly_amount_minor if cycle == "month" else plan_descriptor("personal").annual_amount_minor) or 0,
+            plan_code="personal",
+            cycle=cycle,
+            provider_floor_minor=settings.billing_provider_floor_minor,
+            candidates=candidates,
+        )
+        configured_promo = promo
+        promo = chosen
+        if configured_promo is not promo:
+            # A referral winner has no PromotionCampaign row and must never
+            # create a redemption against the entered campaign.
+            promo_campaign = None
+        referral_discount = promo is referral_candidate and referral_candidate is not None
         preview = checkout_preview(
             plan_code="personal",
             cycle=cycle,
@@ -689,6 +719,7 @@ async def start_billing_checkout(
                 "payable_amount_minor": preview.payable_amount_minor,
                 "promo_code_hash": promo_code_hash(promo.code) if promo is not None else None,
                 "referral_discount": referral_discount,
+                "discount_source": "referral" if referral_discount else ("promo" if promo is not None else None),
                 "recurring_consent": True,
                 "billing_actor_user_id": str(principal.user_id),
                 "offer_version": "billing-personal-v1",
@@ -708,6 +739,7 @@ async def start_billing_checkout(
                 "promo_code_hash": promo_code_hash(promo.code) if promo is not None else None,
                 "campaign_version": promo.campaign_version if promo is not None else None,
                 "referral_discount": referral_discount,
+                "discount_source": "referral" if referral_discount else ("promo" if promo is not None else None),
                 "recurring_consent": True,
                 "billing_actor_user_id": str(principal.user_id),
                 "offer_version": "billing-personal-v1",
@@ -855,6 +887,9 @@ async def billing_invoice_detail_page(
         receipt_state = ReceiptState(receipt_value) if isinstance(receipt_value, str) else ReceiptState.UNKNOWN
     except ValueError:
         receipt_state = ReceiptState.UNKNOWN
+    receipt_url = snapshot.get("receipt_url")
+    if not is_allowed_confirmation_url(receipt_url):
+        receipt_url = None
     refund_mailto = None
     support_email = request.app.state.settings.billing_support_email
     if support_email:
@@ -879,6 +914,7 @@ async def billing_invoice_detail_page(
             "status": invoice.status,
             "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
             "receipt_label": receipt_label(receipt_state),
+            "receipt_url": receipt_url,
             "refund_mailto": refund_mailto,
         },
         support_email=support_email,

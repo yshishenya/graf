@@ -8,7 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
-from twobrain_rec_server.billing.referrals import create_referral_token, referral_token_hash
+from twobrain_rec_server.billing.referrals import (
+    create_referral_token,
+    referral_token_hash,
+    validate_referral_token,
+)
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.cabinet.web_routes.support import (
@@ -53,7 +57,12 @@ async def referrals_page(
                 )
             )
             await db.commit()
-    link = f"{str(request.base_url).rstrip('/')}/referral/{token}" if token else ""
+    public_base_url = getattr(request.app.state.settings, "public_base_url", None)
+    link = (
+        f"{str(public_base_url).rstrip('/')}/referral/{token}"
+        if token and public_base_url is not None and getattr(public_base_url, "scheme", None) == "https"
+        else ""
+    )
     content = _page_shell(
         "Пригласить друзей",
         embedded=False,
@@ -75,7 +84,9 @@ async def referrals_page(
 
 @router.get("/referral/{token}", include_in_schema=False)
 async def referral_landing(token: str) -> RedirectResponse:
-    if not token.startswith("r1_") or len(token) != 67:
+    try:
+        validate_referral_token(token)
+    except ValueError:
         return RedirectResponse("/sign-up?error=referral_invalid", status_code=303)
     response = RedirectResponse("/sign-up?next=/meetings", status_code=303)
     response.set_cookie("graf_referral_token", token, max_age=60 * 60 * 24 * 30, httponly=True, samesite="lax", secure=True)

@@ -25,7 +25,9 @@ POST success follows POST/Redirect/GET. A stale preview/version returns `409 sta
 
 ## Provider endpoint
 
-`POST /api/v1/billing/providers/yookassa/webhook/{environment}` accepts only provider traffic, bounded size/type/event/object id, writes dedupe inbox and returns quickly. It never renders tenant data or performs entitlement activation from the body.
+`POST /api/v1/billing/providers/yookassa/webhook/{environment}` accepts only provider traffic, bounded size/type/event/object id, writes the durable dedupe inbox and returns quickly. A five-minute Temporal reconciliation activity performs the authenticated provider GET/list and projection outside the request path. It never renders tenant data or performs entitlement activation from the body.
+
+`payment_method.active` is accepted as an observation signal only; recurring authority is granted from an authoritative payment GET with a saved bank-card method. Replacement remains disabled until the real-shop zero-amount binding gate is proven.
 
 ## Read API for desktop
 

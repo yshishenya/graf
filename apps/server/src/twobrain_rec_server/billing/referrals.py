@@ -8,6 +8,35 @@ from uuid import UUID
 
 REFERRER_CAP_DAYS = 180
 MATURITY_DAYS = 14
+REFERRAL_TOKEN_MAX_AGE_DAYS = 30
+
+
+@dataclass(frozen=True, slots=True)
+class ReferralRiskSignals:
+    """Non-decisive abuse signals; raw identity/network values never persist."""
+
+    same_device: bool = False
+    same_payment_profile: bool = False
+    same_email_domain: bool = False
+    same_ip: bool = False
+    velocity_count: int = 0
+
+    def __post_init__(self) -> None:
+        if self.velocity_count < 0:
+            raise ValueError("referral velocity cannot be negative")
+
+
+def classify_referral_risk(signals: ReferralRiskSignals) -> str:
+    """Return a bounded review signal, never an automatic entitlement denial."""
+    matches = sum(
+        (
+            signals.same_device,
+            signals.same_payment_profile,
+            signals.same_email_domain,
+            signals.same_ip,
+        )
+    )
+    return "review" if matches >= 2 or signals.velocity_count >= 5 else "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +58,15 @@ def referral_token_hash(token: str) -> str:
     if not normalized or len(normalized) > 240:
         raise ValueError("referral token is invalid")
     return sha256(normalized.encode()).hexdigest()
+
+
+def validate_referral_token(token: str) -> str:
+    """Validate the public opaque-token shape before hashing or setting cookies."""
+    if not isinstance(token, str) or len(token) != 67 or not token.startswith("r1_"):
+        raise ValueError("referral token is invalid")
+    if any(not char.isascii() or not (char.isalnum() or char == "_") for char in token[3:]):
+        raise ValueError("referral token is invalid")
+    return token
 
 
 def first_payment_reward(*, paid_at: datetime, cycle: str) -> ReferralReward:

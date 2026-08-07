@@ -22,6 +22,7 @@ from twobrain_rec_server.billing.storage import (
 def test_storage_projection_uses_exact_decimal_capacities_and_thresholds() -> None:
     projection = StorageProjection(used_bytes=1_600_000_000, reserved_bytes=0, capacity_bytes=PERSONAL_STORAGE_BYTES)
     assert projection.threshold == "80%"
+    assert StorageProjection(used_bytes=1_900_000_000, reserved_bytes=0, capacity_bytes=PERSONAL_STORAGE_BYTES).threshold == "95%"
     assert classify_storage_threshold(used_bytes=PERSONAL_STORAGE_BYTES, capacity_bytes=PERSONAL_STORAGE_BYTES) == "full"
     assert storage_capacity_bytes("personal", ADDON_CAPACITY_BYTES[0]) == ADDON_CAPACITY_BYTES[0]
 
@@ -46,6 +47,21 @@ def test_storage_reservation_release_is_idempotent_and_capacity_validation_is_fa
     assert reservation.state == "released"
     with pytest.raises(ValueError):
         StorageProjection(used_bytes=0, reserved_bytes=0, capacity_bytes=0)
+
+
+def test_storage_admission_allows_exact_boundary_after_reserved_bytes() -> None:
+    projection = StorageProjection(used_bytes=179, reserved_bytes=20, capacity_bytes=200)
+    admit_storage(projection, 1)
+    with pytest.raises(StorageAdmissionError):
+        admit_storage(projection, 2)
+
+
+def test_storage_commit_records_verified_smaller_object_without_rounding() -> None:
+    reservation = StorageReservation("verified-smaller", declared_bytes=100)
+
+    assert commit_object_bytes(reservation=reservation, actual_bytes=73) == 73
+    assert reservation.committed_bytes == 73
+    assert reservation.state == "committed"
 
 
 def test_only_active_canonical_playback_object_counts_toward_customer_quota() -> None:

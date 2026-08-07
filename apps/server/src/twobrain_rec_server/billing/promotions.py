@@ -7,6 +7,7 @@ module never invents a live campaign or stores a raw code in an event payload.
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -120,12 +121,23 @@ def check_eligibility(
     return PromoEligibility(normalized, promo_code_hash(normalized), promo.discount_percent, promo.campaign_version)
 
 
-def apply_promo(*, amount_minor: int, promo: PromoCode, plan_code: str, provider_floor_minor: int) -> int:
+def apply_promo(
+    *,
+    amount_minor: int,
+    promo: PromoCode,
+    plan_code: str,
+    provider_floor_minor: int,
+    cycle: str | None = None,
+) -> int:
     if amount_minor <= 0 or provider_floor_minor <= 0:
         raise PromoError("Сумма платежа недоступна", code="promo_invalid")
     # Keep the historical helper deterministic; window/cap checks belong to
     # check_eligibility where the authoritative clock and counters are known.
-    if promo.plan_code != plan_code or promo.redeemed >= promo.max_redemptions:
+    if (
+        promo.plan_code != plan_code
+        or promo.redeemed >= promo.max_redemptions
+        or (promo.cycle is not None and cycle is not None and promo.cycle != cycle)
+    ):
         raise PromoError("Промокод недоступен для этого тарифа", code="promo_not_eligible")
     if not 1 <= promo.discount_percent <= 99:
         raise PromoError("Промокод имеет неверные условия", code="promo_invalid")
@@ -133,6 +145,42 @@ def apply_promo(*, amount_minor: int, promo: PromoCode, plan_code: str, provider
     if discounted < provider_floor_minor:
         raise PromoError("Скидка не может примениться к минимальной сумме платежа", code="provider_floor")
     return discounted
+
+
+def choose_best_discount(
+    *,
+    amount_minor: int,
+    plan_code: str,
+    cycle: str,
+    provider_floor_minor: int,
+    candidates: Sequence[PromoCode],
+) -> tuple[PromoCode | None, int]:
+    """Choose one eligible discount without allowing promo stacking.
+
+    The checkout route still performs the authoritative DB reservation.  This
+    helper only makes the deterministic price-selection rule explicit: the
+    candidate producing the lowest payable amount wins, ties preserve the
+    caller's order (configured promo before the system referral candidate).
+    Candidates that do not apply to the selected cycle or fall below the
+    provider floor are ignored; an empty result means list price.
+    """
+    if amount_minor <= 0:
+        raise PromoError("Сумма платежа недоступна", code="promo_invalid")
+    best: tuple[PromoCode, int] | None = None
+    for candidate in candidates:
+        try:
+            payable = apply_promo(
+                amount_minor=amount_minor,
+                promo=candidate,
+                plan_code=plan_code,
+                provider_floor_minor=provider_floor_minor,
+                cycle=cycle,
+            )
+        except PromoError:
+            continue
+        if best is None or payable < best[1]:
+            best = (candidate, payable)
+    return (best if best is not None else (None, amount_minor))
 
 
 def reserve_promo(
@@ -152,6 +200,7 @@ def reserve_promo(
         promo=promo,
         plan_code=promo.plan_code,
         provider_floor_minor=provider_floor_minor,
+        cycle=promo.cycle,
     )
     return PromoReservation(reservation_key, workspace_id, eligibility.code_hash, list_amount_minor, payable)
 

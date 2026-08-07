@@ -8,6 +8,7 @@ from twobrain_rec_server.billing.promotions import (
     PromoError,
     apply_promo,
     check_eligibility,
+    choose_best_discount,
     normalize_promo,
     promo_code_hash,
     reserve_promo,
@@ -69,4 +70,30 @@ def test_promo_rejects_cyrillic_confusable_and_zero_total() -> None:
             promo=PromoCode("SAVE99", 99, "personal", 1),
             plan_code="personal",
             provider_floor_minor=2,
+        )
+
+
+def test_one_discount_chooses_the_lowest_payable_amount_without_stacking() -> None:
+    configured = PromoCode("SAVE5", 5, "personal", 1)
+    referral = PromoCode("REFERRAL_INTRO", 10, "personal", 1)
+    chosen, payable = choose_best_discount(
+        amount_minor=79_000,
+        plan_code="personal",
+        cycle="month",
+        provider_floor_minor=100,
+        candidates=(configured, referral),
+    )
+    assert chosen == referral
+    assert payable == 71_100
+
+
+def test_cycle_scoped_promo_cannot_be_reused_for_another_period() -> None:
+    promo = PromoCode("YEARONLY", 10, "personal", 1, cycle="year")
+    with pytest.raises(PromoError, match="тарифа"):
+        apply_promo(
+            amount_minor=790_000,
+            promo=promo,
+            plan_code="personal",
+            cycle="month",
+            provider_floor_minor=100,
         )
