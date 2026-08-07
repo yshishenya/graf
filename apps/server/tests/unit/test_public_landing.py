@@ -43,7 +43,7 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert response.text.count('href="/download"') >= 2
     assert "Скачать GRAF" in response.text
     assert 'href="#how"' in response.text
-    assert 'href="/login?next=/meetings"' in response.text
+    assert response.text.count('href="/login?next=/meetings"') >= 2
     assert 'href="/sign-up?next=/meetings"' not in response.text
     assert "Посмотреть продукт" in response.text
     assert 'id="hero-proof-transcript"' in response.text
@@ -155,9 +155,8 @@ def test_public_landing_analytics_attributes_do_not_change_cta_destinations(clie
     assert 'data-analytics-cta="header_download"' in response.text
     assert 'data-analytics-cta="hero_download"' in response.text
     assert 'data-analytics-cta="final_download"' in response.text
-    assert 'href="#how"' in response.text
-    assert 'data-analytics-cta="hero_product"' in response.text
-    assert 'data-analytics-target="section"' in response.text
+    assert 'data-analytics-cta="hero_login"' in response.text
+    assert 'data-analytics-target="login"' in response.text
     assert response.text.count('href="/login?next=/meetings"') >= 1
     assert response.text.count('data-analytics-target="login"') >= 1
     assert 'data-analytics-cta="final_login"' in response.text
