@@ -73,7 +73,8 @@
 
 ## Initial Audit Result
 
-- Закрыто требованиями: 37/40.
+- Закрыто требованиями: 37/40; 3 пункта остаются launch-blocking до внешней
+  product-market валидации.
 - Открыто: CHK001, CHK002, CHK009.
 - Ключевой вывод: transaction/trust/IA requirements и measurement contract взаимно согласованы; public-launch readiness = **BLOCKED**, потому что ещё не подтверждены первичный сегмент/JTBD, ценностная иерархия и dated target-segment/WTP evidence для упаковки.
 - Closeout mapping: T084 закрывает CHK001–CHK002; T085 — CHK009; T086 закрывает CHK025/CHK035/CHK036/CHK040; T087 — CHK013 и cross-artifact recheck.
