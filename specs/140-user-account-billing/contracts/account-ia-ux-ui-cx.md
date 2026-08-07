@@ -44,6 +44,15 @@ Account pages are user-scoped. Billing pages show a workspace switcher/header an
 - Destructive/financial confirmations are server-rendered, CSRF-protected and re-check role/state. Browser back/reload is safe and idempotent.
 - Base cycle changes apply next period with no hidden proration. Storage capacity upgrades are the sole launch mid-cycle proration: positive difference to shared anchor; downgrade/removal next period. Renewal unknown blocks a new money operation.
 - Every billing page places the shared `Нужна помощь с оплатой?` link directly after the main status/action panel. Checkout/provider accessibility failure adds `Не удаётся оплатить из-за доступности? Обратиться в поддержку` in the same location.
+- Contextual upgrade prompts are non-coercive and state the exact consequence:
+  Free at 80% says `Осталось N мин M сек до сброса {date}` with `Начать 7 дней бесплатно`
+  (eligible) or `Выбрать Личный`, plus `Подождать сброса`; Free at 100% keeps
+  `Обработать без сохранения аудио` and `Подождать сброса`; Trial T-3/T-1 shows
+  the exact end timestamp, `Выбрать Личный` and `Остаться на Free`; expired Trial
+  shows `Платный режим закончился` and the same two recovery choices; a blocked
+  archival job shows `Увеличить хранилище`, `Удалить старые записи` and
+  `Обработать без сохранения аудио`. No prompt hides deletion/export or disables
+  local Record/Stop.
 - `Написать письмо` opens the external mail client with configured address, subject `Возврат по платежу {safe_invoice_number}` and a short body containing only the safe invoice number plus reminders to describe the request and omit card data, provider ids, meeting links and content. No amount or alleged refund result is prefilled. If no mail client is available, the same block keeps `Скопировать email` and `Скопировать номер платежа` keyboard-accessible. The product does not show a sent/success state.
 - Toasts acknowledge noncritical saves; money/cancel/add-on results remain as persistent page status/timeline and live region. The external refund email action has no in-product submission/result confirmation.
 - Empty states explain why and give one next action. Errors state separately: money status, access status, pending work and next action.

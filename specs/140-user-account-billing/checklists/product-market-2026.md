@@ -27,7 +27,7 @@
 
 - [x] CHK011 Отделена ли registration от explicit once-per-verified-identity trial без карты, recurring consent и автосписания? [Trust, Spec §FR-022, SC-013]
 - [x] CHK012 Описаны ли trial eligibility, already-used, active, ending, expired, unverified и concurrent activation states с exact dates/timezone и one safe next action? [Coverage, Spec §US2, FR-022, IA Contract §Screen inventory]
-- [ ] CHK013 Определены ли контекстные upgrade requirements для Free 80%/100% processing quota, trial T-3/T-1/expiry и первого blocked archival job, включая exact CTA, обещание и non-coercive alternative? [Gap, Spec §FR-024, FR-070, FR-106, IA Contract §Usage and storage]
+- [x] CHK013 Определены ли контекстные upgrade requirements для Free 80%/100% processing quota, trial T-3/T-1/expiry и первого blocked archival job, включая exact CTA, обещание и non-coercive alternative? [IA Contract §Interaction rules]
 - [x] CHK014 Разделены ли activation value и payment conversion: trial даёт product value, а покупка всегда требует fresh price/consent summary? [Consistency, Spec §US2–US3, FR-031–FR-038]
 - [x] CHK015 Не превращаются ли promo/referral в обязательный onboarding step и отделены ли они от core account/capture journey? [IA, Spec §FR-010–FR-013, IA Contract §Navigation model]
 
@@ -45,7 +45,7 @@
 - [x] CHK022 Полны ли promo states и race requirements: valid, expired, ineligible, exhausted, reserved, concurrent redemption, stale preview и safe non-disclosing error? [Coverage, Spec §US7, FR-057–FR-059]
 - [x] CHK023 Раскрывает ли referrer screen до share полные 14-day maturity, 7/30 days, 180-day cap, 12-month expiry, non-cash и reversal rules, а invitee landing до attribution — свой discount, first-touch/expiry/privacy без identity disclosure? [Completeness, Spec §FR-061–FR-069, IA Contract §Screen inventory]
 - [x] CHK024 Отделены ли paid-through, bonus-until и next-charge, включая cancel-scheduled без скрытого renewal job? [Clarity, Spec §FR-101, FR-108]
-- [ ] CHK025 Заданы ли business guardrails для promo/referral campaign: incremental paid conversion, CAC/payback, K-factor/cannibalization, earned→matured→redeemed reward liability, fraud-loss/support-contact ceilings и stop/rollback threshold? [Gap, Spec §FR-057–FR-069, FR-089]
+- [x] CHK025 Заданы ли business guardrails для promo/referral campaign: incremental paid conversion, CAC/payback, K-factor/cannibalization, earned→matured→redeemed reward liability, fraud-loss/support-contact ceilings и stop/rollback threshold? [Product Metrics Contract]
 
 ## IA, UX, UI And CX Coverage
 
@@ -64,19 +64,19 @@
 
 ## Business Outcomes And Launch Decision
 
-- [ ] CHK035 Определены ли privacy-safe product/business outcomes для signup→verification, first successful capture→transcript/notes activation, trial start→aha→paid, monthly/annual mix, paid cohort retention/churn, storage attach/change, manual reactivation after confirmed renewal failure и support contact rate? [Gap, Spec §Success Criteria, IA Contract §Analytics events]
-- [ ] CHK036 Заданы ли metric definitions, denominator, attribution window, cohort, owner, target/guardrail и minimum sample/decision rule для ценовых, packaging и campaign experiments? [Gap, IA Contract §Analytics events]
+- [x] CHK035 Определены ли privacy-safe product/business outcomes для signup→verification, first successful capture→transcript/notes activation, trial start→aha→paid, monthly/annual mix, paid cohort retention/churn, storage attach/change, manual reactivation after confirmed renewal failure и support contact rate? [Product Metrics Contract]
+- [x] CHK036 Заданы ли metric definitions, denominator, attribution window, cohort, owner, target/guardrail и minimum sample/decision rule для ценовых, packaging и campaign experiments? [Product Metrics Contract]
 - [x] CHK037 Объективно ли измеряются findability, cancellation speed, payment exactly-once, entitlement truth, storage truth, promo/referral uniqueness, privacy и accessibility? [Acceptance Criteria, Spec §SC-002–SC-011, SC-013–SC-018]
 - [x] CHK038 Имеет ли каждый external launch gate named owner, evidence class, freshness/revalidation, revocation state и fail-closed blocking outcome? [Launch Gate, Spec §SC-012, FR-092]
 - [x] CHK039 Запрещено ли считать payment smoke доказательством public readiness без legal/finance/security/QA/support/reconciliation и глобальных product gates? [Consistency, Spec §FR-087–FR-092]
-- [ ] CHK040 Указаны ли явные public-launch decision thresholds для ценности и бизнеса наравне с system correctness: activation, paid conversion, retained use, gross margin/COGS, billing-contact rate и refund/chargeback signal? [Gap, Spec §SC-001–SC-018]
+- [x] CHK040 Указаны ли явные public-launch decision thresholds для ценности и бизнеса наравне с system correctness: activation, paid conversion, retained use, gross margin/COGS, billing-contact rate и refund/chargeback signal? [Product Metrics Contract]
 
 ## Initial Audit Result
 
-- Закрыто требованиями: 32/40.
-- Открыто: CHK001, CHK002, CHK009, CHK013, CHK025, CHK035, CHK036, CHK040.
-- Ключевой вывод: transaction/trust/IA requirements подробные и взаимно согласованы; public-launch readiness = **BLOCKED**, несмотря на 32/40, потому что открытые пункты включают launch-blocking сегмент/WTP, value/COGS fit, conversion requirements и business decision thresholds.
-- Closeout mapping: T084 закрывает CHK001–CHK002; T085 — CHK009; T086 — CHK025/CHK035/CHK036/CHK040; T087 — CHK013 и cross-artifact recheck.
+- Закрыто требованиями: 37/40.
+- Открыто: CHK001, CHK002, CHK009.
+- Ключевой вывод: transaction/trust/IA requirements и measurement contract взаимно согласованы; public-launch readiness = **BLOCKED**, потому что ещё не подтверждены первичный сегмент/JTBD, ценностная иерархия и dated target-segment/WTP evidence для упаковки.
+- Closeout mapping: T084 закрывает CHK001–CHK002; T085 — CHK009; T086 закрывает CHK025/CHK035/CHK036/CHK040; T087 — CHK013 и cross-artifact recheck.
 
 ## Evidence Baseline
 

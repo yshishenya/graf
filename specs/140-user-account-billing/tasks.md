@@ -216,7 +216,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Tests for User Story 9
 
-- [ ] T067 [P] [US9] Add notification outbox idempotency, preference bypass, delivery failure, masking, and safe-link tests in `apps/server/tests/unit/test_billing_notifications.py`.
+- [X] T067 [P] [US9] Add notification outbox idempotency, preference bypass, delivery failure, masking, and safe-link tests in `apps/server/tests/unit/test_billing_notifications.py`.
 - [ ] T068 [P] [US9] Add end-to-end event coverage for trial reminders, payment success/failure, storage thresholds, receipt state, referral credit, unknown and late outcomes in `apps/server/tests/integration/test_billing_notification_flow.py`.
 
 ### Implementation for User Story 9
@@ -259,7 +259,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - [ ] T083 After every selected story and T084–T087, run `$speckit-analyze`, resolve all critical blockers, and attach the selected high-risk validation lane and task evidence to `specs/140-user-account-billing/` before issue synchronization or implementation closeout.
 - [ ] T084 [P] Define and evidence the Russia-first primary self-service segment, JTBD, meeting-frequency/problem baseline and testable GRAF value hierarchy in `specs/140-user-account-billing/research.md` and `docs/evidence/140-user-account-billing/product-market.md`.
 - [ ] T085 [P] Validate base price, 250 MB/500 MB/2 GB packaging and 5/20/100/500 GB ladder with dated comparable-plan research, target-user comprehension/WTP, p50/p90/p99 accepted usage, compute/storage/egress/backup COGS, gross-margin floor and fair-use sensitivity in `specs/140-user-account-billing/research.md` and `docs/evidence/140-user-account-billing/pricing-economics.md`.
-- [ ] T086 [P] Define privacy-safe activation/funnel/retention/add-on/manual-reactivation metrics and promo/referral CAC, K-factor, cannibalization, liability, fraud-loss, support-contact and stop/rollback guardrails with owner, cohort, denominator, window, target and decision rule in `specs/140-user-account-billing/contracts/product-metrics.md`.
+- [X] T086 [P] Define privacy-safe activation/funnel/retention/add-on/manual-reactivation metrics and promo/referral CAC, K-factor, cannibalization, liability, fraud-loss, support-contact and stop/rollback guardrails with owner, cohort, denominator, window, target and decision rule in `specs/140-user-account-billing/contracts/product-metrics.md`.
 - [ ] T087 Add non-coercive contextual upgrade requirements for Free 80%/100%, trial T-3/T-1/expiry and blocked archival admission; incorporate approved T084–T086 decisions into `specs/140-user-account-billing/spec.md` and `specs/140-user-account-billing/contracts/account-ia-ux-ui-cx.md`, then re-run `checklists/product-market-2026.md`.
 
 ## Dependencies & Execution Order
