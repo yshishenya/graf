@@ -72,62 +72,53 @@
             </div>
           </div>
 
-          <figure class="hero-product">
-            <fieldset class="hero-proof-stage">
-              <legend class="sr-only">Экран встречи</legend>
-              <input
-                class="hero-proof-input"
-                id="hero-proof-transcript"
-                name="hero-proof"
-                type="radio"
-                checked
-              >
-              <input
-                class="hero-proof-input"
-                id="hero-proof-outcome"
-                name="hero-proof"
-                type="radio"
-              >
-              <div class="hero-proof-tabs">
-                <label for="hero-proof-transcript">Расшифровка</label>
-                <label for="hero-proof-outcome">Итоги</label>
+          <figure class="hero-product" aria-labelledby="hero-proof-caption">
+            <div
+              class="hero-proof-stage"
+              role="group"
+              aria-label="Два экрана одной демонстрационной встречи: расшифровка и итоги"
+            >
+              <div class="hero-proof-window">
+                <div class="hero-proof-stack">
+                  <div class="hero-proof-track">
+                    <div class="hero-proof-panel hero-proof-panel-transcript">
+                      <img
+                        class="hero-outcome-image"
+                        src="{{ public_static_asset_url('landing-transcript-proof.png') }}"
+                        width="1440"
+                        height="1300"
+                        fetchpriority="high"
+                        alt="Расшифровка 18-минутной встречи о запуске пилота: содержательный диалог продукта, продаж и поддержки с таймкодами"
+                      >
+                      <div class="hero-proof-slide-caption">
+                        <span>Расшифровка</span>
+                        <span>3 участника · 18:24</span>
+                      </div>
+                    </div>
+                    <div class="hero-proof-panel hero-proof-panel-outcome">
+                      <img
+                        class="hero-outcome-image"
+                        src="{{ public_static_asset_url('landing-outcome-proof.png') }}"
+                        width="1440"
+                        height="1300"
+                        alt="Итоги той же встречи: резюме, три действия с ответственными, два решения и ссылки на исходные реплики"
+                      >
+                      <div class="hero-proof-slide-caption">
+                        <span>Итоги</span>
+                        <span>Решения и следующие шаги</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="hero-proof-progress" aria-hidden="true">
+                  <span class="hero-proof-progress-segment hero-proof-progress-transcript"></span>
+                  <span class="hero-proof-progress-segment hero-proof-progress-outcome"></span>
+                </div>
               </div>
-              <div class="hero-proof-stack">
-                <picture class="hero-proof-panel hero-proof-panel-transcript">
-                  <source
-                    media="(max-width: 640px)"
-                    srcset="{{ public_static_asset_url('landing-transcript-proof-mobile.png') }}"
-                    width="390"
-                    height="1100"
-                  >
-                  <img
-                    class="hero-outcome-image"
-                    src="{{ public_static_asset_url('landing-transcript-proof.png') }}"
-                    width="1440"
-                    height="1300"
-                    fetchpriority="high"
-                    alt="Расшифровка 18-минутной встречи о запуске пилота: содержательный диалог продукта, продаж и поддержки с таймкодами"
-                  >
-                </picture>
-                <picture class="hero-proof-panel hero-proof-panel-outcome">
-                  <source
-                    media="(max-width: 640px)"
-                    srcset="{{ public_static_asset_url('landing-outcome-proof-mobile.png') }}"
-                    width="390"
-                    height="1100"
-                  >
-                  <img
-                    class="hero-outcome-image"
-                    src="{{ public_static_asset_url('landing-outcome-proof.png') }}"
-                    width="1440"
-                    height="1300"
-                    loading="lazy"
-                    alt="Итоги той же встречи: резюме, три действия с ответственными, два решения и ссылки на исходные реплики"
-                  >
-                </picture>
-              </div>
-            </fieldset>
-            <figcaption>Одна встреча — от живого диалога до решений и действий. Данные созданы для демонстрации.</figcaption>
+            </div>
+            <figcaption id="hero-proof-caption">
+              Одна встреча — от живого диалога до решений и действий. Данные созданы для демонстрации.
+            </figcaption>
           </figure>
         </section>
 

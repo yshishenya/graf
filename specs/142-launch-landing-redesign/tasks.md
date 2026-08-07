@@ -101,6 +101,12 @@
 - [X] T046 Link the public application count to the current target registry and update public landing contracts in `apps/server/tests/contract/test_public_landing_contract.py` and `apps/server/tests/unit/test_public_landing.py`
 - [X] T047 Complete desktop/mobile visual QA, overflow checks, focused public tests and independent UX/visual review; record evidence in `specs/142-launch-landing-redesign/evidence/screenshot-refinement-v8/`, `specs/142-launch-landing-redesign/design-qa.md` and `CHANGELOG.md`
 
+## Phase 13: Compact Hero Proof Carousel
+
+- [X] T048 [US1] Recompose the hero product proof as a side-by-side viewport with an automatic transcript-to-outcome slide in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` and `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+- [X] T049 [US1] Update landing markup and CSS contracts for the non-interactive progress rail, reduced-motion fallback and removal of manual hero tabs in `apps/server/tests/unit/test_public_landing.py` and `apps/server/tests/contract/test_public_landing_contract.py`
+- [X] T050 [US1] Capture desktop/mobile hero states and run focused public checks; record evidence in `specs/142-launch-landing-redesign/evidence/hero-carousel-v1/`
+
 ## Dependencies
 
 - T001–T005 are foundational.
@@ -114,6 +120,7 @@
 - T032–T035 form the screenshot-refinement sequence. T036 depends on all four and on fresh desktop/mobile evidence.
 - T037–T040 form the linked-proof sequence. T041 depends on all four and on fresh desktop/mobile comparison evidence.
 - T042–T046 form the product-depth sequence. T047 depends on all five and fresh desktop/mobile evidence.
+- T048–T050 are the compact-hero follow-up; T049 depends on T048 and T050 depends on both plus focused validation.
 
 ## Parallel Opportunities
 

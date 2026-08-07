@@ -46,9 +46,12 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert response.text.count('href="/login?next=/meetings"') >= 2
     assert 'href="/sign-up?next=/meetings"' not in response.text
     assert "Посмотреть продукт" in response.text
-    assert 'id="hero-proof-transcript"' in response.text
-    assert 'id="hero-proof-outcome"' in response.text
-    assert response.text.count('name="hero-proof"') == 2
+    assert 'role="group"' in response.text
+    assert 'aria-label="Два экрана одной демонстрационной встречи: расшифровка и итоги"' in response.text
+    assert 'class="hero-proof-panel hero-proof-panel-transcript"' in response.text
+    assert 'class="hero-proof-panel hero-proof-panel-outcome"' in response.text
+    assert 'class="hero-proof-progress"' in response.text
+    assert 'hero-proof-input' not in response.text
     assert ">01<" in response.text
     assert ">02<" in response.text
     assert ">03<" in response.text
@@ -66,7 +69,7 @@ def test_public_landing_uses_local_static_assets(client) -> None:
     assert "/static/public/landing-recording-proof.png?v=" not in response.text
     assert "/static/public/landing-recording-proof-focus.png?v=" not in response.text
     assert "/static/public/landing-transcript-proof.png?v=" in response.text
-    assert "/static/public/landing-transcript-proof-mobile.png?v=" in response.text
+    assert "/static/public/landing-transcript-proof-mobile.png?v=" not in response.text
     assert "/static/public/landing-outcome-proof.png?v=" in response.text
     assert "/static/public/landing-outcome-proof-mobile.png?v=" in response.text
     assert "/static/public/landing-outcome-proof-focus.png?v=" not in response.text

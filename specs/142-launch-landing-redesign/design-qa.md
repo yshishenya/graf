@@ -56,7 +56,7 @@ auto-record settings rather than the unrelated blue/green recording strip.
 
 - Source/current/final evidence: `evidence/screenshot-refinement-v7/`.
 - Combined source/implementation review: `evidence/screenshot-refinement-v7/comparison.jpg`.
-- Hero switch: native radios and labels, visible focus, no JavaScript, crossfade
+- Hero proof carousel: automatic CSS slide, no JavaScript or manual controls
   disabled under reduced motion.
 - IA: transcript and outcomes share one case; auto-record precedes calendar
   context; calendar copy explicitly avoids a calendar-driven start claim.
@@ -205,6 +205,31 @@ Final evidence: `evidence/refinement-v4/`. Earlier findings and screenshots in
 - Canonical fast CI: `885 passed, 2 warnings`; server lint and Python compile passed.
 - Independent final visual review: passed; no remaining visual P0, P1 or P2.
 - Browser states: landing 1440/1024/768/390/320/280, download 1440/390, VKS pause/reduced-motion states, and console.
+
+## Compact hero carousel refinement — 2026-08-07
+
+- The first viewport now uses a side-by-side product viewport instead of a
+  full-width screenshot wall. The real transcript and outcome screens share one
+  synthetic 18-minute meeting and slide once automatically from
+  `Расшифровка` to `Итоги`.
+- Manual hero tabs were removed. A non-interactive two-segment progress rail
+  explains the sequence; the animation stops on outcomes so the value remains
+  visible instead of looping indefinitely.
+- `prefers-reduced-motion` keeps the outcome screen static and removes the
+  progress animation. The product screenshots remain ordinary images with
+  meaningful alternative text and no client runtime dependency.
+- Evidence: `evidence/hero-carousel-v1/hero-{1440,390}.png` and
+  `hero-1440-outcome.png`; the desktop proof was recaptured after constraining
+  the atmospheric layer to the product side so it cannot overlap the hero copy.
+- Focused public landing/analytics contracts: `32 passed, 2 warnings`.
+- Fast local CI: `885 passed, 2 warnings`; lint and Python compile passed.
+- Evidence: `evidence/hero-carousel-v1/hero-1440.png`,
+  `evidence/hero-carousel-v1/hero-1440-outcome.png` and
+  `evidence/hero-carousel-v1/hero-390.png`.
+- Browser check: local server at `127.0.0.1:8780`, 1440×1000 and 390×844;
+  assets loaded with no console errors, the transcript state rendered first,
+  the outcome state rendered after the slide, and the focused public suite
+  passed `32 tests`.
 
 ## Final result
 

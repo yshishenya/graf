@@ -130,6 +130,10 @@ def test_public_landing_css_keeps_accessible_focus_and_stable_motion() -> None:
     assert "prefers-reduced-motion: reduce" in content
     assert "animation-timeline: view()" in content
     assert 'url("landing-atmosphere.jpg")' in content
+    assert "hero-proof-track" in content
+    assert "hero-proof-progress-transcript" in content
+    assert "hero-proof-progress" in content
+    assert "hero-proof-tabs" not in content
     assert "transition: all" not in content
     assert "overflow-x: hidden" not in content
 
