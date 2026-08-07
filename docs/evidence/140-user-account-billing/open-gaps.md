@@ -9,6 +9,8 @@ transitions и billing primitives закрыта задачами T038, T039, T0
 T051 и частью T053/T075–T078. Refund webhook backstop теперь проходит
 bounded cursor pagination YooKassa (до 20 страниц, с защитой от повторного
 cursor), но полный registry import и monitoring для этих задач ещё не доказаны.
+Агрегированные admin metrics и отдельный readiness diagnostic уже доступны,
+но live dashboard/alert routing и stop-all-charges drill остаются открытыми.
 Остаются
 evidence/gates: moderated
 accessibility/usability and landing review, live security/RLS review, product-
