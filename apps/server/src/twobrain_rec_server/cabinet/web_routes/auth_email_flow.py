@@ -14,6 +14,7 @@ from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
+from twobrain_rec_server.billing.referrals import referral_token_hash
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
@@ -22,6 +23,7 @@ from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSessionDeviceBinding,
     ExternalIdentity,
+    ReferralAttribution,
     RegisteredDevice,
     UserIdentity,
     Workspace,
@@ -50,6 +52,40 @@ class EmailLoginCompletion:
     token: str
     expires_at: datetime
     requested_redirect: str | None
+    registered: bool = False
+
+
+async def _bind_referral_attribution(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+    token: str | None,
+    now: datetime,
+) -> bool:
+    """Bind a first-touch token while the signup transaction is still open."""
+    if not token:
+        return False
+    try:
+        token_hash = referral_token_hash(token)
+    except ValueError:
+        return False
+    attribution = await db.scalar(
+        select(ReferralAttribution)
+        .where(
+            ReferralAttribution.workspace_id == workspace_id,
+            ReferralAttribution.token_hash == token_hash,
+            ReferralAttribution.invitee_user_id.is_(None),
+            ReferralAttribution.state == "issued",
+        )
+        .with_for_update()
+    )
+    if attribution is None or attribution.inviter_user_id == user_id:
+        return False
+    attribution.invitee_user_id = user_id
+    attribution.bound_at = now
+    attribution.state = "bound"
+    return True
 
 
 async def _record_email_login_audit(
@@ -204,11 +240,20 @@ async def _consume_email_login_code(
             flow=flow,
         )
     workspace, user = await _resolve_email_login_user(db, workspace_id=workspace_id, email=email)
+    registered = False
     if workspace is not None and user is None and allow_registration:
         user = await _ensure_email_registration_user(
             db,
             workspace=workspace,
             email=email,
+            now=now,
+        )
+        registered = True
+        await _bind_referral_attribution(
+            db,
+            workspace_id=workspace.id,
+            user_id=user.id,
+            token=request.cookies.get("graf_referral_token"),
             now=now,
         )
     if workspace is None or user is None:
@@ -293,6 +338,7 @@ async def _consume_email_login_code(
         token=issued.token,
         expires_at=issued.expires_at,
         requested_redirect=requested_redirect,
+        registered=registered,
     )
 
 
