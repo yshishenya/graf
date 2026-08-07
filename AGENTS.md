@@ -252,6 +252,10 @@ download host, а `graf-appcast.xml` заменить последним. Workfl
 подписывает и загружает assets в draft GitHub Release — production feed он не
 меняет.
 
+До сборки проверить доступность Apple credentials командой
+`xcrun notarytool history --keychain-profile graf-notary`; отсутствие профиля в
+Keychain — стоп публикации, а не повод отправлять ненотаризованный кандидат.
+
 Перед closeout всегда сверять версию установленного
 `/Applications/GRAF.app/Contents/Info.plist` с live appcast и повторно проверять
 HTTPS, размер, SHA-256, Sparkle-подпись и Gatekeeper. Ненотаризованный локальный
