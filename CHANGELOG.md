@@ -65,7 +65,7 @@
   analytics и clean-room проверка не смешиваются с серверным CI.
 
 ### Операции
-- `infra/scripts/ci-local.sh --fast`: 927 тестов, lint и Python compile успешно;
+- `infra/scripts/ci-local.sh --fast`: 928 тестов, lint и Python compile успешно;
   checkout остаётся fail-closed до отдельного approved test-shop enablement.
 
 ## [2026.08.05.1] - 2026-08-05

@@ -40,9 +40,9 @@ Use disposable PostgreSQL for RLS/locking/concurrency tests. Provider tests use
 YooKassa test shop where supported and synthetic doubles/official-format CSV
 elsewhere; real-shop canary is a separate approved release step.
 
-### Latest local evidence (2026-08-06)
+### Latest local evidence (2026-08-07)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 927 server unit tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 928 server unit tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
 - Focused PostgreSQL billing RLS, migration, OpenAPI and settings contracts:
   PASS, 40 tests.
