@@ -1,5 +1,109 @@
 # Design QA: Launch Landing Redesign
 
+## Product-proof depth and application breadth — 2026-08-07
+
+The final proof sequence uses one 18-minute synthetic pilot meeting with three
+role-based participants. Its transcript, summary, actions, decisions and source
+timestamps agree. Chapter 01 now combines the current native auto-record settings
+with the current registry breadth instead of a generic stepper.
+
+| Asset | Pixels | SHA-256 | Provenance |
+|---|---:|---|---|
+| `landing-transcript-proof.png` | 1440 × 1300 | `7b17676e432d31ff59dd2cfd74a4b563ccbc3261529d0dea3433f1b3e1d757ac` | Current Feature 139 meeting runtime; synthetic product, sales and support dialogue. |
+| `landing-transcript-proof-mobile.png` | 390 × 1100 | `ed9bd8e673907f0b015e3fd37b7cf52ad0c82c7083e03795ee935b30d6f7ef6d` | Current responsive transcript state for the same meeting. |
+| `landing-outcome-proof.png` | 1440 × 1300 | `99ed7d32ce823864f382ce7ccd98dd3aaa82f57bb12e97aca1829732464abbcd` | Current accepted-outcome runtime; ImageGen text-localization changed only `Template` to the valid built-in format label `Авто`. |
+| `landing-outcome-proof-mobile.png` | 390 × 1100 | `10deedc39d41a2437484323898517c4c247b5c80b7b566714ea9ce8e935da045` | Current mobile outcome state with the same single text-localization correction. |
+| `landing-autorecord-proof-focus.png` | 3040 × 2000 | `b97fb4d65e3917bbb28d22788dea0ddeaa4b91ff73962d3ee23c50d45c65fdf9` | Current `MeetingDetectionSettingsView` rendered in dark appearance from the native macOS target registry. |
+| `landing-autorecord-proof-control-mobile.png` | 1120 × 300 | `fcb47dc3e8c2571e813a9c63ea5b4e9b09092263915f1ff7504993af0b70903f` | Deterministic crop of the current native auto-record control. |
+| `landing-autorecord-proof-toggle-mobile.png` | 480 × 240 | `7c0255001f2200143be9789d833848b57f1158c6d934fa8ed85b9a64b4edff71` | Deterministic crop of the enabled native toggle. |
+
+- Evidence: `evidence/screenshot-refinement-v8/`.
+- IA: removed the redundant three-step strip; setup, manual-control safety,
+  calendar context and application breadth now read as one causal sequence.
+- Registry truth: the public `79` count is checked against current macOS
+  `prompt_enabled` entries in `0030_meeting_target_registry.json`.
+- Both visual rows and the accessible list contain all 79 current registry
+  values. Familiar Russian-market services lead the presentation; the remaining
+  names retain stable case-insensitive alphabetical order without a popularity
+  ranking claim.
+- Responsive browser review passed at 1440 CSS px and the available 625 CSS px
+  mobile breakpoint; document width matched viewport width in both cases.
+- Mobile exposes both manually scrollable application rows; desktop animates the
+  same complete rows and provides a visible pause control.
+- Screenshots remain real product UI with synthetic, role-based content and no
+  personal data.
+- Focused public landing and asset contracts: `19 passed, 2 warnings`.
+- Independent conversion/IA and visual/code review: `PASS`, no P0–P2 findings.
+
+visual result: passed
+
+final result: passed
+
+## Linked transcript/outcomes and auto-record closeout — 2026-08-07
+
+The hero now proves one complete conversation: a role-based transcript switches
+to matching outcomes without JavaScript, and the action/decision sources resolve
+to the exact `00:27` and `00:57` turns. Chapter 01 now uses the current native
+auto-record settings rather than the unrelated blue/green recording strip.
+
+| Asset | Pixels | SHA-256 | Provenance |
+|---|---:|---|---|
+| `landing-transcript-proof.png` | 1440 × 1000 | `7d8a501748c8ab3488308840dc8c0c7a7628b00290cddf79480566952674d518` | Current Feature 139 meeting runtime; synthetic product/sales dialogue and no personal data. |
+| `landing-transcript-proof-mobile.png` | 390 × 844 | `9c23fbb7b66c9f6ef4fd00cc33b8ce41027b2a4de0b4b69f6c4b66123b0996ab` | Current responsive transcript state for the same dialogue. |
+| `landing-outcome-proof.png` | 1440 × 1000 | `dc9724f62a0b8f2dde676f751885b5260357c41d63d1d9a2ade2d5ef6e42ddc6` | Current accepted-outcome runtime; summary, action at `00:27` and decision at `00:57`. |
+| `landing-outcome-proof-mobile.png` | 390 × 844 | `9e42281dd991044af57ef632443d9611c5169b44b1b9a14dadd946566f793a51` | Current mobile outcome scroll-state with summary, action, decision and exact sources. |
+| `landing-autorecord-proof-focus.png` | 1166 × 820 | `e186eaa64ec77f69d40d6287e60c857364f60e92d747f69d38afea64d6ea12dc` | Current `MeetingDetectionSettingsView` rendered in dark appearance with synthetic Zoom/Telemost selections and the product violet accent token. |
+
+- Source/current/final evidence: `evidence/screenshot-refinement-v7/`.
+- Combined source/implementation review: `evidence/screenshot-refinement-v7/comparison.jpg`.
+- Hero switch: native radios and labels, visible focus, no JavaScript, crossfade
+  disabled under reduced motion.
+- IA: transcript and outcomes share one case; auto-record precedes calendar
+  context; calendar copy explicitly avoids a calendar-driven start claim.
+- Responsive matrix: 1440, 1024, 768, 390, 320 and 280 CSS px; document width
+  matched viewport width at every breakpoint.
+- Focused public landing/asset contracts: `18 passed, 2 warnings`.
+- Canonical fast CI: `885 passed, 2 warnings`; server lint and Python compile
+  passed.
+
+visual result: passed
+
+final result: passed
+
+## Product screenshot refinement closeout — 2026-08-07
+
+The public proof sequence now uses three distinct current GRAF states: transcript
+in the hero, native recording control in chapter 01 and accepted outcomes in
+chapter 02. Synthetic role-based content replaces person-like names, and the
+mobile proof treatment keeps the original interface visible while adding
+intentional real-image close-ups for readable status, Pause and Stop labels.
+
+| Asset | Pixels | SHA-256 | Provenance |
+|---|---:|---|---|
+| `landing-transcript-proof.png` | 1440 × 1000 | `b418ee6945e62835686993a38a62d1958f6af89d287fa696a5b3878d6f581fab` | Fresh current feature 139 transcript runtime with synthetic launch-planning content. |
+| `landing-transcript-proof-mobile.png` | 390 × 844 | `103699f0df0c64f771f7743a9e4b02a62ec9d1b978884d4fcbabf5ebd488e280` | Current responsive transcript state with role labels only. |
+| `landing-outcome-proof.png` | 1440 × 1000 | `a3fcbcdb1aeeb0d4a0d0ca1f2a45d4c11cb4d411bf7ed6c972bd28d197b94270` | Fresh accepted-outcome runtime with summary, action, decision and sources. |
+| `landing-outcome-proof-mobile.png` | 390 × 844 | `1e69fe33758d2ce5144d69ba24480b3960d688a3baa4ec12d56a370706149ecd` | Real mobile scroll-state exposing summary, action, decision and source timestamps. |
+
+- Before/current/final evidence: `evidence/screenshot-refinement-v6/`.
+- Combined source/implementation review: `evidence/screenshot-refinement-v6/comparison.jpg`.
+- Final states: `21-final-desktop-hero.jpg` through `25-final-mobile-outcome.jpg`.
+- Document width matched the viewport at 1440, 1024, 768, 390, 320 and 280 CSS
+  px; no horizontal overflow.
+- Hero copy and CTA are visible immediately; only the product proof retains a
+  restrained entry animation, disabled under reduced motion.
+- Reduced motion reported `animation-name: none` for the hero and platform rail,
+  hid the duplicate rail and restored `scroll-behavior: auto`.
+- Final browser console: no warnings or errors.
+- Three independent UX, visual and art-direction reviewers reported no remaining
+  P0, P1 or P2 findings for the screenshot-refinement scope.
+- Focused public landing/analytics contracts: `31 passed, 2 warnings`.
+- Canonical fast CI: `885 passed, 2 warnings`; lint and Python compile passed.
+
+visual result: passed
+
+final result: passed
+
 ## Atmospheric refinement closeout after product-owner review — 2026-08-07
 
 The reopened visual findings are closed. One quiet local raster supplies optical

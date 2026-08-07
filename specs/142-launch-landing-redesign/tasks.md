@@ -76,6 +76,31 @@
 - [X] T030 Refine landing wording, punctuation, manual heading wraps and responsive type behavior in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` and `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
 - [X] T031 Repeat current-source audit, combined visual QA, reduced-motion/interaction checks, focused public tests and `infra/scripts/ci-local.sh --fast`; update `design-qa.md` and `CHANGELOG.md`
 
+## Phase 10: Product Screenshot Refinement
+
+- [X] T032 Capture fresh current GRAF transcript and accepted-outcome states with synthetic, role-based content in `specs/142-launch-landing-redesign/evidence/screenshot-refinement-v6/`
+- [X] T033 Replace repeated technical crops with separate transcript, recording-control and outcome proofs in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`
+- [X] T034 Rebuild desktop and mobile screenshot framing, readable mobile close-ups and full-width outcome hierarchy in `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+- [X] T035 Update local-asset contracts for the current product proof inventory in `apps/server/tests/unit/test_public_landing.py` and `apps/server/tests/contract/test_public_landing_contract.py`
+- [X] T036 Complete combined source/implementation QA, independent screenshot reviews, focused public checks and `infra/scripts/ci-local.sh --fast`; record results in `specs/142-launch-landing-redesign/design-qa.md` and `CHANGELOG.md`
+
+## Phase 11: Linked Outcomes And Auto-record Proof
+
+- [X] T037 Capture a current GRAF transcript and accepted-outcome pair for one synthetic role-based dialogue, with action and decision source timestamps aligned, in `apps/server/src/twobrain_rec_server/public/static/public/landing-transcript-proof.png`, `apps/server/src/twobrain_rec_server/public/static/public/landing-transcript-proof-mobile.png`, `apps/server/src/twobrain_rec_server/public/static/public/landing-outcome-proof.png` and `apps/server/src/twobrain_rec_server/public/static/public/landing-outcome-proof-mobile.png`
+- [X] T038 Render and focus the current target-scoped auto-record settings with synthetic selections in `apps/server/src/twobrain_rec_server/public/static/public/landing-autorecord-proof-focus.png`
+- [X] T039 Implement the native `Расшифровка / Итоги` hero switch, auto-record flow and truth-safe calendar placement in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` and `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+- [X] T040 Update local proof, wording and interaction contracts in `apps/server/tests/unit/test_public_landing.py` and `apps/server/tests/contract/test_public_landing_contract.py`
+- [X] T041 Complete combined source/implementation QA, responsive overflow checks, focused public tests and `infra/scripts/ci-local.sh --fast`; record the closeout in `specs/142-launch-landing-redesign/design-qa.md` and `CHANGELOG.md`
+
+## Phase 12: Product-proof Depth And Application Breadth
+
+- [X] T042 Re-capture the current transcript and outcome states as one 18-minute synthetic meeting with three role-based participants in `apps/server/src/twobrain_rec_server/public/static/public/landing-transcript-proof.png`, `apps/server/src/twobrain_rec_server/public/static/public/landing-transcript-proof-mobile.png`, `apps/server/src/twobrain_rec_server/public/static/public/landing-outcome-proof.png` and `apps/server/src/twobrain_rec_server/public/static/public/landing-outcome-proof-mobile.png`
+- [X] T043 Re-render the current native auto-record settings at a readable high resolution in `apps/server/src/twobrain_rec_server/public/static/public/landing-autorecord-proof-focus.png`
+- [X] T044 Replace the generic recording stepper, benefit chips and outcome categories with the current registry proof, truth-safe calendar context and meeting-specific outcome ledger in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`
+- [X] T045 Refine the responsive framing, application rail, chapter labels and outcome ledger in `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+- [X] T046 Link the public application count to the current target registry and update public landing contracts in `apps/server/tests/contract/test_public_landing_contract.py` and `apps/server/tests/unit/test_public_landing.py`
+- [X] T047 Complete desktop/mobile visual QA, overflow checks, focused public tests and independent UX/visual review; record evidence in `specs/142-launch-landing-redesign/evidence/screenshot-refinement-v8/`, `specs/142-launch-landing-redesign/design-qa.md` and `CHANGELOG.md`
+
 ## Dependencies
 
 - T001–T005 are foundational.
@@ -86,6 +111,9 @@
 - T018–T020 depend on all implemented user stories.
 - T021–T026 are a feedback-driven refinement sequence; T025–T026 depend on T022–T024.
 - T027 must finish before T028–T030. T031 depends on the complete visual and wording refinement.
+- T032–T035 form the screenshot-refinement sequence. T036 depends on all four and on fresh desktop/mobile evidence.
+- T037–T040 form the linked-proof sequence. T041 depends on all four and on fresh desktop/mobile comparison evidence.
+- T042–T046 form the product-depth sequence. T047 depends on all five and fresh desktop/mobile evidence.
 
 ## Parallel Opportunities
 

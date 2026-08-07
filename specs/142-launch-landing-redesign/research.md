@@ -122,3 +122,84 @@ interruptible and dependency-free.
   is a visual asset, not product UI.
 - Animate every section continuously — rejected because motion must guide
   attention rather than compete with reading.
+
+## Decision 11: One real product state per promise
+
+**Decision**: Use a current transcript state in the hero, the current native
+recording control in chapter 01 and a separate accepted-outcome state in chapter
+02. Keep the full recording strip for context, add real-image close-up crops on
+small screens, and use a mobile outcome scroll-state that visibly includes
+`Кратко`, `Действия`, `Решения` and source timestamps.
+
+**Rationale**: Current Granola, Notion AI Meeting Notes and Linear product pages
+use large, legible interface evidence tied to one adjacent benefit. Repeating one
+technical crop weakens the product story; distinct current states create the
+sequence `записал → получил расшифровку → понял следующий шаг` without inventing
+marketing UI. All captured content is synthetic and role-based.
+
+**Alternatives considered**:
+
+- Reuse the accepted-outcome image in hero and chapter 02 — rejected because it
+  makes the journey feel templated and repeats the same proof.
+- Build a decorative fake dashboard — rejected because public product evidence
+  must come from the current GRAF runtime.
+- Keep the full recording strip only on mobile — rejected because native labels
+  become too small; intentional real-image close-ups preserve both context and
+  legibility.
+
+## Decision 12: Link transcript, outcomes, auto-record and calendar truth
+
+**Decision**: Make the hero a no-JavaScript radio switch between a current
+transcript and current outcomes screen for the same synthetic launch-pilot
+conversation. Replace the generic active-recording strip with a focused render
+of the current `MeetingDetectionSettingsView`, showing target-scoped auto-record
+selection. Place calendar context after the three-step recording flow and before
+the service rail.
+
+**Rationale**: A matched conversation proves that GRAF turns speech into usable
+decisions instead of displaying unrelated screenshots. Current Feature 124 truth
+supports automatic recording for user-selected native targets; current calendar
+truth supports upcoming-meeting context and title matching, but does not make the
+calendar an auto-start trigger. The chosen IA keeps the primary promise clear:
+select an app once, let GRAF detect the meeting, then retain manual control.
+
+**Alternatives considered**:
+
+- Keep the green/blue active-recording strip — rejected because it proves only
+  controls, conflicts with the landing palette and does not explain detection.
+- Claim that a calendar event starts recording — rejected because the current
+  calendar feature supplies context and matching, not the capture trigger.
+- Build a bespoke marketing dashboard — rejected because visible product proof
+  must remain current GRAF runtime with synthetic, privacy-cleared data.
+- Add a slider library — rejected because two native radio controls and CSS
+  provide the complete accessible interaction without a client dependency.
+
+## Decision 13: Prove depth with one meeting and breadth with the registry
+
+**Decision**: Show one coherent 18-minute synthetic meeting with three role-based
+participants across the transcript and outcome states. Replace the generic
+three-step strip and four benefit columns with the current native auto-record
+settings, the exact current count of `prompt_enabled` macOS targets, two
+restrained rows containing the full current registry and three meeting-specific
+outcome rows with source timestamps.
+
+**Rationale**: The user's long current settings list proves breadth but is not a
+useful landing-page composition. The current registry contains 79 macOS targets
+eligible for prompt-enabled auto-recording, while the native settings screen
+shows how the user controls them. Two complete rows lead with familiar
+Russian-market services and keep the remainder alphabetic, without claiming an
+unsupported popularity ranking. The outcome rows
+now repeat facts visible in the screenshot, so the product proof and adjacent
+copy form one story instead of two unrelated abstractions.
+
+**Alternatives considered**:
+
+- Publish the full 79-item settings screenshot — rejected because it is too tall
+  to scan and turns a product benefit into a configuration catalogue.
+- Sort the rail by an asserted Russian popularity ranking — rejected because no
+  stable product-owned ranking exists and an external ranking would add a claim
+  that must be continuously maintained.
+- Keep the three-step strip — rejected because the native settings screenshot
+  already explains setup and the safety line preserves manual control.
+- Keep generic `Кратко / Действия / Решения / Источник` columns — rejected because
+  they describe output types but do not demonstrate the value of this meeting.

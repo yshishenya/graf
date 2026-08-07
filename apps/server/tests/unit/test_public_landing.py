@@ -12,26 +12,31 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert "Главное останется" in response.text
     assert "GRAF записывает встречу без бота в звонке" in response.text
     assert "регистрац" not in response.text.lower()
-    assert "Запись не зависит от сервиса встречи" in response.text
-    assert "Встреча в привычном приложении" in response.text
-    assert "Запись в GRAF" in response.text
+    assert "Настройте один раз. Встречи запишутся сами" in response.text
+    assert "GRAF распознаёт её и запускает запись" in response.text
+    assert "79" in response.text
+    assert "приложений в текущем" in response.text
+    assert "Сервис встречи не диктует сценарий" in response.text
     assert "Любой сервис для созвонов" not in response.text
     assert "всех приложениях" not in response.text.lower()
     assert "GRAF REC" not in response.text
-    assert "Яндекс Телемост" in response.text
+    assert "Yandex Telemost" in response.text
     assert "Zoom" in response.text
     assert "TrueConf" in response.text
-    assert "МТС Линк" in response.text
-    assert "Контур.Толк" in response.text
-    assert "DION" in response.text
+    assert "MTS Link" in response.text
+    assert "Kontur Talk" in response.text
+    assert "Dion" in response.text
     assert "Google Meet и другие браузерные встречи" in response.text
     assert "с ручным запуском записи" in response.text
+    assert "Контекст из календаря" in response.text
+    assert "Автозапуск остаётся привязан к выбранным приложениям" in response.text
     assert "SberJazz" not in response.text
     assert "через минуты" not in response.text
-    assert "Кратко" in response.text
-    assert "Действия" in response.text
-    assert "Решения" in response.text
-    assert "Источник" in response.text
+    assert "Не протокол. Готовый план действий" in response.text
+    assert "Запустить двухнедельный пилот в понедельник" in response.text
+    assert "Продажи готовят список участников и календарь встреч" in response.text
+    assert "Ручной старт и остановка всегда остаются доступны" in response.text
+    assert "Как работает автозапись" not in response.text
     assert "данные встречи созданы для демонстрации" in response.text.lower()
     assert "Российские и локальные модели" in response.text
     assert "ничего за рубеж" not in response.text.lower()
@@ -41,7 +46,9 @@ def test_public_landing_is_self_serve_entry(client) -> None:
     assert 'href="/login?next=/meetings"' in response.text
     assert 'href="/sign-up?next=/meetings"' not in response.text
     assert "Посмотреть продукт" in response.text
-    assert "пилот" not in response.text
+    assert 'id="hero-proof-transcript"' in response.text
+    assert 'id="hero-proof-outcome"' in response.text
+    assert response.text.count('name="hero-proof"') == 2
     assert ">01<" in response.text
     assert ">02<" in response.text
     assert ">03<" in response.text
@@ -53,24 +60,31 @@ def test_public_landing_uses_local_static_assets(client) -> None:
 
     assert response.status_code == 200
     assert "/static/public/landing.css?v=" in response.text
-    assert "/static/public/landing-recording-proof-focus.png?v=" in response.text
-    assert "/static/public/landing-outcome-proof-focus.png?v=" in response.text
-    assert "/static/public/landing-outcome-proof-focus-mobile.png?v=" in response.text
-    assert "/static/public/landing-outcome-proof.png?v=" not in response.text
-    assert "/static/public/landing-outcome-proof-mobile.png?v=" not in response.text
+    assert "/static/public/landing-autorecord-proof-focus.png?v=" in response.text
+    assert "/static/public/landing-autorecord-proof-control-mobile.png?v=" in response.text
+    assert "/static/public/landing-autorecord-proof-toggle-mobile.png?v=" in response.text
+    assert "/static/public/landing-recording-proof.png?v=" not in response.text
+    assert "/static/public/landing-recording-proof-focus.png?v=" not in response.text
+    assert "/static/public/landing-transcript-proof.png?v=" in response.text
+    assert "/static/public/landing-transcript-proof-mobile.png?v=" in response.text
+    assert "/static/public/landing-outcome-proof.png?v=" in response.text
+    assert "/static/public/landing-outcome-proof-mobile.png?v=" in response.text
+    assert "/static/public/landing-outcome-proof-focus.png?v=" not in response.text
     assert "/static/public/landing-hero-product.png?v=" not in response.text
     assert "/static/cabinet/graf-wordmark-dark@2x.png?v=" in response.text
     assert "/static/cabinet/favicon.ico?v=" in response.text
-    assert 'width="1040"' in response.text
-    assert 'height="320"' in response.text
-    assert 'width="880"' in response.text
-    assert 'height="180"' in response.text
+    assert 'width="1440"' in response.text
+    assert 'height="1300"' in response.text
+    assert 'width="3040"' in response.text
+    assert 'height="2000"' in response.text
     assert "/static/public/fonts/onest-cyrillic.woff2?v=" in response.text
     assert "/static/public/fonts/onest-latin.woff2?v=" in response.text
     assert "https://" not in response.text
 
 
-def test_public_landing_accepts_synthetic_utm_visit_without_reflecting_private_values(client) -> None:
+def test_public_landing_accepts_synthetic_utm_visit_without_reflecting_private_values(
+    client,
+) -> None:
     response = client.get(
         "/?utm_source=Yandex_Direct&utm_medium=CPC&utm_campaign=2026q3_b2c_launch_ru"
         "&utm_content=customer@example.com"
