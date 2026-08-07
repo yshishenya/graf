@@ -15,18 +15,20 @@
         <form action="/billing/checkout/start" method="post">
           {{ sections.csrf_field(csrf_token|default(None)) }}
           <input type="hidden" name="idempotency_key" value="{{ checkout_idempotency_key }}">
-          <label for="billing-cycle">Период оплаты</label>
-          <select id="billing-cycle" name="cycle">
-            <option value="month">Месяц — 790 ₽</option>
-            <option value="year">Год — 7 900 ₽</option>
-          </select>
+          <fieldset>
+            <legend>Период оплаты</legend>
+            <div class="settings-actions">
+              <button class="button" type="submit" name="cycle" value="month">Оплатить 790 ₽ в YooKassa — месяц</button>
+              <button class="button" type="submit" name="cycle" value="year">Оплатить 7 900 ₽ в YooKassa — год</button>
+            </div>
+          </fieldset>
           <label for="billing-promo">Промокод <span class="muted">(если у вас есть действующий код)</span></label>
           <input id="billing-promo" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48">
           <label><input type="checkbox" name="recurring_consent" value="true" required> Согласен на регулярное списание до отключения автопродления.</label>
-          <button class="button" type="submit">Перейти к оплате</button>
         </form>
         {% else %}<p role="status">Оплата пока недоступна: магазин не включён.</p>{% endif %}
       </section>
+      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
     </div>
   </div>
 </main>

@@ -15,6 +15,7 @@ FINANCIAL_PAGE_CLASSES = (
     "billing_storage_addons",
     "billing_checkout",
     "billing_history",
+    "billing_invoice",
     "billing_referrals",
 )
 BASE_TEMPLATE = (

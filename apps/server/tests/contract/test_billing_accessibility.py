@@ -14,6 +14,31 @@ def test_billing_templates_keep_explicit_actions_and_live_statuses() -> None:
     assert "refund status" not in history.lower()
 
 
+def test_every_billing_screen_keeps_payment_help_after_the_primary_panel() -> None:
+    for name in (
+        "billing_overview_content.html",
+        "billing_usage_content.html",
+        "billing_subscription_content.html",
+        "billing_payment_method_content.html",
+        "billing_storage_content.html",
+        "billing_checkout_content.html",
+        "billing_history_content.html",
+        "billing_invoice_content.html",
+    ):
+        html = (TEMPLATE_ROOT / name).read_text(encoding="utf-8")
+        assert "Нужна помощь с оплатой?" in html
+        assert 'href="/billing/history"' in html
+
+
+def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
+    html = (TEMPLATE_ROOT / "billing_checkout_content.html").read_text(encoding="utf-8")
+    assert 'name="cycle" value="month"' in html
+    assert 'name="cycle" value="year"' in html
+    assert "Оплатить 790 ₽ в YooKassa" in html
+    assert "Оплатить 7 900 ₽ в YooKassa" in html
+    assert "Перейти к оплате" not in html
+
+
 def test_account_close_has_no_js_confirmation_fallback() -> None:
     template = (TEMPLATE_ROOT / "settings_account_content.html").read_text(encoding="utf-8")
     assert 'method="post"' in template

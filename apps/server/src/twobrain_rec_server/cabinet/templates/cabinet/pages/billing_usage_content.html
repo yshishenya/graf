@@ -11,6 +11,7 @@
         {% if processing_unlimited %}<p><strong>Без лимита по минутам и встречам</strong>. Ограничение хранения показывается отдельно.</p>
         {% else %}<p><strong>{{ processing_used_label }}</strong> из <strong>{{ free_processing_limit_label }}</strong> в текущем календарном месяце по Москве.</p>{% if processing_reserved %}<p>В обработке зарезервировано: <strong>{{ processing_reserved }} сек</strong>.</p>{% endif %}<p>Состояние: {{ processing_threshold }}.</p>{% endif %}
       </section>
+      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
       <section class="settings-section cabinet-card" aria-labelledby="usage-storage-title">
         <h2 id="usage-storage-title">Хранилище</h2>
         <p><strong>{{ storage_used }} байт</strong> занято из <strong>{{ storage_capacity }} байт</strong>.</p>
