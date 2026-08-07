@@ -1,0 +1,34 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+{% import "cabinet/components/sections.html" as sections %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing") }}
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar">
+        <div class="page-title"><h1>Управление подпиской</h1><p class="muted">Отмена отключает только будущие списания и не возвращает деньги.</p></div>
+      </header>
+      {% if result == "cancelled" %}<p class="notice" role="status" aria-live="polite">Автопродление отключено. Доступ сохранится до окончания оплаченного периода.</p>
+      {% elif result == "resumed" %}<p class="notice" role="status" aria-live="polite">Автопродление снова включено.</p>
+      {% elif result == "conflict" %}<p class="notice" role="alert">Подписка изменилась в другой вкладке. Обновите страницу и повторите действие.</p>
+      {% elif result == "already_cancelled" %}<p class="notice" role="status">Автопродление уже отключено.</p>
+      {% elif result == "already_active" %}<p class="notice" role="status">Автопродление уже включено.</p>
+      {% elif result == "unavailable" %}<p class="notice" role="alert">Управление подпиской сейчас недоступно.</p>{% endif %}
+      <section class="settings-section cabinet-card" aria-labelledby="billing-subscription-state-title">
+        <h2 id="billing-subscription-state-title">{{ subscription.plan_code if subscription else "Бесплатный" }}</h2>
+        {% if active %}
+        <p>Оплачено до: <strong>{{ subscription.paid_through }}</strong>.</p>
+        {% if subscription.recurring_allowed %}
+        <p>Следующее списание будет выполнено по сохранённому способу оплаты.</p>
+        <p class="muted">Если передумаете, автопродление можно включить снова до даты окончания доступа.</p>
+        <form action="/billing/subscription/cancel" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button quiet" type="submit">Отключить автопродление</button></form>
+        {% else %}
+        <p>Автопродление отключено. Нового списания не будет.</p>
+        <p class="muted">Возобновление не создаёт новый платёж: оно разрешает следующее списание после текущего оплаченного периода.</p>
+        <form action="/billing/subscription/resume" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button" type="submit">Возобновить автопродление</button></form>
+        {% endif %}
+        {% else %}<p>Активной платной подписки нет. После окончания оплаченного периода доступ сразу переходит на бесплатный тариф.</p><a class="button" href="/billing/checkout">Выбрать тариф</a>{% endif %}
+      </section>
+      <a class="button quiet" href="/billing">Вернуться к тарифу и оплате</a>
+    </div>
+  </div>
+</main>

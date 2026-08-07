@@ -219,6 +219,17 @@ class Settings(BaseSettings):
     auth_storage_region_tag: str = "ru"
     auth_ru_local_storage_attested: bool = False
 
+    # Billing is fail-closed until the merchant, legal and receipt gates are
+    # explicitly enabled in the deployment environment.
+    billing_checkout_enabled: bool = False
+    billing_yookassa_base_url: AnyUrl | None = None
+    billing_yookassa_shop_id: str | None = None
+    billing_yookassa_secret_file: Path | None = None
+    billing_yookassa_webhook_secret_file: Path | None = None
+    billing_provider_floor_minor: int = 1
+    billing_support_email: str | None = None
+    billing_emergency_stop: bool = False
+
     yandex_client_id: str = "twobrain-yandex-client-id"
     vk_client_id: str = "twobrain-vk-client-id"
     telegram_bot_name: str = "twobrain-telegram-bot"
@@ -502,6 +513,24 @@ class Settings(BaseSettings):
             raise ValueError("external meeting invitations require credential encryption key")
         if self.public_base_url is None:
             raise ValueError("external meeting invitations require public_base_url")
+        return self
+
+    @model_validator(mode="after")
+    def validate_billing_safety(self) -> "Settings":
+        if not self.billing_checkout_enabled:
+            return self
+        if self.billing_yookassa_base_url is None or self.billing_yookassa_base_url.scheme != "https":
+            raise ValueError("enabled billing requires an HTTPS YooKassa base URL")
+        if (
+            not self.billing_yookassa_shop_id
+            or self.billing_yookassa_secret_file is None
+            or self.billing_yookassa_webhook_secret_file is None
+        ):
+            raise ValueError("enabled billing requires YooKassa shop, secret and webhook secret files")
+        if not self.billing_support_email or any(char in self.billing_support_email for char in "\r\n"):
+            raise ValueError("enabled billing requires a safe support email")
+        if self.billing_provider_floor_minor <= 0:
+            raise ValueError("billing provider floor must be positive")
         return self
 
     @model_validator(mode="after")

@@ -1438,6 +1438,14 @@ def settings_category_navigation(
             "Аккаунт",
             "settings",
         ),
+        (
+            "billing",
+            "Тариф и оплата",
+            "В этом пространстве",
+            "/billing",
+            "Оплата",
+            "activity",
+        ),
     )
     return tuple(
         SettingsCategoryView(

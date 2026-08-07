@@ -9,22 +9,39 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Базовый личный кабинет тарифа и оплаты: Free/Trial/Личный, точные 300 минут
+  Free, конечное playback-хранилище и отдельные storage add-on capacity.
+- Серверный hosted-checkout YooKassa с идемпотентной операцией, immutable
+  invoice snapshot, CSRF/owner gate и fail-closed неизвестным результатом.
+- Durable tenant-scoped webhook inbox, read-only provider observations,
+  payment history с безопасным номером платежа, внешнее email-only обращение
+  по возврату и реферальная ссылка с 10%/7 или 30 днями.
+- Наблюдательный renewal Temporal workflow: повторяется только GET уже созданной
+  операции и не создаёт новые charge/refund mutations.
+- Owner-only управление подпиской: отключение/возобновление автопродления с
+  CSRF, row-lock, проверкой версии и metadata-only audit-событием; отдельный
+  экран точного использования и playback-хранилища.
+- Идемпотентная metadata-only очередь billing-уведомлений с русскими
+  финансовыми шаблонами, DB-backed uniqueness/delivery state и правилами обхода
+  маркетинговых предпочтений.
 
 ### Изменено
-- _Пока нет записей._
+- Trial приведён к спецификации: ровно 7 календарных дней без карты и автосписания.
 
 ### Исправлено
-- _Пока нет записей._
+- RLS-инвентарь биллинга отделяет глобальный каталог от workspace-bound таблиц;
+  события без безопасного workspace metadata не принимаются в durable обработку.
 
 ### Безопасность
-- _Пока нет записей._
+- YooKassa credentials остаются server-only; refund mutation отсутствует,
+  webhook metadata и provider observations сохраняются только в redacted виде.
 
 ### Документы
-- _Пока нет записей._
+- Добавлены Spec Kit артефакты Feature 140 и launch/validation matrix.
 
 ### Операции
-- _Пока нет записей._
+- `infra/scripts/ci-local.sh --fast`: 921 тест, lint и Python compile успешно;
+  checkout остаётся fail-closed до отдельного approved test-shop enablement.
 
 ## [2026.08.05.1] - 2026-08-05
 

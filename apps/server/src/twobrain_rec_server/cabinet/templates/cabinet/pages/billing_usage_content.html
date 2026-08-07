@@ -1,0 +1,23 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing") }}
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar">
+        <div class="page-title"><h1>Использование и хранение</h1><p class="muted">Показаны точные данные выбранного пространства.</p></div>
+      </header>
+      <section class="settings-section cabinet-card" aria-labelledby="usage-processing-title">
+        <h2 id="usage-processing-title">Обработка</h2>
+        {% if processing_unlimited %}<p><strong>Без лимита по минутам и встречам</strong>. Ограничение хранения показывается отдельно.</p>
+        {% else %}<p><strong>{{ processing_used_label }}</strong> из <strong>{{ free_processing_limit_label }}</strong> в текущем календарном месяце по Москве.</p><p>Состояние: {{ processing_threshold }}.</p>{% endif %}
+      </section>
+      <section class="settings-section cabinet-card" aria-labelledby="usage-storage-title">
+        <h2 id="usage-storage-title">Хранилище</h2>
+        <p><strong>{{ storage_used }} байт</strong> занято из <strong>{{ storage_capacity }} байт</strong>.</p>
+        <p>Зарезервировано: <strong>{{ storage_reserved }} байт</strong>. Доступно: <strong>{{ storage_available }} байт</strong>.</p>
+        <p>Состояние: <strong>{{ storage_threshold }}</strong>. В расчёт входит только сохранённый нормализованный playback-файл <code>meeting-review.m4a</code>; обработка без сохранения аудио лимит хранения не расходует.</p>
+      </section>
+      <a class="button quiet" href="/billing">Вернуться к тарифу и оплате</a>
+    </div>
+  </div>
+</main>

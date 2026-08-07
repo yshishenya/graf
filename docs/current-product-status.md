@@ -2,6 +2,28 @@
 
 Date: 2026-08-04
 
+## Implementation update (2026-08-06) — Feature 140 personal billing foundation
+
+- Личный кабинет получил server-owned Free/Trial/Личный billing overview,
+  hosted YooKassa checkout boundary, immutable invoice/operation records,
+  exact-second Free ledger primitives и playback-only storage projection.
+- Webhook inbox теперь tenant-scoped и RLS-защищён; provider payment/refund/
+  receipt observations read-only и metadata-only. Refund в GRAF не выполняется:
+  история даёт только безопасный номер и письмо во внешний backoffice-процесс.
+- Добавлены referral token/UI (10% первой оплаты, 7/30 service days after
+  maturity), no-grace renewal observation worker и fail-closed emergency/config
+  boundaries. Trial исправлен до ровно 7 календарных дней.
+- Добавлены owner-only cancel/resume controls с CSRF, row-lock, authority-version
+  checks и audit rows, а также отдельный exact-byte/second usage screen.
+- Billing notifications получили транзакционный DB-backed metadata-only outbox
+  с uniqueness/delivery state и Russian-first finance copy; worker delivery
+  remains a launch gate.
+- Fast lane после изменений: 921 server unit tests, Ruff, Python compile и
+  disposable migration проходят. Полный public launch остаётся gated: test-shop
+  evidence, durable provider registry/reconciliation, account-close/notification
+  flows, accessibility/usability evidence и approved finance/legal sign-off ещё
+  должны быть закрыты до включения checkout.
+
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.

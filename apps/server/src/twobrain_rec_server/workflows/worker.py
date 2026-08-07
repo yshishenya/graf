@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
@@ -14,12 +15,18 @@ from twobrain_rec_server.auth.email_delivery import (
     send_account_created_email,
     send_meeting_invitation,
 )
+from twobrain_rec_server.billing.operations import provider_key_is_expired
+from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.models import (
+    BillingAuditEvent,
+    BillingInvoice,
+    BillingOperation,
     ExternalIdentity,
     Meeting,
     MeetingShareInvitation,
     UserIdentity,
+    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import (
@@ -52,6 +59,13 @@ from twobrain_rec_server.processing.submit import (
     submit_to_mediascribe,
 )
 from twobrain_rec_server.storage.minio_client import get_storage
+from twobrain_rec_server.workflows.billing_renewal_workflow import (
+    BILLING_RENEWAL_ACTIVITY_NAME,
+    BillingRenewalWorkflow,
+    billing_renewal_task_queue,
+    start_billing_renewal_workflow,
+    validate_billing_renewal_payload,
+)
 from twobrain_rec_server.workflows.invitation_delivery_workflow import (
     AccountCreatedEmailWorkflow,
     InvitationDeliveryWorkflow,
@@ -72,6 +86,314 @@ from twobrain_rec_server.workflows.temporal_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+BILLING_RENEWAL_RECONCILE_STATES = frozenset(
+    {"scheduled", "processing", "unknown", "provider_key_expired"}
+)
+BILLING_RENEWAL_TERMINAL_STATES = frozenset({"succeeded", "canceled", "succeeded_refused"})
+
+
+def _provider_amount_minor(payment: dict[str, Any]) -> tuple[int, str]:
+    amount = payment.get("amount")
+    if not isinstance(amount, dict):
+        raise ValueError("provider payment amount is missing")
+    currency = amount.get("currency")
+    if not isinstance(currency, str) or not currency:
+        raise ValueError("provider payment currency is missing")
+    try:
+        decimal_value = Decimal(str(amount["value"]))
+    except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
+        raise ValueError("provider payment amount is invalid") from exc
+    minor_value = decimal_value * 100
+    if (
+        not decimal_value.is_finite()
+        or decimal_value < 0
+        or minor_value != minor_value.to_integral_value()
+    ):
+        raise ValueError("provider payment amount precision is invalid")
+    return int(minor_value), currency
+
+
+def _validate_authoritative_renewal_payment(
+    payment: dict[str, Any],
+    *,
+    operation: BillingOperation,
+    invoice: BillingInvoice,
+) -> str:
+    if payment.get("id") != operation.provider_id:
+        raise ValueError("provider payment reference does not match")
+    metadata = payment.get("metadata")
+    if not isinstance(metadata, dict):
+        raise ValueError("provider payment metadata is missing")
+    if metadata.get("workspace_id") != str(operation.workspace_id):
+        raise ValueError("provider payment workspace does not match")
+    if metadata.get("operation_id") != str(operation.id):
+        raise ValueError("provider payment operation does not match")
+    amount_minor, currency = _provider_amount_minor(payment)
+    if amount_minor != invoice.amount_minor or currency != invoice.currency:
+        raise ValueError("provider payment amount does not match")
+    status = payment.get("status")
+    if not isinstance(status, str) or not status:
+        raise ValueError("provider payment status is missing")
+    return status
+
+
+def _renewal_authority_matches(
+    operation: BillingOperation,
+    subscription: WorkspaceSubscription | None,
+) -> bool:
+    if subscription is None or not subscription.recurring_allowed:
+        return False
+    authority_version = operation.request_snapshot.get("recurring_authority_version")
+    return (
+        isinstance(authority_version, int)
+        and not isinstance(authority_version, bool)
+        and authority_version == subscription.recurring_authority_version
+    )
+
+
+async def run_billing_renewal_reconciler(settings: Any, temporal_client: object) -> None:
+    """Dispatch existing renewal operations; never create a charge or provider key."""
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="graf-maintenance",
+        reason_category="renewal_provider_truth_recovery",
+        feature_area="billing",
+    )
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    rows = (
+                        await db.execute(
+                            select(BillingOperation.id, BillingOperation.workspace_id)
+                            .where(
+                                BillingOperation.kind == "renewal",
+                                BillingOperation.provider_id.is_not(None),
+                                BillingOperation.state.in_(BILLING_RENEWAL_RECONCILE_STATES),
+                            )
+                            .order_by(BillingOperation.updated_at, BillingOperation.id)
+                            .limit(100)
+                        )
+                    ).all()
+                for operation_id, workspace_id in rows:
+                    await start_billing_renewal_workflow(
+                        temporal_client=temporal_client,
+                        settings=settings,
+                        operation_id=operation_id,
+                        workspace_id=workspace_id,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("billing renewal reconciliation cycle failed")
+            await asyncio.sleep(60)
+    finally:
+        await engine.dispose()
+
+
+async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str]:
+    """Observe provider truth for one persisted renewal operation.
+
+    This activity is deliberately observation-only at the provider boundary.
+    A retry repeats GET for the same operation and can never create another
+    payment or idempotency key.
+    """
+    from temporalio.exceptions import ApplicationError
+
+    try:
+        safe_payload = validate_billing_renewal_payload(payload)
+    except ValueError as exc:
+        raise ApplicationError(
+            "billing_renewal_payload_invalid",
+            type="BillingRenewalInvalidPayload",
+            non_retryable=True,
+        ) from exc
+
+    operation_id = UUID(safe_payload["operation_id"])
+    workspace_id = UUID(safe_payload["workspace_id"])
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="graf-workflow-worker",
+        reason_category="renewal_provider_truth_recovery",
+        feature_area="billing",
+    )
+    try:
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            operation = await db.scalar(
+                select(BillingOperation).where(
+                    BillingOperation.id == operation_id,
+                    BillingOperation.workspace_id == workspace_id,
+                )
+            )
+            if operation is None or operation.kind != "renewal":
+                raise ApplicationError(
+                    "billing_renewal_operation_invalid",
+                    type="BillingRenewalInvalidPayload",
+                    non_retryable=True,
+                )
+            if operation.state in BILLING_RENEWAL_TERMINAL_STATES:
+                return {"operation_id": str(operation_id), "status": operation.state}
+            if operation.provider_id is None:
+                raise ApplicationError(
+                    "billing_renewal_provider_reference_missing",
+                    type="BillingRenewalProviderMismatch",
+                    non_retryable=True,
+                )
+            invoice = await db.scalar(
+                select(BillingInvoice).where(
+                    BillingInvoice.operation_id == operation_id,
+                    BillingInvoice.workspace_id == workspace_id,
+                )
+            )
+            if invoice is None:
+                raise ApplicationError(
+                    "billing_renewal_invoice_missing",
+                    type="BillingRenewalProviderMismatch",
+                    non_retryable=True,
+                )
+            provider_id = operation.provider_id
+
+        try:
+            async with YooKassaClient(settings) as provider:
+                payment = await provider.get_payment(provider_id)
+        except Exception as exc:
+            raise ApplicationError(
+                "billing_provider_observation_unavailable",
+                type="BillingProviderObservationUnavailable",
+            ) from exc
+
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            operation = await db.scalar(
+                select(BillingOperation)
+                .where(
+                    BillingOperation.id == operation_id,
+                    BillingOperation.workspace_id == workspace_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if operation is None or operation.kind != "renewal":
+                raise ApplicationError(
+                    "billing_renewal_operation_invalid",
+                    type="BillingRenewalInvalidPayload",
+                    non_retryable=True,
+                )
+            if operation.state in BILLING_RENEWAL_TERMINAL_STATES:
+                return {"operation_id": str(operation_id), "status": operation.state}
+            invoice = await db.scalar(
+                select(BillingInvoice).where(
+                    BillingInvoice.operation_id == operation_id,
+                    BillingInvoice.workspace_id == workspace_id,
+                )
+            )
+            if invoice is None or operation.provider_id != provider_id:
+                raise ApplicationError(
+                    "billing_renewal_provider_binding_changed",
+                    type="BillingRenewalProviderMismatch",
+                    non_retryable=True,
+                )
+            try:
+                provider_status = _validate_authoritative_renewal_payment(
+                    payment,
+                    operation=operation,
+                    invoice=invoice,
+                )
+            except ValueError as exc:
+                raise ApplicationError(
+                    "billing_renewal_provider_truth_mismatch",
+                    type="BillingRenewalProviderMismatch",
+                    non_retryable=True,
+                ) from exc
+
+            subscription = await db.scalar(
+                select(WorkspaceSubscription)
+                .where(WorkspaceSubscription.workspace_id == workspace_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            now = datetime.now(UTC)
+            key_expired = provider_key_is_expired(
+                expires_at=operation.provider_key_expires_at,
+                now=now,
+            )
+            previous_state = operation.state
+
+            if provider_status == "succeeded":
+                if not _renewal_authority_matches(operation, subscription):
+                    operation.state = "succeeded_refused"
+                    if subscription is not None:
+                        subscription.renewal_resolution = "authority_refused"
+                    db.add(
+                        BillingAuditEvent(
+                            workspace_id=workspace_id,
+                            action="renewal_success_refused",
+                            target_kind="billing_operation",
+                            target_ref=str(operation_id),
+                            outcome="blocked",
+                            reason_code="recurring_authority_changed",
+                            metadata_json={},
+                        )
+                    )
+                else:
+                    operation.state = "succeeded"
+                    if subscription is not None:
+                        subscription.renewal_resolution = (
+                            "late_success" if key_expired else "succeeded"
+                        )
+                    if key_expired:
+                        db.add(
+                            BillingAuditEvent(
+                                workspace_id=workspace_id,
+                                action="renewal_late_success_observed",
+                                target_kind="billing_operation",
+                                target_ref=str(operation_id),
+                                outcome="observed",
+                                reason_code="provider_success_after_key_expiry",
+                                metadata_json={},
+                            )
+                        )
+            elif provider_status in {"canceled", "cancelled"}:
+                operation.state = "canceled"
+                if subscription is not None:
+                    subscription.renewal_resolution = "canceled"
+            else:
+                operation.state = "provider_key_expired" if key_expired else "unknown"
+                if subscription is not None:
+                    subscription.renewal_resolution = (
+                        "provider_key_expired" if key_expired else "pending"
+                    )
+                if key_expired and previous_state != "provider_key_expired":
+                    db.add(
+                        BillingAuditEvent(
+                            workspace_id=workspace_id,
+                            action="renewal_resolution_gap",
+                            target_kind="billing_operation",
+                            target_ref=str(operation_id),
+                            outcome="unknown",
+                            reason_code="provider_key_expired",
+                            metadata_json={},
+                        )
+                    )
+            result_state = operation.state
+            await db.commit()
+
+            if result_state == "unknown":
+                raise ApplicationError(
+                    "billing_provider_outcome_unknown",
+                    type="BillingProviderOutcomeUnknown",
+                )
+            return {"operation_id": str(operation_id), "status": result_state}
+    finally:
+        await engine.dispose()
 
 
 async def run_dispatch_reconciler(settings: Any, temporal_client: object) -> None:
@@ -1120,6 +1442,9 @@ async def run_worker() -> None:
     processing_activity = activity.defn(name="run_processing_pipeline_activity")(
         run_processing_pipeline_activity
     )
+    billing_renewal_activity = activity.defn(name=BILLING_RENEWAL_ACTIVITY_NAME)(
+        run_billing_renewal_activity
+    )
     outcome_activities = [
         activity.defn(name="resolve_outcome_prompt_config_activity")(
             resolve_outcome_prompt_config_activity
@@ -1157,7 +1482,14 @@ async def run_worker() -> None:
         activities=[processing_activity, invitation_activity, account_created_email_activity],
         identity=processing_worker_identity(),
     )
-    workers = [processing_worker]
+    billing_renewal_worker = Worker(
+        processing_client,
+        task_queue=billing_renewal_task_queue(settings),
+        workflows=[BillingRenewalWorkflow],
+        activities=[billing_renewal_activity],
+        identity=f"{processing_worker_identity()}:billing-renewal",
+    )
+    workers = [processing_worker, billing_renewal_worker]
     if settings.outcome_generation_enabled:
         traced_client = await connect_temporal_client(
             settings,

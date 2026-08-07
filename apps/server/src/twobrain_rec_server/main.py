@@ -8,6 +8,7 @@ from twobrain_rec_server.admin.templates import ADMIN_STATIC_URL, admin_static_d
 from twobrain_rec_server.admin.web import router as admin_web_router
 from twobrain_rec_server.api.admin import router as admin_api_router
 from twobrain_rec_server.api.auth import router as auth_router
+from twobrain_rec_server.api.billing import router as billing_router
 from twobrain_rec_server.api.cabinet import router as cabinet_api_router
 from twobrain_rec_server.api.calendar import router as calendar_router
 from twobrain_rec_server.api.health import router as health_router
@@ -73,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(public_web_router)
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(billing_router)
     app.include_router(ingest_router)
     app.include_router(meeting_detection_router)
     app.include_router(processing_router)

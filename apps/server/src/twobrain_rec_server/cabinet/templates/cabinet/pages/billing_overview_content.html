@@ -1,0 +1,41 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+{% import "cabinet/components/sections.html" as sections %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/meetings") }}
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar">
+        <div class="page-title"><h1>Тариф и оплата</h1><p class="muted">Настройки оплаты относятся к выбранному пространству.</p></div>
+      </header>
+      <section class="settings-section cabinet-card" aria-labelledby="billing-plan-title">
+        <span class="settings-scope-badge">В этом пространстве</span>
+        <h2 id="billing-plan-title">{{ plan.label }}</h2>
+        {% if plan_code == "free" %}
+        <p>Обработка: <strong>{{ processing_used_label }} из {{ free_processing_limit_label }} (18 000 сек)</strong>. Платные тарифы обрабатывают встречи без лимита по времени.</p>
+        {% else %}<p>Обработка встреч без лимита по времени. Хранилище оплачивается отдельно от обработки.</p>{% endif %}
+        {% if billing_enabled %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p class="muted" role="status">Оплата пока недоступна: магазин не включён.</p>{% endif %}
+        {% if plan_code != "free" %}<a class="button quiet" href="/billing/subscription">Управлять подпиской</a>{% endif %}
+        {% if plan_code == "free" %}
+        {% if trial_result == "activated" %}<p role="status" aria-live="polite">Пробный период активирован на 7 дней.</p>{% elif trial_result == "already" %}<p role="status" aria-live="polite">Пробный период уже использован.</p>{% elif trial_result == "unavailable" %}<p role="status" aria-live="polite">Пробный период доступен только после подтверждённого входа.</p>{% endif %}
+        <form action="/billing/trial/activate" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button quiet" type="submit">Попробовать «Личный» 7 дней</button></form>
+        {% endif %}
+      </section>
+      <section class="settings-section cabinet-card" aria-labelledby="billing-storage-title">
+        <h2 id="billing-storage-title">Хранилище</h2>
+        <p><strong>{{ storage_used }} байт</strong> из <strong>{{ storage_capacity_label }} байт</strong> · состояние: {{ storage_threshold }}</p>
+        <p class="muted">Размер учитывает нормализованный файл встречи. Лимит хранения не ограничивает обработку.</p>
+        <a class="button quiet" href="/billing/usage">Открыть использование</a>
+      </section>
+      <section class="settings-section cabinet-card" aria-labelledby="billing-support-title">
+        <h2 id="billing-support-title">Платежи и возврат</h2>
+        <p>Платежи и чеки отображаются в истории. Возврат оформляется только письмом в поддержку; автоматической заявки в продукте нет.</p>
+        <a class="button quiet" href="/billing/history">История платежей</a>
+      </section>
+      <section class="settings-section cabinet-card" aria-labelledby="billing-referral-title">
+        <h2 id="billing-referral-title">Пригласить друга</h2>
+        <p>Друг получит 10% скидки на первую оплату, а вы — 7 дней за месяц или 30 дней за год после подтверждения.</p>
+        <a class="button quiet" href="/referrals">Открыть реферальную систему</a>
+      </section>
+    </div>
+  </div>
+</main>
