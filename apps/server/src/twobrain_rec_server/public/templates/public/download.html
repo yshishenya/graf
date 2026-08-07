@@ -6,79 +6,103 @@
     <title>{{ page_title }}</title>
     <meta
       name="description"
-      content="Установите GRAF, чтобы записывать встречи на компьютере и получать итоги в кабинете."
+      content="Скачайте GRAF для macOS. Версии для Windows и Linux появятся позже."
     >
-    <meta name="theme-color" content="#05090a">
+    <meta name="theme-color" content="#0a0810">
     <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <link rel="preload" href="{{ public_static_asset_url('fonts/onest-cyrillic.woff2') }}" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="{{ public_static_asset_url('fonts/onest-latin.woff2') }}" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
   </head>
-  <body>
+  <body class="download-page">
     <a class="skip-link" href="#main">К содержанию</a>
     <div class="site-shell download-shell">
       <header class="site-header" aria-label="GRAF">
-        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
-        <nav class="top-nav" aria-label="Основные разделы">
-          <a href="/">Главная</a>
+        <a class="brand" href="/" aria-label="GRAF — главная">
+          <img
+            src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}"
+            width="108"
+            height="40"
+            alt="GRAF"
+          >
+        </a>
+        <nav class="top-nav download-nav" aria-label="Основные разделы">
+          <a href="/">О продукте</a>
         </nav>
         <a
-          class="header-cta"
+          class="header-login"
           href="{{ start_url }}"
           data-analytics-cta="download_page_login"
           data-analytics-target="login"
         >Войти</a>
       </header>
 
-      <main id="main" class="download-page">
+      <main id="main" class="download-main">
         <section class="download-hero" aria-labelledby="download-title">
-          <p class="section-label">Приложение</p>
-          <h1 id="download-title">Установите GRAF</h1>
+          <p class="eyebrow">Загрузка</p>
+          <h1 id="download-title">Скачать GRAF</h1>
           <p class="hero-lede">
-            Приложение записывает встречу на компьютере, а кабинет показывает
-            текст, решения и задачи после обработки.
+            Сейчас доступна версия для macOS. Windows и Linux — скоро.
           </p>
-          <div class="hero-actions">
+        </section>
+
+        <section class="platform-downloads" aria-labelledby="platforms-title">
+          <h2 id="platforms-title" class="sr-only">Доступность по платформам</h2>
+
+          <article class="platform-download platform-download-current" data-platform="macos">
+            <div class="platform-name">
+              <span class="platform-index" aria-hidden="true">01</span>
+              <div>
+                <p class="eyebrow">Доступно</p>
+                <h3>macOS</h3>
+              </div>
+            </div>
+            <p class="platform-description">
+              Для macOS 14 и новее. Подписано разработчиком и проверено Apple.
+            </p>
             <a
-              class="primary-cta"
+              class="primary-cta platform-download-action"
               href="{{ public_static_asset_url('downloads/graf-local.pkg') }}"
               download
               data-analytics-cta="download_page_installer"
               data-analytics-target="installer_package"
-            >
-              <span>Скачать GRAF</span>
-              <span aria-hidden="true">→</span>
-            </a>
-          </div>
+            >Скачать для macOS</a>
+          </article>
+
+          <article class="platform-download" data-platform="windows" data-platform-status="planned">
+            <div class="platform-name">
+              <span class="platform-index" aria-hidden="true">02</span>
+              <div>
+                <p class="eyebrow">Скоро</p>
+                <h3>Windows</h3>
+              </div>
+            </div>
+            <p class="platform-description">Готовим версию для Windows.</p>
+            <span class="planned-status" aria-label="Windows: скоро">Скоро</span>
+          </article>
+
+          <article class="platform-download" data-platform="linux" data-platform-status="planned">
+            <div class="platform-name">
+              <span class="platform-index" aria-hidden="true">03</span>
+              <div>
+                <p class="eyebrow">Скоро</p>
+                <h3>Linux</h3>
+              </div>
+            </div>
+            <p class="platform-description">Готовим версию для Linux.</p>
+            <span class="planned-status" aria-label="Linux: скоро">Скоро</span>
+          </article>
         </section>
 
-        <section class="download-card" aria-labelledby="download-status">
+        <section class="setup-path" aria-labelledby="setup-title">
           <div>
-            <p class="platform-label">Текущий установщик</p>
-            <h2 id="download-status">Скачайте пакет и откройте GRAF.</h2>
-            <p>
-              После установки войдите в кабинет тем же аккаунтом. GRAF будет
-              записывать встречи на компьютере и отправлять итоги в кабинет.
-            </p>
-            <p>
-              Это локальный установщик без подписи Developer ID и notarization. Если
-              macOS заблокирует файл, откройте «Системные настройки →
-              Конфиденциальность и безопасность» и нажмите «Открыть всё равно»
-              для этого пакета, затем запустите установку ещё раз. Не отключайте
-              защиту macOS целиком.
-            </p>
+            <p class="eyebrow">Первый запуск</p>
+            <h2 id="setup-title">Три шага до первой записи</h2>
           </div>
-          <ol class="download-steps" aria-label="Путь первого запуска">
-            <li>
-              <span class="step-index">1</span>
-              <span class="step-copy"><strong>Скачать</strong><small>Файл приложения</small></span>
-            </li>
-            <li>
-              <span class="step-index">2</span>
-              <span class="step-copy"><strong>Открыть</strong><small>Войти в аккаунт</small></span>
-            </li>
-            <li>
-              <span class="step-index">3</span>
-              <span class="step-copy"><strong>Включить</strong><small>Автозапись встреч</small></span>
-            </li>
+          <ol>
+            <li><span>01</span><strong>Установите</strong><small>Откройте скачанный пакет.</small></li>
+            <li><span>02</span><strong>Войдите</strong><small>Используйте аккаунт GRAF.</small></li>
+            <li><span>03</span><strong>Начните запись</strong><small>Ручной старт всегда доступен.</small></li>
           </ol>
         </section>
       </main>

@@ -6,36 +6,53 @@
     <title>{{ page_title }}</title>
     <meta
       name="description"
-      content="GRAF автоматически записывает онлайн-встречи в любом приложении для созвонов и собирает главное после них."
+      content="GRAF записывает встречи без бота в звонке и собирает расшифровку, решения и следующие действия."
     >
-    <meta name="theme-color" content="#05090a">
+    <meta name="theme-color" content="#0a0810">
     <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <link rel="preload" href="{{ public_static_asset_url('fonts/onest-cyrillic.woff2') }}" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="{{ public_static_asset_url('fonts/onest-latin.woff2') }}" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
   </head>
-  <body>
+  <body class="landing-page">
     <a class="skip-link" href="#main">К содержанию</a>
     <div class="site-shell">
       <header class="site-header" aria-label="GRAF">
-        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
+        <a class="brand" href="/" aria-label="GRAF — главная">
+          <img
+            src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}"
+            width="108"
+            height="40"
+            alt="GRAF"
+          >
+        </a>
         <nav class="top-nav" aria-label="Основные разделы">
-          <a href="#how">Как это работает</a>
-          <a href="#features">Возможности</a>
-          <a href="#trust">Безопасность</a>
+          <a href="#how">Возможности</a>
+          <a href="#outcomes">Результат</a>
+          <a href="#trust">Данные</a>
         </nav>
-        <a
-          class="header-cta"
-          href="{{ download_url }}"
-          data-analytics-cta="header_download"
-          data-analytics-target="download_page"
-        >Скачать</a>
+        <div class="header-actions">
+          <a class="header-login" href="{{ start_url }}">Войти</a>
+          <a
+            class="header-cta"
+            href="{{ download_url }}"
+            data-analytics-cta="header_download"
+            data-analytics-target="download_page"
+          >Скачать</a>
+        </div>
       </header>
 
       <main id="main">
         <section class="hero" aria-labelledby="hero-title" data-analytics-section="hero">
           <div class="hero-copy">
-            <h1 id="hero-title">Встреча останется с вами</h1>
+            <p class="eyebrow">Запись · расшифровка · итоги</p>
+            <h1 id="hero-title">
+              <span>Встреча закончится</span>
+              <span>Главное останется</span>
+            </h1>
             <p class="hero-lede">
-              GRAF сам записывает звонок и собирает главное после него.
+              GRAF записывает встречу без бота в звонке, а после собирает
+              расшифровку, решения и следующие действия.
             </p>
             <div class="hero-actions">
               <a
@@ -44,166 +61,252 @@
                 data-analytics-cta="hero_download"
                 data-analytics-target="download_page"
               >
-                <span>Скачать GRAF</span>
-                <span aria-hidden="true">→</span>
+                Скачать GRAF
               </a>
               <a
                 class="secondary-cta"
-                href="{{ start_url }}"
-                data-analytics-cta="hero_login"
-                data-analytics-target="login"
-              >Войти</a>
+                href="#how"
+                data-analytics-cta="hero_product"
+                data-analytics-target="section"
+              >Посмотреть продукт</a>
             </div>
           </div>
 
-          <div class="product-scene">
+          <figure class="hero-product">
+            <div class="hero-proof-stage">
+              <picture class="hero-outcome-proof">
+                <source
+                  media="(max-width: 640px)"
+                  srcset="{{ public_static_asset_url('landing-outcome-proof-focus-mobile.png') }}"
+                  width="390"
+                  height="320"
+                >
+                <img
+                  class="hero-outcome-image"
+                  src="{{ public_static_asset_url('landing-outcome-proof-focus.png') }}"
+                  width="1040"
+                  height="320"
+                  fetchpriority="high"
+                  alt="Интерфейс GRAF с кратким итогом, действием, ответственным и ссылками на источник"
+                >
+              </picture>
+              <img
+                class="hero-recording-overlay"
+                src="{{ public_static_asset_url('landing-recording-proof-focus.png') }}"
+                width="880"
+                height="180"
+                fetchpriority="high"
+                alt="В GRAF видна активная запись и доступны пауза и остановка"
+              >
+            </div>
+            <figcaption>Интерфейс GRAF · данные встречи созданы для демонстрации.</figcaption>
+          </figure>
+        </section>
+
+        <section
+          class="chapter chapter-capture"
+          id="how"
+          aria-labelledby="how-title"
+          data-analytics-section="platforms"
+        >
+          <header class="chapter-heading">
+            <span class="chapter-number" aria-hidden="true">01</span>
+            <div>
+              <p class="eyebrow">В привычных сервисах</p>
+              <h2 id="how-title">Запись не зависит от сервиса встречи</h2>
+              <p class="chapter-lede">
+                Продолжайте встречу в привычном приложении, а запись запустите в
+                GRAF. Состояние, пауза и остановка всегда рядом.
+              </p>
+            </div>
+          </header>
+
+          <figure class="proof-frame recording-proof-frame">
             <img
-              src="{{ public_static_asset_url('landing-hero-product.png') }}"
-              width="940"
-              height="710"
-              fetchpriority="high"
-              alt="Интерфейс GRAF: запись встречи превращается в транскрипт, решения и задачи"
+              src="{{ public_static_asset_url('landing-recording-proof-focus.png') }}"
+              width="880"
+              height="180"
+              loading="lazy"
+              alt="В GRAF видна активная запись и доступны действия Пауза и Остановить"
             >
-          </div>
-        </section>
+            <figcaption>Интерфейс GRAF во время записи · демонстрационный сеанс.</figcaption>
+          </figure>
 
-        <section class="tool-strip" id="how" aria-labelledby="platform-title" data-analytics-section="platforms">
-          <div class="platform-card">
-            <div class="platform-copy">
-              <p class="platform-label">Любой сервис для созвонов</p>
-              <h2 id="platform-title">GRAF записывает встречу там, где вы уже созваниваетесь.</h2>
+          <ul class="capture-facts" aria-label="Как устроена запись">
+            <li>Без бота в звонке</li>
+            <li>Ручной старт всегда доступен</li>
+            <li>Пауза и остановка рядом</li>
+          </ul>
+
+          <div class="platform-proof" aria-labelledby="platform-proof-title">
+            <div class="platform-proof-copy">
+              <div>
+                <p class="eyebrow">Сервисы встреч</p>
+                <h3 id="platform-proof-title">
+                  <span>Встреча в привычном приложении</span>
+                  <span>Запись в GRAF</span>
+                </h3>
+              </div>
+              <p>
+                В поддерживаемых приложениях GRAF может предложить начать запись.
+                Ручной запуск остаётся доступен всегда.
+              </p>
             </div>
-            <div class="platform-rail" aria-label="Примеры сервисов для звонков">
-              <div class="platform-track" aria-hidden="true">
-                <span>Яндекс Телемост</span>
-                <span>SberJazz</span>
-                <span>TrueConf</span>
-                <span>МТС Линк</span>
-                <span>Контур.Толк</span>
-                <span>VK Teams</span>
-                <span>Яндекс Телемост</span>
-                <span>SberJazz</span>
-                <span>TrueConf</span>
-                <span>МТС Линк</span>
-                <span>Контур.Толк</span>
-                <span>VK Teams</span>
-              </div>
-              <div class="platform-track platform-track-alt" aria-hidden="true">
-                <span>DION</span>
-                <span>Zoom</span>
-                <span>Google Meet</span>
-                <span>Microsoft Teams</span>
-                <span>Telegram</span>
-                <span>Discord</span>
-                <span>DION</span>
-                <span>Zoom</span>
-                <span>Google Meet</span>
-                <span>Microsoft Teams</span>
-                <span>Telegram</span>
-                <span>Discord</span>
-              </div>
-              <ul class="sr-only">
-                <li>Яндекс Телемост</li>
-                <li>SberJazz</li>
-                <li>TrueConf</li>
-                <li>МТС Линк</li>
-                <li>Контур.Толк</li>
-                <li>VK Teams</li>
-                <li>DION</li>
-                <li>Zoom</li>
-                <li>Google Meet</li>
-                <li>Microsoft Teams</li>
-                <li>Telegram</li>
-                <li>Discord</li>
-              </ul>
-            </div>
-          </div>
-        </section>
 
-        <section class="outcome-section" id="features" aria-labelledby="features-title" data-analytics-section="outcomes">
-          <div>
-            <p class="section-label">После встречи</p>
-            <h2 id="features-title">Текст, решения и задачи уже готовы.</h2>
-            <p class="section-copy">
-              GRAF собирает разговор в понятный итог, к которому можно вернуться
-              после звонка.
-            </p>
-          </div>
-          <div class="outcome-panel" aria-label="Пример готовых итогов встречи">
-            <article class="transcript-preview">
-              <div class="preview-header">
-                <h3>Транскрипт</h3>
-                <span>45:28</span>
-              </div>
-              <div class="quote-row">
-                <time datetime="PT12M48S">00:12:48</time>
-                <p>Нужно сфокусироваться на запуске в Q3 и первой группе.</p>
-              </div>
-              <div class="quote-row">
-                <time datetime="PT21M06S">00:21:06</time>
-                <p>Берем два региона и готовим список требований.</p>
-              </div>
-              <div class="audio-line" aria-hidden="true"></div>
-            </article>
+            <div class="platform-motion-control">
+              <input id="pause-platform-rail" class="motion-toggle-input" type="checkbox">
+              <label class="motion-toggle" for="pause-platform-rail">
+                <span class="when-running">Пауза</span>
+                <span class="when-paused">Продолжить</span>
+              </label>
 
-            <div class="outcome-stack">
-              <article class="summary-preview">
-                <p>Главное</p>
-                <h3>Запуск в Q3, фокус на 2 регионах.</h3>
-                <div class="decision-tags" aria-label="Решения">
-                  <span>Запуск в Q3</span>
-                  <span>2 региона</span>
-                  <span>Первая группа</span>
+              <div class="platform-rail" aria-hidden="true">
+                <div class="platform-track">
+                  <div class="platform-set">
+                    <span>Яндекс Телемост</span>
+                    <span>Zoom</span>
+                    <span>МТС Линк</span>
+                    <span>Microsoft Teams</span>
+                    <span>TrueConf</span>
+                    <span>Telegram</span>
+                    <span>VK Teams</span>
+                    <span>DION</span>
+                    <span>Контур.Толк</span>
+                    <span>VINTEO</span>
+                  </div>
+                  <div class="platform-set rail-duplicate">
+                    <span>Яндекс Телемост</span>
+                    <span>Zoom</span>
+                    <span>МТС Линк</span>
+                    <span>Microsoft Teams</span>
+                    <span>TrueConf</span>
+                    <span>Telegram</span>
+                    <span>VK Teams</span>
+                    <span>DION</span>
+                    <span>Контур.Толк</span>
+                    <span>VINTEO</span>
+                  </div>
                 </div>
-              </article>
-
-              <article class="tasks-preview">
-                <div class="preview-header">
-                  <h3>Задачи</h3>
-                  <span>3</span>
-                </div>
-                <ul>
-                  <li><span>Анна</span>Подготовить план запуска</li>
-                  <li><span>Игорь</span>Собрать первых клиентов</li>
-                  <li><span>Анна</span>Описать требования</li>
-                </ul>
-              </article>
+              </div>
             </div>
+
+            <ul class="sr-only">
+              <li>Яндекс Телемост</li>
+              <li>Zoom</li>
+              <li>МТС Линк</li>
+              <li>Microsoft Teams</li>
+              <li>TrueConf</li>
+              <li>Telegram</li>
+              <li>VK Teams</li>
+              <li>DION</li>
+              <li>Контур.Толк</li>
+              <li>VINTEO</li>
+            </ul>
+            <p class="browser-note">Google Meet и другие браузерные встречи — с ручным запуском записи.</p>
           </div>
         </section>
 
-        <section class="control-section" id="trust" aria-labelledby="trust-title" data-analytics-section="trust">
-          <div>
-            <p class="section-label">Контроль</p>
-            <h2 id="trust-title">Запись видна и управляемая.</h2>
-          </div>
-          <div class="control-list">
-            <p>Автозапись можно включить заранее.</p>
-            <p>Во время встречи видно, что идет запись.</p>
-            <p>Остановить можно одним действием.</p>
-            <p>Без бота в звонке.</p>
+        <section
+          class="chapter chapter-outcome"
+          id="outcomes"
+          aria-labelledby="outcomes-title"
+          data-analytics-section="outcomes"
+        >
+          <header class="chapter-heading">
+            <span class="chapter-number" aria-hidden="true">02</span>
+            <div>
+              <p class="eyebrow">После встречи</p>
+              <h2 id="outcomes-title">Сразу понятно, что делать дальше</h2>
+              <p class="chapter-lede">
+                GRAF собирает главное, фиксирует решения и действия, а каждый вывод
+                связывает с нужным фрагментом встречи.
+              </p>
+            </div>
+          </header>
+
+          <div class="outcome-proof-grid">
+            <figure class="proof-frame outcome-proof-frame">
+              <picture>
+                <source
+                  media="(max-width: 640px)"
+                  srcset="{{ public_static_asset_url('landing-outcome-proof-focus-mobile.png') }}"
+                  width="390"
+                  height="320"
+                >
+                <img
+                  src="{{ public_static_asset_url('landing-outcome-proof-focus.png') }}"
+                  width="1040"
+                  height="320"
+                  loading="lazy"
+                  alt="Реальный экран итогов GRAF с кратким резюме, действием, решением и ссылками на время в записи"
+                >
+              </picture>
+              <figcaption>Интерфейс GRAF · данные встречи созданы для демонстрации.</figcaption>
+            </figure>
+
+            <dl class="outcome-values">
+              <div><dt>Кратко</dt><dd>Суть разговора без перечитывания всей расшифровки.</dd></div>
+              <div><dt>Действия</dt><dd>Что сделать и кто отвечает.</dd></div>
+              <div><dt>Решения</dt><dd>Что согласовали на встрече.</dd></div>
+              <div><dt>Источник</dt><dd>Где именно это прозвучало.</dd></div>
+            </dl>
           </div>
         </section>
 
-        <section class="final-cta" id="start" aria-label="Начать пользоваться GRAF" data-analytics-section="final_cta">
-          <h2>Начните с ближайшей встречи.</h2>
-          <div>
+        <section
+          class="chapter chapter-trust"
+          id="trust"
+          aria-labelledby="trust-title"
+          data-analytics-section="trust"
+        >
+          <header class="chapter-heading">
+            <span class="chapter-number" aria-hidden="true">03</span>
+            <div>
+              <p class="eyebrow">Управляемый контур</p>
+              <h2 id="trust-title">Российские и локальные модели</h2>
+              <p class="chapter-lede">
+                Для расшифровки и итогов GRAF использует российские и локально
+                развёрнутые модели в управляемом контуре.
+              </p>
+            </div>
+          </header>
+
+          <div class="trust-statement">
+            <p>Обработка расшифровки и итогов остаётся в управляемом контуре GRAF.</p>
+            <dl class="trust-facts">
+              <div><dt>Модели</dt><dd>Российские и локально развёрнутые.</dd></div>
+              <div><dt>Контур</dt><dd>Управляемая инфраструктура GRAF.</dd></div>
+              <div><dt>Подробнее</dt><dd><a href="/privacy">Как GRAF работает с данными</a></dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section
+          class="final-cta"
+          id="start"
+          aria-label="Начать пользоваться GRAF"
+          data-analytics-section="final_cta"
+        >
+          <p class="eyebrow">Следующая встреча</p>
+          <h2>
+            <span>Встреча закончится</span>
+            <span>Главное останется</span>
+          </h2>
+          <div class="final-actions">
             <a
               class="primary-cta"
               href="{{ download_url }}"
               data-analytics-cta="final_download"
               data-analytics-target="download_page"
-            >
-              <span>Скачать GRAF</span>
-              <span aria-hidden="true">→</span>
-            </a>
+            >Скачать GRAF</a>
             <a
               class="secondary-cta"
               href="{{ start_url }}"
               data-analytics-cta="final_login"
               data-analytics-target="login"
-            >Войти</a>
+            >Уже используете GRAF? Войти</a>
           </div>
+          <p class="platform-note">macOS — доступно сейчас · Windows и Linux — скоро</p>
         </section>
       </main>
     </div>

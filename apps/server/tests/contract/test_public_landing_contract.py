@@ -12,7 +12,16 @@ REPOSITORY_ROOT = ROOT.parents[1]
 
 def test_public_landing_static_assets_are_local_to_server_package() -> None:
     assert (PUBLIC_STATIC_DIR / "landing.css").is_file()
-    assert (PUBLIC_STATIC_DIR / "landing-hero-product.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-atmosphere.jpg").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-recording-proof.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-recording-proof-focus.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-focus.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-focus-mobile.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "landing-outcome-proof-mobile.png").is_file()
+    assert (PUBLIC_STATIC_DIR / "fonts" / "onest-cyrillic.woff2").is_file()
+    assert (PUBLIC_STATIC_DIR / "fonts" / "onest-latin.woff2").is_file()
+    assert (PUBLIC_STATIC_DIR / "fonts" / "OFL.txt").is_file()
     assert (PUBLIC_STATIC_DIR / "downloads" / "graf-local.pkg").is_file()
     assert (PUBLIC_STATIC_DIR / "analytics.js").is_file()
     assert (PUBLIC_STATIC_DIR / "cookieconsent.umd.js").is_file()
@@ -83,7 +92,11 @@ def test_public_landing_css_keeps_accessible_focus_and_stable_motion() -> None:
     content = (PUBLIC_STATIC_DIR / "landing.css").read_text().lower()
 
     assert ":focus-visible" in content
+    assert "prefers-reduced-motion: reduce" in content
+    assert "animation-timeline: view()" in content
+    assert 'url("landing-atmosphere.jpg")' in content
     assert "transition: all" not in content
+    assert "overflow-x: hidden" not in content
 
 
 def test_public_landing_asset_url_is_fingerprinted() -> None:

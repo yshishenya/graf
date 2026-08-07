@@ -1,0 +1,103 @@
+# Tasks: Launch Landing Redesign
+
+**Input**: `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/public-launch-experience.md`, `quickstart.md`
+
+## Phase 1: Setup
+
+- [X] T001 Record the selected visual checksum and asset inventory in `specs/142-launch-landing-redesign/design-qa.md`
+- [X] T002 [P] Prepare privacy-cleared real GRAF product proof assets in `apps/server/src/twobrain_rec_server/public/static/public/landing-outcome-proof.png` and `apps/server/src/twobrain_rec_server/public/static/public/landing-recording-proof.png`
+
+## Phase 2: Foundational Contracts
+
+- [X] T003 Update public truth, real-asset, CTA and platform-status assertions before implementation in `apps/server/tests/unit/test_public_landing.py`
+- [X] T004 [P] Update local asset, accessibility, reduced-motion and no-client-toolchain assertions in `apps/server/tests/contract/test_public_landing_contract.py`
+- [X] T005 [P] Reconcile the selected mock with product truth and record the final copy matrix in `specs/142-launch-landing-redesign/contracts/public-launch-experience.md`
+
+## Phase 3: User Story 1 — Understand GRAF immediately (P1)
+
+**Goal**: Deliver the platform-neutral editorial hero, accessible navigation and clear download path.
+
+**Independent Test**: A first-time visitor can identify product purpose and reach `/download` in under 10 seconds at desktop and mobile widths.
+
+- [X] T006 [US1] Replace the public header and hero with the selected editorial hierarchy in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`
+- [X] T007 [US1] Implement the near-black violet design tokens, desktop grid, hero spacing, focus states and mobile header behavior in `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+- [X] T008 [US1] Update the public page title and metadata without universal capture claims in `apps/server/src/twobrain_rec_server/public/web.py`
+
+## Phase 4: User Story 2 — Validate product promises (P1)
+
+**Goal**: Present three focused proof chapters using truth-safe copy and real GRAF UI.
+
+**Independent Test**: Each proof chapter has one clear promise, one matching real product state and synthetic/no-PII content.
+
+- [X] T009 [US2] Implement the numbered `01 / В привычных сервисах` recording chapter and real proof image in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`
+- [X] T010 [US2] Implement the numbered `02 / После встречи` outcome chapter and real accepted-outcome image in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`
+- [X] T011 [US2] Implement the numbered `03 / Под контролем` visible Pause/Stop chapter in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`
+- [X] T012 [US2] Implement alternating editorial chapter layout, screenshot treatment, readable captions and responsive proof stacking in `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+
+## Phase 5: User Story 3 — Reach the available platform (P2)
+
+**Goal**: Make `/download` a clear, honest platform availability page.
+
+**Independent Test**: macOS has the only download action; Windows and Linux are readable non-interactive planned statuses.
+
+- [X] T013 [US3] Replace the download hero and platform availability structure in `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
+- [X] T014 [US3] Remove obsolete local-signing bypass copy, retain the runtime-mounted package URL and present release-policy-compatible macOS trust wording in `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
+- [X] T015 [US3] Add responsive platform rows, status labels and non-interactive future-platform styling in `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+
+## Phase 6: User Story 4 — Understand payment boundary (P2)
+
+**Goal**: Preserve the ruble/YooKassa product decision without publishing an unapproved amount or checkout claim.
+
+**Independent Test**: Public pages contain no price, payment action or YooKassa availability claim before the billing source of truth is active.
+
+- [X] T016 [US4] Add contract assertions that public templates contain no hardcoded price, placeholder amount or premature YooKassa checkout claim in `apps/server/tests/unit/test_public_landing.py`
+- [X] T017 [US4] Document the exact future billing-catalog handoff and reserved ruble-payment copy in `specs/142-launch-landing-redesign/contracts/public-launch-experience.md`
+
+## Phase 7: Polish And Cross-Cutting Validation
+
+- [X] T018 Run the focused public landing/analytics checks from `specs/142-launch-landing-redesign/quickstart.md` and record results in `specs/142-launch-landing-redesign/design-qa.md`
+- [X] T019 Capture and compare the 1440, 390 and 320 CSS px landing/download states against `specs/142-launch-landing-redesign/design/selected-direction-3.png`, fix P0–P2 issues and set `final result: passed` in `specs/142-launch-landing-redesign/design-qa.md`
+- [X] T020 Update launch-facing behavior notes in `CHANGELOG.md` and run `infra/scripts/ci-local.sh --fast`
+
+## Phase 8: User Feedback Refinement
+
+- [X] T021 Re-audit the shipped composition against the selected direction, current product references and 2026 interface guidance; record evidence in `specs/142-launch-landing-redesign/evidence/ux-audit-v2/` and reopen `specs/142-launch-landing-redesign/design-qa.md`
+- [X] T022 Self-host the Cyrillic variable font and rebuild the type scale, line lengths, controlled wrapping and vertical rhythm in `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+- [X] T023 Recompose the landing IA so each product proof supports one USP and the managed Russian/local model contour becomes chapter 03 in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html`
+- [X] T024 Refine CTA geometry, VKS rail, responsive states, reduced-motion behavior and download copy in `apps/server/src/twobrain_rec_server/public/templates/public/download.html` and `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+- [X] T025 Capture and compare landing/download at 1440, 1024, 768, 390, 320 and 280 CSS px; fix every actionable P0–P2 finding and update `specs/142-launch-landing-redesign/design-qa.md`
+- [X] T026 Run focused public checks and `infra/scripts/ci-local.sh --fast`, update `CHANGELOG.md`, and record the passed visual result separately from the unsigned-package release blocker
+
+## Phase 9: Release Sync And Atmospheric Refinement
+
+- [X] T027 Fast-forward the feature worktree to current `origin/master`, preserve the active Feature 142 changes, and replace the stale local installer with the checksum-matched `v2026.08.07.2` Developer ID/notarized/stapled package
+- [X] T028 Add one optimized local atmospheric raster and compositor-safe CSS motion in `apps/server/src/twobrain_rec_server/public/static/public/landing.css` without adding a frontend runtime or animation dependency
+- [X] T029 Recompose the real hero, recording and outcome proofs in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` so they feel integrated and remain readable on desktop and mobile
+- [X] T030 Refine landing wording, punctuation, manual heading wraps and responsive type behavior in `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` and `apps/server/src/twobrain_rec_server/public/static/public/landing.css`
+- [X] T031 Repeat current-source audit, combined visual QA, reduced-motion/interaction checks, focused public tests and `infra/scripts/ci-local.sh --fast`; update `design-qa.md` and `CHANGELOG.md`
+
+## Dependencies
+
+- T001–T005 are foundational.
+- US1 (T006–T008) establishes the page shell and can be validated independently.
+- US2 (T009–T012) depends on T002 and the US1 shell.
+- US3 (T013–T015) is independent of US2 after T003–T004.
+- US4 (T016–T017) is documentation/test-only and can run in parallel with US3.
+- T018–T020 depend on all implemented user stories.
+- T021–T026 are a feedback-driven refinement sequence; T025–T026 depend on T022–T024.
+- T027 must finish before T028–T030. T031 depends on the complete visual and wording refinement.
+
+## Parallel Opportunities
+
+- T002, T004 and T005 touch different files and can run in parallel.
+- After the shared stylesheet skeleton exists, US2 template work and US3 template work can proceed independently.
+- T016–T017 can run while `/download` styling is implemented.
+
+## Implementation Strategy
+
+1. Lock public truth and real assets before visual implementation.
+2. Ship the hero/shell as the first independently testable slice.
+3. Add one proof chapter at a time, preserving readable HTML without screenshots.
+4. Finish `/download`, then perform visual/accessibility QA across all required widths.
+
+Format validation: all tasks use checkbox, sequential ID, story label where required and exact repository paths.

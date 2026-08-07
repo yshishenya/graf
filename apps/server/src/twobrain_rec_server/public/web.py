@@ -13,7 +13,7 @@ async def public_landing_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/landing.html",
-        page_title="GRAF - встречи записываются сами",
+        page_title="GRAF — запись встреч и готовые итоги",
         analytics_path="/",
         start_url="/login?next=/meetings",
         download_url="/download",
@@ -25,7 +25,7 @@ async def public_download_page(request: Request) -> HTMLResponse:
     return public_template_response(
         request,
         "public/download.html",
-        page_title="Скачать GRAF",
+        page_title="Скачать GRAF для macOS",
         analytics_path="/download",
         start_url="/login?next=/meetings",
     )
