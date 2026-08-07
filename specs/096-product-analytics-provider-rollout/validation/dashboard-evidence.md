@@ -78,7 +78,7 @@ audio.
 | Production smoke | pass | Full production smoke passed with config validation, migration verification, upload smoke, auth cleanup, and artifact cleanup. | Verdict is `infra_smoke_ready`, not product rollout readiness. |
 | Yandex public/all-pages inventory | partial pass | Runtime reports Yandex all-pages enabled with counter configured/redacted; inventory still limits Yandex to the approved public baseline classes and blocks/replay-unavailable classes. | Webvisor/maps/forms remain disabled. |
 | Yandex offline upload | blocked | Runtime reports Yandex offline disabled. | OAuth token secret-file setup and live upload smoke are still required. |
-| PostHog backup/restore | blocked for readiness | Actual generated runtime volume inventory is known, but isolated backup/restore rehearsal has not passed yet. | Required before full long-term ops readiness. |
+| PostHog backup/restore | pass | Remote backup and isolated restore rehearsal passed before the final app recreate; artifact paths remain outside committed evidence. | Repeat after future generated-stack changes. |
 | PostHog image pinning | pass | Mutable generated-runtime image references were pinned by reviewed digest outside git; Compose config validation, mutable-tag scan, analytics health, and post-pinning live-safe smoke passed. | Repeat the pinning check after every future PostHog stack update. |
 
 ## Post-Runtime Dashboard/Counter Review: 2026-07-09

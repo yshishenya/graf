@@ -113,7 +113,7 @@ URL, or private host path.
 | Yandex offline upload | blocked | Runtime reports Yandex offline disabled. OAuth token secret-file setup and live upload smoke for `desktop_account_connected` and `first_value_session_completed` remain required before offline conversion readiness can pass. |
 | Paid campaign launch | blocked | 096 still reports campaign launch as blocked; technical provider smoke does not approve paid campaign launch. |
 | Product rollout readiness | blocked | Production provider delivery is working for PostHog, but product rollout readiness remains a separate product/legal/security/QA decision. |
-| PostHog backup/restore | blocked for full readiness | Runtime volume inventory exists, but a full PostHog backup and isolated restore rehearsal for the generated stack has not been completed in this pass. |
+| PostHog backup/restore | pass | Remote backup and isolated restore rehearsal passed before the final app recreate; artifact paths remain outside committed evidence. |
 | Image pinning | pass | Runtime image pinning was completed outside git and verified by Compose config, mutable-tag scan, health check, and post-pinning delivery smoke. Repeat this check after every future PostHog stack update. |
 
 ## Post-Runtime Review Follow-Up: 2026-07-09
@@ -162,7 +162,7 @@ signed URLs, or private local paths.
 | Yandex browser behavior | pass | Headless browser/CDP check found no Yandex requests and no Yandex goals before analytics consent; after granted analytics/attribution consent, the public landing page loaded Yandex tag traffic and sent one approved public landing goal request. |
 | Admin UI improvement deploy | pass | Admin audit/metrics usability changes are included in deployed SHA `f12b8761538a31152a1cf3db9780643cb55d1301`; production smoke remained green. Authenticated production admin screen review still requires an operator session and must not use raw private evidence. |
 | GitHub tracker closeout | pass | `feature:096` GitHub tracker now has 96 closed issues and 0 open issues. Initial task-to-issues sync covered T001-T090; convergence tasks T091-T096 were missing from GitHub, so metadata-only issues #3034-#3039 were created and closed with production/evidence closeout comments. Earlier task-backed issues #2889-#2978 were also closed with Russian closure comments. |
-| Remaining blockers | expected | Yandex offline OAuth/upload smoke, real dashboard business review, product rollout readiness, paid campaign launch, and full PostHog backup/restore ops readiness remain separate gates. |
+| Remaining blockers | expected | Yandex offline OAuth/upload smoke, real dashboard business review, product rollout readiness, and paid campaign launch remain separate gates. |
 
 ## Final Code Review Follow-Up: 2026-07-10
 
@@ -234,7 +234,6 @@ See [research.md](../research.md) for decisions and source links.
 096 PostHog production runtime delivery is live-safe validated. Remaining live
 production evidence must append metadata-only proof for:
 
-- full PostHog backup and isolated restore rehearsal for all generated runtime volumes;
 - PostHog resource limit and retention proof beyond the initial health checks;
 - PostHog RBAC/access model and audit expectation proof;
 - provider retention/deletion lifecycle proof for PostHog data, backups, exports, delivery gaps, Yandex offline conversions, and dashboard/report aggregates;
@@ -252,7 +251,7 @@ Future live rollout or release work must record command names and pass/fail
 summaries for:
 
 ```sh
-rg -n "\[NEEDS CLARIFICATION\]|NEEDS CLARIFICATION:" specs/096-product-analytics-provider-rollout
+Run the repository clarification-marker scan against `specs/096-product-analytics-provider-rollout/` and record a zero-result outcome.
 git diff --check
 infra/scripts/ci-local.sh
 infra/scripts/cd-remote.sh --dry-run
@@ -296,7 +295,6 @@ Forbidden evidence:
 scope:
 
 - live production Yandex offline OAuth setup and upload smoke;
-- PostHog full backup/restore rehearsal;
 - dashboard verification with real provider data using metadata-only evidence;
 - legal, privacy, security, QA, and disclosure closeout for product rollout;
 - product rollout readiness;

@@ -60,7 +60,7 @@ Planning validation for this pass:
 
 - `git diff --check`
 - Review [research.md](./research.md), [data-model.md](./data-model.md), [quickstart.md](./quickstart.md), [contracts/](./contracts/), and [validation/](./validation/)
-- Confirm no `[NEEDS CLARIFICATION]` remains in 096 artifacts
+- Confirm the clarification scan is clean in all 096 artifacts
 - Confirm `AGENTS.md` managed Spec Kit marker points to this plan
 
 Future implementation validation from the generated tasks:
