@@ -837,6 +837,9 @@ async def get_admin_metrics_route(
     return {
         "metrics": metrics["metrics"],
         "playback_normalization": metrics["playback_normalization"],
+        # Keep the operational billing counters available to the read-only
+        # admin dashboard/API; values contain aggregate state only.
+        "billing": metrics["billing"],
     }
 
 

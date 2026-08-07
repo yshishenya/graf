@@ -4,7 +4,10 @@ from twobrain_rec_server.billing.monitoring import (
     BillingMetricSnapshot,
     merge_billing_metric_snapshots,
 )
-from twobrain_rec_server.readiness.checks import evaluate_billing_readiness
+from twobrain_rec_server.readiness.checks import (
+    billing_readiness_status,
+    evaluate_billing_readiness,
+)
 
 
 def test_billing_metric_snapshot_is_counter_only_and_aggregates() -> None:
@@ -34,3 +37,9 @@ def test_billing_readiness_fails_closed_and_exposes_only_gate_names() -> None:
     ).provider_mutations_allowed
     with pytest.raises(ValueError):
         evaluate_billing_readiness(checkout_enabled=True, emergency_stop=False, required_evidence={"legal": 1})
+
+
+def test_billing_readiness_status_is_bounded_and_health_safe() -> None:
+    assert billing_readiness_status(checkout_enabled=False, emergency_stop=False) == "disabled"
+    assert billing_readiness_status(checkout_enabled=True, emergency_stop=True) == "emergency_stop"
+    assert billing_readiness_status(checkout_enabled=True, emergency_stop=False) == "ready"
