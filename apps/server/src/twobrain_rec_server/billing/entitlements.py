@@ -13,11 +13,13 @@ from twobrain_rec_server.billing.catalog import (
     PlanCode,
     storage_capacity_bytes,
 )
+from twobrain_rec_server.billing.payment_methods import SavedPaymentMethod, seal_provider_reference
 from twobrain_rec_server.db.models import (
     BillingAuditEvent,
     BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
+    BillingPaymentMethod,
     WorkspaceMembership,
     WorkspaceSubscription,
 )
@@ -97,6 +99,8 @@ async def grant_confirmed_payment(
     currency: str,
     paid_at: datetime,
     recurring_method_confirmed: bool = False,
+    saved_payment_method: SavedPaymentMethod | None = None,
+    payment_method_key: bytes | None = None,
 ) -> str:
     """Grant one immutable invoice only after provider GET confirms its amount."""
     operation = await db.scalar(
@@ -163,7 +167,37 @@ async def grant_confirmed_payment(
     subscription.capacity_bytes = storage_capacity_bytes("personal")
     subscription.paid_through = paid_through
     subscription.billing_anchor = paid_at
-    subscription.recurring_allowed = bool(snapshot.get("recurring_consent")) and recurring_method_confirmed
+    if saved_payment_method is not None and payment_method_key is not None:
+        methods = await db.scalars(
+            select(BillingPaymentMethod)
+            .where(
+                BillingPaymentMethod.workspace_id == workspace_id,
+                BillingPaymentMethod.is_default.is_(True),
+            )
+            .with_for_update()
+        )
+        for method in methods:
+            method.is_default = False
+            method.state = "replaced"
+        db.add(
+            BillingPaymentMethod(
+                workspace_id=workspace_id,
+                owner_user_id=owner.user_id,
+                encrypted_provider_ref=seal_provider_reference(saved_payment_method.provider_ref, payment_method_key),
+                key_version="billing-v1",
+                kind=saved_payment_method.kind,
+                masked_label=saved_payment_method.masked_label,
+                state="active",
+                is_default=True,
+                verified_at=paid_at,
+            )
+        )
+    subscription.recurring_allowed = (
+        bool(snapshot.get("recurring_consent"))
+        and recurring_method_confirmed
+        and saved_payment_method is not None
+        and payment_method_key is not None
+    )
     subscription.recurring_authority_version += 1
     subscription.application_version += 1
     invoice.status = "succeeded"

@@ -7,6 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
+from twobrain_rec_server.billing.payment_methods import (
+    extract_saved_bank_card,
+    read_billing_encryption_key,
+)
 from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
     WebhookInbox,
@@ -131,6 +135,8 @@ async def billing_webhook(
                             currency=observation.currency,
                             paid_at=observation.provider_created_at,
                             recurring_method_confirmed=saved_bank_card_confirmed(provider_payload),
+                            saved_payment_method=extract_saved_bank_card(provider_payload),
+                            payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
                         )
                     else:
                         reconcile_status = "observed"

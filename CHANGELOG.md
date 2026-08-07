@@ -25,6 +25,8 @@
 - Hosted checkout передаёт в YooKassa `save_payment_method` только после
   обязательного recurring consent; recurring authority включается лишь при
   подтверждённом сохранении bank-card методом провайдера.
+- После подтверждённой оплаты сохранённая bank-card ссылка шифруется server-side
+  и сохраняется только как owner-scoped default method с безопасной маской.
 - Owner-only управление подпиской: отключение/возобновление автопродления с
   CSRF, row-lock, проверкой версии и metadata-only audit-событием; отдельный
   экран точного использования и playback-хранилища.

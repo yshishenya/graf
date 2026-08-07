@@ -1,7 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from cryptography.fernet import Fernet
 
+from twobrain_rec_server.billing.payment_methods import (
+    extract_saved_bank_card,
+    seal_provider_reference,
+)
 from twobrain_rec_server.billing.reconciliation import (
     ObservationRecords,
     ProviderObservationError,
@@ -43,6 +48,17 @@ def test_saved_method_projection_exposes_only_safe_capability() -> None:
     assert saved_bank_card_confirmed({"payment_method": {"type": "bank_card", "saved": True, "id": "secret"}})
     assert not saved_bank_card_confirmed({"payment_method": {"type": "bank_card", "saved": False}})
     assert not saved_bank_card_confirmed({"payment_method": {"type": "sbp", "saved": True}})
+
+
+def test_saved_bank_card_projection_masks_and_validates_provider_fields() -> None:
+    method = extract_saved_bank_card(
+        {"payment_method": {"id": "pm-1", "type": "bank_card", "saved": True, "card": {"last4": "4242"}}}
+    )
+    assert method is not None
+    assert method.masked_label == "•••• 4242"
+    assert extract_saved_bank_card({"payment_method": {"id": "pm-1", "type": "bank_card", "saved": False}}) is None
+    sealed = seal_provider_reference("pm-1", Fernet.generate_key())
+    assert "pm-1" not in sealed
 
 
 def test_refund_observation_accepts_only_confirmed_positive_refunds() -> None:
