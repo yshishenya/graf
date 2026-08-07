@@ -14,7 +14,7 @@ from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
-from twobrain_rec_server.billing.referrals import referral_token_hash
+from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
@@ -31,6 +31,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.db.tenant_context import (
     AuthCallbackLookupContext,
+    AuthReferralLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context,
@@ -67,24 +68,42 @@ async def _bind_referral_attribution(
     if not token:
         return False
     try:
-        token_hash = referral_token_hash(token)
+        token_hash = referral_token_hash(validate_referral_token(token))
     except ValueError:
         return False
-    attribution = await db.scalar(
-        select(ReferralAttribution)
-        .where(
-            ReferralAttribution.token_hash == token_hash,
-            ReferralAttribution.invitee_user_id.is_(None),
-            ReferralAttribution.state == "issued",
-        )
-        .with_for_update()
+    await apply_tenant_context(
+        db,
+        AuthReferralLookupContext(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            token_hash=token_hash,
+        ),
     )
-    if attribution is None or attribution.inviter_user_id == user_id:
-        return False
-    attribution.invitee_user_id = user_id
-    attribution.bound_at = now
-    attribution.state = "bound"
-    return True
+    try:
+        attribution = await db.scalar(
+            select(ReferralAttribution)
+            .where(
+                ReferralAttribution.token_hash == token_hash,
+                ReferralAttribution.invitee_user_id.is_(None),
+                ReferralAttribution.state == "issued",
+            )
+            .with_for_update()
+        )
+        if attribution is None or attribution.inviter_user_id == user_id:
+            return False
+        attribution.invitee_user_id = user_id
+        attribution.bound_at = now
+        attribution.state = "bound"
+        return True
+    finally:
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                context_kind="auth_bootstrap",
+            ),
+        )
 
 
 async def _record_email_login_audit(
@@ -248,6 +267,10 @@ async def _consume_email_login_code(
             now=now,
         )
         registered = True
+        # Referral attribution belongs to the inviter's workspace.  Re-enter
+        # the token-scoped callback RLS context after bootstrap user creation;
+        # the latter intentionally narrows reads to the signup workspace.
+        await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state_nonce))
         await _bind_referral_attribution(
             db,
             workspace_id=workspace.id,
