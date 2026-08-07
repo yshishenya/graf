@@ -6,8 +6,10 @@ metadata-only реестром незакрытых доказательств.
 
 Автономная реализация account-close/source lifecycle, add-on/payment-method
 transitions и billing primitives закрыта задачами T038, T039, T042, T043,
-T051 и частью T053/T075–T078. Runtime provider recovery, renewal creation,
-registry import и monitoring для этих задач ещё не доказаны. Остаются
+T051 и частью T053/T075–T078. Refund webhook backstop теперь проходит
+bounded cursor pagination YooKassa (до 20 страниц, с защитой от повторного
+cursor), но полный registry import и monitoring для этих задач ещё не доказаны.
+Остаются
 evidence/gates: moderated
 accessibility/usability and landing review, live security/RLS review, product-
 market segment/JTBD, WTP/COGS, upgrade-copy and final cross-artifact closeout

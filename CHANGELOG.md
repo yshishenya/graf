@@ -20,6 +20,9 @@
 - Billing reconciliation дополнительно опрашивает сохранённые initial checkout
   payments через YooKassa GET при потерянном webhook; POST-timeout без
   сохранённого provider id остаётся ручным gap.
+- Refund webhook reconciliation теперь использует bounded YooKassa cursor
+  pagination (до 20 страниц, limit 100) и отклоняет повторные/некорректные
+  cursors; product-side refund mutation по-прежнему отсутствует.
 - Повторная security-проверка биллинга: trial требует активный verified
   `ExternalIdentity` и реального owner workspace, designated billing owner
   ограничивает финансовые маршруты, successor проходит отдельный hosted

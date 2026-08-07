@@ -115,9 +115,23 @@ class YooKassaClient:
     async def get_payment(self, payment_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/v3/payments/{payment_id}")
 
-    async def list_refunds(self, *, payment_id: str | None = None) -> dict[str, Any]:
-        params = {"payment_id": payment_id} if payment_id else None
-        return await self._request("GET", "/v3/refunds", params=params)
+    async def list_refunds(
+        self,
+        *,
+        payment_id: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        if limit is not None and not 1 <= limit <= 100:
+            raise ValueError("refund list limit must be between 1 and 100")
+        params: dict[str, str] = {}
+        if payment_id:
+            params["payment_id"] = payment_id
+        if cursor:
+            params["cursor"] = cursor
+        if limit is not None:
+            params["limit"] = str(limit)
+        return await self._request("GET", "/v3/refunds", params=params or None)
 
     async def get_receipt(self, receipt_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/v3/receipts/{receipt_id}")

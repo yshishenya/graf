@@ -73,6 +73,29 @@ async def test_yookassa_adapter_does_not_allow_zero_payment(tmp_path: Path) -> N
             )
 
 
+@pytest.mark.asyncio
+async def test_yookassa_refund_listing_forwards_bounded_cursor_and_limit(tmp_path: Path) -> None:
+    secret = tmp_path / "secret"
+    secret.write_text("test-secret", encoding="utf-8")
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"items": [], "next_cursor": "next"})
+
+    settings = Settings(
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_shop_id="shop-1",
+        billing_yookassa_secret_file=secret,
+    )
+    async with YooKassaClient(settings, transport=httpx.MockTransport(handler)) as client:
+        await client.list_refunds(cursor="previous", limit=100)
+        with pytest.raises(ValueError, match="between 1 and 100"):
+            await client.list_refunds(limit=101)
+    assert requests[0].url.params["cursor"] == "previous"
+    assert requests[0].url.params["limit"] == "100"
+
+
 def test_yookassa_client_rejects_unallowlisted_api_host(tmp_path: Path) -> None:
     secret = tmp_path / "test-secret"
     secret.write_text("test-secret", encoding="utf-8")

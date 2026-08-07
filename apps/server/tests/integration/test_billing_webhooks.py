@@ -12,6 +12,7 @@ from twobrain_rec_server.billing.provider_events import (
     WebhookInbox,
     parse_provider_event,
 )
+from twobrain_rec_server.billing.webhook_reconciliation import _find_refund
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import Settings
 
@@ -110,3 +111,20 @@ async def test_provider_webhook_without_proxy_secret_fails_closed(tmp_path: Path
 
 def test_payment_method_active_is_observed_without_granting_authority() -> None:
     assert "payment_method.active" in SUPPORTED_PROVIDER_EVENTS
+
+
+@pytest.mark.asyncio
+async def test_refund_backstop_follows_cursor_until_match() -> None:
+    class Provider:
+        def __init__(self) -> None:
+            self.cursors: list[str | None] = []
+
+        async def list_refunds(self, *, cursor: str | None = None, limit: int | None = None) -> dict[str, object]:
+            self.cursors.append(cursor)
+            if cursor is None:
+                return {"items": [], "next_cursor": "page-2"}
+            return {"items": [{"id": "refund-target", "status": "succeeded"}]}
+
+    provider = Provider()
+    assert await _find_refund(provider, "refund-target") == {"id": "refund-target", "status": "succeeded"}
+    assert provider.cursors == [None, "page-2"]
