@@ -70,3 +70,20 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
     assert "Возобновить автопродление" in subscription_html
     assert "Без лимита по минутам и встречам" in usage_html
     assert "meeting-review.m4a" in usage_html
+
+
+def test_checkout_requires_explicit_recurring_consent_copy() -> None:
+    html = render_template(
+        "cabinet/pages/billing_checkout_content.html",
+        embedded=False,
+        settings_navigation=settings_category_navigation(active="billing"),
+        settings_active="billing",
+        csrf_token="synthetic-csrf",
+        plan=plan_descriptor("personal"),
+        billing_enabled=True,
+        checkout_idempotency_key="synthetic-key",
+        checkout_result="consent_required",
+    )
+    assert 'name="recurring_consent"' in html
+    assert "required" in html
+    assert "регулярное списание" in html

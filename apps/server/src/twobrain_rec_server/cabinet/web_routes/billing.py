@@ -425,6 +425,7 @@ async def start_billing_checkout(
     db: AsyncSession | None = WebDbDependency,
     cycle: str = Form(default="month", max_length=16),
     idempotency_key: str = Form(default="", max_length=240),
+    recurring_consent: bool = Form(default=False),
 ) -> RedirectResponse:
     settings = request.app.state.settings
     if db is None:
@@ -446,6 +447,8 @@ async def start_billing_checkout(
         key = idempotency_key.strip()
         if not key:
             return RedirectResponse("/billing/checkout?result=invalid", status_code=303)
+        if not recurring_consent:
+            return RedirectResponse("/billing/checkout?result=consent_required", status_code=303)
         preview = checkout_preview(plan_code="personal", cycle=cycle, provider_floor_minor=settings.billing_provider_floor_minor)
         existing = await db.scalar(
             select(BillingOperation).where(
@@ -471,6 +474,7 @@ async def start_billing_checkout(
                 "list_amount_minor": preview.list_amount_minor,
                 "payable_amount_minor": preview.payable_amount_minor,
                 "promo_code": preview.promo_code,
+                "recurring_consent": True,
             },
         )
         db.add(operation)
@@ -486,6 +490,7 @@ async def start_billing_checkout(
                     "list_amount_minor": preview.list_amount_minor,
                     "payable_amount_minor": preview.payable_amount_minor,
                     "promo_code": preview.promo_code,
+                    "recurring_consent": True,
                 },
             )
         )
