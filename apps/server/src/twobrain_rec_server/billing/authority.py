@@ -18,7 +18,7 @@ class BillingActor:
 
     @property
     def may_manage_billing(self) -> bool:
-        return self.role in {"owner", "admin"}
+        return self.role == "owner"
 
 
 def require_billing_owner(actor: BillingActor) -> None:

@@ -25,6 +25,8 @@ from twobrain_rec_server.db.models import BillingOperation
 def test_billing_authority_is_owner_only_for_sensitive_changes() -> None:
     owner = BillingActor(uuid4(), uuid4(), "owner")
     require_billing_owner(owner)
+    assert owner.may_manage_billing
+    assert not BillingActor(owner.user_id, owner.workspace_id, "admin").may_manage_billing
     with pytest.raises(BillingAuthorizationError):
         require_billing_owner(BillingActor(owner.user_id, owner.workspace_id, "member"))
 
