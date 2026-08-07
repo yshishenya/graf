@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from html import escape
 from typing import Any
 from uuid import UUID
 
@@ -13,9 +14,15 @@ from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.email_delivery import (
     EmailLoginDeliveryError,
     send_account_created_email,
+    send_billing_notification,
     send_meeting_invitation,
 )
 from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+from twobrain_rec_server.billing.notifications import (
+    BillingNotification,
+    NotificationEvent,
+    notification_copy,
+)
 from twobrain_rec_server.billing.operations import provider_key_is_expired
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import get_settings
@@ -198,12 +205,7 @@ async def run_billing_renewal_reconciler(settings: Any, temporal_client: object)
 
 
 async def run_billing_notification_reconciler(settings: Any) -> None:
-    """Observe pending notification outbox rows without inventing delivery.
-
-    Actual email/in-app egress is owned by the configured notification sender;
-    this loop keeps durable backlog visible and never marks a message sent on
-    the basis of a worker observation alone.
-    """
+    """Deliver bounded transactional notices exactly once per outbox row."""
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     context = MaintenanceTenantContext(
@@ -219,13 +221,86 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
             try:
                 async with sessionmaker() as db:
                     await apply_tenant_context(db, context)
-                    pending = await db.scalar(
-                        select(func.count(BillingNotificationDelivery.id)).where(
-                            BillingNotificationDelivery.state.in_(("pending", "retry"))
+                    verified_email = (
+                        select(
+                            ExternalIdentity.user_id,
+                            func.min(ExternalIdentity.email).label("email"),
                         )
+                        .where(
+                            ExternalIdentity.email.is_not(None),
+                            ExternalIdentity.is_verified.is_(True),
+                        )
+                        .group_by(ExternalIdentity.user_id)
+                        .subquery()
                     )
-                    if pending:
-                        logger.info("billing notification outbox backlog: %s", int(pending))
+                    rows = (
+                        await db.execute(
+                            select(BillingNotificationDelivery, verified_email.c.email)
+                            .join(verified_email, verified_email.c.user_id == BillingNotificationDelivery.recipient_id)
+                            .where(
+                                BillingNotificationDelivery.channel == "email",
+                                BillingNotificationDelivery.state.in_(("pending", "retry")),
+                            )
+                            .order_by(BillingNotificationDelivery.created_at, BillingNotificationDelivery.id)
+                            .limit(50)
+                        )
+                    ).all()
+                for row, recipient_email in rows:
+                    try:
+                        kind = BillingNotification(row.template_key)
+                        title, body = notification_copy(
+                            NotificationEvent(
+                                event_id=row.event_id,
+                                kind=kind,
+                                safe_payload=row.safe_payload or {},
+                            )
+                        )
+                        action_path = (row.safe_payload or {}).get("action_path")
+                        base_url = str(getattr(settings, "public_base_url", "")).rstrip("/")
+                        action_url = f"{base_url}{action_path}" if base_url and isinstance(action_path, str) else None
+                        plain = body if action_url is None else f"{body}\n\nОткрыть кабинет: {action_url}"
+                        html = (
+                            f"<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;"
+                            f"max-width:560px;line-height:1.5\"><h1>{escape(title)}</h1><p>{escape(body)}</p>"
+                            + (f"<p><a href=\"{escape(action_url, quote=True)}\">Открыть кабинет</a></p>" if action_url else "")
+                            + "</div>"
+                        )
+                        await send_billing_notification(
+                            settings=settings,
+                            recipient_email=str(recipient_email),
+                            subject=title,
+                            plain_body=plain,
+                            html_body=html,
+                            delivery_key=f"billing:{row.id}",
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            failed = await db.scalar(
+                                select(BillingNotificationDelivery)
+                                .where(BillingNotificationDelivery.id == row.id)
+                                .with_for_update()
+                            )
+                            if failed is not None and failed.state in {"pending", "retry"}:
+                                failed.attempts += 1
+                                failed.last_error_code = type(exc).__name__[:64]
+                                failed.state = "retry" if failed.attempts < 5 else "failed"
+                            await db.commit()
+                        logger.warning("billing notification delivery failed", exc_info=True)
+                    else:
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            delivered = await db.scalar(
+                                select(BillingNotificationDelivery)
+                                .where(BillingNotificationDelivery.id == row.id)
+                                .with_for_update()
+                            )
+                            if delivered is not None and delivered.state in {"pending", "retry"}:
+                                delivered.state = "delivered"
+                                delivered.delivered_at = datetime.now(UTC)
+                            await db.commit()
             except asyncio.CancelledError:
                 raise
             except Exception:

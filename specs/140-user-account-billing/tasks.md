@@ -221,7 +221,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Implementation for User Story 9
 
-- [ ] T069 [US9] Implement billing notification event taxonomy, idempotent outbox records, Russian-first templates, and delivery state in `apps/server/src/twobrain_rec_server/billing/notifications.py` and `apps/server/src/twobrain_rec_server/support/outbox.py`.
+- [X] T069 [US9] Implement billing notification event taxonomy, idempotent outbox records, Russian-first templates, and delivery state in `apps/server/src/twobrain_rec_server/billing/notifications.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and the existing Postal delivery worker.
 - [ ] T070 [US9] Implement fair-use classification/review-deadline/appeal state with bounded reason and wire trial, payment, renewal, storage, receipt, referral, fair-use and account-close events to notifications without creating a refund correspondence event in `apps/server/src/twobrain_rec_server/billing/fair_use.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
 - [ ] T071 [US9] Add notification preferences, legal/financial override rules, safe deep links and accessible live-status rendering in `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/notifications.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`.
 
