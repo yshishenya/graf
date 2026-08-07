@@ -40,6 +40,7 @@ from twobrain_rec_server.db.models import (
     MeetingShareRateLimitBucket,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
+    ProcessingDependencyState,
     TemporaryUploadObject,
     TrackArtifact,
     UploadPart,
@@ -2028,11 +2029,15 @@ async def test_production_smoke_cleanup_discovers_partial_upload_and_normalizati
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_id = f"smoke-partial-{uuid4().hex}"
+    hidden_run_id = f"smoke-hidden-{uuid4().hex}"
     seed = build_smoke_identity_seed(run_id)
+    hidden_seed = build_smoke_identity_seed(hidden_run_id)
     maintenance_settings = Settings(database_url=migrated_postgres_urls.probe_url)
     await seed_identity(maintenance_settings, run_id, execute=True)
+    await seed_identity(maintenance_settings, hidden_run_id, execute=True)
 
     meeting_id = uuid4()
+    hidden_meeting_id = uuid4()
     media_revision_id = uuid4()
     upload_session_id = uuid4()
     normalization_job_id = uuid4()
@@ -2186,6 +2191,43 @@ async def test_production_smoke_cleanup_discovers_partial_upload_and_normalizati
     finally:
         await app_engine.dispose()
 
+    hidden_engine = create_async_engine(migrated_postgres_urls.probe_url, pool_pre_ping=True)
+    hidden_session_factory = async_sessionmaker(hidden_engine, expire_on_commit=False)
+    try:
+        async with hidden_session_factory() as db:
+            await apply_tenant_context_to_connection(
+                await db.connection(),
+                MaintenanceTenantContext(
+                    operation_name="production_smoke_setup",
+                    actor_id="test_rls_postgres_policies",
+                    reason_category="smoke_setup",
+                    feature_area="deployment",
+                ),
+            )
+            db.add(
+                Meeting(
+                    id=hidden_meeting_id,
+                    workspace_id=hidden_seed.workspace_id,
+                    created_by_user_id=hidden_seed.user_id,
+                    device_id=hidden_seed.device_id,
+                    local_recording_id=f"hidden-{run_id}",
+                    duration_seconds=1,
+                    status="ingested_pending_processing",
+                )
+            )
+            db.add(
+                ProcessingDependencyState(
+                    meeting_id=hidden_meeting_id,
+                    media_revision_id=media_revision_id,
+                    workspace_id=seed.workspace_id,
+                    dependency="mediascribe",
+                    state="not_contacted",
+                )
+            )
+            await db.commit()
+    finally:
+        await hidden_engine.dispose()
+
     class FakeObject:
         def __init__(self, object_name: str) -> None:
             self.object_name = object_name
@@ -2226,6 +2268,29 @@ async def test_production_smoke_cleanup_discovers_partial_upload_and_normalizati
     assert rerun_removed_rows == 0
     assert rerun_removed_objects == 0
     assert rerun_residue == []
+
+    verification_engine = create_async_engine(migrated_postgres_urls.probe_url, pool_pre_ping=True)
+    try:
+        async with verification_engine.connect() as conn:
+            await apply_tenant_context_to_connection(
+                conn,
+                MaintenanceTenantContext(
+                    operation_name="production_smoke_cleanup",
+                    actor_id="test_rls_postgres_policies",
+                    reason_category="residue_probe",
+                    feature_area="deployment",
+                ),
+            )
+            hidden_identity_count = int(
+                await conn.scalar(
+                    text("select count(*) from user_identities where id=:user_id"),
+                    {"user_id": str(hidden_seed.user_id)},
+                )
+                or 0
+            )
+    finally:
+        await verification_engine.dispose()
+    assert hidden_identity_count == 1
 
 
 def test_production_smoke_setup_migration_downgrade_removes_operation(
