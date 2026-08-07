@@ -206,7 +206,9 @@ class Settings(BaseSettings):
     max_package_bytes: PositiveInt = Field(default=5_368_709_120)
     max_upload_part_bytes: PositiveInt = Field(default=1_073_741_824)
     max_upload_spool_memory_bytes: PositiveInt = Field(default=8_388_608)
-    upload_session_ttl_seconds: PositiveInt = Field(default=86_400)
+    # Billing/media lifecycle contract: an upload may never remain active
+    # beyond the 24-hour hard lifetime, even if deployment env is misconfigured.
+    upload_session_ttl_seconds: PositiveInt = Field(default=86_400, le=86_400)
     auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
     web_csrf_secret: str = "twobrain_rec_dev_web_csrf_secret"
     share_identity_hash_secret: str = "twobrain_rec_dev_share_identity_hash_secret"

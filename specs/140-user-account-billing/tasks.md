@@ -97,7 +97,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Tests for User Story 3
 
-- [ ] T032 [P] [US3] Add catalog, price snapshot, provider-floor, annual-price, and checkout-preview contract tests in `apps/server/tests/contract/test_checkout.py`.
+- [X] T032 [P] [US3] Add catalog, price snapshot, provider-floor, annual-price, and checkout-preview contract tests in `apps/server/tests/contract/test_checkout.py`.
 - [ ] T033 [P] [US3] Add hosted success, decline, duplicate webhook, timeout/unknown, late success, and receipt reconciliation tests in `apps/server/tests/integration/test_checkout_yookassa.py`.
 
 ### Implementation for User Story 3
@@ -137,13 +137,13 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Tests for User Story 5
 
-- [ ] T044 [P] [US5] Add renewal boundary tests for cutoff time, one operation per period, confirmed failure, no grace, no retry, and immediate Free projection in `apps/server/tests/integration/test_renewal_lifecycle.py`.
-- [ ] T045 [P] [US5] Add unknown/late-success precedence and emergency-stop tests in `apps/server/tests/contract/test_renewal_resolution.py`.
+- [X] T044 [P] [US5] Add renewal boundary tests for cutoff time, one operation per period, confirmed failure, no grace, no retry, and immediate Free projection in `apps/server/tests/integration/test_renewal_lifecycle.py`.
+- [X] T045 [P] [US5] Add unknown/late-success precedence and emergency-stop tests in `apps/server/tests/contract/test_renewal_resolution.py`.
 
 ### Implementation for User Story 5
 
 - [X] T046 [US5] Implement one-operation renewal scheduling, exact `paid_through` cutoff, and Free projection in `apps/server/src/twobrain_rec_server/billing/renewal.py`.
-- [ ] T047 [US5] Implement Temporal renewal workflow, provider-key recovery, expiry gap, late-success incident, and refusal precedence in `apps/server/src/twobrain_rec_server/workflows/billing_renewal_workflow.py` and `apps/server/src/twobrain_rec_server/billing/renewal_resolution.py`.
+- [X] T047 [US5] Implement Temporal renewal workflow, provider-key recovery, expiry gap, late-success incident, and refusal precedence in `apps/server/src/twobrain_rec_server/workflows/billing_renewal_workflow.py` and `apps/server/src/twobrain_rec_server/billing/renewal_resolution.py`.
 - [ ] T048 [US5] Add renewal reminder, failure-to-Free, unknown, late-success and manual-resume notifications in `apps/server/src/twobrain_rec_server/billing/notifications.py` and `apps/server/src/twobrain_rec_server/support/outbox.py`.
 - [ ] T049 [US5] Render next-charge, paid-through, renewal-off, pending-resolution and Free fallback states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html`.
 
@@ -223,7 +223,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 - [X] T069 [US9] Implement billing notification event taxonomy, idempotent outbox records, Russian-first templates, and delivery state in `apps/server/src/twobrain_rec_server/billing/notifications.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and the existing Postal delivery worker.
 - [X] T070 [US9] Implement fair-use classification/review-deadline/appeal state with bounded reason and wire trial, payment, renewal, storage, receipt, referral, fair-use and account-close events to notifications without creating a refund correspondence event in `apps/server/src/twobrain_rec_server/billing/fair_use.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
-- [ ] T071 [US9] Add notification preferences, legal/financial override rules, safe deep links and accessible live-status rendering in `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/notifications.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`.
+- [X] T071 [US9] Add notification preferences, legal/financial override rules, safe deep links and accessible live-status rendering in `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/notifications.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`.
 
 **Checkpoint**: Users receive useful next actions without GRAF receiving or storing support-email content or raw financial identifiers.
 

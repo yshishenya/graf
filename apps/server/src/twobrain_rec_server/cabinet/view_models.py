@@ -1447,6 +1447,10 @@ def settings_category_navigation(
             "activity",
         ),
     )
+    # Keep the long-standing sidebar compact; the notification page exposes
+    # its own active entry once opened from the account surface.
+    if active == "notifications":
+        definitions += (("notifications", "Уведомления", "Личная настройка", "/notifications", "Аккаунт", "bell"),)
     return tuple(
         SettingsCategoryView(
             id=category_id,

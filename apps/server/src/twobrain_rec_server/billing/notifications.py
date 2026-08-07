@@ -257,6 +257,9 @@ def build_notification(*, event_id: str, kind: BillingNotification, payload: dic
         if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}", value):
             safe[key] = value
     action_path = payload.get("action_path")
-    if isinstance(action_path, str) and re.fullmatch(r"/(?:[A-Za-z0-9_-]+/?){1,8}", action_path):
+    if isinstance(action_path, str) and re.fullmatch(
+        r"/(?:account|settings|billing|meetings)(?:/[A-Za-z0-9_-]+){0,8}",
+        action_path,
+    ):
         safe["action_path"] = action_path
     return NotificationEvent(event_id, kind, safe)

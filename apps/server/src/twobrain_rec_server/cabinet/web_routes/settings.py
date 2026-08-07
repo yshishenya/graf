@@ -13,6 +13,7 @@ from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
     list_workspace_join_offers,
 )
+from twobrain_rec_server.billing.notification_preferences import NotificationPreferences
 from twobrain_rec_server.cabinet.queries import (
     get_account_settings_surface,
     get_provider_link_start_options,
@@ -26,6 +27,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _csrf_token_for_principal,
 )
+from twobrain_rec_server.db.models import BillingNotificationPreference
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
@@ -36,6 +38,7 @@ WorkspaceOfferResultQuery = Query(default=None, max_length=24, alias="workspace_
 WorkspaceSwitchResultQuery = Query(default=None, max_length=24, alias="space_switch")
 ProviderLinkResultQuery = Query(default=None, max_length=48, alias="provider_link")
 DeviceRevokeResultQuery = Query(default=None, max_length=24, alias="device_revoke")
+NotificationResultQuery = Query(default=None, max_length=24, alias="notification")
 
 
 async def _render_settings(
@@ -50,11 +53,13 @@ async def _render_settings(
     space_switch: str | None = None,
     provider_link: str | None = None,
     device_revoke: str | None = None,
+    notification: str | None = None,
 ) -> HTMLResponse:
     workspace_spaces = ()
     workspace_join_offers = ()
     provider_link_options = ()
     account_surface = None
+    notification_preferences = NotificationPreferences()
     if category == "workspace" and db is not None:
         workspace_join_offers = await list_workspace_join_offers(
             db,
@@ -71,6 +76,13 @@ async def _render_settings(
     elif category == "account" and db is not None:
         provider_link_options = await get_provider_link_start_options(db, tenant_scope)
         account_surface = await get_account_settings_surface(db, tenant_scope)
+    elif category == "notifications" and db is not None:
+        preference = await db.get(BillingNotificationPreference, principal.user_id)
+        if preference is not None:
+            notification_preferences = NotificationPreferences(
+                optional_email_enabled=preference.optional_email_enabled,
+                optional_in_app_enabled=preference.optional_in_app_enabled,
+            )
     elif category in {"workspace", "account"}:
         from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 
@@ -94,6 +106,8 @@ async def _render_settings(
             account_surface=account_surface,
             provider_link_result=provider_link,
             device_revoke_result=device_revoke,
+            notification_result=notification,
+            notification_preferences=notification_preferences,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "settings",
@@ -196,6 +210,64 @@ async def settings_account_page(
         provider_link=provider_link,
         device_revoke=device_revoke,
     )
+
+
+@router.get("/settings/notifications", response_class=HTMLResponse, include_in_schema=False)
+async def settings_notifications_page(
+    request: Request,
+    notification: str | None = NotificationResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="notifications",
+        embedded=False,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        notification=notification,
+    )
+
+
+def _form_checkbox(form: object, name: str) -> bool:
+    value = getattr(form, "get", lambda _name: None)(name)
+    return value in {"on", "true", "1", True}
+
+
+async def _save_notification_preferences(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    form: object,
+) -> None:
+    preference = await db.get(BillingNotificationPreference, user_id, with_for_update=True)
+    if preference is None:
+        preference = BillingNotificationPreference(user_id=user_id)
+        db.add(preference)
+    preference.optional_email_enabled = _form_checkbox(form, "optional_email_enabled")
+    preference.optional_in_app_enabled = _form_checkbox(form, "optional_in_app_enabled")
+    await db.commit()
+
+
+@router.post(
+    "/settings/notifications",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_settings_notifications(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    form = await request.form()
+    await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+    return RedirectResponse("/settings/notifications?notification=saved", status_code=303)
 
 
 @router.get("/account", response_class=HTMLResponse, include_in_schema=False)
@@ -339,6 +411,44 @@ async def embedded_settings_account_page(
         provider_link=provider_link,
         device_revoke=device_revoke,
     )
+
+
+@router.get("/desktop/settings/notifications", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_settings_notifications_page(
+    request: Request,
+    notification: str | None = NotificationResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="notifications",
+        embedded=True,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        notification=notification,
+    )
+
+
+@router.post(
+    "/desktop/settings/notifications",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_embedded_settings_notifications(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    form = await request.form()
+    await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+    return RedirectResponse("/desktop/settings/notifications?notification=saved", status_code=303)
 
 
 @router.get("/desktop/account", response_class=HTMLResponse, include_in_schema=False)

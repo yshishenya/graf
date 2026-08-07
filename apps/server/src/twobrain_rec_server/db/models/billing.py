@@ -321,6 +321,17 @@ class BillingNotificationDelivery(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BillingNotificationPreference(Base):
+    """User-scoped optional notification choices; mandatory notices override them."""
+
+    __tablename__ = "billing_notification_preferences"
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), primary_key=True)
+    optional_email_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
+    optional_in_app_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class BillingWebhookEvent(Base):
     __tablename__ = "billing_webhook_events"
     __table_args__ = (UniqueConstraint("workspace_id", "provider_event_id", name="uq_billing_webhook_provider_event"),)

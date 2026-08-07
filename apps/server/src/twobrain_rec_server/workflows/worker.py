@@ -19,6 +19,7 @@ from twobrain_rec_server.auth.email_delivery import (
 )
 from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
 from twobrain_rec_server.billing.notifications import (
+    MANDATORY_NOTIFICATION_KINDS,
     BillingNotification,
     NotificationEvent,
     notification_copy,
@@ -30,6 +31,7 @@ from twobrain_rec_server.db.models import (
     BillingAuditEvent,
     BillingInvoice,
     BillingNotificationDelivery,
+    BillingNotificationPreference,
     BillingOperation,
     ExternalIdentity,
     Meeting,
@@ -235,8 +237,16 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                     )
                     rows = (
                         await db.execute(
-                            select(BillingNotificationDelivery, verified_email.c.email)
+                            select(
+                                BillingNotificationDelivery,
+                                verified_email.c.email,
+                                BillingNotificationPreference.optional_email_enabled,
+                            )
                             .join(verified_email, verified_email.c.user_id == BillingNotificationDelivery.recipient_id)
+                            .outerjoin(
+                                BillingNotificationPreference,
+                                BillingNotificationPreference.user_id == BillingNotificationDelivery.recipient_id,
+                            )
                             .where(
                                 BillingNotificationDelivery.channel == "email",
                                 BillingNotificationDelivery.state.in_(("pending", "retry")),
@@ -245,9 +255,24 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                             .limit(50)
                         )
                     ).all()
-                for row, recipient_email in rows:
+                for row, recipient_email, optional_email_enabled in rows:
                     try:
                         kind = BillingNotification(row.template_key)
+                        if (
+                            kind not in MANDATORY_NOTIFICATION_KINDS
+                            and optional_email_enabled is False
+                        ):
+                            async with sessionmaker() as db:
+                                await apply_tenant_context(db, context)
+                                suppressed = await db.scalar(
+                                    select(BillingNotificationDelivery)
+                                    .where(BillingNotificationDelivery.id == row.id)
+                                    .with_for_update()
+                                )
+                                if suppressed is not None and suppressed.state in {"pending", "retry"}:
+                                    suppressed.state = "suppressed"
+                                await db.commit()
+                            continue
                         title, body = notification_copy(
                             NotificationEvent(
                                 event_id=row.event_id,

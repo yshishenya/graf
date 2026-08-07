@@ -1,0 +1,24 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+{% import "cabinet/components/notifications.html" as notifications_ui %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar">
+        <div class="page-title"><h1>Уведомления</h1></div>
+      </header>
+      {% if notification_result %}<p class="settings-status" role="status" aria-live="polite">{{ notification_result }}</p>{% endif %}
+      <section class="settings-section cabinet-card" aria-labelledby="notification-preferences-title">
+        <div class="settings-section__heading">
+          <div><span class="settings-scope-badge">Личная настройка</span><h2 id="notification-preferences-title">Дополнительные уведомления</h2><p class="muted">Выберите каналы для необязательных подсказок. Финансовые, юридические и сообщения о безопасности нельзя отключить.</p></div>
+        </div>
+        {{ notifications_ui.preferences_form(notification_preferences, csrf_token, embedded=embedded) }}
+      </section>
+      <section class="settings-section settings-boundary-card" aria-labelledby="notification-legal-title">
+        <h2 id="notification-legal-title">Обязательные сообщения</h2>
+        <p class="muted">Мы всегда можем сообщить о платеже, чеке, продлении, ограничении fair use, безопасности и закрытии аккаунта. Эти сообщения не являются рекламой и нужны для защиты доступа и финансовой информации.</p>
+        <a class="button quiet" href="{{ "/desktop/billing" if embedded else "/billing" }}">Открыть тариф и оплату</a>
+      </section>
+    </div>
+  </div>
+</main>

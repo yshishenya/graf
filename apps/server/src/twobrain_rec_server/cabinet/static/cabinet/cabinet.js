@@ -2866,6 +2866,10 @@
       form.dataset.settingsFormReady = "true";
       const status = form.querySelector("[data-settings-form-status]");
       const submit = form.querySelector("button[type='submit']");
+      if (status) {
+        status.setAttribute("role", "status");
+        status.setAttribute("aria-live", "polite");
+      }
       const snapshot = () => new URLSearchParams(new FormData(form)).toString();
       let initial = snapshot();
       const update = () => {

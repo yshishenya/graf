@@ -45,6 +45,12 @@ def test_default_upload_part_contract_is_one_gib() -> None:
     assert Settings().max_upload_part_bytes == 1_073_741_824
 
 
+def test_upload_session_hard_lifetime_cannot_exceed_24_hours() -> None:
+    assert Settings().upload_session_ttl_seconds == 86_400
+    with pytest.raises(ValidationError, match="upload_session_ttl_seconds"):
+        Settings(upload_session_ttl_seconds=86_401)
+
+
 def test_database_url_rejects_non_postgresql_async_driver() -> None:
     with pytest.raises(ValidationError, match="PostgreSQL"):
         Settings(database_url="sqli" + "te+aio" + "sqli" + "te:////tmp/rec.db")

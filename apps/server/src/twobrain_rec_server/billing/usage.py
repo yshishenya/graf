@@ -181,6 +181,9 @@ async def reserve_free_usage(
             (UsageReservationRow.expires_at.is_(None) | (UsageReservationRow.expires_at > now)),
         )
     )
+    # Reconcile the projection while the window row is locked; expired rows
+    # are excluded from admission and must not keep the UI showing stale hold.
+    window.reserved_seconds = int(active_reserved or 0)
     if window.committed_seconds + int(active_reserved or 0) + declared_seconds > window.included_seconds:
         raise QuotaExceeded("free processing quota is exhausted")
     reservation = UsageReservationRow(

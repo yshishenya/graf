@@ -41,3 +41,5 @@ def test_storage_reservation_release_is_idempotent_and_capacity_validation_is_fa
     release_storage(reservation)
     release_storage(reservation)
     assert reservation.state == "released"
+    with pytest.raises(ValueError):
+        StorageProjection(used_bytes=0, reserved_bytes=0, capacity_bytes=0)

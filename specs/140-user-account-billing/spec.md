@@ -296,7 +296,7 @@ Owner вводит промокод в checkout или `Скидки`, сраз�
 - Workspace превышает Free limits после downgrade; данные read-only, retention clock, export и deletion описаны до действия.
 - Два concurrent storage upgrades; add-on payment unknown; downgrade capacity ниже used bytes; base cancel or separately authorized entitlement correction after observed provider refund при активном add-on; logical delete освобождает quota раньше physical purge.
 - Paid workload аномален: fair-use/rate/safety ceiling срабатывает без коммерческого `remaining`, без скрытого overage и без остановки локального capture.
-- Renewal unknown at cutoff, поздний success после периода на `Free`, cancel/refusal от payment data одновременно с in-flight operation.
+- Renewal unknown at cutoff, поздний success после периода на `Free`, cancel/refusal от payment data одновременно с in-flight operation; late success after effective refusal remains `Free` and has no user choice workflow.
 - Локальный desktop offline во время downgrade/cancel; запись уже идёт; upload queue содержит неопубликованные файлы.
 - Email receipt/notice не доставлен или verified login email изменён после immutable invoice snapshot.
 - Backoffice refund pending/canceled/unknown or original method unavailable remains outside product; GRAF reconciles only authoritative provider/registry truth and never retries a payout.

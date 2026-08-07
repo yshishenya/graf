@@ -52,8 +52,9 @@ elsewhere; real-shop canary is a separate approved release step.
   registry/reconciliation worker, account-close and full notification flows,
   test-shop evidence, accessibility/usability review and finance/legal approval.
 - Cross-artifact analyze pass found no unresolved implementation placeholders; the feature has
-  87 tasks (44 validated complete, 43 still open), including explicit product-market
-  closeout tasks T084–T087, so this branch is not a
+  87 tasks (49 validated complete, 38 still open), including explicit product-market
+  closeout tasks T084–T087 and the remaining account, storage-lifecycle, payment-history,
+  reconciliation, UX/security and test-shop tasks, so this branch is not a
   public-launch completion claim.
 - Лендинг и публичные страницы проверяются отдельным ручным проходом по
   [landing-review.md](../../docs/evidence/140-user-account-billing/landing-review.md);

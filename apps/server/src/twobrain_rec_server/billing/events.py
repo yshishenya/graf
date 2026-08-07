@@ -8,6 +8,10 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.notification_preferences import (
+    NotificationPreferences,
+    channel_enabled,
+)
 from twobrain_rec_server.billing.notifications import (
     BillingNotification,
     DurableNotificationOutbox,
@@ -77,6 +81,7 @@ async def enqueue_billing_notification(
     event_id: str,
     kind: BillingNotification,
     payload: dict[str, object] | None = None,
+    channel: str = "email",
     marketing_allowed: bool = True,
 ) -> bool:
     """Build an allowlisted event and persist it in the caller's transaction."""
@@ -86,6 +91,7 @@ async def enqueue_billing_notification(
         event,
         workspace_id=workspace_id,
         recipient_id=recipient_id,
+        channel=channel,
         marketing_allowed=marketing_allowed,
     )
     return row is not None
@@ -99,6 +105,8 @@ async def enqueue_billing_event(
     event_type: BillingEvent | str,
     subject_ref: str,
     payload: dict[str, object] | None = None,
+    channel: str = "email",
+    preferences: NotificationPreferences | None = None,
     marketing_allowed: bool = True,
 ) -> bool:
     """Map one allowlisted lifecycle event to an idempotent notification.
@@ -108,6 +116,12 @@ async def enqueue_billing_event(
     cross this boundary.
     """
     kind = notification_kind_for(event_type)
+    if preferences is not None and not channel_enabled(
+        kind,
+        channel=channel,
+        preferences=preferences,
+    ):
+        return False
     return await enqueue_billing_notification(
         db,
         workspace_id=workspace_id,
@@ -115,5 +129,6 @@ async def enqueue_billing_event(
         event_id=event_id_for(event_type=event_type, subject_ref=subject_ref),
         kind=kind,
         payload=payload,
+        channel=channel,
         marketing_allowed=marketing_allowed,
     )

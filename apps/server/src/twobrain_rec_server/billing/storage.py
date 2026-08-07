@@ -26,6 +26,10 @@ class StorageProjection:
     reserved_bytes: int
     capacity_bytes: int
 
+    def __post_init__(self) -> None:
+        if self.used_bytes < 0 or self.reserved_bytes < 0 or self.capacity_bytes <= 0:
+            raise ValueError("storage projection values are invalid")
+
     @property
     def available_bytes(self) -> int:
         return max(0, self.capacity_bytes - self.used_bytes - self.reserved_bytes)

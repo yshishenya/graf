@@ -49,6 +49,11 @@
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Зарегистрированных устройств пока нет.</p>{% endif %}
     </section>
+    <section class="settings-section settings-boundary-card" aria-labelledby="account-notifications-title">
+      <h2 id="account-notifications-title">Уведомления</h2>
+      <p class="muted">Настройте необязательные подсказки. Обязательные сообщения о платежах, безопасности и закрытии аккаунта сохраняются.</p>
+      <a class="button quiet" href="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">Настроить уведомления</a>
+    </section>
     {% endif %}
     </div>
   </div>

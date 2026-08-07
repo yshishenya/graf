@@ -24,18 +24,32 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_posthog_autocapture_context_is_enabled_for_every_current_page_class(tmp_path: Path) -> None:
+def test_posthog_autocapture_context_excludes_financial_page_classes(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    contexts = [build_browser_provider_context(settings, policy.page_class) for policy in page_class_policies()]
+    contexts = {
+        policy.page_class: build_browser_provider_context(settings, policy.page_class)
+        for policy in page_class_policies()
+    }
+    financial_page_classes = {
+        policy.page_class for policy in page_class_policies() if policy.sensitivity == "financial"
+    }
+    enabled_contexts = [
+        context for page_class, context in contexts.items() if page_class not in financial_page_classes
+    ]
+    financial_contexts = [contexts[page_class] for page_class in financial_page_classes]
 
-    assert all(context["posthog"]["enabled"] is True for context in contexts)
-    assert all(context["posthog"]["autocapture_enabled"] is True for context in contexts)
-    assert all(context["posthog"]["replay_enabled"] is False for context in contexts)
-    assert all(context["posthog"]["autocapture_scope"] == "all_browser_rendered_pages" for context in contexts)
-    assert all(context["posthog"]["delivery_route"] == "first_party_browser_proxy" for context in contexts)
+    assert all(context["posthog"]["enabled"] is True for context in enabled_contexts)
+    assert all(context["posthog"]["autocapture_enabled"] is True for context in enabled_contexts)
+    assert all(context["enabled"] is False for context in financial_contexts)
+    assert all(context["posthog"]["enabled"] is False for context in financial_contexts)
+    assert all(context["posthog"]["autocapture_enabled"] is False for context in financial_contexts)
+    assert all(context["yandex"]["enabled"] is False for context in financial_contexts)
+    assert all(context["posthog"]["replay_enabled"] is False for context in contexts.values())
+    assert all(context["posthog"]["autocapture_scope"] == "all_browser_rendered_pages" for context in contexts.values())
+    assert all(context["posthog"]["delivery_route"] == "first_party_browser_proxy" for context in contexts.values())
     assert all(
         context["posthog"]["capture_endpoint"] == "/api/v1/product-analytics/posthog-web-capture"
-        for context in contexts
+        for context in contexts.values()
     )
 
 
