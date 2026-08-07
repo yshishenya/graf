@@ -15,7 +15,7 @@
         <form action="/billing/checkout/start" method="post">
           {{ sections.csrf_field(csrf_token|default(None)) }}
           <input type="hidden" name="idempotency_key" value="{{ checkout_idempotency_key }}">
-          <fieldset>
+          <fieldset class="billing-cycle-choice">
             <legend>Период оплаты</legend>
             <div class="settings-actions">
               <button class="button" type="submit" name="cycle" value="month">Оплатить 790 ₽ в YooKassa — месяц</button>
