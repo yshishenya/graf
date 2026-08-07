@@ -29,7 +29,7 @@ Date: 2026-08-04
   хранит только metadata-only gap ownership; notification worker только
   доставляет verified recipients через Postal и не помечает сообщения delivered
   до provider success.
-- Fast lane после изменений: 992 server unit tests, Ruff, Python compile и
+- Fast lane после изменений: 994 server unit tests, Ruff, Python compile и
   disposable migration проходят. Полный public launch остаётся gated: test-shop
   evidence, durable provider registry/reconciliation, account-close/notification
   flows, accessibility/usability evidence и approved finance/legal sign-off ещё
