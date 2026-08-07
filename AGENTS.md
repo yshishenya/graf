@@ -10,6 +10,10 @@ Codex reads `AGENTS.md` automatically. Keep this file as the short operating
 router; put long-lived details in `docs/agent-guidance/`. Do not add a parallel
 root `RULES.md` for Codex unless a separate tool explicitly requires it.
 
+Context policy: keep always-on rules and pointers here; put task-specific
+procedures in one scoped guidance file and read that file only when relevant.
+Do not duplicate a detailed rule between this file and `docs/agent-guidance/`.
+
 ## Project Context
 
 Product: `GRAF`, a self-hosted meeting capture and transcription product
@@ -244,64 +248,10 @@ Backend/GitHub Release и обновление приложения GRAF — р�
 `https://rec.2brain.pro/static/public/downloads/graf-appcast.xml` содержит
 строго большую версию и доступный подписанный `GRAF-<version>.zip`.
 
-Рабочий путь: создать draft Release с notarized Developer ID candidate ZIP,
-предыдущим ZIP, русскими release notes и свежим metadata-only Keychain
-attestation; вручную запустить `.github/workflows/sign-graf-app-update.yml` с
-`master`; после успешной проверки опубликовать versioned ZIP/PKG и checksum на
-download host, а `graf-appcast.xml` заменить последним. Workflow только
-подписывает и загружает assets в draft GitHub Release — production feed он не
-меняет.
-
-До сборки проверить доступность Apple credentials командой
-`xcrun notarytool history --keychain-profile graf-notary`; отсутствие профиля в
-Keychain — стоп публикации, а не повод отправлять ненотаризованный кандидат.
-
-#### Повторяемый Apple notarization-рецепт
-
-```sh
-GRAF_VERSION=YYYY.MM.DD.N \
-GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
-GRAF_UPDATE_FEED_URL="https://rec.2brain.pro/static/public/downloads/graf-appcast.xml" \
-GRAF_APP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
-DEVELOPER_ID_INSTALLER_IDENTITY="Developer ID Installer: Your Name (TEAMID)" \
-  sh apps/macos/Installer/Scripts/build-local-installer.sh \
-  "/tmp/GRAF-YYYY.MM.DD.N.pkg"
-
-ditto -c -k --sequesterRsrc --keepParent \
-  apps/macos/RecApp/.build/GRAF.app \
-  "/tmp/GRAF-YYYY.MM.DD.N-candidate.zip"
-
-xcrun notarytool submit "/tmp/GRAF-YYYY.MM.DD.N-candidate.zip" \
-  --keychain-profile graf-notary --wait
-xcrun notarytool submit "/tmp/GRAF-YYYY.MM.DD.N.pkg" \
-  --keychain-profile graf-notary --wait
-
-xcrun stapler staple apps/macos/RecApp/.build/GRAF.app
-xcrun stapler staple "/tmp/GRAF-YYYY.MM.DD.N.pkg"
-xcrun stapler validate apps/macos/RecApp/.build/GRAF.app
-xcrun stapler validate "/tmp/GRAF-YYYY.MM.DD.N.pkg"
-spctl --assess --type execute --verbose=4 apps/macos/RecApp/.build/GRAF.app
-spctl --assess --type install --verbose=4 "/tmp/GRAF-YYYY.MM.DD.N.pkg"
-
-# ZIP пересоздаётся после staple, чтобы Sparkle получил notarized app внутри.
-ditto -c -k --sequesterRsrc --keepParent \
-  apps/macos/RecApp/.build/GRAF.app \
-  "/tmp/GRAF-YYYY.MM.DD.N-candidate.zip"
-```
-
-После этого выполнить `validate-app-updates.sh` против предыдущего Developer ID
-app, создать metadata-only Keychain attestation, загрузить candidate ZIP,
-предыдущий ZIP и русские notes в draft Release, затем dispatch
-`sign-graf-app-update.yml`. В production сначала копируются versioned ZIP/PKG и
-checksums, затем `graf-appcast.xml` заменяется последним; после замены нужно
-снова скачать публичные файлы и сверить версию, длину, SHA-256 и XML.
-
-Перед closeout всегда сверять версию установленного
-`/Applications/GRAF.app/Contents/Info.plist` с live appcast и повторно проверять
-HTTPS, размер, SHA-256, Sparkle-подпись и Gatekeeper. Ненотаризованный локальный
-build нельзя публиковать или считать update candidate. Проверенный receipt:
-`v2026.08.05.1`, workflow run `31071458619`,
-`docs/deployments/2brain-rec/release-v2026.08.05.1.md`.
+Полный рецепт сборки, notarization, stapling, Sparkle-публикации и closeout
+вынесен в `docs/agent-guidance/macos-notarization.md`; читать его только для
+macOS packaging/release-задач. Ненотаризованный локальный build нельзя
+публиковать или считать update candidate.
 
 Implementation commits require explicit user approval after validation. Spec Kit
 documentation auto-commits may run only through user-approved Spec Kit hooks.
