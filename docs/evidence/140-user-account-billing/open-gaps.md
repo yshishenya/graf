@@ -79,5 +79,5 @@ evidence в launch runbook.
   YooKassa webhook secret в merchant cabinet.
 - Local evidence after the renewal/catalog hardening: disposable PostgreSQL
   focused lifecycle suite — 47 passed; `infra/scripts/ci-local.sh --fast` —
-  1019 passed, Ruff and Python compile passed. Это implementation evidence, не
+  1021 passed, Ruff and Python compile passed. Это implementation evidence, не
   замена provider canary или four-eyes sign-off.
