@@ -9,7 +9,7 @@
       </header>
       <section class="settings-section cabinet-card" aria-labelledby="billing-checkout-title">
         <h2 id="billing-checkout-title">{{ plan.label }}</h2>
-        <p>Без лимита по минутам и встречам. В тариф входит 2 000 000 000 байт хранения; аудиоархив конечен.</p>
+        <p>Без лимита по минутам и встречам. В тариф входит {{ catalog_storage_label|default("утверждённая ёмкость") }} хранения; аудиоархив конечен.</p>
         <dl class="settings-definition-list">
           <div><dt>Сегодня</dt><dd>Выберите период ниже{% if billing_enabled %}: {{ monthly_price_label|default("цена уточняется") }}/месяц или {{ annual_price_label|default("цена уточняется") }}/год{% endif %}</dd></div>
           {% if annual_saving_label|default(None) %}<div><dt>При оплате за год</dt><dd>{{ annual_saving_label }}</dd></div>{% endif %}
@@ -17,8 +17,8 @@
           <div><dt>Дополнительное хранилище</dt><dd>Не выбрано; варианты 5/20/100/500 GB доступны отдельным действием после утверждения цены</dd></div>
           <div><dt>Возврат</dt><dd>Только письмом в поддержку после оплаты; автоматической заявки в продукте нет</dd></div>
         </dl>
-        {% if checkout_result == "owner_only" %}<p role="alert">Оплатить тариф может только владелец пространства.</p>{% elif checkout_result == "offer_required" %}<p role="alert">Откройте и примите оферту версии billing-personal-v1.</p>{% elif checkout_result == "consent_required" %}<p role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>{% elif checkout_result == "unavailable" %}<p role="alert">Оплата временно недоступна. Повторите попытку позже.</p>{% elif checkout_result == "pending" %}<p role="status">Платёж уже создан. Проверьте историю платежей.</p>{% elif checkout_result == "promo_invalid" %}<p id="billing-checkout-error" role="alert">Промокод недействителен, не подходит для выбранного периода или уже использован. Проверьте код и отправьте форму ещё раз.</p>{% endif %}
-        {% if billing_enabled %}
+        {% if checkout_result == "owner_only" %}<p role="alert">Оплатить тариф может только владелец пространства.</p>{% elif checkout_result == "offer_required" %}<p role="alert">Откройте и примите оферту версии {{ offer_version_label|default("billing-personal-v1") }}.</p>{% elif checkout_result == "consent_required" %}<p role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>{% elif checkout_result == "catalog_not_approved" %}<p role="alert">Оплата временно недоступна: действующая версия тарифа ещё не утверждена.</p>{% elif checkout_result == "unavailable" %}<p role="alert">Оплата временно недоступна. Повторите попытку позже.</p>{% elif checkout_result == "pending" %}<p role="status">Платёж уже создан. Проверьте историю платежей.</p>{% elif checkout_result == "promo_invalid" %}<p id="billing-checkout-error" role="alert">Промокод недействителен, не подходит для выбранного периода или уже использован. Проверьте код и отправьте форму ещё раз.</p>{% endif %}
+        {% if billing_enabled and catalog_ready|default(true) %}
         <form action="/billing/checkout/start" method="post">
           {{ sections.csrf_field(csrf_token|default(None)) }}
           <input type="hidden" name="idempotency_key" value="{{ checkout_idempotency_key }}">
@@ -31,10 +31,10 @@
           </fieldset>
           <label for="billing-promo">Промокод <span class="muted">(если у вас есть действующий код)</span></label>
           <input id="billing-promo" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48" value="{{ checkout_promo_code|default('') }}"{% if checkout_result == "promo_invalid" %} aria-describedby="billing-checkout-error"{% endif %}>
-          <label><input type="checkbox" name="offer_consent" value="true" required{% if not billing_enabled %} disabled{% endif %}> Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии billing-personal-v1.</label>
+          <label><input type="checkbox" name="offer_consent" value="true" required{% if not billing_enabled %} disabled{% endif %}> Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии {{ offer_version_label|default("billing-personal-v1") }}.</label>
           <label><input type="checkbox" name="recurring_consent" value="true" required{% if not billing_enabled %} disabled{% endif %}> Согласен на регулярное списание до отключения автопродления.</label>
         </form>
-        {% else %}<p role="status">Оплата пока недоступна: магазин не включён.</p>{% endif %}
+        {% elif not billing_enabled %}<p role="status">Оплата пока недоступна: магазин не включён.</p>{% else %}<p role="status">Оплата пока недоступна: версия тарифа ещё не утверждена.</p>{% endif %}
       </section>
       <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
     </div>

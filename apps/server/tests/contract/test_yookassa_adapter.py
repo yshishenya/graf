@@ -4,7 +4,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from twobrain_rec_server.billing.yookassa import YooKassaClient, YooKassaConfigurationError
+from twobrain_rec_server.billing.yookassa import (
+    YooKassaClient,
+    YooKassaConfigurationError,
+    YooKassaProviderError,
+)
 from twobrain_rec_server.config import Settings
 
 
@@ -151,3 +155,59 @@ async def test_yookassa_adapter_uses_hosted_redirect_and_saved_method_consent(tm
     assert payload["save_payment_method"] is True
     assert payload["confirmation"]["type"] == "redirect"
     assert captured[0].headers["Idempotence-Key"] == "op-2"
+
+
+@pytest.mark.asyncio
+async def test_yookassa_adapter_recurring_payment_uses_saved_method_without_confirmation(tmp_path: Path) -> None:
+    secret = tmp_path / "secret"
+    secret.write_text("test-secret", encoding="utf-8")
+    captured: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"id": "pay-renewal-1", "status": "pending"})
+
+    settings = Settings(
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_shop_id="shop-1",
+        billing_yookassa_secret_file=secret,
+    )
+    async with YooKassaClient(settings, transport=httpx.MockTransport(handler)) as client:
+        await client.create_payment(
+            amount_minor=79_000,
+            currency="RUB",
+            description="Личный, месяц",
+            idempotence_key="renewal-op-1",
+            metadata={"workspace_id": "workspace-1", "operation_id": "operation-1"},
+            payment_method_id="pm-card-1",
+        )
+    payload = json.loads(captured[0].content)
+    assert payload["payment_method_id"] == "pm-card-1"
+    assert "confirmation" not in payload
+    assert "save_payment_method" not in payload
+    assert captured[0].headers["Idempotence-Key"] == "renewal-op-1"
+
+
+@pytest.mark.asyncio
+async def test_yookassa_adapter_exposes_provider_status_code(tmp_path: Path) -> None:
+    secret = tmp_path / "secret"
+    secret.write_text("test-secret", encoding="utf-8")
+    settings = Settings(
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_shop_id="shop-1",
+        billing_yookassa_secret_file=secret,
+    )
+    async with YooKassaClient(
+        settings,
+        transport=httpx.MockTransport(lambda _: httpx.Response(402, json={"type": "error"})),
+    ) as client:
+        with pytest.raises(YooKassaProviderError) as exc_info:
+            await client.create_payment(
+                amount_minor=79_000,
+                currency="RUB",
+                description="Личный",
+                idempotence_key="renewal-4xx",
+                metadata={},
+                payment_method_id="pm-card-1",
+            )
+    assert exc_info.value.status_code == 402

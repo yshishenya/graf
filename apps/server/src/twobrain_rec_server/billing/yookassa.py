@@ -16,7 +16,9 @@ class YooKassaConfigurationError(RuntimeError):
 
 
 class YooKassaProviderError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 ALLOWED_YOOKASSA_HOSTS = frozenset(
@@ -100,6 +102,7 @@ class YooKassaClient:
         idempotence_key: str,
         metadata: dict[str, str],
         save_payment_method: bool = False,
+        payment_method_id: str | None = None,
     ) -> dict[str, Any]:
         if amount_minor < self._provider_floor_minor:
             raise ValueError("payment amount is below provider floor")
@@ -108,9 +111,17 @@ class YooKassaClient:
             "capture": True,
             "description": description[:128],
             "metadata": metadata,
-            "save_payment_method": save_payment_method,
-            "confirmation": {"type": "redirect", "return_url": metadata.get("return_url", "")},
         }
+        if payment_method_id is not None:
+            if save_payment_method:
+                raise ValueError("recurring payment cannot save a new payment method")
+            payload["payment_method_id"] = validate_provider_identifier(payment_method_id)
+        else:
+            payload["save_payment_method"] = save_payment_method
+            payload["confirmation"] = {
+                "type": "redirect",
+                "return_url": metadata.get("return_url", ""),
+            }
         return await self._request("POST", "/v3/payments", payload, idempotence_key=idempotence_key)
 
     async def get_payment(self, payment_id: str) -> dict[str, Any]:
@@ -149,7 +160,10 @@ class YooKassaClient:
         headers = {"Idempotence-Key": idempotence_key} if idempotence_key else {}
         response = await self._http.request(method, path, json=payload, headers=headers, params=params)
         if response.status_code >= 400:
-            raise YooKassaProviderError(f"YooKassa request failed: {response.status_code}")
+            raise YooKassaProviderError(
+                f"YooKassa request failed: {response.status_code}",
+                status_code=response.status_code,
+            )
         try:
             data = response.json()
         except json.JSONDecodeError as exc:

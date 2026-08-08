@@ -17,12 +17,15 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.billing.catalog import (
     FREE_PROCESSING_SECONDS,
     FREE_STORAGE_BYTES,
+    CatalogNotApproved,
     classify_free_processing,
     classify_storage_threshold,
     plan_descriptor,
+    validate_plan_version,
 )
 from twobrain_rec_server.billing.checkout import build_checkout_intent, checkout_preview
 from twobrain_rec_server.billing.entitlements import effective_plan_code
+from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
     BillingEmergencyStop,
@@ -70,6 +73,7 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
+    BillingPlanVersion,
     ExternalIdentity,
     FreeUsageWindow,
     PromotionCampaign,
@@ -246,6 +250,25 @@ def _operation_state_label(state: str | None) -> str:
     }.get(state or "", "Статус уточняется")
 
 
+def _invoice_status_label(status: str) -> str:
+    return {
+        "pending": "Ожидает подтверждения",
+        "succeeded": "Оплачен",
+        "canceled": "Отменён",
+        "failed": "Не выполнен",
+        "unknown": "Проверяем результат",
+    }.get(status, "Статус уточняется")
+
+
+def _masked_receipt_contact(value: str | None) -> str | None:
+    if not isinstance(value, str) or "@" not in value:
+        return None
+    local, domain = value.split("@", 1)
+    if not local or not domain:
+        return None
+    return f"{local[0]}***@{domain}"
+
+
 def _capacity_label(capacity_bytes: int) -> str:
     units = ((1_000_000_000, "GB"), (1_000_000, "MB"))
     for divisor, unit in units:
@@ -261,6 +284,33 @@ def _promotion_state_label(state: str) -> str:
         "released": "Освобождён после отмены оплаты",
         "expired": "Истёк",
     }.get(state, "Статус уточняется")
+
+
+async def _approved_personal_catalog(
+    db: AsyncSession | None,
+    *,
+    now: datetime,
+) -> dict[str, object]:
+    """Read the same approved catalog authority used by checkout UI and POST."""
+    if db is None:
+        return {}
+    rows = await db.scalars(
+        select(BillingPlanVersion)
+        .where(
+            BillingPlanVersion.plan_code == "personal",
+            BillingPlanVersion.cycle.in_(("month", "year")),
+        )
+        .order_by(BillingPlanVersion.version.desc())
+    )
+    approved: dict[str, object] = {}
+    for row in rows:
+        if row.cycle in approved:
+            continue
+        try:
+            approved[row.cycle] = validate_plan_version(row, now=now)
+        except (CatalogNotApproved, ValueError):
+            continue
+    return approved
 
 
 async def _billing_role(
@@ -493,6 +543,7 @@ async def billing_overview_page(
     paid_through_label = _billing_datetime_label(
         subscription.paid_through if subscription is not None and plan_code == "personal" else subscription.trial_ends_at if subscription is not None and plan_code == "trial" else None
     )
+    approved_catalog = await _approved_personal_catalog(db, now=now)
     recurring_next_charge_label = None
     recurring_next_charge_amount_label = None
     if subscription is not None and plan_code == "personal" and subscription.paid_through and subscription.paid_through > now:
@@ -500,9 +551,9 @@ async def billing_overview_page(
             recurring_next_charge_label = _billing_datetime_label(subscription.paid_through)
             snapshot = latest_invoice.plan_snapshot if latest_invoice and isinstance(latest_invoice.plan_snapshot, dict) else {}
             cycle = subscription.cycle if subscription.cycle in {"month", "year"} else snapshot.get("cycle")
-            descriptor = plan_descriptor("personal")
+            catalog_entry = approved_catalog.get(cycle)
             recurring_next_charge_amount_label = _billing_amount_label(
-                descriptor.annual_amount_minor if cycle == "year" else descriptor.monthly_amount_minor
+                catalog_entry.amount_minor if catalog_entry is not None else None
             )
         else:
             recurring_next_charge_label = "не запланировано"
@@ -593,9 +644,19 @@ async def billing_plans_page(
         if current_code == "free" and billing_owner
         else "unavailable"
     )
+    catalog = await _approved_personal_catalog(db, now=now)
+    monthly_catalog = catalog.get("month")
+    annual_catalog = catalog.get("year")
+    catalog_ready = monthly_catalog is not None and annual_catalog is not None
     plans = []
     for code in ("free", "trial", "personal"):
         descriptor = plan_descriptor(code)  # type: ignore[arg-type]
+        monthly_amount = (
+            monthly_catalog.amount_minor if code == "personal" and monthly_catalog is not None else descriptor.monthly_amount_minor
+        )
+        annual_amount = (
+            annual_catalog.amount_minor if code == "personal" and annual_catalog is not None else descriptor.annual_amount_minor
+        )
         processing_label = format_duration(FREE_PROCESSING_SECONDS) if code == "free" else "Без лимита"
         plans.append(
             {
@@ -603,13 +664,17 @@ async def billing_plans_page(
                 "label": descriptor.label,
                 "processing_mode": descriptor.processing_mode,
                 "processing_label": processing_label,
-                "storage_label": _capacity_label(descriptor.storage_bytes),
-                "monthly_amount_label": _billing_price_label(descriptor.monthly_amount_minor),
-                "annual_amount_label": _billing_price_label(descriptor.annual_amount_minor),
+                "storage_label": _capacity_label(
+                    monthly_catalog.storage_bytes if code == "personal" and monthly_catalog is not None else descriptor.storage_bytes
+                ),
+                "monthly_amount_label": _billing_price_label(monthly_amount) if catalog_ready or code != "personal" else None,
+                "annual_amount_label": _billing_price_label(annual_amount) if catalog_ready or code != "personal" else None,
                 "annual_saving_label": _annual_saving_label(
-                    descriptor.monthly_amount_minor, descriptor.annual_amount_minor
+                    monthly_amount if catalog_ready or code != "personal" else None,
+                    annual_amount if catalog_ready or code != "personal" else None,
                 ),
                 "is_current": code == current_code,
+                "catalog_ready": catalog_ready if code == "personal" else True,
             }
         )
     content = _page_shell(
@@ -627,6 +692,7 @@ async def billing_plans_page(
         billing_owner=billing_owner,
         trial_state=trial_state,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        catalog_ready=catalog_ready,
         support_email=request.app.state.settings.billing_support_email,
     )
     return cabinet_html_response(content)
@@ -1372,6 +1438,14 @@ async def billing_checkout_page(
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     checkout_promo_code = request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
     descriptor = plan_descriptor("personal")
+    catalog = await _approved_personal_catalog(db, now=datetime.now(UTC))
+    monthly_catalog = catalog.get("month")
+    annual_catalog = catalog.get("year")
+    catalog_ready = monthly_catalog is not None and annual_catalog is not None
+    monthly_amount = monthly_catalog.amount_minor if monthly_catalog is not None else None
+    annual_amount = annual_catalog.amount_minor if annual_catalog is not None else None
+    catalog_storage = monthly_catalog.storage_bytes if monthly_catalog is not None else descriptor.storage_bytes
+    offer_version = monthly_catalog.offer_version if monthly_catalog is not None else _BILLING_OFFER_VERSION
     content = _page_shell(
         "Выбор тарифа",
         embedded=False,
@@ -1387,11 +1461,14 @@ async def billing_checkout_page(
         content_template="cabinet/pages/billing_checkout_content.html",
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         plan=descriptor,
-        monthly_price_label=_billing_price_label(descriptor.monthly_amount_minor),
-        annual_price_label=_billing_price_label(descriptor.annual_amount_minor),
+        monthly_price_label=_billing_price_label(monthly_amount),
+        annual_price_label=_billing_price_label(annual_amount),
         annual_saving_label=_annual_saving_label(
-            descriptor.monthly_amount_minor, descriptor.annual_amount_minor
+            monthly_amount, annual_amount
         ),
+        catalog_ready=catalog_ready,
+        catalog_storage_label=_capacity_label(catalog_storage),
+        offer_version_label=offer_version,
         checkout_idempotency_key=f"web-{principal.user_id}-{uuid4().hex}",
         checkout_result=request.query_params.get("result"),
         checkout_promo_code=checkout_promo_code,
@@ -1433,6 +1510,16 @@ async def start_billing_checkout(
         )
         if membership is None or membership.role != "owner":
             return RedirectResponse("/billing/checkout?result=owner_only", status_code=303)
+        receipt_contact = await db.scalar(
+            select(ExternalIdentity.email)
+            .where(
+                ExternalIdentity.user_id == principal.user_id,
+                ExternalIdentity.is_active.is_(True),
+                ExternalIdentity.is_verified.is_(True),
+                ExternalIdentity.email.is_not(None),
+            )
+            .order_by(ExternalIdentity.created_at.asc())
+        )
         require_billing_enabled(
             checkout_enabled=bool(settings.billing_checkout_enabled),
             emergency_stop=bool(settings.billing_emergency_stop),
@@ -1468,6 +1555,24 @@ async def start_billing_checkout(
             and subscription.paid_through.astimezone(UTC) > now
         ):
             return RedirectResponse("/billing?result=already_active", status_code=303)
+
+        # New money mutation must use an enabled, effective database catalog
+        # row.  Static descriptors remain useful for read-only copy and unit
+        # tests, but are never a checkout authority once the billing DB is
+        # available.  An absent/stale/disabled row therefore fails closed.
+        catalog_row = await db.scalar(
+            select(BillingPlanVersion)
+            .where(
+                BillingPlanVersion.plan_code == "personal",
+                BillingPlanVersion.cycle == cycle,
+            )
+            .order_by(BillingPlanVersion.version.desc())
+            .limit(1)
+        )
+        try:
+            catalog_snapshot = validate_plan_version(catalog_row, now=now)
+        except CatalogNotApproved:
+            return RedirectResponse("/billing/checkout?result=catalog_not_approved", status_code=303)
 
         promo: PromoCode | None = None
         promo_campaign: PromotionCampaign | None = None
@@ -1558,7 +1663,7 @@ async def start_billing_checkout(
         # tie handling; the DB reservation is created only for the winner.
         candidates = tuple(candidate for candidate in (promo, referral_candidate) if candidate is not None)
         chosen, _ = choose_best_discount(
-            amount_minor=(plan_descriptor("personal").monthly_amount_minor if cycle == "month" else plan_descriptor("personal").annual_amount_minor) or 0,
+            amount_minor=catalog_snapshot.amount_minor or 0,
             plan_code="personal",
             cycle=cycle,
             provider_floor_minor=settings.billing_provider_floor_minor,
@@ -1576,6 +1681,7 @@ async def start_billing_checkout(
             cycle=cycle,
             promo=promo,
             provider_floor_minor=settings.billing_provider_floor_minor,
+            catalog_snapshot=catalog_snapshot,
         )
         unresolved_checkout = await db.scalar(
             select(BillingOperation)
@@ -1607,13 +1713,15 @@ async def start_billing_checkout(
                 "list_amount_minor": preview.list_amount_minor,
                 "payable_amount_minor": preview.payable_amount_minor,
                 "promo_code_hash": promo_code_hash(promo.code) if promo is not None else None,
+                "discount_percent": promo.discount_percent if promo is not None else None,
                 "referral_discount": referral_discount,
                 "discount_source": "referral" if referral_discount else ("promo" if promo is not None else None),
+                "catalog_snapshot": catalog_snapshot.as_dict(),
                 "offer_consent": True,
                 "recurring_consent": True,
                 "consent_at": consent_at,
                 "billing_actor_user_id": str(principal.user_id),
-                "offer_version": _BILLING_OFFER_VERSION,
+                "offer_version": catalog_snapshot.offer_version,
             },
         )
         db.add(operation)
@@ -1628,15 +1736,18 @@ async def start_billing_checkout(
                 "list_amount_minor": preview.list_amount_minor,
                 "payable_amount_minor": preview.payable_amount_minor,
                 "promo_code_hash": promo_code_hash(promo.code) if promo is not None else None,
+                "discount_percent": promo.discount_percent if promo is not None else None,
                 "campaign_version": promo.campaign_version if promo is not None else None,
                 "referral_discount": referral_discount,
                 "discount_source": "referral" if referral_discount else ("promo" if promo is not None else None),
+                "catalog_snapshot": catalog_snapshot.as_dict(),
                 "offer_consent": True,
                 "recurring_consent": True,
                 "consent_at": consent_at,
                 "billing_actor_user_id": str(principal.user_id),
-                "offer_version": _BILLING_OFFER_VERSION,
+                "offer_version": catalog_snapshot.offer_version,
             },
+            receipt_contact_snapshot=receipt_contact if isinstance(receipt_contact, str) else None,
         )
         db.add(invoice)
         await db.flush()
@@ -1751,6 +1862,16 @@ async def billing_history_page(
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     invoices: list[dict[str, object]] = []
     if db is not None:
+        default_method = await db.scalar(
+            select(BillingPaymentMethod)
+            .where(
+                BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+                BillingPaymentMethod.is_default.is_(True),
+                BillingPaymentMethod.state == "active",
+            )
+            .order_by(BillingPaymentMethod.created_at.desc())
+        )
+        masked_method = mask_payment_method(default_method.masked_label if default_method is not None else None)
         rows = await db.scalars(
             select(BillingInvoice)
             .where(BillingInvoice.workspace_id == tenant_scope.workspace_id)
@@ -1758,6 +1879,14 @@ async def billing_history_page(
             .limit(100)
         )
         for invoice in rows:
+            snapshot = invoice.plan_snapshot if isinstance(invoice.plan_snapshot, dict) else {}
+            receipt_value = snapshot.get("receipt_registration")
+            try:
+                receipt_state = (
+                    ReceiptState(receipt_value) if isinstance(receipt_value, str) else ReceiptState.UNKNOWN
+                )
+            except ValueError:
+                receipt_state = ReceiptState.UNKNOWN
             refund_mailto = None
             if request.app.state.settings.billing_support_email:
                 try:
@@ -1773,6 +1902,15 @@ async def billing_history_page(
                     "created_at": invoice.created_at,
                     "amount_label": f"{invoice.amount_minor / 100:.2f} {invoice.currency}",
                     "status": invoice.status,
+                    "status_label": _invoice_status_label(invoice.status),
+                    "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
+                    "discount_label": (
+                        f"Скидка {snapshot.get('discount_percent')}%"
+                        if isinstance(snapshot.get("discount_percent"), int)
+                        else ("Реферальная скидка" if snapshot.get("referral_discount") else None)
+                    ),
+                    "payment_method_label": masked_method,
+                    "receipt_label": receipt_label(receipt_state),
                     "detail_url": f"/billing/invoices/{invoice.safe_number}",
                     "refund_mailto": refund_mailto,
                 }
@@ -1834,6 +1972,15 @@ async def billing_invoice_detail_page(
     receipt_url = snapshot.get("receipt_url")
     if not is_allowed_confirmation_url(receipt_url):
         receipt_url = None
+    method = await db.scalar(
+        select(BillingPaymentMethod)
+        .where(
+            BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+            BillingPaymentMethod.is_default.is_(True),
+            BillingPaymentMethod.state == "active",
+        )
+        .order_by(BillingPaymentMethod.created_at.desc())
+    ) if db is not None else None
     refund_mailto = None
     support_email = request.app.state.settings.billing_support_email
     if support_email:
@@ -1857,6 +2004,14 @@ async def billing_invoice_detail_page(
             "amount_label": f"{invoice.amount_minor / 100:.2f} {invoice.currency}",
             "status": invoice.status,
             "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
+            "status_label": _invoice_status_label(invoice.status),
+            "discount_label": (
+                f"Скидка {snapshot.get('discount_percent')}%"
+                if isinstance(snapshot.get("discount_percent"), int)
+                else ("Реферальная скидка" if snapshot.get("referral_discount") else None)
+            ),
+            "payment_method_label": mask_payment_method(method.masked_label if method is not None else None),
+            "receipt_contact_label": _masked_receipt_contact(invoice.receipt_contact_snapshot),
             "receipt_label": receipt_label(receipt_state),
             "receipt_url": receipt_url,
             "refund_mailto": refund_mailto,

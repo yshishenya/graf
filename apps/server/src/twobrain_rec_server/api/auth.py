@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -39,6 +39,9 @@ from twobrain_rec_server.auth.provider_links import (
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.providers.base import ProviderCredentials
 from twobrain_rec_server.auth.sessions import create_callback_state
+from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
+from twobrain_rec_server.billing.entitlements import effective_plan_code
+from twobrain_rec_server.billing.storage import project_active_playback_storage
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
@@ -47,8 +50,11 @@ from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
     ExternalIdentity,
     RegisteredDevice,
+    StorageReservation,
+    TimeCreditLedgerEntry,
     UserIdentity,
     WorkspaceMembership,
+    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import (
     AuthCallbackLookupContext,
@@ -164,6 +170,19 @@ class LinkedProvider(BaseModel):
     confirmed_at: datetime | None = None
 
 
+class BillingSummaryResponse(BaseModel):
+    plan_code: str
+    state: str
+    trial_ends_at: datetime | None = None
+    paid_through: datetime | None = None
+    bonus_until: datetime | None = None
+    renewal_resolution: str | None = None
+    processing_unlimited: bool
+    storage_used_bytes: int
+    storage_capacity_bytes: int
+    handoff_path: str = "/billing"
+
+
 class MeResponse(BaseModel):
     user_id: UUID
     workspace_id: UUID
@@ -171,6 +190,7 @@ class MeResponse(BaseModel):
     linked_providers: list[LinkedProvider]
     policy: AuthProvidersResponse
     registered_devices: list[AuthDeviceStateResponse]
+    billing: BillingSummaryResponse
 
 
 class AuthPolicyUpdateRequest(BaseModel):
@@ -1205,6 +1225,47 @@ async def get_me(
             adapters=build_provider_registry(),
         )
     )
+    subscription = await db.scalar(
+        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id)
+    )
+    now = datetime.now(UTC)
+    raw_plan_code = subscription.plan_code if subscription is not None else "free"
+    plan_code = effective_plan_code(
+        plan_code=raw_plan_code,  # type: ignore[arg-type]
+        state=subscription.state if subscription is not None else "free",
+        now=now,
+        paid_through=subscription.paid_through if subscription is not None else None,
+        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
+    )
+    capacity = (
+        subscription.capacity_bytes
+        if subscription is not None and plan_code in {"trial", "personal"}
+        else FREE_STORAGE_BYTES
+    )
+    reserved = int(
+        await db.scalar(
+            select(func.coalesce(func.sum(StorageReservation.declared_bytes - StorageReservation.committed_bytes), 0)).where(
+                StorageReservation.workspace_id == workspace_id,
+                StorageReservation.state == "active",
+                (StorageReservation.expires_at.is_(None) | (StorageReservation.expires_at > now)),
+            )
+        )
+        or 0
+    )
+    storage = await project_active_playback_storage(
+        db,
+        workspace_id=workspace_id,
+        capacity_bytes=capacity,
+        reserved_bytes=max(0, reserved),
+    )
+    bonus_until = await db.scalar(
+        select(func.max(TimeCreditLedgerEntry.applied_end)).where(
+            TimeCreditLedgerEntry.workspace_id == workspace_id,
+            TimeCreditLedgerEntry.state == "applied",
+            TimeCreditLedgerEntry.applied_end.is_not(None),
+            TimeCreditLedgerEntry.applied_end > now,
+        )
+    )
     return MeResponse(
         user_id=user.id,
         workspace_id=workspace_id,
@@ -1212,4 +1273,15 @@ async def get_me(
         linked_providers=linked_providers,
         policy=policy,
         registered_devices=registered_devices,
+        billing=BillingSummaryResponse(
+            plan_code=plan_code,
+            state=subscription.state if subscription is not None else "free",
+            trial_ends_at=subscription.trial_ends_at if subscription is not None and plan_code == "trial" else None,
+            paid_through=subscription.paid_through if subscription is not None and plan_code == "personal" else None,
+            bonus_until=bonus_until,
+            renewal_resolution=subscription.renewal_resolution if subscription is not None else None,
+            processing_unlimited=plan_code in {"trial", "personal"},
+            storage_used_bytes=storage.used_bytes,
+            storage_capacity_bytes=storage.capacity_bytes,
+        ),
     )

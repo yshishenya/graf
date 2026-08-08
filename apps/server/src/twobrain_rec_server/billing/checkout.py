@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
-from twobrain_rec_server.billing.catalog import plan_descriptor
+from twobrain_rec_server.billing.catalog import PlanCatalogSnapshot, plan_descriptor
 from twobrain_rec_server.billing.promotions import PromoCode, apply_promo
 
 
@@ -33,11 +33,23 @@ def build_checkout_intent(*, workspace_id: UUID, idempotency_key: str, preview: 
     return CheckoutIntent(operation_id, workspace_id, key, f"INV-{operation_id.hex[:20].upper()}", preview)
 
 
-def checkout_preview(*, plan_code: str, cycle: str, promo: PromoCode | None = None, provider_floor_minor: int = 1) -> CheckoutPreview:
-    plan = plan_descriptor(plan_code)  # type: ignore[arg-type]
+def checkout_preview(
+    *,
+    plan_code: str,
+    cycle: str,
+    promo: PromoCode | None = None,
+    provider_floor_minor: int = 1,
+    catalog_snapshot: PlanCatalogSnapshot | None = None,
+) -> CheckoutPreview:
+    if catalog_snapshot is not None:
+        if catalog_snapshot.plan_code != plan_code or catalog_snapshot.cycle != cycle:
+            raise ValueError("catalog snapshot does not match checkout selection")
+        amount = catalog_snapshot.amount_minor
+    else:
+        plan = plan_descriptor(plan_code)  # type: ignore[arg-type]
+        amount = plan.monthly_amount_minor if cycle == "month" else plan.annual_amount_minor
     if cycle not in {"month", "year"}:
         raise ValueError("cycle must be month or year")
-    amount = plan.monthly_amount_minor if cycle == "month" else plan.annual_amount_minor
     if amount is None:
         raise ValueError("selected plan is not payable")
     payable = (

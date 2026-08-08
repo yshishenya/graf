@@ -44,7 +44,7 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Latest local evidence (2026-08-08)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 1014 server tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1019 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
 - Billing launch contracts and test-shop e2e: PASS, 8 tests. Focused billing
   account/checkout/security/UI contracts: PASS, 57 tests.
@@ -53,13 +53,13 @@ elsewhere; real-shop canary is a separate approved release step.
   storage and subscription controls; the isolated container was removed after
   the run.
 - Focused billing lifecycle, notification and subscription tests: PASS; no
-  checkout enablement was performed; evidence is committed locally at the
-  current feature SHA and has not been pushed.
+  checkout enablement was performed; evidence is committed on the feature
+  branch and remains gated from public enablement.
 - Latest hardening pass: UI/accessibility/usability contracts 22 passed; focused
   disposable-PostgreSQL billing/account/security suite 72 passed; provider
   refund observation regression test confirms referral reversal uses the
   original payer snapshot after ownership changes. Full fast unit/PostgreSQL
-  contour after the latest changes: 1014 passed.
+  contour after the latest changes: 1019 passed.
 - Public launch remains blocked by the production gates below: real merchant
   test-shop/canary evidence, accessibility/usability and live security review,
   source-retention policy approval, Russia-first JTBD/WTP/COGS evidence and

@@ -35,9 +35,11 @@ evidence в launch runbook.
 - initial checkout теперь имеет bounded provider-GET backstop для сохранённого
   `provider_id`; если POST в YooKassa завершился таймаутом до сохранения этого
   ID, операция всё ещё остаётся `unknown` и требует ручного gap resolution;
-- reconciler создаёт и обслуживает только заранее существующие `renewal`
-  operations: автоматическое создание и списание renewal до публичного запуска
-  не доказано;
+- renewal planner создаёт одну deterministic `renewal` operation в reminder
+  window, а outbound charge разрешён только в `paid_through` и только для
+  `scheduled` без provider ID; локальные unit/PostgreSQL/CI проверки проходят,
+  но provider test-shop success/decline/timeout и canary evidence ещё не
+  предъявлены;
 - receipt registration truth теперь сохраняется монотонно и metadata-only,
   а receipt contact snapshot/54-ФЗ поведение всё ещё требует merchant
   test-shop canary;

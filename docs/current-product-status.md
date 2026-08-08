@@ -52,7 +52,7 @@ Date: 2026-08-08
   платежа и привязку referral reversal к исходному payer snapshot, а не к
   текущему владельцу workspace. Контрактные UI/accessibility/usability проверки: 22
   passed; focused billing/account/security/PostgreSQL suite: 72 passed. Последний
-  fast PostgreSQL контур после hardening checkout/referral: 1014 passed.
+  fast PostgreSQL контур после hardening checkout/referral/renewal/catalog: 1019 passed.
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и

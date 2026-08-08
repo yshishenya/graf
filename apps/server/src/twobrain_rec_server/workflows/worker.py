@@ -30,6 +30,12 @@ from twobrain_rec_server.billing.notifications import (
     notification_copy,
 )
 from twobrain_rec_server.billing.operations import provider_key_is_expired
+from twobrain_rec_server.billing.renewal_charge import (
+    charge_renewal_operation,
+    pending_renewal_charge_candidates,
+    plan_due_renewals,
+    project_renewal_cutoffs,
+)
 from twobrain_rec_server.billing.webhook_reconciliation import (
     reconcile_pending_initial_checkout_operations,
     reconcile_pending_webhook_events,
@@ -121,7 +127,7 @@ from twobrain_rec_server.workflows.temporal_client import (
 logger = logging.getLogger(__name__)
 
 BILLING_RENEWAL_RECONCILE_STATES = frozenset(
-    {"scheduled", "processing", "unknown", "provider_key_expired"}
+    {"scheduled", "sent", "processing", "unknown", "provider_key_expired"}
 )
 BILLING_RENEWAL_TERMINAL_STATES = frozenset({"succeeded", "canceled", "succeeded_refused"})
 
@@ -186,7 +192,7 @@ def _renewal_authority_matches(
 
 
 async def run_billing_renewal_reconciler(settings: Any, temporal_client: object) -> None:
-    """Dispatch existing renewal operations; never create a charge or provider key."""
+    """Plan one renewal, charge it once, then reconcile provider truth."""
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     context = MaintenanceTenantContext(
@@ -198,6 +204,36 @@ async def run_billing_renewal_reconciler(settings: Any, temporal_client: object)
     try:
         while True:
             try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    now = datetime.now(UTC)
+                    await project_renewal_cutoffs(db, now=now)
+                    await plan_due_renewals(
+                        db,
+                        now=now,
+                        provider_floor_minor=settings.billing_provider_floor_minor,
+                    )
+                    await db.commit()
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    charge_candidates = await pending_renewal_charge_candidates(
+                        db,
+                        now=datetime.now(UTC),
+                    )
+                for operation_id, workspace_id in charge_candidates:
+                    try:
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            await charge_renewal_operation(
+                                db,
+                                settings,
+                                operation_id=operation_id,
+                                workspace_id=workspace_id,
+                            )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception("billing renewal charge attempt failed")
                 async with sessionmaker() as db:
                     await apply_tenant_context(db, context)
                     rows = (
