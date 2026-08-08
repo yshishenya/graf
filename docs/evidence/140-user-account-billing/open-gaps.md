@@ -76,9 +76,11 @@ evidence в launch runbook.
   Spec Kit closeout. Поэтому public launch остаётся **BLOCKED**.
 - Remote readiness audit 2026-08-08: `2brain.dev` остаётся на `master`, billing
   branch не развёрнут; remote `.env` не содержит billing-параметров, а webhook
-  и referral secret mounts отсутствуют. Production checkout и renewal поэтому
-  остаются disabled/fail-closed до одобренного exact-SHA deploy и настройки
-  YooKassa webhook secret в merchant cabinet.
+  и referral secret mounts отсутствуют. Файлы трёх billing secrets на host
+  существуют и приведены к mode `0600`; содержимое не проверялось и в evidence
+  не попадает. Read-only GET к YooKassa с shopId `1430118` вернул HTTP 200.
+  Production checkout и renewal поэтому остаются disabled/fail-closed до
+  одобренного exact-SHA deploy, mounts и настройки webhook в merchant cabinet.
 - Local evidence after the renewal/catalog hardening: disposable PostgreSQL
   focused lifecycle suite — 47 passed; `infra/scripts/ci-local.sh --fast` —
   1022 passed, Ruff and Python compile passed. Это implementation evidence, не
