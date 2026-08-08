@@ -1748,7 +1748,7 @@ h2 {
 
 .platform-download.platform-download-current {
   transition: background-color 0.2s;
-  padding: 28px 16px; /* give it some padding so hover background looks good */
+  padding: 28px 16px;
   margin: 0 -16px;
   border-radius: 12px;
   border-bottom: 1px solid transparent;
