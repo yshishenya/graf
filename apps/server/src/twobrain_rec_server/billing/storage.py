@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import classify_storage_threshold
 from twobrain_rec_server.db.models import StorageReservation as StorageReservationRow
-from twobrain_rec_server.db.models import TrackArtifact, Workspace
+from twobrain_rec_server.db.models import TrackArtifact
 
 CANONICAL_PLAYBACK_PROFILE = "review_m4a_aac_lc_48k_mono_64k_v1"
 CANONICAL_PLAYBACK_FILENAME = "meeting-review.m4a"
@@ -195,18 +195,21 @@ async def reserve_storage(
 ) -> StorageReservationRow:
     """Atomically reserve playback capacity with idempotent admission.
 
-    A workspace row lock serializes reservations even when there are no
-    existing reservation rows to lock. Object bytes remain authoritative at
-    commit time, so an object-stat mismatch never silently overcharges.
+    A transaction advisory lock serializes reservations without granting the
+    media worker broad UPDATE access to workspace metadata. Object bytes remain
+    authoritative at commit time, so an object-stat mismatch never silently
+    overcharges.
     """
     if declared_bytes <= 0 or not reservation_key.strip():
         raise ValueError("storage reservation is invalid")
     now = now or datetime.now(UTC)
     if expires_at is not None and expires_at <= now:
         raise ValueError("storage reservation expiry must be in the future")
-    workspace = await db.scalar(select(Workspace).where(Workspace.id == workspace_id).with_for_update())
-    if workspace is None:
-        raise ValueError("workspace is missing")
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(
+            text("select pg_advisory_xact_lock(hashtextextended(:workspace_id, 0))"),
+            {"workspace_id": str(workspace_id)},
+        )
     existing = await db.scalar(
         select(StorageReservationRow)
         .where(

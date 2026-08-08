@@ -44,8 +44,14 @@ elsewhere; real-shop canary is a separate approved release step.
 
 ### Latest local evidence (2026-08-08)
 
-- `infra/scripts/ci-local.sh --fast`: PASS, 1022 server tests, Ruff and
+- `infra/scripts/ci-local.sh --fast`: PASS, 1024 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
+- `infra/scripts/ci-local.sh --full`: PASS on the billing/master integration
+  branch: 650 Swift tests, ContractValidation PASS, 2833 server tests passed,
+  1 skipped, strict PostgreSQL phase 42 passed, Ruff/Python compile passed and
+  deployment evidence scan passed. A prior full run had one transient SC-017
+  p95 performance miss; the isolated rerun passed and the clean full run did
+  not change the threshold.
 - Billing launch contracts and test-shop e2e: PASS, 8 tests. Focused billing
   account/checkout/security/UI contracts: PASS, 57 tests.
 - Disposable-PostgreSQL billing lifecycle sample: PASS, 61 tests covering

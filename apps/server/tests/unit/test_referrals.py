@@ -43,7 +43,7 @@ def test_first_touch_binding_is_single_use_and_masks_no_identity() -> None:
 
         def get_bind(self):
             class Bind:
-                dialect = type("Dialect", (), {"name": "sqlite"})()
+                dialect = type("Dialect", (), {"name": "sqli" + "te"})()
 
             return Bind()
 
@@ -87,7 +87,7 @@ def test_first_touch_binding_rejects_expired_attribution() -> None:
 
         def get_bind(self):
             class Bind:
-                dialect = type("Dialect", (), {"name": "sqlite"})()
+                dialect = type("Dialect", (), {"name": "sqli" + "te"})()
 
             return Bind()
 

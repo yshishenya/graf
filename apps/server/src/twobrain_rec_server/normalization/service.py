@@ -37,7 +37,10 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceSubscription,
 )
-from twobrain_rec_server.db.tenant_context import require_database_context
+from twobrain_rec_server.db.tenant_context import (
+    rehydrate_tenant_context,
+    require_database_context,
+)
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionSourceKind,
@@ -2324,6 +2327,8 @@ async def run_normalization_job(
         reason_code = normalization_reason_from_exception(exc)
         with suppress(Exception):
             await db.rollback()
+        with suppress(Exception):
+            await rehydrate_tenant_context(db)
         try:
             failure = await record_normalization_failure(
                 db,
@@ -2765,6 +2770,7 @@ async def publish_uploaded_attempt(
     attempt_id: UUID,
 ) -> NormalizationExecutionResult:
     require_database_context(db, allowed_context_kinds=frozenset({"worker"}))
+    await rehydrate_tenant_context(db)
     attempt_job_id = await db.scalar(
         select(PlaybackNormalizationAttempt.job_id).where(
             PlaybackNormalizationAttempt.id == attempt_id
@@ -2879,7 +2885,6 @@ async def publish_uploaded_attempt(
     subscription = await db.scalar(
         select(WorkspaceSubscription)
         .where(WorkspaceSubscription.workspace_id == job.workspace_id)
-        .with_for_update()
     )
     effective_plan = (
         effective_plan_code(

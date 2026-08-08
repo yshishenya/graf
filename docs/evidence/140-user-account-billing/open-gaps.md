@@ -83,5 +83,8 @@ evidence в launch runbook.
   одобренного exact-SHA deploy, mounts и настройки webhook в merchant cabinet.
 - Local evidence after the renewal/catalog hardening: disposable PostgreSQL
   focused lifecycle suite — 47 passed; `infra/scripts/ci-local.sh --fast` —
-  1022 passed, Ruff and Python compile passed. Это implementation evidence, не
-  замена provider canary или four-eyes sign-off.
+  1024 passed, Ruff and Python compile passed. Повторный полный CI также
+  завершился PASS: 650 Swift-тестов, ContractValidation PASS, 2833 серверных
+  теста прошли, 1 skipped, strict PostgreSQL 42 passed и deployment evidence
+  scan PASS. Это implementation evidence, не замена provider canary или
+  four-eyes sign-off.

@@ -401,3 +401,16 @@ async def apply_tenant_scope(
     context_kind: TenantRequestContextKind = "request",
 ) -> None:
     await apply_tenant_context(session, tenant_context_from_scope(scope, context_kind=context_kind))
+
+
+async def rehydrate_tenant_context(session: AsyncSession) -> None:
+    """Reapply the exact worker/request settings after a transaction boundary."""
+
+    settings = session.info.get("tenant_context")
+    if not settings or session.get_bind().dialect.name != "postgresql":
+        return
+    for name, value in settings.items():
+        await session.execute(
+            text("select set_config(:setting_name, :setting_value, true)"),
+            {"setting_name": name, "setting_value": value},
+        )
