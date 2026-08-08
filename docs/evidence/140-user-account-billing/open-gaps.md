@@ -5,8 +5,10 @@ case и не обещание пользователю; документ слу�
 metadata-only реестром незакрытых доказательств.
 
 Автономная реализация account-close/source lifecycle, playback quota admission,
-add-on/payment-method transitions и billing primitives закрыта задачами T029,
-T036, T038, T039, T042, T043, T047, T051, T053 и T075–T077. Refund webhook
+renewal/payment-method authority и billing primitives закрыта задачами T029,
+T036, T038, T039, T047, T051, T053 и T075–T077. Storage add-on projection
+готова, но self-service purchase остаётся закрытой до ценовой версии каталога.
+Refund webhook
 backstop проходит bounded cursor pagination YooKassa (до 20 страниц, с защитой
 от повторного cursor); payments/refunds registry теперь импортируется только
 раздельными metadata-only наборами с completeness hash и gap ownership.
