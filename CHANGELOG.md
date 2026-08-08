@@ -9,180 +9,291 @@
 ## [Unreleased]
 
 ### Добавлено
-- Billing mutations теперь блокируются durable actor/workspace rate-limit buckets
-  с HTTP 429/Retry-After; незавершённые операции не открывают повторный checkout.
-  Late success после `provider_key_expired` переводится в `succeeded_refused` без
-  возврата доступа или автопродления.
-- Серверный PostHog proxy проверяет canonical page inventory и отклоняет
-  финансовые/неизвестные классы; cabinet-ответы получили DENY/
-  `frame-ancestors 'none'` и `Referrer-Policy: no-referrer`.
-- Checkout перебирает последнюю действующую approved-версию каталога, а история
-  платежей показывает только метод текущего billing owner; migration 0057 имеет
-  симметричный downgrade policy.
-- Каталог цен и ёмкости теперь читается из утверждённой версии в базе и
-  сохраняется в immutable checkout/invoice snapshot; renewal planner создаёт
-  одну операцию на период, списывает только в `paid_through`, использует
-  сохранённый способ оплаты и переводит workspace на Free без grace/retry при
-  неподтверждённом продлении.
-- Hosted return теперь ведёт на конкретный invoice status, повторная оплата
-  активного периода блокируется, а владелец может запросить одну CSRF-защищённую
-  проверку YooKassa. Отменённые платежи отражаются в истории, referral-токены
-  редактируются в логах и выдача referral attribution выполняется только после
-  явного POST-действия.
-- Сводка биллинга теперь показывает paid-through/bonus-through, дату и сумму
-  следующего списания, безопасный способ оплаты и последний invoice; добавлены
-  страницы `/billing/plans`, `/billing/discounts` и workspace-scoped проверка
-  статуса платежа. Storage add-on остаётся fail-closed до approved price
-  version, а usage UI явно сообщает stale/unavailable projection.
-- Ошибка промокода теперь сохраняет безопасный нормализованный ввод на пять
-  минут в HttpOnly cookie без попадания кода в URL/referrer; copy-кнопки
-  платежей и реферальной ссылки получили keyboard-safe clipboard fallback и
-  live status.
-- Browser PostHog autocapture теперь проходит полный forbidden-field guard,
-  поэтому email-like DOM metadata отклоняется до provider delivery.
-- Provider payment/receipt IDs теперь валидируются до authenticated GET, а
-  публичный analytics ingress ограничен 256 KiB и bounded IP rate limit.
-- Billing canary quickstart и launch runbook расширены разделением test/prod,
-  capability evidence, four-eyes sign-off, emergency stop и rollback drill;
-  реальные canary/sign-offs по-прежнему остаются внешним gate.
-- Receipt truth теперь проходит монотонный metadata-only projection с
-  idempotent уведомлением о доступности чека; entitlement grant остаётся
-  append-only и duplicate payment callback не меняет уже успешную операцию.
-- Reconciliation сохраняет scoped payment/refund receipt observations в
-  bounded projection, а registry принимает только независимые payments и
-  refunds наборы с completeness hash и gap ownership.
-- Закрыты implementation-срезы renewal/reconciliation/maintenance: Temporal
-  workflows, stuck-operation/storage/add-on/time-credit maintenance и
-  агрегированные launch diagnostics подтверждены focused и fast CI.
-- Production Compose теперь монтирует YooKassa API/webhook и referral secrets
-  только через Docker secrets; при выключенном checkout используется безопасный
-  disabled-placeholder, а deploy script проверяет реальные файлы перед canary.
-- Runtime closeout: idempotent checkout восстанавливает hosted URL до
-  повторной promo-проверки; campaign-level reservation counter сериализует
-  промокоды, provider-pending резерв не истекает, а освобождённая резервация
-  может быть переиспользована.
-- Refund observations проверяют валюту, сумму и cumulative partial-refund cap;
-  canonical playback проходит storage reserve/commit с effective plan cutoff;
-  production config проверяет оба YooKassa secret-файла. Добавлена миграция
-  `0054_promotion_reservation_counter`, `0055_referral_owner_lookup`,
-  `0056_billing_catalog_write_rls` и `0057_referral_workspace_scope`.
-- Checkout скрывает publishable price до включения магазина, а страницы скидок
-  и способа оплаты получили CSRF-защищённые действия `Применить`/`Удалить` и
-  безопасное локальное удаление authority без вызова refund/payment API.
-- Webhook body читается потоково с bounded cap даже без `Content-Length`; startup
-  billing gate требует непустые YooKassa/webhook/referral secret-файлы и
-  валидный support email.
-- Billing reconciliation дополнительно опрашивает сохранённые initial checkout
-  payments через YooKassa GET при потерянном webhook; POST-timeout без
-  сохранённого provider id остаётся ручным gap.
-- Refund webhook reconciliation теперь использует bounded YooKassa cursor
-  pagination (до 20 страниц, limit 100) и отклоняет повторные/некорректные
-  cursors; product-side refund mutation по-прежнему отсутствует.
-- Повторная security-проверка биллинга: trial требует активный verified
-  `ExternalIdentity` и реального owner workspace, designated billing owner
-  ограничивает финансовые маршруты, successor проходит отдельный hosted
-  re-consent, а YooKassa webhook без proxy-injected secret отклоняется.
-- Trust-boundary hardening: corporate owner переведён в read-only billing,
-  entitlement/referral reward используют owner/payer snapshots, первое
-  free-usage окно сериализуется, replay-conflict webhook отвечает 409,
-  receipt mapping fail-closed передаётся через env, а миграция
-  `0057_referral_workspace_scope` ограничивает referral RLS выбранным workspace.
-- В биллинге показаны точные остаток Free-обработки и срок trial до секунды,
-  а сценарий «без сохранения аудио» открывает ручную загрузку с отключённым
-  архивированием.
-- Добавлено durable закрытие аккаунта с 7-дневным периодом отмены, немедленным
-  отключением будущих списаний, отзывом сессий/устройств после финализации и
-  безопасным no-JS browser/desktop подтверждением.
-- Добавлены fail-closed проверки webhook размера, YooKassa confirmation URL,
-  referral secret из Docker-файла, key-ring для сохранённых payment method и
-  metadata-only billing audit.
-- Storage deletion теперь сразу освобождает playback quota, просроченная Free
-  reservation не может поздно commit-иться, а source-retention policy имеет
-  отдельные deterministic checks для no-archive и 15/24-hour purge.
-- Добавлена публичная страница оферты `/offer` с подтверждёнными тарифами,
-  операторскими реквизитами и email-only границей возврата; банковские
-  реквизиты намеренно не публикуются.
-- Тарифы вынесены из юридической оферты на лендинг в отдельный адаптивный блок;
-  оферта оставлена для условий оплаты, поддержки и возврата.
-- Базовый личный кабинет тарифа и оплаты: Free/Trial/Личный, точные 300 минут
-  Free, конечное playback-хранилище и отдельные storage add-on capacity.
-- Серверный hosted-checkout YooKassa с идемпотентной операцией, immutable
-  invoice snapshot, CSRF/owner gate и fail-closed неизвестным результатом.
-- Durable tenant-scoped webhook inbox, read-only provider observations,
-  payment history с безопасным номером платежа, внешнее email-only обращение
-  по возврату и реферальная ссылка с 10%/7 или 30 днями.
-- Наблюдательный renewal Temporal workflow: повторяется только GET уже созданной
-  операции и не создаёт новые charge/refund mutations.
-- Подтверждённые YooKassa платежи теперь проходят server-side GET с проверкой
-  суммы/валюты и создают append-only entitlement grant; добавлена миграция 0045.
-- Provider-confirmed refunds теперь наблюдаются через YooKassa GET/list и
-  связываются с исходным invoice без refund mutation или изменения entitlement.
-- Hosted checkout передаёт в YooKassa `save_payment_method` только после
-  обязательного recurring consent; recurring authority включается лишь при
-  подтверждённом сохранении bank-card методом провайдера.
-- После подтверждённой оплаты сохранённая bank-card ссылка шифруется server-side
-  и сохраняется только как owner-scoped default method с безопасной маской.
-- Owner-only управление подпиской: отключение/возобновление автопродления с
-  CSRF, row-lock, проверкой версии и metadata-only audit-событием; отдельный
-  экран точного использования и playback-хранилища.
-- Идемпотентная metadata-only очередь billing-уведомлений с русскими
-  финансовыми шаблонами, DB-backed uniqueness/delivery state и правилами обхода
-  маркетинговых предпочтений.
-- Выданные реферальные ссылки теперь фиксируются в tenant-scoped attribution
-  ledger идемпотентно; токен хранится только как hash.
-- При подтверждённой регистрации первый-touch токен привязывается к новому
-  пользователю в той же транзакции и удаляется из браузерной cookie.
-- Добавлены отдельные экраны способа оплаты и увеличения хранилища, связанные с
-  единым hub «Тариф и оплата»; они показывают только безопасную маску и не
-  открывают платное дополнение до подтверждения ценовой версии магазина.
-- Промокоды теперь резервируются на 15 минут и освобождаются при отмене,
-  истечении или ошибке создания платежа; в счетах и операциях сохраняется
-  только hash промокода.
-- Реферальная first-touch привязка получила token-hash-scoped auth lookup для
-  разных личных workspace; начисления записываются в workspace пригласившего,
-  а не приглашённого.
-- Webhook YooKassa принимает `payment_method.active` как безопасный сигнал,
-  подтверждение регулярного способа оплаты остаётся за authoritative payment
-  GET; реферальные ссылки используют настроенный `public_base_url` и истекают
-  через 30 дней.
-- Добавлены account IA aliases для browser/desktop handoff, bounded maintenance
-  counters для stuck billing operations/storage projections и локальный
-  credential-free test-shop harness; no-archive admission facts сохраняются
-  отдельной миграцией 0051.
-- Финансовые маршруты из embedded-настроек теперь явно передаются во внешний
-  браузер; macOS policy не встраивает checkout и не принимает финансовые
-  параметры в URL.
-- Storage reservation commit теперь fail-closed проверяет срок, workspace,
-  verified canonical playback-artifact и точное совпадение object-stat bytes;
-  добавлены disposable-PostgreSQL сценарии trial/account-close и Temporal
-  add-on projection evidence.
-- В аккаунте добавлены профиль с проверенным email, список активных сессий с
-  безопасным отзывом, русско-английские настройки интерфейса, часовой пояс и
-  локальная тема без передачи этих предпочтений в аналитику.
+- Feature 140 добавляет личный кабинет тарифа и оплаты, hosted checkout YooKassa,
+  промокоды, referral credits, usage/storage controls, renewal и ручной refund
+  back-office процесс. Checkout остаётся выключенным до canary и согласований.
+- Billing secrets остаются server-only и монтируются через Docker secrets;
+  receipt/VAT mapping передаётся через fail-closed env, а migration head
+  включает workspace-scoped referral RLS `0057_referral_workspace_scope`.
 
 ### Изменено
-- Trial приведён к спецификации: ровно 7 календарных дней без карты и автосписания.
+- _Пока нет записей._
 
 ### Исправлено
-- RLS-инвентарь биллинга отделяет глобальный каталог от workspace-bound таблиц;
-  события без безопасного workspace metadata не принимаются в durable обработку.
-- Добавлена миграция 0047 для безопасного auth-callback и owner-scoped чтения
-  referral attribution без cross-tenant раскрытия.
-- Общий billing authority helper больше не считает администратора плательщиком:
-  чувствительные изменения доступны только назначенному Owner.
+- _Пока нет записей._
 
 ### Безопасность
-- YooKassa credentials остаются server-only; refund mutation отсутствует,
-  webhook metadata и provider observations сохраняются только в redacted виде.
+- Закрыт обход admin egress governance: прямые API-запросы на download/export больше не выдают артефакты встреч, заблокированных retention или lifecycle политикой.
+- macOS calendar prompts снова скрывают bare Google Meet и Microsoft Teams
+  ссылки из внешних calendar titles и показывают generic meeting title вместо
+  потенциально секретных domain/path строк.
 
 ### Документы
-- Добавлены Spec Kit артефакты Feature 140 и launch/validation matrix.
-- Зафиксирован отдельный landing review: визуальная, mobile, accessibility,
-  analytics и clean-room проверка не смешиваются с серверным CI.
+- Добавлены Spec Kit артефакты Feature 140, launch runbook и metadata-only
+  evidence с production blockers и canary checklist.
 
 ### Операции
-- `infra/scripts/ci-local.sh --fast`: 994 теста, lint и Python compile успешно;
-  checkout остаётся fail-closed до отдельного approved test-shop enablement.
+- _Пока нет записей._
+
+## [2026.08.08.1] - 2026-08-08
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Product-proof пара hero переразложена в плотный editorial crop без лишнего нижнего воздуха;
+  расшифровка и итоги теперь используют согласованный формат 1487 × 1058.
+
+### Исправлено
+- Hero корректно сжимается на узких grid-контейнерах, а tablet breakpoint покрывает 768 px без горизонтального overflow.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.07.7] - 2026-08-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Hero лендинга переведён в компактную двухколоночную композицию: реальные экраны
+  расшифровки и итогов теперь автоматически сменяют друг друга внутри product
+  viewport, а не занимают всю ширину страницы ручными табами.
+- Добавлен спокойный прогресс карусели и финальная остановка на экране итогов;
+  при `prefers-reduced-motion` показываются статичные итоги без анимации.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.07.6] - 2026-08-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Контракт публичных метрик синхронизирован с новым событием `hero_login`, чтобы
+  переход CTA в кабинет не терялся в аналитике.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.07.5] - 2026-08-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- CTA «Посмотреть продукт» теперь открывает вход в GRAF с продолжением в кабинет;
+  кнопка «Скачать» в шапке сохраняет отдельный download-маршрут и метрику.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.07.4] - 2026-08-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Ссылка «Войти» теперь остаётся видимой и доступной в шапке лендинга на мобильных
+  ширинах, включая компактные экраны 280–390 px.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- _Пока нет записей._
+
+## [2026.08.07.3] - 2026-08-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Публичный лендинг GRAF переработан в тёмную продуктовую историю с реальными
+  интерфейсами записи и итогов, контекстной лентой сервисов встреч и ясными CTA.
+- После повторного UX/UI/CX/IA-review лендинг получил локальный variable-шрифт
+  Onest, управляемые переносы, более компактный ритм, ценностные crops реальных
+  экранов и отдельную главу про российские и локально развёрнутые модели.
+- Визуальный слой стал легче и глубже: добавлены сдержанный атмосферный фон,
+  нативные CSS-анимации с поддержкой reduced motion и многослойная композиция
+  из реальных экранов записи и итогов вместо изолированных скриншотов.
+- Продуктовые доказательства пересняты из текущего GRAF с синтетическим контекстом:
+  hero показывает расшифровку, запись — читаемые паузу и остановку, а экран итогов
+  отдельно подтверждает краткое резюме, действия, решения и таймкоды источников.
+- Hero связывает один синтетический диалог с его итогами через доступный
+  переключатель `Расшифровка / Итоги`; действие и решение ведут к точным
+  таймкодам `00:27` и `00:57` в том же разговоре.
+- Глава записи теперь показывает текущую настройку автозаписи для выбранных
+  приложений, последовательность `приложение → обнаружение → запись` и отдельный
+  truth-safe блок календарного контекста без обещания calendar-driven старта.
+- Финальные продуктовые доказательства собраны вокруг одной 18-минутной встречи
+  трёх ролей: расшифровка, итог, действия, решения и таймкоды согласованы между
+  собой; пустые и повторяющиеся экраны удалены.
+- Вместо технического степпера и типовых benefit-чипов лендинг показывает
+  текущую нативную настройку автозаписи, 79 приложений из действующего реестра и
+  конкретный план действий по демонстрационной встрече.
+- Переработаны заголовки, ручные переносы и пунктуация: ключевые обещания читаются
+  короткими строками без случайных точек и тире, а типографика сохраняет ритм на
+  широких и мобильных экранах.
+- Страница загрузки показывает доступную macOS-версию и честные неинтерактивные
+  статусы Windows и Linux без преждевременных цен и платёжных обещаний.
+- Совместимость сохранена: auth-контракты, cookies, email delivery, Yandex OAuth
+  и native capture не менялись; миграции базы данных не требуются.
+
+### Исправлено
+- _Пока нет записей._
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Добавлены спецификация и visual QA Feature 142 для запуска нового лендинга.
+- Feature 141 и PR #4950: revision-aware production smoke cleanup.
+
+### Операции
+- Validation: focused landing/analytics `43 passed`; canonical fast CI `885 passed`,
+  server lint и Python compile прошли.
+- Screenshot refinement validation: focused public contracts `31 passed`,
+  независимые UX/visual/art-direction review прошли без P0–P2.
+- Linked proof/autorecord refinement: focused public contracts `18 passed`,
+  canonical fast CI `885 passed`; responsive matrix
+  `1440/1024/768/390/320/280` без horizontal overflow.
+- Product-depth refinement: focused public contracts `19 passed`; desktop и
+  mobile browser QA прошли без horizontal overflow.
+- Локальный `graf-local.pkg` заменён публичным артефактом `v2026.08.07.2` и
+  повторно проверен: Developer ID Installer, Apple notarization, stapling и
+  Gatekeeper assessment прошли.
+
+## [2026.08.07.2] - 2026-08-07
+
+### Добавлено
+- Выпущено публичное Sparkle-обновление GRAF с обычным Developer ID →
+  Developer ID переходом.
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Исправлен вход по email в macOS embedded WebView: ответ email-формы больше
+  не превращается в повторный GET к POST endpoint.
+
+### Безопасность
+- ZIP и PKG прошли Apple notarization, stapling и Gatekeeper.
+
+### Документы
+- Release receipt: `docs/deployments/2brain-rec/release-v2026.08.07.2.md`.
+
+### Операции
+- Sparkle workflow `31173368610` прошёл; live appcast и versioned assets
+  опубликованы после проверки checksums.
+
+## [2026.08.07.1] - 2026-08-07
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- _Пока нет записей._
+
+### Исправлено
+- Feature `141-smoke-cleanup-fk`: production smoke cleanup учитывает строки,
+  связанные с media revision, и больше не блокирует deploy FK-ошибкой при
+  удалении синтетических данных.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- _Пока нет записей._
+
+### Операции
+- Добавлены disposable Postgres regression-сценарии для cleanup, повторного
+  запуска и безопасного release rollback.
+- Validation: focused unit `7 passed`, disposable Postgres smoke `3 passed`,
+  canonical `infra/scripts/ci-local.sh` прошёл: 647 macOS tests, 2513 server
+  tests, strict RLS 42 tests, lint, compile, compose config и evidence scan.
+- Известное ограничение: GitHub Actions full lanes для PR были пропущены
+  конфигурацией workflow; fast lanes прошли, а полный gate подтверждён локальным
+  canonical CI. Production smoke остаётся обязательной проверкой релиза.
+- Deployment: `deploy_result=pass` на SHA `74e574f9`; backup и restore rehearsal,
+  staged smoke cleanup (37 DB rows, 3 object keys, residue `[]`), readiness,
+  workers, automatic dispatch и public health прошли.
+
+## [2026.08.06.1] - 2026-08-06
+
+
+### Добавлено
+- _Пока нет записей._
+
+### Изменено
+- Совместимость сохранена: server auth contract, cookies, email delivery,
+  Yandex OAuth и native capture не менялись; миграции не требуются.
+
+### Исправлено
+- Feature `134-email-login-webview`: macOS embedded WebView больше не превращает
+  ответы email-формы входа в повторный GET к POST endpoint, поэтому форма кода
+  остаётся доступной для завершения входа.
+
+### Безопасность
+- _Пока нет записей._
+
+### Документы
+- Release подготовлен после PR #4939 и связан с issue #4734.
+
+### Операции
+- Validation: canonical `infra/scripts/ci-local.sh` прошёл; 647 macOS tests,
+  2512 server tests, strict RLS 42 tests, lint, compile, compose config и
+  deployment evidence scan прошли.
+- Known limitation: remote GitHub Actions checks для PR дважды столкнулись с
+  временной ошибкой GitHub `Service Unavailable` на setup action metadata;
+  production smoke после deploy остаётся обязательным подтверждением.
 
 ## [2026.08.05.1] - 2026-08-05
 

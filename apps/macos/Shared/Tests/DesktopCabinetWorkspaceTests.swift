@@ -171,6 +171,36 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    func testEmailFormResponsesDoNotBecomeSwiftUIOwnedGetRoutes() throws {
+        for path in [
+            "/login/email/start",
+            "/login/email/verify",
+            "/sign-up/email/start",
+            "/sign-up/email/verify"
+        ] {
+            XCTAssertFalse(
+                EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
+                    for: .authLogin,
+                    url: try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)"))
+                ),
+                path
+            )
+        }
+
+        XCTAssertTrue(
+            EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
+                for: .authLogin,
+                url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/login"))
+            )
+        )
+        XCTAssertTrue(
+            EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
+                for: .meetingList,
+                url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings"))
+            )
+        )
+    }
+
     func testNativeNavigationControlsExposeStableAccessibilityIdentifiers() {
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationBack, "desktop-cabinet-navigation-back")
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationForward, "desktop-cabinet-navigation-forward")

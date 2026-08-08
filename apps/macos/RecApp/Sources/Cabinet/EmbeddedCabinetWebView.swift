@@ -922,15 +922,23 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         lastLoadedRequestIdentity != loadIdentity(for: request)
     }
 
-    /// Provider and callback navigations are part of the current OAuth
-    /// continuation, but they are not SwiftUI-owned document routes. Keeping
-    /// either URL as the last loaded request makes updateNSView reload the
-    /// current provider-start route while WebKit is still following OAuth
-    /// redirects, which restarts the flow indefinitely.
+    /// Provider, callback, and email form navigations are transient WebKit
+    /// pages, not SwiftUI-owned document routes. Keeping one as the last
+    /// loaded request makes updateNSView replay a one-time navigation as GET.
     public nonisolated static func shouldTrackSwiftUIRequestIdentity(
-        for routeKind: DesktopCabinetRouteKind
+        for routeKind: DesktopCabinetRouteKind,
+        url: URL? = nil
     ) -> Bool {
-        ![.authProvider, .authCallback].contains(routeKind)
+        guard ![.authProvider, .authCallback].contains(routeKind) else {
+            return false
+        }
+        guard let url else { return true }
+        return ![
+            "/login/email/start",
+            "/login/email/verify",
+            "/sign-up/email/start",
+            "/sign-up/email/verify"
+        ].contains(url.path)
     }
 
     public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
@@ -1532,15 +1540,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             updateAuthContinuation(for: routeDecision.route.kind)
             let finishedState = EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
             DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
-            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind),
+            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind, url: url),
                let container = webView.superview as? WebViewContainer {
-                // OAuth provider/callback pages are transient WebKit-owned
-                // navigations. Recording them here makes SwiftUI think its
-                // login request changed and updateNSView restarts the OAuth
-                // provider URL on every render.
+                // Transient auth pages must not replace the stable SwiftUI
+                // request while WebKit owns the continuation.
                 container.lastLoadedRequestIdentity = EmbeddedCabinetWebView.loadIdentity(url: url)
             }
-            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind) {
+            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind, url: url) {
                 currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
             }
             cabinetState = finishedState
@@ -1647,7 +1653,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 for: url,
                 allowExternalAuthProvider: authContinuationActive
             ).route.kind
-            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeKind) {
+            if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeKind, url: url) {
                 currentRoute = url
                 if let container = webView.superview as? WebViewContainer {
                     // SwiftUI rebuilds the request from the route as a GET.
@@ -1859,6 +1865,13 @@ public struct EmbeddedCabinetWebView: View {
 
     public nonisolated static func shouldLoad(request: URLRequest, lastLoadedRequestIdentity: String?) -> Bool {
         lastLoadedRequestIdentity != loadIdentity(for: request)
+    }
+
+    public nonisolated static func shouldTrackSwiftUIRequestIdentity(
+        for _: DesktopCabinetRouteKind,
+        url _: URL? = nil
+    ) -> Bool {
+        true
     }
 
     public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
