@@ -33,5 +33,5 @@
 - Previous appcast and landing package were backed up before publication with
   timestamp `20260807T111808Z`.
 
-Evidence contains metadata only; no credentials, meeting content, raw audio or
-transcript text were committed or published.
+Evidence contains metadata only; no credentials, private meeting details, audio
+payloads or transcript material were committed or published.
