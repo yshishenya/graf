@@ -420,6 +420,25 @@ async def charge_renewal_operation(
         operation.state = "manual_resolution"
         await db.commit()
         return RenewalChargeResult(operation_id, "manual_resolution")
+    expected_paid_through = operation.request_snapshot.get("paid_through_at")
+    current_paid_through = (
+        _utc(subscription.paid_through).isoformat()
+        if subscription.paid_through is not None
+        else None
+    )
+    if expected_paid_through != current_paid_through:
+        operation.state = "canceled"
+        invoice.status = "canceled"
+        subscription.renewal_resolution = "schedule_changed"
+        _record_charge_audit(
+            db,
+            subscription=subscription,
+            operation=operation,
+            outcome="canceled",
+            reason_code="renewal_schedule_changed",
+        )
+        await db.commit()
+        return RenewalChargeResult(operation_id, "canceled")
     if subscription.paid_through is not None and _utc(subscription.paid_through) > current:
         # The reminder window reserves the operation; the provider mutation
         # starts at the exact paid-through boundary, never earlier.
@@ -444,25 +463,6 @@ async def charge_renewal_operation(
             emergency_stop=bool(settings.billing_emergency_stop),
         )
         expected_version = operation.request_snapshot.get("recurring_authority_version")
-        expected_paid_through = operation.request_snapshot.get("paid_through_at")
-        current_paid_through = (
-            _utc(subscription.paid_through).isoformat()
-            if subscription.paid_through is not None
-            else None
-        )
-        if expected_paid_through != current_paid_through:
-            operation.state = "canceled"
-            invoice.status = "canceled"
-            subscription.renewal_resolution = "schedule_changed"
-            _record_charge_audit(
-                db,
-                subscription=subscription,
-                operation=operation,
-                outcome="canceled",
-                reason_code="renewal_schedule_changed",
-            )
-            await db.commit()
-            return RenewalChargeResult(operation_id, "canceled")
         if (
             subscription.billing_owner_id is None
             or not subscription.recurring_allowed
