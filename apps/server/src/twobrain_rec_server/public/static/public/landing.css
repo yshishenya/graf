@@ -468,7 +468,7 @@ h2 {
 
 .bento-grid {
   display: grid;
-  gap: 20px;
+  gap: 16px;
 }
 
 .bento-card {
@@ -624,7 +624,7 @@ h3 {
 
 .control-list {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
 }
 
@@ -656,8 +656,8 @@ h3 {
 }
 
 .control-card.highlight {
-  background: linear-gradient(135deg, rgba(255, 106, 93, 0.08), rgba(12, 22, 24, 0.78));
-  border-color: rgba(255, 106, 93, 0.3);
+  background: linear-gradient(135deg, rgba(255, 106, 93, 0.05), rgba(12, 22, 24, 0.78));
+  border-color: rgba(255, 106, 93, 0.25);
 }
 
 .final-cta {
