@@ -467,6 +467,78 @@ async def cleanup_smoke_artifacts(
 
             await apply_tenant_context_to_connection(conn, _maintenance_context())
             identity_deletes = (
+                # Billing rows are workspace-scoped and must be removed before
+                # the synthetic workspace. Keep child rows ahead of their
+                # invoice/usage parents so cleanup remains safe after a smoke
+                # request exercises the billing path.
+                (
+                    "promotion_redemptions",
+                    "delete from promotion_redemptions where workspace_id=:workspace_id",
+                ),
+                (
+                    "observed_provider_refunds",
+                    "delete from observed_provider_refunds where workspace_id=:workspace_id",
+                ),
+                (
+                    "billing_entitlement_grants",
+                    "delete from billing_entitlement_grants where workspace_id=:workspace_id",
+                ),
+                (
+                    "usage_ledger_entries",
+                    "delete from usage_ledger_entries where workspace_id=:workspace_id",
+                ),
+                (
+                    "usage_reservations",
+                    "delete from usage_reservations where workspace_id=:workspace_id",
+                ),
+                (
+                    "free_usage_windows",
+                    "delete from free_usage_windows where workspace_id=:workspace_id",
+                ),
+                (
+                    "storage_reservations",
+                    "delete from storage_reservations where workspace_id=:workspace_id",
+                ),
+                (
+                    "billing_notification_deliveries",
+                    "delete from billing_notification_deliveries where workspace_id=:workspace_id",
+                ),
+                (
+                    "billing_audit_events",
+                    "delete from billing_audit_events where workspace_id=:workspace_id",
+                ),
+                (
+                    "billing_webhook_events",
+                    "delete from billing_webhook_events where workspace_id=:workspace_id",
+                ),
+                (
+                    "referral_attributions",
+                    "delete from referral_attributions where workspace_id=:workspace_id",
+                ),
+                (
+                    "billing_payment_methods",
+                    "delete from billing_payment_methods where workspace_id=:workspace_id",
+                ),
+                (
+                    "billing_invoices",
+                    "delete from billing_invoices where workspace_id=:workspace_id",
+                ),
+                (
+                    "billing_operations",
+                    "delete from billing_operations where workspace_id=:workspace_id",
+                ),
+                (
+                    "workspace_subscriptions",
+                    "delete from workspace_subscriptions where workspace_id=:workspace_id",
+                ),
+                (
+                    "trial_activations",
+                    "delete from trial_activations where workspace_id=:workspace_id",
+                ),
+                (
+                    "account_closure_requests",
+                    "delete from account_closure_requests where workspace_id=:workspace_id",
+                ),
                 (
                     "auth_session_device_bindings",
                     "delete from auth_session_device_bindings where registered_device_id=:device_id",
