@@ -34,7 +34,7 @@
   --violet-soft: #c8baff;
   --shadow-ambient: rgba(67, 36, 132, 0.28);
   --page-pad: clamp(24px, 5vw, 72px);
-  --section-gap: clamp(112px, 10vw, 144px);
+  --section-gap: clamp(120px, 12vw, 160px);
 }
 
 * {
@@ -53,7 +53,7 @@ body {
   font-size: 17px;
   font-weight: 440;
   font-synthesis: none;
-  line-height: 1.6;
+  line-height: 1.65;
   background-color: var(--bg-deep);
   -webkit-font-smoothing: antialiased;
   touch-action: manipulation;
@@ -583,6 +583,8 @@ h2 {
   font-size: clamp(1.03rem, 1.35vw, 1.16rem);
   line-height: 1.64;
   text-wrap: pretty;
+  font-size: 1.15rem;
+  color: var(--soft);
 }
 
 .proof-frame {
@@ -1432,7 +1434,7 @@ h2 {
   }
 
   .chapter-lede {
-    font-size: 1rem;
+    font-size: 1.15rem;
   }
 
   .proof-frame {
@@ -1740,4 +1742,89 @@ h2 {
   .rail-duplicate {
     display: none;
   }
+}
+
+
+
+.platform-download.platform-download-current {
+  transition: background-color 0.2s;
+  padding: 28px 16px;
+  margin: 0 -16px;
+  border-radius: 12px;
+  border-bottom: 1px solid transparent;
+}
+.platform-download.platform-download-current:hover {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+
+@keyframes fade-in-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Landing Hero */
+  .hero-copy .eyebrow {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.1s;
+  }
+  .hero-copy h1 {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.2s;
+  }
+  .hero-copy .hero-lede {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.3s;
+  }
+  .hero-copy .hero-actions {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.4s;
+  }
+
+  /* Download Hero */
+  .download-hero .eyebrow {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.1s;
+  }
+  .download-hero h1 {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.2s;
+  }
+  .download-hero .hero-lede {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.3s;
+  }
+  .platform-downloads {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.4s;
+  }
+
+  /* Legal Pages */
+  .legal-page h1 {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.1s;
+  }
+  .legal-status, .legal-section {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.2s;
+  }
+}
+
+.legal-section a, .trust-facts dd a {
+  text-decoration: underline;
+  text-decoration-color: rgba(200, 186, 255, 0.4);
+  text-underline-offset: 4px;
+  transition: color 0.2s, text-decoration-color 0.2s;
+}
+
+.legal-section a:hover, .trust-facts dd a:hover {
+  color: var(--text);
+  text-decoration-color: var(--violet-soft);
 }
