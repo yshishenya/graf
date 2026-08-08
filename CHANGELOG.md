@@ -18,7 +18,9 @@
 - _Пока нет записей._
 
 ### Безопасность
-- _Пока нет записей._
+- macOS calendar prompts снова скрывают bare Google Meet и Microsoft Teams
+  ссылки из внешних calendar titles и показывают generic meeting title вместо
+  потенциально секретных domain/path строк.
 
 ### Документы
 - _Пока нет записей._
