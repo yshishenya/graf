@@ -536,6 +536,8 @@ class Settings(BaseSettings):
     def validate_billing_safety(self) -> "Settings":
         if not self.billing_checkout_enabled:
             return self
+        if self.legacy_header_auth_enabled:
+            raise ValueError("enabled billing cannot use legacy header authentication")
         if self.billing_yookassa_base_url is None or self.billing_yookassa_base_url.scheme != "https":
             raise ValueError("enabled billing requires an HTTPS YooKassa base URL")
         if self.public_base_url is None or self.public_base_url.scheme != "https":

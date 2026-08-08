@@ -9,6 +9,7 @@ from starlette.requests import Request
 from twobrain_rec_server.billing.yookassa import YooKassaClient, YooKassaConfigurationError
 from twobrain_rec_server.cabinet.web_routes.billing import (
     billing_checkout_return_url,
+    start_billing_checkout,
 )
 from twobrain_rec_server.cabinet.web_routes.billing import (
     router as billing_web_router,
@@ -50,6 +51,13 @@ def test_billing_mutations_require_csrf() -> None:
             missing.append(f"{','.join(sorted(route.methods))} {route.path}")
 
     assert missing == []
+
+
+def test_personal_checkout_cannot_run_for_corporate_workspace() -> None:
+    source = inspect.getsource(start_billing_checkout)
+
+    assert "workspace.kind != \"personal\"" in source
+    assert "workspace.owner_user_id != principal.user_id" in source
 
 
 def test_financial_page_classes_disable_browser_collection() -> None:

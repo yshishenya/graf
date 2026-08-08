@@ -83,7 +83,7 @@ def test_posthog_web_capture_endpoint_accepts_safe_proxy_event_without_provider_
             "/api/v1/product-analytics/posthog-web-capture",
             json={
                 "event_type": "click",
-                "page_class": "cabinet",
+                "page_class": "cabinet_home",
                 "tag_name": "button",
                 "role": "tab",
                 "analytics_action": "nav_recordings",
@@ -96,6 +96,25 @@ def test_posthog_web_capture_endpoint_accepts_safe_proxy_event_without_provider_
     assert body["status"] == "dry_run"
     assert "synthetic-posthog-key" not in str(body)
     assert "properties" not in str(body)
+
+
+def test_posthog_web_capture_endpoint_blocks_financial_page_inventory_entries(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/product-analytics/posthog-web-capture",
+            json={
+                "event_type": "click",
+                "page_class": "billing_invoice",
+                "tag_name": "button",
+                # Client-provided sensitivity cannot override the inventory.
+                "sensitivity": "product",
+            },
+        )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "posthog_autocapture_page_blocked"
 
 
 def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_secret_material(tmp_path: Path) -> None:

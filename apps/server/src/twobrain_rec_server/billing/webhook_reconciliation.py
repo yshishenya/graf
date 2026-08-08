@@ -8,7 +8,10 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
+from twobrain_rec_server.billing.entitlements import (
+    grant_confirmed_payment,
+    grant_confirmed_renewal,
+)
 from twobrain_rec_server.billing.events import enqueue_billing_notification
 from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.payment_methods import (
@@ -166,7 +169,7 @@ async def reconcile_pending_webhook_events(
                     result = await _reconcile_event(db, settings, provider, event)
                     event.state = (
                         "reconciled"
-                        if result in {"granted", "duplicate", "observed", "inserted", "receipt_observed"}
+                        if result in {"granted", "duplicate", "refused", "observed", "inserted", "receipt_observed"}
                         else "reconciliation_gap"
                     )
                     event.metadata_json = {
@@ -202,6 +205,26 @@ async def _reconcile_event(
         payload = await provider.get_payment(event.object_id)
         observation = extract_payment_observation(payload, scope=scope)
         if observation.status == "succeeded":
+            operation = await db.scalar(
+                select(BillingOperation)
+                .where(
+                    BillingOperation.workspace_id == event.workspace_id,
+                    BillingOperation.provider_id == observation.provider_payment_id,
+                )
+                .with_for_update()
+            )
+            if operation is not None and operation.kind == "renewal":
+                result = await grant_confirmed_renewal(
+                    db,
+                    workspace_id=event.workspace_id,
+                    provider_payment_id=observation.provider_payment_id,
+                    amount_minor=observation.amount_minor,
+                    currency=observation.currency,
+                    grant_starts_at=observation.provider_created_at,
+                )
+                if result not in {"granted", "duplicate", "refused"}:
+                    raise ProviderObservationError("renewal entitlement projection failed")
+                return result
             return await grant_confirmed_payment(
                 db,
                 workspace_id=event.workspace_id,

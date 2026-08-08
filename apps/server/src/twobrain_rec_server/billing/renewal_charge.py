@@ -53,7 +53,10 @@ RENEWAL_PROVIDER_WINDOW = timedelta(hours=24)
 # YooKassa may have accepted the first request. Only an untouched operation
 # may enter the outbound mutation path; unknown is GET/list/manual recovery.
 RENEWAL_CANDIDATE_STATES = frozenset({"scheduled"})
-RENEWAL_PROVIDER_STATES = frozenset({"sent", "unknown", "processing", "provider_key_expired"})
+# `scheduled` is an in-flight reservation during the reminder window.  At the
+# exact cutoff it must remain chargeable; provider-key expiry is final and
+# revokes recurring authority instead of keeping the card armed.
+RENEWAL_PROVIDER_STATES = frozenset({"scheduled", "sent", "unknown", "processing"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,6 +354,10 @@ async def project_renewal_cutoffs(
         state = operation.state if operation is not None else None
         pending = state in RENEWAL_PROVIDER_STATES
         if subscription.state == "free" and subscription.plan_code == "free":
+            if state == "provider_key_expired" and subscription.recurring_allowed:
+                subscription.recurring_allowed = False
+                subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
+                subscription.renewal_resolution = "manual_resume_required"
             continue
         _project_free(subscription)
         if pending:
@@ -448,6 +455,8 @@ async def charge_renewal_operation(
     if operation.provider_key_expires_at is None or _utc(operation.provider_key_expires_at) <= current:
         operation.state = "manual_resolution"
         invoice.status = "manual_resolution"
+        subscription.recurring_allowed = False
+        subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
         subscription.renewal_resolution = "provider_key_expired"
         _record_charge_audit(
             db,

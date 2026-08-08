@@ -9,6 +9,16 @@
 ## [Unreleased]
 
 ### Добавлено
+- Billing mutations теперь блокируются durable actor/workspace rate-limit buckets
+  с HTTP 429/Retry-After; незавершённые операции не открывают повторный checkout.
+  Late success после `provider_key_expired` переводится в `succeeded_refused` без
+  возврата доступа или автопродления.
+- Серверный PostHog proxy проверяет canonical page inventory и отклоняет
+  финансовые/неизвестные классы; cabinet-ответы получили DENY/
+  `frame-ancestors 'none'` и `Referrer-Policy: no-referrer`.
+- Checkout перебирает последнюю действующую approved-версию каталога, а история
+  платежей показывает только метод текущего billing owner; migration 0056 имеет
+  симметричный downgrade policy.
 - Каталог цен и ёмкости теперь читается из утверждённой версии в базе и
   сохраняется в immutable checkout/invoice snapshot; renewal planner создаёт
   одну операцию на период, списывает только в `paid_through`, использует

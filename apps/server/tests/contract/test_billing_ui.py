@@ -57,6 +57,8 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
         ),
         active=True,
         result=None,
+        method_available=True,
+        next_charge_amount_label="790 ₽",
     )
     usage_html = render_template(
         "cabinet/pages/billing_usage_content.html",

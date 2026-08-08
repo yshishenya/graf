@@ -69,7 +69,10 @@ async def test_confirmed_renewal_extends_paid_through_once() -> None:
         state="free",
         plan_code="free",
         paid_through=datetime(2026, 8, 1, tzinfo=UTC),
+        recurring_allowed=True,
+        recurring_authority_version=0,
     )
+    operation.request_snapshot["recurring_authority_version"] = 0
     db = FakeDb([operation, invoice, None, subscription])
 
     result = await grant_confirmed_renewal(
@@ -85,6 +88,61 @@ async def test_confirmed_renewal_extends_paid_through_once() -> None:
     assert subscription.plan_code == "personal"
     assert subscription.paid_through == datetime(2026, 9, 7, tzinfo=UTC)
     assert any(getattr(row, "source", None) == "renewal_provider_confirmed" for row in db.added)
+
+
+@pytest.mark.anyio
+async def test_late_success_after_provider_key_expiry_is_refused() -> None:
+    class FakeDb:
+        def __init__(self, values):
+            self.values = iter(values)
+            self.added = []
+
+        async def scalar(self, _query):
+            return next(self.values)
+
+        def add(self, value):
+            self.added.append(value)
+
+        async def flush(self):
+            return None
+
+    operation = BillingOperation(
+        id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        kind="renewal",
+        idempotency_key="renewal-expired",
+        provider_id="pay-expired",
+        state="provider_key_expired",
+        request_snapshot={"plan_code": "personal", "cycle": "month", "recurring_authority_version": 4},
+    )
+    invoice = BillingInvoice(
+        workspace_id=WORKSPACE_ID,
+        operation_id=OPERATION_ID,
+        safe_number="INV-RENEWAL-EXPIRED",
+        amount_minor=79_000,
+        currency="RUB",
+    )
+    subscription = WorkspaceSubscription(
+        workspace_id=WORKSPACE_ID,
+        recurring_allowed=True,
+        recurring_authority_version=4,
+    )
+    db = FakeDb([operation, invoice, subscription])
+
+    result = await grant_confirmed_renewal(
+        db,
+        workspace_id=WORKSPACE_ID,
+        provider_payment_id="pay-expired",
+        amount_minor=79_000,
+        currency="RUB",
+        grant_starts_at=datetime(2026, 8, 7, tzinfo=UTC),
+    )
+
+    assert result == "refused"
+    assert operation.state == "succeeded_refused"
+    assert invoice.status == "succeeded"
+    assert subscription.recurring_allowed is False
+    assert subscription.recurring_authority_version == 5
 
 
 def test_renewal_identity_and_payload_are_bounded() -> None:

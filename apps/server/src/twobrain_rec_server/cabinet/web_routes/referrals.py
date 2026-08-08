@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
+from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
 from twobrain_rec_server.billing.referrals import (
     create_referral_token,
     referral_token_hash,
@@ -99,6 +100,21 @@ async def issue_referral_link(
     """Persist referral attribution only after an explicit user action."""
     if db is None:
         return RedirectResponse("/referrals?result=unavailable", status_code=303)
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        return RedirectResponse("/referrals?result=unavailable", status_code=303)
+    retry_after = await enforce_auth_rate_limits(
+        None,
+        workspace_id=tenant_scope.workspace_id,
+        scopes=(("billing_referral_issue", f"{principal.user_id}:{tenant_scope.workspace_id}"),),
+        sessionmaker=sessionmaker,
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        response = HTMLResponse("Слишком много попыток. Попробуйте позже.", status_code=429)
+        response.headers["Retry-After"] = str(retry_after)
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
     secret_path = getattr(request.app.state.settings, "billing_referral_secret_file", None)
     try:
         secret = secret_path.read_text(encoding="utf-8").strip() if secret_path is not None and secret_path.is_file() else ""

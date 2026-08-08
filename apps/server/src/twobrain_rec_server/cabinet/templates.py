@@ -127,6 +127,9 @@ def cabinet_html_response(
 ) -> HTMLResponse:
     response = html_response(html, status_code=status_code)
     response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    response.headers["Referrer-Policy"] = "no-referrer"
     if hx_request:
         response.headers["Vary"] = "HX-Request"
     return response

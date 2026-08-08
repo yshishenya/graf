@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
+from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
 from twobrain_rec_server.billing.catalog import (
     FREE_PROCESSING_SECONDS,
     FREE_STORAGE_BYTES,
@@ -39,6 +40,7 @@ from twobrain_rec_server.billing.promotions import (
     normalize_promo,
     promo_code_hash,
 )
+from twobrain_rec_server.billing.provider_events import validate_provider_identifier
 from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
@@ -284,6 +286,32 @@ def _promotion_state_label(state: str) -> str:
         "released": "Освобождён после отмены оплаты",
         "expired": "Истёк",
     }.get(state, "Статус уточняется")
+
+
+async def _billing_rate_limited_response(
+    request: Request,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+    action: str,
+    message: str = "Слишком много попыток. Попробуйте позже.",
+) -> HTMLResponse | None:
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        return None
+    retry_after = await enforce_auth_rate_limits(
+        None,
+        workspace_id=tenant_scope.workspace_id,
+        scopes=((action, f"{principal.user_id}:{tenant_scope.workspace_id}"),),
+        sessionmaker=sessionmaker,
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is None:
+        return None
+    response = HTMLResponse(message, status_code=429)
+    response.headers["Retry-After"] = str(retry_after)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 async def _approved_personal_catalog(
@@ -793,6 +821,14 @@ async def apply_billing_discount(
         principal=principal,
     ):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
+    limited = await _billing_rate_limited_response(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        action="billing_promo_action",
+    )
+    if limited is not None:
+        return limited
     try:
         normalized = normalize_promo(promo_code or "")
     except PromoError:
@@ -830,6 +866,14 @@ async def remove_billing_discount(
         principal=principal,
     ):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
+    limited = await _billing_rate_limited_response(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        action="billing_promo_action",
+    )
+    if limited is not None:
+        return limited
     response = RedirectResponse("/billing/discounts?result=removed", status_code=303)
     response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
     return response
@@ -908,6 +952,14 @@ async def refresh_billing_checkout_status(
     """Refresh one hosted checkout from provider truth without opening a new payment."""
     if db is None:
         return RedirectResponse(f"/billing/checkout/status/{quote(safe_number, safe='-')}?result=unavailable", status_code=303)
+    limited = await _billing_rate_limited_response(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        action="billing_status_refresh",
+    )
+    if limited is not None:
+        return limited
     invoice = await db.scalar(
         select(BillingInvoice).where(
             BillingInvoice.workspace_id == tenant_scope.workspace_id,
@@ -1535,6 +1587,11 @@ async def start_billing_checkout(
     if db is None:
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
     try:
+        workspace = await db.scalar(
+            select(Workspace).where(Workspace.id == tenant_scope.workspace_id).with_for_update()
+        )
+        if workspace is None or workspace.kind != "personal" or workspace.owner_user_id != principal.user_id:
+            return RedirectResponse("/billing?result=personal_only", status_code=303)
         membership = await db.scalar(
             select(WorkspaceMembership).where(
                 WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
@@ -1585,6 +1642,14 @@ async def start_billing_checkout(
             if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
             return RedirectResponse("/billing?result=pending", status_code=303)
+        limited = await _billing_rate_limited_response(
+            request,
+            tenant_scope=tenant_scope,
+            principal=principal,
+            action="billing_checkout_start",
+        )
+        if limited is not None:
+            return limited
 
         now = datetime.now(UTC)
         if (
@@ -1599,18 +1664,22 @@ async def start_billing_checkout(
         # row.  Static descriptors remain useful for read-only copy and unit
         # tests, but are never a checkout authority once the billing DB is
         # available.  An absent/stale/disabled row therefore fails closed.
-        catalog_row = await db.scalar(
+        catalog_rows = await db.scalars(
             select(BillingPlanVersion)
             .where(
                 BillingPlanVersion.plan_code == "personal",
                 BillingPlanVersion.cycle == cycle,
             )
             .order_by(BillingPlanVersion.version.desc())
-            .limit(1)
         )
-        try:
-            catalog_snapshot = validate_plan_version(catalog_row, now=now)
-        except CatalogNotApproved:
+        catalog_snapshot = None
+        for catalog_row in catalog_rows:
+            try:
+                catalog_snapshot = validate_plan_version(catalog_row, now=now)
+                break
+            except (CatalogNotApproved, ValueError):
+                continue
+        if catalog_snapshot is None:
             return RedirectResponse("/billing/checkout?result=catalog_not_approved", status_code=303)
 
         promo: PromoCode | None = None
@@ -1846,11 +1915,15 @@ async def start_billing_checkout(
             )
         confirmation = payment.get("confirmation")
         confirmation_url = confirmation.get("confirmation_url") if isinstance(confirmation, dict) else None
-        provider_id = payment.get("id")
-        if not isinstance(provider_id, str) or not provider_id or not is_allowed_confirmation_url(confirmation_url):
-            raise YooKassaProviderError("YooKassa confirmation is unavailable")
+        provider_id = validate_provider_identifier(payment.get("id"))
         operation.provider_id = provider_id
         operation.state = "provider_pending"
+        if not is_allowed_confirmation_url(confirmation_url):
+            # Preserve the provider reference before returning an error: the
+            # payment may already exist and must be recovered by GET/list.
+            operation.state = "unknown"
+            await db.commit()
+            return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
         if subscription is not None and subscription.billing_owner_id != principal.user_id:
             # An owner who replaced the designated billing owner must make a
             # fresh hosted payment before future renewals can use this account.
@@ -1858,6 +1931,25 @@ async def start_billing_checkout(
         operation.request_snapshot = {**operation.request_snapshot, "confirmation_url": confirmation_url}
         await db.commit()
         return RedirectResponse(confirmation_url, status_code=303)
+    except IntegrityError:
+        # A concurrent request may have won the unique workspace/key race.
+        # Recover that operation by its logical idempotency key instead of
+        # returning a second checkout attempt or mutating the winner.
+        await db.rollback()
+        winner = await db.scalar(
+            select(BillingOperation)
+            .where(
+                BillingOperation.workspace_id == tenant_scope.workspace_id,
+                BillingOperation.idempotency_key == key,
+            )
+            .with_for_update()
+        ) if "key" in locals() else None
+        if winner is not None:
+            winner_url = winner.request_snapshot.get("confirmation_url")
+            if is_allowed_confirmation_url(winner_url):
+                return RedirectResponse(winner_url, status_code=303)
+            return RedirectResponse("/billing?result=pending", status_code=303)
+        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
     except (BillingEmergencyStop, ValueError, YooKassaConfigurationError, YooKassaProviderError, httpx.HTTPError):
         await db.rollback()
         if "intent" in locals():
@@ -1905,6 +1997,9 @@ async def billing_history_page(
             select(BillingPaymentMethod)
             .where(
                 BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+                BillingPaymentMethod.owner_user_id == subscription.billing_owner_id
+                if subscription is not None and subscription.billing_owner_id is not None
+                else BillingPaymentMethod.id.is_(None),
                 BillingPaymentMethod.is_default.is_(True),
                 BillingPaymentMethod.state == "active",
             )
@@ -2015,6 +2110,9 @@ async def billing_invoice_detail_page(
         select(BillingPaymentMethod)
         .where(
             BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+            BillingPaymentMethod.owner_user_id == subscription.billing_owner_id
+            if subscription is not None and subscription.billing_owner_id is not None
+            else BillingPaymentMethod.id.is_(None),
             BillingPaymentMethod.is_default.is_(True),
             BillingPaymentMethod.state == "active",
         )

@@ -14,7 +14,22 @@ class BillingEmergencyStop(RuntimeError):
     pass
 
 
-CHECKOUT_BLOCKING_STATES = frozenset({"scheduled", "provider_pending", "unknown", "method_required"})
+# Any non-terminal operation must be resolved before another money mutation.
+# In particular, manual/reconciliation states are not safe retry signals: the
+# provider may already have accepted the original request.
+CHECKOUT_BLOCKING_STATES = frozenset(
+    {
+        "scheduled",
+        "provider_pending",
+        "sent",
+        "processing",
+        "unknown",
+        "method_required",
+        "reconciliation_gap",
+        "manual_resolution",
+        "provider_key_expired",
+    }
+)
 
 
 def blocks_new_checkout(operation_state: str) -> bool:
