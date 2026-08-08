@@ -105,6 +105,29 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         previous_position = position
 
 
+def test_smoke_artifact_cleanup_deletes_billing_children_before_workspace() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    ordered_fragments = [
+        "delete from usage_ledger_entries where workspace_id=:workspace_id",
+        "delete from usage_reservations where workspace_id=:workspace_id",
+        "delete from free_usage_windows where workspace_id=:workspace_id",
+        "delete from billing_invoices where workspace_id=:workspace_id",
+        "delete from workspace_subscriptions where workspace_id=:workspace_id",
+        "delete from workspaces where id=:workspace_id",
+    ]
+
+    previous_position = -1
+    for fragment in ordered_fragments:
+        position = script.index(fragment)
+        assert position > previous_position
+        previous_position = position
+
+
 def test_smoke_artifact_cleanup_matches_revision_linked_dependencies() -> None:
     script = (
         Path(__file__).resolve().parents[2]
