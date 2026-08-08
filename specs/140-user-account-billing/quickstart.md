@@ -48,7 +48,7 @@ elsewhere; real-shop canary is a separate approved release step.
   Python compile; disposable PostgreSQL container removed after the run.
 - Focused billing/account/storage/accessibility/security/UI contracts: PASS;
   latest billing/security/UI suite: 123 tests; separate disposable-PostgreSQL
-  billing/RLS/storage/registry sample: 30 tests.
+  billing/RLS/storage/registry sample: 31 tests.
 - Focused billing lifecycle, notification and subscription tests: PASS; no
   checkout enablement was performed; evidence is committed locally at the
   current feature SHA and has not been pushed.
