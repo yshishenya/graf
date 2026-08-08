@@ -122,9 +122,9 @@ async def _handle_billing_webhook(
 
     if event.workspace_id is None:
         # A provider event without our immutable workspace metadata cannot be
-        # safely attached to a tenant. Keep the response retryable and do not
-        # create an unauditable cross-workspace record.
-        return JSONResponse(status_code=200, content={"status": "deferred_without_workspace"})
+        # safely attached to a tenant. Return a retryable response rather than
+        # acknowledging an event that would otherwise be lost.
+        return JSONResponse(status_code=503, content={"status": "deferred_without_workspace"})
 
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is None:

@@ -57,7 +57,17 @@ evidence в launch runbook.
 - Исправлены локальные P1 hardening gaps: chunked webhook body bounded до
   `256 KiB`, startup-проверка непустых provider/webhook/referral secrets и
   support email, write-RLS для глобального billing catalog, явные промо/карта
-  действия и безопасные reconciliation labels.
+  действия и безопасные reconciliation labels. Renewal operations исключены
+  из общего stale-классификатора maintenance; resume теперь требует
+  подтверждённый способ оплаты и отдельное согласие; замена активной карты
+  честно отключена до доказанной zero-amount binding capability; webhook без
+  workspace metadata отвечает retryable `503`, а не теряет событие; renewal
+  catalog ищет последнюю effective approved версию, а не только самый новый
+  невалидный ряд.
+- Storage add-on остаётся fail-closed до появления утверждённых ценовых ключей
+  в versioned catalog: UI не создаёт quote/invoice/payment с неподтверждённой
+  ценой. Это отдельный merchant/product gate, а не «бесплатное» увеличение
+  лимита.
 - Не закрыты без внешнего доступа: live proxy/firewall/TLS и PostgreSQL RLS
   probe, test-shop/real-shop canary, merchant/finance/legal/security/QA
   sign-offs, moderated usability/landing, интервью/WTP/usage/COGS и финальный

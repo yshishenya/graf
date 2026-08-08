@@ -85,19 +85,20 @@ async def _approved_catalog(
 ) -> PlanCatalogSnapshot | None:
     if cycle not in {"month", "year"}:
         return None
-    row = await db.scalar(
+    rows = await db.scalars(
         select(BillingPlanVersion)
         .where(
             BillingPlanVersion.plan_code == "personal",
             BillingPlanVersion.cycle == cycle,
         )
         .order_by(BillingPlanVersion.version.desc())
-        .limit(1)
     )
-    try:
-        return validate_plan_version(row, now=now)
-    except (CatalogNotApproved, ValueError):
-        return None
+    for row in rows:
+        try:
+            return validate_plan_version(row, now=now)
+        except (CatalogNotApproved, ValueError):
+            continue
+    return None
 
 
 def _snapshot(*, subscription: WorkspaceSubscription, catalog: PlanCatalogSnapshot) -> dict[str, object]:

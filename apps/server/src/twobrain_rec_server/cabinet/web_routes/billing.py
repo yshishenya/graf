@@ -592,6 +592,7 @@ async def billing_overview_page(
         storage_capacity_label=f"{effective_capacity:,}".replace(",", " "),
         processing_threshold=classify_free_processing(committed_seconds=processing_used + processing_reserved),
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        catalog_ready=("month" in approved_catalog and "year" in approved_catalog),
         trial_result=trial_result,
         trial_days_left=trial_days_left,
         trial_ends_at_label=trial_ends_at_label,
@@ -1142,6 +1143,23 @@ async def billing_subscription_page(
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     now = datetime.now(UTC)
     active = subscription is not None and subscription.paid_through is not None and subscription.paid_through > now
+    method_available = False
+    next_charge_amount_label = None
+    if db is not None and subscription is not None:
+        method_available = await db.scalar(
+            select(BillingPaymentMethod.id).where(
+                BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+                BillingPaymentMethod.owner_user_id == principal.user_id,
+                BillingPaymentMethod.is_default.is_(True),
+                BillingPaymentMethod.state == "active",
+                BillingPaymentMethod.verified_at.is_not(None),
+            )
+        ) is not None
+        approved_catalog = await _approved_personal_catalog(db, now=now)
+        cycle_catalog = approved_catalog.get(subscription.cycle)
+        next_charge_amount_label = _billing_amount_label(
+            cycle_catalog.amount_minor if cycle_catalog is not None else None
+        )
     content = _page_shell(
         "Управление подпиской",
         embedded=False,
@@ -1154,6 +1172,8 @@ async def billing_subscription_page(
         content_template="cabinet/pages/billing_subscription_content.html",
         subscription=subscription,
         active=active,
+        method_available=method_available,
+        next_charge_amount_label=next_charge_amount_label,
         result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
@@ -1373,7 +1393,11 @@ async def cancel_billing_subscription(
             target_ref=str(tenant_scope.workspace_id),
             outcome="success",
             reason_code="owner_confirmed",
-            metadata_json={"authority_version": changed.authority_version},
+            metadata_json={
+                "authority_version": changed.authority_version,
+                "consent_at": datetime.now(UTC).isoformat(),
+                "next_charge_at": subscription.paid_through.isoformat() if subscription.paid_through else None,
+            },
         )
     )
     await db.commit()
@@ -1388,6 +1412,7 @@ async def resume_billing_subscription(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
     expected_authority_version: int | None = Form(default=None, ge=0),
+    resume_consent: bool = Form(default=False),
 ) -> RedirectResponse:
     if db is None or not principal.auth_via_session:
         return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
@@ -1396,9 +1421,23 @@ async def resume_billing_subscription(
         return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
     if subscription.recurring_allowed:
         return RedirectResponse("/billing/subscription?result=already_active", status_code=303)
+    if not resume_consent:
+        return RedirectResponse("/billing/subscription?result=consent_required", status_code=303)
     if expected_authority_version is None or expected_authority_version != subscription.recurring_authority_version:
         await db.rollback()
         return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
+    method_exists = await db.scalar(
+        select(BillingPaymentMethod.id).where(
+            BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+            BillingPaymentMethod.owner_user_id == principal.user_id,
+            BillingPaymentMethod.is_default.is_(True),
+            BillingPaymentMethod.state == "active",
+            BillingPaymentMethod.verified_at.is_not(None),
+        )
+    )
+    if method_exists is None:
+        await db.rollback()
+        return RedirectResponse("/billing/subscription?result=method_required", status_code=303)
     try:
         changed = resume_auto_renewal(
             SubscriptionControl(subscription.paid_through, subscription.recurring_allowed, subscription.recurring_authority_version),

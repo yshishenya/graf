@@ -96,6 +96,11 @@ elsewhere; real-shop canary is a separate approved release step.
   non-empty-secret/support-email configuration checks and catalog write-RLS
   contract. These are implementation evidence only; live proxy/RLS and
   merchant canary evidence remain required.
+- Финальный локальный hardening-проход после этого evidence: 32 focused
+  billing/renewal/maintenance/webhook/security tests passed; renewal не
+  переводится generic-stale maintenance в `unknown`, resume требует
+  подтверждённую карту и отдельное согласие, webhook без tenant metadata
+  возвращает retryable `503`, а checkout CTA скрыт при неутверждённом каталоге.
 
 ## Required scenario evidence
 

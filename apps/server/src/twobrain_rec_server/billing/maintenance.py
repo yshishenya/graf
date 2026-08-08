@@ -194,6 +194,10 @@ async def reconcile_billing_maintenance(
         select(BillingOperation)
         .where(
             BillingOperation.state.in_(("scheduled", "provider_pending")),
+            # Renewal operations have a 72-hour planning window and their
+            # own exact-cutoff state machine. Generic 30-minute stale
+            # classification would make them ineligible for the charge.
+            BillingOperation.kind != "renewal",
             BillingOperation.updated_at <= stuck_cutoff,
         )
         .order_by(BillingOperation.updated_at, BillingOperation.id)
