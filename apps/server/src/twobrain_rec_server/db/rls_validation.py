@@ -25,6 +25,7 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "workspace_provider_link_states",
         "auth_callback_states",
         "auth_audit_events",
+        "auth_rate_limit_buckets",
         "workspace_consent_copy",
         "meetings",
         "media_revisions",
@@ -39,6 +40,7 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "processing_results",
         "transcript_segments",
         "diarization_segments",
+        "meeting_speaker_names",
         "processing_audit_events",
         "processing_dependency_states",
         "meeting_share_grants",
@@ -51,15 +53,23 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "retention_policy_snapshots",
         "local_purge_tasks",
         "meeting_lifecycle_audit_events",
+        "dispatch_intents",
+        "meeting_deletion_fences",
+        "meeting_purge_journal",
         "meeting_outcome_sets",
         "meeting_outcome_items",
         "meeting_outcome_generation_attempts",
+        "summary_templates",
+        "generation_calls",
+        "meeting_share_invitations",
+        "meeting_share_rate_limit_buckets",
         "calendar_sources",
         "calendar_credential_envelopes",
         "external_calendars",
         "calendar_event_snapshots",
         "calendar_participants",
         "conference_link_candidates",
+        "recording_calendar_match_attempts",
         "recording_calendar_context_links",
         "calendar_reminder_states",
         "calendar_settings_preferences",
@@ -78,6 +88,9 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "meeting_detection_review_actions",
         "meeting_detection_non_target_rules",
         "meeting_detection_telemetry_rate_limit_buckets",
+        "playback_normalization_jobs",
+        "playback_normalization_attempts",
+        "playback_backfill_runs",
     }
 )
 
@@ -97,8 +110,20 @@ RLS_ORGANIZATION_TABLES = frozenset(
     }
 )
 
+RLS_OPERATOR_TABLES = frozenset(
+    {
+        "prompt_optimization_runs",
+        "prompt_optimization_call_ledger",
+    }
+)
+
 RLS_COVERED_TABLES = tuple(
-    sorted(RLS_DIRECT_WORKSPACE_TABLES | RLS_INHERITED_WORKSPACE_TABLES | RLS_ORGANIZATION_TABLES)
+    sorted(
+        RLS_DIRECT_WORKSPACE_TABLES
+        | RLS_INHERITED_WORKSPACE_TABLES
+        | RLS_ORGANIZATION_TABLES
+        | RLS_OPERATOR_TABLES
+    )
 )
 
 REQUIRED_RLS_PROBES = (
@@ -149,7 +174,10 @@ class RLSValidationReport:
 
     @property
     def ready_for_production_truth(self) -> bool:
-        return self.environment in {"postgres_test", "production_like"} and self.validation_result == "pass"
+        return (
+            self.environment in {"postgres_test", "production_like"}
+            and self.validation_result == "pass"
+        )
 
     def evidence_lines(self) -> list[str]:
         lines = [
@@ -245,7 +273,9 @@ class RLSProductionStateReport:
         return "enabled" if self.production_rls_state_result == "pass" else "verification_blocked"
 
     def evidence_lines(self) -> list[str]:
-        failed_table_names = ",".join(self.failed_table_names) if self.failed_table_names else "none"
+        failed_table_names = (
+            ",".join(self.failed_table_names) if self.failed_table_names else "none"
+        )
         lines = [
             f"production_rls_state_result={self.production_rls_state_result}",
             f"environment={self.environment}",

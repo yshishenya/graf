@@ -44,8 +44,12 @@ deploy_result=dry_run
 remote_host=$REMOTE_HOST
 remote_path=$REMOTE_PATH
 branch=$BRANCH
-local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped || echo required)
-steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,restore_rehearsal,compose_config_secret_scan,deploy_build_up,runtime_secret_env_scan,production_smoke,public_health
+local_ci=$([[ "$SKIP_LOCAL_CI" == "1" ]] && echo skipped || echo full_required)
+posthog_stack_handoff=dry_run_metadata_only
+posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
+posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
+posthog_stack_execute=requires_explicit_release_approval
+steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,restore_rehearsal,runtime_secret_group,runtime_service_secret_permissions,runtime_db_secret_provision,media_storage_secret_provision,compose_config_secret_scan,migration_head,runtime_db_role_bootstrap,runtime_db_identity,initial_dispatch_closed,temporal_readiness,processing_worker_readiness,image_capability,profile_contract,media_worker_readiness_control,production_smoke,automatic_dispatch_open,guarded_rollback,runtime_secret_env_scan,public_health,automatic_retry_post_deploy,backfill_inventory_post_deploy,range_playback_post_deploy,normalization_cleanup_post_deploy
 EOF
   exit 0
 fi
@@ -79,13 +83,20 @@ if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
 fi
 
 if [[ "$SKIP_LOCAL_CI" != "1" ]]; then
-  infra/scripts/ci-local.sh
+  infra/scripts/ci-local.sh --full
 fi
 
 remote_script=$(cat <<'SH'
 set -eu
 branch="$1"
 expected_sha="$2"
+previous_sha="$(git rev-parse HEAD)"
+
+if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+  echo "deploy_result=blocked"
+  echo "reason=remote_worktree_dirty"
+  exit 1
+fi
 
 git fetch origin "$branch"
 origin_sha="$(git rev-parse "origin/$branch")"
@@ -98,58 +109,7 @@ if [ "$origin_sha" != "$expected_sha" ]; then
 fi
 git cat-file -e "$expected_sha^{commit}"
 git reset --hard "$expected_sha"
-
-backup_output="$(infra/scripts/backup-rec-stack.sh --execute)"
-printf '%s\n' "$backup_output"
-backup_reference="$(printf '%s\n' "$backup_output" | sed -n 's/^backup_reference=//p' | tail -n 1)"
-if [ -z "$backup_reference" ]; then
-  echo "deploy_result=blocked"
-  echo "reason=backup_reference_missing"
-  exit 1
-fi
-
-RESTORE_BACKUP_REFERENCE="$backup_reference" infra/scripts/rehearse-rec-restore.sh --execute
-
-set -a
-. ./.env
-set +a
-docker compose -f infra/docker-compose.yml config >/tmp/twobrain-rec-compose-deploy.yml
-if grep -Eq 'TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY|POSTAL_API_KEY|WEB_CSRF_SECRET):|MINIO_ROOT_PASSWORD:|MINIO_ROOT_USER:|POSTGRES_PWD:' /tmp/twobrain-rec-compose-deploy.yml; then
-  echo "deploy_result=blocked"
-  echo "reason=secret_env_exposure"
-  exit 1
-fi
-
-docker compose -f infra/docker-compose.yml up -d --build \
-  rec-api \
-  rec-migrate \
-  rec-minio \
-  rec-minio-init \
-  rec-temporal \
-  rec-processing-worker
-rec_api_container="$(docker compose -f infra/docker-compose.yml ps -q rec-api)"
-if [ -z "$rec_api_container" ]; then
-  echo "deploy_result=blocked"
-  echo "reason=rec_api_container_missing"
-  exit 1
-fi
-docker inspect "$rec_api_container" --format '{{range .Config.Env}}{{println .}}{{end}}' >/tmp/twobrain-rec-api-env.txt
-if grep -Eq '^(TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MINIO_API_ACCESS_KEY|MINIO_API_SECRET_KEY|POSTAL_API_KEY|WEB_CSRF_SECRET)|MINIO_ROOT_PASSWORD|MINIO_ROOT_USER)=' /tmp/twobrain-rec-api-env.txt; then
-  echo "deploy_result=blocked"
-  echo "reason=runtime_secret_env_exposure"
-  exit 1
-fi
-infra/scripts/run-production-smoke.sh --execute
-curl -fsS https://rec.2brain.pro/api/v1/health/live >/dev/null
-curl -fsS https://rec.2brain.pro/api/v1/health/ready >/dev/null
-
-cat <<EOF
-deploy_result=pass
-branch=$branch
-deployed_sha=$expected_sha
-backup_reference=$backup_reference
-readiness_verdict=infra_smoke_ready
-EOF
+bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"
 SH
 )
 

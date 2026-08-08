@@ -2,7 +2,7 @@
 
 **Date**: 2026-07-03
 **Inspected commit**: `c4dc54c4`
-**Worktree**: `/private/tmp/crisp-085-global-architecture-scan`
+**Worktree**: `<audit-worktree>`
 **Branch**: `codex/085-global-architecture-scan`
 **Lane**: Significant architecture / high-risk read-only audit.
 

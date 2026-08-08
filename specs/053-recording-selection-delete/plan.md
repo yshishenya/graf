@@ -1,32 +1,32 @@
 # Implementation Plan: Recording Selection And Delete
 
-**Branch**: `053-recording-selection-delete` | **Date**: 2026-06-26 | **Spec**: [spec.md](./spec.md)
+**Branch**: `053-delete-ux-simplification` | **Date**: 2026-07-21 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `specs/053-recording-selection-delete/spec.md`
 
 ## Summary
 
-Feature 053 fixes the owner meeting list so recordings can be selected and deleted from the list. The smallest safe implementation is to reuse the existing cabinet deletion endpoint and lifecycle accounting, add list selection state to the server-rendered cabinet UI, keep bulk download visibly disabled, and remove the placeholder overflow/unread-style future actions from row hover.
+This follow-up keeps the existing selection and deletion lifecycle but removes the confusing report hand-off and persistent status banner from the owner flow. The smallest safe implementation is to return an empty success body, redirect non-JavaScript form submits back to the list, and remove accepted rows from the browser list immediately. The lifecycle service, audit rows, and separate diagnostic report remain unchanged.
 
 ## Technical Context
 
 **Language/Version**: Python >=3.13 for server-rendered cabinet and tests; plain browser JavaScript embedded in the existing cabinet HTML shell.
 
-**Primary Dependencies**: Existing FastAPI/SQLAlchemy cabinet service, existing deletion lifecycle service, existing pytest server test suite. No new dependency.
+**Primary Dependencies**: Existing FastAPI/SQLAlchemy cabinet web routes, existing deletion lifecycle service, existing server-rendered cabinet JavaScript, and existing pytest server test suite. No new dependency.
 
 **Storage**: Existing Postgres meeting/deletion lifecycle tables. No new schema.
 
-**Testing**: Focused pytest for cabinet list HTML/JS and existing deletion workflow, plus metadata-safe runtime/browser proof when available.
+**Testing**: Focused pytest for web/API feedback, list-shell JavaScript, and existing deletion workflow, plus metadata-safe runtime/browser proof when available.
 
 **Target Platform**: Production web cabinet and macOS embedded WebKit cabinet at `/meetings` and `/desktop/meetings`.
 
 **Project Type**: Server-rendered web cabinet inside the hybrid 2brain Rec server/desktop product.
 
-**Performance Goals**: Selection feedback should appear in under one second for the current list limit. Delete submission uses existing deletion lifecycle behavior.
+**Performance Goals**: Accepted rows should disappear in under one second for the current list limit. Delete submission uses existing deletion lifecycle behavior.
 
 **Constraints**: All new visible strings must be Russian. Deletion copy must remain bounded to `2brain Rec` controlled systems. Evidence must stay metadata-only. Desktop clients still do not receive secrets, signed URLs, object keys, raw audio, or transcript text through list evidence.
 
-**Scale/Scope**: Current owner meeting list limit is at most 100 rows. Batch delete uses the existing single-meeting deletion request once per selected meeting; no new batch API until throughput or partial-success UX proves it is needed.
+**Scale/Scope**: Current owner meeting list limit is at most 100 rows. Batch delete uses the existing single-meeting deletion request once per selected meeting; no new batch API or lifecycle schema is introduced. The normal owner flow does not expose the detailed deletion report.
 
 ## Constitution Check
 
@@ -62,7 +62,11 @@ specs/053-recording-selection-delete/
 
 ```text
 apps/server/src/twobrain_rec_server/
-├── cabinet/web.py
+├── cabinet/web_routes/deletion.py
+├── cabinet/deletion_rendering.py
+├── cabinet/rendering.py
+├── cabinet/static/cabinet/cabinet.js
+├── cabinet/templates/cabinet/fragments/deletion_feedback.html
 ├── api/cabinet.py
 └── deletion/service.py
 
@@ -71,7 +75,7 @@ apps/server/tests/
 └── integration/test_meeting_deletion_workflow.py
 ```
 
-**Structure Decision**: Keep the implementation inside `cabinet/web.py` because the existing meeting list is server-rendered there and already embeds small page scripts. Reuse `api/cabinet.py` and `deletion/service.py` without changing their contract unless tests prove a missing edge case.
+**Structure Decision**: Keep the implementation in the existing cabinet web route, rendering, template, and browser-script modules. Reuse `api/cabinet.py` and `deletion/service.py` without changing the public API response or lifecycle/report contract. Only the user-facing web feedback and list state change.
 
 ## Phase 0: Research
 
@@ -87,6 +91,7 @@ See [data-model.md](./data-model.md), [contracts/cabinet-selection-delete-contra
 - **Visible consent and user control**: PASS. Post-meeting delete UI does not affect active capture visibility or stop controls.
 - **Data boundary and secret discipline**: PASS. UI calls the existing server-owned delete endpoint with bounded confirmation text only.
 - **Deletion truth and lifecycle accounting**: PASS. The contract requires bounded Russian copy and existing lifecycle accounting.
+- **Deletion UX boundary**: PASS. The detailed report remains a diagnostic surface, while the owner flow returns to the list without a persistent status banner and never promises universal erasure.
 - **Spec-driven delivery**: PASS. Tasks and analyze must be clean before code edits.
 
 ## Complexity Tracking

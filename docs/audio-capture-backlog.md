@@ -1,11 +1,17 @@
-# Audio Capture Backlog
+# Audio Capture Historical Research Archive
 
 Date: 2026-06-23
 
-This backlog expands the deferred live speakerphone cleanup work left by
-`020-speaker-to-mic-leakage` and `025-system-audio-capture-pivot`. It is not a
-Spec Kit feature spec yet. Use it as prepared context when creating future
-`$speckit-specify` slices.
+This file preserves pre-v5 research on speakerphone cleanup experiments. It is
+not an active implementation plan or a Spec Kit feature spec. Feature
+`106-mixed-wav-recording` supersedes its recording contract for new captures:
+one PTS-aware canonical WAV goes to ASR and one M4A is playback-only. AEC,
+Apple voice processing, WebRTC processing, leakage finalization, and dual-track
+writers are not part of the current product path.
+
+The material below is historical context only. Do not use it to reintroduce an
+old runtime, fallback, package format, or user-facing control without a new
+approved specification and fresh product decision.
 
 ## Numbering And Feature Registry
 
@@ -37,12 +43,12 @@ user explicitly retires or renumbers that reservation.
 | `023`-`024` | Historical draft numbers | Historical spec paths exist in git history. Reuse only after explicit owner decision and registry update. |
 | `037` | Implemented | `microphone-sample-graph-foundation`: app-owned mic sample graph before cleanup/AEC work. |
 | `038` | Outcome recorded | `apple-voice-processing-spike`: Apple processing remains metadata/guidance evidence only; primary outcome is `defer_to_webrtc_aec3`. |
-| `039` | Next reserved backlog | `webrtc-aec3-speakerphone-spike`: WebRTC AEC3 speakerphone cleanup spike. |
-| `040` | Reserved backlog | `speakerphone-recording-fallback-decision`: truthful fallback decision if clean built-in speakerphone capture is not proven. |
+| `039` | Archived research | Pre-v5 WebRTC AEC3 speakerphone cleanup study; not an active implementation candidate. |
+| `040` | Archived research | Pre-v5 speakerphone fallback study; superseded by the canonical mixed-WAV product decision. |
 | `041` | Reserved backlog | `recording-permission-readiness-onboarding`: Mic and Screen/System Audio readiness before recording. |
 | `042` | Claimed branch | `recording-sync-transcription-loop`: offline-safe recording upload, server transcription, and transcript display loop. |
 | `043` | Active / existing spec branch | `app-zoom-shortcuts`: present in git history/branch after `git fetch --all --prune`; do not reuse. |
-| `044` | Active / reserved backlog | `speakerphone-echo-noise-suppression`: real runtime echo cancellation/noise suppression path after the `039` WebRTC AEC3 spike. |
+| `044` | Archived research | Pre-v5 echo/noise-suppression proposal; no active runtime path. |
 | `045` | Active implementation branch | `transcription-results-pipeline`: product upload/transcription/result loop; imperfect local quality is diagnostic metadata, not an upload blocker. |
 | `046` | Candidate follow-up / not created | `meeting-playback-timestamp-seek`: possible MVP review-player slice surfaced by `045`; this is not an audio cleanup/AEC feature. |
 | `048` | Reserved backlog | `local-media-trim-revisions`: post-MVP local audio/video trim/edit revisions; see `docs/post-mvp-editing-media-backlog.md`. |
@@ -68,31 +74,19 @@ rg -n '0[0-9]{2}-|feature [0-9]{3}|Feature [0-9]{3}' docs specs AGENTS.md
 When these checks disagree, stop and reconcile this registry before creating
 the new feature.
 
-## Current Problem In Plain Language
+## Superseded Problem Statement
 
-When the user records a meeting through Mac speakers, the physical microphone
-hears the speakers. As a result, `mic.wav` contains the local speaker plus some
-remote participant audio from the room. This is acoustic speaker-to-mic leakage.
+When a meeting is played through Mac speakers, the physical microphone can hear
+those speakers. The current v5 product path does not try to remove that sound
+with AEC or post-stop cleanup. Instead, it writes a single continuous canonical
+timeline so the recorded conversation is transcribed once without aligning or
+merging two independent ASR results. The authoritative current contract is
+`docs/integrations/mediascribe-dual-track-api.md`.
 
-Current accepted behavior:
+The following research was written for the retired dual-artifact approach and
+must be read as historical evidence, not as requirements or a backlog promise.
 
-- `025` records separate `mic.wav` and `incoming.wav` with system-audio capture.
-- `020` analyzes saved evidence after `Stop`.
-- If `mic.wav` is contaminated, unproven, or not measurable, the package fails
-- If `mic.wav` is contaminated, unproven, or not measurable, local package truth
-  records failed/degraded transcription readiness. Feature `045` makes that
-  quality truth diagnostic for upload/transcription eligibility when required
-  files, consent, permissions, and integrity are valid.
-
-Current missing behavior:
-
-- The app does not clean the microphone live.
-- Built-in Mac microphone plus built-in Mac speakers are not accepted as clean
-  dual-track speakerphone recording.
-- Apple/WebRTC/AEC cleanup remains future gated work under `044`; it is not
-  required for the `045` results pipeline to process imperfect source audio.
-
-## External Research Summary
+## Historical External Research Summary
 
 ### Apple Voice Processing
 
@@ -142,7 +136,7 @@ The reviewed Parrot repository uses a simple and useful capture shape:
 
 - ScreenCaptureKit for system audio.
 - AVAudioEngine for microphone capture.
-- no virtual audio driver requirement.
+- no separate audio-routing component.
 
 It does not appear to implement live AEC, WebRTC AEC3, Apple voice processing,
 or a package-level leakage gate. Treat it as a clean-room architecture reference
@@ -366,8 +360,8 @@ AEC3 is the most controllable path to real speakerphone support.
 ### Out Of Scope
 
 - No silent replacement of original evidence.
-- No HAL callback file I/O, allocation, logging, network calls, or unbounded
-  waits.
+- No capture callback file I/O, allocation, logging, network calls, or
+  unbounded waits.
 - No production rollout until licensing, packaging, notarization, CPU, and crash
   gates pass.
 - No claim that browser WebRTC AEC alone solves the issue.
@@ -503,7 +497,9 @@ load.
 
 - No capture cleanup.
 - No AEC.
-- No auto-start.
+- No auto-start from this readiness/onboarding slice. The separate, verified
+  native meeting-target auto-start contract is owned by Feature 124 and must
+  still use its eight-second prompt, target list, opt-in, and capture gates.
 - No broad redesign of the web cabinet.
 
 ### Acceptance Gates

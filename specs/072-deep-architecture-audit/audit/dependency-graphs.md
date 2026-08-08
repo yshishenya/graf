@@ -89,21 +89,19 @@ Scope:
 - `apps/macos/Package.swift`
 - `apps/macos/RecApp/**`
 - `apps/macos/Shared/**`
-- `apps/macos/AudioDriver/**`
 - `apps/macos/Scripts/**`
 
 Package target graph:
 
 ```text
-CShmHelpers
-└── TwoBrainRecShared
-    ├── TwoBrainRecAppCore
-    │   ├── TwoBrainRecApp
-    │   ├── ContractValidation
-    │   ├── LeakageValidation
-    │   ├── MeetingMuteTruthRuntimeProof
-    │   └── WebRTCAEC3Validation
-    └── TwoBrainRecSharedTests
+TwoBrainRecShared
+├── TwoBrainRecAppCore
+│   └── TwoBrainRecApp
+├── ContractValidation (+ TwoBrainRecAppCore)
+├── LeakageValidation (+ TwoBrainRecAppCore)
+├── MeetingMuteTruthRuntimeProof (+ TwoBrainRecAppCore)
+├── WebRTCAEC3Validation (+ TwoBrainRecAppCore)
+└── TwoBrainRecSharedTests (+ TwoBrainRecAppCore)
 ```
 
 Common Swift imports:
@@ -120,8 +118,9 @@ Risk interpretation:
 
 - Capture and upload flows have clear target boundaries, but several files are
   large because they combine lifecycle, state, validation, and UI glue.
-- `AudioDriver/` is parked advanced-routing code. It is not MVP acceptance
-  scope, but it is not delete-now without a separate driver cleanup spec.
+- Feature `102-remove-legacy-audio-driver` removes the former C shared-memory
+  and separate routing graph. Current capture is owned by the Swift app through
+  ScreenCaptureKit and microphone sources explicitly injected into the writer.
 - WebView route policy is a security/product boundary between server cabinet
   and native trust shell.
 

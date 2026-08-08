@@ -315,6 +315,45 @@ async def get_principal(
     )
 
 
+async def get_optional_principal(
+    request: Request,
+    authorization: str | None = Header(default=None, alias="Authorization", include_in_schema=False),
+    x_auth_session: str | None = Header(default=None, alias="X-Auth-Session", include_in_schema=False),
+    auth_session_cookie: str | None = Cookie(default=None, alias=AUTH_SESSION_COOKIE_NAME, include_in_schema=False),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_organization_id: str | None = Header(default=None, alias="X-Organization-Id"),
+    x_workspace_id: str | None = Header(default=None, alias="X-Workspace-Id"),
+    desktop_calendar_auth_cookie: str | None = Cookie(
+        default=None,
+        alias=DESKTOP_CALENDAR_AUTH_COOKIE_NAME,
+        include_in_schema=False,
+    ),
+) -> AuthenticatedPrincipal | None:
+    if all(
+        value is None
+        for value in (
+            authorization,
+            x_auth_session,
+            auth_session_cookie,
+            x_user_id,
+            x_organization_id,
+            x_workspace_id,
+            desktop_calendar_auth_cookie,
+        )
+    ):
+        return None
+    return await get_principal(
+        request,
+        authorization=authorization,
+        x_auth_session=x_auth_session,
+        auth_session_cookie=auth_session_cookie,
+        x_user_id=x_user_id,
+        x_organization_id=x_organization_id,
+        x_workspace_id=x_workspace_id,
+        desktop_calendar_auth_cookie=desktop_calendar_auth_cookie,
+    )
+
+
 async def get_device_context(
     request: Request,
     authorization: str | None = Header(default=None, alias="Authorization", include_in_schema=False),
@@ -511,22 +550,30 @@ async def _validate_tenant_scope(
             )
         )
         registered_device = await db.get(RegisteredDevice, device_id)
+        membership_is_inactive = membership is None or membership.status != "active"
         if (
             user is None
             or user.organization_id != principal.organization_id
             or user.status != "active"
             or workspace is None
             or workspace.organization_id != principal.organization_id
-            or membership is None
-            or membership.status != "active"
+            or membership_is_inactive
             or registered_device is None
             or registered_device.workspace_id != workspace_id
             or registered_device.user_id != principal.user_id
         ):
+            if principal.auth_via_session and principal.session_id is not None and membership_is_inactive:
+                session = await db.get(AuthSession, principal.session_id)
+                if session is not None and session.status == "active":
+                    session.status = "revoked"
+                    await db.commit()
             raise ProblemDetail(
                 status=403,
                 code="workspace_scope_denied",
                 title="Workspace scope denied",
+                headers={"X-GRAF-Cabinet-Recovery": "reselect-space"}
+                if membership_is_inactive and request.url.path.startswith("/desktop/")
+                else None,
             )
         if registered_device.status == "revoked" or registered_device.registration_state == "revoked":
             raise ProblemDetail(

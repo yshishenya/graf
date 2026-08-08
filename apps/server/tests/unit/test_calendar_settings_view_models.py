@@ -12,7 +12,9 @@ from twobrain_rec_server.calendar.service import calendar_event_matches_preferen
 from twobrain_rec_server.db.models import CalendarSettingsPreference
 
 
-def test_calendar_settings_boundary_copy_names_read_only_no_auto_record_attendee_and_credentials() -> None:
+def test_calendar_settings_boundary_copy_names_read_only_no_auto_record_attendee_and_credentials() -> (
+    None
+):
     items = view_models.calendar_boundary_items()
     rendered = " ".join(
         [
@@ -81,18 +83,38 @@ def test_calendar_settings_defaults_keep_manual_safe_prompt_behavior() -> None:
 def test_calendar_settings_prompt_copy_keeps_policy_overlap_and_auto_record_boundaries() -> None:
     preferences = view_models.CalendarSettingsPreferencesView()
 
-    assert preferences.join_prompt_label == "Напоминать за 1 минуту до встречи с предложением подключиться"
+    assert (
+        preferences.join_prompt_label
+        == "Напоминать за 1 минуту до встречи с предложением подключиться"
+    )
     assert preferences.record_prompt_label == "Предлагать начать запись в момент старта встречи"
     assert "политика организации" in preferences.prompt_policy_copy
     assert "выбрать событие" in preferences.overlap_prompt_copy
     assert "продолжить без календарного контекста" in preferences.overlap_prompt_copy
-    assert preferences.disabled_auto_record_label == "Больше не спрашивать и записывать автоматически"
+    assert (
+        preferences.disabled_auto_record_label == "Больше не спрашивать и записывать автоматически"
+    )
     assert "отдельной безопасной настройкой" in preferences.disabled_auto_record_copy
     assert "Автоматическая запись пока недоступна" in preferences.disabled_auto_record_copy
-    assert preferences.manual_recording_copy == "Ручной старт и стоп записи остаются доступны всегда."
+    assert (
+        preferences.manual_recording_copy == "Ручной старт и стоп записи остаются доступны всегда."
+    )
 
 
-def test_calendar_settings_safe_state_copy_covers_empty_loading_policy_and_private_free_busy() -> None:
+def test_098_calendar_settings_separates_prompt_filters_from_auto_context_eligibility() -> None:
+    # FR-003/FR-009/FR-010: feature 063 preview choices never weaken 098 matching.
+    surface = view_models.calendar_settings_surface(provider_payloads=[], sources=[])
+
+    assert surface.auto_context_boundary_copy == (
+        "Эти фильтры управляют подсказками и списком ближайших встреч. "
+        "Приватные события и события на весь день не используются для "
+        "автоматического контекста записи."
+    )
+
+
+def test_calendar_settings_safe_state_copy_covers_empty_loading_policy_and_private_free_busy() -> (
+    None
+):
     surface = view_models.calendar_settings_surface(provider_payloads=[], sources=[])
     combined = " ".join(
         [
@@ -114,7 +136,10 @@ def test_calendar_settings_safe_state_copy_covers_empty_loading_policy_and_priva
     assert "политикой организации" in surface.policy_constrained_copy
     assert "доступных для чтения календарей" in surface.no_readable_calendars_copy
     assert "не влияет на будущие встречи" in surface.no_selected_calendars_copy
-    assert surface.no_matching_events_copy == "Нет будущих событий, которые подходят под выбранные настройки."
+    assert (
+        surface.no_matching_events_copy
+        == "Нет будущих событий, которые подходят под выбранные настройки."
+    )
     assert "без названия" in surface.private_free_busy_copy
     assert "ссылок" in surface.private_free_busy_copy
     assert "участников" in surface.private_free_busy_copy
@@ -192,7 +217,9 @@ def test_calendar_settings_source_state_marks_no_readable_calendars() -> None:
     assert rendered_unavailable.calendars[0].selectable is False
 
 
-def test_calendar_settings_selectable_calendar_labels_distinguish_duplicates_and_visibility() -> None:
+def test_calendar_settings_selectable_calendar_labels_distinguish_duplicates_and_visibility() -> (
+    None
+):
     source = calendar_settings_source(connection_state="active", sync_state="synced")
     shared = calendar_settings_calendar(
         source,
@@ -222,7 +249,9 @@ def test_calendar_settings_selectable_calendar_labels_distinguish_duplicates_and
         visibility="unavailable",
     )
 
-    rendered = view_models.calendar_source_settings_view(source, calendars=[shared, delegated, private, unavailable])
+    rendered = view_models.calendar_source_settings_view(
+        source, calendars=[shared, delegated, private, unavailable]
+    )
 
     assert rendered.selected_calendar_count == 1
     assert rendered.readable_calendar_count == 3
@@ -266,7 +295,9 @@ def test_calendar_settings_sync_health_maps_running_failed_and_never_synced_stat
     assert view_models.calendar_sync_recovery_label("queued") == "Дождитесь текущей синхронизации."
     assert view_models.calendar_sync_health_state(syncing) == "syncing"
     assert view_models.calendar_sync_health_state(credential_failed) == "credential_failed"
-    assert view_models.calendar_sync_recovery_label("credential_failed") == "Переподключите календарь."
+    assert (
+        view_models.calendar_sync_recovery_label("credential_failed") == "Переподключите календарь."
+    )
     assert view_models.calendar_sync_health_state(provider_limited) == "rate_limited"
     assert view_models.calendar_sync_health_state(never_synced) == "never_synced"
 
@@ -284,7 +315,10 @@ def test_calendar_settings_sync_health_treats_latest_failure_as_stale_even_after
 
 
 def test_calendar_settings_safe_sync_error_copy_does_not_expose_provider_payloads() -> None:
-    assert view_models.safe_calendar_error_message("invalid_credentials") == "Нужно переподключить календарь."
+    assert (
+        view_models.safe_calendar_error_message("invalid_credentials")
+        == "Нужно переподключить календарь."
+    )
     assert (
         view_models.safe_calendar_error_message("tenant_policy_denied")
         == "Подключение ограничено политикой организации."
@@ -298,9 +332,17 @@ def test_calendar_settings_safe_sync_error_copy_does_not_expose_provider_payload
 
 
 def test_calendar_settings_safe_labels_redact_urls_emails_and_secret_like_text() -> None:
-    assert view_models.safe_calendar_label("alice@example.test", fallback="Календарь") == "Календарь"
-    assert view_models.safe_calendar_label("https://meet.example.test/private", fallback="Событие") == "Событие"
-    assert view_models.safe_calendar_label("Общий календарь", fallback="Календарь") == "Общий календарь"
+    assert (
+        view_models.safe_calendar_label("alice@example.test", fallback="Календарь") == "Календарь"
+    )
+    assert (
+        view_models.safe_calendar_label("https://meet.example.test/private", fallback="Событие")
+        == "Событие"
+    )
+    assert (
+        view_models.safe_calendar_label("Общий календарь", fallback="Календарь")
+        == "Общий календарь"
+    )
 
 
 def test_calendar_settings_preview_hides_private_free_busy_title() -> None:
@@ -339,15 +381,23 @@ def test_calendar_settings_event_category_eligibility_defaults_and_opt_ins() -> 
         provider_event_id="participants-no-link",
         meeting_link_present=False,
     )
-    no_link_with_participants.conference_summary_json = {"meeting_link_present": False, "participant_count": 3}
+    no_link_with_participants.conference_summary_json = {
+        "meeting_link_present": False,
+        "participant_count": 3,
+    }
     no_participants_no_link = calendar_settings_snapshot(
         source,
         calendar,
         provider_event_id="solo-block",
         meeting_link_present=False,
     )
-    no_participants_no_link.conference_summary_json = {"meeting_link_present": False, "participant_count": 0}
-    all_day = calendar_settings_snapshot(source, calendar, provider_event_id="all-day", meeting_link_present=True)
+    no_participants_no_link.conference_summary_json = {
+        "meeting_link_present": False,
+        "participant_count": 0,
+    }
+    all_day = calendar_settings_snapshot(
+        source, calendar, provider_event_id="all-day", meeting_link_present=True
+    )
     all_day.all_day = True
     private = calendar_settings_snapshot(
         source,
@@ -364,8 +414,13 @@ def test_calendar_settings_event_category_eligibility_defaults_and_opt_ins() -> 
     assert calendar_event_matches_preferences(all_day, None) is False
     assert calendar_event_matches_preferences(private, None) is False
 
-    assert calendar_event_matches_preferences(no_link_with_participants, permissive_preferences) is True
-    assert calendar_event_matches_preferences(no_participants_no_link, permissive_preferences) is True
+    assert (
+        calendar_event_matches_preferences(no_link_with_participants, permissive_preferences)
+        is True
+    )
+    assert (
+        calendar_event_matches_preferences(no_participants_no_link, permissive_preferences) is True
+    )
     assert calendar_event_matches_preferences(all_day, permissive_preferences) is True
     assert calendar_event_matches_preferences(private, permissive_preferences) is True
     private_preview = view_models.upcoming_preview_item(private)
@@ -401,7 +456,30 @@ def test_calendar_settings_duplicate_groups_keep_same_provider_id_from_different
     )
     second_calendar = calendar_settings_calendar(second_source, selected=True)
     first = calendar_settings_snapshot(first_source, first_calendar, provider_event_id="same-event")
-    second = calendar_settings_snapshot(second_source, second_calendar, provider_event_id="same-event")
+    second = calendar_settings_snapshot(
+        second_source, second_calendar, provider_event_id="same-event"
+    )
+
+    groups = view_models.calendar_preview_groups([first, second])
+
+    assert len(groups) == 2
+
+
+def test_098_calendar_duplicate_groups_keep_same_provider_id_from_distinct_calendars() -> None:
+    # FR-005/FR-047: provider event IDs are scoped by calendar, not only by account.
+    source = calendar_settings_source(provider_family="caldav_yandex")
+    first_calendar = calendar_settings_calendar(source, selected=True)
+    second_calendar = calendar_settings_calendar(source, selected=True)
+    first = calendar_settings_snapshot(
+        source,
+        first_calendar,
+        provider_event_id="same-provider-event",
+    )
+    second = calendar_settings_snapshot(
+        source,
+        second_calendar,
+        provider_event_id="same-provider-event",
+    )
 
     groups = view_models.calendar_preview_groups([first, second])
 
@@ -409,12 +487,24 @@ def test_calendar_settings_duplicate_groups_keep_same_provider_id_from_different
 
 
 def test_calendar_settings_preview_groups_same_meeting_link_and_marks_stale_confidence() -> None:
-    first_source = calendar_settings_source(provider_family="caldav_yandex", provider_label="Яндекс")
-    first_calendar = calendar_settings_calendar(first_source, selected=True, display_label="Рабочий")
-    second_source = calendar_settings_source(provider_family="caldav_mail_ru", provider_label="Mail.ru")
-    second_calendar = calendar_settings_calendar(second_source, selected=True, display_label="Команда")
-    first = calendar_settings_snapshot(first_source, first_calendar, provider_event_id="yandex-event")
-    second = calendar_settings_snapshot(second_source, second_calendar, provider_event_id="mail-ru-event")
+    first_source = calendar_settings_source(
+        provider_family="caldav_yandex", provider_label="Яндекс"
+    )
+    first_calendar = calendar_settings_calendar(
+        first_source, selected=True, display_label="Рабочий"
+    )
+    second_source = calendar_settings_source(
+        provider_family="caldav_mail_ru", provider_label="Mail.ru"
+    )
+    second_calendar = calendar_settings_calendar(
+        second_source, selected=True, display_label="Команда"
+    )
+    first = calendar_settings_snapshot(
+        first_source, first_calendar, provider_event_id="yandex-event"
+    )
+    second = calendar_settings_snapshot(
+        second_source, second_calendar, provider_event_id="mail-ru-event"
+    )
     first.conference_summary_json = {"meeting_link_present": True, "url_hash": "same-link"}
     second.conference_summary_json = {"meeting_link_present": True, "url_hash": "same-link"}
 

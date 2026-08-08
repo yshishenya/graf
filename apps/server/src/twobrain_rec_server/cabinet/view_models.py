@@ -1,21 +1,26 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import cast
+from typing import TYPE_CHECKING, Literal, cast
+from uuid import UUID
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
     CalendarRosterParticipantView,
     CalendarRosterReviewState,
+    ContentExportCapabilityResponse,
     GovernanceActionState,
     GovernanceActionSummary,
     MeetingAccessState,
     MeetingActivityResponse,
+    MeetingCalendarContextResponse,
+    MeetingCalendarContextSummary,
     MeetingListItem,
     MeetingProvenance,
     MeetingReviewResponse,
@@ -27,7 +32,11 @@ from twobrain_rec_server.api.schemas import (
     OutcomeItemView,
     OutcomeProvenanceView,
     OutcomeSourceReferenceView,
+    PlaybackPreparationReasonCode,
+    PlaybackPreparationState,
     PlaybackReviewState,
+    PreviousRecurringMeetingReadiness,
+    PreviousRecurringMeetingView,
     ProcessingReviewState,
     SharePanelState,
     SlotState,
@@ -37,6 +46,7 @@ from twobrain_rec_server.api.schemas import (
     SpeakerReviewState,
     TranscriptReviewState,
     TranscriptSegmentView,
+    TranscriptSpeakerTurnView,
 )
 from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
@@ -52,6 +62,7 @@ from twobrain_rec_server.db.models import (
     CalendarSource,
     DiarizationSegment,
     ExternalCalendar,
+    ExternalIdentity,
     MediaRevision,
     Meeting,
     MeetingOutcomeItem,
@@ -59,10 +70,19 @@ from twobrain_rec_server.db.models import (
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
+    RecordingCalendarContextLink,
+    RegisteredDevice,
     TranscriptSegment,
 )
+from twobrain_rec_server.domain.media_filenames import (
+    LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSION_RE,
+    MEDIA_FILENAME_EXTENSION_RE,
+    clean_legacy_serialized_media_filename_title,
+    clean_media_filename_title,
+    media_filename_leaf,
+)
+from twobrain_rec_server.domain.metadata_text import safe_metadata_text
 from twobrain_rec_server.domain.statuses import (
-    DeletionState,
     MediaRevisionSourceKind,
     MeetingStatus,
     ProcessingAvailabilityStatus,
@@ -70,31 +90,320 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
     SummaryStatus,
 )
+from twobrain_rec_server.outcomes.templates import built_in_template_for_version
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
+
+if TYPE_CHECKING:
+    from twobrain_rec_server.db.models import WorkspaceProviderLinkState
+
+
+PROVIDER_LINK_LABELS = {
+    "email": "Email",
+    "email_magic_link": "Email",
+    "yandex": "Яндекс",
+    "vk": "VK",
+    "telegram": "Telegram",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderLinkStartOption:
+    provider: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderLinkSettingsSurface:
+    link_state_id: UUID
+    provider_label: str
+    status: str
+    status_label: str
+    can_confirm: bool
+
+
+def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> ProviderLinkSettingsSurface:
+    status_labels = {
+        "initiated": "Ожидаем входа у провайдера",
+        "callback_verified": "Провайдер подтверждён — подтвердите подключение в GRAF",
+        "confirmed": "Способ входа подключён",
+        "expired": "Срок подключения истёк. Начните заново.",
+        "rejected": "Подключение не завершено. Начните заново.",
+    }
+    return ProviderLinkSettingsSurface(
+        link_state_id=link.id,
+        provider_label=PROVIDER_LINK_LABELS.get(link.candidate_provider or "", "Провайдер"),
+        status=link.status,
+        status_label=status_labels.get(link.status, "Подключение недоступно. Начните заново."),
+        can_confirm=link.status == "callback_verified",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class AccountProviderView:
+    provider: str
+    label: str
+    status_label: str
+    primary: bool
+    connected_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class AccountDeviceView:
+    device_id: UUID
+    platform_label: str
+    version_label: str
+    status_label: str
+    last_seen_at: datetime | None
+    current: bool
+    can_revoke: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AccountSettingsSurface:
+    providers: tuple[AccountProviderView, ...] = ()
+    devices: tuple[AccountDeviceView, ...] = ()
+    unavailable: bool = False
+
+
+def account_provider_view(
+    identity: ExternalIdentity,
+    *,
+    primary: bool = False,
+) -> AccountProviderView:
+    return AccountProviderView(
+        provider=identity.provider,
+        label=PROVIDER_LINK_LABELS.get(identity.provider, "Способ входа"),
+        status_label="Подключён" if identity.is_verified else "Проверка не завершена",
+        primary=primary,
+        connected_at=identity.last_seen_at or identity.created_at,
+    )
+
+
+def account_device_view(
+    device: RegisteredDevice,
+    *,
+    current_device_id: UUID | None,
+) -> AccountDeviceView:
+    platform_labels = {
+        "macos": "Mac",
+        "web": "Браузер",
+        "browser": "Браузер",
+    }
+    status_labels = {
+        "active": "Активно",
+        "revoked": "Отозвано",
+    }
+    is_current = device.id == current_device_id
+    return AccountDeviceView(
+        device_id=device.id,
+        platform_label=platform_labels.get(device.platform, "Устройство"),
+        version_label=device.client_version or "Версия неизвестна",
+        status_label=status_labels.get(device.status, "Состояние неизвестно"),
+        last_seen_at=device.last_seen_at,
+        current=is_current,
+        can_revoke=device.status == "active" and not is_current,
+    )
+
+
+def account_settings_surface(
+    *,
+    identities: Iterable[ExternalIdentity] = (),
+    devices: Iterable[RegisteredDevice] = (),
+    current_device_id: UUID | None = None,
+    unavailable: bool = False,
+) -> AccountSettingsSurface:
+    identity_rows = tuple(identities)
+    return AccountSettingsSurface(
+        providers=tuple(
+            account_provider_view(identity, primary=index == 0)
+            for index, identity in enumerate(identity_rows)
+        ),
+        devices=tuple(
+            account_device_view(device, current_device_id=current_device_id) for device in devices
+        ),
+        unavailable=unavailable,
+    )
+
 
 STATUS_LABELS: dict[str, str] = {
-    "local_only": "Local only",
-    "uploading": "Uploading",
-    "submitted": "Submitted",
-    "processing": "Processing",
-    "ready": "Ready",
-    "partial": "Partial",
-    "blocked": "Blocked",
-    "failed": "Failed",
-    "unavailable": "Unavailable",
-    "deleted_future": "Delete planned",
+    "local_only": "Сохранено на Mac",
+    "uploading": "Отправляем",
+    "submitted": "Обрабатывается",
+    "processing": "Обрабатывается",
+    "ready": "Готово",
+    "partial": "Готово с замечаниями",
+    "blocked": "Нужна помощь",
+    "failed": "Нужна помощь",
+    "unavailable": "Нужна помощь",
+    "deleted_future": "Удаляется",
 }
 
 MEDIASCRIBE_SPEAKER_LABEL_RE = re.compile(r"^SPEAKER_\d{2,}$")
 
 SORT_LABELS: dict[str, str] = {
-    "updated_desc": "Недавно обновленные",
-    "updated_asc": "Давно обновленные",
-    "started_desc": "Новые по дате записи",
-    "started_asc": "Старые по дате записи",
+    "updated_desc": "Недавно обновлённые",
+    "updated_asc": "Давно обновлённые",
+    "started_desc": "Сначала новые",
+    "started_asc": "Сначала старые",
     "duration_desc": "Сначала длинные",
     "duration_asc": "Сначала короткие",
     "title_asc": "По названию",
 }
+SHORT_MONTH_LABELS = (
+    "",
+    "янв",
+    "фев",
+    "мар",
+    "апр",
+    "май",
+    "июн",
+    "июл",
+    "авг",
+    "сен",
+    "окт",
+    "ноя",
+    "дек",
+)
+
+MeetingListTimeBasis = Literal["meeting", "updated"]
+
+
+@dataclass(frozen=True, slots=True)
+class MeetingListRowPresentation:
+    display_title: str
+    duration_label: str
+    time_label: str
+    media_kind: str
+    media_label: str
+    status_kind: str | None
+    status_label: str | None
+    progress_percent: int | None
+    open_accessible_name: str
+    content_readiness_label: str | None = None
+
+
+CALENDAR_CONTEXT_OWNER_REASON_LABELS: dict[str, str] = {
+    "private_free_busy_skipped": "Приватное событие пропущено",
+    "all_day_skipped": "Событие на весь день пропущено",
+    "selected_source_stale": "Данные календаря устарели",
+    "latest_sync_failed": "Данные календаря устарели",
+    "calendar_not_connected": "Календарь недоступен",
+    "calendar_not_selected": "Календарь недоступен",
+    "calendar_unavailable": "Календарь недоступен",
+    "manual_upload_skipped": "Ручная загрузка не сопоставляется",
+    "offline_or_unknown_skipped": "Офлайн-запись не сопоставляется",
+    "no_matching_event": "Подходящая встреча не найдена",
+    "weak_event_signal": "Подходящая встреча не найдена",
+    "prestart_not_reached": "Запись завершилась до начала встречи",
+    "user_declined": "Вы начали запись без календарного контекста",
+    "user_cleared": "Контекст убран вами",
+}
+
+CALENDAR_CONTEXT_STATE_COPY: dict[str, dict[str, str]] = {
+    "ru": {
+        "matched_auto": "Из календаря",
+        "matched_user": "Выбрано вами",
+        "ambiguous": "Нужно выбрать встречу",
+        "no_context": "Без календарного контекста",
+        "declined_by_user": "Вы начали запись без календарного контекста",
+        "cleared_by_user": "Контекст убран вами",
+    },
+    "en": {
+        "matched_auto": "From calendar",
+        "matched_user": "Selected by you",
+        "ambiguous": "Choose a meeting",
+        "no_context": "No calendar context",
+        "declined_by_user": "You started recording without calendar context",
+        "cleared_by_user": "Context removed by you",
+    },
+}
+
+PLAYBACK_TERMINAL_REASON: dict[str, PlaybackPreparationReasonCode] = {
+    "empty_source": "empty_source",
+    "no_audio": "no_audio",
+    "ambiguous_audio_tracks": "ambiguous_audio_tracks",
+    "unsupported_container": "unsupported_media",
+    "unsupported_codec": "unsupported_media",
+    "encrypted_media": "encrypted_media",
+    "corrupt_source": "corrupt_source",
+    "stream_limit_exceeded": "limit_exceeded",
+    "duration_limit_exceeded": "limit_exceeded",
+    "source_size_limit_exceeded": "limit_exceeded",
+    "source_missing": "source_missing",
+    "source_mismatch": "source_mismatch",
+}
+
+PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
+    "ru": {
+        "normalization_queued": "Аудио готовится автоматически",
+        "normalization_running": "Аудио готовится автоматически",
+        "normalization_publishing": "Завершаем подготовку аудио",
+        "normalization_retry_wait": (
+            "Подготовка занимает больше времени. GRAF продолжит автоматически"
+        ),
+        "reconciliation_pending": "GRAF автоматически восстанавливает подготовку аудио",
+        "canonical_artifact_missing": "GRAF автоматически восстанавливает аудио",
+        "canonical_ready": "Аудио готово",
+        "access_denied": "Аудио недоступно",
+        "empty_source": "В исходном файле нет данных",
+        "no_audio": "В файле нет пригодной аудиодорожки",
+        "ambiguous_audio_tracks": "В файле несколько равноправных аудиодорожек",
+        "unsupported_media": "Формат или кодек файла не поддерживается",
+        "encrypted_media": "Защищённый файл нельзя подготовить для воспроизведения",
+        "corrupt_source": "Файл повреждён и не может быть воспроизведён",
+        "limit_exceeded": "Файл превышает допустимые параметры",
+        "source_missing": "Исходный файл больше не хранится в GRAF",
+        "source_mismatch": "Целостность исходного файла не подтверждена",
+        "meeting_deleting": "Аудио удаляется",
+        "meeting_deleted": "Аудио удалено",
+        "audio_purged": "Аудио удалено",
+        "fallback": "Аудио недоступно",
+    },
+    "en": {
+        "normalization_queued": "Audio is being prepared automatically",
+        "normalization_running": "Audio is being prepared automatically",
+        "normalization_publishing": "Finishing audio preparation",
+        "normalization_retry_wait": (
+            "Preparation is taking longer. GRAF will continue automatically"
+        ),
+        "reconciliation_pending": "GRAF is automatically recovering audio preparation",
+        "canonical_artifact_missing": "GRAF is automatically recovering the audio",
+        "canonical_ready": "Audio is ready",
+        "access_denied": "Audio is unavailable",
+        "empty_source": "The source file is empty",
+        "no_audio": "The file has no usable audio track",
+        "ambiguous_audio_tracks": "The file has multiple equally valid audio tracks",
+        "unsupported_media": "The file format or codec is not supported",
+        "encrypted_media": "Protected media cannot be prepared for playback",
+        "corrupt_source": "The file is corrupt and cannot be played",
+        "limit_exceeded": "The file exceeds supported limits",
+        "source_missing": "The source file is no longer retained by GRAF",
+        "source_mismatch": "Source file integrity could not be confirmed",
+        "meeting_deleting": "Audio is being deleted",
+        "meeting_deleted": "Audio was deleted",
+        "audio_purged": "Audio was deleted",
+        "fallback": "Audio is unavailable",
+    },
+}
+
+
+def calendar_context_state_copy(state: str, *, locale: str = "ru") -> str:
+    language = locale if locale in CALENDAR_CONTEXT_STATE_COPY else "ru"
+    return CALENDAR_CONTEXT_STATE_COPY[language].get(
+        state,
+        CALENDAR_CONTEXT_STATE_COPY[language]["no_context"],
+    )
+
+
+def playback_terminal_reason(reason_code: str | None) -> PlaybackPreparationReasonCode:
+    return PLAYBACK_TERMINAL_REASON.get(reason_code or "", "unsupported_media")
+
+
+def playback_reason_copy(reason_code: str, *, locale: str = "ru") -> str:
+    language = locale if locale in PLAYBACK_REASON_COPY else "ru"
+    copy = PLAYBACK_REASON_COPY[language]
+    return copy.get(reason_code, copy["fallback"])
+
 
 PROCESSING_STATUSES = {
     ProcessingStatus.PENDING_PROCESSING.value,
@@ -106,11 +415,13 @@ PROCESSING_STATUSES = {
     ProcessingStatus.IMPORTING.value,
 }
 
-UNSAFE_TITLE_RE = re.compile(
-    r"https?://|www\.|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|token=|password|bearer\s|(?:^|[^A-Z0-9])sk-[A-Z0-9_-]{8,}|\b(?:[A-Z0-9-]+\.)+[A-Z]{2,}/[^\s<>'\"]+",
+GENERATED_MANUAL_UPLOAD_RE = re.compile(r"^manual[-_]upload(?:[-_][a-z0-9]+)+$", re.IGNORECASE)
+GENERATED_CAPTURE_TITLE_RE = re.compile(
+    r"^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)"
+    r"\s*-\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$",
     re.IGNORECASE,
 )
-
+AUTHORITATIVE_TITLE_SOURCES = frozenset({"user_confirmed", "calendar", "upload_provided"})
 CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "caldav_yandex": (
         "Яндекс Календарь",
@@ -152,7 +463,11 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
         "manual_url",
         "CalDAV доступ зависит от прав почтового ящика и сервера.",
     ),
-    "caldav_rupost": ("RuPost", "manual_url", "Синхронизация CalDAV зависит от конфигурации организации."),
+    "caldav_rupost": (
+        "RuPost",
+        "manual_url",
+        "Синхронизация CalDAV зависит от конфигурации организации.",
+    ),
     "caldav_nextcloud_sogo": (
         "Nextcloud / SOGo-like CalDAV",
         "manual_url",
@@ -190,6 +505,12 @@ CALENDAR_BOUNDARY_COPY = (
     "GRAF не меняет события календаря, не отправляет письма и не рассылает саммари. "
     "Участники календаря не получают доступ к записи автоматически. "
     "Данные для подключения хранятся на сервере GRAF; приложение на Mac не хранит пароль календаря."
+)
+
+CALENDAR_AUTO_CONTEXT_BOUNDARY_COPY = (
+    "Эти фильтры управляют подсказками и списком ближайших встреч. "
+    "Приватные события и события на весь день не используются для "
+    "автоматического контекста записи."
 )
 
 CALENDAR_BOUNDARY_ITEMS: tuple[tuple[str, str], ...] = (
@@ -330,9 +651,7 @@ class CalendarSettingsNoticeView:
 @dataclass(frozen=True)
 class CalendarDisconnectConfirmationView:
     title: str = "Отключить календарь?"
-    future_sync_copy: str = (
-        "Будущая синхронизация из этого источника остановится, и календарь перестанет влиять на подсказки."
-    )
+    future_sync_copy: str = "Будущая синхронизация из этого источника остановится, и календарь перестанет влиять на подсказки."
     credential_copy: str = (
         "Данные подключения будут удалены или отозваны там, где это контролирует GRAF."
     )
@@ -443,6 +762,7 @@ class CalendarSettingsSurfaceView:
     title: str
     subtitle: str
     read_only_boundary_copy: str
+    auto_context_boundary_copy: str
     boundary_items: tuple[CalendarBoundaryItemView, ...]
     forbidden_action_labels: tuple[str, ...]
     notices: tuple[CalendarSettingsNoticeView, ...]
@@ -549,7 +869,7 @@ def calendar_settings_surface(
     preview_events: Iterable[CalendarEventSnapshot] = (),
     notice_codes: Iterable[str] = (),
     now: datetime | None = None,
-    ) -> CalendarSettingsSurfaceView:
+) -> CalendarSettingsSurfaceView:
     calendars_by_source = calendars_by_source or {}
     source_rows = tuple(sources)
     preferences = calendar_settings_preferences_view(preference)
@@ -574,14 +894,13 @@ def calendar_settings_surface(
         for calendars in calendars_by_source.values()
         for calendar in calendars
     }
-    has_selected_calendar = any(
-        source.selected_calendar_count > 0 for source in rendered_sources
-    )
+    has_selected_calendar = any(source.selected_calendar_count > 0 for source in rendered_sources)
     return CalendarSettingsSurfaceView(
         breadcrumb=("Настройки", "Интеграции", "Календари"),
         title="Календари",
         subtitle="Подключите источник, выберите календари и получите подсказку перед встречей.",
         read_only_boundary_copy=CALENDAR_BOUNDARY_COPY,
+        auto_context_boundary_copy=CALENDAR_AUTO_CONTEXT_BOUNDARY_COPY,
         boundary_items=calendar_boundary_items(),
         forbidden_action_labels=CALENDAR_FORBIDDEN_ACTION_LABELS,
         notices=calendar_settings_notices(notice_codes),
@@ -787,7 +1106,9 @@ def calendar_sync_recovery_label(state: str) -> str:
         "failed_closed": "Проверьте подключение или переподключите источник.",
         "disconnected": "Подключите источник заново.",
     }
-    return labels.get(state, "Если встреч не видно, запустите синхронизацию или переподключите источник.")
+    return labels.get(
+        state, "Если встреч не видно, запустите синхронизацию или переподключите источник."
+    )
 
 
 def safe_calendar_error_message(code: str | None) -> str | None:
@@ -1022,37 +1343,112 @@ class CabinetNavigationItem:
     label: str
     href: str
     icon: str
-    enabled: bool = True
-    count: int | None = None
 
 
 @dataclass(frozen=True)
 class CabinetNavigationModel:
     active: str
     items: tuple[CabinetNavigationItem, ...]
-    workspace_title: str = "Личный"
-    workspace_subtitle: str = ""
 
 
 def cabinet_navigation(
-    *, active: str = "meetings", pending_actions: int = 6, embedded: bool = False
+    *, active: str = "meetings", embedded: bool = False
 ) -> CabinetNavigationModel:
     meetings_href = "/desktop/meetings" if embedded else "/meetings"
-    settings_href = (
-        "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
-    )
+    shared_with_me_href = "/desktop/shared-with-me" if embedded else "/shared-with-me"
+    settings_href = "/desktop/settings" if embedded else "/settings"
     items = (
-        CabinetNavigationItem("search", "Поиск", "#", "search", enabled=False),
         CabinetNavigationItem("meetings", "Мои встречи", meetings_href, "calendar-days"),
-        CabinetNavigationItem("shared", "Общие", "#", "users-round", enabled=False),
-        CabinetNavigationItem("actions", "Действия", "#", "list-checks", enabled=False, count=pending_actions),
-        CabinetNavigationItem("activity", "Активность", "#", "activity", enabled=False),
+        CabinetNavigationItem(
+            "shared-with-me", "Поделились со мной", shared_with_me_href, "users-round"
+        ),
         CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
     )
-    enabled_ids = {item.id for item in items if item.enabled}
+    item_ids = {item.id for item in items}
     return CabinetNavigationModel(
-        active=active if active in enabled_ids else "meetings",
+        active=active if active in item_ids else "meetings",
         items=items,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SharedWithMeMeetingItem:
+    title: str
+    time_label: str
+    duration_label: str
+    status_label: str
+    access_label: str
+    href: str
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsCategoryView:
+    id: str
+    label: str
+    scope_label: str
+    href: str
+    group_label: str
+    icon: str
+
+
+def settings_category_navigation(
+    *,
+    embedded: bool = False,
+    active: str = "overview",
+) -> tuple[SettingsCategoryView, ...]:
+    base = "/desktop/settings" if embedded else "/settings"
+    definitions = (
+        (
+            "recording",
+            "Запись",
+            "На этом Mac",
+            "/recording",
+            "Встречи",
+            "video",
+        ),
+        (
+            "summaries",
+            "Итоги",
+            "В этом пространстве",
+            "/summaries",
+            "Встречи",
+            "transcript",
+        ),
+        (
+            "calendar",
+            "Календари",
+            "Личная настройка",
+            "/integrations/calendar",
+            "Встречи",
+            "calendar-days",
+        ),
+        (
+            "workspace",
+            "Пространство",
+            "В этом пространстве",
+            "/workspace",
+            "Рабочее пространство",
+            "users-round",
+        ),
+        (
+            "account",
+            "Аккаунт и безопасность",
+            "Личная настройка",
+            "/account",
+            "Аккаунт",
+            "settings",
+        ),
+    )
+    return tuple(
+        SettingsCategoryView(
+            id=category_id,
+            label=label,
+            scope_label=scope_label,
+            href=base + suffix,
+            group_label=group_label,
+            icon=icon,
+        )
+        for category_id, label, scope_label, suffix, group_label, icon in definitions
     )
 
 
@@ -1062,6 +1458,8 @@ def source_role_label(source_role: str | None) -> SourceRoleView:
         return "local_microphone"
     if normalized in {"incoming", "system", "incoming_system"}:
         return "incoming_system"
+    if normalized in {"mixed", "media", "canonical_mixed"}:
+        return "canonical_mixed"
     return "unknown"
 
 
@@ -1078,42 +1476,186 @@ def format_duration(seconds: int) -> str:
     minutes, second = divmod(max(0, seconds), 60)
     hours, minutes = divmod(minutes, 60)
     if hours:
-        return f"{hours}h {minutes}m"
+        return f"{hours} ч {minutes} мин" if minutes else f"{hours} ч"
     if minutes:
-        return f"{minutes}m"
-    return f"{second}s"
+        return f"{minutes} мин"
+    return f"{second} с"
 
 
 def date_label(item: MeetingListItem) -> str:
     if item.started_at is None:
         return "Без даты"
-    started_at = (
-        item.started_at
-        if item.started_at.tzinfo is not None
-        else item.started_at.replace(tzinfo=UTC)
+    return short_date_label(
+        item.started_at,
+        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
     )
-    offset = item.recording_display_timezone_offset_minutes
-    if offset is not None and -14 * 60 <= offset <= 14 * 60:
-        started_at = started_at.astimezone(timezone(timedelta(minutes=offset)))
-    months = {
-        1: "янв",
-        2: "фев",
-        3: "мар",
-        4: "апр",
-        5: "май",
-        6: "июн",
-        7: "июл",
-        8: "авг",
-        9: "сен",
-        10: "окт",
-        11: "ноя",
-        12: "дек",
-    }
-    return f"{started_at.day} {months[started_at.month]}"
+
+
+def meeting_list_time_label(
+    value: datetime | None,
+    *,
+    timezone_offset_minutes: int | None,
+    time_basis: MeetingListTimeBasis,
+) -> str:
+    if value is None:
+        return "Без даты"
+    localized = _localized_datetime(
+        value,
+        timezone_offset_minutes=timezone_offset_minutes,
+    )
+    prefix = "Обновлено " if time_basis == "updated" else ""
+    return f"{prefix}{localized.day} {SHORT_MONTH_LABELS[localized.month]}, {localized:%H:%M}"
+
+
+def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasis) -> str:
+    value = item.updated_at if time_basis == "updated" else item.started_at
+    return meeting_list_time_label(
+        value,
+        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
+        time_basis=time_basis,
+    )
+
+
+def _localized_datetime(
+    value: datetime,
+    *,
+    timezone_offset_minutes: int | None,
+) -> datetime:
+    localized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if timezone_offset_minutes is not None and -14 * 60 <= timezone_offset_minutes <= 14 * 60:
+        localized = localized.astimezone(timezone(timedelta(minutes=timezone_offset_minutes)))
+    return localized
+
+
+def short_date_label(
+    value: datetime,
+    *,
+    timezone_offset_minutes: int | None = None,
+) -> str:
+    localized = _localized_datetime(
+        value,
+        timezone_offset_minutes=timezone_offset_minutes,
+    )
+    return f"{localized.day} {SHORT_MONTH_LABELS[localized.month]}"
+
+
+def normalize_meeting_list_sort(
+    sort: str | None,
+    *,
+    fallback: str = "started_desc",
+) -> str:
+    normalized_fallback = fallback if fallback in SORT_LABELS else "started_desc"
+    return sort if sort in SORT_LABELS else normalized_fallback
 
 
 def sort_label(sort: str) -> str:
     return SORT_LABELS.get(sort, SORT_LABELS["updated_desc"])
+
+
+def meeting_list_row_presentation(
+    item: MeetingListItem,
+    *,
+    time_basis: MeetingListTimeBasis,
+) -> MeetingListRowPresentation:
+    time = meeting_time_label(item, time_basis=time_basis)
+    status_kind, status_copy, progress = _meeting_list_compact_status(item)
+    source_title = item.title.strip()
+    title = source_title or "Запись"
+    open_name = f"Открыть встречу {title}"
+    if title in {"Запись", "Загруженная запись"}:
+        open_name = f"{open_name}, {time}"
+    return MeetingListRowPresentation(
+        display_title=title,
+        duration_label=format_duration(item.duration_seconds),
+        time_label=time,
+        media_kind=meeting_media_kind(item),
+        media_label=meeting_media_label(item),
+        status_kind=status_kind,
+        status_label=status_copy,
+        progress_percent=progress,
+        open_accessible_name=open_name,
+        content_readiness_label=_meeting_list_content_readiness(item),
+    )
+
+
+def _meeting_list_content_readiness(item: MeetingListItem) -> str | None:
+    if item.primary_action != "open" and item.status not in {"ready", "partial"}:
+        return None
+    transcript_ready = item.transcript_available
+    outcomes_ready = item.notes_action_truth.source_basis == "stored_output"
+    if transcript_ready and outcomes_ready:
+        return "Расшифровка и итоги готовы"
+    if transcript_ready:
+        outcome_copy = (
+            "итоги готовятся"
+            if item.notes_action_truth.source_basis in {"processing_status", "policy_deferral"}
+            else "итоги недоступны"
+        )
+        return f"Расшифровка готова · {outcome_copy}"
+    if outcomes_ready:
+        return "Итоги готовы · расшифровка недоступна"
+    return "Расшифровка и итоги пока недоступны"
+
+
+def _meeting_list_compact_status(
+    item: MeetingListItem,
+) -> tuple[
+    str | None,
+    str | None,
+    int | None,
+]:
+    presentation_status = meeting_list_presentation_status(item)
+    if presentation_status == "deleted_future":
+        return "deleting", "Удаляется", None
+    if presentation_status in {"blocked", "failed", "unavailable"}:
+        return "failed", "Не удалось обработать", None
+    upload = item.upload
+    if item.calendar_context is not None and item.calendar_context.needs_owner_action:
+        return "calendar_choice", "Нужен выбор", None
+    if presentation_status == "local_only":
+        return "saved_local", "Сохранено на Mac", None
+
+    if upload is not None and upload.is_active:
+        progress = upload.progress_percent
+        trustworthy = (
+            progress is not None
+            and 0 <= progress < 100
+            and upload.total_bytes > 0
+            and 0 <= upload.uploaded_bytes <= upload.total_bytes
+        )
+        if trustworthy:
+            return (
+                "uploading_measured",
+                f"Отправляем {progress}%",
+                progress,
+            )
+        return "uploading", "Отправляем", None
+    if presentation_status == "uploading":
+        return "uploading", "Отправляем", None
+    if presentation_status in {"submitted", "processing"}:
+        return "processing", "Обрабатывается", None
+
+    openable = item.primary_action == "open" or presentation_status in {"ready", "partial"}
+    if openable and item.playback.state == "preparing":
+        return "audio_preparing", "Аудио готовится", None
+    if openable and item.playback.state in {"unavailable", "deleting", "deleted"}:
+        return "without_audio", "Без аудио", None
+    if presentation_status == "partial":
+        return "limited", "Готово с ограничениями", None
+    return None, None, None
+
+
+def meeting_list_presentation_status(item: MeetingListItem) -> MeetingReviewStatus:
+    if item.status == "deleted_future":
+        return item.status
+    if item._presentation_meeting_status in {
+        MeetingStatus.ABORTED.value,
+        MeetingStatus.EXPIRED.value,
+    }:
+        return "failed"
+    if item.upload is not None and item.upload.status in {"failed", "aborted", "expired"}:
+        return "failed"
+    return item.status
 
 
 def meeting_media_kind(item: MeetingListItem) -> str:
@@ -1143,19 +1685,76 @@ def meeting_media_label(item: MeetingListItem) -> str:
     }[meeting_media_kind(item)]
 
 
-def safe_title(meeting: Meeting) -> str:
-    for candidate in (meeting.title, meeting.local_recording_id):
-        title = safe_title_candidate(candidate)
-        if title:
-            return title
-    return "Untitled meeting"
+def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
+    title = safe_title_candidate(meeting.title)
+    projected = safe_title(meeting, source=source)
+    if title is None:
+        return projected if projected == "Загруженная запись" else "Запись"
+    if (
+        meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
+        and GENERATED_CAPTURE_TITLE_RE.fullmatch(title)
+    ):
+        return "Запись"
+    if (
+        projected == "Запись без названия"
+        and meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
+    ):
+        return "Запись"
+    if (
+        meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
+        and MEDIA_FILENAME_EXTENSION_RE.search(title)
+    ):
+        return _clean_file_title(title)
+    return projected
+
+
+def safe_title(meeting: Meeting, *, source: str | None = None) -> str:
+    title = safe_title_candidate(meeting.title)
+    if title:
+        if meeting.title_source in AUTHORITATIVE_TITLE_SOURCES:
+            return _authoritative_title(title)
+        if GENERATED_MANUAL_UPLOAD_RE.fullmatch(title):
+            return "Загруженная запись"
+        if GENERATED_CAPTURE_TITLE_RE.fullmatch(title):
+            return _generated_recording_title(meeting) or "Запись без названия"
+        if LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSION_RE.search(title):
+            return _clean_legacy_file_title(title)
+        return media_filename_leaf(title) or "Запись без названия"
+
+    if source == "manual_upload" or GENERATED_MANUAL_UPLOAD_RE.fullmatch(
+        meeting.local_recording_id or ""
+    ):
+        return "Загруженная запись"
+    return _generated_recording_title(meeting) or "Запись без названия"
+
+
+def _authoritative_title(title: str) -> str:
+    if title.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:[/\\]", title):
+        return re.split(r"[/\\]", title)[-1].strip() or "Запись без названия"
+    return title
+
+
+def _clean_file_title(title: str) -> str:
+    return clean_media_filename_title(title) or "Загруженная запись"
+
+
+def _clean_legacy_file_title(title: str) -> str:
+    return clean_legacy_serialized_media_filename_title(title) or "Загруженная запись"
+
+
+def _generated_recording_title(meeting: Meeting) -> str | None:
+    started_at = meeting.started_at
+    if started_at is None:
+        return None
+    started_at = _localized_datetime(
+        started_at,
+        timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
+    )
+    return f"Запись {started_at.day} {SHORT_MONTH_LABELS[started_at.month]}, {started_at:%H:%M}"
 
 
 def safe_title_candidate(raw: str | None) -> str | None:
-    title = "".join(char for char in (raw or "").strip() if char >= " " and char != "\x7f").strip()
-    if not title or UNSAFE_TITLE_RE.search(title):
-        return None
-    return title[:500]
+    return safe_metadata_text(raw, max_length=500)
 
 
 def transcript_available(result: ProcessingResult | None) -> bool:
@@ -1165,6 +1764,36 @@ def transcript_available(result: ProcessingResult | None) -> bool:
         and result.transcript_status == ProcessingAvailabilityStatus.AVAILABLE.value
         and result.segment_count > 0
     )
+
+
+def previous_recurring_meeting_readiness(
+    meeting: Meeting,
+    *,
+    result: ProcessingResult | None,
+    outcome_set: MeetingOutcomeSet | None,
+) -> PreviousRecurringMeetingReadiness:
+    """Project only bounded artifact readiness for an authorized predecessor."""
+
+    notes_ready = bool(
+        result is not None and result.summary_status == SummaryStatus.AVAILABLE.value
+    ) or bool(
+        outcome_set is not None
+        and outcome_set.lifecycle_state == "active"
+        and outcome_set.status in {"completed", "ready"}
+        and outcome_set.summary_state == "available"
+    )
+    if notes_ready:
+        return PreviousRecurringMeetingReadiness.NOTES_READY
+    if transcript_available(result):
+        return PreviousRecurringMeetingReadiness.TRANSCRIPT_READY
+    if review_status(meeting, result=result, workflow=None) in {
+        "uploading",
+        "submitted",
+        "processing",
+        "partial",
+    }:
+        return PreviousRecurringMeetingReadiness.PROCESSING
+    return PreviousRecurringMeetingReadiness.UNAVAILABLE
 
 
 def diarization_available(result: ProcessingResult | None) -> bool:
@@ -1182,7 +1811,7 @@ def review_status(
     result: ProcessingResult | None,
     workflow: ProcessingWorkflow | None,
 ) -> MeetingReviewStatus:
-    if (meeting.deletion_state or DeletionState.NONE.value) != DeletionState.NONE.value:
+    if meeting_is_deleted_or_deleting(meeting):
         return "deleted_future"
     has_transcript = transcript_available(result)
     has_diarization = diarization_available(result)
@@ -1220,6 +1849,8 @@ def governance_summary(
     *,
     access: MeetingAccessState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
+    content_exports: ContentExportCapabilityResponse | None = None,
+    can_delete: bool = False,
 ) -> GovernanceActionSummary:
     access = access or owner_access_state()
     artifacts = artifacts or []
@@ -1228,10 +1859,16 @@ def governance_summary(
         and artifact.state == "available"
         for artifact in artifacts
     )
-    export_available = any(
+    canonical_export_available = content_exports is not None and (
+        content_exports.transcript.state == "available"
+        or content_exports.summary.state in {"available", "partial"}
+        or content_exports.combined.state == "available"
+    )
+    package_export_available = any(
         artifact.artifact_class == "package" and artifact.state == "available"
         for artifact in artifacts
     )
+    export_available = canonical_export_available or package_export_available
     return GovernanceActionSummary(
         share=GovernanceActionState(
             state="available" if access.can_share else "disabled",
@@ -1243,10 +1880,12 @@ def governance_summary(
         ),
         export=GovernanceActionState(
             state="available" if export_available and access.can_export else "disabled",
-            label="Export package",
-            reason="Includes only currently policy-allowed artifacts."
+            label="Экспортировать…" if canonical_export_available else "Export package",
+            reason="Canonical revision-pinned export is available."
+            if canonical_export_available and access.can_export
+            else "A policy-allowed export package is available."
             if export_available and access.can_export
-            else "No policy-allowed export package is available.",
+            else "No policy-allowed canonical content export is available.",
             destructive=False,
         ),
         download=GovernanceActionState(
@@ -1264,9 +1903,13 @@ def governance_summary(
             destructive=False,
         ),
         delete=GovernanceActionState(
-            state="planned",
-            label="Delete this meeting everywhere GRAF controls",
-            reason="Planned; this does not promise deletion outside GRAF control.",
+            state="available" if can_delete and access.state == "owner" else "disabled",
+            label="Удалить встречу…",
+            reason="Deletes meeting artifacts everywhere GRAF controls; retained observability remains."
+            if can_delete and access.state == "owner"
+            else "Deletion is available in the authorized meeting detail with the GRAF-controlled scope."
+            if access.state == "owner"
+            else "Only the meeting owner can delete this meeting.",
             destructive=True,
         ),
     )
@@ -1285,6 +1928,50 @@ def slot_state(label: str) -> SlotState:
     return SlotState(state="planned", label=label, reason="Planned for a later feature slice.")
 
 
+def summary_template_slot(
+    outcome_set: MeetingOutcomeSet | None,
+    *,
+    personal_name: str | None = None,
+    default_template_key: str = "graf-auto-v1",
+    default_template_name: str | None = None,
+) -> SlotState:
+    template_key = (
+        outcome_set.template_key
+        if outcome_set is not None and outcome_set.template_key
+        else default_template_key
+    )
+    definition = built_in_template_for_version(
+        template_key,
+        outcome_set.template_version
+        if outcome_set is not None and outcome_set.template_version is not None
+        else 1,
+    )
+    return SlotState(
+        state="available",
+        label=(
+            definition.name
+            if definition is not None
+            else personal_name or default_template_name or "Личный формат"
+        ),
+        reason=template_key,
+        template_id=outcome_set.template_id if outcome_set is not None else None,
+        version=(
+            outcome_set.template_version
+            if outcome_set is not None and outcome_set.template_version is not None
+            else definition.version
+            if definition is not None
+            else None
+        ),
+        template_version=(
+            outcome_set.template_version
+            if outcome_set is not None and outcome_set.template_version is not None
+            else definition.version
+            if definition is not None
+            else None
+        ),
+    )
+
+
 def build_list_item(
     meeting: Meeting,
     *,
@@ -1296,21 +1983,25 @@ def build_list_item(
     outcome_set: MeetingOutcomeSet | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
     upload: MeetingUploadProgressState | None = None,
+    calendar_context: RecordingCalendarContextLink | None = None,
+    previous_recurring_meeting: PreviousRecurringMeetingView | None = None,
+    playback: PlaybackPreparationState | None = None,
 ) -> MeetingListItem:
     status = review_status(meeting, result=result, workflow=workflow)
+    source = meeting_source(media_revision)
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
     notes_truth = notes_action_truth_state(
         status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
     )
-    return MeetingListItem(
+    item = MeetingListItem(
         meeting_id=meeting.id,
-        title=safe_title(meeting),
+        title=safe_title(meeting, source=source),
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
         recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
         duration_seconds=max(0, meeting.duration_seconds),
-        source=_meeting_source(media_revision),
+        source=source,
         status=status,
         status_label=STATUS_LABELS[status],
         status_reason=workflow.last_reason_code
@@ -1329,6 +2020,65 @@ def build_list_item(
         governance=governance_summary(access=access_state, artifacts=artifact_states),
         future_slots=future_slots(),
         upload=upload,
+        calendar_context=calendar_context_summary(
+            calendar_context,
+            meeting_title_source=meeting.title_source,
+            owner_actions=access_state.state == "owner",
+            public_projection=True,
+        ),
+        previous_recurring_meeting=previous_recurring_meeting,
+        playback=playback or PlaybackPreparationState(),
+    )
+    item._presentation_meeting_status = meeting.status
+    return item
+
+
+def calendar_context_summary(
+    context: RecordingCalendarContextLink | None,
+    *,
+    meeting_title_source: str | None,
+    owner_detail: bool = False,
+    owner_actions: bool = False,
+    public_projection: bool = False,
+) -> MeetingCalendarContextSummary | None:
+    if context is None:
+        return None
+    context_state = context.context_state
+    matched_states = {"matched_auto", "matched_user", "legacy_linked"}
+    owner_list_states = {"ambiguous", "declined_by_user", "cleared_by_user"}
+    if (
+        public_projection
+        and not owner_detail
+        and context_state not in matched_states | (owner_list_states if owner_actions else set())
+    ):
+        context_state = "no_context"
+    accepted_title_sources = {
+        "user_confirmed",
+        "calendar",
+        "app_context",
+        "generic",
+        "upload_provided",
+        "file_name_derived",
+        "legacy_unknown",
+    }
+    title_source = meeting_title_source if meeting_title_source in accepted_title_sources else None
+    label = (
+        "Подобрано автоматически"
+        if owner_detail and context_state == "matched_auto"
+        else calendar_context_state_copy(context_state)
+        if context_state in CALENDAR_CONTEXT_STATE_COPY["ru"]
+        else "Без контекста календаря"
+    )
+    return MeetingCalendarContextSummary(
+        state=context_state,
+        label=label,
+        reason_label=(
+            CALENDAR_CONTEXT_OWNER_REASON_LABELS.get(context.safe_reason_code)
+            if owner_detail
+            else None
+        ),
+        title_source=title_source,
+        needs_owner_action=(owner_detail or owner_actions) and context.context_state == "ambiguous",
     )
 
 
@@ -1344,7 +2094,7 @@ def primary_action_for_status(status: MeetingReviewStatus) -> str:
     return "unavailable"
 
 
-def _meeting_source(media_revision: MediaRevision | None) -> str:
+def meeting_source(media_revision: MediaRevision | None) -> str:
     if (
         media_revision is not None
         and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
@@ -1370,7 +2120,11 @@ def processing_state(
     summary_available = bool(
         result is not None and result.summary_status == SummaryStatus.AVAILABLE.value
     )
-    reason_code = workflow.last_reason_code if workflow is not None and status in {"blocked", "failed"} else None
+    reason_code = (
+        workflow.last_reason_code
+        if workflow is not None and status in {"blocked", "failed"}
+        else None
+    )
     if reason_code is None and result is not None and not has_transcript:
         reason_code = result.failure_reason
     return ProcessingReviewState(
@@ -1385,7 +2139,7 @@ def processing_state(
         diarization_available=has_diarization,
         summary_available=summary_available,
         updated_at=(workflow.updated_at if workflow is not None else meeting.updated_at),
-        next_action=next_action_for_status(status),
+        next_action=next_action_for_status(status, reason_code=reason_code),
     )
 
 
@@ -1407,12 +2161,22 @@ def stage_for_status(status: str, lifecycle_status: str) -> str | None:
     return None
 
 
-def next_action_for_status(status: str) -> str:
+def next_action_for_status(status: str, *, reason_code: str | None = None) -> str:
     if status in {"processing", "submitted", "uploading"}:
         return "wait"
     if status == "blocked":
         return "contact_operator"
     if status == "failed":
+        if reason_code in {
+            "mediascribe_timeout",
+            "mediascribe_rate_limited",
+            "mediascribe_server_error",
+            "mediascribe_submission_in_progress",
+            "mediascribe_result_not_ready",
+            "processing_temp_storage_unavailable",
+            "unknown_dependency_status",
+        }:
+            return "retry_future"
         return "contact_operator"
     if status == "local_only":
         return "open_desktop_queue"
@@ -1425,9 +2189,23 @@ def reason_label(reason_code: str | None) -> str | None:
     return {
         "no_recognizable_speech": "MediaScribe обработал запись, но транскрипт не создан: распознаваемая речь не найдена.",
         "invalid_audio_payload": "Файл записи не является декодируемым аудио или поврежден.",
-        "mediascribe_validation_failed": "Transcription service could not accept this media file.",
-        "blocked_config": "Processing is blocked by server configuration.",
-    }.get(reason_code, "Processing needs operator review.")
+        "mediascribe_validation_failed": "Сервис транскрипции отклонил файл: проверьте формат и повторите обработку.",
+        "mediascribe_payload_too_large": "Файл записи превышает допустимый размер.",
+        "mediascribe_auth_failed": "Сервис транскрипции отклонил доступ; повторить можно после проверки настройки сервера.",
+        "mediascribe_malformed_response": "Сервис транскрипции вернул некорректный ответ. Повторите обработку; если ошибка повторится, обратитесь к оператору.",
+        "mediascribe_timeout": "Сервис транскрипции не ответил вовремя. Повторная попытка будет выполнена автоматически.",
+        "mediascribe_rate_limited": "Сервис транскрипции временно ограничил запросы. Повторите позже.",
+        "mediascribe_server_error": "Сервис транскрипции временно недоступен. Повторите позже.",
+        "mediascribe_retries_exhausted": "Сервис транскрипции не восстановился после нескольких попыток. Повторите позже или обратитесь к оператору.",
+        "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
+        "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
+        "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
+        "blocked_mediascribe_submission_outcome_unknown": "Не удалось подтвердить результат отправки записи. Повторная отправка остановлена во избежание дубликата; обратитесь к оператору.",
+        "blocked_missing_artifacts": "Исходный файл записи недоступен. Повторите синхронизацию или загрузите запись заново.",
+        "blocked_config": "Обработка заблокирована настройкой сервера. Обратитесь к оператору.",
+        "processing_temp_storage_unavailable": "На сервере временно недоступно место для обработки. Повторите позже.",
+        "unknown_dependency_status": "Сервис транскрипции вернул неизвестный статус. Повторите позже.",
+    }.get(reason_code, "Обработка требует проверки оператором.")
 
 
 def transcript_state(
@@ -1439,9 +2217,12 @@ def transcript_state(
     playback_available: bool = False,
     playback_duration_seconds: int | None = None,
     force_speaker_labels: bool = False,
+    speaker_names: dict[str, str] | None = None,
 ) -> TranscriptReviewState:
     transcripts = sorted(transcript_segments, key=lambda row: (row.sequence, row.start_seconds))
-    diarization_rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
+    diarization_rows = sorted(
+        diarization_segments, key=lambda row: (row.start_seconds, row.sequence)
+    )
     diarization_display_rows = [row for row in diarization_rows if row.text.strip()]
     if status not in {"ready", "partial"}:
         return TranscriptReviewState(
@@ -1454,6 +2235,7 @@ def transcript_state(
             segments=[],
         )
     speaker_labels_by_key = canonical_speaker_labels(diarization_rows)
+    speaker_names = speaker_names or {}
     if force_speaker_labels and diarization_display_rows:
         return diarization_transcript_state(
             language=language,
@@ -1462,6 +2244,7 @@ def transcript_state(
             status=status,
             playback_available=playback_available,
             playback_duration_seconds=playback_duration_seconds,
+            speaker_names=speaker_names,
         )
     if not transcripts:
         return TranscriptReviewState(
@@ -1472,29 +2255,62 @@ def transcript_state(
             segments=[],
         )
     segments = []
+    mapped_rows: list[tuple[TranscriptSegmentView, bool]] = []
     for segment in transcripts:
         seek_seconds = _seek_seconds(
             segment.start_seconds,
             playback_available=playback_available,
             playback_duration_seconds=playback_duration_seconds,
         )
-        segments.append(
-            TranscriptSegmentView(
-                segment_id=str(segment.id),
-                sequence=segment.sequence,
-                start_seconds=float(segment.start_seconds),
-                end_seconds=float(segment.end_seconds),
-                timestamp_label=format_timestamp(segment.start_seconds),
-                speaker_label=speaker_label_for_segment(
-                    segment,
-                    matching_diarization_segment(segment, diarization_rows),
-                    speaker_labels_by_key=speaker_labels_by_key,
-                ),
-                source_role=source_role_label(segment.source_role),
-                text=segment.text,
-                confidence_label="unknown",
-                seekable=seek_seconds is not None,
-                seek_seconds=seek_seconds,
+        matching_diarization = matching_diarization_segment(segment, diarization_rows)
+        confirmed = matching_diarization is not None and bool(
+            matching_diarization.speaker_label.strip()
+        )
+        attribution_state = (
+            "confirmed"
+            if confirmed
+            else ("unconfirmed" if matching_diarization is not None else "unknown")
+        )
+        canonical_label = (
+            speaker_label_for_segment(
+                segment,
+                matching_diarization,
+                speaker_labels_by_key=speaker_labels_by_key,
+            )
+            if confirmed
+            else "UNKNOWN"
+        )
+        speaker_key = (
+            canonical_label.lower()
+            if confirmed
+            else (
+                f"unconfirmed:{matching_diarization.id}"
+                if matching_diarization is not None
+                else f"unknown:{segment.id}"
+            )
+        )
+        view = TranscriptSegmentView(
+            segment_id=str(segment.id),
+            sequence=segment.sequence,
+            start_seconds=float(segment.start_seconds),
+            end_seconds=float(segment.end_seconds),
+            timestamp_label=format_timestamp(segment.start_seconds),
+            speaker_label=speaker_names.get(speaker_key, canonical_label),
+            speaker_key=speaker_key,
+            attribution_state=attribution_state,
+            processing_result_id=segment.processing_result_id,
+            source_role=source_role_label(segment.source_role),
+            source_role_original=segment.source_role_original,
+            text=segment.text,
+            confidence_label="unknown",
+            seekable=seek_seconds is not None,
+            seek_seconds=seek_seconds,
+        )
+        segments.append(view)
+        mapped_rows.append(
+            (
+                view,
+                confirmed,
             )
         )
     return TranscriptReviewState(
@@ -1503,6 +2319,7 @@ def transcript_state(
         degraded_reason=None if status == "ready" else "partial_transcript",
         search_enabled=True,
         segments=segments,
+        speaker_turns=derive_speaker_turns(mapped_rows) if status == "ready" else [],
     )
 
 
@@ -1514,13 +2331,17 @@ def diarization_transcript_state(
     status: MeetingReviewStatus,
     playback_available: bool,
     playback_duration_seconds: int | None,
+    speaker_names: dict[str, str] | None = None,
 ) -> TranscriptReviewState:
     speaker_labels = mediascribe_speaker_labels_by_time(
         diarization_rows,
         speaker_rows,
     )
+    speaker_names = speaker_names or {}
     segments = []
-    for row, speaker_label in zip(diarization_rows, speaker_labels, strict=True):
+    for row, canonical_label in zip(diarization_rows, speaker_labels, strict=True):
+        confirmed = canonical_label != "UNKNOWN"
+        speaker_key = canonical_label.lower() if confirmed else f"unconfirmed:{row.id}"
         seek_seconds = _seek_seconds(
             row.start_seconds,
             playback_available=playback_available,
@@ -1533,8 +2354,12 @@ def diarization_transcript_state(
                 start_seconds=float(row.start_seconds),
                 end_seconds=float(row.end_seconds),
                 timestamp_label=format_timestamp(row.start_seconds),
-                speaker_label=speaker_label,
+                speaker_label=speaker_names.get(speaker_key, canonical_label),
+                speaker_key=speaker_key,
+                attribution_state="confirmed" if confirmed else "unconfirmed",
+                processing_result_id=row.processing_result_id,
                 source_role=source_role_label(row.source_role),
+                source_role_original=row.source_role,
                 text=row.text,
                 confidence_label="unknown",
                 seekable=seek_seconds is not None,
@@ -1547,7 +2372,109 @@ def diarization_transcript_state(
         degraded_reason=None if status == "ready" else "partial_transcript",
         search_enabled=True,
         segments=segments,
+        speaker_turns=(
+            derive_speaker_turns(
+                [(view, view.attribution_state == "confirmed") for view in segments]
+            )
+            if status == "ready"
+            else []
+        ),
     )
+
+
+def canonical_turn_id(processing_result_id: UUID | None, segment_ids: Iterable[str]) -> str:
+    source_ids = tuple(segment_ids)
+    if processing_result_id is None:
+        return source_ids[0]
+    digest = hashlib.sha256(f"{processing_result_id}:{','.join(source_ids)}".encode()).hexdigest()[
+        :24
+    ]
+    return f"turn_{digest}"
+
+
+def derive_speaker_turns(
+    rows: list[tuple[TranscriptSegmentView, bool]],
+) -> list[TranscriptSpeakerTurnView]:
+    turns: list[TranscriptSpeakerTurnView] = []
+    current: list[TranscriptSegmentView] = []
+    valid_rows = [
+        row for row, _ in rows if row.start_seconds >= 0 and row.end_seconds >= row.start_seconds
+    ]
+    overlap_ids: set[str] = set()
+    timeline_rows = sorted(
+        valid_rows,
+        key=lambda row: (row.start_seconds, row.end_seconds, row.sequence, row.segment_id),
+    )
+    longest: TranscriptSegmentView | None = None
+    for row in timeline_rows:
+        if (
+            longest is not None
+            and row.start_seconds < longest.end_seconds
+            and longest.start_seconds < row.end_seconds
+        ):
+            overlap_ids.update((longest.segment_id, row.segment_id))
+        if longest is None or row.end_seconds > longest.end_seconds:
+            longest = row
+
+    def flush() -> None:
+        if not current or not any(row.text.strip() for row in current):
+            current.clear()
+            return
+        first = current[0]
+        last = current[-1]
+        turns.append(
+            TranscriptSpeakerTurnView(
+                turn_id=canonical_turn_id(
+                    first.processing_result_id,
+                    (row.segment_id for row in current),
+                ),
+                sequence=first.sequence,
+                start_seconds=first.start_seconds,
+                end_seconds=last.end_seconds,
+                timestamp_label=first.timestamp_label,
+                speaker_label=first.speaker_label,
+                speaker_key=first.speaker_key,
+                attribution_state=first.attribution_state,
+                processing_result_id=first.processing_result_id,
+                source_role=first.source_role,
+                text=" ".join(row.text.strip() for row in current if row.text.strip()),
+                source_segment_ids=[row.segment_id for row in current],
+                overlap=any(row.segment_id in overlap_ids for row in current),
+                confidence_label=first.confidence_label,
+                seekable=first.seekable,
+                seek_seconds=first.seek_seconds,
+            )
+        )
+        current.clear()
+
+    for row, confirmed in rows:
+        if row.start_seconds < 0 or row.end_seconds < row.start_seconds:
+            flush()
+            continue
+        if confirmed and row.attribution_state == "unknown":
+            row = row.model_copy(update={"attribution_state": "confirmed"})
+        if not current:
+            current.append(row)
+            continue
+        previous = current[-1]
+        gap = Decimal(str(row.start_seconds)) - Decimal(str(previous.end_seconds))
+        if (
+            row.speaker_key == previous.speaker_key
+            and row.attribution_state == "confirmed"
+            and previous.attribution_state == "confirmed"
+            and (row.source_role_original or row.source_role)
+            == (previous.source_role_original or previous.source_role)
+            and row.processing_result_id == previous.processing_result_id
+            and row.segment_id not in overlap_ids
+            and previous.segment_id not in overlap_ids
+            and Decimal("0") <= gap <= Decimal("1")
+        ):
+            current.append(row)
+            continue
+        flush()
+        current.append(row)
+    flush()
+    return turns
 
 
 def _seek_seconds(
@@ -1589,11 +2516,15 @@ def matching_diarization_segment(
     for row in diarization_rows:
         if row.start_seconds >= segment.end_seconds:
             break
-        overlap = min(segment.end_seconds, row.end_seconds) - max(segment.start_seconds, row.start_seconds)
+        overlap = min(segment.end_seconds, row.end_seconds) - max(
+            segment.start_seconds, row.start_seconds
+        )
         if overlap <= 0:
             continue
         source_match = source_role_label(row.source_role) == segment_source
-        if overlap > best_overlap or (overlap == best_overlap and source_match and not best_source_match):
+        if (source_match and not best_source_match) or (
+            source_match == best_source_match and overlap > best_overlap
+        ):
             best = row
             best_overlap = overlap
             best_source_match = source_match
@@ -1644,7 +2575,9 @@ def transcript_speaker_labels(
     return [
         speaker_label_for_segment(
             segment,
-            diarization_by_segment_key.get((segment.sequence, source_role_label(segment.source_role))),
+            diarization_by_segment_key.get(
+                (segment.sequence, source_role_label(segment.source_role))
+            ),
         )
         for segment in transcripts
     ]
@@ -1655,12 +2588,10 @@ def mediascribe_speaker_labels_by_time(
     speaker_rows: list[DiarizationSegment],
 ) -> list[str]:
     if not speaker_rows:
-        return ["SPEAKER_00"] * len(segments)
-    labels = ["SPEAKER_00"] * len(segments)
+        return ["UNKNOWN"] * len(segments)
+    labels = ["UNKNOWN"] * len(segments)
     cursor = 0
-    for index, segment in sorted(
-        enumerate(segments), key=lambda item: segment_time_key(item[1])
-    ):
+    for index, segment in sorted(enumerate(segments), key=lambda item: segment_time_key(item[1])):
         own_label = mediascribe_speaker_label(getattr(segment, "speaker_label", None))
         if own_label is not None:
             labels[index] = own_label
@@ -1697,7 +2628,7 @@ def nearest_speaker_label_at_midpoint(
         return (gap, abs(segment_midpoint(row) - midpoint), row.sequence, index)
 
     label = mediascribe_speaker_label(speaker_rows[min(candidate_indexes, key=rank)].speaker_label)
-    return label or "SPEAKER_00"
+    return label or "UNKNOWN"
 
 
 def segment_time_key(segment: TranscriptSegment | DiarizationSegment) -> tuple[float, float, int]:
@@ -1720,7 +2651,10 @@ def speaker_state(
     diarization_segments: Iterable[DiarizationSegment],
     *,
     force_speaker_labels: bool = False,
+    speaker_names: dict[str, str] | None = None,
+    can_rename: bool = False,
 ) -> SpeakerReviewState:
+    speaker_names = speaker_names or {}
     rows = sorted(diarization_segments, key=lambda row: (row.start_seconds, row.sequence))
     if not rows:
         return SpeakerReviewState(
@@ -1728,28 +2662,37 @@ def speaker_state(
             assignment_state="reserved",
             degraded_reason="diarization_unavailable",
             speakers=[],
+            can_rename=False,
         )
 
     grouped: dict[str, list[DiarizationSegment]] = defaultdict(list)
+    labels_by_key: dict[str, str] = {}
     if force_speaker_labels:
         speaker_labels = mediascribe_speaker_labels_by_time(rows, mediascribe_speaker_rows(rows))
         for row, speaker_label in zip(rows, speaker_labels, strict=True):
-            grouped[speaker_label].append(row)
+            speaker_key = speaker_label.lower()
+            labels_by_key[speaker_key] = speaker_label
+            grouped[speaker_key].append(row)
     else:
         speaker_labels_by_key = canonical_speaker_labels(rows)
         for row in rows:
-            grouped[speaker_labels_by_key[_speaker_identity_key(row)]].append(row)
+            speaker_label = speaker_labels_by_key[_speaker_identity_key(row)]
+            speaker_key = speaker_label.lower()
+            labels_by_key[speaker_key] = speaker_label
+            grouped[speaker_key].append(row)
     total = sum(max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in rows) or 1.0
     speakers: list[SpeakerLane] = []
-    for speaker_label, speaker_rows in grouped.items():
+    for speaker_key, speaker_rows in grouped.items():
+        speaker_label = labels_by_key[speaker_key]
         duration = sum(
             max(0.0, float(row.end_seconds) - float(row.start_seconds)) for row in speaker_rows
         )
         source_roles = _unique(source_role_label(row.source_role) for row in speaker_rows)
         speakers.append(
             SpeakerLane(
-                speaker_key=speaker_label.lower(),
-                label=speaker_label,
+                speaker_key=speaker_key,
+                label=speaker_names.get(speaker_key, speaker_label),
+                display_name=speaker_names.get(speaker_key),
                 talk_time_percent=round(duration / total * 100),
                 source_roles=source_roles,
                 segments=[
@@ -1762,7 +2705,11 @@ def speaker_state(
             )
         )
     return SpeakerReviewState(
-        available=True, assignment_state="reserved", degraded_reason=None, speakers=speakers
+        available=True,
+        assignment_state="reserved",
+        degraded_reason=None,
+        speakers=speakers,
+        can_rename=can_rename,
     )
 
 
@@ -1771,7 +2718,7 @@ def calendar_roster_state(participants: Iterable[CalendarParticipant]) -> Calend
         CalendarRosterParticipantView(
             participant_kind=participant.participant_kind,
             response_status=participant.response_status,
-            display_name=participant.display_name,
+            display_name=safe_metadata_text(participant.display_name, max_length=240),
             email_present=bool(participant.email_hash or participant.email),
             workspace_relation=participant.workspace_relation,
             recipient_candidate_class=participant.recipient_candidate_class,
@@ -1784,6 +2731,65 @@ def calendar_roster_state(participants: Iterable[CalendarParticipant]) -> Calend
         participant_count=len(views),
         source="calendar" if views else "none",
         participants=views,
+    )
+
+
+def _calendar_roster_snapshot_items_state(
+    participants: Iterable[dict[str, object]],
+    *,
+    roster_state: str,
+    participant_count: int,
+) -> CalendarRosterReviewState:
+    views = [
+        CalendarRosterParticipantView(
+            participant_kind=str(participant.get("participant_kind") or "unknown")[:80],
+            response_status=str(participant.get("response_status") or "unknown")[:80],
+            display_name=safe_metadata_text(
+                participant.get("display_name"),
+                max_length=240,
+            ),
+            email_present=bool(participant.get("email_present", False)),
+            workspace_relation=str(participant.get("workspace_relation") or "unknown")[:80],
+            recipient_candidate_class=str(
+                participant.get("recipient_candidate_class") or "unknown"
+            )[:80],
+        )
+        for participant in list(participants)[:100]
+    ]
+    normalized_state = (
+        roster_state
+        if roster_state in {"available", "not_available", "hidden"}
+        else "not_available"
+    )
+    return CalendarRosterReviewState(
+        available=normalized_state == "available" and bool(views),
+        roster_state=normalized_state,
+        participant_count=max(participant_count, len(views), 0),
+        source="calendar" if normalized_state == "available" else "none",
+        participants=views,
+    )
+
+
+def calendar_roster_snapshot_state(
+    context: RecordingCalendarContextLink | None,
+) -> CalendarRosterReviewState | None:
+    if context is None or context.context_state not in {
+        "matched_auto",
+        "matched_user",
+    }:
+        return None
+    has_immutable_snapshot = bool(
+        context.match_attempt_id
+        or context.matcher_version
+        or context.matched_roster_json
+        or context.matched_roster_count
+    )
+    if not has_immutable_snapshot:
+        return None
+    return _calendar_roster_snapshot_items_state(
+        context.matched_roster_json or [],
+        roster_state=context.matched_roster_state,
+        participant_count=context.matched_roster_count,
     )
 
 
@@ -1981,7 +2987,17 @@ def _outcome_source_basis(outcome_set: MeetingOutcomeSet) -> str:
 
 
 def _outcome_item_view(item: MeetingOutcomeItem) -> OutcomeItemView:
-    refs = [OutcomeSourceReferenceView(**ref) for ref in item.source_refs_json]
+    refs = [
+        OutcomeSourceReferenceView(
+            **{
+                **ref,
+                "evidence_kind": ref.get("evidence_kind") or "segment",
+                "seekable": ref.get("start_seconds") is not None,
+            }
+        )
+        for ref in item.source_refs_json
+        if isinstance(ref, dict)
+    ]
     return OutcomeItemView(
         category=item.category,
         sequence=item.sequence,
@@ -2020,69 +3036,51 @@ def _outcome_state_reason(state: str) -> str:
 def playback_state(
     meeting: Meeting,
     status: MeetingReviewStatus,
-    review_playback: ArtifactEgressState | None = None,
+    review_playback: PlaybackPreparationState | None = None,
+    *,
+    media_revision: MediaRevision | None = None,
 ) -> PlaybackReviewState:
+    del status  # Playback preparation has its own durable state machine.
     duration_seconds = max(0, meeting.duration_seconds)
-    if status in {"processing", "submitted", "blocked", "local_only", "uploading"}:
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="processing",
-            policy_label="Аудио еще готовится",
-        )
-    if status == "failed":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="failed",
-            policy_label="Аудио недоступно из-за ошибки обработки",
-        )
-    if status == "deleted_future":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="deleting",
-            policy_label="Аудио удаляется",
-        )
-    if review_playback is None or review_playback.state == "missing":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="no_audio",
-            policy_label="Аудио недоступно",
-        )
-    if review_playback.state in {"policy_blocked", "owner_only"}:
-        reason = (
-            "access_denied" if review_playback.label == "Access required" else "policy_disabled"
-        )
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason=reason,
-            policy_label="Аудио закрыто политикой доступа",
-        )
-    if review_playback.state == "deleted":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="deleting",
-            policy_label="Аудио удаляется",
-        )
-    if status not in {"ready", "partial"} or review_playback.state != "available":
-        return PlaybackReviewState(
-            available=False,
-            duration_seconds=duration_seconds,
-            unavailable_reason="review_audio_unavailable",
-            policy_label="Аудио для проверки недоступно",
+    durable = review_playback or PlaybackPreparationState()
+    unavailable_reason = {
+        "preparing": "processing",
+        "deleting": "deleting",
+        "deleted": "deleted",
+    }.get(durable.state)
+    if unavailable_reason is None:
+        unavailable_reason = (
+            "none"
+            if durable.can_play
+            else "access_denied"
+            if durable.reason_code == "access_denied"
+            else "no_audio"
+            if durable.reason_code in {"empty_source", "no_audio", "source_missing"}
+            else "failed"
         )
     return PlaybackReviewState(
-        available=True,
+        **durable.model_dump(),
+        available=durable.can_play,
         duration_seconds=duration_seconds,
-        unavailable_reason="none",
-        playback_path=f"/api/v1/cabinet/meetings/{meeting.id}/playback",
-        policy_label="Аудио доступно для проверки",
-        source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        unavailable_reason=unavailable_reason,
+        playback_path=(
+            f"/api/v1/cabinet/meetings/{meeting.id}/playback" if durable.can_play else None
+        ),
+        policy_label=durable.label,
+        source_mode="stored_review_m4a" if durable.can_play else "none",
+        included_sources=(
+            ["uploaded_media"]
+            if durable.can_play
+            and media_revision is not None
+            and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
+            else ["canonical_mixed"]
+            if durable.can_play
+            and media_revision is not None
+            and media_revision.source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value
+            else ["local_microphone", "incoming_system"]
+            if durable.can_play
+            else []
+        ),
     )
 
 
@@ -2120,11 +3118,19 @@ def build_review_response(
     access: MeetingAccessState | None = None,
     share: SharePanelState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
-    review_playback: ArtifactEgressState | None = None,
+    content_exports: ContentExportCapabilityResponse | None = None,
+    review_playback: PlaybackPreparationState | None = None,
     calendar_roster: CalendarRosterReviewState | None = None,
+    calendar_context: RecordingCalendarContextLink | None = None,
+    calendar_context_detail: MeetingCalendarContextResponse | None = None,
     activity: MeetingActivityResponse | None = None,
     outcome_set: MeetingOutcomeSet | None = None,
+    outcome_template_name: str | None = None,
+    default_summary_template_key: str = "graf-auto-v1",
+    default_summary_template_name: str | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
+    speaker_names: dict[str, str] | None = None,
+    can_rename_speakers: bool = False,
 ) -> MeetingReviewResponse:
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
@@ -2135,6 +3141,8 @@ def build_review_response(
         workflow=workflow,
         access=access_state,
         artifacts=artifact_states,
+        calendar_context=calendar_context,
+        playback=review_playback,
     )
     status = cast(MeetingReviewStatus, item.status)
     notes_truth = notes_action_truth_state(
@@ -2142,13 +3150,25 @@ def build_review_response(
     )
     item.notes_available = notes_truth.summary.state == "available"
     item.notes_action_truth = notes_truth
-    playback = playback_state(meeting, status, review_playback)
+    playback = playback_state(
+        meeting,
+        status,
+        review_playback,
+        media_revision=media_revision,
+    )
     force_speaker_labels = (
         media_revision is not None
         and media_revision.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
     )
     return MeetingReviewResponse(
         meeting=item,
+        calendar_context=calendar_context_summary(
+            calendar_context,
+            meeting_title_source=meeting.title_source,
+            owner_detail=access_state.state == "owner",
+            public_projection=True,
+        ),
+        calendar_context_detail=calendar_context_detail,
         provenance=provenance_state(
             media_revision=media_revision,
             transcript_segments=transcript_segments,
@@ -2164,23 +3184,37 @@ def build_review_response(
             playback_available=playback.available,
             playback_duration_seconds=playback.duration_seconds,
             force_speaker_labels=force_speaker_labels,
+            speaker_names=speaker_names,
         ),
         speakers=speaker_state(
             diarization_segments,
             force_speaker_labels=force_speaker_labels,
+            speaker_names=speaker_names,
+            can_rename=can_rename_speakers,
         ),
         calendar_roster=calendar_roster,
         notes=notes_state(status),
         notes_action_truth=notes_truth,
         playback=playback,
-        governance=governance_summary(access=access_state, artifacts=artifact_states),
+        governance=governance_summary(
+            access=access_state,
+            artifacts=artifact_states,
+            content_exports=content_exports,
+            can_delete=True,
+        ),
         access=access_state,
         share=share,
         artifacts=artifact_states,
+        content_exports=content_exports,
         activity=activity,
         deletion_truth_copy=DELETION_TRUTH_COPY,
         assistant=slot_state("Assistant"),
-        template=slot_state("Template"),
+        template=summary_template_slot(
+            outcome_set,
+            personal_name=outcome_template_name,
+            default_template_key=default_summary_template_key,
+            default_template_name=default_summary_template_name,
+        ),
     )
 
 

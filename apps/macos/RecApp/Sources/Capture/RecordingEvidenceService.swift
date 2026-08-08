@@ -20,7 +20,6 @@ public struct RecordingEvidenceService: Sendable {
         for session: CaptureSession,
         type: RecordingEvidenceEventType,
         initiator: RecordingEvidenceInitiator,
-        routeState: LivePassthroughStatus,
         blockedReason: RecordingStartBlocker = .none,
         recoveryAction: String? = nil
     ) -> RecordingEvidenceEvent {
@@ -30,7 +29,7 @@ public struct RecordingEvidenceService: Sendable {
             eventType: type,
             occurredAt: clock(),
             initiator: initiator,
-            routeState: routeState,
+            captureState: session.state,
             indicatorState: session.visibleIndicatorState,
             stopActionAvailable: session.stopActionAvailable,
             blockedReason: blockedReason,
@@ -48,7 +47,6 @@ public struct RecordingEvidenceService: Sendable {
             for: session,
             type: .startBlocked,
             initiator: .user,
-            routeState: prerequisite.routeState,
             blockedReason: prerequisite.blockedReason,
             recoveryAction: prerequisite.recoveryAction
         )
@@ -58,9 +56,7 @@ public struct RecordingEvidenceService: Sendable {
         let graphSafetyValues = [
             manifest.microphoneSelection?.diagnosticSafe,
             manifest.microphoneStream?.diagnosticSafe,
-            manifest.microphoneStreamHealth?.diagnosticSafe,
-            manifest.appleProcessingOutcome?.diagnosticSafe,
-            manifest.webRTCAEC3Outcome?.diagnosticSafe
+            manifest.microphoneStreamHealth?.diagnosticSafe
         ].compactMap { $0 }
         let graphDiagnosticSafe = graphSafetyValues.isEmpty ? "" : String(graphSafetyValues.allSatisfy { $0 })
 
@@ -100,22 +96,7 @@ public struct RecordingEvidenceService: Sendable {
             "microphoneStreamTimingConfidence": manifest.microphoneStreamHealth?.timingConfidence.rawValue ?? "",
             "microphoneStreamSilenceStatus": manifest.microphoneStreamHealth?.silenceStatus.rawValue ?? "",
             "microphoneFutureProcessingReadiness": manifest.microphoneStreamHealth?.cleanupReadiness.rawValue ?? "",
-            "microphoneGraphDiagnosticSafe": graphDiagnosticSafe,
-            "appleProcessingPrimaryOutcome": manifest.appleProcessingOutcome?.primaryOutcome.rawValue ?? "",
-            "appleProcessingNextStepRecommendation": manifest.appleProcessingOutcome?.nextStepRecommendation.rawValue ?? "",
-            "appleProcessingValidationRowCount": manifest.appleProcessingOutcome.map { String($0.validationRows.count) } ?? "",
-            "appleProcessingCanClaimCleanBuiltinSpeakerphone": manifest.appleProcessingOutcome.map { String($0.canClaimCleanBuiltinSpeakerphone) } ?? "",
-            "appleProcessingDiagnosticSafe": manifest.appleProcessingOutcome.map { String($0.diagnosticSafe) } ?? "",
-            "webRTCAEC3PrimaryOutcome": manifest.webRTCAEC3Outcome?.primaryOutcome.rawValue ?? "",
-            "webRTCAEC3NextStepRecommendation": manifest.webRTCAEC3Outcome?.nextStepRecommendation.rawValue ?? "",
-            "webRTCAEC3ValidationRowCount": manifest.webRTCAEC3Outcome.map { String($0.validationRows.count) } ?? "",
-            "webRTCAEC3ThresholdProfileId": manifest.webRTCAEC3Outcome?.validationRows.first?.thresholdProfileId ?? "",
-            "webRTCAEC3CanClaimCleanBuiltInSpeakerphone": manifest.webRTCAEC3Outcome.map { String($0.canClaimCleanBuiltInSpeakerphone) } ?? "",
-            "webRTCAEC3DiagnosticSafe": manifest.webRTCAEC3Outcome.map { String($0.diagnosticSafe) } ?? "",
-            "webRTCAEC3PackageTruth": Self.webRTCAEC3PackageTruth(manifest.webRTCAEC3Outcome),
-            "routeSessionId": manifest.recordingTimelineEvidence?.routeSessionId ?? "",
-            "alignmentBand": manifest.recordingTimelineEvidence?.alignmentBand.rawValue ?? "",
-            "routeInterruptionCategory": manifest.recordingTimelineEvidence?.interruptionCategory.rawValue ?? ""
+            "microphoneGraphDiagnosticSafe": graphDiagnosticSafe
         ]
     }
 
@@ -127,10 +108,4 @@ public struct RecordingEvidenceService: Sendable {
         return max(0, Int(end.timeIntervalSince(startedAt) * 1000))
     }
 
-    private static func webRTCAEC3PackageTruth(_ outcome: WebRTCAEC3DecisionRecord?) -> String {
-        guard let outcome else { return "" }
-        return outcome.canClaimCleanBuiltInSpeakerphone
-            ? "promoted_builtin_route"
-            : "original_microphone_truth"
-    }
 }

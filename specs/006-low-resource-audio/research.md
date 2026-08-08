@@ -7,11 +7,11 @@
 
 ### Sources Checked
 
-- Installed app bundle: `/Users/yshishenya/Applications/krisp.app`
+- Installed app bundle: `<installed-krisp-app>`
 - Installed HAL driver: `/Library/Audio/Plug-Ins/HAL/KrispAudio.driver`
-- Launch agent: `/Users/yshishenya/Library/LaunchAgents/krisp.plist`
-- Local logs: `/Users/yshishenya/Library/Application Support/krisp/logs/`
-- Local app configuration: `/Users/yshishenya/Library/Application Support/krisp/userConfigs.json`
+- Launch agent: `<user-home>/Library/LaunchAgents/krisp.plist`
+- Local logs: `<user-home>/Library/Application Support/krisp/logs/`
+- Local app configuration: `<user-home>/Library/Application Support/krisp/userConfigs.json`
 - Public Krisp help:
   - `https://help.krisp.ai/hc/en-us/articles/4402174576402-How-Krisp-Microphone-and-Krisp-Speaker-work`
   - `https://help.krisp.ai/hc/en-us/articles/11092650435996-Why-I-can-t-use-Virtual-Devices-with-Krisp`

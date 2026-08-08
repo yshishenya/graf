@@ -8,7 +8,6 @@
     "recording.stopped",
     "recording.failed",
     "recording.indicator_lost",
-    "recording.route_invalidated",
     "recording.storage_blocked"
   ],
   "requiredFields": [
@@ -16,7 +15,7 @@
     "eventType",
     "occurredAt",
     "initiator",
-    "routeState",
+    "captureState",
     "indicatorState",
     "stopActionAvailable",
     "blockedReason",

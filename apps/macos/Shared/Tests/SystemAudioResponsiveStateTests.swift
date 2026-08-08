@@ -4,16 +4,6 @@ import TwoBrainRecShared
 import XCTest
 
 final class SystemAudioResponsiveStateTests: XCTestCase {
-    func testLongRecordingLocationAccessibilityKeepsFullPath() {
-        let path = "/Users/example/Library/Application Support/GRAF/Recordings/2026-06-08/a-very-long-meeting-session-directory-name/manifest.json"
-
-        let label = SystemAudioStatusLabels.localRecordingLocationAccessibilityLabel(path)
-
-        XCTAssertTrue(label.hasPrefix("Путь локальной записи:"))
-        XCTAssertTrue(label.contains("a-very-long-meeting-session-directory-name"))
-        XCTAssertTrue(label.contains("manifest.json"))
-    }
-
     func testShortVisibleLabelsFitCompactControls() {
         XCTAssertLessThanOrEqual(SystemAudioStatusLabels.stopButtonTitle.count, 12)
         XCTAssertLessThanOrEqual(SystemAudioStatusLabels.activeState.count, 12)
@@ -24,7 +14,7 @@ final class SystemAudioResponsiveStateTests: XCTestCase {
 
     func testWaitingAndBlockedCopyAvoidsOverSpecificDeviceInstructions() {
         let waiting = SystemAudioStatusLabels.waitingForRecordingAudio
-        let noIncoming = SystemAudioStatusLabels.incomingDetail(routeIsActive: true, incomingIsLive: false)
+        let noIncoming = SystemAudioStatusLabels.incomingDetail(recordingIsActive: true, incomingIsLive: false)
 
         XCTAssertFalse(waiting.localizedCaseInsensitiveContains("select"))
         XCTAssertFalse(noIncoming.localizedCaseInsensitiveContains("speaker device"))

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `099-review-m4a-normalization`
 **Created**: 2026-07-09
-**Status**: Draft
+**Status**: Implemented, merged, released, and production-validated
 **Input**: User description: "Давай вариант 3. У нас всегда в записи должен быть m4a. Для загруженных записей будем транскодировать. Запиши это как отдельную будущую фичу 099 с подробным контекстом."
 
 ## Product Context
@@ -17,6 +17,18 @@
 - Нормализовать запись один раз после ingest/processing и хранить стабильный playback-ready `meeting-review.m4a`. Это выбранный вариант для 099.
 
 Главный продуктовый принцип 099: каждая запись, которую пользователь может открыть в review, должна иметь один понятный playback artifact. UI и API не должны угадывать, из чего собирать звук в момент просмотра.
+
+## Clarifications
+
+### Session 2026-07-14
+
+- Q: Если загруженный файл уже M4A, когда его можно использовать без повторного кодирования? → A: Только после строгой проверки полного соответствия каноническому playback-профилю; при любом несовпадении файл транскодируется, а исходный source artifact сохраняется отдельно.
+- Q: Как выбирать звук, если загруженное видео содержит несколько аудиодорожек? → A: Использовать единственную usable-дорожку или единственную дорожку, помеченную контейнером как основная; при отсутствии однозначного выбора завершать подготовку понятной ошибкой, не угадывая и не смешивая дорожки.
+- Q: Кто должен запускать повторную конвертацию и обработку старых записей? → A: Никто из пользователей или администраторов; для каждого поддерживаемого исправного accepted source GRAF автоматически конвертирует, повторяет временные сбои и выполняет bounded backfill, а объективно поврежденный или не содержащий звука файл автоматически получает окончательный понятный статус.
+
+### Session 2026-07-17 — production recovery hotfix
+
+- Q: Что происходит, если worker был перезапущен, когда задача уже находится в долгой автоматической паузе именно с причиной `worker_interrupted`? → A: При старте worker GRAF немедленно и автоматически возобновляет только такую прерванную задачу с тем же record/job. Обычные временные ошибки сохраняют рассчитанную паузу; пользователь и администратор не выполняют никаких действий.
 
 ## Why This Matters
 
@@ -63,7 +75,7 @@
 
 Source media становится пригодным для downstream processing только после того, как существующий ingest/finalize lifecycle принял его как controlled source artifact. 099 должен начинаться от этого accepted source boundary, а не от сырого browser upload body, не от временного upload part и не от отдельного direct-to-processing endpoint.
 
-Для пользователя это означает: если файл уже принят как запись, refresh/retry/backfill работают с этой записью. Пользователь не должен получать второй record, второй upload session, второй source artifact или вторую playback-preparation линию только потому, что страница обновилась, сеть оборвалась или worker повторил задачу.
+Для пользователя это означает: если файл уже принят как запись, refresh, automatic retry и automatic backfill работают с этой записью. Пользователь не должен получать второй record, второй upload session, второй source artifact или вторую playback-preparation линию только потому, что страница обновилась, сеть оборвалась или worker повторил задачу.
 
 ### No Competing Media Services
 
@@ -81,7 +93,7 @@ Source media становится пригодным для downstream processin
 
 099 должен сохранить invariant: большие media inputs не должны требовать full-object memory loading in user-facing request paths. Это относится к upload guards, accepted-source materialization, playback route, normalization, retry and backfill.
 
-Допустимый продуктовый результат для тяжелых или проблемных файлов: bounded preparing state, bounded retryable failure, permanent unsupported failure, or skipped backfill reason. Недопустимый результат: бесконечный spinner, process crash, duplicate record, partial playback artifact, or silent fallback to a wrong source.
+Допустимый продуктовый результат для тяжелых или проблемных файлов: bounded preparing state with automatic retry, permanent unsupported failure, or skipped automatic-backfill reason. Недопустимый результат: бесконечный spinner, process crash, duplicate record, partial playback artifact, user-facing retry work, or silent fallback to a wrong source.
 
 ### Temporary Output Discipline
 
@@ -96,17 +108,22 @@ Source media становится пригодным для downstream processin
 - Decision: Manual upload не матчится с календарем в рамках этой фичи.
 - Decision: Playback не должен транскодировать или пересобирать audio on demand.
 - Decision: Playback не должен поддерживать arbitrary uploaded media directly as the review audio source.
-- Decision: Транскодирование должно быть idempotent: refresh, retry, повторный worker или повторный finalize не создают дублей и не ломают уже принятую запись.
-- Decision: Если normalized m4a уже существует и валиден, система не должна транскодировать его заново без явной причины.
-- Decision: Для уже принятых файлов без playback m4a нужен безопасный reprocess/backfill path.
+- Decision: Транскодирование должно быть idempotent: refresh, automatic retry, повторный worker или повторный finalize не создают дублей и не ломают уже принятую запись.
+- Decision: Загруженный M4A переиспользуется без повторного кодирования только после строгой проверки полного соответствия каноническому playback-профилю; при любом несовпадении он транскодируется. Исходный source artifact остается отдельным от canonical playback artifact.
+- Decision: Для уже принятых файлов без playback m4a нужен безопасный автоматический reprocess/backfill path, не требующий действий пользователя или администратора.
 - Decision: Ошибки подготовки playback artifact должны быть видны как статус записи, но не должны превращаться в silent broken review.
 - Decision: Retention/deletion/audit должны учитывать новый playback artifact как controlled meeting content.
 - Decision: Existing ingest/finalize остается единственной границей принятия source media для manual uploads and first-party recordings.
 - Decision: 099 не создает новый upload/finalize service, новый playback assembly service или альтернативный source-of-truth для record ownership.
 - Decision: Normalization starts only from accepted source artifacts and must not consume raw in-flight upload bodies or unfinalized upload parts.
-- Decision: Normalization/backfill/retry must preserve the resource-bounded safety baseline: no full source-media buffering in user-facing request paths and no on-demand playback assembly.
+- Decision: Normalization, automatic backfill and automatic retry must preserve the resource-bounded safety baseline: no full source-media buffering in user-facing request paths and no on-demand playback assembly.
 - Decision: Temporary normalization outputs are never playback-ready until they are complete, validated, registered and lifecycle-accounted.
 - Decision: Transcript processing and playback normalization may run in the same broad record lifecycle, but their statuses must remain independently truthful.
+- Decision: Для media с несколькими аудиодорожками используется только единственная дорожка, однозначно помеченная контейнером как основная. Если usable-дорожка одна, используется она; если однозначного выбора нет, normalization завершается понятной ошибкой без выбора первой дорожки наугад, смешивания дорожек или нового selector UI.
+- Decision: Пользователь и workspace owner/admin не запускают manual retry, reprocess или backfill. Поддерживаемый исправный accepted source автоматически должен дойти до valid playback m4a; временные infrastructure failures повторяются системой, а старые eligible records обрабатываются автоматическими bounded batches.
+- Decision: Для legacy records система применяет тот же canonical gate: сохраняет уже валидный playback m4a, автоматически пересоздаёт невалидный artifact из retained accepted source и не фабрикует звук, если source утрачен или небезопасен; такой случай получает final unavailable state и safe operational alert.
+- Decision: Normalization автоматически планируется после появления accepted source и не ждёт завершения transcript/summary processing; точный durable trigger и bounded scheduling mechanism определяются в implementation plan.
+- Decision: Raw source file names не попадают в diagnostics, audit или committed evidence; пользовательское имя может отображаться только в уже авторизованной record UI по существующим access rules.
 
 ## Scope Summary
 
@@ -117,14 +134,14 @@ Source media становится пригодным для downstream processin
 - Создание `meeting-review.m4a` для новых first-party recordings, если такой artifact не создан более ранним stage.
 - Транскодирование supported manual upload media в `meeting-review.m4a`.
 - Проверка валидности playback artifact перед тем, как запись считается fully review-ready.
-- Статусы "playback audio preparing", "playback audio ready", "playback audio failed", "retry available".
-- Idempotent retry/reprocess/backfill для записей, у которых уже есть исходный файл, но нет валидного `meeting-review.m4a`.
+- Статусы "playback audio preparing", "playback audio ready" и окончательный понятный "playback audio unsupported/failed" без пользовательского retry action.
+- Idempotent automatic retry/reprocess/backfill для записей, у которых уже есть исходный файл, но нет валидного `meeting-review.m4a`.
 - Lifecycle accounting для retention, deletion, audit и diagnostics.
-- Защита от дублей при refresh, network retry, повторном finalize, повторном worker pickup или ручном retry.
+- Защита от дублей при refresh, network retry, повторном finalize, повторном worker pickup или автоматическом retry.
 - Четкое правило названия manual upload: user-entered title wins; otherwise file name.
 - Ограничения по supported source formats and unsupported media failure states.
 - Сохранение existing accepted-source boundary: normalization consumes accepted source artifacts, not raw upload bodies.
-- Resource-bounded normalization/retry/backfill behavior for large files, near-limit files and multipart accepted sources.
+- Resource-bounded normalization/automatic-retry/backfill behavior for large files, near-limit files and multipart accepted sources.
 - Explicit handling for temporary normalization outputs, partial outputs and cleanup/accounting after interruption.
 - Consistent status composition when transcript result is ready but playback m4a is preparing/failed, or playback m4a is ready while transcript processing is still pending/failed.
 
@@ -138,6 +155,7 @@ Source media становится пригодным для downstream processin
 - New MediaScribe API contract.
 - Full video playback.
 - Editing source media in the UI.
+- Выбор аудиодорожки пользователем в upload/review UI.
 - Promising universal deletion outside GRAF-controlled storage.
 - Adding broad new infrastructure when existing processing/lifecycle paths are sufficient.
 - Новый параллельный upload/finalize subsystem.
@@ -145,6 +163,7 @@ Source media становится пригодным для downstream processin
 - On-demand audio assembly/transcoding during user playback request.
 - Direct MediaScribe-to-playback artifact ownership.
 - Replacing existing single-track/dual-track transcription contracts.
+- Ручные retry, reprocess или backfill controls для пользователей и workspace administrators.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -161,12 +180,12 @@ Source media становится пригодным для downstream processin
 1. **Given** first-party recording successfully finishes, **When** processing reaches review-ready, **Then** the record has a valid playback-ready `meeting-review.m4a`.
 2. **Given** the recording already produced a valid m4a artifact earlier in the pipeline, **When** review readiness is evaluated, **Then** the existing artifact is reused and not regenerated.
 3. **Given** a recording has transcript data but playback m4a is still preparing, **When** the user opens the list or review page, **Then** the UI shows a non-broken preparing state instead of a dead player.
-4. **Given** a recording has no valid playback m4a after processing, **When** the user opens review, **Then** playback is marked unavailable with retry/reprocess controls for authorized users.
+4. **Given** a recording has no valid playback m4a yet, **When** the user opens review, **Then** playback shows automatic preparation/recovery progress or a final unsupported reason without asking the user to retry or reprocess it.
 5. **Given** the user seeks inside playback, **When** range requests are made, **Then** the player reads from the stored m4a artifact and does not trigger new audio assembly.
 
 ---
 
-### User Story 2 - Manual upload transcodes to review m4a (Priority: P1)
+### User Story 2 - Manual upload converts to review m4a (Priority: P1)
 
 Как пользователь, который загрузил audio/video file, я хочу получить такую же запись в кабинете, как после обычной записи, чтобы playback, transcript and status behaved consistently.
 
@@ -181,42 +200,43 @@ Source media становится пригодным для downstream processin
 3. **Given** user entered a title during upload, **When** processing creates the record, **Then** that title remains the record title.
 4. **Given** user did not enter a title during upload, **When** processing creates the record, **Then** the file name is used as the record title.
 5. **Given** manual upload is complete, **When** calendar matching features run, **Then** the manual upload is not auto-matched to calendar context.
-6. **Given** the original file already is a compatible m4a, **When** normalization checks it, **Then** the system may reuse or register it as playback artifact only if it satisfies the product playback contract.
+6. **Given** the original file already is an M4A, **When** normalization checks it, **Then** the system reuses it byte-for-byte only if it fully satisfies the canonical playback profile; a container-layout-only mismatch uses lossless remux, an audio-profile mismatch uses transcoding, and the original remains a separate source artifact.
+7. **Given** uploaded media has multiple usable audio tracks, **When** exactly one track is marked as the container default, **Then** normalization uses that track; when no unique default exists, preparation ends with a clear ambiguous-track failure and exposes no playback artifact.
 
 ---
 
-### User Story 3 - Retry and refresh do not create duplicates (Priority: P1)
+### User Story 3 - Automatic retry and refresh do not create duplicates (Priority: P1)
 
-Как пользователь, который обновил страницу, потерял сеть или нажал retry, я хочу, чтобы подготовка аудио продолжалась безопасно, а не создавала дубли записей или дубль playback artifacts.
+Как пользователь, который обновил страницу или потерял сеть, я хочу, чтобы GRAF сам продолжил подготовку аудио, а не просил меня исправлять обработку и не создавал дубли записей или playback artifacts.
 
-**Why this priority**: Upload and processing are long-running. Refresh/network retry is normal user behavior. Idempotency here protects both UX and storage cost.
+**Why this priority**: Upload and processing are long-running. Refresh and temporary infrastructure failures are normal system conditions, but recovery is product responsibility rather than user work. Idempotency protects both UX and storage cost.
 
-**Independent Test**: Start manual upload processing, refresh page or repeat finalize/retry, then verify that only one record and one active playback artifact exist for the logical upload.
+**Independent Test**: Start manual upload processing, refresh the page and inject a transient normalization failure, then verify automatic recovery with only one record and one active playback artifact for the logical upload.
 
 **Acceptance Scenarios**:
 
 1. **Given** upload was accepted and processing started, **When** the page refreshes, **Then** the existing processing state is reused and no second record is created.
 2. **Given** finalize or processing dispatch is repeated with the same logical upload identity, **When** the backend receives it again, **Then** it returns or resumes the existing record/work instead of creating duplicates.
 3. **Given** m4a normalization worker is retried after timeout, **When** the previous attempt already completed successfully, **Then** the worker observes the ready artifact and exits without overwriting it unexpectedly.
-4. **Given** user presses retry after a failed normalization, **When** retry is accepted, **Then** the same record moves back into preparing state and does not create a new record.
-5. **Given** a previous failed partial artifact exists, **When** retry succeeds, **Then** only the valid final artifact is exposed as playback-ready.
-6. **Given** raw upload already finalized into an accepted source artifact, **When** normalization retry or backfill runs, **Then** it uses the accepted source artifact and does not reopen the raw upload body or create another upload session.
-7. **Given** two browser tabs observe the same manual upload, **When** one tab retries playback preparation and the other tab refreshes, **Then** both tabs converge on the same record, same source artifact and same normalization status.
+4. **Given** normalization fails transiently, **When** automatic retry policy schedules another attempt, **Then** the same record returns to preparing state and no user action or new record is required.
+5. **Given** a previous failed partial artifact exists, **When** automatic retry succeeds, **Then** only the valid final artifact is exposed as playback-ready.
+6. **Given** raw upload already finalized into an accepted source artifact, **When** automatic normalization retry or backfill runs, **Then** it uses the accepted source artifact and does not reopen the raw upload body or create another upload session.
+7. **Given** two browser tabs observe the same manual upload during automatic recovery, **When** both tabs refresh, **Then** both converge on the same record, same source artifact and same normalization status without exposing a retry control.
 
 ---
 
-### User Story 4 - Existing accepted files can be backfilled (Priority: P2)
+### User Story 4 - Existing accepted files are backfilled automatically (Priority: P2)
 
-Как администратор или оператор системы, я хочу безопасно reprocess/backfill already accepted records that lack m4a playback, чтобы ранее загруженные файлы не оставались навсегда без audio review.
+Как пользователь старой записи, я хочу, чтобы GRAF автоматически подготовил для неё playback m4a, чтобы мне не приходилось обращаться к администратору или запускать техническую операцию.
 
 **Why this priority**: The product already has accepted uploads/records from before this normalization rule. We need a controlled migration path without manually repairing each record.
 
-**Independent Test**: Select records missing valid playback m4a, run backfill in dry-run/report mode, then reprocess a bounded set and confirm that records gain playback without duplicates or title changes.
+**Independent Test**: Let the system discover records missing valid playback m4a, inspect its metadata-only plan/report, then let a bounded automatic batch process eligible records and confirm that they gain playback without duplicates or title changes.
 
 **Acceptance Scenarios**:
 
-1. **Given** existing records have source media but no valid playback m4a, **When** backfill report runs, **Then** it lists eligible records without changing data.
-2. **Given** operator approves backfill for eligible records, **When** backfill runs, **Then** each eligible record gets one valid playback m4a or a clear failure reason.
+1. **Given** existing records have source media but no valid playback m4a, **When** automatic backfill inventory runs, **Then** it records eligible actions and skip reasons before changing data.
+2. **Given** an eligible record is scheduled in a bounded automatic backfill batch, **When** the batch runs, **Then** the record gets one valid playback m4a or a clear final reason without user/admin action.
 3. **Given** an existing record already has user-edited title, **When** backfill creates playback artifact, **Then** the title is not changed.
 4. **Given** an existing record has no usable source media, **When** backfill evaluates it, **Then** it is skipped with a clear reason and no fake playback artifact is created.
 5. **Given** backfill is interrupted, **When** it resumes, **Then** already completed records are not reprocessed unnecessarily.
@@ -229,15 +249,15 @@ Source media становится пригодным для downstream processin
 
 **Why this priority**: A strict playback contract is useful only if failures are explicit and recoverable. Silent failure would look like broken product behavior.
 
-**Independent Test**: Upload unsupported, corrupted, no-audio, too-large or unsafe media and verify that record state is clear, no playback m4a is exposed, and retry/cancel controls behave safely.
+**Independent Test**: Upload unsupported, corrupted, no-audio, too-large or unsafe media and verify that the system classifies it automatically, exposes no playback m4a and never asks the user to retry an impossible conversion.
 
 **Acceptance Scenarios**:
 
 1. **Given** uploaded media has no audio track, **When** normalization runs, **Then** the record gets a clear unsupported/no-audio failure state.
 2. **Given** uploaded media is corrupted or cannot be decoded safely, **When** normalization runs, **Then** the failure is recorded without exposing partial audio as playback-ready.
 3. **Given** uploaded media exceeds configured product limits, **When** upload or normalization evaluates it, **Then** the user receives a bounded failure state rather than unbounded processing.
-4. **Given** normalization fails due to transient infrastructure issue, **When** retry is available, **Then** authorized users can retry without re-uploading the original file if source media is still retained.
-5. **Given** normalization fails due to permanent unsupported format, **When** retry is offered, **Then** retry guidance does not imply that repeating the same file will succeed without changing the file.
+4. **Given** normalization fails due to a transient infrastructure issue, **When** retained source media is still available, **Then** the system retries automatically without requiring source re-upload or user action.
+5. **Given** normalization fails due to a permanent unsupported or invalid source, **When** classification completes, **Then** the UI shows a final clear reason and offers no misleading retry action.
 
 ---
 
@@ -264,7 +284,7 @@ Source media становится пригодным для downstream processin
 
 **Why this priority**: Без этого 099 может случайно стать конкурентной media subsystem. Тогда manual upload, recording, playback, transcript, deletion and backfill начнут иметь разные source-of-truth, что создаст дубли, ложные статусы и непроверяемую deletion truth.
 
-**Independent Test**: For manual upload and first-party recording, create accepted source media, run normalization/retry/backfill, and verify that every resulting playback state points back to the existing record/source artifact lineage without creating another logical record or competing accepted-source path.
+**Independent Test**: For manual upload and first-party recording, create accepted source media, run normalization/automatic retry/backfill, and verify that every resulting playback state points back to the existing record/source artifact lineage without creating another logical record or competing accepted-source path.
 
 **Acceptance Scenarios**:
 
@@ -284,7 +304,7 @@ Source media становится пригодным для downstream processin
 - First-party recording has playback m4a but transcript processing is pending, failed, or permanently unavailable.
 - Manual upload is WAV, MP3, M4A, MP4, MOV or WebM.
 - Manual upload is video-only with no audio track.
-- Manual upload has multiple audio tracks.
+- Manual upload has multiple audio tracks with one default, no default or conflicting default markers.
 - Manual upload file extension does not match actual media/container.
 - Manual upload source is corrupted, truncated or partially uploaded.
 - Manual upload is rejected before body streaming because declared size exceeds product limits.
@@ -309,13 +329,13 @@ Source media становится пригодным для downstream processin
 - Playback range request arrives while normalization is still preparing.
 - Playback range request arrives after normalization failed.
 - Multiple browser tabs observe the same preparing/failed/ready state.
-- User presses retry while another retry is already running.
-- Admin backfill is interrupted and resumed.
+- Two automatic retry attempts overlap for the same record.
+- Automatic backfill is interrupted and resumed.
 - Deletion starts while normalization is running.
-- Retention expires source media before retry.
+- Retention expires source media before automatic retry.
 - Retention removes original source media after valid playback m4a exists; lifecycle status must remain truthful about what can still be retried.
 - Existing valid playback m4a exists but source media has been purged; retry/backfill must not fabricate source media.
-- Same accepted source is observed by manual retry and scheduled backfill at the same time.
+- Same accepted source is observed by automatic retry and scheduled backfill at the same time.
 - Older record has legacy playback metadata that conflicts with the new canonical playback m4a contract.
 - Diagnostics must avoid raw file names if file names contain private content, unless the UI surface is authorized for that record.
 - Evidence must avoid raw audio, transcript text, signed URLs, provider tokens, credentials and live secret paths.
@@ -330,15 +350,15 @@ Source media становится пригодным для downstream processin
 - **FR-004**: First-party recording processing MUST create, reuse or register a valid playback m4a artifact before the record is considered fully playback-ready.
 - **FR-005**: A record MAY show transcript or processing results before playback m4a is ready, but playback state MUST clearly indicate preparing, unavailable or failed rather than exposing a broken player.
 - **FR-006**: The playback artifact readiness check MUST reject missing, empty, corrupted, partial or incompatible playback artifacts.
-- **FR-007**: If a valid playback m4a already exists for a record, repeated processing, retry or backfill MUST NOT create duplicate active playback artifacts.
+- **FR-007**: If a valid playback m4a already exists for a record, repeated processing, automatic retry or backfill MUST NOT create duplicate active playback artifacts.
 - **FR-008**: Manual upload title behavior MUST remain stable: user-entered title wins; when no user title exists, the original file name becomes the record title.
 - **FR-009**: Manual uploads MUST NOT be automatically matched to calendar events as part of this feature.
-- **FR-010**: Normalization, retry and backfill MUST be idempotent across page refreshes, network retries, duplicate finalize calls and duplicate worker pickup.
-- **FR-011**: Normalization failure MUST produce a clear machine-readable and user-readable state with retry eligibility when retry is safe.
+- **FR-010**: Normalization, automatic retry and automatic backfill MUST be idempotent across page refreshes, network retries, duplicate finalize calls and duplicate worker pickup.
+- **FR-011**: Normalization failure MUST produce a clear machine-readable and user-readable state; transient failures MUST be retried automatically, while permanent invalid/unsupported sources MUST reach a final state without a user retry action.
 - **FR-012**: Permanent unsupported media failures MUST be distinguishable from transient infrastructure failures.
 - **FR-013**: The system MUST NOT expose partial, temporary or failed normalization outputs as playback-ready artifacts.
-- **FR-014**: Existing accepted records without valid playback m4a MUST have a safe reprocess/backfill path.
-- **FR-015**: Backfill MUST support a report/dry-run mode before changing records.
+- **FR-014**: Existing accepted records without valid playback m4a MUST enter a safe automatic reprocess/backfill path without user or workspace-administrator action.
+- **FR-015**: Automatic backfill MUST record a metadata-only inventory/report of planned actions and skip reasons before changing records.
 - **FR-016**: Backfill MUST preserve existing record titles and user edits.
 - **FR-017**: Backfill MUST skip records without retained usable source media and record a clear skip reason.
 - **FR-018**: Playback m4a artifacts MUST participate in retention and deletion accounting as controlled meeting content.
@@ -346,31 +366,38 @@ Source media становится пригодным для downstream processin
 - **FR-020**: Diagnostics and evidence MUST NOT contain raw audio content, transcript content, signed URLs, provider tokens, credentials or live secret paths.
 - **FR-021**: File-size, duration and processing limits MUST be enforced before or during normalization so unsupported inputs cannot cause unbounded resource use.
 - **FR-022**: Status shown in the recording list and review page MUST be consistent across refreshes, multiple tabs and reconnects.
-- **FR-023**: Authorized users MUST be able to retry failed transient playback preparation without re-uploading the original file while source media is retained.
-- **FR-024**: Retry controls MUST avoid creating new records for the same logical upload or same existing record.
-- **FR-025**: The implementation MUST include validation for supported source media types, no-audio media, corrupted media, duplicate retry and deletion/retention interaction.
+- **FR-023**: The system MUST automatically retry failed transient playback preparation without source re-upload while retained source media exists; no user or workspace-administrator retry control is permitted.
+- **FR-024**: Automatic retry and reprocess attempts MUST avoid creating new records for the same logical upload or existing record.
+- **FR-025**: The implementation MUST include validation for supported source media types, no-audio media, corrupted media, duplicate automatic retry and deletion/retention interaction.
 - **FR-026**: Normalization MUST consume only accepted source artifacts that belong to an existing recording lineage; it MUST NOT consume raw in-flight upload bodies, unfinalized upload parts or unmanaged local files.
-- **FR-027**: Normalization MUST preserve the existing recording/source lineage across first-party recordings, manual uploads, retry and backfill.
+- **FR-027**: Normalization MUST preserve the existing recording/source lineage across first-party recordings, manual uploads, automatic retry and backfill.
 - **FR-028**: 099 MUST NOT introduce a parallel upload/finalize source-of-truth for manual uploads or recordings.
 - **FR-029**: Playback preparation MUST preserve bounded-resource behavior for large files and MUST NOT require loading complete source media into user-facing request memory.
 - **FR-030**: Temporary normalization outputs MUST remain hidden from playback, export, share and ready-state surfaces until they are complete, validated and registered as canonical playback artifacts.
 - **FR-031**: Normalization MUST treat temporary-storage pressure, dependency failure, source missing, source mismatch and decode failure as explicit bounded states, not indefinite processing.
 - **FR-032**: Transcript/summary processing status and playback-normalization status MUST remain independently truthful; success in one MUST NOT imply success in the other.
-- **FR-033**: Backfill MUST use existing accepted source lineage and MUST NOT create replacement source media for records whose source artifacts are missing, purged or unsafe.
-- **FR-034**: If a valid playback m4a exists but source media is unavailable, retry/backfill MUST preserve the existing playback artifact and report that source-based regeneration is unavailable.
-- **FR-035**: Normalization MUST include conflict handling for concurrent retry/backfill/worker attempts so only one active canonical playback artifact exists per recording.
+- **FR-033**: Automatic backfill MUST use existing accepted source lineage and MUST NOT create replacement source media for records whose source artifacts are missing, purged or unsafe.
+- **FR-034**: If a valid playback m4a exists but source media is unavailable, automatic retry/backfill MUST preserve the existing playback artifact and report that source-based regeneration is unavailable.
+- **FR-035**: Normalization MUST include conflict handling for concurrent automatic retry/backfill/worker attempts so only one active canonical playback artifact exists per recording.
 - **FR-036**: Deletion or retention actions that begin while normalization is preparing output MUST prevent newly prepared temporary output from becoming playback-ready after the lifecycle state becomes deleting, deleted or audio-purged.
 - **FR-037**: Resource and lifecycle failures MUST be observable through safe status/audit metadata without exposing raw file names, raw audio, object keys, signed URLs or private provider payloads.
+- **FR-038**: A manually uploaded M4A MUST be reused byte-for-byte only when validation proves full compliance with the canonical playback profile; any mismatch MUST trigger conversion, an audio-profile mismatch MUST trigger transcoding, a container-layout-only mismatch MAY use lossless remux, and the original MUST remain a separate source artifact.
+- **FR-039**: Normalization MUST use the only usable audio track or the single container-designated default when multiple usable tracks exist; if no unique track can be selected, it MUST fail with a clear ambiguous-track state and MUST NOT guess, mix tracks or expose a partial playback artifact.
+- **FR-040**: Every supported, valid accepted source with usable audio MUST automatically converge to one validated canonical playback m4a without user or workspace-administrator action; only objectively invalid, unsupported or missing-audio sources MAY end in a final non-ready state.
+- **FR-041**: Automatic legacy backfill MUST validate any existing playback artifact against the canonical gate, reuse it when valid, regenerate it from retained accepted source when invalid, and produce a final unavailable state plus safe operational alert when neither a valid playback artifact nor usable accepted source exists.
+- **FR-042**: Normalization MUST be scheduled automatically after accepted source media becomes available and MUST NOT depend on transcript or summary completion, while playback and transcript statuses remain independently truthful.
+- **FR-043**: On worker startup, a retained-source normalization job in automatic retry with the machine-readable reason `worker_interrupted` MUST be re-queued and dispatched immediately with the same job/record lineage; this startup recovery MUST NOT shorten scheduled backoff for any other reason.
+- **FR-044**: Automatic temporary-output cleanup MUST NOT select or delete an attempt while its normalization job is `running` or `publishing` with an unexpired worker lease; cleanup MUST remain available after that lease expires or the job leaves its active state.
 
 ### Key Entities *(include if feature involves data)*
 
 - **Recording**: User-visible meeting or uploaded media record. It owns title, review status, processing state, lifecycle state and workspace/space ownership.
-- **SourceMediaArtifact**: Original captured or uploaded media retained under product policy. It may be needed for processing, retry or backfill, but it is not the direct playback source.
+- **SourceMediaArtifact**: Original captured or uploaded media retained under product policy. It may be needed for processing, automatic retry or backfill, but it is not the direct playback source.
 - **PlaybackM4AArtifact**: Canonical review audio artifact used by playback. It must be valid, complete, retained according to policy and tied to one recording.
 - **NormalizationJob**: Durable work item that creates or validates playback m4a for one recording.
-- **NormalizationStatus**: User-visible and machine-readable state: preparing, ready, failed, retryable, skipped, cancelled or blocked.
-- **BackfillRun**: Operator-controlled batch that reports and optionally reprocesses existing records missing valid playback m4a.
-- **RetryRequest**: Authorized user or operator action that resumes failed normalization for the same record without creating a duplicate record.
+- **NormalizationStatus**: User-visible and machine-readable state: preparing, automatically retrying, ready, permanently unsupported/failed, skipped, cancelled or blocked.
+- **BackfillRun**: System-controlled bounded batch that inventories and automatically reprocesses existing eligible records missing valid playback m4a.
+- **AutomaticRetryAttempt**: System-owned retry of transient normalization failure for the same record without user action or duplicate record creation.
 - **LifecycleReportEntry**: Retention/deletion/audit entry proving how source media and playback m4a are accounted for.
 - **AcceptedSourceBoundary**: The product state where source media has passed upload/finalize validation and is safe to use as input for downstream processing. 099 starts after this boundary.
 - **TemporaryNormalizationArtifact**: Intermediate output created while preparing playback m4a. It is controlled meeting content but not playback-ready until validation and registration complete.
@@ -384,22 +411,27 @@ Source media становится пригодным для downstream processin
 - **SC-001**: 100% of new successfully processed first-party recordings have valid playback m4a before being marked playback-ready.
 - **SC-002**: 100% of supported manual uploads with usable audio produce valid playback m4a or a clear failure state.
 - **SC-003**: 0 playback requests trigger on-demand source-media transcoding or combined audio assembly.
-- **SC-004**: 0 duplicate records are created by refresh, retry, duplicate finalize or duplicate worker pickup for the same logical upload.
-- **SC-005**: 0 duplicate active playback m4a artifacts are created for the same recording by retry or backfill.
+- **SC-004**: 0 duplicate records are created by refresh, automatic retry, duplicate finalize or duplicate worker pickup for the same logical upload.
+- **SC-005**: 0 duplicate active playback m4a artifacts are created for the same recording by automatic retry or backfill.
 - **SC-006**: 100% of unsupported/no-audio/corrupt/too-large media cases end in bounded clear states, not indefinite processing.
-- **SC-007**: 100% of existing eligible records in backfill dry-run receive an explicit planned action or skip reason before mutation.
+- **SC-007**: 100% of existing records considered by automatic backfill receive an explicit planned action or skip reason before mutation.
 - **SC-008**: 100% of deletion and retention reports include playback m4a status when the record has or had a playback artifact.
 - **SC-009**: 100% of user-visible recording titles after manual upload follow the rule: entered title first, file name fallback.
 - **SC-010**: 0 logs, diagnostics, specs or validation evidence contain raw audio, transcript content, signed URLs, provider tokens, credentials or live secret paths.
 - **SC-011**: Playback for normalized records supports seek/range behavior without full-object memory loading in the playback request path.
-- **SC-012**: Retry of transient normalization failures succeeds without requiring source re-upload while retained source media exists.
+- **SC-012**: Transient normalization failures are retried automatically without source re-upload or user/admin action while retained source media exists.
 - **SC-013**: 100% of normalization attempts use accepted source artifacts tied to an existing recording lineage.
 - **SC-014**: 0 new competing manual-upload or recording-finalize source-of-truth paths are introduced by 099.
 - **SC-015**: 0 playback-ready artifacts are exposed from partial, temporary, failed or unvalidated normalization outputs.
-- **SC-016**: 100% of concurrent retry/backfill/worker attempts for the same recording converge to one active canonical playback artifact or one clear blocked state.
+- **SC-016**: 100% of concurrent automatic retry/backfill/worker attempts for the same recording converge to one active canonical playback artifact or one clear blocked state.
 - **SC-017**: 100% of deletion/retention events that overlap normalization prevent temporary outputs from becoming newly playback-ready after lifecycle state becomes deleting, deleted or audio-purged.
 - **SC-018**: 100% of source-missing, source-mismatch, no-temp-storage and decode-failure cases produce bounded user/admin status rather than indefinite processing.
 - **SC-019**: 100% of records with transcript-ready but playback-not-ready states show those statuses separately, and 100% of playback-ready but transcript-not-ready records avoid implying transcript success.
+- **SC-020**: 100% of supported, valid accepted sources with usable audio reach validated playback-ready state without any user or workspace-administrator retry/reprocess/backfill action.
+- **SC-021**: 100% of legacy records evaluated by automatic backfill either reuse a validated playback artifact, regenerate one from retained accepted source, or receive an explicit unavailable reason without fabricated media.
+- **SC-022**: 0 supported accepted sources wait for transcript/summary completion before playback normalization is scheduled.
+- **SC-023**: 100% of eligible `worker_interrupted` retry-wait jobs selected during worker startup are automatically dispatched without a user/admin action, while retry-wait jobs with another reason remain deferred until their scheduled time.
+- **SC-024**: 0 active, unexpired normalization attempts are selected by automatic cleanup; expired or non-active attempts remain eligible for residue cleanup.
 
 ## Assumptions
 
@@ -407,8 +439,8 @@ Source media становится пригодным для downstream processin
 - The playback route already expects a stored, valid, range-readable m4a artifact.
 - Existing MediaScribe transcription processing is separate from playback normalization; 099 should not require rewriting MediaScribe contract behavior.
 - Manual upload source files may be audio or video, but review playback uses extracted/normalized audio, not video playback.
-- Some earlier records may lack playback m4a and need controlled backfill.
-- User-entered manual upload title and file-name fallback behavior are product-level title rules and must not be broken by backfill.
+- Some earlier records may lack playback m4a and need controlled automatic backfill.
+- User-entered manual upload title and file-name fallback behavior are product-level title rules and must not be broken by automatic backfill.
 - Product should prefer small, durable, idempotent lifecycle changes over a large new media platform.
 - Implementation planning may choose exact codec validation details, but the user-facing contract remains: valid playback-ready m4a or clear failure state.
 - Manual upload remains modeled as a normal recording/source lifecycle, not a special media-only object outside the recording list.
@@ -429,13 +461,14 @@ Source media становится пригодным для downstream processin
 - Feature `098-calendar-auto-context-match` remains separate: manual upload is not calendar-matched.
 - Feature `097-workspace-account-onboarding` may affect workspace/space ownership checks later, but 099 must respect whichever active-space model is current when implemented.
 
-## Clarifications Needed Before Implementation
+## Planning Inputs Resolved
 
-- Which exact media limits should apply to normalization: max duration, max source size, max audio tracks and max retry count.
-- Whether compatible uploaded m4a may be reused as `meeting-review.m4a` directly or must always be re-encoded to a strict canonical profile.
-- Whether video uploads with multiple audio tracks should select the first usable audio track, fail with user choice required or follow a workspace policy.
-- Which user roles can manually retry normalization and which roles can run backfill.
-- How much of the original file name can appear in diagnostics when names may contain private meeting content.
-- Whether playback normalization should be scheduled immediately after accepted source media, after transcript submission starts, after transcript result import, or through an independent readiness job. The required product outcome is independent truthful statuses either way.
-- What temporary working-storage budget, concurrency limit and retry budget should apply to normalization and backfill so large files cannot starve normal recording review.
-- Whether older records with legacy combined-review playback metadata should be migrated, skipped until source reprocess, or marked playback-unavailable with a clear reason.
+- The canonical profile, accepted source matrix, duration/source/output limits,
+  stream limits, probe and full-decode gates are fixed in
+  [playback-normalization-contract.md](./contracts/playback-normalization-contract.md).
+- The temporary-storage, worker concurrency, timeout and process-isolation
+  budgets are fixed in
+  [lifecycle-operations-contract.md](./contracts/lifecycle-operations-contract.md).
+- Automatic attempt cycles, long-term recovery cadence, backfill page/batch
+  limits and workload priority are fixed in
+  [automatic-backfill-contract.md](./contracts/automatic-backfill-contract.md).

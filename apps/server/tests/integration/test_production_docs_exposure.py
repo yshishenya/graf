@@ -8,17 +8,19 @@ from twobrain_rec_server.main import create_app
 REPO_ROOT = Path(__file__).parents[4]
 
 
-def test_production_disables_interactive_docs_and_openapi_json(tmp_path) -> None:
+def test_production_disables_interactive_docs_and_openapi_json() -> None:
     app = create_app(
         Settings(
             env="production",
-            database_url=f"sqlite+aiosqlite:///{tmp_path / 'prod-docs.db'}",
+            database_url="postgresql+asyncpg://twobrain_rec:secret@rec-postgres:5432/twobrain_rec",
             minio_endpoint="rec-minio:9000",
             minio_access_key="twobrain_rec_api",
             minio_secret_key="prod-api-secret",
             minio_bucket="test-bucket",
             web_csrf_secret="prod-web-csrf-secret-32-bytes-minimum",
             auth_ru_local_storage_attested=True,
+            playback_normalization_enabled=True,
+            temporal_address="rec-temporal:7233",
         )
     )
 

@@ -37,6 +37,7 @@ public enum DesktopPermissionOnboardingAccessibilityIdentifier {
     public static let sheet = "desktop.permissionOnboarding.sheet"
     public static let microphoneButton = "desktop.permissionOnboarding.microphone"
     public static let systemAudioButton = "desktop.permissionOnboarding.systemAudio"
+    public static let restartButton = "desktop.permissionOnboarding.restart"
     public static let finishButton = "desktop.permissionOnboarding.finish"
 }
 
@@ -46,34 +47,49 @@ public struct DesktopPermissionOnboardingView: View {
     public static let systemAudioStepDetail = "Нужна macOS, чтобы GRAF мог получить звук встречи. После настройки может потребоваться перезапуск GRAF."
     public static let startStepTitle = "Начните аудиозапись"
     public static let startStepDetail = "После разрешений используйте кнопку записи в правой панели управления."
+    public static let openSettingsTitle = "Открыть настройки macOS"
+    public static let retryTitle = "Проверить снова"
+    public static let restartTitle = "Перезапустить GRAF"
+    public static let restartDetail = "После изменения доступа к системному звуку перезапустите GRAF, чтобы macOS применила разрешение к записи."
+    public static let microphoneDeniedDetail = "macOS уже отклонила доступ. Откройте настройки и включите GRAF вручную — повторный запрос после отказа может не появиться."
+    public static let microphoneRestrictedDetail = "Доступ ограничен macOS или политикой устройства. GRAF не может обойти это ограничение."
 
     private let status: DesktopPermissionOnboardingStatus
     private let isRequesting: Bool
+    private let restartRequired: Bool
     private let onRequestMicrophone: () -> Void
     private let onRequestSystemAudio: () -> Void
     private let onOpenMicrophoneSettings: () -> Void
     private let onOpenSystemAudioSettings: () -> Void
+    private let onRefresh: () -> Void
     private let onDismiss: () -> Void
     private let onFinish: () -> Void
+    private let onRestart: () -> Void
 
     public init(
         status: DesktopPermissionOnboardingStatus,
         isRequesting: Bool,
+        restartRequired: Bool,
         onRequestMicrophone: @escaping () -> Void,
         onRequestSystemAudio: @escaping () -> Void,
         onOpenMicrophoneSettings: @escaping () -> Void,
         onOpenSystemAudioSettings: @escaping () -> Void,
+        onRefresh: @escaping () -> Void,
         onDismiss: @escaping () -> Void,
-        onFinish: @escaping () -> Void
+        onFinish: @escaping () -> Void,
+        onRestart: @escaping () -> Void
     ) {
         self.status = status
         self.isRequesting = isRequesting
+        self.restartRequired = restartRequired
         self.onRequestMicrophone = onRequestMicrophone
         self.onRequestSystemAudio = onRequestSystemAudio
         self.onOpenMicrophoneSettings = onOpenMicrophoneSettings
         self.onOpenSystemAudioSettings = onOpenSystemAudioSettings
+        self.onRefresh = onRefresh
         self.onDismiss = onDismiss
         self.onFinish = onFinish
+        self.onRestart = onRestart
     }
 
     public var body: some View {
@@ -96,7 +112,10 @@ public struct DesktopPermissionOnboardingView: View {
                     primaryIdentifier: DesktopPermissionOnboardingAccessibilityIdentifier.microphoneButton,
                     isRequesting: isRequesting,
                     onPrimary: onRequestMicrophone,
-                    onSettings: onOpenMicrophoneSettings
+                    onSettings: onOpenMicrophoneSettings,
+                    onRefresh: onRefresh,
+                    deniedDetail: Self.microphoneDeniedDetail,
+                    restrictedDetail: Self.microphoneRestrictedDetail
                 )
 
                 PermissionOnboardingRow(
@@ -108,7 +127,10 @@ public struct DesktopPermissionOnboardingView: View {
                     primaryIdentifier: DesktopPermissionOnboardingAccessibilityIdentifier.systemAudioButton,
                     isRequesting: isRequesting,
                     onPrimary: onRequestSystemAudio,
-                    onSettings: onOpenSystemAudioSettings
+                    onSettings: onOpenSystemAudioSettings,
+                    onRefresh: onRefresh,
+                    deniedDetail: nil,
+                    restrictedDetail: nil
                 )
 
                 HStack(alignment: .top, spacing: 12) {
@@ -131,12 +153,24 @@ public struct DesktopPermissionOnboardingView: View {
                 .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
             }
 
+            if restartRequired {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(Self.restartDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button(Self.restartTitle, action: onRestart)
+                        .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.restartButton)
+                }
+            }
+
             HStack {
                 Button("Позже", action: onDismiss)
                 Spacer()
                 Button("Готово", action: onFinish)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!status.isReady)
+                    .disabled(!status.isReady || restartRequired)
                     .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.finishButton)
             }
         }
@@ -156,6 +190,9 @@ private struct PermissionOnboardingRow: View {
     let isRequesting: Bool
     let onPrimary: () -> Void
     let onSettings: () -> Void
+    let onRefresh: () -> Void
+    let deniedDetail: String?
+    let restrictedDetail: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -173,18 +210,24 @@ private struct PermissionOnboardingRow: View {
                         .foregroundStyle(statusColor)
                 }
 
-                Text(detail)
+                Text(detailText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if state != .granted {
                     HStack(spacing: 8) {
-                        Button(primaryTitle, action: onPrimary)
+                        Button(
+                            state == .unknown ? primaryTitle : DesktopPermissionOnboardingView.openSettingsTitle,
+                            action: state == .unknown ? onPrimary : onSettings
+                        )
                             .disabled(isRequesting)
                             .accessibilityIdentifier(primaryIdentifier)
 
-                        Button("Настройки macOS", action: onSettings)
+                        Button(
+                            state == .unknown ? DesktopPermissionOnboardingView.openSettingsTitle : DesktopPermissionOnboardingView.retryTitle,
+                            action: state == .unknown ? onSettings : onRefresh
+                        )
                             .disabled(isRequesting)
                     }
                     .controlSize(.small)
@@ -208,6 +251,17 @@ private struct PermissionOnboardingRow: View {
             return "Нужно обновить"
         case .unknown:
             return "Нужно разрешение"
+        }
+    }
+
+    private var detailText: String {
+        switch state {
+        case .denied:
+            return deniedDetail ?? detail
+        case .restricted:
+            return restrictedDetail ?? detail
+        case .granted, .stale, .unknown:
+            return detail
         }
     }
 

@@ -101,7 +101,7 @@ uv run --extra dev pytest -q \
 2. Confirm private raw captures remain under:
 
 ```text
-/Users/yshishenya/.codex/private-reference-captures/2brain-rec/016-meeting-dashboard-review/2026-06-16/
+<private-reference-captures>/2brain-rec/016-meeting-dashboard-review/2026-06-16/
 ```
 
 3. Scan implementation screenshots, logs, problem responses, and validation

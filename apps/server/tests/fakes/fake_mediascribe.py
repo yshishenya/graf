@@ -27,6 +27,7 @@ class FakeMediaScribeClient:
         incoming_file: BinaryIO,
         diarize: bool,
         summarize: bool,
+        idempotency_key: str | None = None,
     ) -> MediaScribeSubmitResponse:
         mic_size, mic_hash = _stream_digest(mic_file)
         incoming_size, incoming_hash = _stream_digest(incoming_file)
@@ -38,6 +39,7 @@ class FakeMediaScribeClient:
                 "incoming_sha256": incoming_hash,
                 "diarize": diarize,
                 "summarize": summarize,
+                "idempotency_key": idempotency_key,
             }
         )
         return MediaScribeSubmitResponse(
@@ -52,18 +54,22 @@ class FakeMediaScribeClient:
         diarize: bool,
         summarize: bool,
         media_content_type: str | None = None,
+        media_filename: str | None = None,
+        idempotency_key: str | None = None,
     ) -> MediaScribeSubmitResponse:
         media_size, media_hash = _stream_digest(media_file)
-        self.submissions.append(
-            {
-                "request_mode": "single_track",
-                "media_size": media_size,
-                "media_sha256": media_hash,
-                "media_content_type": media_content_type,
-                "diarize": diarize,
-                "summarize": summarize,
-            }
-        )
+        submission = {
+            "request_mode": "single_track",
+            "media_size": media_size,
+            "media_sha256": media_hash,
+            "media_content_type": media_content_type,
+            "diarize": diarize,
+            "summarize": summarize,
+            "idempotency_key": idempotency_key,
+        }
+        if media_filename is not None:
+            submission["media_filename"] = media_filename
+        self.submissions.append(submission)
         return MediaScribeSubmitResponse(
             external_job_id=self.external_job_id,
             status=self.status_sequence[0],

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-06
 
-**Status**: Ready for planning
+**Status**: Implemented one-file backend upload/processing path; UI is owned by feature 090
 
 **Input**: User direction: create the next numbered implementation slice for
 uploading a user's own media file, then processing it through conversion or

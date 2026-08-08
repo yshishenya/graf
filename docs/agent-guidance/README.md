@@ -27,6 +27,11 @@ The physical Codex worktree folder name is not a source of truth.
 - `github-issue-canon.md`: exact GitHub issue format.
 - `release-and-validation.md`: local CI, deployment, changelog, release, and
   evidence rules.
+- `macos-notarization.md`: detailed Developer ID, Apple notarization, stapling,
+  Sparkle publication, and closeout recipe; read only for macOS release work.
+- `legacy-audio-driver-cleanup.md`: read-only inspection and explicit,
+  narrowly scoped cleanup for proof components already installed on a
+  developer Mac.
 
 ## What Goes Where
 

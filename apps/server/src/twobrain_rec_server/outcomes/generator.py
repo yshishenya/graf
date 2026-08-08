@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 from twobrain_rec_server.domain.statuses import OutcomeCategory
 from twobrain_rec_server.outcomes.models import (
@@ -11,6 +14,7 @@ from twobrain_rec_server.outcomes.models import (
     OutcomeSourceReference,
     OutcomeTranscriptSegment,
 )
+from twobrain_rec_server.outcomes.prompts import PromptSnapshot, canonical_json
 
 CATEGORIES = [category.value for category in OutcomeCategory]
 NEGATIVE_CONTEXT_RE = re.compile(r"\b(без|нет|не было|отсутств)\b", re.IGNORECASE)
@@ -19,6 +23,232 @@ ACTION_RE = re.compile(r"\b(договорились|нужно|надо|про�
 FOLLOWUP_RE = re.compile(r"\b(следующ|follow[- ]?up|вернуться)\b", re.IGNORECASE)
 RISK_RE = re.compile(r"\b(риск|блокер|проблем|зависим)\b", re.IGNORECASE)
 QUESTION_RE = re.compile(r"\?|\b(вопрос|как|что дальше)\b", re.IGNORECASE)
+
+
+class LiteLLMError(RuntimeError):
+    def __init__(
+        self,
+        code: str,
+        *,
+        retryable: bool,
+        raw_response: object | None = None,
+        egress_state: str = "response_received",
+    ) -> None:
+        super().__init__(code)
+        self.code = code
+        self.retryable = retryable
+        self.raw_response = raw_response
+        self.egress_state = egress_state
+
+
+@dataclass(frozen=True, slots=True)
+class LiteLLMGenerationResult:
+    request: dict[str, object]
+    raw_response: dict[str, object]
+    parsed_content: object
+    actual_model: str | None
+    actual_provider: str | None
+    provider_request_id: str | None
+    token_usage: dict[str, object] | None
+    cost_details: dict[str, object] | None
+
+
+class LiteLLMGateway:
+    """One zero-retry OpenAI-compatible call through the operator-owned proxy."""
+
+    def __init__(self, *, base_url: str, api_key: str, timeout_seconds: int) -> None:
+        self._url = f"{base_url.rstrip('/')}/chat/completions"
+        self._api_key = api_key
+        self._timeout_seconds = timeout_seconds
+
+    async def generate(
+        self,
+        *,
+        snapshot: PromptSnapshot,
+        messages: Sequence[Mapping[str, str]],
+        idempotency_key: str | None = None,
+    ) -> LiteLLMGenerationResult:
+        import httpx
+
+        request = snapshot.litellm_request(messages)
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
+                headers = {
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                }
+                if idempotency_key:
+                    headers["Idempotency-Key"] = idempotency_key
+                response = await client.post(
+                    self._url,
+                    headers=headers,
+                    json=request,
+                )
+        except (httpx.ConnectTimeout, httpx.ConnectError, httpx.PoolTimeout) as exc:
+            # These failures happen before an HTTP request can be accepted by LiteLLM,
+            # so a Temporal activity retry may reserve a new provider-attempt row.
+            raise LiteLLMError(
+                "litellm_unavailable",
+                retryable=True,
+                egress_state="not_sent",
+            ) from exc
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            # Read/write/protocol failures may occur after LiteLLM accepted the request.
+            # Conservatively block automatic replay because provider outcome is unknown.
+            raise LiteLLMError(
+                "litellm_outcome_ambiguous",
+                retryable=False,
+                egress_state="unknown",
+            ) from exc
+        if response.status_code in {408, 409, 429} or response.status_code >= 500:
+            raise LiteLLMError(
+                "litellm_retryable_response",
+                retryable=True,
+                raw_response=_error_response_payload(response),
+            )
+        if response.status_code in {401, 403}:
+            raise LiteLLMError(
+                "litellm_authentication_failed",
+                retryable=False,
+                raw_response=_error_response_payload(response),
+            )
+        if response.status_code >= 400:
+            raise LiteLLMError(
+                "litellm_request_rejected",
+                retryable=False,
+                raw_response=_error_response_payload(response),
+            )
+        try:
+            raw = response.json()
+        except ValueError as exc:
+            raise LiteLLMError(
+                "litellm_invalid_json",
+                retryable=False,
+                raw_response={
+                    "http_status": response.status_code,
+                    "body_text": getattr(response, "text", ""),
+                },
+            ) from exc
+        if not isinstance(raw, dict):
+            raise LiteLLMError(
+                "litellm_invalid_response",
+                retryable=False,
+                raw_response={"response_json": raw},
+            )
+        try:
+            content = _response_content(raw)
+        except LiteLLMError as exc:
+            raise LiteLLMError(
+                exc.code,
+                retryable=exc.retryable,
+                raw_response=dict(raw),
+            ) from exc
+        try:
+            parsed = (
+                json.loads(content)
+                if "response_format" in snapshot.config and isinstance(content, str)
+                else content
+            )
+        except json.JSONDecodeError as exc:
+            raise LiteLLMError(
+                "litellm_invalid_structured_output",
+                retryable=False,
+                raw_response=dict(raw),
+            ) from exc
+        usage = raw.get("usage")
+        hidden = raw.get("_hidden_params")
+        hidden_mapping = hidden if isinstance(hidden, dict) else {}
+        provider = hidden_mapping.get("custom_llm_provider") or raw.get("provider")
+        cost = hidden_mapping.get("response_cost") or raw.get("cost")
+        return LiteLLMGenerationResult(
+            request=request,
+            raw_response=dict(raw),
+            parsed_content=parsed,
+            actual_model=_optional_string(raw.get("model")),
+            actual_provider=_optional_string(provider),
+            provider_request_id=_optional_string(raw.get("id")),
+            token_usage=dict(usage) if isinstance(usage, dict) else None,
+            cost_details={"total": cost} if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None,
+        )
+
+
+def canonical_transcript(segments: Sequence[OutcomeTranscriptSegment]) -> str:
+    rows = [
+        {
+            "end_seconds": str(segment.end_seconds),
+            "sequence": segment.sequence,
+            "source_role": segment.source_role,
+            "speaker_label": segment.speaker_label,
+            "start_seconds": str(segment.start_seconds),
+            "text": segment.text,
+            "transcript_segment_id": str(segment.segment_id),
+        }
+        for segment in sorted(segments, key=lambda item: (item.sequence, item.start_seconds))
+    ]
+    return canonical_json(rows)
+
+
+def compile_prompt_messages(
+    snapshot: PromptSnapshot,
+    *,
+    transcript_json: str,
+    output_language: str,
+    detail_level: str,
+    template_sections: Sequence[str],
+) -> list[dict[str, str]]:
+    if snapshot.prompt_type != "chat" or not isinstance(snapshot.prompt, list):
+        raise ValueError("outcome generation requires a chat prompt")
+    variables = {
+        "transcript_json": transcript_json,
+        "output_language": output_language,
+        "detail_level": detail_level,
+        "template_sections_json": canonical_json(list(template_sections)),
+    }
+    messages: list[dict[str, str]] = []
+    for message in snapshot.prompt:
+        if not isinstance(message, dict) or set(message) not in (
+            {"role", "content"},
+            {"type", "role", "content"},
+        ):
+            raise ValueError("chat prompt messages must contain role and content only")
+        if "type" in message and message["type"] != "message":
+            raise ValueError("chat prompt message type is invalid")
+        role = message["role"]
+        content = message["content"]
+        if role not in {"system", "user", "assistant"} or not isinstance(content, str):
+            raise ValueError("chat prompt message is invalid")
+        for key, value in variables.items():
+            content = content.replace(f"{{{{{key}}}}}", value)
+        if "{{" in content or "}}" in content:
+            raise ValueError("chat prompt contains an unresolved variable")
+        messages.append({"role": role, "content": content})
+    return messages
+
+
+def _response_content(raw: Mapping[str, Any]) -> object:
+    choices = raw.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise LiteLLMError("litellm_invalid_response", retryable=False)
+    message = choices[0].get("message")
+    if not isinstance(message, dict) or "content" not in message:
+        raise LiteLLMError("litellm_invalid_response", retryable=False)
+    return message["content"]
+
+
+def _optional_string(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _error_response_payload(response: object) -> dict[str, object]:
+    status_code = getattr(response, "status_code", None)
+    try:
+        response_json = response.json()  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        return {
+            "http_status": status_code,
+            "body_text": getattr(response, "text", ""),
+        }
+    return {"http_status": status_code, "response_json": response_json}
 
 
 def generate_outcomes(segments: Sequence[OutcomeTranscriptSegment]) -> GeneratedOutcomePayload:

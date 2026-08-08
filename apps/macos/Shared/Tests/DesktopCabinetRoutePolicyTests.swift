@@ -9,6 +9,14 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
 
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings")).decision, .allow)
+        let sharedWithMe = policy.decision(for: try url("/desktop/shared-with-me"))
+        XCTAssertEqual(sharedWithMe.decision, .allow)
+        XCTAssertEqual(sharedWithMe.route.kind, .meetingList)
+        XCTAssertEqual(sharedWithMe.reason, .allowedMeetingList)
+        XCTAssertEqual(
+            policy.decision(for: try url("/desktop/shared-with-me/unexpected")).decision,
+            .blockWithMessage
+        )
         let detail = policy.decision(for: try url("/desktop/meetings/meeting-033"))
         XCTAssertEqual(detail.decision, .allow)
         XCTAssertEqual(detail.route.kind, .meetingDetail)
@@ -43,6 +51,33 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(meetingDetectionSettings.route.kind, .meetingDetectionSettings)
         XCTAssertEqual(meetingDetectionSettings.reason, .allowedMeetingDetectionSettings)
 
+        for route in [
+            "/desktop/settings",
+            "/desktop/settings/recording",
+            "/desktop/settings/summaries",
+            "/desktop/settings/workspace",
+            "/desktop/settings/account",
+            "/desktop/settings/provider-links/7f3d6f9f-0f7f-4c13-a9af-000000000033",
+            "/desktop/settings/provider-links/yandex/start",
+            "/desktop/settings/provider-links/7f3d6f9f-0f7f-4c13-a9af-000000000033/confirm",
+            "/desktop/settings/account/devices/7f3d6f9f-0f7f-4c13-a9af-000000000033/revoke",
+            "/desktop/settings/spaces/7f3d6f9f-0f7f-4c13-a9af-000000000033/activate",
+            "/desktop/settings/join-offers/7f3d6f9f-0f7f-4c13-a9af-000000000033/accept"
+        ] {
+            let settings = policy.decision(for: try url(route))
+            XCTAssertEqual(settings.decision, .allow, route)
+            XCTAssertEqual(settings.route.kind, .settings, route)
+            XCTAssertEqual(settings.reason, .allowedSettings, route)
+        }
+
+        for route in [
+            "/desktop/settings/unknown",
+            "/desktop/settings/provider-links/unsafe provider/start",
+            "/desktop/settings/join-offers/7f3d6f9f-0f7f-4c13-a9af-000000000033/delete"
+        ] {
+            XCTAssertEqual(policy.decision(for: try url(route)).decision, .blockWithMessage, route)
+        }
+
         let login = policy.decision(for: try url("/login?next=/desktop/meetings"))
         XCTAssertEqual(login.decision, .allow)
         XCTAssertEqual(login.route.kind, .authLogin)
@@ -66,6 +101,25 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: try url("/sign-up?next=/desktop/meetings&mode=email")).decision, .allow)
         XCTAssertEqual(policy.decision(for: try url("/sign-up/email/start")).decision, .allow)
         XCTAssertEqual(policy.decision(for: try url("/sign-up/email/verify")).decision, .allow)
+    }
+
+    func testAllowsServerMediatedMeetingArtifactDownloads() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+
+        for artifact in ["audio", "transcript", "summary"] {
+            let decision = policy.decision(
+                for: try url("/api/v1/cabinet/meetings/meeting-033/downloads/\(artifact)")
+            )
+            XCTAssertEqual(decision.decision, .allow, artifact)
+            XCTAssertEqual(decision.route.kind, .artifactDownload, artifact)
+            XCTAssertEqual(decision.route.meetingId, "meeting-033", artifact)
+            XCTAssertEqual(decision.reason, .allowedArtifactDownload, artifact)
+        }
+
+        let unknown = policy.decision(
+            for: try url("/api/v1/cabinet/meetings/meeting-033/downloads/package")
+        )
+        XCTAssertEqual(unknown.decision, .blockWithMessage)
     }
 
     func testAllowsEmbeddedLogoutCompatibilityTarget() throws {
@@ -100,6 +154,13 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         )
     }
 
+    func testOAuthProviderAndCallbackRoutesDoNotReplaceSwiftUIRequestIdentity() {
+        XCTAssertFalse(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .authProvider))
+        XCTAssertFalse(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .authCallback))
+        XCTAssertTrue(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .authLogin))
+        XCTAssertTrue(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .meetingList))
+    }
+
     func testBlocksNonHTTPSProviderLegsEvenWhenAuthContinuationIsActive() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
         let insecureProvider = try XCTUnwrap(URL(string: "http://id.future-provider.example/authorize?state=state"))
@@ -115,7 +176,11 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(admin.route.kind, .admin)
         XCTAssertEqual(admin.reason, .openBrowserOwnedAdmin)
 
-        XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/share")).decision, .blockWithMessage)
+        let share = policy.decision(for: try url("/desktop/meetings/meeting-033/share"))
+        XCTAssertEqual(share.decision, .allow)
+        XCTAssertEqual(share.route.kind, .meetingShare)
+        XCTAssertEqual(share.route.meetingId, "meeting-033")
+        XCTAssertEqual(share.reason, .allowedMeetingShare)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/download")).reason, .blockedFutureGovernance)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/delete")).reason, .blockedFutureGovernance)
         XCTAssertEqual(policy.decision(for: try url("/desktop/meetings/meeting-033/deletion")).reason, .blockedFutureGovernance)
@@ -141,6 +206,7 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertEqual(policy.decision(for: try url("/desktop/upload/picker")).reason, .blockedLocalFileOrDiagnostic)
         XCTAssertEqual(policy.decision(for: try url("/desktop/audio-devices")).reason, .blockedNativeCaptureControl)
         XCTAssertEqual(policy.decision(for: try url("/desktop/permissions/recover")).reason, .blockedNativeCaptureControl)
+        XCTAssertEqual(policy.decision(for: try url("/desktop/driver")).reason, .blockedNativeCaptureControl)
     }
 
     func testExternalLinksDoNotEmbedByDefault() throws {
@@ -148,6 +214,105 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
 
         XCTAssertEqual(policy.decision(for: try XCTUnwrap(URL(string: "https://docs.2brain.dev/help"))).decision, .openExternally)
         XCTAssertEqual(policy.decision(for: try XCTUnwrap(URL(string: "https://evil.example/desktop/meetings"))).decision, .blockWithMessage)
+    }
+
+    func testAllowsBlobDownloadOnlyFromAnAllowedMainFrame() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let blob = try XCTUnwrap(URL(string: "blob:https://rec.2brain.dev/export-id"))
+        let detail = try url("/desktop/meetings/meeting-033")
+
+        XCTAssertTrue(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: blob,
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: false,
+            targetURL: blob,
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: blob,
+            sourceURL: detail,
+            sourceIsMainFrame: false,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: try url("/api/v1/cabinet/meetings/meeting-033/content-exports"),
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: blob,
+            sourceURL: try XCTUnwrap(URL(string: "https://evil.example/desktop/meetings/meeting-033")),
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsBlobDownload(
+            requested: true,
+            targetURL: blob,
+            sourceURL: try url("/login"),
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+    }
+
+    func testArtifactDownloadRequiresTheSameMeetingDetailAsTheSource() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let detail = try url("/desktop/meetings/meeting-033")
+        let otherDetail = try url("/desktop/meetings/meeting-034")
+        let download = try url("/api/v1/cabinet/meetings/meeting-033/downloads/audio")
+        let otherDownload = try url("/api/v1/cabinet/meetings/meeting-034/downloads/audio")
+
+        XCTAssertTrue(EmbeddedCabinetWebView.allowsArtifactDownload(
+            targetURL: download,
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsArtifactDownload(
+            targetURL: download,
+            sourceURL: otherDetail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsArtifactDownload(
+            targetURL: otherDownload,
+            sourceURL: detail,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+        XCTAssertFalse(EmbeddedCabinetWebView.allowsArtifactDownload(
+            targetURL: download,
+            sourceURL: nil,
+            sourceIsMainFrame: true,
+            routePolicy: policy
+        ))
+    }
+
+    func testNativeSaveUsesAFlatSuggestedFilenameAndTreatsCancelAsNoDestination() throws {
+        XCTAssertEqual(
+            EmbeddedCabinetWebView.safeDownloadFilename("../../meeting.txt"),
+            "meeting.txt"
+        )
+        XCTAssertEqual(EmbeddedCabinetWebView.safeDownloadFilename("/"), "GRAF export")
+
+        let selectedURL = try XCTUnwrap(URL(string: "file:///tmp/meeting.txt"))
+        XCTAssertEqual(
+            EmbeddedCabinetWebView.nativeSaveDestination(response: .OK, selectedURL: selectedURL),
+            selectedURL
+        )
+        XCTAssertNil(
+            EmbeddedCabinetWebView.nativeSaveDestination(response: .cancel, selectedURL: selectedURL)
+        )
     }
 
     func testReviewRouteRequiresReviewAvailableServerMeeting() throws {

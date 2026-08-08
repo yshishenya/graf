@@ -47,7 +47,7 @@ From a project initialized with Spec Kit:
 
 ```sh
 specify extension add github-issue-canon \
-  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/archive/refs/heads/main.zip
+  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.1/github-issue-canon-0.3.1.zip
 ```
 
 For local development:
@@ -59,15 +59,21 @@ specify extension add github-issue-canon \
 
 ## Automatic Bootstrap
 
-Add this extension install step to your personal `speckit-bootstrap` wrapper
-after the core `git` and `agent-context` extensions are installed:
+Use `speckit-bootstrap` after the core `git` and `agent-context` extensions are
+installed. Bootstrap `v0.7.0+` resolves the extension catalog entry to a
+versioned release asset, verifies its published SHA-256 checksum, and records
+the complete installed tree in the project lock.
+For a manual equivalent pinned to this release:
 
 ```sh
 specify extension add github-issue-canon \
-  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/archive/refs/heads/main.zip
+  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.1/github-issue-canon-0.3.1.zip
 ```
 
-This repository includes no upstream Spec Kit changes.
+Published archives are built byte-for-byte reproducibly. The matching
+`.zip.sha256` file is attached to every GitHub Release and the digest is also
+recorded in `catalog.json`. This repository includes no upstream Spec Kit
+changes.
 
 ## Validation
 

@@ -39,16 +39,106 @@ services:
       TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
       TWOBRAIN_MINIO_SECURE: "false"
       TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
+      TWOBRAIN_LITELLM_BASE_URL: ${TWOBRAIN_LITELLM_BASE_URL:-}
+      TWOBRAIN_LANGFUSE_BASE_URL: https://cloud.langfuse.com
+      TWOBRAIN_LANGFUSE_ENVIRONMENT: development
     command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/verify_processing_worker_ready.py"]
+      interval: 10s
+      timeout: 8s
+      retries: 18
+      start_period: 20s
     depends_on:
       rec-migrate:
         condition: service_completed_successfully
       rec-temporal:
-        condition: service_started
+        condition: service_healthy
       rec-postgres:
         condition: service_healthy
       rec-minio:
         condition: service_healthy
+
+  rec-maintenance:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../apps/server/.env.example
+    environment:
+      TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_api
+      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_api_dev_secret
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
+    command: ["python", "-m", "twobrain_rec_server.workflows.maintenance_worker"]
+    depends_on:
+      rec-migrate:
+        condition: service_completed_successfully
+      rec-temporal:
+        condition: service_healthy
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+
+  rec-media-worker:
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+      target: media-runtime
+    init: true
+    user: twobrain
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt: !override
+      - no-new-privileges:true
+    pids_limit: 128
+    cpus: "1.0"
+    mem_limit: 1g
+    env_file:
+      - ../apps/server/.env.example
+    environment:
+      TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED: "true"
+      TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED: "true"
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
+      TWOBRAIN_MINIO_ENDPOINT: rec-minio:9000
+      TWOBRAIN_MINIO_ACCESS_KEY: twobrain_rec_media
+      TWOBRAIN_MINIO_SECRET_KEY: twobrain_rec_media_dev_secret
+      TWOBRAIN_MINIO_BUCKET: twobrain-rec-ingest
+      TWOBRAIN_MINIO_SECURE: "false"
+      TWOBRAIN_TEMPORAL_ADDRESS: rec-temporal:7233
+      TWOBRAIN_PLAYBACK_NORMALIZATION_TASK_QUEUE: twobrain-rec-playback-normalization
+      TWOBRAIN_PLAYBACK_NORMALIZATION_WORKER_CONCURRENCY: "1"
+      TWOBRAIN_PLAYBACK_NORMALIZATION_WORK_DIRECTORY: /var/lib/twobrain-rec/playback-normalization
+      TMPDIR: /var/lib/twobrain-rec/playback-normalization
+    command: ["python", "-m", "twobrain_rec_server.normalization.worker"]
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/verify_playback_normalization_worker_ready.py"]
+      interval: 10s
+      timeout: 8s
+      retries: 18
+      start_period: 20s
+    volumes:
+      - rec-media-work:/var/lib/twobrain-rec/playback-normalization
+    depends_on:
+      rec-migrate:
+        condition: service_completed_successfully
+      rec-temporal:
+        condition: service_healthy
+      rec-postgres:
+        condition: service_healthy
+      rec-minio:
+        condition: service_healthy
+    networks:
+      - rec-media-private
 
   rec-temporal:
     image: temporalio/auto-setup:1.27.2
@@ -60,11 +150,23 @@ services:
       POSTGRES_PWD: twobrain_rec
       DBNAME: temporal
       VISIBILITY_DBNAME: temporal_visibility
+      BIND_ON_IP: 0.0.0.0
     depends_on:
       rec-postgres:
         condition: service_healthy
     ports:
       - "7233:7233"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - temporal operator cluster health --address 127.0.0.1:7233 >/dev/null 2>&1
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+    networks:
+      - default
+      - rec-media-private
 
   rec-migrate:
     build:
@@ -99,6 +201,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+    networks:
+      - default
+      - rec-media-private
 
   rec-minio:
     image: minio/minio:RELEASE.2025-05-24T17-08-30Z
@@ -116,6 +221,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+    networks:
+      - default
+      - rec-media-private
 
   rec-minio-init:
     image: minio/mc:RELEASE.2025-05-21T01-59-54Z
@@ -128,13 +236,26 @@ services:
       - |
         mc alias set rec http://rec-minio:9000 twobrain_rec_root twobrain_rec_root_dev_secret
         mc mb --ignore-existing rec/twobrain-rec-ingest
+        printf 'ready\n' >/tmp/storage-readiness
+        mc cp /tmp/storage-readiness rec/twobrain-rec-ingest/_system/readiness/ready
         mc admin user add rec twobrain_rec_api twobrain_rec_api_dev_secret || true
         cat >/tmp/rec-api-policy.json <<'JSON'
         {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation","s3:ListBucketMultipartUploads"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/*"]}]}
         JSON
         mc admin policy create rec twobrain-rec-api /tmp/rec-api-policy.json || true
         mc admin policy attach rec twobrain-rec-api --user twobrain_rec_api
+        mc admin user add rec twobrain_rec_media twobrain_rec_media_dev_secret || true
+        cat >/tmp/rec-media-policy.json <<'JSON'
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/_system/readiness/ready","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/media/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/microphone/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/system/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/playback/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/media","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/microphone","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/system","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/playback"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/playback-normalization/revisions/*/attempts/*/meeting-review.m4a"]}]}
+        JSON
+        mc admin policy create rec twobrain-rec-media /tmp/rec-media-policy.json || true
+        mc admin policy attach rec twobrain-rec-media --user twobrain_rec_media
+
+networks:
+  rec-media-private:
+    internal: true
 
 volumes:
   rec-postgres-dev-data:
   rec-minio-dev-data:
+  rec-media-work:

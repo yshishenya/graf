@@ -1,0 +1,47 @@
+<main id="cabinet-main" class="main" tabindex="-1">
+  <section class="panel shared-summary" aria-labelledby="shared-summary-title">
+    <p class="eyebrow">Итоги через GRAF</p>
+    <h1 id="shared-summary-title">{{ meeting_title }}</h1>
+    <p class="muted">
+      {{ occurred_at.strftime("%d.%m.%Y, %H:%M UTC") }} · {{ (duration_seconds // 60) }} мин
+    </p>
+    <p class="shared-summary__notice">Вам открыли только итоги этой встречи. Аудио, расшифровка и внутренние данные не доступны.</p>
+
+    {% if summary_sections %}
+      <div class="shared-summary__sections">
+        {% for section in summary_sections %}
+          <article class="shared-summary__section">
+            <h2>{{ section.get("label") or "Итоги" }}</h2>
+            {% for item in section.get("items", []) %}
+              <div class="shared-summary__item">
+                <p>{{ item.get("text") or "" }}</p>
+                {% if item.get("owner_text") or item.get("due_date_text") %}
+                  <p class="muted shared-summary__meta">
+                    {% if item.get("owner_text") %}<span>Ответственный: {{ item.get("owner_text") }}</span>{% endif %}
+                    {% if item.get("due_date_text") %}<span>Срок: {{ item.get("due_date_text") }}</span>{% endif %}
+                  </p>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">Итоги пока не подготовлены.</p>
+    {% endif %}
+
+    {% if authenticated %}
+    <aside class="shared-summary__cta" aria-label="Открыть GRAF">
+      <strong>Настройте GRAF для своих встреч</strong>
+      <p class="muted">Открывайте свои записи, итоги и следующие шаги в рабочем кабинете GRAF.</p>
+        <a class="button" href="/meetings">Открыть GRAF</a>
+    </aside>
+    {% else %}
+    <aside class="shared-summary__cta" aria-label="Попробовать GRAF">
+      <strong>Хотите так же разбирать свои встречи?</strong>
+      <p class="muted">GRAF записывает встречу и превращает её в понятные итоги и следующие шаги.</p>
+        <a class="button" href="/sign-up?next=%2Fmeetings">Попробовать GRAF</a>
+    </aside>
+    {% endif %}
+  </section>
+</main>

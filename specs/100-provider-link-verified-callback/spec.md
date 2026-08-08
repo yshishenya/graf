@@ -2,10 +2,10 @@
 
 **Feature Branch**: `100-provider-link-verified-callback`
 **Created**: 2026-07-09
-**Status**: Draft
+**Status**: Implemented, released, and production-smoke validated
 **Input**: User description: "Security finding: Provider link trusts caller subject. Нужно не чинить точечно, а сделать отдельную 100-фичу и продумать безопасный flow привязки внешнего провайдера к существующему аккаунту."
 
-## Implementation Note
+## Historical implementation note — before the feature merge
 
 The 090 security closeout changed the deprecated direct `/api/v1/auth/link`
 compatibility endpoint to fail safe: authenticated callers may no longer create
@@ -13,9 +13,18 @@ or verify an external identity from a request body containing
 `candidate_provider_subject`. The route records a metadata-only rejected audit
 event and returns `provider_link_requires_verified_callback`.
 
-That hotfix removes the immediate raw-subject trust boundary. It does not
-complete 100: the user-facing ability to add a new provider to an existing
-account still needs the verified callback/link-intent flow described below.
+At that checkpoint the hotfix removed only the immediate raw-subject trust
+boundary. The verified callback/link-intent flow was subsequently implemented
+and released; the current server-verified, explicit-confirmation boundary is
+recorded in [quickstart.md](./quickstart.md) and its production receipts.
+
+## Clarifications
+
+### Session 2026-07-16
+
+- Q: Must every verified callback require an explicit GRAF confirmation before linking? → A: Yes. A callback alone never links a provider identity.
+- Q: Who may start a link and where is the first user surface? → A: An active member using the current authenticated session may link an enabled provider from browser Settings; the embedded desktop cabinet reuses that server-owned surface.
+- Q: What happens to verified data before and after confirmation? → A: The callback stores a short-lived pending candidate only. It neither creates an identity nor changes the GRAF session; terminal or expired intents remove candidate claims while retaining metadata-only audit status.
 
 ## Product Context
 
@@ -215,7 +224,9 @@ As an operator, I want to understand provider link attempts and failures without
 - **FR-005**: Link intent MUST be short-lived and one-time-use.
 - **FR-006**: Link callback MUST distinguish link intent from normal login/signup intent.
 - **FR-007**: Link callback MUST NOT silently create or switch to a different GRAF account.
-- **FR-008**: Link confirmation MUST use the server-stored verified provider candidate, not identity claims supplied in the confirm request.
+- **FR-008**: Every verified callback MUST require an explicit GRAF confirmation before linking; confirmation MUST use the server-stored verified provider candidate, not identity claims supplied in the confirm request.
+- **FR-008a**: A link callback MUST NOT create an external identity, create or switch a GRAF user, issue a session, or return a GRAF session token before the explicit confirmation.
+- **FR-008b**: Confirmation MUST be an authenticated, CSRF-protected state-changing action that accepts only an opaque server-issued intent identifier; it MUST require the initiating active session, user and workspace.
 - **FR-009**: If the provider subject is already linked to the same user, confirmation MUST be idempotent and MUST NOT create duplicate active identities.
 - **FR-010**: If the provider subject is already linked to another user, confirmation MUST fail with an explicit conflict and MUST NOT transfer ownership.
 - **FR-011**: Matching email, phone, display name or provider username MUST NOT be sufficient to create a verified provider identity.
@@ -228,6 +239,8 @@ As an operator, I want to understand provider link attempts and failures without
 - **FR-018**: Audit events MUST distinguish link started, callback verified, confirmation completed, conflict, expired, replayed and rejected states.
 - **FR-019**: Audit, diagnostics, specs and validation evidence MUST NOT contain raw provider subject, provider payload, authorization code, state nonce, session token, cookies or live credentials.
 - **FR-020**: Tests MUST cover direct subject rejection, verified callback linking, normal login preservation, conflict handling, state expiry/replay and audit redaction.
+- **FR-021**: Pending verified candidate claims MUST be deleted or minimized when an intent is confirmed, rejected or expired; only metadata-only lifecycle evidence may remain.
+- **FR-022**: Linking MUST NOT create a user, membership, enrolment, account merge, primary-provider change, or session change. An identity conflict response MUST not reveal the owning user or contact data.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -283,8 +296,7 @@ As an operator, I want to understand provider link attempts and failures without
 
 ## Clarifications Needed Before Implementation
 
-- Whether link confirmation should be required for every provider or whether callback can complete automatically when user/session binding is strong enough.
-- Whether old `/auth/link` route should be removed immediately or kept as a safe error for one release.
-- Whether link intent should be stored in the existing callback-state table, existing provider-link-state table or a small new link-attempt table.
-- Which UI surface owns provider linking first: browser settings, desktop app settings or both.
-- Whether workspace admin policy should allow or disallow members linking additional providers after initial enrollment.
+None. The 2026-07-16 clarification and planning decisions retain the existing
+safe legacy response for one release, extend the existing provider-link state,
+use the shared browser/embedded Settings surface, and permit an active member
+to link an enabled provider using the initiating session.

@@ -38,7 +38,7 @@ def test_deletion_request_and_report_contract_exposes_no_private_content(client)
     assert response.status_code == 202
     body = response.json()
     assert body["meeting_id"] == str(seeds.ready_id)
-    assert body["lifecycle"]["state"] == "deleting"
+    assert body["lifecycle"]["state"] == "active_purge_complete"
     assert body["lifecycle"]["can_view_report"] is True
 
     report = client.get(
@@ -51,6 +51,12 @@ def test_deletion_request_and_report_contract_exposes_no_private_content(client)
     assert SAFE_TRANSCRIPT_TEXT.lower() not in serialized
     assert "storage_object_key" not in serialized
     assert "external_job_id" not in serialized
+    rows = {row["artifact_class"]: row for row in report.json()["artifact_states"]}
+    assert rows["normalization_job"]["state"] == "metadata_retained"
+    assert rows["normalization_attempt_temp"]["state"] == "not_applicable"
+    assert rows["playback_candidate"]["state"] == "not_applicable"
+    assert rows["playback_canonical"]["state"] == "not_applicable"
+    assert rows["normalization_backfill"]["state"] == "not_applicable"
 
     dependency_classes = {row["artifact_class"] for row in report.json()["dependencies"]}
     assert dependency_classes >= {
@@ -112,6 +118,7 @@ def test_local_purge_task_contract_is_device_scoped_and_metadata_only(client) ->
     assert "storage_object_key" not in serialized
     assert "transcript" not in serialized
     assert SAFE_TRANSCRIPT_TEXT.lower() not in serialized
+    assert "storage_object_key" not in serialized
 
 
 def test_deletion_retry_guidance_is_safe_and_state_specific(client) -> None:

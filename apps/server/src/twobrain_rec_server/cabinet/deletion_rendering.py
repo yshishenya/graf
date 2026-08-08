@@ -17,6 +17,7 @@ def render_deletion_report_page(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     content = _render_deletion_report_content(meeting_title, report, embedded=embedded)
     return _page_shell(
@@ -24,6 +25,7 @@ def render_deletion_report_page(
         content,
         embedded=embedded,
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content_source="deletion_report.content",
     )
 
@@ -40,13 +42,6 @@ def render_deletion_report_fragment(
             _render_deletion_report_content(meeting_title, report, embedded=embedded),
             source="deletion_report.content",
         ),
-    )
-
-
-def render_deletion_feedback_fragment(*, report_url: str) -> str:
-    return render_template(
-        "cabinet/fragments/deletion_feedback.html",
-        report_url=report_url,
     )
 
 

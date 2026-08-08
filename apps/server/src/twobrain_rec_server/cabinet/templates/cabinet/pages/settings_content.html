@@ -1,16 +1,20 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    <div class="cabinet-topbar">
-      <div class="cabinet-titleline"><strong>Настройки</strong><span>Подключения</span></div>
-    </div>
-    <section class="settings-section cabinet-card" id="calendar-connections" aria-labelledby="calendar-connections-title">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href=("/desktop/meetings" if embedded else "/meetings")) }}
+    <div class="settings-page__content">
+    <header class="cabinet-topbar settings-page__topbar">
+      <div class="page-title">
+        <h1>Настройки</h1>
+      </div>
+    </header>
+    <section class="settings-section settings-boundary-card" aria-labelledby="settings-boundary-title">
       <div>
-        <div class="section-title" id="calendar-connections-title">Календари</div>
-        <p class="muted">Подключите календарь, чтобы ближайшие встречи появлялись в списке и помогали связывать записи с событиями.</p>
+        <h2 id="settings-boundary-title">Запись на этом Mac</h2>
+        <p class="muted">Настройте запись в приложении GRAF для macOS.</p>
       </div>
-      <div class="settings-actions">
-        <a class="button quiet" href="{{ calendar_settings_href }}">Подключить календари</a>
-      </div>
+      <a class="button quiet" href="{{ (settings_navigation | selectattr('id', 'equalto', 'recording') | list | first).href }}">О настройках записи</a>
     </section>
+    </div>
   </div>
 </main>

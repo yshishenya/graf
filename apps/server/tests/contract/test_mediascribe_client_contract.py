@@ -29,6 +29,7 @@ async def test_mediascribe_client_submits_only_dual_track_fields_and_server_key(
     async def handler(request: httpx.Request) -> httpx.Response:
         captured["path"] = request.url.path
         captured["api_key"] = request.headers.get("x-api-key")
+        captured["idempotency_key"] = request.headers.get("idempotency-key")
         body = await request.aread()
         assert b'name="mic_file"' in body
         assert b'name="incoming_file"' in body
@@ -45,10 +46,46 @@ async def test_mediascribe_client_submits_only_dual_track_fields_and_server_key(
         incoming_file=BytesIO(b"incoming"),
         diarize=True,
         summarize=False,
+        idempotency_key="job-contract-key",
     )
-    assert captured == {"path": "/v1/audio/transcriptions/dual-track", "api_key": "server-side-key"}
+    assert captured == {
+        "path": "/v1/audio/transcriptions/dual-track",
+        "api_key": "server-side-key",
+        "idempotency_key": "job-contract-key",
+    }
     assert response.external_job_id == "job_contract"
     assert response.status == MediaScribeJobStatus.UPLOADED
+
+
+@pytest.mark.asyncio
+async def test_v5_canonical_wav_uses_one_audio_wav_part_and_never_includes_playback() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/audio/transcriptions"
+        body = await request.aread()
+        assert b'name="file"' in body
+        assert b'filename="meeting-transcription.wav"' in body
+        assert b"Content-Type: audio/wav" in body
+        assert b'name="mic_file"' not in body
+        assert b'name="incoming_file"' not in body
+        assert b"dual-track" not in request.url.path.encode()
+        assert b"playback" not in body.lower()
+        assert b"m4a" not in body.lower()
+        return httpx.Response(200, json={"id": "job_v5_wav", "status": "uploaded"})
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    response = await client.submit_single_track(
+        media_file=BytesIO(b"RIFF\x00\x00\x00\x00WAVE"),
+        media_content_type="audio/wav",
+        media_filename="meeting-transcription.wav",
+        diarize=True,
+        summarize=False,
+    )
+
+    assert response.external_job_id == "job_v5_wav"
 
 
 @pytest.mark.asyncio
@@ -66,6 +103,64 @@ async def test_mediascribe_client_maps_auth_failure_without_response_secret() ->
     assert exc.value.reason_code == "mediascribe_auth_failed"
     assert not exc.value.retryable
     assert "server-side-key" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "reason_code"),
+    [(429, "mediascribe_rate_limited"), (500, "mediascribe_server_error")],
+)
+async def test_mediascribe_client_marks_retryable_http_responses_as_received(
+    status_code: int, reason_code: str
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, json={"detail": "temporary"})
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.poll_job("job_retryable")
+
+    assert exc.value.reason_code == reason_code
+    assert exc.value.retryable
+    assert exc.value.egress_state == "response_received"
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_rejects_empty_poll_payload_as_terminal_malformed() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.poll_job("job_empty")
+
+    assert exc.value.reason_code == "mediascribe_malformed_response"
+    assert exc.value.egress_state == "not_sent"
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_rejects_empty_result_payload_as_terminal_malformed() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(MediaScribeClientError) as exc:
+        await client.fetch_result("job_empty")
+
+    assert exc.value.reason_code == "mediascribe_malformed_response"
+    assert exc.value.egress_state == "not_sent"
 
 
 @pytest.mark.asyncio
@@ -89,6 +184,7 @@ async def test_mediascribe_client_maps_malformed_success_payloads_to_safe_retrya
 
     assert exc.value.reason_code == "mediascribe_malformed_response"
     assert exc.value.retryable
+    assert exc.value.egress_state == "unknown"
     assert "server-side-key" not in str(exc.value)
 
 
@@ -163,6 +259,30 @@ async def test_mediascribe_client_polls_and_maps_live_result_contract_shape() ->
     assert len(result.diarization) == 2
     assert result.diarization[0].speaker_label == "MIC"
     assert result.diarization[1].speaker_label == "REMOTE_00"
+
+
+@pytest.mark.asyncio
+async def test_mediascribe_client_accepts_contract_segments_without_optional_roles() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/jobs/job_minimal/result"
+        return httpx.Response(
+            200,
+            json={
+                "job": {"id": "job_minimal"},
+                "transcript": [{"start": 0, "end": 1, "text": "hello"}],
+                "diarization": [{"start": 0, "end": 1, "speaker": "SPEAKER_00", "text": "hello"}],
+            },
+        )
+
+    client = MediaScribeClient(
+        base_url="https://mediascribe.test",
+        api_key="server-side-key",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.fetch_result("job_minimal")
+
+    assert result.transcript[0].source_role == "incoming"
+    assert result.diarization[0].source_role == "incoming"
 
 
 @pytest.mark.asyncio

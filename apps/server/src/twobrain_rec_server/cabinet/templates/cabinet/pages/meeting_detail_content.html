@@ -1,49 +1,74 @@
-<main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}">
+<main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}">
+  <p class="sr-only" id="playback-live-status" data-playback-live-status role="status" aria-live="polite" aria-atomic="true">{{ playback_live_label }}</p>
   <div class="topline">
-    <div class="crumbs">
-      <a href="{{ base_path }}">Мои встречи</a>
-      <span>/</span>
-      <strong>{{ meeting_title }}</strong>
-      <span>{{ status_label }}</span>
-      {{ access_chip }}
+    <div class="page-title">
+      <div class="crumbs"><a href="{{ base_path }}">Мои встречи</a></div>
+      <h1>{{ meeting_title }}</h1>
+      <div class="row-meta">
+        <span>{{ meeting_date }}</span><span>·</span><span>{{ meeting_duration }}</span><span>{{ status_label }}</span>
+      </div>
     </div>
-    <div class="action-row">{{ top_actions }}</div>
+    <div class="action-row">
+      {{ top_actions }}
+      {% if more_actions_available %}
+        {% include "cabinet/fragments/meeting_governance.html" %}
+      {% endif %}
+    </div>
   </div>
+  <div id="meeting-share-host" data-share-dialog-host></div>
   <div class="tabs" role="tablist" aria-label="Содержимое встречи">
-    <button type="button" class="tab" role="tab" id="detail-tab-outcomes" aria-selected="false" aria-controls="detail-panel-outcomes" data-detail-tab="outcomes">Итоги</button>
-    <button type="button" class="tab active" role="tab" id="detail-tab-recording" aria-selected="true" aria-controls="detail-panel-recording" data-detail-tab="recording">{{ recording_tab }}</button>
+    <button type="button" class="tab{% if outcomes_selected %} active{% endif %}" role="tab" id="detail-tab-outcomes" aria-selected="{{ 'true' if outcomes_selected else 'false' }}" aria-controls="detail-panel-outcomes" data-detail-tab="outcomes" tabindex="{{ '0' if outcomes_selected else '-1' }}">Итоги</button>
+    <button type="button" class="tab{% if not outcomes_selected %} active{% endif %}" role="tab" id="detail-tab-recording" aria-selected="{{ 'false' if outcomes_selected else 'true' }}" aria-controls="detail-panel-recording" data-detail-tab="recording" tabindex="{{ '-1' if outcomes_selected else '0' }}">Расшифровка</button>
   </div>
-  <div class="detail-layout">
-    <section class="detail-main">
-      <section class="tab-panel" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes" hidden>
-        {{ outcomes }}
-      </section>
-      <section class="tab-panel active" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording">
-        <div class="transcript">{{ transcript }}</div>
-      </section>
+  <section class="detail-main">
+    {{ calendar_context_chooser }}
+    <section class="tab-panel{% if outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes"{% if not outcomes_selected %} hidden{% endif %}>
+      {% if summary_controls_available %}
+      <div class="summary-format-toolbar" data-summary-format-controls data-meeting-id="{{ meeting_id }}" data-current-outcome-set-id="{{ current_outcome_set_id }}" data-current-summary-format-key="{{ current_summary_format_key }}" data-current-summary-format-template-id="{{ current_summary_format_template_id }}" data-current-summary-format-version="{{ current_summary_format_version }}" data-current-template-id="{{ current_summary_format_id }}" data-current-template-key="{{ current_summary_format_key }}" data-current-template-version="{{ current_summary_format_version }}" data-current-template-name="{{ current_summary_format }}">
+        <h2>Итоги</h2>
+        <div class="summary-format-picker">
+          <button type="button" class="summary-format-button" data-summary-format-button aria-haspopup="listbox" aria-controls="summary-format-listbox" aria-expanded="false">
+            <span>Формат: <strong data-summary-format-label>{{ current_summary_format }}</strong></span>
+            <span aria-hidden="true">⌄</span>
+          </button>
+          <span class="summary-format-pending" data-summary-pending-format-label hidden aria-live="polite"></span>
+          <div id="summary-format-listbox" class="summary-format-listbox" data-summary-format-listbox data-recommended-limit="4" role="listbox" aria-label="Формат итогов" hidden>
+            {% for format in summary_formats[:4] %}
+            <button type="button" role="option" aria-selected="{{ 'true' if format.key == current_summary_format_key else 'false' }}" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}">{{ format.name }}</button>
+            {% endfor %}
+            <button type="button" class="summary-format-all" role="option" aria-selected="false" data-summary-format-all aria-haspopup="dialog" aria-controls="summary-format-dialog">Все форматы…</button>
+          </div>
+        </div>
+        <button type="button" class="button quiet" data-summary-refresh-button>Обновить итоги</button>
+      </div>
+      {% else %}
+      <h2 class="sr-only">Итоги</h2>
+      {% endif %}
+      <div class="summary-candidate-status" data-summary-candidate-status role="status" aria-live="polite" aria-atomic="true" hidden></div>
+      <div class="summary-candidate-preview" data-summary-candidate-preview hidden></div>
+      {{ outcomes }}
     </section>
-    <aside class="right-panel">
-      {{ revision_status }}
-      <h3>Доступ</h3>
-      {{ access_summary }}
-      <h3>Поделиться</h3>
-      {{ share_panel }}
-      <h3>Файлы</h3>
-      {{ artifacts }}
-      <div class="truth-copy" data-boundary-copy="{{ deletion_truth_copy }}">{{ deletion_truth_text }}</div>
-      <h3>Удаление</h3>
-      {{ delete_confirmation }}
-      <h3>Спикеры</h3>
-      {{ speaker_lanes }}
-      <h3>Управление</h3>
-      <div class="governance">{{ governance }}</div>
-      <h3>Активность</h3>
-      {{ activity }}
-      <h3>Ассистент</h3>
-      <button type="button" disabled>{{ assistant_label }}</button>
-      <h3>Шаблон</h3>
-      <button type="button" disabled>{{ template_label }}</button>
-    </aside>
-  </div>
+    <section class="tab-panel{% if not outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording"{% if outcomes_selected %} hidden{% endif %}>
+      <div class="transcript" data-playback-transcript>{{ transcript }}</div>
+    </section>
+  </section>
   {{ playback }}
+  {{ content_export_dialog }}
+  {% if summary_controls_available %}
+  <dialog id="summary-format-dialog" class="summary-format-dialog" data-summary-format-dialog aria-labelledby="summary-format-dialog-title">
+    <div class="summary-format-dialog__surface">
+      <div class="summary-format-dialog__header">
+        <div><h2 id="summary-format-dialog-title">Все форматы</h2><p class="muted">Выберите структуру для нового варианта итогов.</p></div>
+        <button type="button" class="icon-button" data-summary-format-dialog-close aria-label="Закрыть">×</button>
+      </div>
+      <div class="summary-format-grid" data-summary-all-options>
+        {% for format in summary_formats %}
+        <button type="button" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}"><strong>{{ format.name }}</strong><span>{{ format.purpose }}</span></button>
+        {% endfor %}
+      </div>
+      <div class="summary-personal-formats" data-summary-personal-options hidden></div>
+      <a class="button quiet" href="{{ summary_settings_href }}">Управлять личными форматами</a>
+    </div>
+  </dialog>
+  {% endif %}
 </main>

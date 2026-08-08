@@ -33,8 +33,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -46,8 +46,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -59,8 +59,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -72,8 +72,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -85,8 +85,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -98,8 +98,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -111,8 +111,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -124,8 +124,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -137,8 +137,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -150,8 +150,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -163,8 +163,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -176,8 +176,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -189,8 +189,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -202,8 +202,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -215,8 +215,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -228,8 +228,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -241,8 +241,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -254,8 +254,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -267,8 +267,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -280,8 +280,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -293,8 +293,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -306,8 +306,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -319,8 +319,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -332,8 +332,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -345,8 +345,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -358,8 +358,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -371,8 +371,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -384,8 +384,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -397,8 +397,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -410,8 +410,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -423,8 +423,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -436,8 +436,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -449,8 +449,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -462,8 +462,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -475,8 +475,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -488,8 +488,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -501,8 +501,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -514,8 +514,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -527,8 +527,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -540,8 +540,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -553,8 +553,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -566,8 +566,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -579,8 +579,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -592,8 +592,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -605,8 +605,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -618,8 +618,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -631,8 +631,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -644,8 +644,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -657,8 +657,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -670,8 +670,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -683,8 +683,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -696,8 +696,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -709,8 +709,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -722,8 +722,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -735,8 +735,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -748,8 +748,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -761,8 +761,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -774,8 +774,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -787,8 +787,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -800,8 +800,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -813,8 +813,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -826,8 +826,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -839,8 +839,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -852,8 +852,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -865,8 +865,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -878,8 +878,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -891,8 +891,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -904,8 +904,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -917,8 +917,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -930,8 +930,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -943,8 +943,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -956,8 +956,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, and package was not installed.
 
@@ -969,8 +969,8 @@ Acceptance boundary:
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `blocked`
 - Reason: default local package is not app-only.
 - Findings:
@@ -991,12 +991,12 @@ Building for production...
 [0/2] Write swift-version--1AB21518FC5DEDBE.txt
 Build of product 'TwoBrainRecApp' complete! (0.12s)
 Using ad-hoc app signing for local development because Developer Tools Security is enabled.
-/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/RecApp/.build/2brain Rec.app: replacing existing signature
-pkgbuild: Inferring bundle components from contents of /Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/stage/app
+<feature-worktree>/025-system-audio-capture-pivot/apps/macos/RecApp/.build/2brain Rec.app: replacing existing signature
+pkgbuild: Inferring bundle components from contents of <feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/stage/app
 pkgbuild: Adding component at Applications/2brain Rec.app
-pkgbuild: Wrote package to /Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components/2brain-rec-desktop-app.pkg
-productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg
-/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg
+pkgbuild: Wrote package to <feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components/2brain-rec-desktop-app.pkg
+productbuild: Wrote product to <feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg
+<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg
 ```
 
 ## App-Only Installer Validator Run
@@ -1007,8 +1007,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1020,8 +1020,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1033,8 +1033,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1046,8 +1046,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1059,8 +1059,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1072,8 +1072,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1085,8 +1085,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1098,8 +1098,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1111,8 +1111,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1124,8 +1124,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1137,8 +1137,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1150,8 +1150,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1163,8 +1163,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1176,8 +1176,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1189,8 +1189,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1202,8 +1202,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1215,8 +1215,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1228,8 +1228,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1241,8 +1241,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1254,8 +1254,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1267,8 +1267,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1280,8 +1280,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1293,8 +1293,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1306,8 +1306,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1319,8 +1319,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1332,8 +1332,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1345,8 +1345,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1358,8 +1358,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1371,8 +1371,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1384,8 +1384,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1397,8 +1397,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1410,8 +1410,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1423,8 +1423,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1436,8 +1436,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1449,8 +1449,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1462,8 +1462,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1475,8 +1475,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1488,8 +1488,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1501,8 +1501,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1514,8 +1514,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1527,8 +1527,8 @@ productbuild: Wrote product to /Users/yshishenya/.config/superpowers/worktrees/c
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `blocked`
 - Reason: default local package is not app-only.
 - Findings:
@@ -1549,8 +1549,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1562,8 +1562,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1575,8 +1575,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1588,8 +1588,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1601,8 +1601,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1614,8 +1614,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1627,8 +1627,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1640,8 +1640,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1653,8 +1653,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1666,8 +1666,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1679,8 +1679,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1692,8 +1692,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1705,8 +1705,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1718,8 +1718,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1731,8 +1731,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1744,8 +1744,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1757,8 +1757,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1770,8 +1770,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1783,8 +1783,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1796,8 +1796,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1809,8 +1809,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1822,8 +1822,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1835,8 +1835,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1848,8 +1848,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1861,8 +1861,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1874,8 +1874,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1887,8 +1887,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1900,8 +1900,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1913,8 +1913,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1926,8 +1926,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/025-system-audio-capture-pivot/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -1939,8 +1939,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.config/superpowers/worktrees/crisp/020-speaker-to-mic-leakage/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.config/superpowers/worktrees/crisp/020-speaker-to-mic-leakage/apps/macos/.build/installer/components`
+- Package: `<feature-worktree>/020-speaker-to-mic-leakage/apps/macos/.build/installer/2brain-rec-local.pkg`
+- Component directory: `<feature-worktree>/020-speaker-to-mic-leakage/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -2134,8 +2134,8 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.codex/worktrees/e040/crisp/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.codex/worktrees/e040/crisp/apps/macos/.build/installer/components`
+ - Package: `<repo-root>/apps/macos/.build/installer/2brain-rec-local.pkg`
+ - Component directory: `<repo-root>/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.
 
@@ -2147,7 +2147,7 @@ You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild
 - macOS: `26.5`
 - Hardware: `Mac15,10`
 - Mode: `--installer-app-only`
-- Package: `/Users/yshishenya/.codex/worktrees/e040/crisp/apps/macos/.build/installer/2brain-rec-local.pkg`
-- Component directory: `/Users/yshishenya/.codex/worktrees/e040/crisp/apps/macos/.build/installer/components`
+ - Package: `<repo-root>/apps/macos/.build/installer/2brain-rec-local.pkg`
+ - Component directory: `<repo-root>/apps/macos/.build/installer/components`
 - Validator result: `passed`
 - Safe checks: default package built, desktop app component present, audio-driver component absent, distribution has no audio-driver references, staging root has no Finder sidecar files, and package was not installed.

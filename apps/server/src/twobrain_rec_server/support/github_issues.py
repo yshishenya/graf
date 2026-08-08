@@ -12,7 +12,7 @@ GENERATED_END = "<!-- support-incident-generated:end -->"
 
 REQUIRED_SUPPORT_LABELS = (
     "needs-triage",
-    "feature:061",
+    "feature:114",
     "type:bug",
     "area:macos",
     "area:api",
@@ -149,23 +149,32 @@ def build_github_issue_draft(
     *,
     affected_count: int = 1,
     safe_affected_identities: tuple[str, ...] | list[str] = (),
-    github_issue_number: int | None = None,
+    incident_number: str = "CUST-UNASSIGNED",
+    sync_status: str = "synced",
 ) -> GitHubIssueDraft:
     priority = priority_for_report(report)
-    labels = (
-        *REQUIRED_SUPPORT_LABELS,
-        f"priority:{priority}",
-    )
+    feature_number = _feature_number(report)
+    labels = list(REQUIRED_SUPPORT_LABELS)
+    if feature_number != "114":
+        labels.append(f"feature:{feature_number}")
+    labels.append(f"priority:{priority}")
     problem_code = str(report.get("problem_code") or "unknown")
-    title = (
-        f"[061][{priority}][support/custody] "
-        f"Пользовательская проблема: {_human_problem_summary(problem_code)} ({problem_code})"
-    )
+    if feature_number == "114":
+        title = (
+            f"[114][{priority}][support/custody] T000: "
+            f"{_human_problem_summary(problem_code)} ({problem_code})"
+        )
+    else:
+        title = (
+            f"[061][{priority}][support/custody] "
+            f"Пользовательская проблема: {_human_problem_summary(problem_code)} ({problem_code})"
+        )
     body = _issue_body(
         report,
         affected_count=affected_count,
         safe_affected_identities=tuple(safe_affected_identities)[:5],
-        github_issue_number=github_issue_number,
+        incident_number=incident_number,
+        sync_status=sync_status,
     )
     return GitHubIssueDraft(title=title, body=body, labels=labels)
 
@@ -185,20 +194,23 @@ def updated_deduped_issue_body(
     *,
     affected_count: int,
     safe_affected_identities: tuple[str, ...] | list[str],
-    github_issue_number: int,
+    incident_number: str,
+    sync_status: str = "synced",
 ) -> str:
     draft = build_github_issue_draft(
         report,
         affected_count=affected_count,
         safe_affected_identities=safe_affected_identities,
-        github_issue_number=github_issue_number,
+        incident_number=incident_number,
+        sync_status=sync_status,
     )
     return replace_generated_issue_metadata(existing_body, draft)
 
 
 def priority_for_report(report: Mapping[str, Any]) -> str:
     data_loss_risk = str(report.get("data_loss_risk") or "").lower()
-    if data_loss_risk in {"probable", "high", "confirmed"}:
+    server_copy_state = str(report.get("server_copy_state") or "").lower()
+    if server_copy_state in {"deleted", "blocked"} or data_loss_risk in {"probable", "high", "confirmed"}:
         return "P0"
     if report.get("server_copy_known") is False or str(report.get("retry_class")) == "terminal":
         return "P1"
@@ -210,16 +222,16 @@ def _issue_body(
     *,
     affected_count: int,
     safe_affected_identities: tuple[str, ...],
-    github_issue_number: int | None,
+    incident_number: str,
+    sync_status: str,
 ) -> str:
-    issue_number = str(github_issue_number) if github_issue_number is not None else "new"
     return f"""## Кратко
 
-Пользовательская проблема из GRAF: локальная запись не была отправлена автоматически. Отчет metadata-only, без аудио, транскрипта, raw paths, токенов, signed URL и private meeting content.
+Пользовательская проблема из GRAF: состояние локальной записи или серверной копии требует проверки. Отчет metadata-only, без аудио, транскрипта, raw paths, токенов, signed URL и private meeting content.
 
 ## Контекст
 
-- Фича: `061-support-incident-reporting`
+- Фича: `{_feature_slug(report)}`
 - Приоритет: `{priority_for_report(report)}`
 - Область: `support/custody`
 - Spec tasks: runtime support incident
@@ -229,7 +241,7 @@ def _issue_body(
 
 ## Проблема
 
-Нужно проверить custody/upload blocker по safe metadata-only отчету и понять, может ли поддержка или разработка помочь пользователю.
+Нужно проверить custody/upload blocker по safe metadata-only отчету и понять, может ли поддержка или разработка помочь пользователю. Канонический этап, серверная истина и next action указаны в сгенерированном блоке ниже.
 
 ## Проверенные факты
 
@@ -237,7 +249,8 @@ def _issue_body(
         report,
         affected_count=affected_count,
         safe_affected_identities=safe_affected_identities,
-        issue_number=issue_number,
+        incident_number=incident_number,
+        sync_status=sync_status,
     )}
 
 ## Границы задачи
@@ -269,9 +282,9 @@ Full metadata-only issue details are retained indefinitely in this private GitHu
 
 ## Ссылки
 
-- Spec: `specs/061-support-incident-reporting/spec.md`
-- Plan: `specs/061-support-incident-reporting/plan.md`
-- Tasks: `specs/061-support-incident-reporting/tasks.md`
+- Spec: `specs/{_feature_slug(report)}/spec.md`
+- Plan: `specs/{_feature_slug(report)}/plan.md`
+- Tasks: `specs/{_feature_slug(report)}/tasks.md`
 - Связано:
 """
 
@@ -281,12 +294,26 @@ def _generated_block(
     *,
     affected_count: int,
     safe_affected_identities: tuple[str, ...],
-    issue_number: str,
+    incident_number: str,
+    sync_status: str,
 ) -> str:
     report_json = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     return f"""
 {GENERATED_START}
-- Номер для пользователя: `CUST-{issue_number}`
+- Номер обращения: `{incident_number}`
+- Статус синхронизации: `{sync_status}`
+- Канонический этап: `{report.get("canonical_stage", "unknown")}`
+- Проблема: `{report.get("problem_code", "unknown")}`
+- Следующее действие: `{report.get("server_next_action", report.get("normal_user_action", "unknown"))}`
+- Серверная копия: `{report.get("server_copy_state", "unknown")}`
+- Локальная копия: `{report.get("local_copy_state", "unknown")}`
+- Доступ/удаление сервера: `{report.get("server_access_state", "unknown")}` / `{report.get("server_deletion_state", "unknown")}`
+- Матрица состояния: upload=`{report.get("upload_state", "unknown")}`, processing=`{report.get("server_processing_status", report.get("processing_status", "unknown"))}`, local_purge=`{report.get("local_purge_state", "unknown")}`
+- Timeline (max 5): `{json.dumps(report.get("timeline", []), ensure_ascii=False, separators=(",", ":"))}`
+- Retry history (max 5): `{json.dumps(report.get("retry_history", []), ensure_ascii=False, separators=(",", ":"))}`
+- Server report fingerprint: `{report.get("safe_report_fingerprint", "unknown")}`
+- Client report fingerprint: `{report.get("client_report_fingerprint", "unknown")}`
+- Client dedupe key: `{report.get("client_dedupe_key", "unknown")}`
 - Problem code: `{report.get("problem_code", "unknown")}`
 - Dedupe key: `{report.get("dedupe_key", "unknown")}`
 - Affected count: `{affected_count}`
@@ -299,6 +326,18 @@ Full safe metadata-only report:
 ```
 {GENERATED_END}
 """
+
+
+def _feature_number(report: Mapping[str, Any]) -> str:
+    return "114" if str(report.get("schema_version")) == "desktop-support-incident.v2" else "061"
+
+
+def _feature_slug(report: Mapping[str, Any]) -> str:
+    return (
+        "114-support-incident-diagnostics"
+        if _feature_number(report) == "114"
+        else "061-support-incident-reporting"
+    )
 
 
 def _extract_generated_block(body: str) -> str:

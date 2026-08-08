@@ -77,6 +77,7 @@ def test_public_analytics_event_catalog_has_stable_labels() -> None:
         "hero_download",
         "final_download",
         "hero_login",
+        "hero_product",
         "final_login",
         "download_page_installer",
         "download_page_login",
@@ -280,6 +281,8 @@ def _production_public_analytics_settings(**overrides: object) -> Settings:
         "minio_bucket": "twobrain-rec-ingest",
         "web_csrf_secret": "prod-web-csrf-secret-32-bytes-minimum",
         "auth_ru_local_storage_attested": True,
+        "playback_normalization_enabled": True,
+        "temporal_address": "rec-temporal:7233",
     }
     values.update(overrides)
     return Settings(**values)

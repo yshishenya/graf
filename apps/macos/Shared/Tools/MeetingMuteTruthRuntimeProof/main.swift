@@ -11,11 +11,8 @@ struct MeetingMuteTruthRuntimeProof {
         let incomingSource = BufferedLocalRecordingSampleSource(capacity: 48_000 * 8, channelCount: 1)
         let writer = LocalRecordingWriter(
             store: store,
-            sharedMemoryFactory: { nil },
             microphoneSampleSourceFactory: { micSource },
             incomingSampleSourceFactory: { incomingSource },
-            microphoneInputChannelCount: 1,
-            incomingInputChannelCount: 1,
             recordMicrophone: true
         )
 

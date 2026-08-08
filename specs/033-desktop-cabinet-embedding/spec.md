@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-16
 
-**Status**: Draft
+**Status**: Implemented as the native macOS embedded cabinet shell
 
 **Input**: User description: "Continue toward MVP through the full SDD Spec Kit cycle. After feature 016 created the server-owned meeting dashboard and desktop-embedded routes, make the macOS app show that product surface inside the native shell. Keep comparing against the final V8 mockups and the Krisp desktop/web reference, but do not copy Krisp visuals, copy, assets, or proprietary behavior. Keep capture-critical controls native and move product UI that can live on the web into the web cabinet."
 

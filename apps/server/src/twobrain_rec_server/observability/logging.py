@@ -11,6 +11,9 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.observability.redaction import redact_mapping
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+SHARE_TOKEN_PATH_RE = re.compile(
+    r"(/(?:api/v1/cabinet/(?:share|public-shares|share-invitations)|share|share-invitations)/)[^/?]+"
+)
 LOG_RECORD_BASE_FIELDS = frozenset(logging.makeLogRecord({}).__dict__)
 
 
@@ -20,7 +23,12 @@ def sanitize_request_id(value: str) -> str:
 
 
 def template_path(path: str) -> str:
+    path = SHARE_TOKEN_PATH_RE.sub(r"\1{share_token}", path)
     return UUID_RE.sub("{uuid}", path)
+
+
+def is_share_token_path(path: str) -> bool:
+    return bool(SHARE_TOKEN_PATH_RE.search(path))
 
 
 class JsonFormatter(logging.Formatter):
@@ -47,25 +55,14 @@ def configure_logging(settings: Settings) -> None:
     root.setLevel(settings.log_level.upper())
 
 
-def _safe_headers(request: Request, settings: Settings) -> dict[str, str]:
-    redacted = set(settings.redact_headers)
-    safe: dict[str, str] = {}
-    for key, value in request.headers.items():
-        lowered = key.lower()
-        safe[key] = "[REDACTED]" if lowered in redacted else value
-    return redact_mapping(safe)
-
-
 async def request_logging_middleware(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
-    settings: Settings = request.app.state.settings
     request_id = sanitize_request_id(request.headers.get("x-request-id", str(uuid.uuid4())))
     request.state.request_id = request_id
     started = time.perf_counter()
     templated_path = template_path(request.url.path)
-    safe_headers = _safe_headers(request, settings)
 
     logger = logging.getLogger("twobrain_rec.request")
     logger.info(
@@ -74,11 +71,15 @@ async def request_logging_middleware(
             "request_id": request_id,
             "method": request.method,
             "path": templated_path,
-            "headers": safe_headers,
         },
     )
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
+    if is_share_token_path(request.url.path):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
     logger.info(
         "request.end",
         extra={
@@ -87,7 +88,6 @@ async def request_logging_middleware(
             "path": templated_path,
             "status_code": response.status_code,
             "duration_ms": round((time.perf_counter() - started) * 1000, 2),
-            "headers": safe_headers,
         },
     )
     return response

@@ -1,488 +1,230 @@
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
 import XCTest
 
 final class LocalRecordingWriterSystemAudioTests: XCTestCase {
-    func testWriterAcceptsIndependentIncomingSampleSourceWithoutSharedMemory() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-tests-\(UUID().uuidString)", isDirectory: true)
+    func testWriterUsesPTSInsteadOfWallClockStopPadding() throws {
+        let root = makeSystemWriterRoot("v5-pts-duration")
         defer { try? FileManager.default.removeItem(at: root) }
-
-        let source = FixtureSampleSource(samples: Array(repeating: 0.25, count: 48_000))
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            incomingSampleSourceFactory: { source },
-            recordMicrophone: false
-        )
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let system = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
 
         _ = try writer.start(
-            sessionId: "session",
-            startedAt: Date(timeIntervalSince1970: 10)
-        )
-        Thread.sleep(forTimeInterval: 0.15)
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
-        XCTAssertEqual(incoming.sourceKind, .systemAudio)
-        XCTAssertEqual(incoming.fileName, "incoming.wav")
-        XCTAssertEqual(incoming.mediaScribeField, .incomingFile)
-        XCTAssertEqual(incoming.status, .saved)
-        XCTAssertGreaterThan(incoming.frameCount, 0)
-    }
-
-    func testWriterReportsIncomingRecorderLevelFromSystemAudioSource() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-level-tests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let source = FixtureSampleSource(samples: Array(repeating: 0.5, count: 2_048))
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            incomingSampleSourceFactory: { source },
-            recordMicrophone: false
-        )
-
-        _ = try writer.start(
-            sessionId: "session",
-            startedAt: Date(timeIntervalSince1970: 10)
-        )
-        Thread.sleep(forTimeInterval: 0.15)
-        let now = Date()
-        let levels = writer.currentLevels(now: now)
-        _ = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        XCTAssertTrue(levels.isRecording)
-        XCTAssertGreaterThan(levels.incomingLevel, 0)
-        XCTAssertTrue(levels.incomingIsLive(now: now, staleAfter: 2))
-    }
-
-    func testStopDrainsPendingIncomingSamplesBeforeManifestFinalization() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-stop-drain-tests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let incomingSource = BufferedLocalRecordingSampleSource()
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: false
-        )
-
-        _ = try writer.start(
-            sessionId: "session",
-            startedAt: Date(timeIntervalSince1970: 10)
-        )
-        incomingSource.append(Array(repeating: 0.25, count: 48_000))
-
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
-        XCTAssertGreaterThan(incoming.frameCount, 0)
-        XCTAssertGreaterThan(incoming.durationMs, 0)
-        XCTAssertNotEqual(incoming.failureReason, .noFrames)
-    }
-
-    func testStopBoundsInfiniteIncomingDrainAndFailsTruthfully() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-infinite-drain-tests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let incomingSource = InfiniteFixtureSampleSource()
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: false
-        )
-
-        _ = try writer.start(
-            sessionId: "session-infinite-drain",
-            startedAt: Date(timeIntervalSince1970: 10)
-        )
-        let startedAt = Date()
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-        let elapsed = Date().timeIntervalSince(startedAt)
-
-        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
-        XCTAssertLessThan(elapsed, 2)
-        XCTAssertEqual(incoming.failureReason, .writeFailed)
-        XCTAssertEqual(incoming.status, .failed)
-        XCTAssertNotEqual(manifest.status, .saved)
-        XCTAssertFalse(writer.isRecording)
-    }
-
-    func testForcedCaptureFailurePreventsCleanSavedManifest() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-forced-failure-tests-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 96_000))
-        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            microphoneSampleSourceFactory: { microphoneSource },
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: false
-        )
-
-        _ = try writer.start(
-            sessionId: "session-forced-failure",
+            sessionId: "pts-duration",
             startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: acceptedScope(),
-            permissions: acceptedPermissions()
+            scopeApproval: systemScopeApproval(),
+            permissions: systemGrantedPermissions()
         )
-        Thread.sleep(forTimeInterval: 0.15)
+        microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 4_800), seconds: 100))
+        system.append(systemBatch(samples: Array(repeating: 0.2, count: 4_800), seconds: 100))
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 20))
+
+        let media = try XCTUnwrap(manifest.tracks.first { $0.role == .mixedMeetingAudio })
+        let playback = try XCTUnwrap(manifest.tracks.first { $0.role == .reviewPlayback })
+        XCTAssertEqual(media.durationMs, 100)
+        XCTAssertLessThan(playback.durationMs, 250)
+        XCTAssertLessThanOrEqual(manifest.durationDifferenceSeconds, 0.1)
+        XCTAssertTrue(manifest.isComplete)
+    }
+
+    func testExternalFailurePreservesPublishedAudioBeforeWritingFailedManifest() throws {
+        let root = makeSystemWriterRoot("v5-manual-failure")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let system = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+
+        let directory = try writer.start(
+            sessionId: "manual-failure",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(),
+            permissions: systemGrantedPermissions()
+        )
+        microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 4_800), seconds: 100))
+        system.append(systemBatch(samples: Array(repeating: 0.2, count: 4_800), seconds: 100))
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11), failureReason: .captureFailed)
+
+        XCTAssertEqual(manifest.status, .failed)
+        XCTAssertEqual(manifest.failureReason, .captureFailed)
+        XCTAssertFalse(manifest.isComplete)
+        XCTAssertEqual(
+            Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
+            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
+        )
+        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
+        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
+    }
+
+    func testLegacyTimelineFailureKeepsAudioLocalButBlocksUpload() throws {
+        let root = makeSystemWriterRoot("v5-timeline-warning")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let system = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+
+        let directory = try writer.start(
+            sessionId: "timeline-warning",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(),
+            permissions: systemGrantedPermissions()
+        )
+        microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 4_800), seconds: 100))
+        system.append(systemBatch(samples: Array(repeating: 0.2, count: 4_800), seconds: 100))
         let manifest = try writer.stop(
             stoppedAt: Date(timeIntervalSince1970: 11),
-            failureReason: .captureFailed
+            failureReason: .timelineMisaligned
         )
 
-        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
-        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
-        XCTAssertGreaterThan(mic.frameCount, 0)
-        XCTAssertGreaterThan(incoming.frameCount, 0)
+        let profile = DesktopUploadQueueService.artifactProfile(
+            manifest: manifest,
+            manifestURL: directory.manifestURL,
+            microphoneURL: directory.directoryURL.appendingPathComponent("mic.wav"),
+            systemAudioURL: directory.directoryURL.appendingPathComponent("incoming.wav"),
+            reviewAudioURL: directory.reviewAudioURL,
+            transcriptionURL: directory.transcriptionAudioURL
+        )
+
+        XCTAssertFalse(manifest.isComplete)
         XCTAssertEqual(manifest.failureReason, .captureFailed)
+        XCTAssertNil(profile.qualityWarningReason)
+        XCTAssertFalse(profile.isUploadable)
+    }
+
+    func testTimestampedQueueOverflowFailsWithoutPublishingPartialPackage() throws {
+        let root = makeSystemWriterRoot("v5-overflow")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let system = BufferedLocalRecordingSampleSource(capacity: 4_800, channelCount: 1)
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+
+        let directory = try writer.start(
+            sessionId: "overflow",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(),
+            permissions: systemGrantedPermissions()
+        )
+        microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 4_800), seconds: 100))
+        system.append(systemBatch(samples: Array(repeating: 0.2, count: 9_600), seconds: 100))
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
+
         XCTAssertEqual(manifest.status, .failed)
+        XCTAssertEqual(manifest.failureReason, .writeFailed)
         XCTAssertFalse(manifest.isComplete)
+        XCTAssertEqual(
+            Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
+            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
+        )
+        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
+        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
     }
 
-    func testStopPadsIntermittentIncomingAudioToRecordingTimeline() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-padding-tests-\(UUID().uuidString)", isDirectory: true)
+    func testStopBoundsAnUnboundedTimestampedSourceAndPreservesCapturedPrefix() throws {
+        let root = makeSystemWriterRoot("v5-infinite")
         defer { try? FileManager.default.removeItem(at: root) }
-
-        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
-        let incomingSource = BufferedLocalRecordingSampleSource(channelCount: 1)
-        incomingSource.append(Array(repeating: 0.25, count: 4_800))
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let system = InfiniteTimestampedSampleSource()
         let writer = LocalRecordingWriter(
             store: LocalRecordingStore(rootURL: root),
-            microphoneSampleSourceFactory: { microphoneSource },
-            incomingSampleSourceFactory: { incomingSource },
+            microphoneSampleSourceFactory: { microphone },
+            incomingSampleSourceFactory: { system },
             recordMicrophone: true
         )
 
-        _ = try writer.start(
-            sessionId: "session",
+        let directory = try writer.start(
+            sessionId: "infinite",
             startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: acceptedScope(),
-            permissions: acceptedPermissions()
+            scopeApproval: systemScopeApproval(),
+            permissions: systemGrantedPermissions()
         )
-
+        microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 4_800), seconds: 100))
+        let started = Date()
         let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
 
-        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
-        XCTAssertGreaterThanOrEqual(incoming.durationMs, 990)
-        XCTAssertLessThanOrEqual(manifest.durationDifferenceSeconds, 3)
-        XCTAssertEqual(incoming.failureReason, .timelineMisaligned)
-        XCTAssertEqual(incoming.status, .degraded)
-        XCTAssertNotEqual(manifest.status, .saved)
-        XCTAssertEqual(manifest.captureHealth?.failureReason, .timelineMisaligned)
-        XCTAssertEqual(manifest.captureHealth?.gateStatus, .failed)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+        XCTAssertEqual(manifest.failureReason, .writeFailed)
+        XCTAssertEqual(manifest.status, .failed)
+        XCTAssertFalse(writer.isRecording)
+        XCTAssertEqual(
+            Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
+            Set(["manifest.json", "meeting-transcription.wav", "meeting-review.m4a"])
+        )
+        XCTAssertGreaterThan(try Data(contentsOf: directory.transcriptionAudioURL).count, 44)
+        XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
     }
 
-    func testSmallIncomingStopTailPaddingDoesNotDegradeRecording() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-stop-tail-padding-tests-\(UUID().uuidString)", isDirectory: true)
+    func testBufferedSourceSplitsBatchesWithTheirOriginalPTS() throws {
+        let source = BufferedLocalRecordingSampleSource(channelCount: 1)
+        source.append(systemBatch(samples: Array(repeating: 0.2, count: 10), seconds: 100))
+
+        let first = source.readTimestampedBatch(maximumFrameCount: 4)
+        let second = source.readTimestampedBatch(maximumFrameCount: 4)
+        let third = source.readTimestampedBatch(maximumFrameCount: 4)
+
+        let firstBatch = try XCTUnwrap(first)
+        let secondBatch = try XCTUnwrap(second)
+        let thirdBatch = try XCTUnwrap(third)
+        XCTAssertEqual(firstBatch.samples.count, 4)
+        XCTAssertEqual(secondBatch.samples.count, 4)
+        XCTAssertEqual(thirdBatch.samples.count, 2)
+        XCTAssertEqual(firstBatch.presentationTime.seconds, 100)
+        XCTAssertEqual(secondBatch.presentationTime.seconds, 100 + 4.0 / 48_000, accuracy: 0.000_000_001)
+        XCTAssertEqual(thirdBatch.presentationTime.seconds, 100 + 8.0 / 48_000, accuracy: 0.000_000_001)
+        XCTAssertFalse(source.hasTimestampedOverflow)
+    }
+
+    func testCanonicalWriterFlushKeepsDownsampledWavOnTheSameTimeline() throws {
+        let root = makeSystemWriterRoot("canonical-flush")
         defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try LocalRecordingStore(rootURL: root).createDirectory(sessionId: "canonical-flush")
+        let writer = try CanonicalRecordingWriter(directory: directory)
 
-        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
-        let incomingSource = BufferedLocalRecordingSampleSource(channelCount: 1)
-        incomingSource.append(Array(repeating: 0.25, count: 46_080))
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            microphoneSampleSourceFactory: { microphoneSource },
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: true
-        )
+        try writer.append(RecordingAudioTimelineChunk(
+            startFrameIndex: 0,
+            samples: Array(repeating: 0.35, count: 4_800)
+        ))
+        let artifact = try writer.finish()
 
-        _ = try writer.start(
-            sessionId: "session",
-            startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: acceptedScope(),
-            permissions: acceptedPermissions()
-        )
-
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
-        XCTAssertEqual(incoming.durationMs, 1000)
-        XCTAssertEqual(incoming.failureReason, LocalRecordingFailureReason.none)
-        XCTAssertEqual(incoming.status, .saved)
-        XCTAssertTrue(incoming.timelineAligned)
-        XCTAssertEqual(manifest.status, .degraded)
-        XCTAssertEqual(manifest.failureReason, .leakageUnproven)
-        XCTAssertEqual(manifest.leakageFinalization?.transcriptionGate, .blockedUnproven)
-        XCTAssertFalse(manifest.isComplete)
-        XCTAssertEqual(manifest.captureHealth?.failureReason, LocalRecordingFailureReason.none)
-        XCTAssertEqual(manifest.captureHealth?.gateStatus, .passed)
-    }
-
-    func testBufferedIncomingSourceReadsInOrderAfterPartialReads() {
-        let source = BufferedLocalRecordingSampleSource(capacity: 8)
-        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 4)
-        defer { scratch.deallocate() }
-
-        source.append([1, 2, 3, 4])
-        XCTAssertEqual(source.readSamples(into: scratch, capacity: 2), 2)
-        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 2)), [1, 2])
-
-        source.append([5, 6])
-        XCTAssertEqual(source.readSamples(into: scratch, capacity: 4), 4)
-        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 4)), [3, 4, 5, 6])
-    }
-
-    func testBufferedIncomingSourceDropsOldestUnreadSamplesWhenCapacityIsExceeded() {
-        let source = BufferedLocalRecordingSampleSource(capacity: 4)
-        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: 4)
-        defer { scratch.deallocate() }
-
-        source.append([1, 2, 3])
-        source.append([4, 5, 6])
-
-        XCTAssertEqual(source.readSamples(into: scratch, capacity: 4), 4)
-        XCTAssertEqual(Array(UnsafeBufferPointer(start: scratch, count: 4)), [3, 4, 5, 6])
-        XCTAssertEqual(source.stats().frameCount, 4)
-    }
-
-    func testBufferedSourceStatsRespectConfiguredChannelCount() {
-        let stereoSource = BufferedLocalRecordingSampleSource(channelCount: 2)
-        stereoSource.append(Array(repeating: 0.25, count: 512))
-        XCTAssertEqual(stereoSource.stats().frameCount, 256)
-
-        let monoSource = BufferedLocalRecordingSampleSource(channelCount: 1)
-        monoSource.append(Array(repeating: 0.25, count: 512))
-        XCTAssertEqual(monoSource.stats().frameCount, 512)
-    }
-
-    func testWriterUsesInjectedAppOwnedMicrophoneSourceForMicTrackLevelsAndMetadata() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-app-owned-mic-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.45, count: 96_000))
-        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
-        let selection = writerRecordingMicrophoneSelection()
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            microphoneSampleSourceFactory: { microphoneSource },
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: true
-        )
-
-        _ = try writer.start(
-            sessionId: "session-app-owned-mic",
-            startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: acceptedScope(),
-            permissions: acceptedPermissions(),
-            microphoneSelection: selection
-        )
-        Thread.sleep(forTimeInterval: 0.15)
-        let levels = writer.currentLevels(now: Date())
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
-        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
-        XCTAssertGreaterThan(mic.frameCount, 0)
-        XCTAssertGreaterThan(incoming.frameCount, 0)
-        XCTAssertGreaterThan(levels.microphoneLevel, 0)
-        XCTAssertTrue(levels.microphoneIsLive(staleAfter: 2))
-        XCTAssertEqual(manifest.microphoneSelection, selection)
-        XCTAssertEqual(manifest.microphoneStream?.streamKind, .appOwnedSampleSource)
-        XCTAssertTrue(manifest.microphoneStream?.provesGraphReadiness == true)
-        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .readyForFutureProcessing)
-        XCTAssertGreaterThan(manifest.microphoneStreamHealth?.lastLevel ?? 0, 0)
-        XCTAssertNotNil(manifest.microphoneStreamHealth?.lastLevelAt)
-    }
-
-    func testWriterAttachesAppleCandidateMetadataWithoutReplacingOriginalTracks() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-apple-candidate-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
-        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 48_000))
-        let appleOutcome = AppleProcessingOutcome(
-            candidateId: "apple-candidate-001",
-            primaryOutcome: .acceptedForGuidanceOnly,
-            validationRows: [
-                AppleProcessingValidationRow(
-                    candidateId: "apple-candidate-001",
-                    candidateKind: .micModeGuidance,
-                    routeClass: .builtInSpeakerphone,
-                    scenario: .farEndOnly,
-                    baselineStatus: .degraded,
-                    candidateStatus: .unproven,
-                    lineageStatus: .candidateMetadata,
-                    speechPreservationStatus: .notMeasured,
-                    alignmentStatus: .notMeasured,
-                    stabilityStatus: .unproven,
-                    diagnosticSafe: true
-                )
-            ],
-            nextStepRecommendation: .deferToWebRTCAEC3
-        )
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            microphoneSampleSourceFactory: { microphoneSource },
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: true
-        )
-
-        _ = try writer.start(
-            sessionId: "session-apple-candidate",
-            startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: acceptedScope(),
-            permissions: acceptedPermissions(),
-            appleProcessingOutcome: appleOutcome
-        )
-        Thread.sleep(forTimeInterval: 0.15)
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
-        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
-        XCTAssertEqual(mic.fileName, "mic.wav")
-        XCTAssertEqual(incoming.fileName, "incoming.wav")
-        XCTAssertEqual(mic.evidenceRole, .original)
-        XCTAssertEqual(incoming.evidenceRole, .original)
-        XCTAssertEqual(manifest.appleProcessingOutcome, appleOutcome)
-        XCTAssertFalse(manifest.appleProcessingOutcome?.canClaimCleanBuiltinSpeakerphone ?? true)
-    }
-
-    func testWebRTCAEC3OutcomePropagatesWithoutReplacingOriginalTracks() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-aec3-candidate-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0.35, count: 48_000))
-        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 48_000))
-        let outcome = writerWebRTCAEC3GuidanceOutcome()
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            microphoneSampleSourceFactory: { microphoneSource },
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: true
-        )
-
-        _ = try writer.start(
-            sessionId: "session-aec3-candidate",
-            startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: acceptedScope(),
-            permissions: acceptedPermissions(),
-            webRTCAEC3Outcome: outcome
-        )
-        Thread.sleep(forTimeInterval: 0.15)
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
-        let incoming = try XCTUnwrap(manifest.tracks.first { $0.role == .remoteSpeaker })
-        XCTAssertEqual(mic.fileName, "mic.wav")
-        XCTAssertEqual(incoming.fileName, "incoming.wav")
-        XCTAssertEqual(mic.evidenceRole, .original)
-        XCTAssertEqual(incoming.evidenceRole, .original)
-        XCTAssertEqual(manifest.webRTCAEC3Outcome, outcome)
-        XCTAssertFalse(manifest.webRTCAEC3Outcome?.canClaimCleanBuiltInSpeakerphone ?? true)
-    }
-
-    func testAppOwnedMicrophoneNoFramesProducesUnprovenStreamHealth() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-mic-no-frames-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let microphoneSource = FixtureSampleSource(samples: [])
-        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            microphoneSampleSourceFactory: { microphoneSource },
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: true
-        )
-
-        _ = try writer.start(
-            sessionId: "session-mic-no-frames",
-            startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: acceptedScope(),
-            permissions: acceptedPermissions(),
-            microphoneSelection: writerRecordingMicrophoneSelection()
-        )
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
-        XCTAssertEqual(mic.failureReason, .noFrames)
-        XCTAssertEqual(manifest.microphoneStreamHealth?.framesObserved, false)
-        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .unproven)
-        XCTAssertEqual(manifest.microphoneStreamHealth?.gateStatus, .failed)
-        XCTAssertFalse(manifest.microphoneStream?.provesGraphReadiness == true)
-    }
-
-    func testAppOwnedMicrophoneSilenceProducesSilentStreamHealth() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-mic-silent-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let microphoneSource = FixtureSampleSource(samples: Array(repeating: 0, count: 96_000))
-        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            microphoneSampleSourceFactory: { microphoneSource },
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: true
-        )
-
-        _ = try writer.start(
-            sessionId: "session-mic-silent",
-            startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: acceptedScope(),
-            permissions: acceptedPermissions(),
-            microphoneSelection: writerRecordingMicrophoneSelection()
-        )
-        Thread.sleep(forTimeInterval: 0.15)
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        let mic = try XCTUnwrap(manifest.tracks.first { $0.role == .localMic })
-        XCTAssertEqual(mic.failureReason, .silentInput)
-        XCTAssertEqual(manifest.microphoneStreamHealth?.silenceStatus, .silent)
-        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .unproven)
-        XCTAssertFalse(manifest.microphoneStream?.provesGraphReadiness == true)
-    }
-
-    func testPausedMicrophoneSamplesDoNotProveAppOwnedGraphReadiness() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("system-audio-writer-mic-paused-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let microphoneSource = GateableFixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
-        let incomingSource = FixtureSampleSource(samples: Array(repeating: 0.25, count: 96_000))
-        let writer = LocalRecordingWriter(
-            store: LocalRecordingStore(rootURL: root),
-            microphoneSampleSourceFactory: { microphoneSource },
-            incomingSampleSourceFactory: { incomingSource },
-            recordMicrophone: true
-        )
-
-        _ = try writer.start(
-            sessionId: "session-mic-paused",
-            startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: acceptedScope(),
-            permissions: acceptedPermissions(),
-            microphoneSelection: writerRecordingMicrophoneSelection()
-        )
-        try writer.pausePrivacy(startedAt: Date(timeIntervalSince1970: 10.1))
-        microphoneSource.release()
-        Thread.sleep(forTimeInterval: 0.15)
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11))
-
-        XCTAssertEqual(manifest.microphoneStream?.frameCount, 0)
-        XCTAssertEqual(manifest.microphoneStreamHealth?.framesObserved, false)
-        XCTAssertEqual(manifest.microphoneStreamHealth?.cleanupReadiness, .unproven)
-        XCTAssertFalse(manifest.microphoneStream?.provesGraphReadiness == true)
+        XCTAssertEqual(artifact.canonicalFrameCount, 4_800)
+        XCTAssertEqual(artifact.transcriptionFrameCount, 1_600)
+        XCTAssertEqual(artifact.transcriptionDurationMs, 100)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artifact.reviewAudioURL.path))
     }
 }
 
-private func acceptedScope() -> CaptureScopeApproval {
+private func makeSystemWriterRoot(_ name: String) -> URL {
+    FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(UUID().uuidString)", isDirectory: true)
+}
+
+private func makeSystemV5Writer(
+    root: URL,
+    microphone: BufferedLocalRecordingSampleSource,
+    system: BufferedLocalRecordingSampleSource
+) -> LocalRecordingWriter {
+    LocalRecordingWriter(
+        store: LocalRecordingStore(rootURL: root),
+        microphoneSampleSourceFactory: { microphone },
+        incomingSampleSourceFactory: { system },
+        recordMicrophone: true
+    )
+}
+
+private func systemBatch(samples: [Float], seconds: Double) -> RecordingAudioBatch {
+    RecordingAudioBatch(
+        samples: samples,
+        format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+        presentationTime: RecordingAudioPresentationTimestamp(seconds: seconds, clockDomain: .hostTime),
+        discontinuity: .none,
+        routeGeneration: 0
+    )
+}
+
+private func systemScopeApproval() -> CaptureScopeApproval {
     CaptureScopeApproval(
-        scopeApprovalId: "scope-system-audio",
+        scopeApprovalId: "system-writer-scope",
         scopeKind: .display,
         sourceDisplayName: "Current Display",
         approvedAt: Date(timeIntervalSince1970: 9),
@@ -491,7 +233,7 @@ private func acceptedScope() -> CaptureScopeApproval {
     )
 }
 
-private func acceptedPermissions() -> SystemAudioPermissionSnapshot {
+private func systemGrantedPermissions() -> SystemAudioPermissionSnapshot {
     SystemAudioPermissionSnapshot(
         microphone: .granted,
         systemAudio: .granted,
@@ -499,101 +241,20 @@ private func acceptedPermissions() -> SystemAudioPermissionSnapshot {
     )
 }
 
-private func writerRecordingMicrophoneSelection() -> RecordingMicrophoneSelection {
-    RecordingMicrophoneSelection(
-        selectionId: "writer-selection",
-        mode: .userSelected,
-        inputDeviceId: "built-in",
-        inputDisplayName: "Built-in Microphone",
-        deviceClass: .builtIn,
-        workingDeviceKind: .physical,
-        selectionResult: .accepted,
-        resolvedAt: Date(timeIntervalSince1970: 9)
-    )
-}
-
-private func writerWebRTCAEC3GuidanceOutcome() -> WebRTCAEC3DecisionRecord {
-    WebRTCAEC3DecisionRecord(
-        candidateId: "aec3-writer-guidance",
-        primaryOutcome: .acceptedForGuidanceOnly,
-        validationRows: [
-            WebRTCAEC3ValidationRow(
-                rowId: "aec3-writer-row",
-                candidateId: "aec3-writer-guidance",
-                scenarioFamily: .farEndOnlyLeakage,
-                validationKind: .fullFile,
-                routeClass: .builtInSpeakerphone,
-                baselineStatus: .leakageDetected,
-                candidateStatus: .unproven,
-                lineageStatus: .candidateMetadata,
-                speechPreservationStatus: .notMeasured,
-                residualLeakageStatus: .unproven,
-                timingConfidence: .notMeasured,
-                referenceStatus: .present,
-                stabilityStatus: .unproven,
-                thresholdProfileId: WebRTCAEC3AcceptanceThresholdProfile.standardV1.thresholdProfileId,
-                thresholdSummary: "guidance_only",
-                appStatusState: .usingOriginalMicTruth,
-                diagnosticSafe: true
-            )
-        ],
-        nextStepRecommendation: .guidanceOnly
-    )
-}
-
-private final class FixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
-    private var samples: [Float]
-
-    init(samples: [Float]) {
-        self.samples = samples
-    }
-
-    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
-        guard !samples.isEmpty else { return 0 }
-        let count = min(capacity, samples.count)
-        for index in 0..<count {
-            destination[index] = samples[index]
-        }
-        samples.removeFirst(count)
-        return count
-    }
-}
-
-private final class InfiniteFixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
-    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
-        guard capacity > 0 else { return 0 }
-        for index in 0..<capacity {
-            destination[index] = 0.25
-        }
-        return capacity
-    }
-}
-
-private final class GateableFixtureSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+private final class InfiniteTimestampedSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
     private let lock = NSLock()
-    private var samples: [Float]
-    private var released = false
+    private var nextTimestamp: Double = 100
 
-    init(samples: [Float]) {
-        self.samples = samples
-    }
+    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int { 0 }
 
-    func release() {
-        lock.lock()
-        released = true
-        lock.unlock()
-    }
-
-    func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
         lock.lock()
         defer { lock.unlock() }
-        guard released, !samples.isEmpty else { return 0 }
-        let count = min(capacity, samples.count)
-        for index in 0..<count {
-            destination[index] = samples[index]
-        }
-        samples.removeFirst(count)
-        return count
+        let timestamp = nextTimestamp
+        nextTimestamp += 1.0 / 48_000
+        return systemBatch(samples: [0.2], seconds: timestamp)
     }
+
+    var hasTimestampedOverflow: Bool { false }
 }
 #endif

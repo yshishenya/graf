@@ -9,14 +9,132 @@ import XCTest
 final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
     func testOnlineProductSidebarIsWebOwnedWhileNativeCaptureChromeRemainsNative() {
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
-        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Запись", "Сохранность"])
+        XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
         XCTAssertGreaterThan(DesktopMeetingShellChrome.recordingStripHeight, 0)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
         XCTAssertFalse(DesktopMeetingShellChrome.shouldShowExpandedInspector(
             manualExpanded: false,
-            hasActiveRecording: true
+            hasActionableProblem: false
+        ))
+        XCTAssertTrue(DesktopMeetingShellChrome.shouldShowExpandedInspector(
+            manualExpanded: false,
+            hasActionableProblem: true
         ))
         XCTAssertTrue(CaptureStatusItem.showsStopButton(for: makeActiveSession()))
+    }
+
+    func testNativeShellOwnsDirectStartStopAndRecordingDoesNotAutoExpandInspector() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+        let appSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(shellSource.contains("startRecordingAvailable"))
+        XCTAssertTrue(shellSource.contains("onStartRecording"))
+        XCTAssertTrue(shellSource.contains("hasActionableCaptureProblem"))
+        XCTAssertTrue(shellSource.contains("desktop-meeting-shell-start-recording-button"))
+        XCTAssertTrue(shellSource.contains("desktop-meeting-shell-stop-recording-button"))
+        XCTAssertTrue(shellSource.contains("RecordingTitlebarHUD("))
+        XCTAssertTrue(shellSource.contains("Label(\"Стоп\", systemImage: \"stop.fill\")"))
+        XCTAssertFalse(shellSource.contains("hasActiveRecording: recordingStripSession != nil"))
+        XCTAssertTrue(appSource.contains("startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton"))
+        XCTAssertTrue(appSource.contains("calendarPrompt: desktopCalendarPrompt"))
+        XCTAssertTrue(appSource.contains("|| desktopCalendarPrompt?.kind == .record"))
+        XCTAssertTrue(appSource.contains("onStartRecording:"))
+    }
+
+    func testNativeShellWidthAndInteractiveTargetsStayStableAtSupportedSizes() {
+        XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 52)
+        XCTAssertTrue((304...312).contains(DesktopMeetingShellChrome.expandedInspectorWidth))
+        XCTAssertGreaterThanOrEqual(
+            DesktopMeetingShellChrome.compactRailActionHitSize,
+            DesktopMeetingShellChrome.minimumInteractiveTarget
+        )
+        XCTAssertGreaterThanOrEqual(
+            DesktopMeetingShellChrome.inspectorToggleHitSize,
+            DesktopMeetingShellChrome.minimumInteractiveTarget
+        )
+        XCTAssertFalse(
+            DesktopMeetingShellChrome.shouldShowExpandedInspector(
+                manualExpanded: false,
+                hasActionableProblem: false
+            )
+        )
+    }
+
+    func testOrdinaryNativeInspectorOmitsPermanentTrustDiagnosticsAndGenericReports() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+        let appSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(shellSource.contains("Label(\"Доверие записи\""))
+        XCTAssertFalse(shellSource.contains("Label(\"Диагностика\""))
+        XCTAssertFalse(shellSource.contains("diagnosticsContent"))
+        XCTAssertFalse(appSource.contains("diagnosticsContent:"))
+        XCTAssertTrue(shellSource.contains("if attentionCustodyItemCount > 0"))
+        XCTAssertTrue(shellSource.contains("attentionCustodySummaries"))
+        XCTAssertTrue(shellSource.contains("primaryProjection.requiresUserAttention"))
+        XCTAssertTrue(shellSource.contains(".onChange(of: attentionCustodySignature)"))
+        XCTAssertTrue(shellSource.contains("summary.stableIdentity"))
+        XCTAssertTrue(shellSource.contains("Требуется внимание"))
+        XCTAssertFalse(shellSource.contains("Требуется действие"))
+        XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
+    }
+
+    func testRemovedNativeMainWindowFragmentsHaveNoCurrentEntryPoint() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+        let captureSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift"),
+            encoding: .utf8
+        )
+        let appSource = try String(
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            encoding: .utf8
+        )
+
+        for forbidden in [
+            "localTodayStrip",
+            "localTodayTile(",
+            "Image(systemName: \"bookmark\")",
+            "Image(systemName: \"line.3.horizontal.decrease\")",
+            "Image(systemName: \"arrow.up.arrow.down\")",
+            "Label(\"Доверие записи\"",
+            "Label(\"Диагностика\"",
+            "diagnosticsContent"
+        ] {
+            XCTAssertFalse(shellSource.contains(forbidden), forbidden)
+        }
+        for forbidden in [
+            "private struct UploadQueueStatusView",
+            "uploadReviewButtonTitle"
+        ] {
+            XCTAssertFalse(captureSource.contains(forbidden), forbidden)
+        }
+        for forbidden in [
+            "localRecordingLocation",
+            "meetingDetectionHealth",
+            "recordingBlocker = \"Не удалось поставить запись на паузу: \\(error)\"",
+            "recordingBlocker = \"Не удалось продолжить запись: \\(error)\"",
+            "recordingBlocker = \"Не удалось остановить запись: \\(error)\"",
+            "default:\n            return action"
+        ] {
+            XCTAssertFalse(appSource.contains(forbidden), forbidden)
+        }
     }
 
     func testNativeProductSidebarImplementationIsRemovedFromShellSource() throws {
@@ -112,22 +230,29 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         ])
     }
 
-    func testOfflineStatesDoNotExposeOnlineRecoveryRouteFromWorkspace() throws {
+    func testOfflineStatesExposeOnlySafeSameOriginRetryFromWorkspace() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",
             headers: [:]
         ))
 
-        for state in [DesktopCabinetState.offline, .timeout, .notConfigured, .malformedResponse] {
+        for state in [DesktopCabinetState.offline, .timeout, .malformedResponse] {
             XCTAssertFalse(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
                 for: state,
                 currentRoute: configuration.meetingsURL(),
                 initialRoute: nil,
                 configuration: configuration
             ), "\(state)")
-            XCTAssertNil(DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration), "\(state)")
-            XCTAssertNil(state.recoveryActionTitle, "\(state)")
+            XCTAssertEqual(
+                DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration),
+                .embedded(configuration.meetingsURL()),
+                "\(state)"
+            )
+            XCTAssertEqual(state.recoveryActionTitle, "Повторить", "\(state)")
         }
+
+        XCTAssertNil(DesktopCabinetWorkspace.recoveryTarget(for: .notConfigured, configuration: configuration))
+        XCTAssertNil(DesktopCabinetState.notConfigured.recoveryActionTitle)
     }
 
     func testRightNativeCustodyPanelUsesAccessibleSupportIncidentActions() throws {
@@ -153,10 +278,10 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("onSubmit: onSupportIncidentReport"))
         XCTAssertTrue(shellSource.contains("accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)"))
         XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.sendTitle))
-        XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.copyTitle))
         XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.failureMessage))
-        XCTAssertTrue(stripSource.contains(".accessibilityLabel(\"Отправить отчет разработчикам\")"))
-        XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.copyTitle)"))
+        XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.sendTitle)"))
+        XCTAssertFalse(stripSource.contains("Скопировать отчет"))
+        XCTAssertFalse(stripSource.contains("Отправить отчет"))
     }
 
     func testEmbeddedCabinetWebViewIsClippedInsideNativeShell() throws {
@@ -184,9 +309,53 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(webViewSource.contains("runOpenPanelWith parameters: WKOpenPanelParameters"))
         XCTAssertTrue(webViewSource.contains("let panel = NSOpenPanel()"))
         XCTAssertTrue(webViewSource.contains("panel.canChooseFiles = true"))
-        XCTAssertTrue(webViewSource.contains("panel.canChooseDirectories = parameters.allowsDirectories"))
-        XCTAssertTrue(webViewSource.contains("panel.allowsMultipleSelection = parameters.allowsMultipleSelection"))
+        XCTAssertTrue(webViewSource.contains("initiatedByFrame: WKFrameInfo"))
+        XCTAssertTrue(webViewSource.contains("panel.canChooseDirectories = false"))
+        XCTAssertTrue(webViewSource.contains("panel.allowsMultipleSelection = false"))
+        XCTAssertTrue(webViewSource.contains("completionHandler(nil)"))
         XCTAssertTrue(webViewSource.contains("completionHandler(urls.isEmpty ? nil : urls)"))
+    }
+
+    func testEmbeddedCabinetFilePickerIsBoundToMainFrameSameOriginMeetingList() throws {
+        let policy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        )
+        let listURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings"))
+        let detailURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/abc"))
+        let externalURL = try XCTUnwrap(URL(string: "https://evil.example/desktop/meetings"))
+
+        XCTAssertTrue(
+            EmbeddedCabinetWebView.allowsFilePicker(
+                webViewURL: listURL,
+                frameURL: listURL,
+                frameIsMainFrame: true,
+                routePolicy: policy
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.allowsFilePicker(
+                webViewURL: listURL,
+                frameURL: listURL,
+                frameIsMainFrame: false,
+                routePolicy: policy
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.allowsFilePicker(
+                webViewURL: listURL,
+                frameURL: detailURL,
+                frameIsMainFrame: true,
+                routePolicy: policy
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.allowsFilePicker(
+                webViewURL: listURL,
+                frameURL: externalURL,
+                frameIsMainFrame: true,
+                routePolicy: policy
+            )
+        )
     }
 
     private func makeActiveSession() -> CaptureSession {
@@ -214,7 +383,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         createdAt: Date
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.schemaVersion,
+            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
             manifestPresent: true,
             microphonePresent: true,
             systemAudioPresent: true,

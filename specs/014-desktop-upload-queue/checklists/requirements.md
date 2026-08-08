@@ -2,7 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-06-11
-**Feature**: [spec.md](/Users/yshishenya/.codex/worktrees/66ad/019-live-route-stability/specs/014-desktop-upload-queue/spec.md)
+**Feature**: [spec.md](../spec.md)
 
 ## Content Quality
 

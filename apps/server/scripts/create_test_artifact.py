@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 from hashlib import sha256
 from pathlib import Path
 
@@ -17,7 +18,11 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
-    args.out.mkdir(parents=True, exist_ok=True)
+    args.out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        os.mkdir(args.out, 0o700)
+    except FileExistsError as exc:
+        raise RuntimeError("test artifact output must be a new directory, not an existing path or symlink") from exc
     mic_sha = write_track(args.out / "mic.wav", 1024)
     incoming_sha = write_track(args.out / "incoming.wav", 1024)
     manifest = {

@@ -14,6 +14,8 @@ def _production_settings(**overrides):
         "minio_bucket": "twobrain-rec-ingest",
         "web_csrf_secret": "prod-web-csrf-secret-32-bytes-minimum",
         "auth_ru_local_storage_attested": True,
+        "playback_normalization_enabled": True,
+        "temporal_address": "rec-temporal:7233",
     }
     values.update(overrides)
     return Settings(**values)
@@ -25,8 +27,188 @@ def test_production_config_accepts_non_local_runtime_credentials() -> None:
     assert settings.env == "production"
 
 
+def test_non_web_production_runtime_does_not_require_web_csrf_secret() -> None:
+    settings = _production_settings(
+        web_runtime_enabled=False,
+        web_csrf_secret="twobrain_rec_dev_web_csrf_secret",
+    )
+
+    assert settings.web_runtime_enabled is False
+
+
+def test_web_production_runtime_still_rejects_default_csrf_secret() -> None:
+    with pytest.raises(ValidationError, match="web_csrf_secret"):
+        _production_settings(web_csrf_secret="twobrain_rec_dev_web_csrf_secret")
+
+
 def test_default_upload_part_contract_is_one_gib() -> None:
     assert Settings().max_upload_part_bytes == 1_073_741_824
+
+
+def test_database_url_rejects_non_postgresql_async_driver() -> None:
+    with pytest.raises(ValidationError, match="PostgreSQL"):
+        Settings(database_url="sqli" + "te+aio" + "sqli" + "te:////tmp/rec.db")
+
+
+def test_database_url_accepts_postgresql_async_driver() -> None:
+    settings = Settings(
+        database_url="postgresql+asyncpg://twobrain_rec:secret@127.0.0.1:54329/twobrain_rec_test_x"
+    )
+
+    assert settings.database_url.startswith("postgresql+asyncpg://")
+
+
+def test_prompt_optimization_database_url_requires_maintenance_role() -> None:
+    with pytest.raises(ValidationError, match="twobrain_rec_maintenance"):
+        Settings(
+            prompt_optimization_database_url=(
+                "postgresql+asyncpg://twobrain_rec_app:secret@db:5432/twobrain_rec"
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({}, "temporal_address"),
+        ({"temporal_address": "temporal:7233"}, "LiteLLM"),
+    ],
+)
+def test_prompt_optimization_requires_ai_runtime_independently_of_outcomes(
+    overrides: dict[str, object],
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        Settings(prompt_optimization_enabled=True, **overrides)
+
+
+def test_prompt_optimization_accepts_complete_ai_runtime_without_outcomes(tmp_path) -> None:
+    lite_key = tmp_path / "litellm-key"
+    public_key = tmp_path / "langfuse-public-key"
+    secret_key = tmp_path / "langfuse-secret-key"
+    maintenance_db_key = tmp_path / "maintenance-db-key"
+    for path in (lite_key, public_key, secret_key, maintenance_db_key):
+        path.write_text("test", encoding="utf-8")
+
+    settings = Settings(
+        prompt_optimization_enabled=True,
+        outcome_generation_enabled=False,
+        temporal_address="temporal:7233",
+        litellm_base_url="https://litellm.example.test",
+        litellm_api_key_file=lite_key,
+        prompt_optimization_database_url=(
+            "postgresql+asyncpg://twobrain_rec_maintenance:__POSTGRES_PASSWORD__@"
+            "postgres.example.test:5432/twobrain_rec"
+        ),
+        prompt_optimization_postgres_password_file=maintenance_db_key,
+        langfuse_base_url="https://langfuse.example.test",
+        langfuse_public_key_file=public_key,
+        langfuse_secret_key_file=secret_key,
+    )
+
+    assert settings.prompt_optimization_enabled is True
+    assert settings.outcome_generation_enabled is False
+
+
+@pytest.mark.parametrize(
+    "litellm_base_url",
+    (
+        "http://litellm.example.test",
+        "https://user:password@litellm.example.test",
+        "https://litellm.example.test?token=value",
+        "https://litellm.example.test#fragment",
+    ),
+)
+def test_ai_runtime_rejects_unsafe_litellm_base_url(tmp_path, litellm_base_url) -> None:
+    lite_key = tmp_path / "litellm-key"
+    public_key = tmp_path / "langfuse-public-key"
+    secret_key = tmp_path / "langfuse-secret-key"
+    for path in (lite_key, public_key, secret_key):
+        path.write_text("test", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="LiteLLM"):
+        Settings(
+            outcome_generation_enabled=True,
+            temporal_address="temporal:7233",
+            litellm_base_url=litellm_base_url,
+            litellm_api_key_file=lite_key,
+            langfuse_base_url="https://langfuse.example.test",
+            langfuse_public_key_file=public_key,
+            langfuse_secret_key_file=secret_key,
+        )
+
+
+def test_production_ai_runtime_rejects_empty_secret_files(tmp_path) -> None:
+    lite_key = tmp_path / "litellm-key"
+    public_key = tmp_path / "langfuse-public-key"
+    secret_key = tmp_path / "langfuse-secret-key"
+    for path in (lite_key, public_key, secret_key):
+        path.write_text("test", encoding="utf-8")
+    lite_key.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="litellm_api_key_file"):
+        _production_settings(
+            outcome_generation_enabled=True,
+            litellm_base_url="https://litellm.example.test",
+            litellm_api_key_file=lite_key,
+            langfuse_base_url="https://cloud.langfuse.com",
+            langfuse_public_key_file=public_key,
+            langfuse_secret_key_file=secret_key,
+        )
+
+
+def test_playback_normalization_defaults_are_bounded_and_isolated() -> None:
+    settings = Settings(playback_normalization_enabled=True)
+
+    assert settings.playback_normalization_task_queue != settings.temporal_task_queue
+    assert settings.playback_normalization_worker_concurrency == 1
+    assert settings.playback_normalization_output_max_bytes == 128 * 1024 * 1024
+    assert settings.playback_normalization_work_budget_bytes >= (
+        settings.max_package_bytes
+        + settings.playback_normalization_output_max_bytes
+        + settings.playback_normalization_work_reserve_bytes
+    )
+
+
+def test_playback_normalization_rejects_shared_queue_and_unsafe_budget() -> None:
+    with pytest.raises(ValidationError, match="task queue"):
+        Settings(
+            playback_normalization_enabled=True,
+            playback_normalization_task_queue="twobrain-rec-processing",
+        )
+    with pytest.raises(ValidationError, match="work budget"):
+        Settings(
+            playback_normalization_enabled=True,
+            playback_normalization_work_budget_bytes=1024,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "unsafe_value", "message"),
+    [
+        ("playback_normalization_max_streams", 17, "stream limit"),
+        ("playback_normalization_max_audio_streams", 9, "audio stream limit"),
+        ("playback_normalization_probe_stdout_max_bytes", 262_145, "probe stdout cap"),
+        ("playback_normalization_process_stderr_max_bytes", 1_048_577, "stderr cap"),
+    ],
+)
+def test_playback_normalization_rejects_runtime_cap_drift(
+    field_name: str,
+    unsafe_value: int,
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        Settings(playback_normalization_enabled=True, **{field_name: unsafe_value})
+
+
+def test_production_allows_playback_dispatch_to_remain_disabled_during_staged_rollout() -> None:
+    settings = _production_settings(
+        playback_normalization_enabled=False,
+        playback_normalization_automatic_dispatch_enabled=False,
+    )
+
+    assert settings.playback_normalization_enabled is False
+    assert settings.playback_normalization_automatic_dispatch_enabled is False
 
 
 @pytest.mark.parametrize(
@@ -228,7 +410,7 @@ def test_production_email_login_delivery_requires_postal_settings(tmp_path) -> N
         )
 
 
-def test_production_email_login_delivery_requires_default_browser_workspace(tmp_path) -> None:
+def test_production_email_login_delivery_requires_internal_auth_bootstrap(tmp_path) -> None:
     key_file = tmp_path / "postal-key"
     key_file.write_text("postal-api-key")
 
@@ -239,6 +421,14 @@ def test_production_email_login_delivery_requires_default_browser_workspace(tmp_
             postal_api_url="http://postal-web:5000",
             postal_api_key_file=key_file,
         )
+
+
+def test_web_login_workspace_is_documented_as_an_internal_bootstrap_only() -> None:
+    field = Settings.model_fields["web_login_workspace_id"]
+
+    assert field.description is not None
+    assert "Internal bootstrap workspace" in field.description
+    assert "never a public enrollment destination" in field.description
 
 
 def test_empty_web_login_workspace_id_is_unset_when_email_delivery_is_disabled() -> None:
@@ -288,6 +478,70 @@ def test_production_email_login_delivery_rejects_empty_postal_secret(tmp_path) -
             postal_api_url="http://postal-web:5000",
             postal_api_key_file=key_file,
         )
+
+
+def test_external_invitation_loads_identity_hash_secret_from_file(tmp_path) -> None:
+    identity_secret = tmp_path / "share-identity-hash-secret"
+    credential_key = tmp_path / "credential-key"
+    identity_secret.write_text("synthetic-share-identity-secret-32-bytes", encoding="utf-8")
+    credential_key.write_text("synthetic-credential-key", encoding="utf-8")
+
+    settings = Settings(
+        share_external_invitations_enabled=True,
+        share_identity_hash_secret_file=identity_secret,
+        temporal_address="temporal:7233",
+        email_login_delivery_enabled=True,
+        public_base_url="https://graf.example.test",
+        credential_encryption_key_file=credential_key,
+    )
+
+    assert settings.share_identity_hash_secret == "synthetic-share-identity-secret-32-bytes"
+
+
+def test_production_external_invitation_requires_identity_hash_secret_file(tmp_path) -> None:
+    credential_key = tmp_path / "credential-key"
+    postal_key = tmp_path / "postal-key"
+    credential_key.write_text("synthetic-credential-key", encoding="utf-8")
+    postal_key.write_text("synthetic-postal-key", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="share identity hash secret"):
+        _production_settings(
+            share_external_invitations_enabled=True,
+            public_base_url="https://rec.example.test",
+            credential_encryption_key_file=credential_key,
+            email_login_delivery_enabled=True,
+            web_login_workspace_id="20000000-0000-0000-0000-000000000010",
+            email_login_from_address="no-reply@rec.2brain.pro",
+            postal_api_url="http://postal-web:5000",
+            postal_api_key_file=postal_key,
+        )
+
+
+def test_production_external_invitation_reads_identity_hash_secret_file(tmp_path) -> None:
+    identity_secret = tmp_path / "share-identity-hash-secret"
+    credential_key = tmp_path / "credential-key"
+    postal_key = tmp_path / "postal-key"
+    identity_secret.write_text(
+        "synthetic-production-share-identity-secret-32-bytes", encoding="utf-8"
+    )
+    credential_key.write_text("synthetic-credential-key", encoding="utf-8")
+    postal_key.write_text("synthetic-postal-key", encoding="utf-8")
+
+    settings = _production_settings(
+        share_external_invitations_enabled=True,
+        share_identity_hash_secret_file=identity_secret,
+        public_base_url="https://rec.example.test",
+        credential_encryption_key_file=credential_key,
+        email_login_delivery_enabled=True,
+        web_login_workspace_id="20000000-0000-0000-0000-000000000010",
+        email_login_from_address="no-reply@rec.2brain.pro",
+        postal_api_url="http://postal-web:5000",
+        postal_api_key_file=postal_key,
+    )
+
+    assert settings.share_identity_hash_secret == (
+        "synthetic-production-share-identity-secret-32-bytes"
+    )
 
 
 def test_production_rejects_non_internal_smoke_identity_class() -> None:

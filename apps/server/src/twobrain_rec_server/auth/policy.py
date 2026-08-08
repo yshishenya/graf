@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.providers import SUPPORTED_PROVIDER_IDS, build_provider_registry
@@ -122,6 +123,18 @@ def is_provider_enabled_in_policy(policy: WorkspaceAuthPolicy, provider: str) ->
     return _provider_toggle(policy, provider)
 
 
+def requires_explicit_corporate_enrollment() -> bool:
+    """Keep v1 corporate enrollment invite/admin-approval only.
+
+    A verified provider or email-domain claim is not evidence that a person may
+    join a corporate workspace.  Domain discovery is intentionally not a v1
+    enrollment mechanism; a later policy must add ownership and ambiguity
+    safeguards before this can change.
+    """
+
+    return True
+
+
 async def load_workspace_auth_policy(
     db: AsyncSession,
     workspace_id: UUID,
@@ -145,9 +158,17 @@ async def load_workspace_auth_policy(
                 residency_region_tag="ru",
                 consent_text_version="v1",
             )
-        policy = WorkspaceAuthPolicy(workspace_id=workspace_id)
-        db.add(policy)
-        await db.flush()
+        try:
+            async with db.begin_nested():
+                policy = WorkspaceAuthPolicy(workspace_id=workspace_id)
+                db.add(policy)
+                await db.flush()
+        except IntegrityError:
+            policy = await db.scalar(
+                select(WorkspaceAuthPolicy).where(WorkspaceAuthPolicy.workspace_id == workspace_id)
+            )
+            if policy is None:
+                raise
     return policy
 
 

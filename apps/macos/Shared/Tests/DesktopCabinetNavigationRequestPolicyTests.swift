@@ -38,6 +38,21 @@ final class DesktopCabinetNavigationRequestPolicyTests: XCTestCase {
         }
     }
 
+    func testReloadsMeetingShareNavigationWithDesktopHeaders() throws {
+        let policy = try makePolicy()
+        let shareURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033/share"))
+        let request = URLRequest(url: shareURL)
+
+        switch policy.decision(forNavigationRequest: request, isForMainFrame: true) {
+        case let .reload(reloaded):
+            XCTAssertEqual(reloaded.url, shareURL)
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Client-Version"), "local-macos")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+        case .allow:
+            XCTFail("Expected meeting share navigation to be reloaded with desktop headers")
+        }
+    }
+
     func testReloadsCalendarSettingsNavigationWithDesktopHeaders() throws {
         let policy = try makePolicy()
         let settingsURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/settings/integrations/calendar"))
@@ -51,6 +66,36 @@ final class DesktopCabinetNavigationRequestPolicyTests: XCTestCase {
             XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Device-Id"), "device-033")
         case .allow:
             XCTFail("Expected calendar settings navigation to be reloaded with desktop headers")
+        }
+    }
+
+    func testReloadsSettingsOverviewNavigationWithDesktopHeaders() throws {
+        let policy = try makePolicy()
+        let settingsURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/settings"))
+        let request = URLRequest(url: settingsURL)
+
+        switch policy.decision(forNavigationRequest: request, isForMainFrame: true) {
+        case let .reload(reloaded):
+            XCTAssertEqual(reloaded.url, settingsURL)
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Client-Version"), "local-macos")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Device-Id"), "device-033")
+        case .allow:
+            XCTFail("Expected settings navigation to be reloaded with desktop headers")
+        }
+    }
+
+    func testReloadsArtifactDownloadNavigationWithDesktopHeaders() throws {
+        let policy = try makePolicy()
+        let audioURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/cabinet/meetings/meeting-033/downloads/audio"))
+
+        switch policy.decision(forNavigationRequest: URLRequest(url: audioURL), isForMainFrame: true) {
+        case let .reload(reloaded):
+            XCTAssertEqual(reloaded.url, audioURL)
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+            XCTAssertEqual(reloaded.value(forHTTPHeaderField: "X-Device-Id"), "device-033")
+        case .allow:
+            XCTFail("Expected artifact download navigation to be reloaded with desktop headers")
         }
     }
 

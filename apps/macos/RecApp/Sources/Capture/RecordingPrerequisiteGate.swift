@@ -18,27 +18,15 @@ public struct RecordingPrerequisiteGate: Sendable {
         if !snapshot.microphonePermissionGranted {
             return blocked(snapshot, reason: .permissionDenied, action: "Grant microphone permission in System Settings")
         }
+        if !snapshot.systemAudioPermissionGranted {
+            return blocked(snapshot, reason: .permissionDenied, action: "Grant Screen & System Audio permission in System Settings")
+        }
         if snapshot.storageRisk != .healthy {
             return blocked(snapshot, reason: .storageUnsafe, action: "Free local storage or reduce retention before recording")
         }
         if !snapshot.indicatorAvailable {
             return blocked(snapshot, reason: .indicatorUnavailable, action: "Restore visible capture indicator before recording")
         }
-        if snapshot.routeEvidenceKind != .systemAudioCapture {
-            if snapshot.routeEvidenceKind == .publicationOnly {
-                return blocked(snapshot, reason: .publicationOnly, action: "Refresh local audio status before recording")
-            }
-            if snapshot.routeEvidenceKind == .stale || snapshot.routeState == .stale {
-                return blocked(snapshot, reason: .routeNotReady, action: "Refresh local audio status before recording")
-            }
-            if snapshot.routeEvidenceKind == .unknown {
-                return blocked(snapshot, reason: .routeNotReady, action: "Confirm local audio status before recording")
-            }
-            if ![LivePassthroughStatus.ready, .active].contains(snapshot.routeState) {
-                return blocked(snapshot, reason: .routeNotReady, action: "Refresh local audio status before recording")
-            }
-        }
-
         updated.blockedReason = .none
         updated.recoveryAction = nil
         return updated

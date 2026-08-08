@@ -11,12 +11,12 @@ records finalization-only evidence after stopped packages.
 | Wired headphones | Supported browser/meeting target | No | None from leakage readiness | Finalization evidence or truthful degraded status | Not run in this environment |
 | USB headset | Supported browser/meeting target | No | None from leakage readiness | Finalization evidence or truthful degraded status | Not run in this environment |
 | Bluetooth/AirPods-class | Supported browser/meeting target | No | None from leakage readiness | Finalization evidence or truthful degraded status; route changes captured as metadata | Not run in this environment |
-| Aggregate/multi-output | Supported browser/meeting target | No | None from leakage readiness | Finalization evidence or truthful degraded status; unsupported shapes are `not_measured` | Not run in this environment |
-| 2brain Rec virtual device selected as physical mic/output | Any | No | Yes, self-routing rejection | No clean package claim; route evidence records `selfRoutingRejected=true` | Covered by prerequisite regression tests |
+| Aggregate/multi-output input | Supported browser/meeting target | No | Unsupported microphone input | No accepted recording start; no clean-package claim | Covered by microphone policy tests |
+| Other virtual or unknown microphone input | Any | No | Unsupported microphone input | No accepted recording start; no clean-package claim | Covered by microphone policy tests |
 
 ## Degraded-State Evidence
 
 - Missing tracks: `not_measured`, not transcription-ready.
 - Timeline mismatch: `unproven` with `blocked_timeline_misaligned`, not transcription-ready.
 - Route changes: metadata-only evidence; no live remediation prompt.
-- Non-recording passthrough continuity: checked by existing passthrough regression gates.
+- Unsupported microphone inputs fail closed before the current recording graph starts.

@@ -1,12 +1,13 @@
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Header, Query, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     AbortUploadRequest,
+    CreateMediaRevisionUploadSessionRequest,
     CreateMeetingRequest,
     CreateUploadSessionRequest,
     DesktopRecordingSyncStateResponse,
@@ -14,6 +15,8 @@ from twobrain_rec_server.api.schemas import (
     FinalizeUploadResponse,
     ManualMediaUploadResponse,
     MediaRevisionSummary,
+    MediaRevisionUploadSessionResponse,
+    MeetingCalendarContextSummary,
     MeetingResponse,
     MissingRange,
     MissingRangesResponse,
@@ -21,13 +24,18 @@ from twobrain_rec_server.api.schemas import (
     UploadPartResponse,
     UploadSessionResponse,
 )
-from twobrain_rec_server.api.upload_stream import read_bounded_upload_body
+from twobrain_rec_server.api.upload_stream import (
+    MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA,
+    read_bounded_upload_body,
+    read_manual_media_upload_body,
+)
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
     get_principal,
     get_tenant_scope,
 )
+from twobrain_rec_server.db.models import RecordingCalendarContextLink
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import TrackRole
 from twobrain_rec_server.ingest.desktop_status import upload_session_desktop_status
@@ -40,8 +48,14 @@ from twobrain_rec_server.ingest.parts import accept_part
 from twobrain_rec_server.ingest.policy import IngestLimitViolation
 from twobrain_rec_server.ingest.processing_dispatch import dispatch_processing_after_finalize
 from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
-from twobrain_rec_server.ingest.sessions import create_upload_session
+from twobrain_rec_server.ingest.sessions import (
+    create_media_revision_upload_session,
+    create_upload_session,
+)
 from twobrain_rec_server.ingest.status import get_upload_session_status
+from twobrain_rec_server.normalization.pickup import (
+    dispatch_normalization_after_accepted_commit,
+)
 from twobrain_rec_server.storage.minio_client import get_storage
 
 PROBLEM_RESPONSES = {
@@ -72,6 +86,7 @@ async def get_request_db_session(
         yield None
         return
     async with sessionmaker() as session:
+        session.info["share_rate_limit_sessionmaker"] = sessionmaker
         await apply_tenant_scope(session, tenant_scope)
         yield session
 
@@ -93,11 +108,14 @@ async def commit_if_available(db: AsyncSession | None) -> None:
         await db.commit()
 
 
-def meeting_response(meeting: object) -> MeetingResponse:
+def meeting_response(
+    meeting: object,
+    calendar_context: RecordingCalendarContextLink | None = None,
+) -> MeetingResponse:
     media_revision = MediaRevisionSummary(
         media_revision_id=meeting.media_revision_id,
         local_media_revision_id=meeting.local_media_revision_id,
-        revision_number=1,
+        revision_number=getattr(meeting, "media_revision_number", 1),
         source_kind=meeting.media_revision_source_kind,
         status=meeting.media_revision_status,
     )
@@ -107,14 +125,35 @@ def meeting_response(meeting: object) -> MeetingResponse:
         local_recording_id=meeting.local_recording_id,
         local_media_revision_id=meeting.local_media_revision_id,
         title=meeting.title,
-        title_source=getattr(meeting, "title_source", None) or ("user" if meeting.title else "generic"),
+        title_source=meeting.title_source,
         media_revision=media_revision,
         status=meeting.status,
         processing_status=meeting.processing_status,
         started_at=meeting.started_at,
         ended_at=meeting.ended_at,
         recording_display_timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
+        calendar_context=_meeting_calendar_context_summary(calendar_context),
         created_at=meeting.created_at,
+    )
+
+
+def _meeting_calendar_context_summary(
+    context: RecordingCalendarContextLink | None,
+) -> MeetingCalendarContextSummary | None:
+    if context is None:
+        return None
+    labels = {
+        "matched_auto": "Из календаря",
+        "matched_user": "Выбрано из календаря",
+        "ambiguous": "Нужно выбрать встречу",
+        "declined_by_user": "Без календаря",
+        "cleared_by_user": "Контекст календаря удалён",
+    }
+    return MeetingCalendarContextSummary(
+        state=context.context_state,
+        label=labels.get(context.context_state, "Без контекста календаря"),
+        title_source=context.title_source,
+        needs_owner_action=context.context_state == "ambiguous",
     )
 
 
@@ -139,6 +178,18 @@ def session_response(session: object) -> UploadSessionResponse:
     )
 
 
+def media_revision_summary(revision: object) -> MediaRevisionSummary:
+    return MediaRevisionSummary(
+        media_revision_id=revision.id,
+        local_media_revision_id=revision.local_media_revision_id,
+        revision_number=revision.revision_number,
+        source_kind=revision.source_kind,
+        status=revision.status,
+        manifest_sha256=revision.manifest_sha256,
+        track_sha256_by_role=revision.track_sha256_by_role or {},
+    )
+
+
 @router.post("/meetings", response_model=MeetingResponse, dependencies=[PrincipalDependency, DeviceDependency])
 async def create_meeting(
     payload: CreateMeetingRequest,
@@ -155,9 +206,14 @@ async def create_meeting(
             local_media_revision_id=payload.local_media_revision_id,
             duration_seconds=payload.duration_seconds,
             title=payload.title,
+            title_source=payload.title_source,
             started_at=payload.started_at,
             ended_at=payload.ended_at,
             recording_display_timezone_offset_minutes=payload.recording_display_timezone_offset_minutes,
+            media_revision_source_kind=payload.source_kind,
+            media_scribe_source_mode=payload.media_scribe_source_mode,
+            calendar_match_attempt_id=payload.calendar_match_attempt_id,
+            consume_calendar_context=True,
         )
     except IngestLimitViolation as exc:
         raise ProblemDetail(
@@ -166,8 +222,18 @@ async def create_meeting(
             title="Ingest limit exceeded",
             detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
         ) from exc
+    calendar_context = None
+    if db is not None:
+        calendar_context = await db.scalar(
+            select(RecordingCalendarContextLink).where(
+                RecordingCalendarContextLink.workspace_id
+                == tenant_scope.workspace_id,
+                RecordingCalendarContextLink.meeting_id == meeting.id,
+            )
+        )
+    response = meeting_response(meeting, calendar_context)
     await commit_if_available(db)
-    return meeting_response(meeting)
+    return response
 
 
 @router.post(
@@ -175,31 +241,35 @@ async def create_meeting(
     response_model=ManualMediaUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[PrincipalDependency, DeviceDependency],
+    openapi_extra=MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA,
 )
 async def create_manual_media_upload(
     request: Request,
-    file: Annotated[UploadFile, File()],
-    duration_seconds: Annotated[int, Form(gt=0)],
-    title: str | None = Form(default=None, max_length=500),
-    local_recording_id: str | None = Form(default=None, min_length=1, max_length=240, pattern=r"^[^\x00-\x1f\x7f]+$"),
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
     storage: object = StorageDependency,
 ) -> ManualMediaUploadResponse:
+    upload = await read_manual_media_upload_body(
+        request,
+        max_file_bytes=request.app.state.settings.max_upload_part_bytes,
+        spool_memory_bytes=request.app.state.settings.max_upload_spool_memory_bytes,
+    )
     result = await accept_manual_media_upload(
         settings=request.app.state.settings,
         db=db,
         tenant_scope=tenant_scope,
         storage=storage,
-        file=file,
-        duration_seconds=duration_seconds,
-        title=title,
-        local_recording_id=local_recording_id,
+        file=upload.file,
+        filename=upload.filename,
+        content_type=upload.content_type,
+        duration_seconds=upload.duration_seconds,
+        title=upload.title,
+        local_recording_id=upload.local_recording_id,
         temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await commit_if_available(db)
     return ManualMediaUploadResponse(
-        meeting=meeting_response(result.meeting),
+        meeting=meeting_response(result.meeting, result.calendar_context),
         upload_session=session_response(result.upload_session),
         object_count=result.object_count,
         workflow_started=result.processing.workflow_started,
@@ -250,6 +320,39 @@ async def create_session(
     )
     await commit_if_available(db)
     return session_response(session)
+
+
+@router.post(
+    "/meetings/{meeting_id}/media-revisions/upload-sessions",
+    response_model=MediaRevisionUploadSessionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def create_media_revision_session(
+    meeting_id: UUID,
+    payload: CreateMediaRevisionUploadSessionRequest,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> MediaRevisionUploadSessionResponse:
+    revision, session = await create_media_revision_upload_session(
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        db=db,
+        meeting_id=meeting_id,
+        local_media_revision_id=payload.local_media_revision_id,
+        source_kind=payload.source_kind,
+        duration_seconds=payload.duration_seconds,
+        expected_track_roles=payload.expected_tracks or None,
+        expected_track_sizes=payload.expected_track_sizes,
+        idempotency_key=idempotency_key,
+    )
+    await commit_if_available(db)
+    return MediaRevisionUploadSessionResponse(
+        media_revision=media_revision_summary(revision),
+        upload_session=session_response(session),
+    )
 
 
 @router.put(
@@ -372,6 +475,14 @@ async def finalize_session(
         manifest_sha256=payload.manifest_sha256,
         tracks=payload.tracks,
         storage=storage,
+    )
+    await commit_if_available(db)
+    await dispatch_normalization_after_accepted_commit(
+        db=db,
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        media_revision_id=session.media_revision_id or meeting.media_revision_id,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     processing = await dispatch_processing_after_finalize(
         db=db,

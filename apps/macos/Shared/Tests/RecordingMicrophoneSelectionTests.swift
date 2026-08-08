@@ -6,10 +6,10 @@ import TwoBrainRecShared
 import XCTest
 
 final class RecordingMicrophoneSelectionTests: XCTestCase {
-    func testRejectsTwoBrainVirtualMicrophoneBeforeCaptureStarts() {
+    func testRejectsVirtualMicrophoneBeforeCaptureStarts() {
         let virtualInput = PhysicalAudioDevice(
-            id: SelfRoutingGuard.microphoneUID,
-            displayName: SelfRoutingGuard.microphoneDisplayName,
+            id: "virtual-input",
+            displayName: "Loopback Virtual Audio",
             direction: .input,
             deviceClass: .otherVirtual,
             availabilityState: .available
@@ -23,8 +23,8 @@ final class RecordingMicrophoneSelectionTests: XCTestCase {
         let selection = service.resolveRecordingMicrophoneSelection(selectedInputDeviceId: virtualInput.id)
 
         XCTAssertEqual(selection.selectionResult, .rejected)
-        XCTAssertEqual(selection.rejectionReason, .unsupportedSelfRoutingInput)
-        XCTAssertEqual(selection.workingDeviceKind, .twoBrainVirtual)
+        XCTAssertEqual(selection.rejectionReason, .unsupportedVirtualInput)
+        XCTAssertEqual(selection.workingDeviceKind, .otherVirtual)
         XCTAssertFalse(selection.isAccepted)
     }
 

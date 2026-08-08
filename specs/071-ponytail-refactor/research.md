@@ -55,5 +55,5 @@ Current prerequisite proof:
 
 ```text
 SPECIFY_FEATURE_DIRECTORY=specs/071-ponytail-refactor .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
-=> {"FEATURE_DIR":"/Users/yshishenya/.codex/worktrees/868e/crisp/specs/071-ponytail-refactor","AVAILABLE_DOCS":["research.md","data-model.md","contracts/","quickstart.md","tasks.md"]}
+=> {"FEATURE_DIR":"<repo-root>/specs/071-ponytail-refactor","AVAILABLE_DOCS":["research.md","data-model.md","contracts/","quickstart.md","tasks.md"]}
 ```

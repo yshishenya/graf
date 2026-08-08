@@ -1,5 +1,6 @@
 {% import "cabinet/components/primitives.html" as ui %}
 {% import "cabinet/components/sections.html" as sections %}
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
 
 {% macro provider_logo(provider) -%}
 <span class="calendar-provider-logo" data-provider="{{ provider.provider_family }}" aria-hidden="true">{{ provider.mark }}</span>
@@ -68,13 +69,10 @@
 
 <main class="cabinet-main calendar-settings-main" id="calendar-settings-region" data-cabinet-fragment="calendar-settings">
   <div class="cabinet-workspace calendar-settings">
-    <div class="cabinet-topbar calendar-settings__topbar">
+    {{ settings_ui.navigation(settings_navigation, active="calendar", back_href=("/desktop/meetings" if embedded else "/meetings")) }}
+    <div class="calendar-settings__content">
+    <header class="cabinet-topbar calendar-settings__topbar">
       <div class="page-title">
-        <nav class="crumbs" aria-label="Путь к разделу">
-          {% for crumb in surface.breadcrumb %}
-          {% if loop.last %}<strong>{{ crumb }}</strong>{% else %}<span>{{ crumb }}</span><span aria-hidden="true">/</span>{% endif %}
-          {% endfor %}
-        </nav>
         <h1>{{ surface.title }}</h1>
         <p class="page-subtitle">{{ surface.subtitle }}</p>
       </div>
@@ -82,8 +80,7 @@
         <span><strong>{{ surface.sources|length }}</strong> {{ surface.source_count_word }}</span>
         <span><strong>{{ surface.selected_calendar_count_total }}</strong> {{ surface.selected_calendar_count_total_word }}</span>
       </div>
-    </div>
-
+    </header>
     {% if surface.notices %}
     <div class="calendar-notice-list" aria-label="Состояние подключения календаря">
       {% for notice in surface.notices %}
@@ -136,7 +133,7 @@
           {% if source.calendars %}
           <details class="calendar-source-details calendar-source-details--picker" {% if source.selected_calendar_count == 0 %}open{% endif %}>
             <summary>Календари внутри источника</summary>
-            <form class="calendar-selection-form" action="{{ base_path }}/sources/{{ source.source_id }}/calendars" method="post">
+            <form class="calendar-selection-form" action="{{ base_path }}/sources/{{ source.source_id }}/calendars" method="post" data-settings-form>
               {{ sections.csrf_field(csrf_token) }}
               <fieldset class="calendar-picker">
                 <legend>Что подтягивать</legend>
@@ -156,6 +153,7 @@
                 <button type="submit" class="primary">Сохранить выбор</button>
                 <button type="reset" class="quiet">Отмена</button>
               </div>
+              <p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p>
             </form>
           </details>
           {% else %}
@@ -207,11 +205,11 @@
     <section class="calendar-settings-section" aria-labelledby="calendar-providers-title">
       <div class="calendar-section-head">
         <div>
-          <h2 id="calendar-providers-title">Подключить календарь</h2>
+          <h2 id="calendar-providers-title" tabindex="-1">Подключить календарь</h2>
           <p>Выберите сервис. Реквизиты вводятся в отдельном окне.</p>
         </div>
       </div>
-      <div class="calendar-provider-buttons" aria-label="Поддерживаемые провайдеры календаря">
+      <div class="calendar-provider-buttons" role="group" aria-labelledby="calendar-providers-title">
         {% for provider in surface.providers %}
         {{ provider_button(provider) }}
         {{ provider_dialog(provider, base_path, csrf_token) }}
@@ -226,7 +224,7 @@
           <p>{{ surface.preferences.manual_recording_copy }}</p>
         </div>
       </div>
-      <form class="calendar-preferences-form" action="{{ base_path }}/preferences" method="post">
+      <form class="calendar-preferences-form" action="{{ base_path }}/preferences" method="post" data-settings-form>
         {{ sections.csrf_field(csrf_token) }}
         <div class="calendar-preference-grid">
           {{ ui.checkbox("join_prompt_enabled", surface.preferences.join_prompt_label, checked=surface.preferences.join_prompt_enabled) }}
@@ -243,12 +241,14 @@
             {{ ui.checkbox("include_private_free_busy_prompt_candidates", "Показывать private/free-busy минимум", checked=surface.preferences.include_private_free_busy_prompt_candidates) }}
             {{ ui.checkbox("auto_record_disabled", surface.preferences.disabled_auto_record_label, checked=false, disabled=true) }}
           </div>
+          <p class="calendar-policy-note" data-calendar-auto-context-boundary>{{ surface.auto_context_boundary_copy }}</p>
           <p class="calendar-policy-note">По умолчанию подсказки используют только похожие на встречи события. {{ surface.private_free_busy_copy }}</p>
           <p class="calendar-policy-note">{{ surface.policy_constrained_copy }}</p>
           <p class="calendar-policy-note">{{ surface.preferences.overlap_prompt_copy }}</p>
           <p class="calendar-policy-note">{{ surface.preferences.prompt_policy_copy }}</p>
           <p class="calendar-policy-note" data-state="not_enabled">{{ surface.preferences.disabled_auto_record_copy }}</p>
         </details>
+        <p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p>
         <button type="submit" class="primary">Сохранить настройки</button>
       </form>
     </section>
@@ -330,6 +330,7 @@
           <p class="calendar-policy-note" data-state="unavailable">{{ surface.unavailable_state_copy }}</p>
         </div>
       </details>
+    </div>
     </div>
   </div>
 </main>

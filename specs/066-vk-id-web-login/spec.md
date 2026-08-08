@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-27
 
-**Status**: Draft
+**Status**: Implemented VK ID web login; live provider-click evidence remains separate
 
 **Input**: User description: "давай теперь сделаем VK"
 

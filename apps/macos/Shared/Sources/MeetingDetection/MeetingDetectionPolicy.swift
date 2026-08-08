@@ -47,7 +47,7 @@ public struct MeetingDetectionCapturePrerequisites: Equatable, Sendable {
             return "one_action_stop_unavailable"
         }
         if !captureRouteReady {
-            return RecordingStartBlocker.routeNotReady.rawValue
+            return RecordingStartBlocker.captureUnavailable.rawValue
         }
         if let recordingPrerequisite, recordingPrerequisite.blockedReason != .none {
             return recordingPrerequisite.blockedReason.rawValue

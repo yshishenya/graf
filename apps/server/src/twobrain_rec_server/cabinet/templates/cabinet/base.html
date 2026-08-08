@@ -12,11 +12,17 @@
   <link rel="icon" href="{{ cabinet_static_url }}/favicon-32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="{{ cabinet_static_url }}/apple-touch-icon.png">
   <link rel="stylesheet" href="{{ cabinet_static_asset_url('cabinet.css') }}">
-  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false}'>
+  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"refreshOnHistoryMiss":true}'>
   <script src="{{ cabinet_static_url }}/htmx-2.0.10.min.js" defer></script>
   <script src="{{ cabinet_static_asset_url('cabinet.js') }}" defer></script>
 </head>
-<body data-surface-mode="{{ surface_mode|default('standalone_browser') }}">
+<body data-surface-mode="{{ surface_mode|default('standalone_browser') }}" data-graf-analytics-private="true" data-ph-mask="true" data-ym-hide-content="true" data-ym-disable-keys="true">
+  {% if product_analytics_provider is defined and product_analytics_provider and product_analytics_provider.enabled %}
+  <script id="graf-product-analytics-provider-config" type="application/json" data-page-class="{{ product_analytics_provider.page_class }}">
+    {{ product_analytics_provider | tojson }}
+  </script>
+  <script defer src="{{ public_static_asset_url('analytics.js') }}"></script>
+  {% endif %}
   {{ content }}
 </body>
 </html>

@@ -24,24 +24,17 @@ public struct CaptureHealthMonitor: Sendable {
         appCpuPercent: Double = 0,
         helperCpuPercent: Double = 0,
         memoryMb: Double = 0,
-        halProbeObserved: Bool = false,
         recordingFailureReason: LocalRecordingFailureReason = .none
     ) -> CaptureHealthSnapshot {
         let durationDifferenceSeconds = Double(abs(micDurationMs - incomingDurationMs)) / 1000
         let failureReason: LocalRecordingFailureReason
         let gateStatus: CaptureHealthGateStatus
-        if halProbeObserved {
-            failureReason = .halProbeObserved
-            gateStatus = .failed
-        } else if recordingFailureReason != .none {
+        if recordingFailureReason != .none {
             failureReason = recordingFailureReason
             gateStatus = Self.gateStatus(for: recordingFailureReason)
         } else if protectedFrameCount > 0 {
             failureReason = .protectedAudioBlocked
             gateStatus = .blocked
-        } else if durationDifferenceSeconds > 3 {
-            failureReason = .timelineMisaligned
-            gateStatus = .failed
         } else if incomingFrameCount == 0 {
             failureReason = .noFrames
             gateStatus = .degraded
@@ -70,7 +63,6 @@ public struct CaptureHealthMonitor: Sendable {
             droppedFrameCount: droppedFrameCount,
             silentFrameCount: silentFrameCount,
             protectedFrameCount: protectedFrameCount,
-            halProbeObserved: halProbeObserved,
             gateStatus: gateStatus,
             failureReason: failureReason
         )
@@ -83,13 +75,11 @@ public struct CaptureHealthMonitor: Sendable {
         case .permissionDenied, .scopeUnavailable, .protectedAudioBlocked:
             .blocked
         case .directoryUnavailable, .captureFailed, .writeFailed, .finalizationFailed,
-             .timelineMisaligned, .cpuGateFailed, .halProbeObserved, .deviceUnavailable,
-             .appClosed, .leakageDetected:
+             .timelineMisaligned, .cpuGateFailed, .deviceUnavailable,
+             .appClosed:
             .failed
         case .emptyRequiredTrack, .formatNotReady, .silentInput, .noFrames,
-             .stoppedBeforeFrames, .legacyNotReady, .leakageUnproven,
-             .leakageNotMeasured, .insufficientReference, .derivedResidualLeakage,
-             .derivedDeletionNotRegistered, .unknown:
+             .stoppedBeforeFrames, .historicalPackage, .unknown:
             .degraded
         }
     }

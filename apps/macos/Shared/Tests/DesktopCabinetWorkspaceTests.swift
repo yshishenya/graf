@@ -1,5 +1,6 @@
 import Foundation
 import TwoBrainRecAppCore
+import TwoBrainRecShared
 
 #if canImport(XCTest)
 import XCTest
@@ -14,6 +15,48 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertFalse(DesktopCabinetWorkspace.defaultRoute(configuration: configuration).path.localizedCaseInsensitiveContains("settings"))
     }
 
+    func testCabinetUrlRequestKeepsDesktopHeadersOnSameOriginOnly() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [
+                "Authorization": "Bearer SECRET",
+                "X-Workspace-Id": "workspace-033",
+                "X-Device-Id": "device-033",
+                "X-User-Id": "user-033",
+                "X-Organization-Id": "organization-033"
+            ]
+        ))
+
+        let sameOriginRequest = configuration.urlRequest(
+            for: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings"))
+        )
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "Authorization"), "Bearer SECRET")
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-Workspace-Id"), "workspace-033")
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-Device-Id"), "device-033")
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-User-Id"), "user-033")
+        XCTAssertEqual(sameOriginRequest.value(forHTTPHeaderField: "X-Organization-Id"), "organization-033")
+
+        for externalURL in [
+            "https://attacker.example/oauth/authorize?state=state",
+            "http://rec.2brain.dev/desktop/meetings",
+            "https://rec.2brain.dev:8443/desktop/meetings",
+            "https://sub.rec.2brain.dev/desktop/meetings"
+        ] {
+            let externalProviderRequest = configuration.urlRequest(
+                for: try XCTUnwrap(URL(string: externalURL))
+            )
+            for header in [
+                "Authorization",
+                "X-Workspace-Id",
+                "X-Device-Id",
+                "X-User-Id",
+                "X-Organization-Id"
+            ] {
+                XCTAssertNil(externalProviderRequest.value(forHTTPHeaderField: header), externalURL)
+            }
+        }
+    }
+
     func testWorkspaceOpensMeetingDetailDestination() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
 
@@ -21,6 +64,147 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             DesktopCabinetWorkspace.detailRoute(meetingId: "meeting-033", configuration: configuration).absoluteString,
             "https://rec.2brain.dev/desktop/meetings/meeting-033"
         )
+    }
+
+    func testMeetingDetailBackReturnsToListWhenWebHistoryIsNotAUsableMeetingRoute() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let detail = configuration.meetingDetailURL(meetingId: "meeting-033")
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        let external = try XCTUnwrap(URL(string: "https://accounts.example/login"))
+
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: detail,
+                backURL: login,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy
+            ),
+            .meetingsList
+        )
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: detail,
+                backURL: external,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy
+            ),
+            .meetingsList
+        )
+    }
+
+    func testMeetingDetailBackPreservesSafeMeetingHistoryAndListBackDisablesWithoutHistory() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let detail = configuration.meetingDetailURL(meetingId: "meeting-033")
+
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: detail,
+                backURL: configuration.meetingsURL(),
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy
+            ),
+            .history
+        )
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: configuration.meetingsURL(),
+                backURL: nil,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy
+            ),
+            .unavailable
+        )
+    }
+
+    func testExpiredSessionBackCannotRestoreProtectedCabinetDocument() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        let detail = configuration.meetingDetailURL(meetingId: "meeting-033")
+
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: login,
+                backURL: detail,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy,
+                sessionExpired: true
+            ),
+            .unavailable
+        )
+    }
+
+    func testOnlySafeGetDocumentsCanEnterNativeHistory() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let list = configuration.meetingsURL()
+        var getRequest = URLRequest(url: list)
+        getRequest.httpMethod = "GET"
+        var postRequest = URLRequest(url: list)
+        postRequest.httpMethod = "POST"
+
+        XCTAssertTrue(EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(getRequest, routePolicy: policy))
+        XCTAssertFalse(EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(postRequest, routePolicy: policy))
+    }
+
+    func testAuthCallbackCannotEnterNativeHistoryOrBackStack() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        let callback = try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/auth/callback/yandex?code=one-time-code"))
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        var callbackRequest = URLRequest(url: callback)
+        callbackRequest.httpMethod = "GET"
+
+        XCTAssertFalse(EmbeddedCabinetNavigationPolicy.isSafeDocument(callback, routePolicy: policy))
+        XCTAssertFalse(EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(callbackRequest, routePolicy: policy))
+        XCTAssertEqual(
+            EmbeddedCabinetNavigationPolicy.backDecision(
+                currentURL: login,
+                backURL: callback,
+                fallbackURL: configuration.meetingsURL(),
+                routePolicy: policy,
+                sessionExpired: true
+            ),
+            .unavailable
+        )
+    }
+
+    func testEmailFormResponsesDoNotBecomeSwiftUIOwnedGetRoutes() throws {
+        for path in [
+            "/login/email/start",
+            "/login/email/verify",
+            "/sign-up/email/start",
+            "/sign-up/email/verify"
+        ] {
+            XCTAssertFalse(
+                EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
+                    for: .authLogin,
+                    url: try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)"))
+                ),
+                path
+            )
+        }
+
+        XCTAssertTrue(
+            EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
+                for: .authLogin,
+                url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/login"))
+            )
+        )
+        XCTAssertTrue(
+            EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
+                for: .meetingList,
+                url: try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings"))
+            )
+        )
+    }
+
+    func testNativeNavigationControlsExposeStableAccessibilityIdentifiers() {
+        XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationBack, "desktop-cabinet-navigation-back")
+        XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationForward, "desktop-cabinet-navigation-forward")
+        XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationReload, "desktop-cabinet-navigation-reload")
     }
 
     @MainActor
@@ -55,6 +239,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     func testSuccessfulLoginPageLoadDoesNotMarkCabinetReady() {
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .meetingList), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .meetingDetail), .ready)
+        XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .settings), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .calendarSettings), .ready)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authLogin), .expiredSession)
         XCTAssertEqual(EmbeddedCabinetWebView.finishedState(for: .authSignup), .expiredSession)
@@ -83,7 +268,75 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(query["workspace_id"], "workspace-033")
         XCTAssertEqual(
             DesktopCabinetWorkspace.recoveryTarget(for: .offline, configuration: configuration),
-            nil
+            .embedded(configuration.meetingsURL())
+        )
+    }
+
+    func testRecoveryKeepsLastDocumentRouteAfterResourceFailure() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [:]
+        ))
+        let detail = configuration.meetingDetailURL(meetingId: "meeting-033")
+        let artifact = try XCTUnwrap(URL(string: "https://rec.2brain.dev/api/v1/cabinet/meetings/meeting-033/downloads/audio"))
+
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(
+                for: .blockedRoute,
+                currentRoute: detail,
+                initialRoute: nil,
+                configuration: configuration
+            ),
+            .embedded(detail)
+        )
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(
+                for: .blockedRoute,
+                currentRoute: artifact,
+                initialRoute: detail,
+                configuration: configuration
+            ),
+            .embedded(detail)
+        )
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(
+                for: .accessDenied,
+                currentRoute: detail,
+                initialRoute: nil,
+                configuration: configuration
+            ),
+            .embedded(configuration.meetingsURL())
+        )
+    }
+
+    func testRecoveryKeepsCalendarSettingsRouteAcrossAuthAndBlockedStates() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [:]
+        ))
+        let settings = configuration.calendarSettingsURL()
+
+        guard case let .embedded(login)? = DesktopCabinetWorkspace.recoveryTarget(
+            for: .expiredSession,
+            currentRoute: settings,
+            initialRoute: nil,
+            configuration: configuration
+        ) else {
+            return XCTFail("Expected embedded login recovery")
+        }
+        let loginComponents = try XCTUnwrap(URLComponents(url: login, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(
+            loginComponents.queryItems?.first(where: { $0.name == "next" })?.value,
+            settings.path
+        )
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(
+                for: .blockedRoute,
+                currentRoute: settings,
+                initialRoute: nil,
+                configuration: configuration
+            ),
+            .embedded(settings)
         )
     }
 
@@ -135,7 +388,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         ))
     }
 
-    func testOfflineUnavailableWorkspaceStatesStayNativeWithoutOnlineRecoveryAction() throws {
+    func testUnavailableWorkspaceStatesStayNativeAndExposeOnlySafeRecoveryActions() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",
             headers: [:]
@@ -157,8 +410,23 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 initialRoute: nil,
                 configuration: configuration
             ), "\(state)")
-            XCTAssertNil(DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration), "\(state)")
-            XCTAssertNil(state.recoveryActionTitle, "\(state)")
+            if [.offline, .timeout, .malformedResponse, .accessDenied, .notFound, .blockedRoute].contains(state) {
+                XCTAssertEqual(
+                    DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration),
+                    .embedded(configuration.meetingsURL()),
+                    "\(state)"
+                )
+                if [.offline, .timeout, .malformedResponse].contains(state) {
+                    XCTAssertEqual(state.recoveryActionTitle, "Повторить", "\(state)")
+                    XCTAssertEqual(state.recoverySystemImage, "arrow.clockwise", "\(state)")
+                } else {
+                    XCTAssertEqual(state.recoveryActionTitle, "К списку встреч", "\(state)")
+                    XCTAssertEqual(state.recoverySystemImage, "arrow.left", "\(state)")
+                }
+            } else {
+                XCTAssertNil(DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration), "\(state)")
+                XCTAssertNil(state.recoveryActionTitle, "\(state)")
+            }
             XCTAssertNotEqual(
                 DesktopMeetingShellCabinetStatusPresentation.resolved(
                     cabinetConfigured: true,
@@ -282,8 +550,9 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     }
 
     func testMissingOwnerSessionHasLoginRecoveryAction() {
-        XCTAssertEqual(DesktopCabinetState.expiredSession.unavailableTitle, "Нужен вход в кабинет")
+        XCTAssertEqual(DesktopCabinetState.expiredSession.unavailableTitle, "Нужно войти")
         XCTAssertEqual(DesktopCabinetState.expiredSession.recoveryActionTitle, "Войти в кабинет")
+        XCTAssertEqual(DesktopCabinetState.expiredSession.recoverySystemImage, "person.crop.circle")
         XCTAssertTrue(DesktopCabinetState.expiredSession.unavailableSystemImage.contains("person"))
         XCTAssertFalse(DesktopCabinetState.expiredSession.shouldShowEmbeddedSurface)
     }
@@ -308,17 +577,39 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertTrue(invariant.satisfiesActiveRecordingSafety(cabinetState: .expiredSession))
     }
 
-    func testDeniedStateDoesNotOfferLoginAsAccessProof() {
-        XCTAssertEqual(DesktopCabinetState.accessDenied.unavailableTitle, "Нет доступа к кабинету")
-        XCTAssertNil(DesktopCabinetState.accessDenied.recoveryActionTitle)
+    func testDeniedStateOffersSafeReturnWithoutPretendingToGrantAccess() {
+        XCTAssertEqual(DesktopCabinetState.accessDenied.unavailableTitle, "Нет доступа к встречам")
+        XCTAssertEqual(DesktopCabinetState.accessDenied.recoveryActionTitle, "К списку встреч")
+        XCTAssertEqual(DesktopCabinetState.accessDenied.recoverySystemImage, "arrow.left")
         XCTAssertFalse(DesktopCabinetState.accessDenied.shouldShowEmbeddedSurface)
+    }
+
+    func testBlockedAndMissingRoutesOfferReturnToMeetings() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [:]
+        ))
+
+        for state in [DesktopCabinetState.blockedRoute, .notFound] {
+            XCTAssertEqual(state.recoveryActionTitle, "К списку встреч", "\(state)")
+            XCTAssertEqual(state.recoverySystemImage, "arrow.left", "\(state)")
+            XCTAssertEqual(
+                DesktopCabinetWorkspace.recoveryTarget(for: state, configuration: configuration),
+                .embedded(configuration.meetingsURL()),
+                "\(state)"
+            )
+        }
     }
 
     func testDeniedAndNotFoundStatesDoNotConfirmMeetingExistence() {
         for state in [DesktopCabinetState.accessDenied, .notFound] {
             XCTAssertFalse(state.userMessage.localizedCaseInsensitiveContains("this meeting"), "\(state)")
             XCTAssertFalse(state.userMessage.localizedCaseInsensitiveContains("meeting exists"), "\(state)")
-            XCTAssertTrue(state.userMessage.localizedCaseInsensitiveContains("не удалось подтвердить"), "\(state)")
+            XCTAssertTrue(
+                state.userMessage.localizedCaseInsensitiveContains("доступ") ||
+                    state.userMessage.localizedCaseInsensitiveContains("недоступна"),
+                "\(state)"
+            )
         }
     }
 
@@ -363,7 +654,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             )
 
             XCTAssertEqual(presentation.tileTitle, "Сервер недоступен", "\(state)")
-            XCTAssertEqual(presentation.tileDetail, "Запись работает локально", "\(state)")
+            XCTAssertEqual(presentation.tileDetail, "Записи остаются на этом Mac", "\(state)")
             XCTAssertEqual(presentation.systemImage, "wifi.slash", "\(state)")
             XCTAssertEqual(presentation.tone, .error, "\(state)")
         }
@@ -421,6 +712,34 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(DesktopCabinetState.state(forHTTPStatus: 429), .malformedResponse)
     }
 
+    func testRevokedEmbeddedWorkspaceRequiresExplicitReauthenticationAndReselection() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [:]
+        ))
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: configuration.meetingsURL(),
+            statusCode: 403,
+            httpVersion: nil,
+            headerFields: ["X-GRAF-Cabinet-Recovery": "reselect-space"]
+        ))
+        let login = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+
+        XCTAssertEqual(DesktopCabinetState.state(forHTTPResponse: response), .workspaceReselectionRequired)
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(for: .workspaceReselectionRequired, configuration: configuration),
+            .embedded(login)
+        )
+        XCTAssertEqual(DesktopCabinetState.workspaceReselectionRequired.recoveryActionTitle, "Войти и выбрать пространство")
+        XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(
+            for: .workspaceReselectionRequired,
+            currentRoute: login,
+            initialRoute: nil,
+            configuration: configuration
+        ))
+        XCTAssertFalse(DesktopCabinetState.workspaceReselectionRequired.shouldShowEmbeddedSurface)
+    }
+
     func testOwnerReviewDetailRouteUsesServerOwnedDesktopCabinetOnlyWhenReady() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
         let route = DesktopCabinetWorkspace.detailRoute(meetingId: "meeting-051", configuration: configuration)
@@ -440,7 +759,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(ready.systemImage, "checkmark.circle")
     }
 
-    func testCalendarSettingsUnavailableStatesKeepCredentialBoundaryAndManualRecording() {
+    func testUnavailableStatesUseHumanCopyAndKeepNativeRecordingIndependent() {
         let unavailableStates: [DesktopCabinetState] = [
             .notConfigured,
             .offline,
@@ -462,13 +781,17 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 embeddedSurfaceLoaded: false
             )
 
-            XCTAssertTrue(message.contains("Mac не хранит пароли календаря"), "\(state)")
-            XCTAssertTrue(message.contains("ручная запись доступна без календаря"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("сервером rec"), "\(state)")
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("пароли календаря"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("token"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("password"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("app password"), "\(state)")
             XCTAssertFalse(message.localizedCaseInsensitiveContains("refresh"), "\(state)")
             XCTAssertTrue(invariant.satisfiesActiveRecordingSafety(cabinetState: state), "\(state)")
+        }
+
+        for state in [DesktopCabinetState.notConfigured, .offline, .timeout, .expiredSession, .malformedResponse] {
+            XCTAssertTrue(state.userMessage.contains("Запись на этом Mac остаётся доступна"), "\(state)")
         }
     }
 
@@ -493,10 +816,66 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(route.path, "/login")
         XCTAssertEqual(query["next"], "/desktop/settings/integrations/calendar")
         XCTAssertEqual(query["workspace_id"], "workspace-063")
-        XCTAssertNil(DesktopCabinetWorkspace.calendarSettingsRecoveryTarget(
-            for: .offline,
-            configuration: configuration
-        ))
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.calendarSettingsRecoveryTarget(
+                for: .offline,
+                configuration: configuration
+            ),
+            .embedded(configuration.calendarSettingsURL())
+        )
+    }
+
+    func testLocalRecordingLifecycleStaysUsableBeforeServerIdentityExists() {
+        let localOnly = DesktopUploadCustodyProjection(
+            item: custodyFixtureQueueItem(id: "local-only", state: .queued)
+        )
+        let uploading = DesktopUploadCustodyProjection(
+            item: custodyFixtureQueueItem(id: "uploading", state: .uploading)
+        )
+
+        XCTAssertEqual(localOnly.custodyState, .serverUnknownLocalSaved)
+        XCTAssertEqual(localOnly.uploadState, .notStarted)
+        XCTAssertNil(localOnly.serverMeetingId)
+        XCTAssertFalse(localOnly.reviewAvailable)
+        XCTAssertEqual(uploading.custodyState, .partialUploaded)
+        XCTAssertEqual(uploading.uploadState, .partialUploaded)
+        XCTAssertNil(uploading.serverMeetingId)
+        XCTAssertFalse(uploading.reviewAvailable)
+    }
+
+    func testServerProcessingAndReadyLifecycleDoNotOverwriteLocalCustodyTruth() {
+        let processing = DesktopUploadCustodyProjection(
+            item: custodyFixtureQueueItem(
+                id: "server-processing",
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: "meeting-processing",
+                    mediaRevisionId: "revision-processing",
+                    processingStatus: "pending_processing",
+                    finalizedAt: Date(timeIntervalSince1970: 200)
+                )
+            )
+        )
+        let ready = DesktopUploadCustodyProjection(
+            item: custodyFixtureQueueItem(
+                id: "server-ready",
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: "meeting-ready",
+                    mediaRevisionId: "revision-ready",
+                    processingStatus: "processed",
+                    finalizedAt: Date(timeIntervalSince1970: 200)
+                )
+            )
+        )
+
+        XCTAssertEqual(processing.custodyState, .processing)
+        XCTAssertEqual(processing.uploadState, .finalized)
+        XCTAssertFalse(processing.reviewAvailable)
+        XCTAssertEqual(ready.custodyState, .delivered)
+        XCTAssertEqual(ready.uploadState, .finalized)
+        XCTAssertTrue(ready.reviewAvailable)
+        XCTAssertEqual(ready.normalUserAction, .openReview)
     }
 }
 #endif

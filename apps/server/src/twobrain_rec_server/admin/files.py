@@ -16,6 +16,7 @@ from twobrain_rec_server.cabinet.egress import artifact_egress_states, review_pl
 from twobrain_rec_server.cabinet.queries import latest_processing_result
 from twobrain_rec_server.db.models import Meeting, TrackArtifact
 from twobrain_rec_server.domain.statuses import DeletionState, RetentionPolicyState
+from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 
 
 class AdminFileAccessOutcome(StrEnum):
@@ -158,10 +159,7 @@ async def record_admin_review_access(
     meeting = await _load_workspace_meeting(db, context.workspace_id, meeting_id)
     decision = await _decision_for_meeting(db, context=context, meeting=meeting)
     access = admin_meeting_access(context)
-    result = await latest_processing_result(
-        db, workspace_id=context.workspace_id, meeting_id=meeting.id
-    )
-    review_state = await review_playback_state(db, meeting=meeting, access=access, result=result)
+    review_state = await review_playback_state(db, meeting=meeting, access=access)
     allowed = decision.allowed and review_state.state == "available"
     await write_admin_audit_event(
         db,
@@ -172,16 +170,10 @@ async def record_admin_review_access(
         target_kind="meeting",
         target_id=str(meeting.id),
         outcome="allowed" if allowed else "denied",
-        reason_code=decision.outcome.value
-        if not decision.allowed
-        else (review_state.reason or review_state.state),
+        reason_code=decision.outcome.value if not decision.allowed else review_state.reason_code,
     )
     if not allowed:
-        code = (
-            decision.outcome.value
-            if not decision.allowed
-            else (review_state.reason or "review_unavailable")
-        )
+        code = decision.outcome.value if not decision.allowed else review_state.reason_code
         raise ProblemDetail(status=409, code=code, title="Meeting review unavailable")
     return {
         "meeting_id": str(meeting.id),
@@ -204,7 +196,7 @@ async def admin_file_summary(
     )
     access = admin_meeting_access(context)
     egress_states = await artifact_egress_states(db, meeting=meeting, access=access, result=result)
-    review_state = await review_playback_state(db, meeting=meeting, access=access, result=result)
+    review_state = await review_playback_state(db, meeting=meeting, access=access)
     artifact_stats = await _artifact_stats(db, meeting=meeting)
     artifact_classes = _artifact_classes(artifact_stats, result)
     available_downloads = [
@@ -242,7 +234,7 @@ async def admin_file_summary(
             "download": decision.allowed and bool(available_downloads),
             "export": decision.allowed and package_available,
             "delete": context.actor_role in {"owner", "admin"}
-            and meeting.deletion_state in {None, "none"},
+            and not meeting_is_deleted_or_deleting(meeting),
         }
     return payload
 
@@ -296,17 +288,21 @@ async def _decision_for_meeting(
     )
     deletion_state = meeting.deletion_state or DeletionState.NONE.value
     retention_state = meeting.retention_policy_state or RetentionPolicyState.NOT_CONFIGURED.value
-    retention_or_lifecycle_block = retention_state in {
-        RetentionPolicyState.BLOCKED.value,
-        RetentionPolicyState.UNSAFE.value,
-    } or deletion_state == DeletionState.POLICY_BLOCKED.value
+    retention_or_lifecycle_block = (
+        retention_state
+        in {
+            RetentionPolicyState.BLOCKED.value,
+            RetentionPolicyState.UNSAFE.value,
+        }
+        or deletion_state == DeletionState.POLICY_BLOCKED.value
+    )
     post_egress_limit = deletion_state == DeletionState.POST_EGRESS_LIMIT.value
     return admin_file_access_decision(
         actor_role=context.actor_role,
         actor_workspace_id=context.workspace_id,
         meeting_workspace_id=meeting.workspace_id,
         artifact_available=artifact_count > 0,
-        deletion_active=deletion_state != DeletionState.NONE.value
+        deletion_active=meeting_is_deleted_or_deleting(meeting)
         and not retention_or_lifecycle_block
         and not post_egress_limit,
         retention_or_lifecycle_block=retention_or_lifecycle_block,

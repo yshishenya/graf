@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -154,18 +155,140 @@ class ConferenceLinkCandidate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class RecordingCalendarMatchAttempt(Base):
+    __tablename__ = "recording_calendar_match_attempts"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "owner_user_id",
+            "local_recording_id",
+            name="uq_calendar_match_attempts_workspace_owner_local",
+        ),
+        UniqueConstraint(
+            "workspace_id",
+            "owner_user_id",
+            "idempotency_key_sha256",
+            name="uq_calendar_match_attempts_workspace_owner_idempotency",
+        ),
+        Index(
+            "ix_calendar_match_attempts_owner_expiry",
+            "workspace_id",
+            "owner_user_id",
+            "expires_at",
+        ),
+        Index(
+            "ix_calendar_match_attempts_state_evaluated",
+            "workspace_id",
+            "attempt_state",
+            "evaluated_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    owner_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
+    local_recording_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    idempotency_key_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    recording_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decision_intent: Mapped[str] = mapped_column(String(64), nullable=False)
+    selected_event_snapshot_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("calendar_event_snapshots.id")
+    )
+    attempt_state: Mapped[str] = mapped_column(String(64), nullable=False)
+    safe_reason_code: Mapped[str | None] = mapped_column(String(120))
+    context_confidence: Mapped[str] = mapped_column(String(64), nullable=False, default="none")
+    candidate_event_ids_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    candidate_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    matched_event_snapshot_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("calendar_event_snapshots.id")
+    )
+    matched_event_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    matched_event_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    matched_title: Mapped[str | None] = mapped_column(String(500))
+    matched_title_state: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="unavailable"
+    )
+    matched_roster_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    matched_roster_state: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="not_available"
+    )
+    matched_roster_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    recurring_series_key_sha256: Mapped[str | None] = mapped_column(String(64))
+    source_version_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64))
+    freshness_class: Mapped[str] = mapped_column(String(64), nullable=False)
+    matcher_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_by_meeting_id: Mapped[UUID | None] = mapped_column(ForeignKey("meetings.id"))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class RecordingCalendarContextLink(Base):
     __tablename__ = "recording_calendar_context_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "meeting_id",
+            name="uq_recording_calendar_context_links_workspace_meeting",
+        ),
+        UniqueConstraint(
+            "match_attempt_id",
+            name="uq_recording_calendar_context_links_match_attempt",
+        ),
+        Index(
+            "ix_calendar_context_state_updated",
+            "workspace_id",
+            "context_state",
+            "updated_at",
+        ),
+        Index(
+            "ix_calendar_context_series_start",
+            "workspace_id",
+            "recurring_series_key_sha256",
+            "matched_event_starts_at",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
-    calendar_event_snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("calendar_event_snapshots.id"), nullable=False)
+    calendar_event_snapshot_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("calendar_event_snapshots.id")
+    )
+    match_attempt_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("recording_calendar_match_attempts.id")
+    )
+    context_state: Mapped[str] = mapped_column(String(64), nullable=False, default="no_context")
     context_confidence: Mapped[str] = mapped_column(String(64), nullable=False, default="none")
     context_reasons_json: Mapped[list] = mapped_column(JSON, default=list)
     title_source: Mapped[str] = mapped_column(String(64), nullable=False, default="generic")
     roster_source: Mapped[str] = mapped_column(String(64), nullable=False, default="none")
     manual_override_state: Mapped[str] = mapped_column(String(80), nullable=False, default="none")
+    safe_reason_code: Mapped[str | None] = mapped_column(String(120))
+    decision_source: Mapped[str] = mapped_column(String(64), nullable=False, default="system_skip")
+    matcher_version: Mapped[str | None] = mapped_column(String(80))
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    candidate_event_ids_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    candidate_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    matched_event_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    matched_event_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    matched_title: Mapped[str | None] = mapped_column(String(500))
+    matched_title_state: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="unavailable"
+    )
+    matched_roster_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    matched_roster_state: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="not_available"
+    )
+    matched_roster_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    recurring_series_key_sha256: Mapped[str | None] = mapped_column(String(64))
+    source_version_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64))
     linked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     unlinked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

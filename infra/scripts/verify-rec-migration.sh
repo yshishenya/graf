@@ -32,20 +32,14 @@ EOF
   fi
 
   set +e
-  rls_output="$(docker compose -f infra/docker-compose.yml run --rm --no-deps --entrypoint sh rec-migrate -c '
+  rls_output="$(docker compose -f infra/docker-compose.yml run --rm --no-deps --entrypoint sh rec-db-runtime-bootstrap -c '
     set -eu
     db_name="$1"
-    password="$(cat /run/secrets/twobrain_postgres_password)"
-    encoded_password="$(python - "$password" <<'"'"'PY'"'"'
-from urllib.parse import quote
-import sys
-
-print(quote(sys.argv[1], safe=""))
-PY
-)"
-    export RLS_TEST_DATABASE_URL="postgresql+asyncpg://twobrain_rec:${encoded_password}@rec-postgres:5432/${db_name}"
-    export RLS_DESTRUCTIVE_PROBE_DATABASE_CLASS=disposable
-    python scripts/verify_rls_hardening.py
+    python /app/scripts/verify_rls_hardening.py \
+      --runtime-owner-password-file "$TWOBRAIN_DB_OWNER_PASSWORD_FILE" \
+      --runtime-maintenance-password-file "$TWOBRAIN_DB_MAINTENANCE_PASSWORD_FILE" \
+      --runtime-database-name "$db_name" \
+      --destructive-probe-database disposable
   ' sh "$rls_db_name" 2>&1)"
   rls_status=$?
   docker compose -f infra/docker-compose.yml exec -T rec-postgres sh -c '

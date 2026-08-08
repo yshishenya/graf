@@ -1,0 +1,10 @@
+flowchart LR
+    Operator["Release operator"] --> Keychain["One local Keychain account"]
+    Operator --> File["Arbitrary external key file"]
+    Keychain --> Stage["prepare-app-update.sh"]
+    File --> Stage
+    App["GRAF.app public key"] --> Stage
+    Stage --> Draft["Local staged ZIP + appcast"]
+    Draft --> Host["Public host: archive first, appcast last"]
+    Host --> Client["Installed GRAF"]
+    App --> Client

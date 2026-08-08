@@ -2,11 +2,21 @@ import CryptoKit
 import Foundation
 import TwoBrainRecShared
 
+public typealias DesktopUploadProgressHandler = @Sendable (ServerTruthFingerprint) async throws -> Void
+
+public protocol DesktopSupportIncidentSubmitting: Sendable {
+    func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse
+    func syncSupportIncident(incidentID: String) async throws -> DesktopSupportIncidentResponse
+}
+
 public protocol DesktopUploadClientProtocol: Sendable {
     func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation?
     func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult
+    func upload(
+        _ item: DesktopUploadQueueItem,
+        onProgress: @escaping DesktopUploadProgressHandler
+    ) async throws -> DesktopUploadResult
     func supportIncidentContext() -> DesktopSupportIncidentReportContext
-    func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse
     func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask]
     func acknowledgeLocalPurgeTask(
         _ task: DesktopLocalPurgeTask,
@@ -21,13 +31,19 @@ public extension DesktopUploadClientProtocol {
         nil
     }
 
+    func upload(
+        _ item: DesktopUploadQueueItem,
+        onProgress: @escaping DesktopUploadProgressHandler
+    ) async throws -> DesktopUploadResult {
+        let result = try await upload(item)
+        try await onProgress(result.serverTruth)
+        return result
+    }
+
     func supportIncidentContext() -> DesktopSupportIncidentReportContext {
         .unknown
     }
 
-    func submitSupportIncident(report _: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse {
-        throw DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
-    }
 }
 
 public struct DesktopUploadReconciliation: Equatable, Sendable {
@@ -61,6 +77,26 @@ public struct DesktopUploadResult: Sendable {
     public init(state: UploadItemState, serverTruth: ServerTruthFingerprint) {
         self.state = state
         self.serverTruth = serverTruth
+    }
+}
+
+private actor ConfirmedUploadProgressState {
+    private var serverTruth: ServerTruthFingerprint
+
+    init(serverTruth: ServerTruthFingerprint) {
+        self.serverTruth = serverTruth
+    }
+
+    func snapshot() -> ServerTruthFingerprint {
+        serverTruth
+    }
+
+    func record(role: DesktopUploadTransportRole, acceptedBytes: Int64) -> ServerTruthFingerprint {
+        serverTruth.acceptedBytesByTrack[role.rawValue] = max(
+            serverTruth.acceptedBytesByTrack[role.rawValue, default: 0],
+            max(0, acceptedBytes)
+        )
+        return serverTruth
     }
 }
 
@@ -167,6 +203,7 @@ public struct DesktopLocalPurgeAcknowledgement: Encodable, Equatable, Sendable {
 
 public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
     case invalidBaseURL
+    case invalidArtifactPackage
     case localFileMissing(String)
     case invalidResponse
     case httpStatus(Int, String)
@@ -176,6 +213,8 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
         switch self {
         case .invalidBaseURL:
             return "invalid_base_url"
+        case .invalidArtifactPackage:
+            return "invalid_artifact_package"
         case .localFileMissing(let path):
             return "local_file_missing:\(URL(fileURLWithPath: path).lastPathComponent)"
         case .invalidResponse:
@@ -191,6 +230,8 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
         switch self {
         case .invalidBaseURL, .invalidResponse:
             return .unknown
+        case .invalidArtifactPackage:
+            return .schemaIncompatibility
         case .localFileMissing:
             return .localResource
         case .serverStillMissingRanges:
@@ -236,7 +277,10 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
 }
 
 public struct DesktopUploadClient: DesktopUploadClientProtocol {
-    public static let defaultPartSizeBytes = 1024 * 1024 * 1024
+    /// Each rendered percent is backed by a server-accepted part, not client-side
+    /// estimation. Four MiB keeps progress perceptibly live without turning a
+    /// normal meeting into thousands of HTTP requests.
+    public static let defaultPartSizeBytes = 4 * 1024 * 1024
     public static let baseURLEnvironmentKey = "GRAF_UPLOAD_BASE_URL"
     public static let fallbackBaseURLEnvironmentKey = "GRAF_CABINET_BASE_URL"
     public static let legacyBaseURLEnvironmentKey = "TWO_BRAIN_REC_UPLOAD_BASE_URL"
@@ -252,26 +296,44 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
     public static let meetingDetectionTargetRegistryPath = "/api/v1/desktop/meeting-detection/target-registry"
     public static let meetingDetectionTelemetryPath = "/api/v1/desktop/meeting-detection/telemetry"
-    public static let supportIncidentPath = "/api/v1/desktop/support-incidents"
-    public static let supportIncidentTimeoutSeconds: TimeInterval = 5
 
     private let baseURL: URL
     private let headers: [String: String]
     private let partSizeBytes: Int
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let cookieHeaderProvider: @Sendable (URL) -> String?
+    private let authSessionTokenProvider: @Sendable (URL) -> String?
+    private let requestExecutor: @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     public init(
         baseURL: URL,
         headers: [String: String] = [:],
         partSizeBytes: Int = Self.defaultPartSizeBytes,
-        cookieHeaderProvider: @escaping @Sendable (URL) -> String? = DesktopUploadClient.defaultCookieHeader
+        authSessionTokenProvider: @escaping @Sendable (URL) -> String? = DesktopUploadClient.defaultAuthSessionToken
+    ) {
+        self.init(
+            baseURL: baseURL,
+            headers: headers,
+            partSizeBytes: partSizeBytes,
+            authSessionTokenProvider: authSessionTokenProvider,
+            requestExecutor: { request in
+                try await URLSession.shared.data(for: request)
+            }
+        )
+    }
+
+    init(
+        baseURL: URL,
+        headers: [String: String],
+        partSizeBytes: Int,
+        authSessionTokenProvider: @escaping @Sendable (URL) -> String?,
+        requestExecutor: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)
     ) {
         self.baseURL = baseURL
         self.headers = headers
         self.partSizeBytes = max(64 * 1024, partSizeBytes)
-        self.cookieHeaderProvider = cookieHeaderProvider
+        self.authSessionTokenProvider = authSessionTokenProvider
+        self.requestExecutor = requestExecutor
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -353,19 +415,15 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return "Bearer \(trimmed)"
     }
 
-    public static func defaultCookieHeader(for url: URL) -> String? {
-        authSessionCookieHeader(from: HTTPCookieStorage.shared.cookies(for: url) ?? [])
+    public static func defaultAuthSessionToken(for url: URL) -> String? {
+        authSessionToken(from: HTTPCookieStorage.shared.cookies(for: url) ?? [])
     }
 
-    public static func authSessionCookieHeader(from cookies: [HTTPCookie]) -> String? {
-        let sessionCookies = cookies
-            .filter { cookie in
-                cookie.name == ownerSessionCookieName &&
-                    !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            .map { "\($0.name)=\($0.value)" }
-        guard !sessionCookies.isEmpty else { return nil }
-        return sessionCookies.joined(separator: "; ")
+    public static func authSessionToken(from cookies: [HTTPCookie]) -> String? {
+        cookies.first { cookie in
+            cookie.name == ownerSessionCookieName &&
+                !cookie.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }?.value
     }
 
     private static func configuredBaseURLCandidate(
@@ -416,13 +474,24 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
     private static func shouldRedactHeader(named name: String) -> Bool {
         let lowered = name.lowercased()
-        return lowered.contains("authorization") ||
+        return lowered == "x-auth-session" ||
+            lowered.contains("authorization") ||
             lowered.contains("token") ||
             lowered.contains("cookie") ||
             lowered.contains("secret")
     }
 
     public func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult {
+        try await upload(item, onProgress: { _ in })
+    }
+
+    public func upload(
+        _ item: DesktopUploadQueueItem,
+        onProgress: @escaping DesktopUploadProgressHandler
+    ) async throws -> DesktopUploadResult {
+        try Self.validatePackageForUpload(item)
+        let initialSessionDescriptors = Self.uploadSessionFileDescriptors(for: item)
+        try Self.validateDescriptorSet(initialSessionDescriptors, for: item)
         let meeting = if let meetingId = item.meetingId {
             MeetingResponse(
                 meeting_id: meetingId,
@@ -447,28 +516,58 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             uploadSession = try await getUploadSession(sessionId: sessionId)
             newSessionExpectedRoles = nil
         } else {
-            let sessionDescriptors = Self.uploadSessionFileDescriptors(for: item)
-            try ensureLocalFilesExist(sessionDescriptors)
+            try ensureLocalFilesExist(initialSessionDescriptors)
             uploadSession = try await createUploadSession(
                 item,
                 meetingId: meeting.meeting_id,
-                descriptors: sessionDescriptors
+                descriptors: initialSessionDescriptors
             )
-            newSessionExpectedRoles = Set(sessionDescriptors.map(\.transportRole))
+            newSessionExpectedRoles = Set(initialSessionDescriptors.map(\.transportRole))
         }
 
         let descriptors = Self.uploadFileDescriptors(
             for: item,
             expectedRoles: uploadSession.expectedTransportRoles ?? newSessionExpectedRoles
         )
+        try Self.validateDescriptorSet(
+            descriptors,
+            for: item,
+            expectedRoles: uploadSession.expectedTransportRoles ?? newSessionExpectedRoles
+        )
         try ensureLocalFilesExist(descriptors)
 
+        let requiredTrackSha256 = descriptors.reduce(into: [String: String]()) { result, descriptor in
+            if let sha256 = descriptor.sha256 {
+                result[descriptor.transportRole.rawValue] = sha256
+            }
+        }
         var acceptedBytes = uploadSession.accepted_bytes_by_track ?? [:]
+        let progressState = ConfirmedUploadProgressState(
+            serverTruth: ServerTruthFingerprint(
+                meetingId: meeting.meeting_id,
+                mediaRevisionId: uploadSession.media_revision_id ?? meeting.media_revision?.media_revision_id ?? item.mediaRevisionId,
+                uploadSessionId: uploadSession.session_id,
+                serverStatus: uploadSession.status,
+                processingStatus: uploadSession.processing_status ?? meeting.processing_status,
+                acceptedBytesByTrack: acceptedBytes,
+                requiredTrackSha256: requiredTrackSha256,
+                expectedTrackRoles: descriptors.map(\.transportRole.rawValue),
+                desktopTruthRule: uploadSession.desktop_truth_rule
+            )
+        )
+        try await onProgress(await progressState.snapshot())
         for descriptor in descriptors {
             let uploaded = try await uploadFile(
                 descriptor: descriptor,
                 sessionId: uploadSession.session_id,
-                alreadyAcceptedBytes: acceptedBytes[descriptor.transportRole.rawValue, default: 0]
+                alreadyAcceptedBytes: acceptedBytes[descriptor.transportRole.rawValue, default: 0],
+                onProgress: { acceptedForTrack in
+                    let snapshot = await progressState.record(
+                        role: descriptor.transportRole,
+                        acceptedBytes: acceptedForTrack
+                    )
+                    try await onProgress(snapshot)
+                }
             )
             acceptedBytes[descriptor.transportRole.rawValue] = max(
                 acceptedBytes[descriptor.transportRole.rawValue, default: 0],
@@ -480,11 +579,16 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         if !missing.missing_ranges_by_track.isEmpty {
             for descriptor in descriptors {
                 for range in missing.missing_ranges_by_track[descriptor.transportRole.rawValue] ?? [] {
-                    _ = try await uploadRange(
+                    let uploaded = try await uploadRange(
                         descriptor: descriptor,
                         sessionId: uploadSession.session_id,
                         range: range
                     )
+                    let snapshot = await progressState.record(
+                        role: descriptor.transportRole,
+                        acceptedBytes: uploaded
+                    )
+                    try await onProgress(snapshot)
                 }
             }
         }
@@ -512,14 +616,11 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             serverStatus: finalSession.status,
             processingStatus: finalSession.processing_status,
             acceptedBytesByTrack: finalSession.accepted_bytes_by_track ?? acceptedBytes,
-            requiredTrackSha256: descriptors.reduce(into: [:]) { result, descriptor in
-                if let sha256 = descriptor.sha256 {
-                    result[descriptor.transportRole.rawValue] = sha256
-                }
-            },
+            requiredTrackSha256: requiredTrackSha256,
             expectedTrackRoles: descriptors.map(\.transportRole.rawValue),
             finalizedAt: Date(),
-            desktopTruthRule: finalSession.desktop_truth_rule
+            desktopTruthRule: finalSession.desktop_truth_rule,
+            uploadStatus: finalSession.status
         )
         return DesktopUploadResult(state: .uploaded, serverTruth: serverTruth)
     }
@@ -542,7 +643,15 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 acceptedBytesByTrack: response.upload_session.accepted_bytes_by_track,
                 requiredTrackSha256: response.media_revision.track_sha256_by_role,
                 expectedTrackRoles: response.upload_session.expected_tracks,
-                desktopTruthRule: response.upload_session.desktop_truth_rule
+                desktopTruthRule: response.upload_session.desktop_truth_rule,
+                deletionState: response.meeting.deletion_state,
+                accessState: response.meeting.access_state,
+                uploadStatus: response.upload_session.status,
+                processingReasonCode: response.processing.reason_code,
+                reviewAvailable: response.review?.available,
+                reviewStatus: response.review?.status,
+                conflictReason: response.conflict.reason,
+                nextAction: response.conflict.next_action
             )
             return DesktopUploadReconciliation(
                 serverTruth: serverTruth,
@@ -585,21 +694,6 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         )
     }
 
-    public func supportIncidentRequest(for report: DesktopSupportIncidentReport) throws -> URLRequest {
-        var request = try jsonRequest(
-            path: Self.supportIncidentPath,
-            method: "POST",
-            body: report,
-            timeoutInterval: Self.supportIncidentTimeoutSeconds
-        )
-        request.setValue("support-incident:\(report.safeReportFingerprint)", forHTTPHeaderField: "Idempotency-Key")
-        return request
-    }
-
-    public func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse {
-        try await perform(supportIncidentRequest(for: report))
-    }
-
     public func listDesktopCalendarUpcoming(
         beforeMinutes: Int = 15,
         afterMinutes: Int = 60
@@ -615,6 +709,29 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return try await perform(request)
     }
 
+    public func calendarContextResolveRequest(
+        localRecordingId: String,
+        body: DesktopCalendarContextResolveRequest
+    ) throws -> URLRequest {
+        var request = try jsonRequest(
+            path: "/api/v1/desktop/recordings/\(localRecordingId)/calendar-context/resolve",
+            method: "POST",
+            body: body
+        )
+        request.setValue(
+            "desktop-calendar-context-resolve:\(localRecordingId)",
+            forHTTPHeaderField: "Idempotency-Key"
+        )
+        return request
+    }
+
+    public func resolveCalendarContext(
+        localRecordingId: String,
+        request: DesktopCalendarContextResolveRequest
+    ) async throws -> DesktopCalendarContextResolveResponse {
+        try await perform(calendarContextResolveRequest(localRecordingId: localRecordingId, body: request))
+    }
+
     public func fetchMeetingDetectionTargetRegistry(
         ifNoneMatch etag: String? = nil
     ) async throws -> DesktopMeetingDetectionRegistryFetchResult {
@@ -626,7 +743,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await requestExecutor(request)
         } catch {
             throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
         }
@@ -699,6 +816,47 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         for item: DesktopUploadQueueItem,
         expectedRoles: Set<DesktopUploadTransportRole>? = nil
     ) -> [DesktopUploadFileDescriptor] {
+        if isV5SchemaDeclared(by: item) {
+            guard item.isV5Package else { return [] }
+            let tracksByRole = Dictionary(
+                uniqueKeysWithValues: item.artifactProfile.trackCompleteness.map {
+                    ($0.transportRole, $0)
+                }
+            )
+            let v5Descriptors: [DesktopUploadFileDescriptor] = [
+                descriptor(
+                    role: .manifest,
+                    track: tracksByRole[.manifest],
+                    url: URL(fileURLWithPath: item.manifestPath),
+                    codec: "json",
+                    sampleRateHz: 1,
+                    channelCount: 1,
+                    fallbackDurationSeconds: 1
+                ),
+                descriptor(
+                    role: .media,
+                    track: tracksByRole[.media],
+                    url: URL(fileURLWithPath: item.transcriptionAudioPath),
+                    codec: "wav-pcm-s16le",
+                    sampleRateHz: 16_000,
+                    channelCount: 1,
+                    fallbackDurationSeconds: item.artifactProfile.durationSeconds
+                ),
+                descriptor(
+                    role: .playback,
+                    track: tracksByRole[.playback],
+                    url: URL(fileURLWithPath: item.reviewAudioPath),
+                    codec: "m4a-aac-lc",
+                    sampleRateHz: 48_000,
+                    channelCount: 1,
+                    fallbackDurationSeconds: item.artifactProfile.durationSeconds
+                )
+            ].compactMap { $0 }
+            guard v5Descriptors.count == 3 else { return [] }
+            guard let expectedRoles, !expectedRoles.isEmpty else { return v5Descriptors }
+            return v5Descriptors.filter { expectedRoles.contains($0.transportRole) }
+        }
+
         var descriptors = [
             DesktopUploadFileDescriptor(
                 transportRole: .microphone,
@@ -748,17 +906,25 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     }
 
     static func uploadSessionFileDescriptors(for item: DesktopUploadQueueItem) -> [DesktopUploadFileDescriptor] {
-        uploadFileDescriptors(for: item).filter { descriptor in
+        if item.isV5Package {
+            return uploadFileDescriptors(for: item)
+        }
+        return uploadFileDescriptors(for: item).filter { descriptor in
             descriptor.transportRole != .playback ||
                 localFileSize(descriptor.url) == descriptor.byteCount
         }
     }
 
     public static func createMeetingPayload(for item: DesktopUploadQueueItem) -> DesktopCreateMeetingPayload {
-        DesktopCreateMeetingPayload(
+        let isV5 = isV5SchemaDeclared(by: item)
+        return DesktopCreateMeetingPayload(
             local_recording_id: item.directoryId,
             local_media_revision_id: item.localMediaRevisionId,
+            source_kind: isV5 ? "initial_mixed_recording" : "initial_recording",
+            media_scribe_source_mode: isV5 ? "single_wav_v1" : "dual",
             title: item.recordingMetadata?.title,
+            title_source: item.recordingMetadata?.titleSource,
+            calendar_match_attempt_id: item.calendarMatchAttemptId,
             started_at: item.recordingMetadata?.recordingStartedAt,
             ended_at: item.recordingMetadata?.recordingStoppedAt,
             recording_display_timezone_offset_minutes: item.recordingMetadata?.recordingDisplayTimeZoneOffsetMinutes,
@@ -798,8 +964,31 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
     }
 
+    private static func descriptor(
+        role: DesktopUploadTransportRole,
+        track: UploadTrackCompleteness?,
+        url: URL,
+        codec: String,
+        sampleRateHz: Int,
+        channelCount: Int,
+        fallbackDurationSeconds: Int
+    ) -> DesktopUploadFileDescriptor? {
+        guard let track, track.uploadable else { return nil }
+        return DesktopUploadFileDescriptor(
+            transportRole: role,
+            url: url,
+            byteCount: track.byteCount,
+            sha256: track.sha256,
+            codec: codec,
+            sampleRateHz: sampleRateHz,
+            channelCount: channelCount,
+            durationSeconds: track.durationSeconds ?? fallbackDurationSeconds
+        )
+    }
+
     private func linkCalendarContextIfNeeded(_ item: DesktopUploadQueueItem, meetingId: String) async {
-        guard let eventId = item.calendarContextEventId?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard item.calendarMatchAttemptId == nil,
+              let eventId = item.calendarContextEventId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !eventId.isEmpty
         else {
             return
@@ -860,7 +1049,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private func uploadFile(
         descriptor: DesktopUploadFileDescriptor,
         sessionId: String,
-        alreadyAcceptedBytes: Int64
+        alreadyAcceptedBytes: Int64,
+        onProgress: @escaping @Sendable (Int64) async throws -> Void
     ) async throws -> Int64 {
         let handle = try FileHandle(forReadingFrom: descriptor.url)
         defer { try? handle.close() }
@@ -877,6 +1067,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 byteOffset: offset
             )
             offset = max(offset + Int64(data.count), response.byte_offset + response.byte_length)
+            try await onProgress(offset)
         }
         return offset
     }
@@ -928,6 +1119,39 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
     }
 
+    private static func isV5SchemaDeclared(by item: DesktopUploadQueueItem) -> Bool {
+        item.artifactProfile.schemaVersion == LocalRecordingManifest.schemaVersion
+    }
+
+    private static func validatePackageForUpload(_ item: DesktopUploadQueueItem) throws {
+        guard item.artifactProfile.isUploadable,
+              !(isV5SchemaDeclared(by: item) && !item.isV5Package)
+        else {
+            throw DesktopUploadClientError.invalidArtifactPackage
+        }
+    }
+
+    private static func validateDescriptorSet(
+        _ descriptors: [DesktopUploadFileDescriptor],
+        for item: DesktopUploadQueueItem,
+        expectedRoles: Set<DesktopUploadTransportRole>? = nil
+    ) throws {
+        guard !descriptors.isEmpty else {
+            throw DesktopUploadClientError.invalidArtifactPackage
+        }
+        guard item.isV5Package else { return }
+        let requiredRoles: Set<DesktopUploadTransportRole> = [.manifest, .media, .playback]
+        let actualRoles = Set(descriptors.map(\.transportRole))
+        let hasCompatibleExpectedRoles = expectedRoles.map {
+            $0.isEmpty || $0 == requiredRoles
+        } ?? true
+        guard actualRoles == requiredRoles,
+              hasCompatibleExpectedRoles
+        else {
+            throw DesktopUploadClientError.invalidArtifactPackage
+        }
+    }
+
     private func jsonRequest<T: Encodable>(
         path: String,
         method: String,
@@ -961,13 +1185,15 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = timeoutInterval
+        request.httpShouldHandleCookies = false
         for (key, value) in headers {
+            guard key.caseInsensitiveCompare("Cookie") != .orderedSame else { continue }
             request.setValue(value, forHTTPHeaderField: key)
         }
-        if request.value(forHTTPHeaderField: "Cookie") == nil,
-           let cookieHeader = cookieHeaderProvider(url),
-           !cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        if request.value(forHTTPHeaderField: "X-Auth-Session") == nil,
+           let sessionToken = authSessionTokenProvider(url)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !sessionToken.isEmpty {
+            request.setValue(sessionToken, forHTTPHeaderField: "X-Auth-Session")
         }
         return request
     }
@@ -976,7 +1202,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await requestExecutor(request)
         } catch {
             throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
         }
@@ -1042,7 +1268,11 @@ public struct DesktopUploadFileDescriptor: Equatable, Sendable {
 public struct DesktopCreateMeetingPayload: Encodable, Sendable {
     public let local_recording_id: String
     public let local_media_revision_id: String
+    public let source_kind: String
+    public let media_scribe_source_mode: String
     public let title: String?
+    public let title_source: RecordingTitleSource?
+    public let calendar_match_attempt_id: String?
     public let started_at: Date?
     public let ended_at: Date?
     public let recording_display_timezone_offset_minutes: Int?
@@ -1117,12 +1347,16 @@ private struct DesktopRecordingSyncStateResponse: Decodable {
     let media_revision: DesktopSyncMediaRevisionState
     let upload_session: DesktopSyncUploadSessionState
     let processing: DesktopSyncProcessingState
+    let review: DesktopSyncReviewState?
     let conflict: DesktopSyncConflict
 }
 
 private struct DesktopSyncMeetingState: Decodable {
     let meeting_id: String
     let status: String
+    let processing_status: String?
+    let deletion_state: String?
+    let access_state: String?
 }
 
 private struct DesktopSyncMediaRevisionState: Decodable {
@@ -1142,6 +1376,19 @@ private struct DesktopSyncUploadSessionState: Decodable {
 
 private struct DesktopSyncProcessingState: Decodable {
     let status: String
+    let workflow_id: String?
+    let reason_code: String?
+}
+
+private struct DesktopSyncReviewState: Decodable {
+    let available: Bool
+    let status: String
+    let media_revision_id: String?
+    let transcript_available: Bool
+    let diarization_available: Bool
+    let content_available: Bool
+    let web_url: String?
+    let desktop_url: String?
 }
 
 private struct DesktopSyncConflict: Decodable {

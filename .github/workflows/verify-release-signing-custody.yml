@@ -1,0 +1,135 @@
+name: Verify GRAF release-signing custody
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact immutable GRAF tag to inspect, for example vYYYY.MM.DD.N
+        required: true
+        type: string
+      expected_key_id:
+        description: Public sha256 fingerprint of the approved test or production signer
+        required: true
+        type: string
+      signing_environment:
+        description: Protected environment that owns the requested signer
+        required: true
+        default: graf-release-signing-test
+        type: choice
+        options:
+          - graf-release-signing-test
+          - graf-release-signing
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify protected signer without publication
+    if: github.ref == 'refs/heads/master'
+    runs-on: macos-14
+    environment:
+      name: ${{ inputs.signing_environment }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the requested immutable tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          ref: refs/tags/${{ inputs.release_tag }}
+
+      - name: Derive and attest the protected signer
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_KEY_ID: ${{ inputs.expected_key_id }}
+          SIGNING_ENVIRONMENT: ${{ inputs.signing_environment }}
+          GRAF_SPARKLE_ED25519_PRIVATE_KEY: ${{ secrets.GRAF_SPARKLE_ED25519_PRIVATE_KEY }}
+        run: |
+          set -eu
+          printf '%s' "$RELEASE_TAG" | grep -Eq '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$' || {
+            echo "invalid release tag" >&2
+            exit 1
+          }
+          printf '%s' "$EXPECTED_KEY_ID" | grep -Eq '^sha256:[0-9a-f]{64}$' || {
+            echo "invalid expected key identifier" >&2
+            exit 1
+          }
+          [ -n "$GRAF_SPARKLE_ED25519_PRIVATE_KEY" ] || {
+            echo "protected signing secret is unavailable" >&2
+            exit 1
+          }
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_COMMIT=$(git rev-parse "refs/tags/$RELEASE_TAG^{}")
+          MASTER_COMMIT=$(git ls-remote origin refs/heads/master | awk 'NR == 1 { print $1 }')
+          [ -n "$MASTER_COMMIT" ] && [ "$TAG_COMMIT" = "$MASTER_COMMIT" ] || {
+            echo "release tag is not the current master commit" >&2
+            exit 1
+          }
+          KEY_FILE="$RUNNER_TEMP/graf-sparkle-signing-key"
+          ATTESTATION="$RUNNER_TEMP/graf-release-signing-attestation.json"
+          cleanup() {
+            rm -f "$KEY_FILE"
+          }
+          trap cleanup EXIT HUP INT TERM
+          umask 077
+          printf '%s' "$GRAF_SPARKLE_ED25519_PRIVATE_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          [ "$(stat -f '%Lp' "$KEY_FILE")" = "600" ] || {
+            echo "temporary signing file permissions are unsafe" >&2
+            exit 1
+          }
+          PUBLIC_KEY=$(/usr/bin/xcrun swift apps/macos/Installer/Scripts/derive-sparkle-public-key.swift "$KEY_FILE" 2>/dev/null) || {
+            echo "could not derive protected signer identity" >&2
+            exit 1
+          }
+          KEY_ID="sha256:$(printf '%s' "$PUBLIC_KEY" | /usr/bin/base64 -D | /usr/bin/shasum -a 256 | awk '{print $1}')"
+          [ "$KEY_ID" = "$EXPECTED_KEY_ID" ] || {
+            echo "protected signer does not match the requested public identifier" >&2
+            exit 1
+          }
+          if [ "$SIGNING_ENVIRONMENT" = "graf-release-signing" ]; then
+            MANIFEST=apps/macos/Installer/UpdateSigningKey.json
+            [ "$(/usr/bin/plutil -extract status raw -o - "$MANIFEST")" = "active" ] || {
+              echo "production public signing manifest is not active" >&2
+              exit 1
+            }
+            [ "$(/usr/bin/plutil -extract keyId raw -o - "$MANIFEST")" = "$KEY_ID" ] || {
+              echo "production signer does not match the active public manifest" >&2
+              exit 1
+            }
+            TRUST_GENERATION=$(/usr/bin/plutil -extract trustGeneration raw -o - "$MANIFEST")
+          else
+            TRUST_GENERATION=0
+          fi
+          case "$TRUST_GENERATION" in
+            0|[1-9]|[1-9][0-9]*) ;;
+            *) echo "invalid public trust generation" >&2; exit 1 ;;
+          esac
+          COMMIT=$(git rev-parse HEAD)
+          CHECKED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          cat > "$ATTESTATION" <<EOF
+          {
+            "schemaVersion": 1,
+            "keyId": "$KEY_ID",
+            "trustGeneration": $TRUST_GENERATION,
+            "channel": "github-environment",
+            "state": "ready",
+            "checkedAt": "$CHECKED_AT",
+            "releaseRef": "$RELEASE_TAG",
+            "commit": "$COMMIT",
+            "workflow": "verify-release-signing-custody",
+            "runId": "$GITHUB_RUN_ID"
+          }
+          EOF
+          /usr/bin/plutil -convert xml1 -o /dev/null "$ATTESTATION" >/dev/null
+          trap - EXIT HUP INT TERM
+          cleanup
+
+      - name: Upload safe custody attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: graf-release-signing-attestation-${{ github.run_id }}
+          path: ${{ runner.temp }}/graf-release-signing-attestation.json
+          if-no-files-found: error
+          retention-days: 7

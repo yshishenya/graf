@@ -7,6 +7,7 @@ from twobrain_rec_server.admin.invitations import (
     matching_invitation_contacts,
     normalize_invitation_target,
 )
+from twobrain_rec_server.auth.audit import ONBOARDING_AUDIT_METADATA_KEYS
 from twobrain_rec_server.db.models import WorkspaceInvitation
 
 
@@ -27,6 +28,18 @@ def test_matching_invitation_contacts_include_provider_subject_and_safe_contacts
     assert "username" in contacts
     assert "user@example.test" in contacts
     assert "+7 999 100 20 30" in contacts
+
+
+def test_join_offer_audit_contract_allows_only_opaque_metadata() -> None:
+    expected_metadata_keys = {
+        "action",
+        "invitation_id",
+        "offer_id",
+        "status",
+        "workspace_kind",
+    }
+    assert expected_metadata_keys == ONBOARDING_AUDIT_METADATA_KEYS
+    assert "target_contact" not in ONBOARDING_AUDIT_METADATA_KEYS
 
 
 def test_invitation_runtime_status_marks_pending_expired_without_mutating_terminal_states() -> None:

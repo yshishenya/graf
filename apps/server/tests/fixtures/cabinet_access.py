@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import wave
+from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID
 
@@ -15,12 +16,18 @@ from twobrain_rec_server.db.models import (
     Meeting,
     MeetingArtifactPolicy,
     MeetingEgressAuditEvent,
+    MeetingShareGrant,
+    PlaybackNormalizationJob,
     RegisteredDevice,
     TrackArtifact,
     UserIdentity,
     WorkspaceMembership,
 )
 from twobrain_rec_server.domain.statuses import TrackRole
+from twobrain_rec_server.normalization.statuses import (
+    CANONICAL_PROFILE_VERSION,
+    VALIDATION_VERSION,
+)
 
 SHARED_USER_ID = UUID("30000000-0000-0000-0000-000000000017")
 SHARED_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000017")
@@ -60,6 +67,43 @@ def add_workspace_user(
     )
 
 
+def grant_meeting_to_user(
+    client: TestClient,
+    meeting_id: UUID,
+    *,
+    user_id: UUID = SHARED_USER_ID,
+) -> None:
+    asyncio.run(_grant_meeting_to_user(client, meeting_id, user_id=user_id))
+
+
+async def _grant_meeting_to_user(
+    client: TestClient,
+    meeting_id: UUID,
+    *,
+    user_id: UUID,
+) -> None:
+    async with client.app_state["sessionmaker"]() as db:
+        meeting = await db.get(Meeting, meeting_id)
+        assert meeting is not None
+        db.add(
+            MeetingShareGrant(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                grant_type="user",
+                grantee_user_id=user_id,
+                audience_type="user",
+                audience_id=user_id,
+                content_scope="full_meeting",
+                can_download=True,
+                can_export=True,
+                created_by_user_id=meeting.created_by_user_id,
+                status="active",
+                metadata_json={},
+            )
+        )
+        await db.commit()
+
+
 async def _add_workspace_user(
     client: TestClient,
     *,
@@ -69,15 +113,18 @@ async def _add_workspace_user(
     display_name: str,
 ) -> None:
     async with client.app_state["sessionmaker"]() as db:
+        db.add(
+            UserIdentity(
+                id=user_id,
+                organization_id=ORG_ID,
+                external_subject=str(user_id),
+                display_name=display_name,
+                status="active",
+            )
+        )
+        await db.flush()
         db.add_all(
             [
-                UserIdentity(
-                    id=user_id,
-                    organization_id=ORG_ID,
-                    external_subject=str(user_id),
-                    display_name=display_name,
-                    status="active",
-                ),
                 WorkspaceMembership(
                     workspace_id=WORKSPACE_ID,
                     user_id=user_id,
@@ -112,7 +159,9 @@ def set_meeting_deletion_state(client: TestClient, meeting_id: UUID, deletion_st
     asyncio.run(_set_meeting_deletion_state(client, meeting_id, deletion_state))
 
 
-async def _set_meeting_deletion_state(client: TestClient, meeting_id: UUID, deletion_state: str) -> None:
+async def _set_meeting_deletion_state(
+    client: TestClient, meeting_id: UUID, deletion_state: str
+) -> None:
     async with client.app_state["sessionmaker"]() as db:
         meeting = await db.get(Meeting, meeting_id)
         assert meeting is not None
@@ -128,6 +177,7 @@ def set_artifact_policy(
     transcript_download: str = "disabled",
     summary_download: str = "disabled",
     package_export: str = "disabled",
+    policy_source: str = "test_fixture",
 ) -> None:
     asyncio.run(
         _set_artifact_policy(
@@ -137,6 +187,7 @@ def set_artifact_policy(
             transcript_download=transcript_download,
             summary_download=summary_download,
             package_export=package_export,
+            policy_source=policy_source,
         )
     )
 
@@ -149,6 +200,7 @@ async def _set_artifact_policy(
     transcript_download: str,
     summary_download: str,
     package_export: str,
+    policy_source: str,
 ) -> None:
     async with client.app_state["sessionmaker"]() as db:
         policy = MeetingArtifactPolicy(
@@ -158,13 +210,15 @@ async def _set_artifact_policy(
             transcript_download=transcript_download,
             summary_download=summary_download,
             package_export=package_export,
-            policy_source="test_fixture",
+            policy_source=policy_source,
         )
         db.add(policy)
         await db.commit()
 
 
-def set_retained_audio_source_status(client: TestClient, meeting_id: UUID, role: TrackRole, status: str) -> None:
+def set_retained_audio_source_status(
+    client: TestClient, meeting_id: UUID, role: TrackRole, status: str
+) -> None:
     asyncio.run(_set_retained_audio_source_status(client, meeting_id, role, status))
 
 
@@ -196,7 +250,10 @@ async def _audit_events(client: TestClient, meeting_id: UUID) -> list[MeetingEgr
         return (
             await db.scalars(
                 select(MeetingEgressAuditEvent)
-                .where(MeetingEgressAuditEvent.workspace_id == WORKSPACE_ID, MeetingEgressAuditEvent.meeting_id == meeting_id)
+                .where(
+                    MeetingEgressAuditEvent.workspace_id == WORKSPACE_ID,
+                    MeetingEgressAuditEvent.meeting_id == meeting_id,
+                )
                 .order_by(MeetingEgressAuditEvent.created_at.asc())
             )
         ).all()
@@ -206,7 +263,9 @@ def replace_retained_audio_with_test_wav(client: TestClient, meeting_id: UUID) -
     asyncio.run(_replace_retained_audio_with_test_wav(client, meeting_id))
 
 
-def add_retained_playback_m4a(client: TestClient, meeting_id: UUID, body: bytes = b"fixture-m4a-review") -> bytes:
+def add_retained_playback_m4a(
+    client: TestClient, meeting_id: UUID, body: bytes = b"fixture-m4a-review"
+) -> bytes:
     asyncio.run(_add_retained_playback_m4a(client, meeting_id, body))
     return body
 
@@ -222,17 +281,28 @@ async def _add_retained_playback_m4a(client: TestClient, meeting_id: UUID, body:
                 MediaRevision.meeting_id == meeting_id,
             )
         )
+        assert media_revision is not None
+        job = await db.scalar(
+            select(PlaybackNormalizationJob).where(
+                PlaybackNormalizationJob.workspace_id == WORKSPACE_ID,
+                PlaybackNormalizationJob.meeting_id == meeting_id,
+                PlaybackNormalizationJob.media_revision_id == media_revision.id,
+                PlaybackNormalizationJob.profile_version == CANONICAL_PROFILE_VERSION,
+            )
+        )
+        assert job is not None
         artifact = await db.scalar(
             select(TrackArtifact).where(
                 TrackArtifact.workspace_id == WORKSPACE_ID,
                 TrackArtifact.meeting_id == meeting_id,
+                TrackArtifact.media_revision_id == media_revision.id,
                 TrackArtifact.track_role == TrackRole.PLAYBACK.value,
             )
         )
         if artifact is None:
             artifact = TrackArtifact(
                 meeting_id=meeting_id,
-                media_revision_id=media_revision.id if media_revision is not None else None,
+                media_revision_id=media_revision.id,
                 workspace_id=WORKSPACE_ID,
                 track_role=TrackRole.PLAYBACK.value,
                 codec="m4a-aac-lc",
@@ -243,9 +313,15 @@ async def _add_retained_playback_m4a(client: TestClient, meeting_id: UUID, body:
                 sha256=sha256(body).hexdigest(),
                 storage_object_key=object_key,
                 status="stored",
+                normalization_profile_version=CANONICAL_PROFILE_VERSION,
+                validated_at=datetime.now(UTC),
+                derivation_kind="uploaded_candidate",
+                source_fingerprint_sha256=job.source_fingerprint_sha256,
+                validation_version=VALIDATION_VERSION,
             )
             db.add(artifact)
         else:
+            artifact.media_revision_id = media_revision.id
             artifact.codec = "m4a-aac-lc"
             artifact.sample_rate_hz = 48_000
             artifact.channel_count = 1
@@ -254,6 +330,16 @@ async def _add_retained_playback_m4a(client: TestClient, meeting_id: UUID, body:
             artifact.sha256 = sha256(body).hexdigest()
             artifact.storage_object_key = object_key
             artifact.status = "stored"
+            artifact.normalization_profile_version = CANONICAL_PROFILE_VERSION
+            artifact.validated_at = datetime.now(UTC)
+            artifact.derivation_kind = "uploaded_candidate"
+            artifact.source_fingerprint_sha256 = job.source_fingerprint_sha256
+            artifact.validation_version = VALIDATION_VERSION
+        await db.flush()
+        job.state = "ready"
+        job.reason_code = None
+        job.canonical_track_artifact_id = artifact.id
+        job.ready_at = datetime.now(UTC)
         await db.commit()
 
 
@@ -269,7 +355,10 @@ async def _replace_retained_audio_with_test_wav(client: TestClient, meeting_id: 
         artifacts = (
             await db.scalars(
                 select(TrackArtifact)
-                .where(TrackArtifact.workspace_id == WORKSPACE_ID, TrackArtifact.meeting_id == meeting_id)
+                .where(
+                    TrackArtifact.workspace_id == WORKSPACE_ID,
+                    TrackArtifact.meeting_id == meeting_id,
+                )
                 .order_by(TrackArtifact.track_role.asc())
             )
         ).all()

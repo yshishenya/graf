@@ -16,6 +16,7 @@ from twobrain_rec_server.db.models.calendar import (
     ConferenceLinkCandidate,
     ExternalCalendar,
     RecordingCalendarContextLink,
+    RecordingCalendarMatchAttempt,
 )
 from twobrain_rec_server.db.models.deletion import (
     LocalPurgeTask,
@@ -28,6 +29,7 @@ from twobrain_rec_server.db.models.deletion import (
 from twobrain_rec_server.db.models.federated_auth import (
     AuthAuditEvent,
     AuthCallbackState,
+    AuthRateLimitBucket,
     AuthSession,
     AuthSessionDeviceBinding,
     ExternalIdentity,
@@ -51,12 +53,15 @@ from twobrain_rec_server.db.models.ingest import (
     UploadPart,
     UploadSession,
 )
+from twobrain_rec_server.db.models.lifecycle import DeletionFence, DispatchIntent, PurgeJournal
 from twobrain_rec_server.db.models.meeting import Meeting, ProcessingPlaceholder
 from twobrain_rec_server.db.models.meeting_access import (
     ExportPackage,
     MeetingArtifactPolicy,
     MeetingEgressAuditEvent,
     MeetingShareGrant,
+    MeetingShareInvitation,
+    MeetingShareRateLimitBucket,
 )
 from twobrain_rec_server.db.models.meeting_detection import (
     MeetingDetectionCandidate,
@@ -68,14 +73,25 @@ from twobrain_rec_server.db.models.meeting_detection import (
     MeetingTargetRegistryEntry,
     MeetingTargetRegistryVersion,
 )
+from twobrain_rec_server.db.models.normalization import (
+    PlaybackBackfillRun,
+    PlaybackNormalizationAttempt,
+    PlaybackNormalizationJob,
+)
+from twobrain_rec_server.db.models.onboarding import WorkspaceJoinOffer
 from twobrain_rec_server.db.models.outcomes import (
+    GenerationCall,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    PromptOptimizationCallLedger,
+    PromptOptimizationRun,
+    SummaryTemplate,
 )
 from twobrain_rec_server.db.models.processing import (
     DiarizationSegment,
     MediaScribeJob,
+    MeetingSpeakerName,
     ProcessingAuditEvent,
     ProcessingDependencyState,
     ProcessingResult,
@@ -87,6 +103,8 @@ from twobrain_rec_server.db.models.support import SupportIncident, SupportIncide
 __all__ = [
     "AdminAuditEvent",
     "DiarizationSegment",
+    "DeletionFence",
+    "DispatchIntent",
     "ExportPackage",
     "IngestAuditEvent",
     "LocalPurgeTask",
@@ -107,17 +125,28 @@ __all__ = [
     "MeetingEgressAuditEvent",
     "MeetingLifecycleAuditEvent",
     "MeetingShareGrant",
+    "MeetingShareInvitation",
+    "MeetingShareRateLimitBucket",
+    "MeetingSpeakerName",
     "MeetingOutcomeGenerationAttempt",
     "MeetingOutcomeItem",
     "MeetingOutcomeSet",
+    "GenerationCall",
+    "PromptOptimizationCallLedger",
+    "PromptOptimizationRun",
+    "SummaryTemplate",
     "MeetingTargetRegistryEntry",
     "MeetingTargetRegistryVersion",
     "Organization",
+    "PlaybackBackfillRun",
+    "PlaybackNormalizationAttempt",
+    "PlaybackNormalizationJob",
     "ProcessingAuditEvent",
     "ProcessingDependencyState",
     "ProcessingPlaceholder",
     "ProcessingResult",
     "ProcessingWorkflow",
+    "PurgeJournal",
     "RegisteredDevice",
     "RetentionPolicySnapshot",
     "TemporaryUploadObject",
@@ -129,11 +158,13 @@ __all__ = [
     "UserUsageDaily",
     "Workspace",
     "WorkspaceInvitation",
+    "WorkspaceJoinOffer",
     "WorkspaceMembership",
     "WorkspaceQuotaPolicy",
     "WorkspaceUsageDaily",
     "AuthAuditEvent",
     "AuthCallbackState",
+    "AuthRateLimitBucket",
     "AuthSession",
     "AuthSessionDeviceBinding",
     "CalendarAuditEvent",
@@ -147,6 +178,7 @@ __all__ = [
     "ExternalCalendar",
     "ExternalIdentity",
     "RecordingCalendarContextLink",
+    "RecordingCalendarMatchAttempt",
     "WorkspaceAuthPolicy",
     "WorkspaceConsentCopy",
     "WorkspaceProviderLinkState",

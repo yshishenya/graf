@@ -1,10 +1,15 @@
-# Contract: Local Signing Runbook
+# Contract: Historical Local Signing Fixture
+
+> Archive/test-fixture contract only. This is not an approved public release
+> runbook. Current public macOS publication follows Developer ID Application /
+> Developer ID Installer, notarization, stapling and Gatekeeper in Feature 130.
 
 ## Purpose
 
-Define the local, free signing path for owner-machine validation. This contract
+Define the historical local, free signing path for owner-machine validation. This contract
 exists so local permission-retention testing can proceed without an Apple
-Developer account while keeping public distribution claims honest.
+Developer account while keeping public distribution claims honest. It must not
+be used to publish an app, package or appcast.
 
 ## Local Identity
 
@@ -57,7 +62,7 @@ Expected for local self-signed validation:
 
 ## Build Contract
 
-The accepted implementation should support an explicit local-self-signed path,
+The historical implementation may support an explicit local-self-signed path,
 for example:
 
 ```sh
@@ -93,16 +98,17 @@ Expected:
 - `CFBundleIdentifier` is `pro.2brain.graf`;
 - package-level signing may be absent for local validation only.
 
-## Public Distribution Boundary
+## Public Distribution Boundary (current policy)
 
-Local self-signed validation does not satisfy:
+Local self-signed validation is not a release candidate and does not satisfy:
 
 - Apple Developer account enrollment;
 - Developer ID Application signing;
 - Developer ID Installer package signing;
 - notarization;
 - stapling;
-- public download Gatekeeper readiness;
+- public download Gatekeeper readiness. Use Feature 130 for the only active
+  release path.
 - enterprise/fleet PPPC policy.
 
 Any release note, changelog entry, or status doc must keep this boundary

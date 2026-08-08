@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "status": "active",
+  "trustGeneration": 1,
+  "keyId": "sha256:63c373b20f82851a6b4443bad2100eede5d50d897ed2aaf9fa8c94db56e4ecce",
+  "publicKey": "Arod6toNHZ/p5uy+V86sOMZ/XLMfwGnb7RR5/I/QpZg=",
+  "channels": {
+    "primary": {
+      "kind": "github-environment",
+      "environment": "graf-release-signing",
+      "secretName": "GRAF_SPARKLE_ED25519_PRIVATE_KEY"
+    },
+    "recovery": {
+      "kind": "macos-keychain",
+      "account": "graf-release-signing"
+    }
+  }
+}

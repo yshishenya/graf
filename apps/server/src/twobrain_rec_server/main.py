@@ -29,6 +29,7 @@ from twobrain_rec_server.observability.logging import configure_logging, request
 from twobrain_rec_server.public.templates import PUBLIC_STATIC_URL, public_static_dir
 from twobrain_rec_server.public.web import router as public_web_router
 from twobrain_rec_server.storage.minio_client import get_storage
+from twobrain_rec_server.support.incidents import support_incident_configuration_status
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -62,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db_sessionmaker = create_sessionmaker(engine)
     app.state.storage = storage
     app.state.web_csrf_secret = settings.web_csrf_secret
+    app.state.support_incident_integration_status = support_incident_configuration_status(settings)
     app.middleware("http")(request_logging_middleware)
     app.add_exception_handler(ProblemDetail, problem_exception_handler)
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)

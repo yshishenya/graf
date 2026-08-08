@@ -14,6 +14,18 @@ infra/secrets/
 *.pem
 *.crt
 
+# Local recording artifacts. Real audio and transcript-bearing captures are
+# never source fixtures or implementation evidence.
+*.wav
+*.m4a
+*.aac
+*.caf
+*.aiff
+*.flac
+*.mp3
+*.pcm
+test-rec/
+
 # Common build/cache outputs
 node_modules/
 dist/
@@ -32,6 +44,7 @@ backups/
 docker-data/
 minio-data/
 postgres-data/
+infra/runtime/
 
 # Swift / Xcode local outputs
 .build/
@@ -40,6 +53,10 @@ DerivedData/
 Packages/
 *.xcuserstate
 xcuserdata/
+
+# Disposable release-signing fixtures. These may exercise temporary public
+# manifests and runner-like files, but are never source, evidence, or keys.
+apps/macos/.release-signing-fixtures/
 
 # C / C++ local outputs
 bin/

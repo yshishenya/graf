@@ -11,17 +11,28 @@ def _page_shell(
     embedded: bool,
     page_template: str = "cabinet/pages/shell.html",
     csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
     content_source: str = "cabinet.shell",
     active_nav: str = "meetings",
     **context,
 ) -> str:
     navigation = cabinet_view_models.cabinet_navigation(active=active_nav, embedded=embedded)
+    settings_active = context.pop("settings_active", "overview")
+    settings_navigation = context.pop(
+        "settings_navigation",
+        cabinet_view_models.settings_category_navigation(
+            embedded=embedded,
+            active=settings_active,
+        ),
+    )
     content_template = context.pop("content_template", None)
     if content is None and content_template:
         content = render_template(
             content_template,
             embedded=embedded,
             navigation=navigation,
+            settings_navigation=settings_navigation,
+            settings_active=settings_active,
             csrf_token=csrf_token,
             **context,
         )
@@ -32,6 +43,7 @@ def _page_shell(
         page_template,
         embedded=embedded,
         navigation=navigation,
+        settings_navigation=settings_navigation,
         csrf_token=csrf_token,
         **context,
     )
@@ -40,6 +52,7 @@ def _page_shell(
         title=title,
         surface_mode="desktop_embedded" if embedded else "standalone_browser",
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content=trusted_component_html(shell, source="cabinet.shell"),
     )
 
@@ -69,6 +82,7 @@ UI_TEXT: dict[str, str] = {
     "Files already downloaded or exported are outside later GRAF revocation. Deleting a meeting can remove what GRAF controls, not copies already saved elsewhere.": "Уже скачанные или экспортированные файлы находятся вне последующего отзыва в GRAF. Удаление встречи может убрать то, что контролирует GRAF, но не копии, уже сохраненные где-то еще.",
     "Follow-ups": "Продолжение",
     "Incoming system": "Входящий звук",
+    "Interface language": "Язык интерфейса",
     "Key points": "Ключевое",
     "Local only": "Только локально",
     "Local microphone": "Микрофон",
@@ -110,12 +124,14 @@ UI_TEXT: dict[str, str] = {
     "Star": "Избранное",
     "Submitted": "Загружено",
     "Summary": "Кратко",
+    "Summary output language": "Язык итогов",
     "Summary unavailable": "Краткое резюме недоступно",
     "Tag": "Тег",
     "Team": "Команда",
     "Team visibility": "Видимость для команды",
     "Template": "Шаблон",
     "Transcript": "Расшифровка",
+    "Transcript language": "Язык расшифровки",
     "Transcript and generated outcomes may still be processing.": "Расшифровка и итоги еще могут обрабатываться.",
     "Transcript is still processing.": "Расшифровка еще готовится.",
     "Transcript review is available, but generated meeting outcomes are not part of this stored result.": "Расшифровка доступна, но сгенерированные итоги не входят в этот сохраненный результат.",
@@ -188,4 +204,4 @@ def _base_path(embedded: bool) -> str:
 
 
 def _settings_path(embedded: bool) -> str:
-    return "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
+    return "/desktop/settings/summaries" if embedded else "/settings/summaries"

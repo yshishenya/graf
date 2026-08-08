@@ -1,13 +1,18 @@
 <main class="auth-page">
-  <section class="auth-panel" aria-label="Вход в кабинет">
+  <section class="auth-panel" aria-label="{% if invitation_flow %}Вход по приглашению{% else %}Вход в кабинет{% endif %}">
     <div class="auth-brand-lockup">
       <picture class="brand-wordmark brand-wordmark--auth">
         <img class="brand-wordmark__image" src="{{ cabinet_static_url }}/graf-wordmark-dark.png" srcset="{{ cabinet_static_url }}/graf-wordmark-dark@2x.png 2x" alt="ГРАФ">
       </picture>
     </div>
     <div>
+      {% if invitation_flow %}
+      <h1>Откройте итоги встречи</h1>
+      <div class="auth-subtitle">Введите email, на который пришло приглашение. Если аккаунта GRAF ещё нет, он создастся автоматически.</div>
+      {% else %}
       <h1>Войти в кабинет</h1>
       <div class="auth-subtitle">Используйте корпоративный способ входа или получите одноразовый код на рабочую почту.</div>
+      {% endif %}
     </div>
     {% if error_message %}
     <div class="auth-alert" role="alert">{{ error_message }}</div>
@@ -40,15 +45,19 @@
     <div class="auth-divider">или</div>
     <form class="auth-form" action="/login/email/start" method="post">
       <label>
-        Рабочая почта
+        {% if invitation_flow %}Email из приглашения{% else %}Рабочая почта{% endif %}
         <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
       </label>
       <input type="hidden" name="next" value="{{ next_path }}">
-      <button class="primary" type="submit">Войти</button>
+      <button class="primary" type="submit">{% if invitation_flow %}Войти и открыть итоги{% else %}Войти{% endif %}</button>
     </form>
     <div class="auth-secondary">
       <span class="mini-link is-disabled" aria-disabled="true">Войти через SSO</span>
+      {% if invitation_flow %}
+      <div class="auth-signup">Новый аккаунт создастся автоматически после подтверждения email.</div>
+      {% else %}
       <div class="auth-signup">Нет аккаунта? <a href="{{ signup_href }}">Зарегистрироваться</a></div>
+      {% endif %}
     </div>
     <div class="auth-download">
       <span>Приложение нужно для записи встреч.</span>

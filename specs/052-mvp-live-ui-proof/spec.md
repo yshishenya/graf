@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-25
 
-**Status**: Draft
+**Status**: Implemented and merged; live owner-review proof gates remain open
 
 **Input**: User description: "Составить пошаговый план и действовать через SDD/Spec Kit до полноценного MVP: перепроверить полный путь установленного macOS приложения и веб кабинета, аккуратно ничего не сломать, при необходимости смотреть и сравнивать KRISP web/app reference, кликать и hover, пока не будет уверенности в MVP."
 

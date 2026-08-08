@@ -1,56 +1,35 @@
-# Capture Session Indicator Gate (007)
+# Capture Session Indicator Gate
 
-This gate controls acceptance of manual local recording start/stop and visible
-capture indication. It does not accept upload, transcription, dashboard notes,
-retention, deletion, or assisted auto-start.
+This gate controls manual local recording start/stop and visible capture
+indication for the app-owned system-audio and microphone sources.
 
-## Required Evidence Before Acceptance
+## Required Evidence
 
-- [x] Manual Record starts only from valid route evidence.
-- [x] Recording start is blocked from publication-only, stale, blocked, failed,
-  fallback, or unknown route evidence.
-- [x] Active recording shows persistent local visible indicator.
-- [x] Active recording exposes one-action Stop.
-- [x] Stop transitions active recording to stopping/stopped within 1 second in
-  local validation.
-- [x] Recording stops or fails closed when every visible local indicator becomes
-  unavailable.
-- [x] Blocked starts record concrete policy, permission, route, storage, or
-  indicator reason.
-- [x] Evidence is metadata-only and redacted.
-- [x] Non-recording passthrough remains usable after recording stops.
-- [x] No upload, transcription, MediaScribe, Langfuse, dashboard publication, or
-  external egress starts in this feature.
+- [ ] Manual `Record` starts only after recording policy, microphone
+  permission, system-audio permission, storage, indicator, and source
+  eligibility pass.
+- [ ] A blocked start reports the concrete metadata-safe reason.
+- [ ] Active capture keeps a persistent local indicator visible.
+- [ ] Active capture always exposes one-action `Stop`.
+- [ ] Losing all visible indicator surfaces stops or fails capture closed.
+- [ ] `Stop` finalizes the current recording without affecting unrelated app
+  state.
+- [ ] Capture evidence uses current capture-session state and contains no audio
+  content, transcript content, credentials, or signed URLs.
 
-## Automated Validation Log
+## Automated Validation
 
-| Gate | Command | Result | Notes |
-|---|---|---|---|
-| Swift tests | `swift test --package-path apps/macos --disable-swift-testing` | Passed | Local unit/build test run completed. |
-| Contract validation | `swift run --package-path apps/macos ContractValidation` | Passed | Recording evidence fixture accepted. |
-| Realtime safety | `sh tests/macos/static/audio-rt-safety-check.sh` | Passed | No realtime callback regression detected. |
-| 007 validation script | `sh apps/macos/Scripts/validate-capture-session-indicator.sh` | Passed | Runs Swift tests, contract validation, and realtime safety scan. |
-| Secret/content scan | `rg ...` forbidden-content scan | Passed | Matches are policy, fixture, and redaction-test forbidden-field strings only; no live secret, raw audio, transcript text, or meeting content found. |
+```sh
+swift test --package-path apps/macos --filter 'CaptureSessionSafetyTests|CaptureControlTests|RecordingPrerequisiteGateTests|RecordingEvidenceTests'
+swift run --package-path apps/macos ContractValidation
+sh apps/macos/Scripts/validate-capture-session-indicator.sh
+```
 
-Latest refresh:
+The cleanup slice must record fresh results before these checkboxes are marked
+complete. Historical pre-cleanup results do not prove the current build.
 
-- 2026-06-02 01:48 MSK on `master`: `sh apps/macos/Scripts/validate-capture-session-indicator.sh`
-  passed with `capture_session_indicator_validation=passed`.
+## Manual Smoke
 
-## Manual Smoke Log
-
-See `tests/macos/browser-meetings/manual-recording-smoke.md`.
-
-## Current Acceptance
-
-Status: Automated 007 gates passed for local manual recording lifecycle and
-visible indicator safety. User-confirmed 1-minute manual recording smoke passed
-for Yandex Telemost, Chrome, Opera, and Zoom on 2026-06-02. Yandex Browser
-remains not accepted in the current cycle.
-
-## Passthrough After Stop
-
-No code change was required in
-`apps/macos/RecApp/Sources/Capture/PassthroughRouteEngine.swift` for this
-feature. Manual recording stop is handled in the capture session controller and
-does not stop or tear down the existing non-recording passthrough route.
+Use `tests/macos/browser-meetings/manual-recording-smoke.md`. Confirm the
+indicator appears before accepting active capture, remains visible throughout
+the recording, and disappears only after finalization or a truthful failure.

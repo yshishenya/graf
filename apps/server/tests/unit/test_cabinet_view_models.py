@@ -1,13 +1,19 @@
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
+
+import pytest
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
     GovernanceActionState,
     GovernanceActionSummary,
     MeetingAccessState,
+    MeetingCalendarContextSummary,
     MeetingListItem,
+    MeetingUploadProgressState,
+    PlaybackPreparationState,
     SlotState,
 )
 from twobrain_rec_server.cabinet import view_models
@@ -18,10 +24,16 @@ from twobrain_rec_server.db.models import (
     Meeting,
     ProcessingResult,
     ProcessingWorkflow,
+    RecordingCalendarContextLink,
     TranscriptSegment,
+)
+from twobrain_rec_server.domain.media_filenames import (
+    LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSIONS,
+    SUPPORTED_MEDIA_FILENAME_EXTENSIONS,
 )
 from twobrain_rec_server.domain.statuses import (
     MediaRevisionSourceKind,
+    MeetingStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     ProcessingStatus,
@@ -56,14 +68,196 @@ def _owner_access() -> MeetingAccessState:
     )
 
 
+def test_playback_read_model_is_independent_from_transcript_processing_state() -> None:
+    durable = PlaybackPreparationState(
+        state="available",
+        reason_code="canonical_ready",
+        label="Аудио готово",
+        can_play=True,
+    )
+
+    for processing_state in ("processing", "failed", "ready"):
+        playback = view_models.playback_state(
+            _meeting(),
+            processing_state,
+            durable,
+        )
+
+        assert playback.state == "available"
+        assert playback.can_play is True
+        assert playback.available is True
+        assert playback.playback_path is not None
+
+
+def test_v5_mixed_review_keeps_one_canonical_source_and_transcript_when_playback_is_unavailable() -> (
+    None
+):
+    meeting = _meeting()
+    revision = MediaRevision(
+        id=uuid4(),
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        local_media_revision_id="v5-mixed-cabinet-truth",
+        revision_number=1,
+        source_kind=MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value,
+        status="accepted",
+    )
+    available_playback = view_models.playback_state(
+        meeting,
+        "ready",
+        PlaybackPreparationState(
+            state="available",
+            reason_code="canonical_ready",
+            label="Аудио готово",
+            can_play=True,
+        ),
+        media_revision=revision,
+    )
+    unavailable_playback = view_models.playback_state(
+        meeting,
+        "ready",
+        PlaybackPreparationState(
+            state="unavailable",
+            reason_code="corrupt_source",
+            label="Файл повреждён и не может быть воспроизведён",
+        ),
+        media_revision=revision,
+    )
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=uuid4(),
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("0.000"),
+            end_seconds=Decimal("1.000"),
+            text="synthetic transcript segment",
+            source_role="mixed",
+        )
+    ]
+    transcript_state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[],
+        status="ready",
+        playback_available=unavailable_playback.available,
+        playback_duration_seconds=unavailable_playback.duration_seconds,
+    )
+
+    assert available_playback.included_sources == ["canonical_mixed"]
+    assert unavailable_playback.available is False
+    assert transcript_state.available is True
+    assert transcript_state.segments[0].source_role == "canonical_mixed"
+    assert transcript_state.segments[0].seekable is False
+
+
+def test_playback_preparing_state_never_creates_a_dead_player_path() -> None:
+    playback = view_models.playback_state(
+        _meeting(),
+        "ready",
+        PlaybackPreparationState(
+            state="preparing",
+            reason_code="normalization_retry_wait",
+            label="Подготовка занимает больше времени. GRAF продолжит автоматически",
+            automatic_recovery=True,
+        ),
+    )
+
+    assert playback.state == "preparing"
+    assert playback.automatic_recovery is True
+    assert playback.can_play is False
+    assert playback.available is False
+    assert playback.playback_path is None
+
+
+def test_playback_reason_copy_has_complete_bounded_ru_en_pairs() -> None:
+    expected = {
+        "normalization_queued": (
+            "Аудио готовится автоматически",
+            "Audio is being prepared automatically",
+        ),
+        "normalization_running": (
+            "Аудио готовится автоматически",
+            "Audio is being prepared automatically",
+        ),
+        "normalization_publishing": (
+            "Завершаем подготовку аудио",
+            "Finishing audio preparation",
+        ),
+        "normalization_retry_wait": (
+            "Подготовка занимает больше времени. GRAF продолжит автоматически",
+            "Preparation is taking longer. GRAF will continue automatically",
+        ),
+        "reconciliation_pending": (
+            "GRAF автоматически восстанавливает подготовку аудио",
+            "GRAF is automatically recovering audio preparation",
+        ),
+        "canonical_artifact_missing": (
+            "GRAF автоматически восстанавливает аудио",
+            "GRAF is automatically recovering the audio",
+        ),
+        "empty_source": ("В исходном файле нет данных", "The source file is empty"),
+        "no_audio": (
+            "В файле нет пригодной аудиодорожки",
+            "The file has no usable audio track",
+        ),
+        "ambiguous_audio_tracks": (
+            "В файле несколько равноправных аудиодорожек",
+            "The file has multiple equally valid audio tracks",
+        ),
+        "unsupported_media": (
+            "Формат или кодек файла не поддерживается",
+            "The file format or codec is not supported",
+        ),
+        "encrypted_media": (
+            "Защищённый файл нельзя подготовить для воспроизведения",
+            "Protected media cannot be prepared for playback",
+        ),
+        "corrupt_source": (
+            "Файл повреждён и не может быть воспроизведён",
+            "The file is corrupt and cannot be played",
+        ),
+        "limit_exceeded": (
+            "Файл превышает допустимые параметры",
+            "The file exceeds supported limits",
+        ),
+        "source_missing": (
+            "Исходный файл больше не хранится в GRAF",
+            "The source file is no longer retained by GRAF",
+        ),
+        "source_mismatch": (
+            "Целостность исходного файла не подтверждена",
+            "Source file integrity could not be confirmed",
+        ),
+    }
+
+    for reason_code, (ru_copy, en_copy) in expected.items():
+        assert view_models.playback_reason_copy(reason_code, locale="ru") == ru_copy
+        assert view_models.playback_reason_copy(reason_code, locale="en") == en_copy
+        assert "retry" not in en_copy.casefold()
+        assert "re-upload" not in en_copy.casefold()
+
+    assert view_models.playback_reason_copy("private-new-reason", locale="ru") == (
+        "Аудио недоступно"
+    )
+    assert view_models.playback_reason_copy("private-new-reason", locale="en") == (
+        "Audio is unavailable"
+    )
+
+
 def _governance() -> GovernanceActionSummary:
-    disabled = GovernanceActionState(state="disabled", label="Disabled", reason="Synthetic.", destructive=False)
+    disabled = GovernanceActionState(
+        state="disabled", label="Disabled", reason="Synthetic.", destructive=False
+    )
     return GovernanceActionSummary(
         share=disabled,
         export=disabled,
         download=disabled,
         retention=disabled,
-        delete=GovernanceActionState(state="planned", label="Delete", reason="Synthetic.", destructive=True),
+        delete=GovernanceActionState(
+            state="planned", label="Delete", reason="Synthetic.", destructive=True
+        ),
     )
 
 
@@ -75,6 +269,11 @@ def _list_item(
     recording_display_timezone_offset_minutes: int | None = None,
     transcript_available: bool = False,
     artifacts: list[ArtifactEgressState] | None = None,
+    status: str = "ready",
+    primary_action: str = "open",
+    upload: MeetingUploadProgressState | None = None,
+    calendar_context: MeetingCalendarContextSummary | None = None,
+    playback: PlaybackPreparationState | None = None,
 ) -> MeetingListItem:
     return MeetingListItem(
         meeting_id=uuid4(),
@@ -84,10 +283,10 @@ def _list_item(
         recording_display_timezone_offset_minutes=recording_display_timezone_offset_minutes,
         duration_seconds=65,
         source=source,
-        status="ready",
-        status_label="Ready",
+        status=status,
+        status_label=status,
         status_reason=None,
-        primary_action="open",
+        primary_action=primary_action,
         transcript_available=transcript_available,
         diarization_available=False,
         notes_available=False,
@@ -96,6 +295,9 @@ def _list_item(
         artifacts=artifacts or [],
         governance=_governance(),
         future_slots=[SlotState(state="planned", label="Star", reason="Synthetic.")],
+        upload=upload,
+        calendar_context=calendar_context,
+        playback=playback or PlaybackPreparationState(),
     )
 
 
@@ -121,27 +323,358 @@ def test_common_display_helpers_for_meeting_rows() -> None:
     assert view_models.meeting_media_label(video) == "видео"
     assert view_models.meeting_media_kind(upload) == "upload"
     assert view_models.meeting_media_label(upload) == "медиа"
-    assert view_models.format_duration(65) == "1m"
-    assert view_models.date_label(audio) == "16 июн"
-    assert view_models.sort_label("duration_asc") == "Сначала короткие"
-    assert view_models.sort_label("unknown") == "Недавно обновленные"
+    assert view_models.format_duration(65) == "1 мин"
+    assert view_models.normalize_meeting_list_sort("duration_asc") == "duration_asc"
+    assert view_models.normalize_meeting_list_sort("unknown") == "started_desc"
+    assert (
+        view_models.normalize_meeting_list_sort("unknown", fallback="updated_desc")
+        == "updated_desc"
+    )
 
 
-def test_recording_date_labels_and_sort_labels_use_started_at_with_truthful_fallbacks() -> None:
+def test_meeting_list_row_presentation_is_immutable_and_keeps_one_status_slot() -> None:
+    item = _list_item(title="Запись")
+    item.updated_at = datetime(2026, 6, 16, 11, 30, tzinfo=UTC)
+    item.playback.state = "available"
+    item.playback.reason_code = "canonical_ready"
+    item.playback.label = "Аудио готово"
+    item.playback.can_play = True
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+    updated = view_models.meeting_list_row_presentation(item, time_basis="updated")
+
+    assert presentation.display_title == "Запись"
+    assert presentation.duration_label == "1 мин"
+    assert presentation.time_label == "16 июн, 08:00"
+    assert presentation.status_kind is None
+    assert presentation.status_label is None
+    assert presentation.progress_percent is None
+    assert presentation.content_readiness_label == "Расшифровка и итоги пока недоступны"
+    assert presentation.open_accessible_name == "Открыть встречу Запись, 16 июн, 08:00"
+    assert updated.time_label == "Обновлено 16 июн, 11:30"
+    with pytest.raises(FrozenInstanceError):
+        presentation.display_title = "Другое"  # type: ignore[misc]
+
+
+def test_meeting_list_row_presentation_exposes_content_readiness_without_extra_status() -> None:
+    item = _list_item(
+        transcript_available=True,
+        playback=PlaybackPreparationState(
+            state="available",
+            reason_code="canonical_ready",
+            label="Аудио готово",
+            can_play=True,
+        ),
+    )
+
+    processing = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+    item.notes_action_truth.source_basis = "stored_output"
+    ready = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert processing.content_readiness_label == "Расшифровка готова · итоги готовятся"
+    assert ready.content_readiness_label == "Расшифровка и итоги готовы"
+    assert processing.status_label is None
+    assert ready.status_label is None
+
+
+def test_meeting_list_row_presentation_never_relabels_meeting_time_as_update_time() -> None:
+    item = _list_item(title="Планирование")
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="updated")
+
+    assert presentation.time_label == "Без даты"
+
+
+def test_meeting_list_row_presentation_preserves_authoritative_generated_looking_title() -> None:
+    item = _list_item(title="Запись 21 июл, 19:22")
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert presentation.display_title == "Запись 21 июл, 19:22"
+    assert presentation.open_accessible_name == "Открыть встречу Запись 21 июл, 19:22"
+
+
+def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_source() -> None:
+    generated = _meeting()
+    generated.title = "Current display system audio - 2026-07-13 12:14"
+    generated.started_at = datetime(2026, 7, 13, 9, 14, tzinfo=UTC)
+    generated.recording_display_timezone_offset_minutes = 180
+    upload = _meeting()
+    upload.title = "manual-upload-mrc4escf-hbo5nhsk"
+    derived = _meeting()
+    derived.title = "Quarterly_sync.mp3"
+    derived.title_source = "file_name_derived"
+
+    assert view_models.meeting_list_title(generated) == "Запись"
+    assert view_models.meeting_list_title(upload, source="manual_upload") == "Загруженная запись"
+    assert view_models.meeting_list_title(derived, source="manual_upload") == "Quarterly sync"
+    assert generated.title == "Current display system audio - 2026-07-13 12:14"
+
+
+@pytest.mark.parametrize("title_source", sorted(view_models.AUTHORITATIVE_TITLE_SOURCES))
+def test_meeting_list_title_preserves_authoritative_fallback_looking_title(
+    title_source: str,
+) -> None:
+    meeting = _meeting()
+    meeting.title = "Запись без названия"
+    meeting.title_source = title_source
+
+    assert view_models.meeting_list_title(meeting) == "Запись без названия"
+
+    item = _list_item(title=view_models.meeting_list_title(meeting))
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+    assert presentation.display_title == "Запись без названия"
+    assert presentation.open_accessible_name == "Открыть встречу Запись без названия"
+
+
+@pytest.mark.parametrize(
+    ("item", "kind", "label", "progress"),
+    [
+        (
+            _list_item(status="deleted_future"),
+            "deleting",
+            "Удаляется",
+            None,
+        ),
+        (
+            _list_item(
+                status="failed",
+                calendar_context=MeetingCalendarContextSummary(
+                    state="ambiguous",
+                    label="Нужно выбрать встречу",
+                    needs_owner_action=True,
+                ),
+            ),
+            "failed",
+            "Не удалось обработать",
+            None,
+        ),
+        (
+            _list_item(
+                status="submitted",
+                primary_action="wait",
+                upload=MeetingUploadProgressState(
+                    status="expired",
+                    label="Нужна помощь",
+                    uploaded_bytes=10,
+                    total_bytes=100,
+                    is_active=False,
+                ),
+            ),
+            "failed",
+            "Не удалось обработать",
+            None,
+        ),
+        (
+            _list_item(
+                calendar_context=MeetingCalendarContextSummary(
+                    state="ambiguous",
+                    label="Нужно выбрать встречу",
+                    needs_owner_action=True,
+                ),
+                playback=PlaybackPreparationState(
+                    state="available",
+                    reason_code="canonical_ready",
+                    label="Аудио готово",
+                    can_play=True,
+                ),
+            ),
+            "calendar_choice",
+            "Нужен выбор",
+            None,
+        ),
+        (
+            _list_item(status="local_only", primary_action="wait"),
+            "saved_local",
+            "Сохранено на Mac",
+            None,
+        ),
+        (
+            _list_item(
+                status="uploading",
+                primary_action="wait",
+                upload=MeetingUploadProgressState(
+                    status="uploading",
+                    label="Отправляем",
+                    uploaded_bytes=40,
+                    total_bytes=100,
+                    progress_percent=40,
+                    is_active=True,
+                ),
+            ),
+            "uploading_measured",
+            "Отправляем 40%",
+            40,
+        ),
+        (
+            _list_item(
+                status="uploading",
+                primary_action="wait",
+                upload=MeetingUploadProgressState(
+                    status="uploading",
+                    label="Отправляем",
+                    uploaded_bytes=100,
+                    total_bytes=100,
+                    progress_percent=100,
+                    is_active=True,
+                ),
+            ),
+            "uploading",
+            "Отправляем",
+            None,
+        ),
+        (
+            _list_item(status="processing", primary_action="wait"),
+            "processing",
+            "Обрабатывается",
+            None,
+        ),
+        (
+            _list_item(
+                playback=PlaybackPreparationState(
+                    state="preparing",
+                    reason_code="normalization_running",
+                    label="Аудио готовится автоматически",
+                )
+            ),
+            "audio_preparing",
+            "Аудио готовится",
+            None,
+        ),
+        (
+            _list_item(
+                playback=PlaybackPreparationState(
+                    state="unavailable",
+                    reason_code="no_audio",
+                    label="Аудио недоступно",
+                )
+            ),
+            "without_audio",
+            "Без аудио",
+            None,
+        ),
+        (
+            _list_item(
+                status="partial",
+                playback=PlaybackPreparationState(
+                    state="available",
+                    reason_code="canonical_ready",
+                    label="Аудио готово",
+                    can_play=True,
+                ),
+            ),
+            "limited",
+            "Готово с ограничениями",
+            None,
+        ),
+        (
+            _list_item(
+                playback=PlaybackPreparationState(
+                    state="available",
+                    reason_code="canonical_ready",
+                    label="Аудио готово",
+                    can_play=True,
+                )
+            ),
+            None,
+            None,
+            None,
+        ),
+    ],
+)
+def test_meeting_list_status_projection_uses_one_total_precedence(
+    item: MeetingListItem,
+    kind: str | None,
+    label: str | None,
+    progress: int | None,
+) -> None:
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert presentation.status_kind == kind
+    assert presentation.status_label == label
+    assert presentation.progress_percent == progress
+
+
+@pytest.mark.parametrize("upload_status", ["failed", "aborted", "expired"])
+def test_meeting_list_presentation_status_projects_terminal_uploads_as_failed(
+    upload_status: str,
+) -> None:
+    upload = MeetingUploadProgressState(
+        status=upload_status,
+        label="Нужна помощь",
+        uploaded_bytes=10,
+        total_bytes=100,
+        is_active=False,
+    )
+
+    item = _list_item(status="uploading", primary_action="wait", upload=upload)
+    deleting_item = _list_item(status="deleted_future", primary_action="wait", upload=upload)
+
+    assert view_models.meeting_list_presentation_status(item) == "failed"
+    assert view_models.meeting_list_presentation_status(deleting_item) == "deleted_future"
+
+
+@pytest.mark.parametrize(
+    "calendar_state", ["matched_auto", "matched_user", "no_context", "cleared_by_user"]
+)
+def test_meeting_list_ready_state_suppresses_playback_and_calendar_normality(
+    calendar_state: str,
+) -> None:
+    item = _list_item(
+        calendar_context=MeetingCalendarContextSummary(
+            state=calendar_state,
+            label="Обычная календарная истина",
+            needs_owner_action=False,
+        ),
+        playback=PlaybackPreparationState(
+            state="available",
+            reason_code="canonical_ready",
+            label="Аудио готово",
+            can_play=True,
+        ),
+    )
+
+    presentation = view_models.meeting_list_row_presentation(item, time_basis="meeting")
+
+    assert presentation.status_label is None
+
+
+def test_recording_time_labels_use_started_at_with_truthful_fallbacks() -> None:
     recorded = _list_item(started_at=datetime(2026, 6, 26, 23, 30, tzinfo=UTC))
-    timezone_shifted = _list_item(started_at=datetime(2026, 6, 27, 2, 30, tzinfo=timezone(timedelta(hours=3))))
+    timezone_shifted = _list_item(
+        started_at=datetime(2026, 6, 27, 2, 30, tzinfo=timezone(timedelta(hours=3)))
+    )
     offset_shifted = _list_item(
         started_at=datetime(2026, 6, 26, 21, 30, tzinfo=UTC),
         recording_display_timezone_offset_minutes=180,
     )
     legacy = _list_item(title="legacy-no-recording-date", started_at=None)
 
-    assert view_models.date_label(recorded) == "26 июн"
-    assert view_models.date_label(timezone_shifted) == "27 июн"
-    assert view_models.date_label(offset_shifted) == "27 июн"
-    assert view_models.date_label(legacy) == "Без даты"
-    assert view_models.sort_label("started_desc") == "Новые по дате записи"
-    assert view_models.sort_label("started_asc") == "Старые по дате записи"
+    assert view_models.meeting_time_label(recorded, time_basis="meeting") == "26 июн, 23:30"
+    assert view_models.meeting_time_label(timezone_shifted, time_basis="meeting") == "27 июн, 02:30"
+    assert view_models.meeting_time_label(offset_shifted, time_basis="meeting") == "27 июн, 00:30"
+    assert view_models.meeting_time_label(legacy, time_basis="meeting") == "Без даты"
+
+
+def test_meeting_list_time_label_is_shared_with_visible_search_projection() -> None:
+    value = datetime(2026, 7, 13, 23, 30, tzinfo=UTC)
+
+    assert (
+        view_models.meeting_list_time_label(
+            value,
+            timezone_offset_minutes=180,
+            time_basis="meeting",
+        )
+        == "14 июл, 02:30"
+    )
+    assert (
+        view_models.meeting_list_time_label(
+            value,
+            timezone_offset_minutes=180,
+            time_basis="updated",
+        )
+        == "Обновлено 14 июл, 02:30"
+    )
 
 
 def test_safe_title_uses_legacy_local_recording_fallback_without_control_characters() -> None:
@@ -149,7 +682,7 @@ def test_safe_title_uses_legacy_local_recording_fallback_without_control_charact
     meeting.title = "\x00"
     meeting.local_recording_id = "legacy-no-title"
 
-    assert view_models.safe_title(meeting) == "legacy-no-title"
+    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
 
 
 def test_safe_title_suppresses_legacy_url_or_email_title() -> None:
@@ -157,7 +690,7 @@ def test_safe_title_suppresses_legacy_url_or_email_title() -> None:
     meeting.title = "https://meet.example.com/private john@example.com"
     meeting.local_recording_id = "legacy-unsafe-title"
 
-    assert view_models.safe_title(meeting) == "legacy-unsafe-title"
+    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
 
 
 def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
@@ -165,7 +698,7 @@ def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
     meeting.title = "meet.example.test/abc-defg-hij"
     meeting.local_recording_id = "legacy-bare-link-title"
 
-    assert view_models.safe_title(meeting) == "legacy-bare-link-title"
+    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
 
 
 def test_safe_title_suppresses_unsafe_fallback_identity() -> None:
@@ -173,7 +706,7 @@ def test_safe_title_suppresses_unsafe_fallback_identity() -> None:
     meeting.title = "meet.example.test/abc-defg-hij"
     meeting.local_recording_id = "john@example.com"
 
-    assert view_models.safe_title(meeting) == "Untitled meeting"
+    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
 
 
 def test_safe_title_does_not_suppress_normal_words_that_contain_sk_dash() -> None:
@@ -181,6 +714,117 @@ def test_safe_title_does_not_suppress_normal_words_that_contain_sk_dash() -> Non
     meeting.title = "Risk-review"
 
     assert view_models.safe_title(meeting) == "Risk-review"
+
+
+def test_safe_title_keeps_only_the_file_name_when_legacy_title_contains_a_path() -> None:
+    unix_path = _meeting()
+    unix_path.title = "/Users/example/private/Team_sync.mp3"
+    windows_path = _meeting()
+    windows_path.title = r"C:\\Users\\example\\private\\Team_sync.mp3"
+
+    assert view_models.safe_title(unix_path) == "Team sync"
+    assert view_models.safe_title(windows_path) == "Team sync"
+
+
+def test_safe_title_preserves_the_legacy_serialized_extension_contract() -> None:
+    for extension in LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSIONS:
+        meeting = _meeting()
+        meeting.title = f"Team_sync.{extension}"
+
+        assert view_models.safe_title(meeting) == "Team sync"
+
+
+def test_safe_title_scrubs_paths_without_expanding_serialized_extension_cleanup() -> None:
+    for extension in SUPPORTED_MEDIA_FILENAME_EXTENSIONS:
+        meeting = _meeting()
+        meeting.title = f"/Users/example/private/Team_sync.{extension}"
+
+        expected = (
+            "Team sync"
+            if extension in LEGACY_SERIALIZED_MEDIA_FILENAME_EXTENSIONS
+            else f"Team_sync.{extension}"
+        )
+        assert view_models.safe_title(meeting) == expected
+
+
+def test_meeting_list_title_cleans_every_supported_media_extension() -> None:
+    for extension in SUPPORTED_MEDIA_FILENAME_EXTENSIONS:
+        meeting = _meeting()
+        meeting.title = f"/Users/example/private/Team_sync.{extension}"
+
+        assert view_models.meeting_list_title(meeting) == "Team sync"
+
+
+def test_meeting_list_presentation_humanizes_generated_titles_files_and_durations() -> None:
+    generated = _meeting()
+    generated.title = "Current display system audio - 2026-07-13 12:14"
+    generated.started_at = datetime(2026, 7, 13, 9, 14, tzinfo=UTC)
+    generated.recording_display_timezone_offset_minutes = 180
+
+    generated_without_time = _meeting()
+    generated_without_time.title = "Yandex Telemost - 2026-07-10 13:00"
+    generated_without_time.started_at = None
+
+    manual = _meeting()
+    manual.title = "manual-upload-mrc4escf-hbo5nhsk"
+    manual.started_at = None
+
+    file_title = _meeting()
+    file_title.title = "4p_12_01 PM - Встреча с Технониколь_Инфобез.mp3"
+
+    assert view_models.safe_title(generated) == "Запись 13 июл, 12:14"
+    assert view_models.safe_title(generated_without_time) == "Запись без названия"
+    assert view_models.safe_title(manual, source="manual_upload") == "Загруженная запись"
+    assert view_models.safe_title(file_title) == "4p 12 01 PM - Встреча с Технониколь Инфобез"
+    assert view_models.format_duration(27) == "27 с"
+    assert view_models.format_duration(14 * 60) == "14 мин"
+    assert view_models.format_duration(74 * 60) == "1 ч 14 мин"
+
+
+def test_safe_title_preserves_authoritative_calendar_user_and_upload_titles() -> None:
+    calendar = _meeting()
+    calendar.title = "Meeting - 2026-07-13 12:14"
+    calendar.title_source = "calendar"
+
+    user = _meeting()
+    user.title = "Roadmap.mp3"
+    user.title_source = "user_confirmed"
+
+    upload = _meeting()
+    upload.title = "Quarterly_sync.mp3"
+    upload.title_source = "upload_provided"
+
+    derived = _meeting()
+    derived.title = "Quarterly_sync.mp3"
+    derived.title_source = "file_name_derived"
+
+    assert view_models.safe_title(calendar) == "Meeting - 2026-07-13 12:14"
+    assert view_models.safe_title(user) == "Roadmap.mp3"
+    assert view_models.safe_title(upload) == "Quarterly_sync.mp3"
+    assert view_models.safe_title(derived) == "Quarterly sync"
+
+
+def test_safe_title_removes_local_path_from_authoritative_title_without_rewriting_name() -> None:
+    meeting = _meeting()
+    meeting.title = "/Users/example/private/Roadmap.mp3"
+    meeting.title_source = "user_confirmed"
+
+    assert view_models.safe_title(meeting) == "Roadmap.mp3"
+
+
+def test_list_status_labels_are_user_results_not_pipeline_terms() -> None:
+    assert view_models.STATUS_LABELS == {
+        "local_only": "Сохранено на Mac",
+        "uploading": "Отправляем",
+        "submitted": "Обрабатывается",
+        "processing": "Обрабатывается",
+        "ready": "Готово",
+        "partial": "Готово с замечаниями",
+        "blocked": "Нужна помощь",
+        "failed": "Нужна помощь",
+        "unavailable": "Нужна помощь",
+        "deleted_future": "Удаляется",
+    }
 
 
 def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
@@ -209,8 +853,24 @@ def test_status_mapping_handles_ready_partial_processing_and_failed() -> None:
 
     assert view_models.review_status(_meeting(), result=ready, workflow=None) == "ready"
     assert view_models.review_status(_meeting(), result=partial, workflow=None) == "partial"
-    assert view_models.review_status(_meeting(ProcessingStatus.POLLING), result=None, workflow=None) == "processing"
-    assert view_models.review_status(_meeting(ProcessingStatus.FAILED_TERMINAL), result=None, workflow=None) == "failed"
+    assert (
+        view_models.review_status(_meeting(ProcessingStatus.POLLING), result=None, workflow=None)
+        == "processing"
+    )
+    assert (
+        view_models.review_status(
+            _meeting(ProcessingStatus.FAILED_TERMINAL), result=None, workflow=None
+        )
+        == "failed"
+    )
+    for terminal_status in (MeetingStatus.ABORTED, MeetingStatus.EXPIRED):
+        terminal = _meeting(ProcessingStatus.NOT_SUBMITTED)
+        terminal.status = terminal_status.value
+        assert view_models.review_status(terminal, result=None, workflow=None) == "submitted"
+        item = view_models.build_list_item(terminal, result=None, workflow=None)
+        assert item.status == "submitted"
+        assert item.model_dump()["status"] == "submitted"
+        assert view_models.meeting_list_presentation_status(item) == "failed"
 
 
 def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() -> None:
@@ -242,12 +902,17 @@ def test_processing_state_uses_no_speech_and_invalid_audio_copy_from_result() ->
     )
 
     no_speech_state = view_models.processing_state(_meeting(), result=no_speech, workflow=None)
-    invalid_audio_state = view_models.processing_state(_meeting(), result=invalid_audio, workflow=None)
+    invalid_audio_state = view_models.processing_state(
+        _meeting(), result=invalid_audio, workflow=None
+    )
 
     assert no_speech_state.reason_label == (
         "MediaScribe обработал запись, но транскрипт не создан: распознаваемая речь не найдена."
     )
-    assert invalid_audio_state.reason_label == "Файл записи не является декодируемым аудио или поврежден."
+    assert (
+        invalid_audio_state.reason_label
+        == "Файл записи не является декодируемым аудио или поврежден."
+    )
     assert no_speech_state.transcript_available is False
     assert invalid_audio_state.transcript_available is False
 
@@ -366,6 +1031,49 @@ def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() ->
     }
 
 
+def test_matching_diarization_prefers_same_source_then_falls_back() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = TranscriptSegment(
+        id=uuid4(),
+        processing_result_id=result_id,
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        sequence=0,
+        start_seconds=Decimal("0.000"),
+        end_seconds=Decimal("10.000"),
+        text="local audio",
+        source_role="mic",
+    )
+    remote = DiarizationSegment(
+        id=uuid4(),
+        processing_result_id=result_id,
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        sequence=0,
+        start_seconds=Decimal("0.000"),
+        end_seconds=Decimal("9.000"),
+        text="remote audio",
+        speaker_label="REMOTE",
+        source_role="incoming",
+    )
+    local = DiarizationSegment(
+        id=uuid4(),
+        processing_result_id=result_id,
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        sequence=1,
+        start_seconds=Decimal("0.000"),
+        end_seconds=Decimal("8.000"),
+        text="local audio",
+        speaker_label="LOCAL",
+        source_role="mic",
+    )
+
+    assert view_models.matching_diarization_segment(transcript, [remote, local]) is local
+    assert view_models.matching_diarization_segment(transcript, [remote]) is remote
+
+
 def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> None:
     meeting = _meeting()
     result_id = uuid4()
@@ -419,7 +1127,9 @@ def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> N
     assert state.segments[0].speaker_label == "SPEAKER_01"
 
 
-def test_dual_track_mapping_canonicalizes_dependency_labels_when_speaker_style_label_is_present() -> None:
+def test_dual_track_mapping_canonicalizes_dependency_labels_when_speaker_style_label_is_present() -> (
+    None
+):
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -612,7 +1322,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
     assert "UNKNOWN" not in {segment.speaker_label for segment in state.segments}
 
 
-def test_manual_upload_transcript_uses_speaker_zero_when_diarization_is_missing() -> None:
+def test_manual_upload_transcript_keeps_unknown_when_diarization_is_missing() -> None:
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -648,10 +1358,12 @@ def test_manual_upload_transcript_uses_speaker_zero_when_diarization_is_missing(
         force_speaker_labels=True,
     )
 
-    assert [segment.speaker_label for segment in state.segments] == ["SPEAKER_00", "SPEAKER_00"]
+    assert [segment.speaker_label for segment in state.segments] == ["UNKNOWN", "UNKNOWN"]
+    assert [segment.attribution_state for segment in state.segments] == ["unknown", "unknown"]
+    assert len({segment.speaker_key for segment in state.segments}) == 2
 
 
-def test_manual_upload_review_response_falls_back_to_speaker_zero_without_diarization() -> None:
+def test_manual_upload_review_response_preserves_unknown_without_diarization() -> None:
     meeting = _meeting()
     result_id = uuid4()
     result = ProcessingResult(
@@ -700,7 +1412,8 @@ def test_manual_upload_review_response_falls_back_to_speaker_zero_without_diariz
     )
 
     assert response.meeting.source == "manual_upload"
-    assert [segment.speaker_label for segment in response.transcript.segments] == ["SPEAKER_00"]
+    assert [segment.speaker_label for segment in response.transcript.segments] == ["UNKNOWN"]
+    assert [segment.attribution_state for segment in response.transcript.segments] == ["unknown"]
 
 
 def test_manual_upload_review_response_uses_diarization_as_transcript_source() -> None:
@@ -771,7 +1484,9 @@ def test_manual_upload_review_response_uses_diarization_as_transcript_source() -
     assert [segment.speaker_label for segment in response.transcript.segments] == ["SPEAKER_01"]
 
 
-def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization_text_is_blank() -> None:
+def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization_text_is_blank() -> (
+    None
+):
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -935,9 +1650,7 @@ def test_mediascribe_speaker_time_matcher_handles_long_inputs_without_source_fal
     labels = view_models.mediascribe_speaker_labels_by_time(transcript, diarization)
 
     assert len(labels) == 1200
-    assert set(labels) == {
-        f"SPEAKER_{speaker_index:02d}" for speaker_index in range(12)
-    }
+    assert set(labels) == {f"SPEAKER_{speaker_index:02d}" for speaker_index in range(12)}
     assert labels[0] == "SPEAKER_00"
     assert labels[100] == "SPEAKER_01"
     assert labels[-1] == "SPEAKER_11"
@@ -1074,7 +1787,7 @@ def test_manual_upload_speaker_mapping_hides_unknown_when_speaker_labels_are_pre
     assert {speaker.label for speaker in state.speakers} == {"SPEAKER_00", "SPEAKER_01"}
 
 
-def test_manual_upload_speaker_mapping_uses_speaker_zero_when_only_unknown_rows_exist() -> None:
+def test_manual_upload_speaker_mapping_preserves_unknown_rows() -> None:
     result_id = uuid4()
     meeting_id = uuid4()
     workspace_id = uuid4()
@@ -1095,12 +1808,18 @@ def test_manual_upload_speaker_mapping_uses_speaker_zero_when_only_unknown_rows_
 
     state = view_models.speaker_state(segments, force_speaker_labels=True)
 
-    assert [speaker.label for speaker in state.speakers] == ["SPEAKER_00"]
+    assert [speaker.label for speaker in state.speakers] == ["UNKNOWN"]
 
 
 def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -> None:
     roster = normalize_calendar_participants(
-        [{"participant_kind": "required_attendee", "email": "speaker@example.test", "display_name": "Calendar Name"}]
+        [
+            {
+                "participant_kind": "required_attendee",
+                "email": "speaker@example.test",
+                "display_name": "Calendar Name",
+            }
+        ]
     )
     result_id = uuid4()
     meeting = _meeting()
@@ -1127,6 +1846,354 @@ def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -
     assert "share_grant" not in roster[0]
 
 
+def test_098_list_and_review_models_receive_the_same_safe_calendar_summary() -> None:
+    # FR-033/FR-048: list and review share state while using their contracted copy.
+    expected_list_summary = MeetingCalendarContextSummary(
+        state="matched_auto",
+        label="Из календаря",
+        title_source="calendar",
+        needs_owner_action=False,
+    )
+    expected_review_summary = expected_list_summary.model_copy(
+        update={"label": "Подобрано автоматически"}
+    )
+    meeting = _meeting()
+    meeting.title_source = "calendar"
+    link = _calendar_context_link(context_state="matched_auto")
+
+    item = view_models.build_list_item(
+        meeting,
+        result=None,
+        workflow=None,
+        calendar_context=link,
+    )
+    review = view_models.build_review_response(
+        meeting,
+        result=None,
+        workflow=None,
+        transcript_segments=[],
+        diarization_segments=[],
+        dependency=None,
+        calendar_context=link,
+    )
+
+    assert item.calendar_context == expected_list_summary
+    assert review.meeting.calendar_context == expected_list_summary
+    assert review.calendar_context == expected_review_summary
+    assert review.calendar_context.label == "Подобрано автоматически"
+
+
+def test_098_auto_context_summary_and_roster_use_only_immutable_safe_link_snapshots() -> None:
+    # FR-016/FR-020/FR-030: query projection never needs mutable provider rows.
+    link = _calendar_context_link(
+        context_state="matched_auto",
+        matched_title="Synthetic Immutable Planning",
+        matched_roster_json=[
+            {
+                "participant_kind": "organizer",
+                "response_status": "organizer",
+                "display_name": "Synthetic Immutable Owner",
+                "email": "must-not-project@example.test",
+                "email_present": True,
+                "workspace_relation": "owner",
+                "recipient_candidate_class": "organizer",
+            }
+        ],
+        matched_roster_state="available",
+        matched_roster_count=1,
+    )
+
+    summary = view_models.calendar_context_summary(link, meeting_title_source="calendar")
+    roster = view_models.calendar_roster_snapshot_state(link)
+
+    assert summary == MeetingCalendarContextSummary(
+        state="matched_auto",
+        label="Из календаря",
+        title_source="calendar",
+        needs_owner_action=False,
+    )
+    assert roster is not None
+    assert roster.available is True
+    assert roster.participant_count == 1
+    assert roster.participants[0].display_name == "Synthetic Immutable Owner"
+    assert roster.participants[0].email_present is True
+    assert "must-not-project@example.test" not in roster.model_dump_json()
+    assert 'email"' not in roster.model_dump_json()
+
+
+def test_098_calendar_roster_snapshot_hides_email_like_display_name() -> None:
+    # FR-030/SC-011: cabinet egress rechecks immutable snapshots fail closed.
+    link = _calendar_context_link(
+        context_state="matched_auto",
+        matched_roster_json=[
+            {
+                "participant_kind": "required_attendee",
+                "response_status": "accepted",
+                "display_name": "person@example.test",
+                "email_present": True,
+                "workspace_relation": "external",
+                "recipient_candidate_class": "external_attendee",
+            }
+        ],
+        matched_roster_state="available",
+        matched_roster_count=1,
+    )
+
+    roster = view_models.calendar_roster_snapshot_state(link)
+
+    assert roster is not None
+    assert roster.participants[0].display_name is None
+    assert "person@example.test" not in roster.model_dump_json()
+
+
+def test_098_private_and_no_context_states_ignore_stale_title_and_roster_payloads() -> None:
+    # FR-009/FR-033/FR-037: protected/no-context state cannot leak stale snapshots.
+    for state in ("skipped_private", "no_context"):
+        link = _calendar_context_link(
+            context_state=state,
+            matched_title="Synthetic Hidden Calendar Title",
+            matched_roster_json=[
+                {
+                    "participant_kind": "required_attendee",
+                    "response_status": "accepted",
+                    "display_name": "Synthetic Hidden Participant",
+                    "email": "hidden-person@example.test",
+                }
+            ],
+            matched_roster_state="available",
+            matched_roster_count=1,
+        )
+
+        summary = view_models.calendar_context_summary(link, meeting_title_source="generic")
+        roster = view_models.calendar_roster_snapshot_state(link)
+
+        assert summary is not None
+        assert summary.state == state
+        assert "Synthetic Hidden" not in summary.model_dump_json()
+        assert "hidden-person@example.test" not in summary.model_dump_json()
+        assert roster is None
+
+
+def test_098_private_skip_reason_is_owner_detail_only() -> None:
+    # FR-010/FR-033/FR-042: list/non-owner truth is generic; owner detail is safe.
+    link = _calendar_context_link(
+        context_state="skipped_private",
+        safe_reason_code="private_free_busy_skipped",
+    )
+
+    generic = view_models.calendar_context_summary(
+        link,
+        meeting_title_source="generic",
+    )
+    owner = view_models.calendar_context_summary(
+        link,
+        meeting_title_source="generic",
+        owner_detail=True,
+    )
+
+    assert generic is not None
+    assert owner is not None
+    assert generic.label == owner.label == "Без контекста календаря"
+    assert generic.reason_label is None
+    assert owner.reason_label == "Приватное событие пропущено"
+
+    meeting = _meeting()
+    owner_review = view_models.build_review_response(
+        meeting,
+        result=None,
+        workflow=None,
+        transcript_segments=[],
+        diarization_segments=[],
+        dependency=None,
+        access=_owner_access(),
+        calendar_context=link,
+    )
+    team_review = view_models.build_review_response(
+        meeting,
+        result=None,
+        workflow=None,
+        transcript_segments=[],
+        diarization_segments=[],
+        dependency=None,
+        access=_owner_access().model_copy(update={"state": "team"}),
+        calendar_context=link,
+    )
+
+    assert owner_review.calendar_context is not None
+    assert owner_review.meeting.calendar_context is not None
+    assert team_review.calendar_context is not None
+    assert owner_review.calendar_context.reason_label == "Приватное событие пропущено"
+    assert owner_review.meeting.calendar_context.reason_label is None
+    assert team_review.calendar_context.reason_label is None
+
+
+def test_098_owner_no_context_reasons_use_bounded_product_copy() -> None:
+    # FR-033/FR-042: owner detail explains safe outcomes without provider/internal text.
+    expected_labels = {
+        "all_day_skipped": "Событие на весь день пропущено",
+        "selected_source_stale": "Данные календаря устарели",
+        "latest_sync_failed": "Данные календаря устарели",
+        "calendar_unavailable": "Календарь недоступен",
+        "manual_upload_skipped": "Ручная загрузка не сопоставляется",
+        "offline_or_unknown_skipped": "Офлайн-запись не сопоставляется",
+        "no_matching_event": "Подходящая встреча не найдена",
+        "prestart_not_reached": "Запись завершилась до начала встречи",
+        "user_declined": "Вы начали запись без календарного контекста",
+        "user_cleared": "Контекст убран вами",
+    }
+
+    for reason_code, expected_label in expected_labels.items():
+        summary = view_models.calendar_context_summary(
+            _calendar_context_link(
+                context_state="no_context",
+                safe_reason_code=reason_code,
+            ),
+            meeting_title_source="generic",
+            owner_detail=True,
+        )
+
+        assert summary is not None
+        assert summary.reason_label == expected_label
+        assert reason_code not in summary.model_dump_json()
+
+
+def test_us6_calendar_roster_stays_metadata_and_speaker_labels_stay_canonical() -> None:
+    # T084; FR-020/FR-022; SC-008 (speaker-assignment slice): roster names stay separate.
+    link = _calendar_context_link(
+        context_state="matched_auto",
+        matched_roster_json=[
+            {
+                "participant_kind": "required_attendee",
+                "response_status": "accepted",
+                "display_name": "Synthetic Calendar Person A",
+                "email_present": True,
+                "workspace_relation": "external",
+                "recipient_candidate_class": "external_attendee",
+            },
+            {
+                "participant_kind": "optional_attendee",
+                "response_status": "tentative",
+                "display_name": "Synthetic Calendar Person B",
+                "email_present": True,
+                "workspace_relation": "external",
+                "recipient_candidate_class": "optional_attendee",
+            },
+        ],
+        matched_roster_state="available",
+        matched_roster_count=2,
+    )
+    roster = view_models.calendar_roster_snapshot_state(link)
+    meeting = _meeting()
+    result_id = uuid4()
+    result = ProcessingResult(
+        id=result_id,
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        mediascribe_job_id=uuid4(),
+        status=ProcessingResultStatus.IMPORTED.value,
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        diarization_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+        segment_count=2,
+        diarization_segment_count=2,
+    )
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(index * 10),
+            end_seconds=Decimal(index * 10 + 10),
+            text=f"synthetic transcript segment {index}",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(index * 10),
+            end_seconds=Decimal(index * 10 + 10),
+            text=f"synthetic diarization segment {index}",
+            speaker_label=f"Synthetic Calendar Person {chr(ord('A') + index)}",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+
+    review = view_models.build_review_response(
+        meeting,
+        result=result,
+        workflow=None,
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        dependency=None,
+        access=_owner_access(),
+        calendar_roster=roster,
+    )
+
+    assert review.calendar_roster is not None
+    assert review.calendar_roster.source == "calendar"
+    assert [participant.display_name for participant in review.calendar_roster.participants] == [
+        "Synthetic Calendar Person A",
+        "Synthetic Calendar Person B",
+    ]
+    assert [segment.speaker_label for segment in review.transcript.segments] == [
+        "SPEAKER_00",
+        "SPEAKER_01",
+    ]
+    assert [speaker.label for speaker in review.speakers.speakers] == [
+        "SPEAKER_00",
+        "SPEAKER_01",
+    ]
+    assert review.access is not None
+    assert review.access.state == "owner"
+    assert review.access.can_view is True
+    assert "speaker_label" not in review.calendar_roster.model_dump_json()
+    assert "access_grant" not in review.calendar_roster.model_dump_json()
+    assert "share_grant" not in review.calendar_roster.model_dump_json()
+
+
+def _calendar_context_link(
+    *,
+    context_state: str,
+    matched_title: str | None = None,
+    matched_roster_json: list[dict] | None = None,
+    matched_roster_state: str = "not_available",
+    matched_roster_count: int = 0,
+    safe_reason_code: str | None = None,
+) -> RecordingCalendarContextLink:
+    return RecordingCalendarContextLink(
+        id=uuid4(),
+        workspace_id=uuid4(),
+        meeting_id=uuid4(),
+        calendar_event_snapshot_id=None,
+        context_state=context_state,
+        context_confidence="high" if context_state == "matched_auto" else "none",
+        context_reasons_json=[],
+        title_source="calendar" if context_state == "matched_auto" else "generic",
+        roster_source="calendar" if matched_roster_count else "none",
+        manual_override_state="none",
+        safe_reason_code=safe_reason_code
+        or ("single_fresh_candidate" if context_state == "matched_auto" else "no_matching_event"),
+        decision_source="automatic",
+        matcher_version="calendar_auto_match_v1",
+        evaluated_at=datetime(2026, 7, 13, 9, 0, tzinfo=UTC),
+        candidate_event_ids_json=[],
+        candidate_count=0,
+        matched_title=matched_title,
+        matched_title_state="available" if matched_title else "unavailable",
+        matched_roster_json=matched_roster_json or [],
+        matched_roster_state=matched_roster_state,
+        matched_roster_count=matched_roster_count,
+    )
+
+
 def test_governance_states_are_non_mutating_and_truthful() -> None:
     governance = view_models.governance_summary()
 
@@ -1135,7 +2202,8 @@ def test_governance_states_are_non_mutating_and_truthful() -> None:
     assert governance.download.state == "disabled"
     assert governance.retention.state == "planned"
     assert governance.delete.destructive is True
-    assert "GRAF" in governance.delete.label
+    assert governance.delete.label == "Удалить встречу…"
+    assert "GRAF" in governance.delete.reason
 
 
 def test_processing_state_uses_safe_reason_and_next_action() -> None:
@@ -1155,3 +2223,362 @@ def test_processing_state_uses_safe_reason_and_next_action() -> None:
     assert state.reason_code == "mediascribe_validation_failed"
     assert state.next_action == "contact_operator"
     assert "private-workflow" not in state.model_dump_json()
+
+
+def test_processing_failure_copy_covers_retryable_and_terminal_provider_reasons() -> None:
+    assert "Повтор" in view_models.reason_label("mediascribe_timeout")
+    assert (
+        view_models.next_action_for_status("failed", reason_code="mediascribe_rate_limited")
+        == "retry_future"
+    )
+    assert "некорректный ответ" in view_models.reason_label("mediascribe_malformed_response")
+    assert (
+        view_models.next_action_for_status("failed", reason_code="mediascribe_malformed_response")
+        == "contact_operator"
+    )
+
+
+def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    segment_ids = [uuid4() for _ in range(4)]
+    spans = [(0, 1), (1.8, 2.5), (3.5, 4), (6, 7)]
+    transcript = [
+        TranscriptSegment(
+            id=segment_id,
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(start)),
+            end_seconds=Decimal(str(end)),
+            text=f"synthetic fragment {index}",
+            source_role="incoming",
+        )
+        for index, (segment_id, (start, end)) in enumerate(zip(segment_ids, spans, strict=True))
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(start)),
+            end_seconds=Decimal(str(end)),
+            text=f"synthetic fragment {index}",
+            speaker_label="remote-speaker",
+            source_role="incoming",
+        )
+        for index, (start, end) in enumerate(spans)
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+        playback_available=True,
+        playback_duration_seconds=60,
+    )
+
+    assert len(state.segments) == 4
+    assert len(state.speaker_turns) == 2
+    first, second = state.speaker_turns
+    assert first.speaker_key == "speaker_00"
+    assert second.speaker_key == "speaker_00"
+    assert first.start_seconds == 0.0
+    assert first.end_seconds == 4.0
+    assert first.text == "synthetic fragment 0 synthetic fragment 1 synthetic fragment 2"
+    assert first.source_segment_ids == [str(value) for value in segment_ids[:3]]
+    assert first.processing_result_id == result_id
+    assert first.turn_id == view_models.canonical_turn_id(
+        result_id, (str(value) for value in segment_ids[:3])
+    )
+    assert first.seekable is True
+    assert first.seek_seconds == 0.0
+    assert second.start_seconds == 6.0
+    assert second.end_seconds == 7.0
+    assert [segment.text for segment in state.segments] == [
+        f"synthetic fragment {index}" for index in range(4)
+    ]
+    assert {segment.speaker_key for segment in state.segments} == {"speaker_00"}
+
+
+def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=0,
+            start_seconds=Decimal("1"),
+            end_seconds=Decimal("3"),
+            text="synthetic",
+            speaker_label="SPEAKER_00",
+            source_role="incoming",
+        )
+    ]
+
+    transcript = view_models.diarization_transcript_state(
+        language="ru",
+        diarization_rows=diarization,
+        speaker_rows=diarization,
+        status="ready",
+        playback_available=True,
+        playback_duration_seconds=10,
+        speaker_names={"speaker_00": "Мария"},
+    )
+    speakers = view_models.speaker_state(
+        diarization,
+        speaker_names={"speaker_00": "Мария"},
+        can_rename=True,
+    )
+
+    assert transcript.segments[0].speaker_key == "speaker_00"
+    assert transcript.segments[0].speaker_label == "Мария"
+    assert transcript.speaker_turns[0].speaker_key == "speaker_00"
+    assert speakers.speakers[0].speaker_key == "speaker_00"
+    assert speakers.speakers[0].label == "Мария"
+    assert speakers.speakers[0].display_name == "Мария"
+    assert speakers.can_rename is True
+
+
+def test_transcript_turns_split_on_speaker_track_and_exact_threshold() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(start)),
+            end_seconds=Decimal(str(end)),
+            text=f"fragment {index}",
+            source_role=source_role,
+        )
+        for index, (start, end, source_role) in enumerate(
+            [(0, 1, "incoming"), (2, 3, "incoming"), (3.5, 4.5, "incoming"), (5, 6, "mic")]
+        )
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=segment.start_seconds,
+            end_seconds=segment.end_seconds,
+            text=segment.text,
+            speaker_label="remote" if index < 2 else ("other" if index == 2 else "local"),
+            source_role=segment.source_role,
+        )
+        for index, segment in enumerate(transcript)
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+    )
+
+    assert [turn.text for turn in state.speaker_turns] == [
+        "fragment 0 fragment 1",
+        "fragment 2",
+        "fragment 3",
+    ]
+
+
+def test_transcript_turns_do_not_merge_unconfirmed_mapping_or_incomplete_state() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(index)),
+            end_seconds=Decimal(str(index + 0.5)),
+            text=f"unmapped {index}",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[],
+        status="ready",
+    )
+    processing_state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[],
+        status="processing",
+    )
+    partial_state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=[
+            DiarizationSegment(
+                id=uuid4(),
+                processing_result_id=result_id,
+                meeting_id=meeting.id,
+                workspace_id=meeting.workspace_id,
+                sequence=index,
+                start_seconds=row.start_seconds,
+                end_seconds=row.end_seconds,
+                text=row.text,
+                speaker_label="remote-speaker",
+                source_role="incoming",
+            )
+            for index, row in enumerate(transcript)
+        ],
+        status="partial",
+    )
+
+    assert [turn.attribution_state for turn in state.speaker_turns] == ["unknown", "unknown"]
+    assert [turn.text for turn in state.speaker_turns] == ["unmapped 0", "unmapped 1"]
+    assert len(state.segments) == 2
+    assert processing_state.speaker_turns == []
+    assert processing_state.available is False
+    assert partial_state.speaker_turns == []
+    assert partial_state.degraded_reason == "partial_transcript"
+
+
+def test_force_speaker_labels_turns_are_stable_across_rebuilds() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(index * 1.5)),
+            end_seconds=Decimal(str(index * 1.5 + 1)),
+            text=f"manual fragment {index}",
+            speaker_label="SPEAKER_01",
+            source_role="incoming",
+        )
+        for index in range(3)
+    ]
+
+    first = view_models.transcript_state(
+        language="ru",
+        transcript_segments=[],
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+    second = view_models.transcript_state(
+        language="ru",
+        transcript_segments=[],
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert first.speaker_turns == second.speaker_turns
+    assert len(first.speaker_turns) == 1
+    assert first.speaker_turns[0].source_segment_ids == [str(row.id) for row in diarization]
+
+
+def test_force_speaker_labels_preserves_unconfirmed_rows_as_singletons() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(index)),
+            end_seconds=Decimal(str(index + 0.9)),
+            text=f"unconfirmed {index}",
+            speaker_label="UNKNOWN",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+
+    state = view_models.transcript_state(
+        language="ru",
+        transcript_segments=[],
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert [turn.attribution_state for turn in state.speaker_turns] == [
+        "unconfirmed",
+        "unconfirmed",
+    ]
+    assert [turn.text for turn in state.speaker_turns] == [
+        "unconfirmed 0",
+        "unconfirmed 1",
+    ]
+
+
+def test_normal_and_diarization_review_paths_share_turn_semantics() -> None:
+    meeting = _meeting()
+    result_id = uuid4()
+    transcript = [
+        TranscriptSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=Decimal(str(index * 1.5)),
+            end_seconds=Decimal(str(index * 1.5 + 1)),
+            text=f"shared fragment {index}",
+            source_role="incoming",
+        )
+        for index in range(2)
+    ]
+    diarization = [
+        DiarizationSegment(
+            id=uuid4(),
+            processing_result_id=result_id,
+            meeting_id=meeting.id,
+            workspace_id=meeting.workspace_id,
+            sequence=index,
+            start_seconds=row.start_seconds,
+            end_seconds=row.end_seconds,
+            text=row.text,
+            speaker_label="SPEAKER_00",
+            source_role="incoming",
+        )
+        for index, row in enumerate(transcript)
+    ]
+
+    normal = view_models.transcript_state(
+        language="ru",
+        transcript_segments=transcript,
+        diarization_segments=diarization,
+        status="ready",
+    )
+    force_labels = view_models.transcript_state(
+        language="ru",
+        transcript_segments=[],
+        diarization_segments=diarization,
+        status="ready",
+        force_speaker_labels=True,
+    )
+
+    assert normal.speaker_turns[0].model_dump(
+        exclude={"turn_id", "source_segment_ids"}
+    ) == force_labels.speaker_turns[0].model_dump(exclude={"turn_id", "source_segment_ids"})

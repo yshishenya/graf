@@ -76,6 +76,21 @@ def test_stored_outcomes_map_to_available_categories_with_source_refs() -> None:
     assert truth.provenance.latency_ms == 820
 
 
+def test_stored_ai_outcome_without_evidence_kind_remains_renderable() -> None:
+    outcome_set = _outcome_set()
+    item = _outcome_item(outcome_set)
+    item.source_refs_json = [{"sequence": 3, "start_seconds": 12.5}]
+
+    truth = view_models.notes_action_truth_state(
+        status="ready",
+        result=None,
+        outcome_set=outcome_set,
+        outcome_items=[item],
+    )
+
+    assert truth.summary.items[0].source_refs[0].evidence_kind == "segment"
+
+
 def test_list_mapping_preserves_category_truth_without_outcome_text() -> None:
     truth = view_models.notes_action_truth_state(
         status="ready",

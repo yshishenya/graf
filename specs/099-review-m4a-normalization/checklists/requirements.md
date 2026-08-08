@@ -31,6 +31,10 @@
 
 ## Notes
 
+- Final 2026-07-14 reconciliation: `16/16` items remain satisfied; the four
+  feature checklists total `80/80`. Runtime and evidence ownership is recorded
+  per FR/SC in `validation/traceability.md`; this checklist does not convert
+  requirement-quality checks into runtime claims.
 - Validation lane: significant/high-risk Spec Kit feature. It touches manual upload, processing, storage, playback, retention/deletion, audit and diagnostics.
 - Implementation must continue later through `$speckit-clarify`, `$speckit-plan`, `$speckit-checklist`, `$speckit-tasks`, `$speckit-analyze`, `$speckit-taskstoissues` and only then `$speckit-implement`.
 - This entry intentionally records the product decision from 2026-07-09: review playback uses a prepared `meeting-review.m4a`; manual uploads are transcoded/normalized into that artifact; playback does not transcode or assemble source media on demand.

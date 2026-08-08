@@ -1,9 +1,19 @@
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from enum import StrEnum
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
+from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.domain.statuses import (
     CustodyMetadataSafety,
     CustodyNormalUserAction,
@@ -63,7 +73,120 @@ class Problem(BaseModel):
     custody: ProblemCustodyExtension | None = None
 
 
-SafeClientText = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[^\x00-\x1f\x7f]+$")]
+SafeClientText = Annotated[
+    str, StringConstraints(strip_whitespace=True, pattern=r"^[^\x00-\x1f\x7f]+$")
+]
+
+
+class MeetingTitleSource(StrEnum):
+    USER_CONFIRMED = "user_confirmed"
+    CALENDAR = "calendar"
+    APP_CONTEXT = "app_context"
+    GENERIC = "generic"
+    UPLOAD_PROVIDED = "upload_provided"
+    FILE_NAME_DERIVED = "file_name_derived"
+    LEGACY_UNKNOWN = "legacy_unknown"
+
+
+class DesktopMeetingTitleSource(StrEnum):
+    USER_CONFIRMED = "user_confirmed"
+    APP_CONTEXT = "app_context"
+    GENERIC = "generic"
+    UNKNOWN = "unknown"
+
+
+LegacyMeetingTitleSource = Literal["user", "user_or_generic", "unknown"]
+
+
+class CalendarMatchDecisionIntent(StrEnum):
+    AUTOMATIC = "automatic"
+    USER_SELECTED = "user_selected"
+    USER_DECLINED = "user_declined"
+
+
+class CalendarMatchAttemptState(StrEnum):
+    MATCHED_AUTO = "matched_auto"
+    MATCHED_USER = "matched_user"
+    PROVISIONAL_PRESTART = "provisional_prestart"
+    AMBIGUOUS = "ambiguous"
+    NO_CONTEXT = "no_context"
+    SKIPPED_PRIVATE = "skipped_private"
+    SKIPPED_ALL_DAY = "skipped_all_day"
+    SKIPPED_STALE_CALENDAR = "skipped_stale_calendar"
+    CALENDAR_UNAVAILABLE = "calendar_unavailable"
+    DECLINED_BY_USER = "declined_by_user"
+
+
+class CalendarContextState(StrEnum):
+    MATCHED_AUTO = "matched_auto"
+    MATCHED_USER = "matched_user"
+    AMBIGUOUS = "ambiguous"
+    NO_CONTEXT = "no_context"
+    SKIPPED_PRIVATE = "skipped_private"
+    SKIPPED_ALL_DAY = "skipped_all_day"
+    SKIPPED_STALE_CALENDAR = "skipped_stale_calendar"
+    CALENDAR_UNAVAILABLE = "calendar_unavailable"
+    SKIPPED_OFFLINE_OR_UNKNOWN = "skipped_offline_or_unknown"
+    SKIPPED_MANUAL_UPLOAD = "skipped_manual_upload"
+    DECLINED_BY_USER = "declined_by_user"
+    CLEARED_BY_USER = "cleared_by_user"
+    DELETED = "deleted"
+    LEGACY_LINKED = "legacy_linked"
+
+
+class CalendarContextConfidence(StrEnum):
+    HIGH = "high"
+    SELECTED = "selected"
+    AMBIGUOUS = "ambiguous"
+    NONE = "none"
+
+
+class CalendarContextDecisionSource(StrEnum):
+    AUTOMATIC = "automatic"
+    USER = "user"
+    SYSTEM_SKIP = "system_skip"
+    LEGACY = "legacy"
+
+
+class CalendarContextReasonCode(StrEnum):
+    SINGLE_FRESH_CANDIDATE = "single_fresh_candidate"
+    MULTIPLE_TIME_CANDIDATES = "multiple_time_candidates"
+    BACK_TO_BACK_BOUNDARY = "back_to_back_boundary"
+    NO_MATCHING_EVENT = "no_matching_event"
+    WEAK_EVENT_SIGNAL = "weak_event_signal"
+    PRIVATE_FREE_BUSY_SKIPPED = "private_free_busy_skipped"
+    ALL_DAY_SKIPPED = "all_day_skipped"
+    SELECTED_SOURCE_STALE = "selected_source_stale"
+    LATEST_SYNC_FAILED = "latest_sync_failed"
+    CALENDAR_NOT_CONNECTED = "calendar_not_connected"
+    CALENDAR_NOT_SELECTED = "calendar_not_selected"
+    CALENDAR_UNAVAILABLE = "calendar_unavailable"
+    MANUAL_UPLOAD_SKIPPED = "manual_upload_skipped"
+    OFFLINE_OR_UNKNOWN_SKIPPED = "offline_or_unknown_skipped"
+    PRESTART_NOT_REACHED = "prestart_not_reached"
+    USER_SELECTED = "user_selected"
+    USER_DECLINED = "user_declined"
+    USER_CLEARED = "user_cleared"
+    MEETING_DELETED = "meeting_deleted"
+
+
+class CalendarContextTitleState(StrEnum):
+    AVAILABLE = "available"
+    POLICY_HIDDEN = "policy_hidden"
+    UNAVAILABLE = "unavailable"
+
+
+class CalendarContextRosterState(StrEnum):
+    AVAILABLE = "available"
+    NOT_AVAILABLE = "not_available"
+    HIDDEN = "hidden"
+
+
+class PreviousRecurringMeetingReadiness(StrEnum):
+    NOTES_READY = "notes_ready"
+    TRANSCRIPT_READY = "transcript_ready"
+    PROCESSING = "processing"
+    UNAVAILABLE = "unavailable"
 
 
 class SupportIncidentReportRequest(BaseModel):
@@ -77,10 +200,10 @@ class SupportIncidentReportRequest(BaseModel):
 
 
 class SupportIncidentResponse(BaseModel):
-    incident_id: Annotated[str, Field(pattern=r"^CUST-[1-9][0-9]*$")]
-    incident_status: Literal["created", "updated"]
-    github_issue_number: int = Field(gt=0)
-    github_issue_url: str
+    incident_id: Annotated[str, Field(pattern=r"^CUST-[A-Z0-9-]{1,27}$")]
+    incident_status: Literal["synced", "pending_sync"]
+    github_issue_number: int | None = Field(default=None, gt=0)
+    github_issue_url: str | None = None
     dedupe_status: Literal["created", "updated"]
     affected_count: int = Field(ge=1)
     copy_fallback_available: bool = True
@@ -254,16 +377,22 @@ class MeetingTargetBrowserServicePattern(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     service_family: Annotated[SafeClientText, Field(alias="serviceFamily", max_length=80)]
-    host_category: Literal["first_party", "enterprise_domain", "unknown"] = Field(alias="hostCategory")
-    pattern_class: Literal["meeting_room", "join_intent", "landing", "settings", "unsupported"] = Field(
-        alias="patternClass",
+    host_category: Literal["first_party", "enterprise_domain", "unknown"] = Field(
+        alias="hostCategory"
+    )
+    pattern_class: Literal["meeting_room", "join_intent", "landing", "settings", "unsupported"] = (
+        Field(
+            alias="patternClass",
+        )
     )
 
 
 class MeetingTargetRegistryTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    id: Annotated[SafeClientText, Field(min_length=3, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]{2,80}$")]
+    id: Annotated[
+        SafeClientText, Field(min_length=3, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]{2,80}$")
+    ]
     display_name: Annotated[SafeClientText, Field(alias="displayName", min_length=1, max_length=80)]
     market: Literal["global", "russia", "enterprise", "unknown"]
     platform: Literal["macos", "windows", "browser", "cross_platform"]
@@ -289,11 +418,15 @@ class MeetingTargetRegistryTarget(BaseModel):
             "windows_future_adapter",
         ]
     ] = Field(alias="requiredSignals", min_length=1)
-    native_bundle_ids: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$")]] = Field(
+    native_bundle_ids: list[
+        Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$")]
+    ] = Field(
         default_factory=list,
         alias="nativeBundleIds",
     )
-    windows_process_names: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.\- ]{1,200}$")]] = Field(
+    windows_process_names: list[
+        Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.\- ]{1,200}$")]
+    ] = Field(
         default_factory=list,
         alias="windowsProcessNames",
     )
@@ -324,7 +457,9 @@ class MeetingTargetRegistryDocument(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     schema_version: Literal[1] = Field(alias="schemaVersion")
-    registry_version: Annotated[str, Field(alias="registryVersion", pattern=r"^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")]
+    registry_version: Annotated[
+        str, Field(alias="registryVersion", pattern=r"^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$")
+    ]
     generated_at: datetime = Field(alias="generatedAt")
     expires_at: datetime | None = Field(default=None, alias="expiresAt")
     targets: list[MeetingTargetRegistryTarget] = Field(min_length=1)
@@ -384,7 +519,9 @@ class MeetingDetectionTargetRollup(BaseModel):
     target_id: Annotated[SafeClientText, Field(alias="targetId", min_length=3, max_length=80)]
     target_family: MeetingDetectionTargetFamily = Field(alias="targetFamily")
     support_mode: MeetingDetectionSupportMode = Field(alias="supportMode")
-    signal_families: list[MeetingDetectionSignalFamily] = Field(default_factory=list, alias="signalFamilies")
+    signal_families: list[MeetingDetectionSignalFamily] = Field(
+        default_factory=list, alias="signalFamilies"
+    )
     outcomes: MeetingDetectionOutcomes = Field(default_factory=MeetingDetectionOutcomes)
     duration_buckets: MeetingDetectionDurationBuckets = Field(
         default_factory=MeetingDetectionDurationBuckets,
@@ -406,7 +543,9 @@ class MeetingDetectionUnknownNativeAppRollup(BaseModel):
         "server_candidate_upload",
     ] = Field(alias="uploadEligibility")
     candidate_score: int = Field(alias="candidateScore", ge=0, le=20)
-    candidate_reasons: list[MeetingDetectionCandidateReason] = Field(alias="candidateReasons", min_length=1)
+    candidate_reasons: list[MeetingDetectionCandidateReason] = Field(
+        alias="candidateReasons", min_length=1
+    )
     stable_observation_count: int = Field(alias="stableObservationCount", ge=0)
     duration_buckets: MeetingDetectionDurationBuckets = Field(alias="durationBuckets")
     manual_record_nearby_count: int = Field(alias="manualRecordNearbyCount", ge=0)
@@ -414,9 +553,15 @@ class MeetingDetectionUnknownNativeAppRollup(BaseModel):
         default_factory=list,
         alias="suppressionReasons",
     )
-    bundle_id: str | None = Field(default=None, alias="bundleId", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$")
-    display_name: SafeClientText | None = Field(default=None, alias="displayName", min_length=1, max_length=80)
-    signing_team_id: str | None = Field(default=None, alias="signingTeamId", pattern=r"^[A-Za-z0-9]{5,20}$")
+    bundle_id: str | None = Field(
+        default=None, alias="bundleId", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,200}$"
+    )
+    display_name: SafeClientText | None = Field(
+        default=None, alias="displayName", min_length=1, max_length=80
+    )
+    signing_team_id: str | None = Field(
+        default=None, alias="signingTeamId", pattern=r"^[A-Za-z0-9]{5,20}$"
+    )
     version: Annotated[SafeClientText, Field(max_length=80)] | None = None
     calendar_or_join_hint_count: int = Field(default=0, alias="calendarOrJoinHintCount", ge=0)
     non_target_suppression_count: int = Field(default=0, alias="nonTargetSuppressionCount", ge=0)
@@ -425,11 +570,15 @@ class MeetingDetectionUnknownNativeAppRollup(BaseModel):
 class MeetingDetectionResourceRollup(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    cpu_p95_percent_bucket: Literal["not_measured", "under_1", "from_1_to_2", "from_2_to_5", "over_5"] = Field(
+    cpu_p95_percent_bucket: Literal[
+        "not_measured", "under_1", "from_1_to_2", "from_2_to_5", "over_5"
+    ] = Field(
         default="not_measured",
         alias="cpuP95PercentBucket",
     )
-    memory_overhead_bucket_mb: Literal["not_measured", "under_10", "from_10_to_30", "from_30_to_60", "over_60"] = Field(
+    memory_overhead_bucket_mb: Literal[
+        "not_measured", "under_10", "from_10_to_30", "from_30_to_60", "over_60"
+    ] = Field(
         default="not_measured",
         alias="memoryOverheadBucketMb",
     )
@@ -443,15 +592,25 @@ class MeetingDetectionTelemetryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     schema_version: Literal[1] = Field(alias="schemaVersion")
-    client_version: Annotated[SafeClientText, Field(alias="clientVersion", min_length=1, max_length=80)]
+    client_version: Annotated[
+        SafeClientText, Field(alias="clientVersion", min_length=1, max_length=80)
+    ]
     platform: Literal["macos", "windows"]
-    os_version_major: Annotated[SafeClientText, Field(alias="osVersionMajor", min_length=1, max_length=40)]
-    registry_version: Annotated[SafeClientText, Field(alias="registryVersion", min_length=1, max_length=80)]
-    candidate_filter_version: Annotated[SafeClientText, Field(alias="candidateFilterVersion", min_length=1, max_length=80)]
+    os_version_major: Annotated[
+        SafeClientText, Field(alias="osVersionMajor", min_length=1, max_length=40)
+    ]
+    registry_version: Annotated[
+        SafeClientText, Field(alias="registryVersion", min_length=1, max_length=80)
+    ]
+    candidate_filter_version: Annotated[
+        SafeClientText, Field(alias="candidateFilterVersion", min_length=1, max_length=80)
+    ]
     created_at: datetime = Field(alias="createdAt")
     rollup_window: MeetingDetectionRollupWindow = Field(alias="rollupWindow")
     policy: MeetingDetectionPolicySummary
-    target_rollups: list[MeetingDetectionTargetRollup] = Field(default_factory=list, alias="targetRollups", max_length=200)
+    target_rollups: list[MeetingDetectionTargetRollup] = Field(
+        default_factory=list, alias="targetRollups", max_length=200
+    )
     unknown_native_app_rollups: list[MeetingDetectionUnknownNativeAppRollup] = Field(
         default_factory=list,
         alias="unknownNativeAppRollups",
@@ -470,19 +629,141 @@ class MeetingDetectionTelemetryResponse(BaseModel):
     next_upload_after: datetime
 
 
+class ResolveRecordingCalendarContextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recording_started_at: datetime
+    decision_intent: CalendarMatchDecisionIntent
+    event_id: UUID | None = None
+    contract_version: Literal["calendar_auto_context_v1"]
+
+    @field_validator("recording_started_at")
+    @classmethod
+    def require_timezone_aware_start(cls, value: datetime) -> datetime:
+        if value.utcoffset() is None:
+            raise ValueError("recording_started_at must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def validate_event_selection(self) -> "ResolveRecordingCalendarContextRequest":
+        if self.decision_intent is CalendarMatchDecisionIntent.USER_SELECTED:
+            if self.event_id is None:
+                raise ValueError("event_id is required for user_selected intent")
+        elif self.event_id is not None:
+            raise ValueError("event_id is allowed only for user_selected intent")
+        return self
+
+
+class ResolveRecordingCalendarContextResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attempt_id: UUID
+    context_state: CalendarMatchAttemptState
+    reason_code: CalendarContextReasonCode
+    context_confidence: CalendarContextConfidence
+    candidate_count: int = Field(ge=0)
+    matcher_version: Annotated[SafeClientText, Field(min_length=1, max_length=80)]
+    expires_at: datetime
+
+
+class CalendarContextCandidateView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: UUID
+    safe_title: Annotated[SafeClientText, Field(max_length=500)] | None = None
+    starts_at: datetime
+    ends_at: datetime
+    safe_source_label: Annotated[SafeClientText, Field(min_length=1, max_length=160)]
+    roster_state: CalendarContextRosterState = CalendarContextRosterState.NOT_AVAILABLE
+    participant_count: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_event_interval(self) -> "CalendarContextCandidateView":
+        if self.ends_at <= self.starts_at:
+            raise ValueError("ends_at must be later than starts_at")
+        return self
+
+
+class CalendarRosterSnapshotItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    participant_kind: Annotated[SafeClientText, Field(min_length=1, max_length=80)]
+    response_status: Annotated[SafeClientText, Field(min_length=1, max_length=80)]
+    display_name: Annotated[SafeClientText, Field(max_length=240)] | None = None
+    email_present: bool = False
+    workspace_relation: Annotated[SafeClientText, Field(min_length=1, max_length=80)] = "unknown"
+    recipient_candidate_class: Annotated[SafeClientText, Field(min_length=1, max_length=80)] = (
+        "unknown"
+    )
+
+
+class CalendarContextRosterView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    roster_state: CalendarContextRosterState = CalendarContextRosterState.NOT_AVAILABLE
+    participant_count: int = Field(default=0, ge=0)
+    participants: list[CalendarRosterSnapshotItem] = Field(default_factory=list, max_length=100)
+
+
+class PreviousRecurringMeetingView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    meeting_id: UUID
+    safe_title: Annotated[SafeClientText, Field(max_length=500)] | None = None
+    started_at: datetime
+    readiness_state: PreviousRecurringMeetingReadiness
+
+
+class MeetingCalendarContextSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: CalendarContextState
+    label: Annotated[SafeClientText, Field(min_length=1, max_length=160)]
+    reason_label: Annotated[
+        SafeClientText | None,
+        Field(
+            default=None,
+            min_length=1,
+            max_length=240,
+            exclude_if=lambda value: value is None,
+        ),
+    ]
+    title_source: MeetingTitleSource | None = None
+    needs_owner_action: bool = False
+
+
 class PutMeetingCalendarContextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     event_id: UUID
-    context_reason: Literal["manual_selection", "current_event_prompt", "event_start_prompt"]
+    context_reason: Literal[
+        "manual_selection",
+        "ambiguity_resolution",
+        "correction",
+        "current_event_prompt",
+        "event_start_prompt",
+    ]
 
 
 class MeetingCalendarContextResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     meeting_id: UUID
     event_id: UUID | None = None
-    context_state: Literal["linked", "unlinked", "no_context"]
-    context_confidence: str | None = None
-    title_source: str | None = None
+    context_state: CalendarContextState
+    context_confidence: CalendarContextConfidence | None = None
+    reason_code: CalendarContextReasonCode | None = None
+    decision_source: CalendarContextDecisionSource | None = None
+    title_source: MeetingTitleSource | LegacyMeetingTitleSource | None = None
+    matched_title: Annotated[SafeClientText, Field(max_length=500)] | None = None
+    matched_event_starts_at: datetime | None = None
+    matched_event_ends_at: datetime | None = None
+    candidate_count: int = Field(default=0, ge=0)
+    candidates: list[CalendarContextCandidateView] = Field(default_factory=list, max_length=10)
+    roster: CalendarContextRosterView | None = None
+    previous_recurring_meeting: PreviousRecurringMeetingView | None = None
+    can_change: bool = False
+    can_clear: bool = False
 
 
 class TrackDescriptor(BaseModel):
@@ -506,12 +787,22 @@ class MediaRevisionSummary(BaseModel):
 
 
 class CreateMeetingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     local_recording_id: Annotated[SafeClientText, Field(min_length=1, max_length=240)]
-    local_media_revision_id: Annotated[SafeClientText, Field(min_length=1, max_length=300)] | None = None
+    local_media_revision_id: (
+        Annotated[SafeClientText, Field(min_length=1, max_length=300)] | None
+    ) = None
+    source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING
+    media_scribe_source_mode: Literal["dual", "single_wav_v1"] = "dual"
     title: Annotated[SafeClientText, Field(max_length=500)] | None = None
+    title_source: DesktopMeetingTitleSource | None = None
+    calendar_match_attempt_id: UUID | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
-    recording_display_timezone_offset_minutes: int | None = Field(default=None, ge=-14 * 60, le=14 * 60)
+    recording_display_timezone_offset_minutes: int | None = Field(
+        default=None, ge=-14 * 60, le=14 * 60
+    )
     duration_seconds: int = Field(gt=0)
 
 
@@ -521,20 +812,33 @@ class MeetingResponse(BaseModel):
     local_recording_id: str
     local_media_revision_id: str | None = None
     title: str | None = None
-    title_source: str = "generic"
+    title_source: MeetingTitleSource | LegacyMeetingTitleSource = MeetingTitleSource.GENERIC
     media_revision: MediaRevisionSummary | None = None
     status: MeetingStatus
     processing_status: ProcessingStatus
     started_at: datetime | None = None
     ended_at: datetime | None = None
     recording_display_timezone_offset_minutes: int | None = None
+    calendar_context: MeetingCalendarContextSummary | None = None
     created_at: datetime | None = None
 
 
 class CreateUploadSessionRequest(BaseModel):
-    expected_tracks: list[TrackRole] = Field(default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM])
+    expected_tracks: list[TrackRole] = Field(
+        default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
+    )
     expected_track_sizes: dict[TrackRole, int] = Field(default_factory=dict)
     manifest_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+
+class CreateMediaRevisionUploadSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    local_media_revision_id: Annotated[SafeClientText, Field(min_length=1, max_length=300)]
+    source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.REPROCESS
+    duration_seconds: int = Field(gt=0)
+    expected_tracks: list[TrackRole] = Field(default_factory=list)
+    expected_track_sizes: dict[TrackRole, int] = Field(default_factory=dict)
 
 
 class UploadSessionResponse(BaseModel):
@@ -552,6 +856,13 @@ class UploadSessionResponse(BaseModel):
     mediascribe_job_id: None = None
     desktop_label: str | None = None
     desktop_truth_rule: str | None = None
+
+
+class MediaRevisionUploadSessionResponse(BaseModel):
+    """Durable reprocess upload handle pinned to one immutable revision."""
+
+    media_revision: MediaRevisionSummary
+    upload_session: UploadSessionResponse
 
 
 class DesktopSyncMeetingState(BaseModel):
@@ -758,7 +1069,9 @@ class LocalPurgeAckRequest(BaseModel):
     completed_at: datetime | None = None
 
 
-LifecycleActivityOutcome = Literal["accepted", "denied", "completed", "failed", "skipped", "blocked"]
+LifecycleActivityOutcome = Literal[
+    "accepted", "denied", "completed", "failed", "skipped", "blocked"
+]
 
 
 class LifecycleActivityItem(BaseModel):
@@ -820,7 +1133,13 @@ MeetingReviewStatus = Literal[
 ]
 MeetingSource = Literal["desktop_recording", "video_recording", "manual_upload", "unknown"]
 PrimaryAction = Literal["open", "wait", "retry_future", "open_status", "unavailable"]
-SourceRoleView = Literal["local_microphone", "incoming_system", "unknown"]
+SourceRoleView = Literal[
+    "local_microphone",
+    "incoming_system",
+    "uploaded_media",
+    "canonical_mixed",
+    "unknown",
+]
 PlaybackUnavailableReason = Literal[
     "none",
     "no_audio",
@@ -836,7 +1155,38 @@ PlaybackUnavailableReason = Literal[
     "storage_unavailable",
 ]
 PlaybackSourceMode = Literal["none", "stored_review_m4a"]
-GovernanceState = Literal["available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"]
+PlaybackPreparationStateValue = Literal[
+    "preparing",
+    "available",
+    "unavailable",
+    "deleting",
+    "deleted",
+]
+PlaybackPreparationReasonCode = Literal[
+    "normalization_queued",
+    "normalization_running",
+    "normalization_publishing",
+    "normalization_retry_wait",
+    "reconciliation_pending",
+    "canonical_artifact_missing",
+    "canonical_ready",
+    "access_denied",
+    "empty_source",
+    "no_audio",
+    "ambiguous_audio_tracks",
+    "unsupported_media",
+    "encrypted_media",
+    "corrupt_source",
+    "limit_exceeded",
+    "source_missing",
+    "source_mismatch",
+    "meeting_deleting",
+    "meeting_deleted",
+    "audio_purged",
+]
+GovernanceState = Literal[
+    "available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"
+]
 SlotStateValue = Literal["available", "disabled", "planned", "policy_blocked", "out_of_scope"]
 NextAction = Literal["wait", "retry_future", "contact_operator", "open_desktop_queue", "none"]
 AccessState = Literal["owner", "team", "shared", "denied", "unavailable", "deleted"]
@@ -852,12 +1202,326 @@ ArtifactEgressStateValue = Literal[
     "audit_unavailable",
 ]
 ArtifactAction = Literal["download", "export", "disabled"]
+ContentExportScope = Literal["transcript", "summary", "combined"]
+ContentExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt"]
+CONTENT_EXPORT_FORMATS_BY_SCOPE: dict[ContentExportScope, tuple[ContentExportFormat, ...]] = {
+    "transcript": ("txt", "md", "csv", "xlsx", "json", "srt"),
+    "summary": ("txt", "md", "xlsx", "json"),
+    "combined": ("txt", "md", "xlsx", "json"),
+}
+CONTENT_EXPORT_FORMATS = frozenset(
+    format_name for formats in CONTENT_EXPORT_FORMATS_BY_SCOPE.values() for format_name in formats
+)
+ContentExportReadinessState = Literal[
+    "available",
+    "processing",
+    "partial",
+    "missing",
+    "denied",
+    "deletion_in_progress",
+    "failed",
+    "audit_unavailable",
+]
 TeamVisibilityState = Literal["enabled", "disabled", "policy_blocked"]
 CopyLinkState = Literal["available", "auth_required", "disabled"]
 PublicLinkState = Literal["disabled_by_default", "policy_blocked"]
 ShareGrantStatus = Literal["active", "revoked"]
 ActivityOutcome = Literal["allowed", "denied", "completed", "failed", "prepared"]
 ExportPackageStatus = Literal["requested", "ready", "failed", "expired"]
+SummaryTemplateKind = Literal["builtin", "personal"]
+SummaryTemplateStatus = Literal["active", "archived", "deleted"]
+SummaryDetailLevel = Literal["brief", "standard", "detailed"]
+SummaryOutputLanguage = Literal["ru", "en"]
+SummarySection = Literal[
+    "summary",
+    "key_points",
+    "decisions",
+    "action_items",
+    "followups",
+    "risks",
+    "questions",
+    "evidence",
+]
+SummaryCandidateState = Literal[
+    "queued",
+    "generating",
+    "blocked_dependency",
+    "candidate",
+    "accepted",
+    "rejected",
+    "failed",
+    "cancelled",
+]
+SummaryCandidateProjectionState = Literal[
+    "generating",
+    "ready",
+    "accepted",
+    "closed",
+    "failed",
+    "blocked",
+    "stale",
+    "expired",
+]
+SummaryCandidateReasonCode = Literal[
+    "generating",
+    "dismissed",
+    "cancelled",
+    "result_invalid",
+    "transcript_unavailable",
+    "source_unavailable",
+    "source_changed",
+    "template_unavailable",
+    "revision_changed",
+    "prompt_invalid",
+    "provider_outcome_unknown",
+    "content_unavailable",
+    "input_too_large",
+    "generation_in_progress",
+    "meeting_deleting",
+    "meeting_deleted",
+    "temporary_unavailable",
+    "prompt_unavailable",
+    "provider_unavailable",
+    "generation_failed",
+]
+SummaryCandidateNextAction = Literal[
+    "wait",
+    "review",
+    "new_candidate",
+    "refresh",
+    "choose_format",
+    "refresh_status",
+    "open_meeting",
+    "open_meetings",
+    "retry",
+]
+ShareAudienceType = Literal["user", "workspace", "team", "link"]
+ShareContentScope = Literal["summary_only", "full_meeting"]
+ShareCapabilityState = Literal["available", "policy_blocked", "auth_required"]
+ShareRecipientSource = Literal["workspace", "calendar", "workspace_calendar"]
+ShareRecipientType = Literal["workspace_member"]
+ShareRecipientFreshness = Literal["current", "stale", "unknown"]
+ExternalInvitationState = Literal["available", "disabled"]
+ShareInvitationStatus = Literal[
+    "pending",
+    "sending",
+    "sent",
+    "accepted",
+    "expired",
+    "revoked",
+    "failed",
+    "outcome_unknown",
+    "deleted",
+]
+
+
+class CreateSummaryTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: SafeClientText = Field(min_length=1, max_length=80)
+    purpose: SafeClientText = Field(min_length=1, max_length=240)
+    sections: list[SummarySection] = Field(min_length=1, max_length=8)
+    output_language: SummaryOutputLanguage
+    detail_level: SummaryDetailLevel
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return " ".join(value.split())
+
+    @field_validator("sections")
+    @classmethod
+    def require_unique_sections(cls, value: list[SummarySection]) -> list[SummarySection]:
+        if len(value) != len(set(value)):
+            raise ValueError("summary sections must be unique")
+        return value
+
+
+class UpdateSummaryTemplateRequest(CreateSummaryTemplateRequest):
+    expected_version: int = Field(ge=1)
+
+
+class SummaryTemplateView(BaseModel):
+    template_id: UUID | None = None
+    template_key: str
+    kind: SummaryTemplateKind
+    name: str
+    purpose: str
+    sections: list[SummarySection]
+    output_language: SummaryOutputLanguage
+    detail_level: SummaryDetailLevel
+    version: int = Field(ge=1)
+    status: SummaryTemplateStatus
+    can_edit: bool = False
+    can_duplicate: bool = True
+
+
+class SummaryTemplateListResponse(BaseModel):
+    default_template_key: str
+    can_manage_default: bool = False
+    recommended: list[SummaryTemplateView] = Field(default_factory=list, max_length=4)
+    personal: list[SummaryTemplateView] = Field(default_factory=list, max_length=100)
+
+
+class UpdateDefaultSummaryTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_key: str = Field(min_length=1, max_length=120)
+    template_id: UUID | None = None
+    template_version: int = Field(ge=1)
+
+
+class CreateSummaryCandidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_key: str = Field(min_length=1, max_length=120)
+    template_id: UUID | None = None
+    template_version: int = Field(ge=1)
+    expected_current_outcome_set_id: UUID | None = None
+    request_intent: Annotated[SafeClientText, Field(max_length=64)] = "manual_format"
+    request_intent_id: UUID | None = None
+
+    @field_validator("request_intent")
+    @classmethod
+    def validate_request_intent(cls, value: str) -> str:
+        if value not in {"manual_format", "manual_refresh"}:
+            raise ValueError("unsupported summary request intent")
+        return value
+
+    @model_validator(mode="after")
+    def require_refresh_intent_id(self) -> Self:
+        if self.request_intent == "manual_refresh" and self.request_intent_id is None:
+            raise ValueError("manual refresh requires request_intent_id")
+        if self.request_intent == "manual_format" and self.request_intent_id is not None:
+            raise ValueError("manual format must not include request_intent_id")
+        return self
+
+
+class SummaryCandidateProvenance(BaseModel):
+    source_result_id: UUID | None = None
+    media_revision_id: UUID | None = None
+    source_revision_label: Annotated[SafeClientText, Field(max_length=160)] | None = None
+    template_id: UUID | None = None
+    source_result_hash: Annotated[SafeClientText, Field(max_length=128)] | None = None
+    template_key: Annotated[SafeClientText, Field(max_length=120)] | None = None
+    template_version: int | None = Field(default=None, ge=1)
+    generator_version: Annotated[SafeClientText, Field(max_length=120)] | None = None
+
+
+class SummaryCandidatePreviewItem(BaseModel):
+    category: SummarySection
+    sequence: int = Field(default=0, ge=0)
+    text: str = ""
+    owner_text: str = ""
+    due_date_text: str = ""
+    truth_label: str = ""
+    source_refs: list["OutcomeSourceReferenceView"] = Field(default_factory=list, max_length=8)
+
+
+class SummaryCandidateResponse(BaseModel):
+    candidate_id: UUID
+    state: SummaryCandidateProjectionState
+    current_outcome_set_id: UUID | None = None
+    poll_url: str
+    outcome_set_id: UUID | None = None
+    template_key: str | None = None
+    template_name: str | None = None
+    template_id: UUID | None = None
+    template_version: int | None = None
+    reason_code: SummaryCandidateReasonCode | None = None
+    retryable: bool = False
+    next_action: SummaryCandidateNextAction | None = None
+    format_name: Annotated[SafeClientText, Field(max_length=120)] | None = None
+    expires_at: datetime | None = None
+    preview: list["SummaryCandidatePreviewItem"] = Field(default_factory=list)
+    provenance: SummaryCandidateProvenance | None = None
+
+
+class SummaryCandidateListResponse(BaseModel):
+    candidates: list[SummaryCandidateResponse] = Field(default_factory=list, max_length=8)
+
+
+class SummaryCandidatePreviewResponse(BaseModel):
+    candidate_id: UUID
+    outcome_set_id: UUID
+    template_key: str | None = None
+    items: list[SummaryCandidatePreviewItem] = Field(default_factory=list, max_length=200)
+
+
+class ResolveSummaryCandidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_current_outcome_set_id: UUID | None = None
+
+
+class CreateScopedShareGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    audience_type: ShareAudienceType = "user"
+    audience_id: UUID | None = None
+    content_scope: ShareContentScope = "summary_only"
+    can_download: bool = False
+    can_export: bool = False
+    expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def require_matching_audience_identity(self) -> Self:
+        if self.audience_type == "link" and self.audience_id is not None:
+            raise ValueError("link audience must not include audience_id")
+        if self.audience_type != "link" and self.audience_id is None:
+            raise ValueError("non-link audience requires audience_id")
+        return self
+
+
+class CreateMeetingShareInvitationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    address: str = Field(min_length=3, max_length=320)
+    content_scope: ShareContentScope = "summary_only"
+    can_download: bool = False
+    can_export: bool = False
+
+    @field_validator("address")
+    @classmethod
+    def validate_delivery_address(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        local, separator, domain = normalized.rpartition("@")
+        if not separator or not local or "." not in domain or domain.startswith("."):
+            raise ValueError("invalid delivery address")
+        return normalized
+
+    @model_validator(mode="after")
+    def require_complete_external_scope(self) -> Self:
+        if self.content_scope == "summary_only" and (self.can_download or self.can_export):
+            raise ValueError("summary invitations cannot include recording artifacts")
+        if self.content_scope == "full_meeting" and (not self.can_download or not self.can_export):
+            raise ValueError("recording invitations require download and export access")
+        return self
+
+
+class MeetingShareInvitationResponse(BaseModel):
+    invitation_id: UUID
+    status: ShareInvitationStatus
+    expires_at: datetime
+
+
+class ShareRecipientView(BaseModel):
+    user_id: UUID
+    display_label: str
+    source: ShareRecipientSource = "workspace"
+    recipient_type: ShareRecipientType = "workspace_member"
+    freshness: ShareRecipientFreshness = "current"
+
+
+class ShareRecipientListResponse(BaseModel):
+    items: list[ShareRecipientView] = Field(default_factory=list, max_length=20)
+
+
+class PublicShareSummaryResponse(BaseModel):
+    meeting_label: str
+    occurred_at: datetime
+    duration_seconds: int = Field(ge=0)
+    summary_sections: list[dict[str, object]] = Field(default_factory=list, max_length=100)
 
 
 class MeetingAccessState(BaseModel):
@@ -869,6 +1533,8 @@ class MeetingAccessState(BaseModel):
     can_manage_team_visibility: bool
     can_download: bool
     can_export: bool
+    content_scope: ShareContentScope = "full_meeting"
+    can_view_full_meeting: bool = True
 
 
 class ArtifactEgressState(BaseModel):
@@ -885,13 +1551,32 @@ class ShareGrantView(BaseModel):
     role_label: Literal["Owner", "Team", "Can view"]
     status: ShareGrantStatus
     created_at: datetime
+    audience_type: ShareAudienceType = "user"
+    content_scope: ShareContentScope = "summary_only"
+    expires_at: datetime | None = None
+
+
+class ShareInvitationView(BaseModel):
+    invitation_id: UUID
+    status: ShareInvitationStatus
+    created_at: datetime
+    expires_at: datetime
+    content_scope: ShareContentScope = "summary_only"
+    display_label: str = "Приглашение"
 
 
 class SharePanelState(BaseModel):
     team_visibility: TeamVisibilityState
     active_grants: list[ShareGrantView] = Field(default_factory=list)
+    active_invitations: list[ShareInvitationView] = Field(default_factory=list)
     copy_link_state: CopyLinkState
     public_link_state: PublicLinkState
+    capability_state: ShareCapabilityState = "available"
+    capability_reason: str | None = None
+    external_invitation_state: ExternalInvitationState = "disabled"
+    recipient_sources: list[Literal["workspace", "calendar"]] = Field(
+        default_factory=lambda: ["workspace"]
+    )
 
 
 class MeetingActivityItem(BaseModel):
@@ -919,12 +1604,35 @@ class MeetingAccessResponse(BaseModel):
 
 
 class CreateShareGrantRequest(BaseModel):
-    grantee_user_id: UUID
+    model_config = ConfigDict(extra="forbid")
+
+    grantee_user_id: UUID | None = None
+    audience_type: ShareAudienceType = "user"
+    audience_id: UUID | None = None
+    content_scope: ShareContentScope = "summary_only"
+    can_download: bool = False
+    can_export: bool = False
+    expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def normalize_legacy_recipient(self) -> Self:
+        if self.grantee_user_id is not None:
+            if self.audience_id is not None and self.audience_id != self.grantee_user_id:
+                raise ValueError("recipient identifiers must match")
+            self.audience_id = self.grantee_user_id
+        if self.audience_type == "link" and self.audience_id is not None:
+            raise ValueError("link audience must not include audience_id")
+        if self.audience_type != "link" and self.audience_id is None:
+            raise ValueError("non-link audience requires audience_id")
+        return self
 
 
 class ShareGrantResponse(BaseModel):
     grant: ShareGrantView
     share_url: str
+    notification_status: Literal[
+        "sent", "not_available", "failed", "outcome_unknown", "not_attempted"
+    ] = "not_attempted"
 
 
 class CreateExportPackageRequest(BaseModel):
@@ -941,6 +1649,71 @@ class ExportPackageResponse(BaseModel):
     status: ExportPackageStatus
     included_artifacts: list[ArtifactClass] = Field(default_factory=list)
     excluded_artifacts: list[ExportPackageExclusion] = Field(default_factory=list)
+
+
+class ContentExportSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content_scope: ContentExportScope
+    format: ContentExportFormat
+    processing_result_id: UUID
+    outcome_set_id: UUID | None = None
+    include_speaker_labels: bool = True
+    include_timestamps: bool = True
+    include_evidence: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_unknown_export_format(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            format_name = value.get("format")
+            if format_name not in CONTENT_EXPORT_FORMATS:
+                raise ProblemDetail(
+                    status=422,
+                    code="unsupported_export_format",
+                    title="Unsupported export format",
+                )
+        return value
+
+    @model_validator(mode="after")
+    def validate_scope_format_compatibility(self) -> Self:
+        if self.format not in CONTENT_EXPORT_FORMATS_BY_SCOPE[self.content_scope]:
+            raise ProblemDetail(
+                status=422,
+                code="unsupported_export_combination",
+                title="Unsupported export combination",
+            )
+        summary_requested = self.content_scope in {"summary", "combined"}
+        if summary_requested != (self.outcome_set_id is not None):
+            raise ProblemDetail(
+                status=422,
+                code="invalid_export_selection",
+                title="Invalid export selection",
+            )
+        return self
+
+
+class ContentExportReadiness(BaseModel):
+    state: ContentExportReadinessState
+    reason: str | None = None
+
+
+class ContentExportDefaults(BaseModel):
+    include_speaker_labels: bool = True
+    include_timestamps: bool = True
+    include_evidence: bool = True
+
+
+class ContentExportCapabilityResponse(BaseModel):
+    processing_result_id: UUID | None = None
+    outcome_set_id: UUID | None = None
+    transcript: ContentExportReadiness
+    summary: ContentExportReadiness
+    combined: ContentExportReadiness
+    formats: dict[ContentExportScope, list[ContentExportFormat]]
+    defaults: ContentExportDefaults = Field(default_factory=ContentExportDefaults)
+    language: str | None = None
+    duration_seconds: int
 
 
 class GovernanceActionState(BaseModel):
@@ -962,6 +1735,11 @@ class SlotState(BaseModel):
     state: SlotStateValue
     label: str
     reason: str | None = None
+    # Template identity is part of the server-authoritative summary format
+    # state.  The key alone is not enough for personal template revisions.
+    template_id: UUID | None = None
+    version: int | None = Field(default=None, ge=1)
+    template_version: int | None = Field(default=None, ge=1)
 
 
 class MeetingFilterState(BaseModel):
@@ -1002,6 +1780,7 @@ class OutcomeSourceReferenceView(BaseModel):
     speaker_label: str | None = None
     source_role: str | None = None
     evidence_kind: OutcomeEvidenceKind
+    seekable: bool = False
 
 
 class OutcomeItemView(BaseModel):
@@ -1077,6 +1856,15 @@ class MeetingUploadProgressState(BaseModel):
     is_active: bool = False
 
 
+class PlaybackPreparationState(BaseModel):
+    state: PlaybackPreparationStateValue = "unavailable"
+    reason_code: PlaybackPreparationReasonCode = "no_audio"
+    label: str = "Аудио недоступно"
+    automatic_recovery: bool = False
+    can_play: bool = False
+    action: Literal["disabled"] = "disabled"
+
+
 class MeetingListItem(BaseModel):
     meeting_id: UUID
     title: str
@@ -1099,13 +1887,18 @@ class MeetingListItem(BaseModel):
     governance: GovernanceActionSummary
     custody: CustodyReadModel | None = None
     upload: MeetingUploadProgressState | None = None
+    calendar_context: MeetingCalendarContextSummary | None = None
+    previous_recurring_meeting: PreviousRecurringMeetingView | None = None
+    playback: PlaybackPreparationState = Field(default_factory=PlaybackPreparationState)
     future_slots: list[SlotState] = Field(default_factory=list)
+    _presentation_meeting_status: str | None = PrivateAttr(default=None)
 
 
 class MeetingListResponse(BaseModel):
     items: list[MeetingListItem]
     filters: MeetingFilterState
     generated_at: datetime
+    _has_more: bool = PrivateAttr(default=False)
 
 
 class MeetingProvenance(BaseModel):
@@ -1138,6 +1931,29 @@ class TranscriptSegmentView(BaseModel):
     speaker_label: str
     source_role: SourceRoleView
     text: str
+    speaker_key: str = ""
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown"] = "unknown"
+    processing_result_id: UUID | None = None
+    source_role_original: str | None = Field(default=None, exclude=True)
+    confidence_label: str | None = None
+    seekable: bool = False
+    seek_seconds: float | None = None
+
+
+class TranscriptSpeakerTurnView(BaseModel):
+    turn_id: str
+    sequence: int
+    start_seconds: float
+    end_seconds: float
+    timestamp_label: str
+    speaker_label: str
+    source_role: SourceRoleView
+    text: str
+    speaker_key: str = ""
+    attribution_state: Literal["confirmed", "unconfirmed", "unknown"] = "unknown"
+    processing_result_id: UUID | None = None
+    source_segment_ids: list[str] = Field(default_factory=list)
+    overlap: bool = False
     confidence_label: str | None = None
     seekable: bool = False
     seek_seconds: float | None = None
@@ -1149,6 +1965,7 @@ class TranscriptReviewState(BaseModel):
     degraded_reason: str | None = None
     search_enabled: bool = False
     segments: list[TranscriptSegmentView] = Field(default_factory=list)
+    speaker_turns: list[TranscriptSpeakerTurnView] = Field(default_factory=list)
 
 
 class SpeakerLaneSegment(BaseModel):
@@ -1159,6 +1976,7 @@ class SpeakerLaneSegment(BaseModel):
 class SpeakerLane(BaseModel):
     speaker_key: str
     label: str
+    display_name: str | None = None
     talk_time_percent: int = Field(ge=0, le=100)
     source_roles: list[SourceRoleView] = Field(default_factory=list)
     segments: list[SpeakerLaneSegment] = Field(default_factory=list)
@@ -1170,23 +1988,21 @@ class SpeakerReviewState(BaseModel):
     assignment_state: Literal["available", "reserved", "disabled", "conflict_future", "unavailable"]
     degraded_reason: str | None = None
     speakers: list[SpeakerLane] = Field(default_factory=list)
+    can_rename: bool = False
 
 
-class CalendarRosterParticipantView(BaseModel):
-    participant_kind: str
-    response_status: str
-    display_name: str | None = None
-    email_present: bool = False
-    workspace_relation: str = "unknown"
-    recipient_candidate_class: str = "unknown"
+class CalendarRosterParticipantView(CalendarRosterSnapshotItem):
+    pass
 
 
 class CalendarRosterReviewState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     available: bool = False
-    roster_state: str = "not_available"
-    participant_count: int = 0
+    roster_state: CalendarContextRosterState = CalendarContextRosterState.NOT_AVAILABLE
+    participant_count: int = Field(default=0, ge=0)
     source: Literal["calendar", "none"] = "none"
-    participants: list[CalendarRosterParticipantView] = Field(default_factory=list)
+    participants: list[CalendarRosterParticipantView] = Field(default_factory=list, max_length=100)
 
 
 class NotesReviewState(BaseModel):
@@ -1202,7 +2018,7 @@ class NotesReviewState(BaseModel):
     ]
 
 
-class PlaybackReviewState(BaseModel):
+class PlaybackReviewState(PlaybackPreparationState):
     available: bool = False
     duration_seconds: int = Field(default=0, ge=0)
     speed_options: list[float] = Field(default_factory=lambda: [0.75, 1.0, 1.25, 1.5, 2.0])
@@ -1212,9 +2028,25 @@ class PlaybackReviewState(BaseModel):
     source_mode: PlaybackSourceMode = "none"
     included_sources: list[SourceRoleView] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def align_legacy_playback_fields(self) -> Self:
+        # Older internal callers construct the review model with `available`.
+        # Keep that compatibility while the durable API truth is `can_play`.
+        if self.available and not self.can_play:
+            self.can_play = True
+            self.state = "available"
+            self.reason_code = "canonical_ready"
+        elif self.can_play and not self.available:
+            self.available = True
+        if self.policy_label != "Аудио недоступно" and self.label == "Аудио недоступно":
+            self.label = self.policy_label
+        return self
+
 
 class MeetingReviewResponse(BaseModel):
     meeting: MeetingListItem
+    calendar_context: MeetingCalendarContextSummary | None = None
+    calendar_context_detail: MeetingCalendarContextResponse | None = None
     provenance: MeetingProvenance
     processing: ProcessingReviewState
     transcript: TranscriptReviewState
@@ -1227,6 +2059,7 @@ class MeetingReviewResponse(BaseModel):
     access: MeetingAccessState | None = None
     share: SharePanelState | None = None
     artifacts: list[ArtifactEgressState] = Field(default_factory=list)
+    content_exports: ContentExportCapabilityResponse | None = None
     activity: MeetingActivityResponse | None = None
     deletion_truth_copy: str | None = None
     assistant: SlotState

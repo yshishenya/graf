@@ -15,10 +15,12 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
 
         XCTAssertTrue(source.contains("configuration.width = 16"))
         XCTAssertTrue(source.contains("configuration.height = 16"))
-        XCTAssertTrue(source.contains("runtimeStartTimeoutSeconds: TimeInterval = 30"))
+        XCTAssertTrue(source.contains("runtimeStartTimeoutSeconds: TimeInterval = 120"))
+        XCTAssertTrue(source.contains("runtimeStopTimeoutSeconds: TimeInterval = 120"))
         XCTAssertTrue(source.contains("stream.addStreamOutput(self, type: .audio"))
         XCTAssertTrue(source.contains("stream.addStreamOutput(self, type: .screen"))
         XCTAssertTrue(source.contains("stream.removeStreamOutput(self, type: .screen"))
+        XCTAssertTrue(source.contains("outputQueue.sync {}"))
     }
 
     func testStartRequiresGrantedPermissionAndApprovedScope() async throws {
@@ -61,7 +63,7 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertEqual(stopped.failureReason, LocalRecordingFailureReason.none)
     }
 
-    func testIncomingSampleSourceFeedsWriterWithoutHAL() async throws {
+    func testIncomingSampleSourceFeedsCurrentWriter() async throws {
         let service = SystemAudioCaptureService(runtime: FakeSystemAudioRuntime())
         _ = try await service.start(
             sessionId: "session",
@@ -76,6 +78,66 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
 
         XCTAssertEqual(read, 256)
         XCTAssertEqual(scratch[0], 0.4, accuracy: 0.0001)
+        _ = try await service.stop()
+    }
+
+    func testIncomingBatchPreservesPTSFormatAndRouteGenerationForTimeline() async throws {
+        let service = SystemAudioCaptureService(runtime: FakeSystemAudioRuntime())
+        _ = try await service.start(
+            sessionId: "timestamped-system-audio",
+            permissionState: .granted,
+            scopeApproval: approvedScope()
+        )
+        let original = RecordingAudioBatch(
+            samples: Array(repeating: 0.25, count: 480),
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: RecordingAudioPresentationTimestamp(seconds: 321.25, clockDomain: .hostTime),
+            discontinuity: .none,
+            routeGeneration: 7
+        )
+
+        await service.appendIncomingBatch(original, observedAt: Date(timeIntervalSince1970: 11))
+        let restored = try XCTUnwrap(service.incomingSampleSource.readTimestampedBatch(maximumFrameCount: 480))
+
+        XCTAssertEqual(restored.presentationTime, original.presentationTime)
+        XCTAssertEqual(restored.format, original.format)
+        XCTAssertEqual(restored.discontinuity, .none)
+        XCTAssertEqual(restored.routeGeneration, 7)
+        XCTAssertEqual(restored.samples, original.samples)
+        _ = try await service.stop()
+    }
+
+    func testSplitIncomingBatchPreservesPTSAndCallbackObservation() async throws {
+        let service = SystemAudioCaptureService(runtime: FakeSystemAudioRuntime())
+        _ = try await service.start(
+            sessionId: "timestamped-system-audio-split",
+            permissionState: .granted,
+            scopeApproval: approvedScope()
+        )
+        let original = RecordingAudioBatch(
+            samples: Array(repeating: 0.25, count: 960),
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: RecordingAudioPresentationTimestamp(
+                seconds: 321.25,
+                clockDomain: .sourcePresentationTime,
+                observedHostTimeSeconds: 321.75
+            ),
+            discontinuity: .none,
+            routeGeneration: 7
+        )
+
+        await service.appendIncomingBatch(original, observedAt: Date(timeIntervalSince1970: 11))
+        let first = try XCTUnwrap(service.incomingSampleSource.readTimestampedBatch(maximumFrameCount: 480))
+        let remainder = try XCTUnwrap(service.incomingSampleSource.readTimestampedBatch(maximumFrameCount: 480))
+
+        XCTAssertEqual(first.presentationTime, original.presentationTime)
+        XCTAssertEqual(remainder.presentationTime.seconds, 321.26, accuracy: 0.000001)
+        XCTAssertEqual(remainder.presentationTime.clockDomain, .sourcePresentationTime)
+        XCTAssertEqual(remainder.presentationTime.observedHostTimeSeconds, 321.75)
+        XCTAssertEqual(remainder.format, original.format)
+        XCTAssertEqual(remainder.routeGeneration, 7)
+        XCTAssertEqual(first.samples.count, 480)
+        XCTAssertEqual(remainder.samples.count, 480)
         _ = try await service.stop()
     }
 
@@ -254,11 +316,20 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         }
 
         XCTAssertEqual(runtime.startCount, 1)
+        // The service reports the failed start before its detached cleanup finishes.
+        // Wait only for that bounded cleanup instead of depending on task scheduling.
+        for _ in 0..<50 {
+            if runtime.stopCount == 1 {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
         XCTAssertEqual(runtime.stopCount, 1)
     }
 
     func testRetryWaitsForTimedOutRuntimeStartCleanup() async throws {
-        let runtime = RecoveringSlowStartingSystemAudioRuntime(firstStartDelaySeconds: 0.2)
+        let firstStartGate = RecoveringRuntimeStartGate()
+        let runtime = RecoveringSlowStartingSystemAudioRuntime(firstStartGate: firstStartGate)
         let service = SystemAudioCaptureService(
             runtime: runtime,
             runtimeStartTimeoutSeconds: 0.05
@@ -276,6 +347,10 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
             XCTAssertFalse(running)
         }
 
+        // Wait until the cleanup has stopped the timed-out runtime and is now
+        // blocked on its first start. This is a deterministic boundary: a retry
+        // must not create a second runtime start until the gate is released.
+        await firstStartGate.waitUntilFirstStop()
         let retry = Task {
             try await service.start(
                 sessionId: "second",
@@ -283,12 +358,15 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
                 scopeApproval: approvedScope()
             )
         }
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        for _ in 0..<10 {
+            await Task.yield()
+        }
 
         XCTAssertEqual(runtime.startCount, 1)
         let runningWhileRetryWaits = await service.isRunning
         XCTAssertFalse(runningWhileRetryWaits)
 
+        await firstStartGate.releaseFirstStart()
         let second = try await retry.value
         XCTAssertEqual(second.sessionId, "second")
         XCTAssertEqual(runtime.startCount, 2)
@@ -462,13 +540,13 @@ private final class SlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @
 }
 
 private final class RecoveringSlowStartingSystemAudioRuntime: SystemAudioCaptureRuntime, @unchecked Sendable {
-    private let firstStartDelaySeconds: TimeInterval
+    private let firstStartGate: RecoveringRuntimeStartGate
     private let lock = NSLock()
     private var protectedStartCount = 0
     private var protectedStopCount = 0
 
-    init(firstStartDelaySeconds: TimeInterval) {
-        self.firstStartDelaySeconds = firstStartDelaySeconds
+    init(firstStartGate: RecoveringRuntimeStartGate) {
+        self.firstStartGate = firstStartGate
     }
 
     var startCount: Int {
@@ -486,7 +564,7 @@ private final class RecoveringSlowStartingSystemAudioRuntime: SystemAudioCapture
         }
 
         if currentStart == 1 {
-            try? await Task.sleep(nanoseconds: UInt64(firstStartDelaySeconds * 1_000_000_000))
+            await firstStartGate.waitForRelease()
         }
     }
 
@@ -494,6 +572,59 @@ private final class RecoveringSlowStartingSystemAudioRuntime: SystemAudioCapture
         lock.withLock {
             protectedStopCount += 1
         }
+        await firstStartGate.recordStop()
+    }
+}
+
+private actor RecoveringRuntimeStartGate {
+    private var firstStopObserved = false
+    private var firstStopWaiters: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func waitForRelease() async {
+        guard !released else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            if released {
+                continuation.resume()
+            } else {
+                releaseContinuation = continuation
+            }
+        }
+    }
+
+    func recordStop() {
+        guard !firstStopObserved else {
+            return
+        }
+        firstStopObserved = true
+        let waiters = firstStopWaiters
+        firstStopWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitUntilFirstStop() async {
+        guard !firstStopObserved else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            if firstStopObserved {
+                continuation.resume()
+            } else {
+                firstStopWaiters.append(continuation)
+            }
+        }
+    }
+
+    func releaseFirstStart() {
+        guard !released else {
+            return
+        }
+        released = true
+        releaseContinuation?.resume()
+        releaseContinuation = nil
     }
 }
 

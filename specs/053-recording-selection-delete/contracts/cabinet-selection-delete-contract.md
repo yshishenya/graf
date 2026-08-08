@@ -30,7 +30,14 @@ Expected successful response:
 
 - HTTP `202`
 - Existing deletion lifecycle response
-- Meeting leaves the active owner list after refresh or client removal
+- The owner web flow stays on the meeting list and removes the accepted meeting from the active list without opening a deletion report.
+- The accepted meeting row is removed from the active list immediately after the
+  request succeeds; no persistent success or cleanup banner is rendered.
+- The user-facing list flow contains no report URL, report link, or internal
+  cleanup status. Detailed lifecycle information remains available only through
+  its existing direct diagnostic/operator path.
+
+The detailed deletion report and API `report_url` remain available only through their existing direct diagnostic/operator paths; they are not part of the owner list confirmation flow.
 
 Expected failure behavior:
 
@@ -48,3 +55,5 @@ Required visible Russian copy:
 - Bounded deletion sentence includes: `2brain Rec`
 - Cancel button: `Отмена`
 - Confirm button: `Удалить`
+- Accepted request status: the row disappears from the list and the confirmation
+  dialog closes. No success/cleanup copy is required.

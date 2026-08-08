@@ -9,6 +9,7 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "workspace_provider_link_states",
     "auth_callback_states",
     "auth_audit_events",
+    "auth_rate_limit_buckets",
     "workspace_consent_copy",
     "meetings",
     "media_revisions",
@@ -23,6 +24,7 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "processing_results",
     "transcript_segments",
     "diarization_segments",
+    "meeting_speaker_names",
     "processing_audit_events",
     "processing_dependency_states",
     "meeting_share_grants",
@@ -35,15 +37,23 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "retention_policy_snapshots",
     "local_purge_tasks",
     "meeting_lifecycle_audit_events",
+    "dispatch_intents",
+    "meeting_deletion_fences",
+    "meeting_purge_journal",
     "meeting_outcome_sets",
     "meeting_outcome_items",
     "meeting_outcome_generation_attempts",
+    "summary_templates",
+    "generation_calls",
+    "meeting_share_invitations",
+    "meeting_share_rate_limit_buckets",
     "calendar_sources",
     "calendar_credential_envelopes",
     "external_calendars",
     "calendar_event_snapshots",
     "calendar_participants",
     "conference_link_candidates",
+    "recording_calendar_match_attempts",
     "recording_calendar_context_links",
     "calendar_reminder_states",
     "calendar_settings_preferences",
@@ -62,6 +72,9 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "meeting_detection_review_actions",
     "meeting_detection_non_target_rules",
     "meeting_detection_telemetry_rate_limit_buckets",
+    "playback_normalization_jobs",
+    "playback_normalization_attempts",
+    "playback_backfill_runs",
 }
 
 RLS_INHERITED_WORKSPACE_TABLES = {
@@ -76,15 +89,29 @@ RLS_ORGANIZATION_TABLES = {
     "user_identities",
 }
 
+RLS_OPERATOR_TABLES = {
+    "prompt_optimization_runs",
+    "prompt_optimization_call_ledger",
+}
+
 RLS_COVERED_TABLES = (
     RLS_DIRECT_WORKSPACE_TABLES
     | RLS_INHERITED_WORKSPACE_TABLES
     | RLS_ORGANIZATION_TABLES
+    | RLS_OPERATOR_TABLES
 )
 
 RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "migration_verification",
+    "production_smoke_setup",
     "production_smoke_cleanup",
     "backup_restore_rehearsal",
     "operator_diagnostics",
+    "playback_normalization_inventory",
+    "playback_normalization_dispatch",
+    "prompt_optimization",
+    "outcome_dispatch_reconciliation",
+    "deletion_purge_reconciliation",
+    "processing_legacy_lineage_reconciliation",
+    "outcome_initial_baseline_reconciliation",
 }

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-27
 
-**Status**: Draft
+**Status**: Implemented browser-owned workspace admin panel; desktop embedding is out of scope
 
 **Input**: User description: "Workspace admin panel for creating and monitoring users, balance/quotas, user files, detailed statistics, product metrics, and audit. V1 has no support role, no Analyst role, no billing/payments, and no internal global superadmin UI."
 

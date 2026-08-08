@@ -5,7 +5,7 @@ from typing import Annotated
 from uuid import UUID
 
 from cryptography.fernet import Fernet
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Path, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -23,15 +23,25 @@ from twobrain_rec_server.api.schemas import (
     ExternalCalendarSummary,
     MeetingCalendarContextResponse,
     PutMeetingCalendarContextRequest,
+    ResolveRecordingCalendarContextRequest,
+    ResolveRecordingCalendarContextResponse,
+    SafeClientText,
     SelectCalendarsRequest,
     UpcomingCalendarEventsResponse,
 )
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.auth.dependencies import get_principal, get_tenant_scope, require_web_csrf
+from twobrain_rec_server.auth.dependencies import (
+    get_device_context,
+    get_principal,
+    get_tenant_scope,
+    require_web_csrf,
+)
+from twobrain_rec_server.cabinet.queries import get_meeting_calendar_context_read_model
 from twobrain_rec_server.calendar.credentials import (
     calendar_connection_secret,
     generate_credential_key,
 )
+from twobrain_rec_server.calendar.matching import resolve_recording_calendar_context
 from twobrain_rec_server.calendar.service import (
     calendars_for_source,
     connect_source,
@@ -60,6 +70,7 @@ router = APIRouter(prefix="/api/v1", tags=["calendar"])
 PrincipalDependency = Depends(get_principal)
 TenantDependency = Depends(get_tenant_scope)
 WebCSRFDependency = Depends(require_web_csrf)
+DeviceDependency = Depends(get_device_context)
 
 
 async def get_request_db_session(
@@ -414,6 +425,51 @@ async def list_desktop_calendar_upcoming(
     )
 
 
+@router.post(
+    "/desktop/recordings/{local_recording_id}/calendar-context/resolve",
+    operation_id="resolveRecordingCalendarContext",
+    response_model=ResolveRecordingCalendarContextResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def resolve_desktop_recording_calendar_context(
+    local_recording_id: Annotated[
+        SafeClientText,
+        Path(min_length=1, max_length=240),
+    ],
+    payload: ResolveRecordingCalendarContextRequest,
+    idempotency_key: Annotated[
+        str,
+        Header(alias="Idempotency-Key", min_length=1, max_length=240),
+    ],
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> ResolveRecordingCalendarContextResponse:
+    attempt = await resolve_recording_calendar_context(
+        require_db(db),
+        tenant_scope,
+        local_recording_id=local_recording_id,
+        idempotency_key=idempotency_key,
+        recording_started_at=payload.recording_started_at,
+        decision_intent=payload.decision_intent,
+        selected_event_id=payload.event_id,
+    )
+    await commit_if_available(db)
+    expires_at = (
+        attempt.expires_at.replace(tzinfo=UTC)
+        if attempt.expires_at.tzinfo is None
+        else attempt.expires_at.astimezone(UTC)
+    )
+    return ResolveRecordingCalendarContextResponse(
+        attempt_id=attempt.id,
+        context_state=attempt.attempt_state,
+        reason_code=attempt.safe_reason_code,
+        context_confidence=attempt.context_confidence,
+        candidate_count=attempt.candidate_count,
+        matcher_version=attempt.matcher_version,
+        expires_at=expires_at,
+    )
+
+
 @router.put(
     "/meetings/{meeting_id}/calendar-context",
     response_model=MeetingCalendarContextResponse,
@@ -425,20 +481,38 @@ async def put_meeting_calendar_context(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> MeetingCalendarContextResponse:
-    link = await link_meeting_calendar_context(
-        require_db(db),
+    session = require_db(db)
+    await link_meeting_calendar_context(
+        session,
         tenant_scope,
         meeting_id=meeting_id,
         event_id=payload.event_id,
         context_reason=payload.context_reason,
     )
     await commit_if_available(db)
-    return MeetingCalendarContextResponse(
+    return await get_meeting_calendar_context_read_model(
+        session,
+        workspace_id=tenant_scope.workspace_id,
+        viewer_user_id=tenant_scope.user_id,
         meeting_id=meeting_id,
-        event_id=link.calendar_event_snapshot_id,
-        context_state="linked",
-        context_confidence=link.context_confidence,
-        title_source=link.title_source,
+    )
+
+
+@router.get(
+    "/meetings/{meeting_id}/calendar-context",
+    response_model=MeetingCalendarContextResponse,
+    dependencies=[PrincipalDependency],
+)
+async def get_meeting_calendar_context(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> MeetingCalendarContextResponse:
+    return await get_meeting_calendar_context_read_model(
+        require_db(db),
+        workspace_id=tenant_scope.workspace_id,
+        viewer_user_id=tenant_scope.user_id,
+        meeting_id=meeting_id,
     )
 
 
@@ -452,16 +526,14 @@ async def delete_meeting_calendar_context(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> MeetingCalendarContextResponse:
-    link = await unlink_meeting_calendar_context(
-        require_db(db), tenant_scope, meeting_id=meeting_id
-    )
+    session = require_db(db)
+    await unlink_meeting_calendar_context(session, tenant_scope, meeting_id=meeting_id)
     await commit_if_available(db)
-    return MeetingCalendarContextResponse(
+    return await get_meeting_calendar_context_read_model(
+        session,
+        workspace_id=tenant_scope.workspace_id,
+        viewer_user_id=tenant_scope.user_id,
         meeting_id=meeting_id,
-        event_id=link.calendar_event_snapshot_id if link is not None else None,
-        context_state="unlinked",
-        context_confidence=link.context_confidence if link is not None else None,
-        title_source=link.title_source if link is not None else None,
     )
 
 

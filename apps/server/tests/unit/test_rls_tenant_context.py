@@ -11,9 +11,13 @@ from twobrain_rec_server.db.tenant_context import (
     AuthCallbackLookupContext,
     AuthSessionLookupContext,
     MaintenanceTenantContext,
+    SharedWithMeLookupContext,
+    ShareInvitationLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
     auth_session_lookup_settings,
+    share_invitation_lookup_settings,
+    shared_with_me_lookup_settings,
     tenant_context_from_scope,
     tenant_context_settings,
 )
@@ -93,12 +97,33 @@ def test_maintenance_context_rejects_unknown_operation() -> None:
 
 def test_allowed_maintenance_operations_match_contract() -> None:
     assert "auth_session_lookup" not in RLS_ALLOWED_MAINTENANCE_OPERATIONS
-    assert MaintenanceTenantContext(
-        operation_name="operator_diagnostics",
-        actor_id="operator",
-        reason_category="diagnostics",
-        feature_area="security",
-    ).operation_name == "operator_diagnostics"
+    assert (
+        MaintenanceTenantContext(
+            operation_name="production_smoke_setup",
+            actor_id="seed_smoke_identity.py",
+            reason_category="smoke_setup",
+            feature_area="deployment",
+        ).operation_name
+        == "production_smoke_setup"
+    )
+    assert (
+        MaintenanceTenantContext(
+            operation_name="operator_diagnostics",
+            actor_id="operator",
+            reason_category="diagnostics",
+            feature_area="security",
+        ).operation_name
+        == "operator_diagnostics"
+    )
+    assert (
+        MaintenanceTenantContext(
+            operation_name="outcome_initial_baseline_reconciliation",
+            actor_id="operator",
+            reason_category="initial_baseline_reconciliation",
+            feature_area="outcomes",
+        ).operation_name
+        == "outcome_initial_baseline_reconciliation"
+    )
 
 
 @pytest.mark.parametrize(
@@ -128,3 +153,30 @@ def test_auth_session_lookup_context_sets_only_token_hash_and_kind() -> None:
         "app.context_kind": "auth_session_lookup",
         "app.auth_session_token_hash": "token-hash",
     }
+
+
+def test_share_invitation_lookup_context_is_bound_to_workspace_and_nonce() -> None:
+    context = ShareInvitationLookupContext(
+        workspace_id=WORKSPACE_ID,
+        continuation_nonce="continuation-state",
+    )
+
+    assert share_invitation_lookup_settings(context) == {
+        "app.context_kind": "share_invitation_lookup",
+        "app.workspace_id": str(WORKSPACE_ID),
+        "app.share_invitation_continuation_nonce": "continuation-state",
+    }
+
+
+def test_shared_with_me_lookup_context_sets_only_user_and_kind() -> None:
+    context = SharedWithMeLookupContext(user_id=USER_ID)
+
+    assert shared_with_me_lookup_settings(context) == {
+        "app.context_kind": "shared_with_me_lookup",
+        "app.user_id": str(USER_ID),
+    }
+
+
+def test_shared_with_me_lookup_context_rejects_other_kind() -> None:
+    with pytest.raises(ValueError, match="shared_with_me_lookup"):
+        SharedWithMeLookupContext(user_id=USER_ID, context_kind="request")

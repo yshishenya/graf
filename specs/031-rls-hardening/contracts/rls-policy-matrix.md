@@ -34,6 +34,7 @@ Tables:
 - `workspace_provider_link_states`
 - `auth_callback_states`
 - `auth_audit_events`
+- `auth_rate_limit_buckets`
 - `workspace_consent_copy`
 - `meetings`
 - `media_revisions`
@@ -60,15 +61,23 @@ Tables:
 - `retention_policy_snapshots`
 - `local_purge_tasks`
 - `meeting_lifecycle_audit_events`
+- `dispatch_intents`
+- `meeting_deletion_fences`
+- `meeting_purge_journal`
 - `meeting_outcome_sets`
 - `meeting_outcome_items`
 - `meeting_outcome_generation_attempts`
+- `summary_templates`
+- `generation_calls`
+- `meeting_share_invitations`
+- `meeting_share_rate_limit_buckets`
 - `calendar_sources`
 - `calendar_credential_envelopes`
 - `external_calendars`
 - `calendar_event_snapshots`
 - `calendar_participants`
 - `conference_link_candidates`
+- `recording_calendar_match_attempts`
 - `recording_calendar_context_links`
 - `calendar_reminder_states`
 - `calendar_settings_preferences`
@@ -86,6 +95,31 @@ Tables:
 - `meeting_detection_review_actions`
 - `meeting_detection_non_target_rules`
 - `meeting_detection_telemetry_rate_limit_buckets`
+- `playback_normalization_jobs`
+- `playback_normalization_attempts`
+- `playback_backfill_runs`
+- `meeting_speaker_names`
+
+`generation_calls` deliberately has no request-context policy. It is visible to
+the matching workspace worker and approved maintenance contexts only, so the
+retained plaintext model-call ledger cannot become an end-user data surface.
+
+## Maintenance-Only Global Tables
+
+Policy shape:
+
+```text
+approved_maintenance_context(operation)
+```
+
+Tables:
+
+- `prompt_optimization_runs`
+- `prompt_optimization_call_ledger`
+
+These optimizer tables are global operator data, not tenant-owned data. Request
+and worker contexts receive no rows; only an approved maintenance context can
+read or mutate them.
 
 `workspace_invitations` and `admin_audit_events` use the direct workspace policy
 for normal request and worker contexts, and additionally allow `auth_bootstrap` only when
@@ -93,6 +127,18 @@ for normal request and worker contexts, and additionally allow `auth_bootstrap` 
 the current organization. This lets provider callback completion find matching
 pending invitations and write the metadata-only completion audit event without
 exposing quota, usage, or other admin tables to auth bootstrap contexts.
+
+Feature 099 keeps its two scheduler operations out of the historical global
+maintenance predicate. `playback_normalization_inventory` and
+`playback_normalization_dispatch` receive normalization-specific `FOR SELECT`
+policies only on `playback_normalization_jobs` and `playback_backfill_runs`.
+`playback_normalization_attempts`, scheduler DML, and every content/artifact
+operation require the exact request/worker workspace predicate.
+
+The deployment-global GEPA optimizer uses the separate
+`prompt_optimization` maintenance operation. It is accepted only through the
+`twobrain_rec_maintenance` role and the exact transaction-local maintenance
+context; ordinary recording workers never mount that role's password.
 
 ## Inherited Workspace Tables
 

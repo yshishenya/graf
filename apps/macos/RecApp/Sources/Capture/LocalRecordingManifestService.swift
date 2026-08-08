@@ -19,72 +19,46 @@ public struct LocalRecordingManifestService: Sendable {
         self.decoder = decoder
     }
 
-    public func manifest(
+    /// New capture has one canonical ASR WAV and one playback-only M4A.
+    public func v5Manifest(
         sessionId: String,
         directoryId: String,
         startedAt: Date,
         stoppedAt: Date,
         tracks: [LocalRecordingTrack],
-        leakageFinalization: LeakageFinalization? = nil,
         failureReason: LocalRecordingFailureReason = .none,
-        routeSessionId: String? = nil,
-        autorepairAttemptIds: [String] = [],
-        routeInterruptionCategory: RouteInterruptionCategory = .none,
         scopeApproval: CaptureScopeApproval? = nil,
         permissions: SystemAudioPermissionSnapshot? = nil,
         microphoneSelection: RecordingMicrophoneSelection? = nil,
         microphoneStream: AppOwnedMicrophoneStreamSession? = nil,
         microphoneStreamHealth: MicrophoneStreamHealth? = nil,
-        appleProcessingOutcome: AppleProcessingOutcome? = nil,
-        webRTCAEC3Outcome: WebRTCAEC3DecisionRecord? = nil,
         captureHealth: CaptureHealthSnapshot? = nil,
         privacySegments: [ProductPrivacySegment] = [],
         targetMuteCapability: TargetMuteCapability? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
-        limitationCopyShownAt: Date? = nil
+        limitationCopyShownAt: Date? = nil,
+        captureFailureCode: String? = nil
     ) -> LocalRecordingManifest {
-        let hasExactlyOneRequiredTrackPerRole =
-            tracks.count == 2 &&
-            tracks.filter { $0.role == .localMic }.count == 1 &&
-            tracks.filter { $0.role == .remoteSpeaker }.count == 1
-        let durationDifferenceSeconds = Self.durationDifferenceSeconds(tracks: tracks)
-        let scopeAllowsAcceptedRecording = scopeApproval?.isAcceptedForMeetingRecording ?? false
-        let permissionsAllowAcceptedRecording = permissions?.allowsAcceptedRecording ?? false
-        let externallyFailed = failureReason != .none
-        let originalTracksReady = hasExactlyOneRequiredTrackPerRole &&
-            tracks.filter { $0.evidenceRole == .original }.allSatisfy(\.isMediaScribeReady)
-        let originalGateReady = originalTracksReady && (
-            leakageFinalization == nil ||
-                leakageFinalization?.status == .clean &&
-                leakageFinalization?.transcriptionGate == .eligibleOriginalDual
-        )
-        let derivedGateReady = leakageFinalization?.transcriptionGate == .eligibleDerivedDual &&
-            tracks.contains(where: \.isDerivedTranscriptionEligible)
-        let webRTCAEC3GateReady = webRTCAEC3Outcome?.canClaimCleanBuiltInSpeakerphone == true &&
-            originalTracksReady
-        let complete = (originalGateReady || derivedGateReady || webRTCAEC3GateReady) &&
-            scopeAllowsAcceptedRecording &&
-            permissionsAllowAcceptedRecording &&
-            durationDifferenceSeconds <= 3 &&
-            !externallyFailed
-        let resolvedFailure: LocalRecordingFailureReason = complete ? .none : Self.resolveFailureReason(
-            tracks: tracks,
-            leakageFinalization: leakageFinalization,
-            scopeApproval: scopeApproval,
-            permissions: permissions,
-            fallback: failureReason
-        )
+        // `timeline_misaligned` is a legacy persisted value. Never create it
+        // for a new package, even if an older caller passes it through.
+        let persistedFailureReason = failureReason == .timelineMisaligned
+            ? .captureFailed
+            : failureReason
+        let durationDifferenceSeconds = Self.v5DurationDifferenceSeconds(tracks: tracks)
+        let hasExactV5Artifacts = tracks.count == 2 &&
+            Set(tracks.map(\.role)) == Set([.mixedMeetingAudio, .reviewPlayback]) &&
+            tracks.first(where: { $0.role == .mixedMeetingAudio })?.isCanonicalTranscriptionArtifact == true &&
+            tracks.first(where: { $0.role == .reviewPlayback })?.isReviewPlaybackArtifact == true
+        let complete = hasExactV5Artifacts &&
+            scopeApproval?.isAcceptedForMeetingRecording == true &&
+            permissions?.allowsAcceptedRecording == true &&
+            durationDifferenceSeconds <= 0.1 &&
+            persistedFailureReason == .none
         let status: LocalRecordingSessionStatus = if complete {
             .saved
-        } else if Self.isBlockedFailure(failureReason) {
+        } else if Self.isBlockedFailure(persistedFailureReason) {
             .blocked
-        } else if Self.isFailedFailure(failureReason) {
-            .failed
-        } else if tracks.contains(where: { $0.status == .blocked }) {
-            .blocked
-        } else if tracks.contains(where: { $0.status == .failed }) {
-            .failed
-        } else if leakageFinalization?.transcriptionGate == .blockedLeakageDetected {
+        } else if persistedFailureReason != .none || tracks.contains(where: { $0.status == .failed }) {
             .failed
         } else {
             .degraded
@@ -96,7 +70,6 @@ public struct LocalRecordingManifestService: Sendable {
         } else {
             .degraded
         }
-
         let createdAt = clock()
         let muteTruthDecision = MuteTruthDecision.mvpDecision(
             sessionId: sessionId,
@@ -107,32 +80,27 @@ public struct LocalRecordingManifestService: Sendable {
         )
 
         return LocalRecordingManifest(
+            schemaVersion: LocalRecordingManifest.schemaVersion,
             sessionId: sessionId,
             createdAt: createdAt,
             startedAt: startedAt,
             stoppedAt: stoppedAt,
+            finalizedAt: stoppedAt,
             status: status,
             directoryId: directoryId,
             transcriptionReadiness: readiness,
-            mediaScribeSourceMode: "dual",
+            mediaScribeSourceMode: "single_wav_v1",
+            canonicalMixProfile: LocalRecordingManifest.canonicalMixProfileVersion,
             tracks: tracks,
             localDeletionRegistered: false,
-            leakageFinalization: leakageFinalization,
-            failureReason: resolvedFailure,
+            failureReason: complete ? .none : persistedFailureReason,
+            captureFailureCode: captureFailureCode,
             durationDifferenceSeconds: durationDifferenceSeconds,
-            recordingTimelineEvidence: routeTimelineEvidence(
-                routeSessionId: routeSessionId,
-                tracks: tracks,
-                autorepairAttemptIds: autorepairAttemptIds,
-                interruptionCategory: routeInterruptionCategory
-            ),
             scopeApproval: scopeApproval,
             permissions: permissions,
             microphoneSelection: microphoneSelection,
             microphoneStream: microphoneStream,
             microphoneStreamHealth: microphoneStreamHealth,
-            appleProcessingOutcome: appleProcessingOutcome,
-            webRTCAEC3Outcome: webRTCAEC3Outcome,
             captureHealth: captureHealth,
             privacySegments: privacySegments,
             meetingMuteTruth: muteTruthDecision,
@@ -172,49 +140,6 @@ public struct LocalRecordingManifestService: Sendable {
         return normalizedManifest
     }
 
-    private static func resolveFailureReason(
-        tracks: [LocalRecordingTrack],
-        leakageFinalization: LeakageFinalization?,
-        scopeApproval: CaptureScopeApproval?,
-        permissions: SystemAudioPermissionSnapshot?,
-        fallback: LocalRecordingFailureReason
-    ) -> LocalRecordingFailureReason {
-        if fallback != .none {
-            return fallback
-        }
-        if let permissions, !permissions.allowsAcceptedRecording {
-            return .permissionDenied
-        }
-        if permissions == nil, tracks.allSatisfy(\.isMediaScribeReady) {
-            return .permissionDenied
-        }
-        if scopeApproval == nil, tracks.allSatisfy(\.isMediaScribeReady) {
-            return .scopeUnavailable
-        }
-        if let trackReason = tracks.first(where: { $0.failureReason != .none })?.failureReason {
-            return trackReason
-        }
-        if tracks.contains(where: { !$0.timelineAligned }) {
-            return .timelineMisaligned
-        }
-        if tracks.contains(where: { $0.isComplete && !$0.isMediaScribeReady }) {
-            return .formatNotReady
-        }
-        switch leakageFinalization?.transcriptionGate {
-        case .blockedLeakageDetected:
-            return .leakageDetected
-        case .blockedUnproven:
-            return .leakageUnproven
-        case .blockedNotMeasured:
-            return .leakageNotMeasured
-        case .blockedTimelineMisaligned:
-            return .timelineMisaligned
-        case .eligibleOriginalDual, .eligibleDerivedDual, .notApplicable, .none:
-            break
-        }
-        return .emptyRequiredTrack
-    }
-
     private static func resolveCaptureHealthFailureReason(for manifest: LocalRecordingManifest) -> LocalRecordingFailureReason {
         if manifest.failureReason != .none {
             return manifest.failureReason
@@ -239,13 +164,11 @@ public struct LocalRecordingManifestService: Sendable {
         case .permissionDenied, .scopeUnavailable, .protectedAudioBlocked:
             .blocked
         case .directoryUnavailable, .captureFailed, .writeFailed, .finalizationFailed,
-             .timelineMisaligned, .cpuGateFailed, .halProbeObserved, .deviceUnavailable,
-             .appClosed, .leakageDetected:
+             .timelineMisaligned, .cpuGateFailed, .deviceUnavailable,
+             .appClosed:
             .failed
         case .emptyRequiredTrack, .formatNotReady, .silentInput, .noFrames,
-             .stoppedBeforeFrames, .legacyNotReady, .leakageUnproven,
-             .leakageNotMeasured, .insufficientReference, .derivedResidualLeakage,
-             .derivedDeletionNotRegistered, .unknown:
+             .stoppedBeforeFrames, .historicalPackage, .unknown:
             .degraded
         }
     }
@@ -257,53 +180,19 @@ public struct LocalRecordingManifestService: Sendable {
         case .none, .directoryUnavailable, .writeFailed, .finalizationFailed,
              .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
              .silentInput, .noFrames, .captureFailed, .cpuGateFailed,
-             .stoppedBeforeFrames, .halProbeObserved, .deviceUnavailable,
-             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
-             .insufficientReference, .derivedResidualLeakage,
-             .derivedDeletionNotRegistered, .legacyNotReady, .appClosed, .unknown:
+             .stoppedBeforeFrames, .deviceUnavailable,
+             .historicalPackage, .appClosed, .unknown:
             return false
         }
     }
 
-    private static func isFailedFailure(_ reason: LocalRecordingFailureReason) -> Bool {
-        switch reason {
-        case .directoryUnavailable, .writeFailed, .finalizationFailed, .captureFailed,
-             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .appClosed,
-             .leakageDetected:
-            return true
-        case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
-             .permissionDenied, .scopeUnavailable, .protectedAudioBlocked,
-             .silentInput, .noFrames, .stoppedBeforeFrames, .legacyNotReady,
-             .leakageUnproven, .leakageNotMeasured, .insufficientReference,
-             .derivedResidualLeakage, .derivedDeletionNotRegistered, .unknown:
-            return false
-        }
-    }
-
-    private static func durationDifferenceSeconds(tracks: [LocalRecordingTrack]) -> Double {
-        guard let mic = tracks.first(where: { $0.role == .localMic }),
-              let incoming = tracks.first(where: { $0.role == .remoteSpeaker })
+    private static func v5DurationDifferenceSeconds(tracks: [LocalRecordingTrack]) -> Double {
+        guard let media = tracks.first(where: { $0.role == .mixedMeetingAudio }),
+              let playback = tracks.first(where: { $0.role == .reviewPlayback })
         else {
             return 0
         }
-        return Double(abs(mic.durationMs - incoming.durationMs)) / 1000
+        return Double(abs(media.durationMs - playback.durationMs)) / 1000
     }
 
-    private func routeTimelineEvidence(
-        routeSessionId: String?,
-        tracks: [LocalRecordingTrack],
-        autorepairAttemptIds: [String],
-        interruptionCategory: RouteInterruptionCategory
-    ) -> RecordingTimelineIntegrityEvidence? {
-        guard let routeSessionId else { return nil }
-        let micDurationMs = tracks.first { $0.role == .localMic }?.durationMs ?? 0
-        let incomingDurationMs = tracks.first { $0.role == .remoteSpeaker }?.durationMs ?? 0
-        return RecordingTimelineEvidenceBuilder().evidence(
-            routeSessionId: routeSessionId,
-            autorepairAttemptIds: autorepairAttemptIds,
-            microphoneDurationMs: micDurationMs,
-            incomingDurationMs: incomingDurationMs,
-            interruptionCategory: interruptionCategory
-        )
-    }
 }

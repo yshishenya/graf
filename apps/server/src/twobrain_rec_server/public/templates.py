@@ -11,6 +11,7 @@ from starlette.responses import HTMLResponse
 
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_asset_url
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
 from twobrain_rec_server.public.analytics import build_public_analytics_context
 from twobrain_rec_server.templates import (
     html_response,
@@ -71,6 +72,15 @@ def public_template_response(
             referrer=request.headers.get("referer"),
         ),
     )
+    public_page_class = {
+        "/": "public_landing",
+        "/download": "public_download",
+        "/privacy": "legal",
+        "/cookies": "legal",
+        "/terms": "legal",
+        "/analytics-consent": "legal",
+    }.get(analytics_path, "future_browser_page")
+    context.setdefault("product_analytics_provider", build_browser_provider_context(settings, public_page_class))
     return html_response(
         render_template(template_name, request=request, **context),
         status_code=status_code,

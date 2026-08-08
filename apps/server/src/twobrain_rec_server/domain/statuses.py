@@ -34,6 +34,7 @@ class MediaRevisionStatus(StrEnum):
 
 class MediaRevisionSourceKind(StrEnum):
     INITIAL_RECORDING = "initial_recording"
+    INITIAL_MIXED_RECORDING = "initial_mixed_recording"
     MANUAL_UPLOAD = "manual_upload"
     LOCAL_TRIM = "local_trim"
     VIDEO_CAPTURE = "video_capture"
@@ -142,6 +143,7 @@ class ProcessingStatus(StrEnum):
 
 class MediaScribeJobStatus(StrEnum):
     NOT_SUBMITTED = "not_submitted"
+    SUBMITTING = "submitting"
     SUBMITTED = "submitted"
     UPLOADED = "uploaded"
     TRANSCRIBING = "transcribing"
@@ -244,6 +246,7 @@ class OutcomeGenerationAttemptStatus(StrEnum):
     FAILED_RETRYABLE = "failed_retryable"
     FAILED_TERMINAL = "failed_terminal"
     UNSAFE = "unsafe"
+    EXPIRED = "expired"
 
 
 class ProcessingDependencyName(StrEnum):
@@ -309,17 +312,27 @@ class DeletionReasonCode(StrEnum):
 
 class DeletionArtifactClass(StrEnum):
     MEETING_ROW = "meeting_row"
+    CALENDAR_CONTEXT = "calendar_context"
     MEDIA_REVISION = "media_revision"
     AUDIO_OBJECT = "audio_object"
+    PLAYBACK_CANDIDATE = "playback_candidate"
+    PLAYBACK_CANONICAL = "playback_canonical"
+    NORMALIZATION_ATTEMPT_TEMP = "normalization_attempt_temp"
+    NORMALIZATION_JOB = "normalization_job"
+    NORMALIZATION_BACKFILL = "normalization_backfill"
     TRANSCRIPT = "transcript"
     DIARIZATION = "diarization"
     NOTES_SUMMARY = "notes_summary"
+    OUTCOME_ATTEMPT = "outcome_attempt"
+    GENERATION_CALL = "generation_call"
     EXPORT_PACKAGE = "export_package"
     SHARE_GRANT = "share_grant"
+    SHARE_INVITATION = "share_invitation"
     UPLOAD_TEMP = "upload_temp"
     PROCESSING_WORKFLOW = "processing_workflow"
     MEDIASCRIBE = "mediascribe"
     LANGFUSE = "langfuse"
+    TEMPORAL_HISTORY = "temporal_history"
     DIAGNOSTICS = "diagnostics"
     BACKUP = "backup"
     LOCAL_DESKTOP_BUFFER = "local_desktop_buffer"
@@ -341,6 +354,7 @@ class DeletionArtifactState(StrEnum):
     PURGE_REQUESTED = "purge_requested"
     PURGED = "purged"
     METADATA_RETAINED = "metadata_retained"
+    OBSERVABILITY_RETAINED = "observability_retained"
     PENDING_EXPIRY = "pending_expiry"
     DELETE_REQUESTED = "delete_requested"
     DELETE_CONFIRMED = "delete_confirmed"

@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-31
 
-**Status**: Draft
+**Status**: Historical passthrough foundation; superseded by later route/capture slices
 
 **Input**: User description: "Continue macOS development after the publication proof: implement real live audio passthrough and capture readiness so 2brain Rec becomes usable for calls, not only visible in macOS."
 

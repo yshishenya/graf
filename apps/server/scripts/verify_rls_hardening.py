@@ -6,6 +6,7 @@ import asyncio
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Awaitable, Callable
@@ -13,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID, uuid4
 
 SERVER_ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,9 @@ TenantDatabaseContext = None
 apply_tenant_context_to_connection = None
 
 LIVE_PRODUCTION_DATABASE_NAMES = frozenset({"twobrain_rec"})
+PROBE_ROLE_NAME = "twobrain_rec_maintenance"
+DISPOSABLE_DATABASE_NAME_RE = re.compile(r"^twobrain_rec_rls_[a-z0-9_]{1,43}$")
+RUNTIME_DATABASE_HOST_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 
 def _load_probe_dependencies() -> None:
@@ -118,26 +122,178 @@ def _database_name_from_url(database_url: str) -> str:
     return unquote(path.split("/", 1)[0]) if path else ""
 
 
+def _database_target_from_url(database_url: str) -> tuple[str, int, str]:
+    parsed = urlsplit(database_url)
+    return (
+        (parsed.hostname or "").lower(),
+        parsed.port or 5432,
+        _database_name_from_url(database_url),
+    )
+
+
+def _username_from_url(database_url: str) -> str:
+    return unquote(urlsplit(database_url).username or "")
+
+
 def _is_forbidden_live_database_url(database_url: str) -> bool:
     return _database_name_from_url(database_url) in LIVE_PRODUCTION_DATABASE_NAMES
 
 
+def _read_runtime_secret(path_value: str) -> str:
+    path = Path(path_value)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("RLS runtime secret path must be a regular file")
+    value = path.read_text(encoding="utf-8").strip()
+    if not value:
+        raise ValueError("RLS runtime secret file must not be empty")
+    return value
+
+
+def _resolve_database_urls(args: argparse.Namespace) -> tuple[str | None, str | None]:
+    runtime_secret_inputs = (
+        args.runtime_owner_password_file,
+        args.runtime_maintenance_password_file,
+        args.runtime_database_name,
+    )
+    if not any(runtime_secret_inputs):
+        return os.getenv("RLS_TEST_DATABASE_URL"), os.getenv("RLS_TEST_PROBE_DATABASE_URL")
+    if not all(runtime_secret_inputs):
+        raise ValueError("all RLS runtime secret inputs are required together")
+    if not RUNTIME_DATABASE_HOST_RE.fullmatch(args.runtime_database_host):
+        raise ValueError("RLS runtime database host is invalid")
+    if not (1 <= args.runtime_database_port <= 65535):
+        raise ValueError("RLS runtime database port is invalid")
+
+    owner_password = quote(_read_runtime_secret(args.runtime_owner_password_file), safe="")
+    maintenance_password = quote(
+        _read_runtime_secret(args.runtime_maintenance_password_file),
+        safe="",
+    )
+    database_name = args.runtime_database_name
+    authority = f"{args.runtime_database_host}:{args.runtime_database_port}"
+    return (
+        f"postgresql+asyncpg://twobrain_rec:{owner_password}@{authority}/{database_name}",
+        f"postgresql+asyncpg://{PROBE_ROLE_NAME}:{maintenance_password}@{authority}/{database_name}",
+    )
+
+
+def _validate_existing_probe_url(
+    database_url: str,
+    probe_url: str | None,
+    *,
+    destructive_probe_database: str,
+) -> None:
+    if probe_url is None:
+        return
+    if destructive_probe_database != "disposable":
+        raise ValueError("existing RLS probe role requires a disposable database")
+    if _database_target_from_url(database_url) != _database_target_from_url(probe_url):
+        raise ValueError("RLS migration and probe URLs must target the same database")
+    if _username_from_url(probe_url) != PROBE_ROLE_NAME:
+        raise ValueError("RLS probe URL must use the maintenance runtime role")
+    if not DISPOSABLE_DATABASE_NAME_RE.fullmatch(_database_name_from_url(database_url)):
+        raise ValueError("existing RLS probe role requires a disposable scratch database name")
+
+
 async def _create_probe_role(migration_url: str) -> tuple[str, str]:
-    role_name = f"twobrain_rls_probe_{uuid4().hex[:16]}"
+    role_name = PROBE_ROLE_NAME
     password = uuid4().hex
     engine = create_async_engine(migration_url, isolation_level="AUTOCOMMIT")
     try:
         async with engine.begin() as conn:
             quoted_role = _quote_identifier(role_name)
-            await conn.execute(text(f"create role {quoted_role} login password {_quote_literal(password)}"))
+            await conn.execute(
+                text(
+                    f"create role {quoted_role} login password {_quote_literal(password)} "
+                    "nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls"
+                )
+            )
+            await conn.execute(text(f"alter role {quoted_role} set row_security = on"))
             await conn.execute(text(f"grant usage on schema public to {quoted_role}"))
             await conn.execute(
-                text(f"grant select, insert, update, delete on all tables in schema public to {quoted_role}")
+                text(
+                    f"grant select, insert, update, delete on all tables in schema public to {quoted_role}"
+                )
             )
-            await conn.execute(text(f"grant usage, select on all sequences in schema public to {quoted_role}"))
+            await conn.execute(
+                text(f"grant usage, select on all sequences in schema public to {quoted_role}")
+            )
     finally:
         await engine.dispose()
     return role_name, password
+
+
+async def _assert_existing_probe_role_safe(migration_url: str, role_name: str) -> None:
+    engine = create_async_engine(migration_url, isolation_level="AUTOCOMMIT")
+    try:
+        async with engine.begin() as conn:
+            role_state = (
+                (
+                    await conn.execute(
+                        text(
+                            """
+                        select rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
+                               rolinherit, rolreplication, rolbypassrls
+                        from pg_roles
+                        where rolname = :role_name
+                        """
+                        ),
+                        {"role_name": role_name},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if role_state is None or (
+                not role_state["rolcanlogin"]
+                or role_state["rolsuper"]
+                or role_state["rolcreatedb"]
+                or role_state["rolcreaterole"]
+                or role_state["rolinherit"]
+                or role_state["rolreplication"]
+                or role_state["rolbypassrls"]
+            ):
+                raise RuntimeError("existing RLS probe role attributes are unsafe")
+            membership_count = await conn.scalar(
+                text(
+                    """
+                    select count(*)
+                    from pg_auth_members as memberships
+                    join pg_roles as member_roles on member_roles.oid = memberships.member
+                    join pg_roles as granted_roles on granted_roles.oid = memberships.roleid
+                    where member_roles.rolname = :role_name
+                       or granted_roles.rolname = :role_name
+                    """
+                ),
+                {"role_name": role_name},
+            )
+            if membership_count:
+                raise RuntimeError("existing RLS probe role membership is unsafe")
+    finally:
+        await engine.dispose()
+
+
+async def _grant_existing_probe_role(migration_url: str, role_name: str) -> None:
+    await _assert_existing_probe_role_safe(migration_url, role_name)
+    engine = create_async_engine(migration_url, isolation_level="AUTOCOMMIT")
+    try:
+        async with engine.begin() as conn:
+            quoted_role = _quote_identifier(role_name)
+            quoted_database = _quote_identifier(_database_name_from_url(migration_url))
+            await conn.execute(
+                text(f"grant connect on database {quoted_database} to {quoted_role}")
+            )
+            await conn.execute(text(f"grant usage on schema public to {quoted_role}"))
+            await conn.execute(
+                text(
+                    f"grant select, insert, update, delete on all tables in schema public to {quoted_role}"
+                )
+            )
+            await conn.execute(
+                text(f"grant usage, select on all sequences in schema public to {quoted_role}")
+            )
+    finally:
+        await engine.dispose()
 
 
 async def _drop_probe_role(migration_url: str, role_name: str) -> None:
@@ -170,9 +326,15 @@ def _run_migrations(database_url: str) -> None:
         get_settings.cache_clear()
 
 
-async def _prepare_urls(database_url: str) -> MigratedPostgresUrls:
-    probe_url = os.getenv("RLS_TEST_PROBE_DATABASE_URL")
+async def _prepare_urls(
+    database_url: str,
+    *,
+    existing_probe_url: str | None,
+) -> MigratedPostgresUrls:
+    probe_url = existing_probe_url
     if probe_url:
+        probe_role = _username_from_url(probe_url)
+        await _grant_existing_probe_role(database_url, probe_role)
         return MigratedPostgresUrls(migration_url=database_url, probe_url=probe_url)
     probe_role, password = await _create_probe_role(database_url)
     return MigratedPostgresUrls(
@@ -319,7 +481,9 @@ async def _seed_probe_rows(engine: Any) -> dict[str, UUID | str]:
     return ids
 
 
-def _request_context(ids: dict[str, UUID | str], label: str, *, context_kind: str = "request") -> TenantDatabaseContext:
+def _request_context(
+    ids: dict[str, UUID | str], label: str, *, context_kind: str = "request"
+) -> TenantDatabaseContext:
     return TenantDatabaseContext(
         organization_id=ids[f"org_{label}"],
         workspace_id=ids[f"workspace_{label}"],
@@ -384,12 +548,16 @@ async def _probe_worker_and_maintenance_context(engine: Any) -> dict[str, bool]:
     ids = await _seed_probe_rows(engine)
 
     async with engine.connect() as conn:
-        await apply_tenant_context_to_connection(conn, _request_context(ids, "a", context_kind="worker"))
+        await apply_tenant_context_to_connection(
+            conn, _request_context(ids, "a", context_kind="worker")
+        )
         worker_count = await conn.scalar(text("select count(*) from meetings"))
 
     async with engine.connect() as conn:
         await conn.execute(text("select set_config('app.context_kind', 'maintenance', true)"))
-        await conn.execute(text("select set_config('app.maintenance_operation', 'migration_verification', true)"))
+        await conn.execute(
+            text("select set_config('app.maintenance_operation', 'migration_verification', true)")
+        )
         incomplete_maintenance_count = await conn.scalar(text("select count(*) from meetings"))
 
     async with engine.connect() as conn:
@@ -420,8 +588,12 @@ async def _run_probe(
         return {}
 
 
-async def _run_probes(database_url: str) -> list[RLSProbeEvidence]:
-    urls = await _prepare_urls(database_url)
+async def _run_probes(
+    database_url: str,
+    *,
+    existing_probe_url: str | None,
+) -> list[RLSProbeEvidence]:
+    urls = await _prepare_urls(database_url, existing_probe_url=existing_probe_url)
     engine = create_async_engine(urls.probe_url, pool_pre_ping=True)
     try:
         results: dict[str, bool] = {}
@@ -471,6 +643,29 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         choices=("disposable", "explicit_test"),
         default=os.getenv("RLS_DESTRUCTIVE_PROBE_DATABASE_CLASS", "explicit_test"),
         help="classify the non-production database used for destructive direct probes",
+    )
+    parser.add_argument(
+        "--runtime-owner-password-file",
+        help="read the disposable database owner password from this mounted file",
+    )
+    parser.add_argument(
+        "--runtime-maintenance-password-file",
+        help="read the existing maintenance role password from this mounted file",
+    )
+    parser.add_argument(
+        "--runtime-database-name",
+        help="disposable scratch database used by the runtime-secret verification path",
+    )
+    parser.add_argument(
+        "--runtime-database-host",
+        default="rec-postgres",
+        help="database host used by the runtime-secret verification path",
+    )
+    parser.add_argument(
+        "--runtime-database-port",
+        type=int,
+        default=5432,
+        help="database port used by the runtime-secret verification path",
     )
     return parser.parse_args(argv)
 
@@ -531,7 +726,9 @@ async def _fetch_production_table_state(database_url: str) -> tuple[list[Any], s
     engine = create_async_engine(database_url, pool_pre_ping=True)
     try:
         async with engine.connect() as conn:
-            alembic_revision = await conn.scalar(text("select version_num from alembic_version limit 1"))
+            alembic_revision = await conn.scalar(
+                text("select version_num from alembic_version limit 1")
+            )
             result = await conn.execute(text(_production_rls_state_sql()))
             rows = result.mappings().all()
     finally:
@@ -551,7 +748,11 @@ async def _fetch_production_table_state(database_url: str) -> tuple[list[Any], s
 
 
 def _production_database_url() -> str | None:
-    return os.getenv("PRODUCTION_RLS_DATABASE_URL") or get_settings().database_url or os.getenv("TWOBRAIN_DATABASE_URL")
+    return (
+        os.getenv("PRODUCTION_RLS_DATABASE_URL")
+        or get_settings().database_url
+        or os.getenv("TWOBRAIN_DATABASE_URL")
+    )
 
 
 def _run_production_read_only(args: argparse.Namespace) -> int:
@@ -572,7 +773,9 @@ def _run_production_read_only(args: argparse.Namespace) -> int:
                 _print_production_report(report)
                 print("reason=production_database_url_required")
                 return 1
-            table_states, alembic_revision = asyncio.run(_fetch_production_table_state(database_url))
+            table_states, alembic_revision = asyncio.run(
+                _fetch_production_table_state(database_url)
+            )
     except Exception as exc:
         report = evaluate_production_rls_state(
             [],
@@ -601,7 +804,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.production_read_only:
         return _run_production_read_only(args)
 
-    database_url = os.getenv("RLS_TEST_DATABASE_URL")
+    try:
+        database_url, existing_probe_url = _resolve_database_urls(args)
+    except Exception as exc:
+        _print_report(RLSValidationReport(environment="postgres_test"))
+        print("reason=rls_probe_configuration_invalid")
+        print(f"error_type={type(exc).__name__}")
+        return 1
     if not database_url:
         _print_report(RLSValidationReport(environment="postgres_test"))
         print("reason=postgres_test_database_required")
@@ -618,9 +827,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
+        _validate_existing_probe_url(
+            database_url,
+            existing_probe_url,
+            destructive_probe_database=args.destructive_probe_database,
+        )
         _load_probe_dependencies()
+        if existing_probe_url is not None:
+            asyncio.run(_assert_existing_probe_role_safe(database_url, PROBE_ROLE_NAME))
         _run_migrations(database_url)
-        probes = asyncio.run(_run_probes(database_url))
+        probes = asyncio.run(_run_probes(database_url, existing_probe_url=existing_probe_url))
     except Exception as exc:
         _print_report(RLSValidationReport(environment="postgres_test"))
         print("reason=rls_probe_command_failed")

@@ -213,14 +213,17 @@ def test_calendar_settings_sources_are_scoped_to_current_user(client) -> None:
 
     async def seed() -> UUID:
         async with sessionmaker() as session:
+            session.add(
+                UserIdentity(
+                    id=FORGED_USER_ID,
+                    organization_id=ORG_ID,
+                    external_subject=str(FORGED_USER_ID),
+                    display_name="Other User",
+                )
+            )
+            await session.flush()
             session.add_all(
                 [
-                    UserIdentity(
-                        id=FORGED_USER_ID,
-                        organization_id=ORG_ID,
-                        external_subject=str(FORGED_USER_ID),
-                        display_name="Other User",
-                    ),
                     WorkspaceMembership(
                         workspace_id=WORKSPACE_ID,
                         user_id=FORGED_USER_ID,
@@ -236,6 +239,7 @@ def test_calendar_settings_sources_are_scoped_to_current_user(client) -> None:
                     ),
                 ]
             )
+            await session.flush()
             own_source = CalendarSource(
                 workspace_id=WORKSPACE_ID,
                 owner_user_id=USER_ID,
@@ -1361,6 +1365,9 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
         ),
     ]
 
+    settings_page = client.get("/settings/integrations/calendar", headers=auth_headers())
+    assert settings_page.status_code == 200
+
     seen_source_ids = []
     for name, source_kwargs, expected_result, expected_notice in cases:
         source_id = asyncio.run(seed_source(name, **source_kwargs))
@@ -1374,7 +1381,7 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
         )
         elapsed = perf_counter() - started
 
-        assert elapsed < 2
+        assert elapsed < 2, f"{name}: manual sync request took {elapsed:.3f}s"
         assert response.status_code == 303
         assert (
             response.headers["location"]

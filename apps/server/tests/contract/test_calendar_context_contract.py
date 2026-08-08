@@ -20,7 +20,9 @@ from twobrain_rec_server.db.models import CalendarSource, ExternalCalendar
 from twobrain_rec_server.main import create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-CONTRACT_PATH = REPO_ROOT / "specs/060-calendar-context-ingestion/contracts/calendar-context.openapi.yaml"
+CONTRACT_PATH = (
+    REPO_ROOT / "specs/060-calendar-context-ingestion/contracts/calendar-context.openapi.yaml"
+)
 
 
 def test_calendar_openapi_contract_paths_are_registered() -> None:
@@ -34,14 +36,19 @@ def test_calendar_openapi_contract_paths_are_registered() -> None:
 def test_calendar_openapi_contract_does_not_return_write_only_credentials() -> None:
     schema = yaml.safe_load(CONTRACT_PATH.read_text())
 
-    assert "credential_input" in schema["components"]["schemas"]["ConnectCalendarSourceRequest"]["properties"]
+    assert (
+        "credential_input"
+        in schema["components"]["schemas"]["ConnectCalendarSourceRequest"]["properties"]
+    )
     assert "credential_input" not in str(schema["components"]["schemas"]["CalendarSourceResponse"])
 
 
-def test_unsafe_calendar_api_routes_require_web_csrf_dependency() -> None:
+def test_unsafe_calendar_web_api_routes_require_web_csrf_dependency() -> None:
     missing = []
     for route in calendar_api_router.routes:
         if not isinstance(route, APIRoute):
+            continue
+        if route.path.startswith("/api/v1/desktop/"):
             continue
         if not (route.methods or set()) & {"POST", "PUT", "PATCH", "DELETE"}:
             continue
@@ -54,6 +61,23 @@ def test_unsafe_calendar_api_routes_require_web_csrf_dependency() -> None:
             missing.append(f"{sorted(route.methods or set())} {route.path}")
 
     assert missing == []
+
+
+def test_desktop_calendar_resolve_uses_device_auth_without_web_csrf() -> None:
+    route = next(
+        route
+        for route in calendar_api_router.routes
+        if isinstance(route, APIRoute)
+        and route.path == "/api/v1/desktop/recordings/{local_recording_id}/calendar-context/resolve"
+    )
+    dependency_names = {
+        getattr(dependency.call, "__name__", "")
+        for dependency in route.dependant.dependencies
+        if dependency.call is not None
+    }
+
+    assert {"get_principal", "get_device_context"} <= dependency_names
+    assert "require_web_csrf" not in dependency_names
 
 
 def test_calendar_provider_endpoint_lists_supported_presets(client) -> None:
@@ -107,19 +131,26 @@ def test_calendar_source_lifecycle_contract_never_returns_credentials(client) ->
         json={"selected_provider_calendar_ids": ["primary", "team"]},
     )
     assert selected.status_code == 200
-    assert {calendar["calendar_id"] for calendar in selected.json()["calendars"]} == {"primary", "team"}
+    assert {calendar["calendar_id"] for calendar in selected.json()["calendars"]} == {
+        "primary",
+        "team",
+    }
 
     sync = client.post(f"/api/v1/calendar/sources/{source_id}/sync", headers=auth_headers())
     assert sync.status_code == 202
     assert sync.json()["sync_state"] == "queued"
     assert sync.json()["accepted"] is True
 
-    disconnected = client.post(f"/api/v1/calendar/sources/{source_id}/disconnect", headers=auth_headers())
+    disconnected = client.post(
+        f"/api/v1/calendar/sources/{source_id}/disconnect", headers=auth_headers()
+    )
     assert disconnected.status_code == 200
     assert disconnected.json()["connection_state"] == "disconnected"
 
 
-def test_calendar_source_contract_rejects_unsupported_provider_without_echoing_secret(client) -> None:
+def test_calendar_source_contract_rejects_unsupported_provider_without_echoing_secret(
+    client,
+) -> None:
     response = client.post(
         "/api/v1/calendar/sources",
         headers=auth_headers(),
@@ -157,7 +188,9 @@ def test_calendar_source_contract_requires_stable_credential_key_in_production(c
     assert "synthetic-secret" not in response.text
 
 
-def test_calendar_source_contract_uses_configured_stable_credential_key_in_production(client, tmp_path) -> None:
+def test_calendar_source_contract_uses_configured_stable_credential_key_in_production(
+    client, tmp_path
+) -> None:
     key_file = tmp_path / "credential-encryption-key"
     key_file.write_bytes(generate_credential_key())
     client.app.state.settings.env = "production"
@@ -210,17 +243,29 @@ def test_meeting_calendar_context_link_and_unlink_contract(client) -> None:
         headers=auth_headers(),
         json={"event_id": event_id, "context_reason": "manual_selection"},
     )
-    unlinked = client.delete(f"/api/v1/meetings/{meeting_id}/calendar-context", headers=auth_headers())
+    unlinked = client.delete(
+        f"/api/v1/meetings/{meeting_id}/calendar-context", headers=auth_headers()
+    )
+    relinked = client.put(
+        f"/api/v1/meetings/{meeting_id}/calendar-context",
+        headers=auth_headers(),
+        json={"event_id": event_id, "context_reason": "manual_selection"},
+    )
 
     assert linked.status_code == 200
-    assert linked.json()["context_state"] == "linked"
+    assert linked.json()["context_state"] == "matched_user"
     assert linked.json()["event_id"] == event_id
-    assert linked.json()["context_confidence"] == "high"
+    assert linked.json()["context_confidence"] == "selected"
     assert unlinked.status_code == 200
-    assert unlinked.json()["context_state"] == "unlinked"
+    assert unlinked.json()["context_state"] == "cleared_by_user"
+    assert relinked.status_code == 200
+    assert relinked.json()["context_state"] == "matched_user"
+    assert relinked.json()["event_id"] == event_id
 
 
-def test_upcoming_calendar_contract_returns_safe_roster_counts_without_attendee_dump(client) -> None:
+def test_upcoming_calendar_contract_returns_safe_roster_counts_without_attendee_dump(
+    client,
+) -> None:
     _seed_calendar_event(client)
 
     upcoming = client.get(
@@ -255,11 +300,18 @@ def _seed_calendar_event(client) -> str:
     async def seed() -> str:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
-            calendar = await session.scalar(select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id))
+            calendar = await session.scalar(
+                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
+            )
             starts_at = datetime(2026, 7, 1, 9, 0, tzinfo=UTC) + timedelta(minutes=5)
             snapshot = await upsert_event_snapshot(
                 session,
-                TenantScope(organization_id=ORG_ID, workspace_id=WORKSPACE_ID, user_id=USER_ID, device_id=DEVICE_ID),
+                TenantScope(
+                    organization_id=ORG_ID,
+                    workspace_id=WORKSPACE_ID,
+                    user_id=USER_ID,
+                    device_id=DEVICE_ID,
+                ),
                 source,
                 calendar,
                 normalize_calendar_event(

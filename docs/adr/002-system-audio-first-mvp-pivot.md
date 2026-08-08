@@ -1,8 +1,13 @@
 # ADR 002: System-Audio-First MVP Capture Pivot
 
-**Status**: Accepted
+**Status**: Superseded in part by ADR 004
 
 **Date**: 2026-06-08
+
+ADR 002 records why GRAF pivoted away from the earlier routing experiment. Its
+instruction to keep that source temporarily is superseded by
+`004-remove-legacy-separate-audio-driver`; the system-audio-first decision and
+its capture invariants remain accepted.
 
 ## Context
 
@@ -81,7 +86,8 @@ The MVP is accepted only if a normal user can:
 
 ## Non-Goals
 
-- Do not remove driver code as part of the pivot decision itself.
+- At the time of this decision, source removal was deferred to a dedicated
+  retirement slice. ADR 004 completes that follow-up.
 - Do not claim driver-based live routing is fixed.
 - Do not start upload, MediaScribe, Langfuse, backend ingest, or external
   egress as part of this pivot.
@@ -96,5 +102,5 @@ The MVP is accepted only if a normal user can:
   dual-track writer behavior, and degraded recording manifests.
 - Add validation gates for CPU, app responsiveness, permission prompts,
   recording artifacts, and no driver/HAL dependency.
-- Keep GitHub issue #234 open as driver advanced-routing work, not an MVP
-  blocker after the pivot is accepted.
+- Resolve the old advanced-routing implementation through a dedicated
+  retirement decision rather than treating it as an MVP blocker.

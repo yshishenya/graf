@@ -50,16 +50,18 @@ validation. Keep the token outside the repository, never paste it into evidence,
 and delete the token file after the run.
 
 ```sh
-tmp_token_file="$(mktemp)"
-chmod 600 "$tmp_token_file"
+run_id="feature-036-owner-review-live"
+tmp_dir="$(mktemp -d)"
+tmp_token_file="$tmp_dir/owner-review-token-$run_id"
+umask 077
 # Write the temporary session token into "$tmp_token_file" through a safe local
 # operator flow. Do not echo it in shell history.
 PYTHONPATH=src uv run python scripts/prove_owner_review_live.py \
   --api https://rec.2brain.pro \
   --token-file "$tmp_token_file" \
-  --run-id feature-036-owner-review-live \
+  --run-id "$run_id" \
   --execute
-rm -f "$tmp_token_file"
+rm -rf "$tmp_dir"
 ```
 
 The script may report only route/status classes such as `ready`, `empty`,

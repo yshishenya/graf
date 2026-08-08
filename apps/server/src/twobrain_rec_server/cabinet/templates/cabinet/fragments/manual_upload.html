@@ -2,7 +2,6 @@
 
 <dialog class="manual-upload-dialog" data-manual-upload-dialog
   data-upload-endpoint="{{ upload_endpoint }}"
-  data-upload-refresh-url="{{ list_refresh_url }}"
   data-upload-detail-base="{{ detail_base_path }}"
   data-upload-available="{{ 'true' if upload_available else 'false' }}"
   data-upload-surface="{{ 'desktop_embedded' if embedded else 'standalone_browser' }}">
@@ -17,13 +16,13 @@
 
     {% if upload_available %}
     <div class="manual-upload-picker">
-      <input class="manual-upload-input" id="manual-upload-file-input" type="file" data-manual-upload-file accept="audio/*,video/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.mp4,.mov,.m4v,.webm,.mkv" aria-describedby="manual-upload-drop-hint">
+      <input class="manual-upload-input" id="manual-upload-file-input" type="file" data-manual-upload-file accept="{{ media_accept }}" aria-describedby="manual-upload-drop-hint">
       <label class="manual-upload-dropzone" for="manual-upload-file-input" data-manual-upload-dropzone>
         <span class="manual-upload-dropzone__icon" aria-hidden="true">{{ icons.icon("upload") }}</span>
         <span class="manual-upload-dropzone__copy">
           <strong data-manual-upload-drop-title>Перетащите файл сюда</strong>
           <span id="manual-upload-drop-hint">или выберите на компьютере</span>
-          <span class="manual-upload-dropzone__types">WAV, MP3, M4A, MP4, MOV, WebM</span>
+          <span class="manual-upload-dropzone__types">WAV/RF64/W64, MP3, AAC, FLAC, Ogg, M4A/MP4/MOV/M4V, WebM, MKV</span>
         </span>
         <span class="manual-upload-browse" data-manual-upload-browse>Выбрать файл</span>
       </label>

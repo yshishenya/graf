@@ -19,7 +19,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(action, .prompt(targetID: "yandex_telemost"))
     }
 
-    func testTargetScopedAutoRecordRequiresExplicitTargetOptIn() {
+    func testTargetScopedAutoRecordReturnsAutoRecordAfterExplicitOptIn() {
         let action = MeetingDetectionPolicy().action(
             for: MeetingDetectionCandidateDecision(
                 kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
@@ -237,6 +237,38 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         )
     }
 
+    func testDetectorEmitsAutoRecordEligibleForOptedInTarget() throws {
+        let registry = try MeetingDetectionPolicyTests.registry()
+        let detector = MacOSMeetingActivityDetector(debounceSeconds: 5)
+        var settings = MeetingDetectionSettings()
+        settings.targetScopedAutoRecordEnabled = true
+        settings.autoRecordTargetIds = ["yandex_telemost"]
+        let event = MacOSAudioOwnershipEvent(
+            bundleID: "ru.yandex.desktop.telemost",
+            displayName: "Yandex Telemost",
+            state: .active,
+            observedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        _ = detector.handle(event: event, registry: registry, settings: settings)
+
+        XCTAssertEqual(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 106),
+                registry: registry,
+                settings: settings
+            ),
+            [.autoRecordEligible(targetID: "yandex_telemost", bundleID: "ru.yandex.desktop.telemost")]
+        )
+        XCTAssertTrue(
+            detector.advance(
+                now: Date(timeIntervalSince1970: 107),
+                registry: registry,
+                settings: settings
+            ).isEmpty
+        )
+    }
+
     func testDetectorSuppressesBrowserAndKrispAttribution() throws {
         let registry = try MeetingDetectionPolicyTests.registry()
         let detector = MacOSMeetingActivityDetector(debounceSeconds: 1)
@@ -309,10 +341,9 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         storageRisk: LocalBufferRiskState = .healthy
     ) -> RecordingPrerequisiteSnapshot {
         RecordingPrerequisiteSnapshot(
-            routeState: .inactive,
-            routeEvidenceKind: .systemAudioCapture,
             policyAllowsRecording: policyAllowsRecording,
             microphonePermissionGranted: true,
+            systemAudioPermissionGranted: true,
             storageRisk: storageRisk,
             indicatorAvailable: true,
             sourceAppEligibility: .eligible,

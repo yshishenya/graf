@@ -63,6 +63,11 @@ def test_smoke_artifact_cleanup_supports_run_id_only_identity_cleanup() -> None:
     assert "args.meeting_id and args.session_id" not in script
     assert "delete from registered_devices where id=:device_id" in script
     assert "delete from auth_session_device_bindings where registered_device_id=:device_id" in script
+    assert "select m.id as meeting_id" in script
+    assert "playback_normalization_attempts" in script
+    assert "playback_normalization_jobs" in script
+    assert "_smoke_storage_prefix" in script
+    assert "storage_residue" in script
 
 
 def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None:
@@ -73,16 +78,22 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
     ).read_text(encoding="utf-8")
 
     ordered_fragments = [
+        "delete from calendar_audit_events where meeting_id=:meeting_id",
+        "delete from recording_calendar_context_links where meeting_id=:meeting_id",
+        "delete from recording_calendar_match_attempts where consumed_by_meeting_id=:meeting_id",
         "delete from transcript_segments where meeting_id=:meeting_id",
         "delete from diarization_segments where meeting_id=:meeting_id",
         "delete from processing_audit_events where meeting_id=:meeting_id",
-        "delete from processing_dependency_states where meeting_id=:meeting_id",
+        '"processing_dependency_states",\n            processing_dependency_delete',
+        "delete from dispatch_intents where meeting_id=:meeting_id",
         "delete from meeting_outcome_generation_attempts",
         "delete from meeting_outcome_items",
         "delete from meeting_outcome_sets where meeting_id=:meeting_id",
         "delete from processing_results where meeting_id=:meeting_id",
         "delete from mediascribe_jobs where meeting_id=:meeting_id",
         "delete from processing_workflows where meeting_id=:meeting_id",
+        "delete from playback_normalization_attempts where meeting_id=:meeting_id",
+        "delete from playback_normalization_jobs where meeting_id=:meeting_id",
         "delete from media_revisions where meeting_id=:meeting_id",
         "delete from meetings where id=:meeting_id",
     ]
@@ -92,3 +103,22 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         position = script.index(fragment)
         assert position > previous_position
         previous_position = position
+
+
+def test_smoke_artifact_cleanup_matches_revision_linked_dependencies() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    dependency_delete = script.index(
+        "delete from processing_dependency_states where meeting_id=:meeting_id"
+    )
+    revision_delete = script.index(
+        "delete from media_revisions where meeting_id=:meeting_id"
+    )
+
+    assert "media_revision_id in (" in script
+    assert "select id from media_revisions where meeting_id=:meeting_id" in script
+    assert dependency_delete < revision_delete

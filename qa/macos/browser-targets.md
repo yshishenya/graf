@@ -2,52 +2,45 @@
 
 ## Purpose
 
-Track official MVP browser meeting targets and route/capture validation status.
+Track browser and meeting-app recording coverage for the app-owned capture
+architecture. Meeting apps use their normal microphone and speaker settings;
+GRAF captures system audio through `SystemAudioCaptureService` and captures the
+selected physical microphone through `MicrophoneCaptureService`.
 
-## Official MVP Targets
+## Current Targets
 
-| Target | Status | Required Coverage |
+| Target | Support scope | Cleanup-slice status |
 |---|---|---|
-| Chrome browser meetings | Manual smoke passed | Synthetic route plus real browser meeting validation; long-duration recording acceptance deferred |
-| Opera browser meetings | Manual smoke passed | Synthetic route plus real browser meeting validation; long-duration recording acceptance deferred |
-| Yandex Browser meetings | Skipped/not accepted in current cycle | Must be run before it is marketed as supported |
-| Yandex Telemost in browser | Manual smoke passed | Synthetic route plus real browser meeting validation; long-duration recording acceptance deferred |
-| Zoom | Manual smoke passed, best-effort target | Not in the original browser-only MVP matrix; keep as additional app evidence until a spec adds official support |
+| Chrome browser meetings | Official MVP target | Manual recording smoke must be rerun |
+| Opera browser meetings | Official MVP target | Manual recording smoke must be rerun |
+| Yandex Browser meetings | Official MVP target, not previously accepted | Not accepted until rerun |
+| Yandex Telemost in browser | Official MVP target | Manual recording smoke must be rerun |
+| Zoom | Best-effort additional evidence | Manual recording smoke must be rerun |
 
-## Best-Effort Rule
+Previous smoke results remain historical evidence only. Removing the retired
+audio-routing implementation requires a fresh current-build smoke before any
+target is called release-ready.
 
-Any app or meeting target outside the official matrix is best-effort unless a later Spec Kit feature adds it to supported scope.
+## Required Assertions
 
-## Required Route Assertions
+- Manual `Record` starts only after microphone and system-audio permissions,
+  storage, visible-indicator, policy, and source-eligibility gates pass.
+- One shared canonical timeline contains the app-owned microphone and
+  system-audio contribution without creating separate source files.
+- One-action `Stop` finalizes the canonical WAV, review M4A and
+  `manifest.json`.
+- Only the canonical WAV reaches one transcription job; the review M4A never
+  reaches ASR.
+- A meeting-app mute does not get inferred from route selection; mute truth
+  follows the dedicated meeting-mute policy.
+- No browser-specific audio-device setup is required by GRAF.
+- Skipped or unavailable targets are recorded as `blocked` or
+  `not_accepted`, never as passed.
 
-- `2brain Rec Microphone` is selected as the meeting microphone.
-- `2brain Rec Speaker` is selected as the meeting speaker.
-- Remote audio is absent from the virtual microphone path.
-- Local mic and remote speaker tracks are captured separately.
-- `ready` is never shown until both mic and speaker routes pass validation.
+## Evidence
 
-## US1 Acceptance Coverage
-
-| Target | US1 Install/Visibility | US1 Route Verification | Notes |
-|---|---|---|---|
-| Chrome browser meetings | Required before browser QA | Required before browser QA | Browser meeting capture starts in US2 |
-| Opera browser meetings | Required before browser QA | Required before browser QA | Browser meeting capture starts in US2 |
-| Yandex Browser meetings | Required before browser QA | Required before browser QA | Browser meeting capture starts in US2 |
-| Yandex Telemost in browser | Required before browser QA | Required before browser QA | Validate support status before RC |
-
-US1 does not require joining a real meeting. It requires the virtual devices to
-be selectable in the browser target settings and route readiness to stay blocked
-until both synthetic paths pass.
-
-## 005 Short Smoke vs Future Long-Duration Acceptance
-
-| Target | 005 Short Smoke Evidence | Future Recording-Assisted Acceptance |
-|---|---|---|
-| Chrome browser meetings | Passed current metadata-only manual smoke | Deferred until local recording exists |
-| Opera browser meetings | Passed current metadata-only manual smoke | Deferred until local recording exists |
-| Yandex Browser meetings | May be marked `not_accepted` if skipped | Deferred until local recording exists |
-| Yandex Telemost in browser | Passed current metadata-only manual smoke | Deferred until local recording exists |
-
-005 evidence must never treat short smoke confirmation as long-duration replay
-acceptance. Unsupported, skipped, or unavailable targets must be recorded as
-`blocked` or `not_accepted`, not `passed`.
+- Automated contract: `BrowserTargetEvidenceTests`.
+- Current recording smoke:
+  `tests/macos/browser-meetings/manual-recording-smoke.md`.
+- Recording package checks:
+  `SystemAudioRecordingPackageTests`.

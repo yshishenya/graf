@@ -25,32 +25,27 @@ let package = Package(
             targets: ["ContractValidation"]
         ),
         .executable(
-            name: "LeakageValidation",
-            targets: ["LeakageValidation"]
-        ),
-        .executable(
             name: "MeetingMuteTruthRuntimeProof",
             targets: ["MeetingMuteTruthRuntimeProof"]
         ),
-        .executable(
-            name: "WebRTCAEC3Validation",
-            targets: ["WebRTCAEC3Validation"]
+    ],
+    dependencies: [
+        .package(
+            url: "https://github.com/sparkle-project/Sparkle",
+            exact: "2.9.4"
         )
     ],
     targets: [
         .target(
-            name: "CShmHelpers",
-            path: "Shared/CShmHelpers",
-            publicHeadersPath: "include"
-        ),
-        .target(
             name: "TwoBrainRecShared",
-            dependencies: ["CShmHelpers"],
             path: "Shared/Sources"
         ),
         .target(
             name: "TwoBrainRecAppCore",
-            dependencies: ["TwoBrainRecShared"],
+            dependencies: [
+                "TwoBrainRecShared",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             path: "RecApp",
             exclude: ["App"],
             sources: ["Sources"],
@@ -69,19 +64,9 @@ let package = Package(
             path: "Shared/Tools/ContractValidation"
         ),
         .executableTarget(
-            name: "LeakageValidation",
-            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
-            path: "Shared/Tools/LeakageValidation"
-        ),
-        .executableTarget(
             name: "MeetingMuteTruthRuntimeProof",
             dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
             path: "Shared/Tools/MeetingMuteTruthRuntimeProof"
-        ),
-        .executableTarget(
-            name: "WebRTCAEC3Validation",
-            dependencies: ["TwoBrainRecShared", "TwoBrainRecAppCore"],
-            path: "Shared/Tools/WebRTCAEC3Validation"
         ),
         .testTarget(
             name: "TwoBrainRecSharedTests",

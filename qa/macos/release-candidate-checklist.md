@@ -1,341 +1,217 @@
-# macOS Release Candidate Checklist (MVP)
+# macOS Release Candidate Checklist
 
-## Passthrough Release Hardening Evidence (005)
+This checklist describes the current app-owned system-audio-first recording
+release surface. The active public macOS lane is Developer ID-only. Historical
+owner-only/self-signed receipts below are archive evidence, not release
+instructions.
 
-- [x] Feature `010` automated gates pass for MediaScribe-ready local artifact
-  format: dual track role mapping, WAV PCM16 mono 16 kHz contract, metadata-only
-  diagnostics, secret scan, and `007`/`008` regression validation.
-- [x] Feature `010` manual smoke passed on a fresh workspace bundle: manual
-  `Record`/`Stop` produced `manifest.json`, `mic.wav`, and `incoming.wav` with
-  manifest readiness `ready` and `dual` source mode.
-- [x] Local recording persistence feature `008` has model and contract gates for
-  local mic/remote speaker track artifacts, metadata-only manifest, degraded
-  missing-track truth, and no external egress.
-- [x] Feature `008` full validation script passes for local persistence models,
-  contract validation, realtime safety, and manifest fixture checks.
-- [x] Feature `008` user smoke confirms a local recording exists after manual
-  `Record`/`Stop` in the freshly rebuilt local app bundle.
-- [x] Feature `008` 1-minute local recording smoke confirms that a recording
-  saves successfully after user review.
-- [x] Feature `008` manual browser smoke passed for Yandex Telemost, Chrome,
-  Opera, and Zoom with 1-minute local recording save checks.
-- [x] Local recording artifacts from features `008` and `010` are accepted only
-  as local artifacts. They are not yet accepted for upload, transcription,
-  retention, deletion, dashboard publication, or assisted auto-start.
-- [ ] Feature `022-meeting-mute-truth` must resolve meeting-app mute truth before
-  local recording can be accepted as privacy-correct when the user mutes inside
-  Zoom, browser meeting targets, or other supported meeting apps.
+## Automated Gates
 
-- [x] Manual capture session and visible indicator feature `007` has automated
-  local gates passing for manual Record/Stop, visible indicator safety,
-  blocked-start prerequisites, metadata-only evidence, diagnostics redaction,
-  contract validation, and realtime callback safety.
-- [x] Feature `007` remains scoped to local manual recording lifecycle only:
-  no upload, transcription, MediaScribe, Langfuse, dashboard publication,
-  retention, deletion, or assisted auto-start acceptance is claimed.
-- [x] Feature `007` manual browser smoke passed for Yandex Telemost, Chrome,
-  Opera, and Zoom with visible manual recording and one-action stop.
+- [ ] `swift build --package-path apps/macos` passes.
+- [ ] `swift test --package-path apps/macos` passes.
+- [ ] `swift run --package-path apps/macos ContractValidation` passes.
+- [ ] `sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh` passes.
+- [ ] `sh apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata` passes.
+- [ ] `infra/scripts/ci-local.sh` passes.
 
-- [x] Low-resource promotion for `006-low-resource-audio` uses a complete P1
-  gate bundle before default enablement; any missing, blocked, or failed P1
-  gate records `fallback` to `005-macos-passthrough-release-hardening`.
-- [x] Low-resource promotion evidence includes route truth, startup timeout,
-  realtime safety, no-hang/CPU, recovery, fallback, redaction, and clean-room
-  gates without raw audio, transcript text, credentials, signed URLs, passwords,
-  or meeting content.
-- [x] Pre-recording stability evidence records installed runtime, short smoke,
-  route state, CPU/no-hang behavior, and inactive recording/transcription/upload
-  status.
-- [x] Installed runtime baseline includes
-  `proof-runtime-probe-run RUNTIME_PROBE_ARGS=--expect-default-safe` or a
-  recorded blocked/not accepted reason.
-- [x] Short smoke evidence is explicitly labeled as smoke-only and not
-  long-duration recording-assisted acceptance.
-- [x] No-hang evidence covers macOS Sound settings, Chrome audio settings, Opera
-  audio settings, Zoom audio settings, and Yandex Telemost audio settings.
-- [x] Audio settings no-hang evidence records actual UI-launch evidence with
-  `TWO_BRAIN_REC_RUN_UI_NO_HANG=1`, or records metadata-only `not_accepted`
-  reasons when UI launch is intentionally skipped.
-- [x] `coreaudiod` CPU does not sustain above 10% for more than 30 consecutive
-  seconds during no-call idle with the app open.
-- [x] Physical input/output changes, aggregate or multi-output routes,
-  Bluetooth routes, stale browser device IDs, `coreaudiod` restart, and
-  sleep/wake record passed, blocked, or not accepted metadata-only outcomes.
-- [x] Installer lifecycle evidence covers install, update, repair, rollback,
-  uninstall, and reinstall without hidden manual cleanup.
-- [x] Destructive installer lifecycle checks are either run with
-  `TWO_BRAIN_REC_RUN_INSTALLER_LIFECYCLE=1` or recorded as `not_accepted`, not
-  `passed`.
-- [x] Diagnostics and release evidence contain no raw audio, transcript text,
-  credentials, tokens, signed URLs, passwords, or meeting content.
-- [x] UI evidence distinguishes non-recording passthrough active/ready state
-  from recording, transcription, and capture-active states.
-- [x] Long-duration recording-assisted acceptance remains deferred until local
-  recording, retention, and deletion rules exist.
-- [x] `qa/macos/recording-assisted-acceptance.md` remains blocked and is not
-  counted as passed for the pre-recording hardening slice.
+## Recording Regression Gates
 
-## Live Route Readiness Evidence (003)
+- [ ] `SystemAudioCaptureService` still produces the app-owned incoming
+  sample source.
+- [ ] `MicrophoneCaptureService` still produces the app-owned microphone
+  sample source.
+- [ ] Both sources enter V5LocalRecordingWriter as PTS-bearing batches and
+  are ordered by one shared timeline.
+- [ ] Record/Stop creates exactly manifest.json, meeting-transcription.wav and
+  meeting-review.m4a; no new package has separate microphone/system WAV files.
+- [ ] Microphone and system-audio permissions are both enforced.
+- [ ] The persistent local capture indicator and one-action `Stop` pass.
+- [ ] Existing recording-directory and manifest compatibility tests pass.
 
-- [x] Fresh local install moves to route-ready/non-recording passthrough only
-  after microphone and speaker live route evidence pass.
-- [x] Publication-only evidence never produces ready state in app UI,
-  diagnostics, or release evidence.
-- [ ] Self-routing is rejected when a 2brain Rec virtual device is selected as a
-  physical working device.
-- [ ] Aggregate and multi-output speaker routes are marked managed/blocked
-  unless the selected physical output can be measured by the same criteria as a
-  direct built-in or wired route.
-- [ ] Built-in/wired added route latency is `<= 30 ms` before release-ready
-  status is accepted.
-- [ ] Built-in/wired remote-to-mic leakage is `<= -45 dB` and not intelligible
-  before release-ready status is accepted.
-- [ ] Latency/leakage failures map to degraded route state and block
-  release-ready status while preserving live-route diagnostics.
-- [ ] Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser each have
-  pass or blocked/not accepted metadata-only evidence.
-- [ ] Browser evidence records selected meeting microphone/speaker, readiness
-  state before join, route state after join, local speech usability, remote
-  audio usability, and concrete blocked/not accepted reasons.
-- [ ] A 5-minute backend/network outage does not interrupt live route
-  passthrough after readiness passes.
-- [ ] Physical device, browser target, Bluetooth profile, app heartbeat, and
-  `coreaudiod` changes make readiness stale within 5 seconds and show a
-  recovery action.
-- [ ] Diagnostics contain route status, failure category, recovery action,
-  latency/leakage values, and browser evidence without raw audio, transcript
-  text, credentials, tokens, signed URLs, or meeting content.
+## v5 Control-Period Receipt
 
-## Real Bidirectional Passthrough Evidence (004)
+- [ ] The contingency rollback procedure and a candidate pre-v5 reference are
+  documented. Do not substitute the user-confirmed, still-in-progress parallel
+  `v2026.07.16.7` work or an unverified nearby tag. Resolving and installing
+  the baseline is deferred while the v5 quality gates pass.
+- [ ] The selected contingency reference is the exact `v2026.07.17.6` tag at
+  `4be444e82ec449a3bb5312920fb0cd6008072c56`; the parallel `v2026.07.16.7`
+  line is recorded only as a non-interchangeable reference and is not a
+  runtime switch.
+- [ ] Candidate commit/release, date, package schema, route verdict, incoming
+  level delta, timeline verdict, artifact hashes/counts/durations, processing
+  status and operator decision are recorded as metadata only.
+- [ ] The receipt contains no audio, decoded media, spoken marker text,
+  transcript content, device name, credential, signed URL or private local
+  path.
+- [ ] Rollback is an operator contingency action, triggered only by a confirmed
+  v5 quality failure; it reinstalls a selected baseline for a subsequent
+  recording and is not a runtime switch, a silent dual fallback or a rewrite of
+  an accepted v5 revision.
 
-- [ ] Selected physical microphone audio reaches `2brain Rec Microphone`
-  without starting recording.
-- [ ] Audio sent to `2brain Rec Speaker` plays through the selected physical
-  output without starting recording.
-- [ ] Built-in/wired added route latency remains `<= 30 ms` while marked ready.
-- [ ] Remote-to-mic leakage remains `<= -45 dB` relative to speaker reference
-  and is not intelligible while marked ready.
-- [ ] App/route-engine loss makes public virtual devices hidden or unavailable
-  within 5 seconds.
-- [ ] `coreaudiod` restart marks passthrough stale and requires revalidation.
-- [ ] Chrome, Opera, Yandex Browser, and Yandex Telemost-in-browser each have
-  pass or blocked/not accepted metadata-only passthrough evidence.
-- [ ] Diagnostics contain passthrough state, selected device identifiers,
-  heartbeat status, latency/leakage values, browser evidence, and recovery
-  action without raw audio, transcript text, credentials, tokens, signed URLs, or
-  meeting content.
+### Baseline, Canary and Conditional Rollback
 
-## Validation Log (2026-05-31 04:16 MSK)
+1. Before building the candidate, record candidate SHA, schema version,
+   installer artifact digest and operator date in the feature evidence receipt.
+   Keep a rollback reference documented, but do not install or rehearse it
+   before a v5 quality failure. Do not store a device name, local path, audio,
+   transcript or secret.
+2. Build and install the candidate only through the separately approved local
+   test procedure. Make one controlled non-private recording and collect only
+   package member names, codec/rate/channel checks, durations, hashes,
+   marker-lag result, route verdict, incoming-level delta, upload-progress
+   verdict, single-job count and final status.
+3. A failed route, volume, timeline, package, upload or transcript verdict is
+   a stop signal: do not silently retry the same accepted revision, create a
+   dual fallback or repurpose the review M4A for ASR.
+4. If a v5 quality failure triggers contingency rollback, reinstall the
+   selected baseline for one subsequent controlled recording. The server keeps
+   its additive v5 reader while any v5 record remains; accepted v5 records are
+   not rewritten, re-uploaded or sent to a second provider job.
+5. Record rollback as `deferred` while no v5 failure has occurred. Once
+   triggered, record pass/fail and metadata only; if the exact baseline ref,
+   signed candidate or installation approval is unavailable, stop rather than
+   inventing a result.
 
-- [x] Updated local package installed with admin privileges: `installer`
-  reported `The upgrade was successful`.
-- [x] `coreaudiod` restarted after package installation.
-- [x] Runtime probe before app kill: `2brain Rec Microphone` and
-  `2brain Rec Speaker` were `FOUND hidden=0 alive=1`.
-- [x] Runtime probe after app kill and heartbeat timeout: both public virtual
-  devices were absent from the current Core Audio device list.
-- [x] Runtime probe after app relaunch: both public virtual devices returned as
-  `FOUND hidden=0 alive=1`.
-- [x] Private app I/O fail-closed validation accepted in
-  `apps/macos/AudioDriver/RuntimeProofReport.md`.
-- [x] Backend/network outage synthetic check executed:
-  `swift tests/macos/route-synthetic/passthrough-outage-check.swift` returned
-  `passthrough-outage-check: ACCEPTED`.
-- [x] Historical 2026-05-31 browser meeting matrix evidence recorded as
-  blocked/not accepted for that feature state. Superseded on 2026-06-01 by
-  non-recording smoke acceptance for Telemost, Chrome, Opera, and Zoom.
-- [x] Bluetooth/AirPods managed-route pilot evidence recorded as blocked/not
-  accepted for this feature state because no Bluetooth headset route is
-  currently connected and real passthrough/capture is not accepted.
+## Packaging Gates
 
-## Validation Log (2026-06-01 Stabilization)
+- [ ] The distribution package contains exactly one app component.
+- [ ] The package contains no privileged audio component, lifecycle sidecar, or
+  host-service mutation script.
+- [ ] Package expansion/inspection passes without installing it.
+- [ ] Developer ID Application signing is used for the app and Developer ID
+  Installer signing for the package; notarization, stapling and Gatekeeper
+  evidence all pass.
 
-- [x] Spec Kit Phase 7 added stabilization/refactor gates after live bridge
-  review found realtime callback, ring-buffer, readiness, and app-driver
-  ownership blockers.
-- [x] `audio-rt-safety-check.sh` added to the validation pipeline and currently
-  passes after removing callback allocation/logging from `PassthroughBridge`.
-- [x] `default-passthrough-disabled-check.sh` added and executed: PASS. Normal
-  app launch does not start the app-side bridge and runtime probe remains
-  `running=0`.
-- [x] Runtime probe supports parameterized expectations through
-  `RUNTIME_PROBE_ARGS=--expect-default-safe`,
-  `RUNTIME_PROBE_ARGS=--expect-non-running-surface`, and
-  `RUNTIME_PROBE_ARGS=--expect-visible-alive-surface`; these are Core Audio
-  surface evidence only and cannot substitute for measured live audio
-  acceptance.
-- [x] Shared ring-buffer contract changed to explicit SPSC all-or-nothing writes;
-  Swift behavior tests and C++ proof vectors pass.
-- [x] Main validation script uses `swift test --disable-swift-testing` after the
-  local SwiftPM `swift-testing` helper was observed hanging after build
-  completion.
-- [x] 2026-06-01 14:47 MSK installed runtime proof recorded in
-  `apps/macos/AudioDriver/RuntimeProofReport.md`: package upgrade succeeded,
-  publication/default-safe/non-running/visible-alive surface probes accepted,
-  and `coreaudiod` settled to `0.0%` CPU after restart.
-- [x] Diagnostics redaction scan completed for `apps/macos`, `tests/macos`,
-  `qa/macos`, and `specs/004-real-bidirectional-passthrough`: matches were
-  policy/fixture forbidden-field strings only, not live secrets or meeting
-  content.
-- [x] Physical microphone-to-virtual-microphone live smoke accepted for current
-  non-recording scope.
-- [x] Physical virtual-speaker-to-output live smoke accepted for current
-  non-recording scope.
-- [x] Browser target smoke accepted for Chrome, Opera, Zoom, and Yandex
-  Telemost; Yandex Browser remains skipped/not accepted by decision.
+## In-App Update Gates
 
-## Validation Log (2026-05-31 06:07 MSK)
+- [x] Exactly one active public release lane is declared: Developer ID
+  Application/Installer with notarization, stapling and Gatekeeper. Owner-only
+  self-signed material is historical or isolated-test evidence only.
+- [ ] `Sparkle` is locked to `2.9.4`, embedded at
+  `Contents/Frameworks/Sparkle.framework`, and reports current version `2.9.4`.
+- [ ] `Contents/Resources/Sparkle-LICENSE.txt` contains the complete license
+  and third-party attribution text from the pinned upstream release.
+- [ ] `SUFeedURL` is the approved public credential-free HTTPS appcast URL and
+  `SUPublicEDKey` is the approved base64 32-byte Ed25519 public key.
+- [ ] UpdateSigningKey.json is active, contains only public metadata, and its
+  keyId, trust generation and public key match the final app SUPublicEDKey.
+- [ ] The normal GitHub signer and named Keychain recovery signer have each
+  produced matching safe key-id evidence. The disposable
+  graf-release-signing-test proof was separate and did not activate the
+  production generation.
+- [ ] A two-channel metadata-only readiness drill ran before this release, no
+  more than 90 calendar days after the prior drill and immediately after any
+  control-plane change; its retained evidence contains only timestamp,
+  generation, key ID and channel states.
+- [x] The public release never selects the historical owner-only fallback;
+  historical receipts retain their exact tag/provenance and metadata-only
+  evidence without becoming an active operator path.
+- [ ] The protected signing environments require independent reviewer approval,
+  permit the protected master branch only, and have no public-host write path.
+  Every external workflow action is pinned to a full immutable SHA.
+- [ ] The release attestation binds the active generation, exact CalVer tag,
+  commit, `github-environment` channel, `ready` state and a UTC timestamp no
+  older than 24 hours before staging. A missing, stale or mismatched
+  attestation blocks the attempt and leaves the prior staged/public appcast
+  unchanged.
+- [ ] The exact draft release also contains a fresh metadata-only
+  `macos-keychain` attestation for the same generation/tag/commit. The signing
+  workflow rejects its absence, mismatch, non-ready state or age over 24 hours
+  before generating a signed appcast.
+- [x] A one-channel Keychain recovery receipt, if encountered in history, is
+  treated as archive evidence only. It never authorizes a new public release;
+  malformed or missing attestation blocks publication.
+- [ ] Signed-feed and verify-before-extraction settings are enabled; scheduled
+  checks are `86400`; automatic download/install and system profiling are off.
+- [ ] All nested Sparkle code is signed inside-out before `GRAF.app`; the app
+  has hardened runtime and a secure timestamp.
+- [ ] The new app has a strictly increasing CalVer, stays `GRAF.app` /
+  `pro.2brain.graf`, uses the same Developer ID TeamIdentifier, and satisfies
+  the previous public app's designated requirement.
+- [ ] Public distribution passes the Developer ID Application/Installer gate,
+  notarization, stapling, `spctl --assess --type execute`, and
+  `spctl --assess --type install`.
+- [ ] `prepare-app-update.sh` creates a versioned archive and signed appcast in
+  staging only; archive length, EdDSA signatures, `arm64`, and macOS `14.5+`
+  match the final app.
+- [ ] The one-time `v2026.07.26.6` Developer ID migration package is explicitly
+  labelled, preserves GRAF metadata and feed/public-key continuity, passes
+  notarization/package checks, and produces no appcast. It is installed
+  manually; later releases use ordinary Developer ID→Developer ID updates.
+- [x] Production update artifacts were staged from a clean commit published at the exact release tag
+  and matching `origin/master`, with
+  `GRAF_REQUIRE_RELEASE_PROVENANCE=1` enabled.
+- [x] ZIP, package, checksums, and Russian notes are present as GitHub Release
+  assets; the archive/package were published before the appcast, and every
+  public SHA-256 matches the reviewed local release artifact.
+- [ ] The private EdDSA key, Developer ID material, notarization credentials,
+  and generated signed artifacts remain outside git and issue evidence.
+- [ ] The custody fixture/secret-pattern guard passes without suppressing a
+  real value. A safe false positive is corrected in the pattern or fixture,
+  never excepted by adding a production secret.
+- [ ] After the manual `.6` bootstrap, an older updater-enabled build finds the
+  next staged release through both the daily scheduler and `GRAF > Check for
+  Updates…`; current/offline/incompatible outcomes remain truthful.
+- [ ] Dismissing a valid offer keeps one accessible left-sidebar marker in both
+  connected-cabinet and local-only layouts; skip, withdrawal, or successful
+  install removes it.
+- [ ] Active/paused capture, start/stop, finalization, and termination cleanup
+  prevent relaunch; after protected work ends the cached offer proceeds without
+  a second catalog request.
+- [ ] Corrupt, unsigned, wrong-key, downgrade, wrong-identity, and incompatible
+  fixtures are rejected while the previous app remains launchable.
+- [ ] Two sequential same-identity in-app updates retain microphone and
+  Screen/System Audio grants without `tccutil reset` or TCC mutation.
+- [ ] First updater-enabled release notes state that older builds need one final
+  manual `.pkg` bootstrap install.
+- [ ] The archive/package contains no privileged audio component and no Core
+  Audio service mutation.
+- [x] Public appcast/archive publication has explicit release approval and a
+  documented stop-rollout feed restore plus higher-CalVer forward rollback for
+  Macs that already updated.
 
-- [x] `swift build --package-path apps/macos -c release --product TwoBrainRecApp`: PASS.
-- [x] `swift test --package-path apps/macos`: PASS.
-- [x] `make -C apps/macos/AudioDriver proof-plugin-build proof-runtime-probe-build`: PASS.
-- [x] `sh apps/macos/Scripts/validate-live-route-readiness.sh`: PASS for available automated checks.
-- [x] Local package rebuilt and installed through `installer`: PASS.
-- [x] Installer postinstall clears local HAL loading blockers before restarting
-  `coreaudiod`; runtime publication proof is accepted without manual postinstall
-  repair.
-- [x] Runtime probe before app kill: `2brain Rec Microphone` and
-  `2brain Rec Speaker` were `FOUND hidden=0 alive=1`.
-- [x] Runtime probe after app kill and heartbeat timeout: both public virtual
-  devices were absent from the current Core Audio device list.
-- [x] Runtime probe after app relaunch: both public virtual devices returned as
-  `FOUND hidden=0 alive=1`.
-- [x] Browser target evidence remains blocked/not accepted for Chrome, Opera,
-  Yandex Browser, and Yandex Telemost-in-browser until real bidirectional
-  passthrough/capture artifacts are accepted.
+## Historical T037 owner-only release closeout receipt — 2026-07-21
 
-## Validation Log (2026-05-31)
+The following checks are an immutable historical receipt for the former
+private-repository owner-only lane. They do not authorize a current release and
+do not claim that the old artifact was Developer ID-signed or notarized.
 
-- [x] `swift build --package-path apps/macos -c release --product TwoBrainRecApp` executed after live passthrough task expansion: PASS.
-- [x] `swift test --package-path apps/macos` executed after live passthrough task expansion: PASS.
-- [x] `make -C apps/macos/AudioDriver proof-plugin-build` executed after private app I/O/fail-closed updates: PASS.
-- [x] `sh apps/macos/Scripts/validate-foundation.sh` executed: `ContractValidation: PASS`, `AudioDriver proof scaffold: PASS`.
-- [x] `sh apps/macos/Scripts/validate-live-passthrough-foundation.sh` executed: PASS.
-- [x] Synthetic checks executed: no-loopback `-120 dB`, app I/O fail-closed, latency, backend outage, debug clip cleanup, and track integrity all accepted.
-- [x] Secret/raw-content scan executed; matches were policy text or deliberate forbidden-field fixtures, not committed credentials or raw audio artifacts.
-- [x] Local Developer Tools Security recovery executed: app launches from `/Applications/2brain Rec.app` in local ad-hoc development mode.
-- [x] Local installer build executed: `sh apps/macos/Installer/Scripts/build-local-installer.sh` created `apps/macos/.build/installer/2brain-rec-local.pkg`.
-- [x] App UI confirms the driver package is installed and both virtual devices are visible in macOS.
-- [x] Historical 2026-05-31 app UI truthfully blocked readiness with `not ready
-  for calls yet`; superseded by accepted non-recording passthrough smoke and
-  low-resource default-safe behavior on 2026-06-01.
-- [x] `swift build --package-path apps/macos -c release --product TwoBrainRecApp` executed: PASS.
-- [x] `swift test --package-path apps/macos` executed: PASS.
-- [x] `make -C apps/macos/AudioDriver proof-plugin-build` executed after safety correction: PASS.
-- [x] `TWO_BRAIN_REC_ALLOW_ADHOC_APP_SIGNING=1 sh apps/macos/Installer/Scripts/build-local-installer.sh` executed in packaging-only shell validation: PASS.
-- [x] Updated proof driver installed/restarted with admin privileges on
-  2026-05-31 04:16 MSK; earlier sudo limitation is superseded.
-- [x] CLI runtime probe from this shell now sees both virtual devices while the
-  app heartbeat is alive.
-- [x] Real microphone-to-virtual-microphone passthrough accepted for current
-  non-recording smoke scope.
-- [x] Real virtual-speaker-to-physical-speaker passthrough accepted for current
-  non-recording smoke scope.
-- [x] Private app I/O fail-closed validation accepted for app kill/relaunch.
-- [x] Built-in/wired `<=30 ms` added route latency validation accepted in
-  synthetic harness.
-- [ ] Remote speaker leakage `<= -45 dB` against speaker reference not run in a real browser meeting.
-- [x] Browser/meeting smoke no longer blocked for Telemost, Chrome, Opera, and
-  Zoom; durable recording capture remains a separate gate.
-- [ ] Separate local/remote track capture not accepted.
+- [x] `v2026.07.21.3` is an immutable exact tag at the staged `origin/master`
+  commit `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`.
+- [x] Fresh metadata-only Keychain evidence matches the active manifest:
+  `channel=macos-keychain`, `state=ready`, `trustGeneration=1`,
+  `keyId=sha256:63c373b20f82851a6b4443bad2100eede5d50d897ed2aaf9fa8c94db56e4ecce`.
+- [x] The degraded fallback is explicit: approval id
+  `t037-owner-20260721-3` and
+  `GRAF_RELEASE_SIGNING_APPROVED_DEGRADED_FALLBACK=1`; the helper reported
+  `signer=keychain`, `custody=degraded`, `published=no` before publication.
+- [x] The owner-only app, Sparkle archive and appcast passed the strict
+  owner-only validator, signature checks, ZIP integrity and package expansion;
+  no package installation was used as a substitute for these checks.
+- [x] Public publication order is proven: ZIP, pkg and checksum were copied and
+  SHA-256 checked before `graf-appcast.xml`; the prior appcast was retained as
+  a recoverable backup, and the final public fetch rechecked version, length,
+  checksums and signatures.
+- [x] GitHub Release `v2026.07.21.3` retains the Russian notes and safe
+  Keychain attestation. The private key, Bitwarden recovery copy and any
+  secret-bearing material remain outside Git, issues and the public host.
 
-## Validation Log (2026-05-27)
+The historical owner-only receipt is not a current migration gate. The active
+Developer ID gates above are required for every new public release.
 
-- [x] `sh apps/macos/Scripts/validate-foundation.sh` executed: `ContractValidation: PASS`, `AudioDriver proof scaffold: PASS`.
-- [x] `make -C apps/macos/AudioDriver proof-runtime-probe-run` executed: both virtual devices found, runtime proof accepted.
-- [x] `swift tests/macos/route-synthetic/mic-route-check.swift` executed: ACCEPTED.
-- [x] `swift tests/macos/route-synthetic/speaker-route-check.swift` executed: ACCEPTED.
-- [x] `swift tests/macos/route-synthetic/no-loopback-check.swift` executed: ACCEPTED for synthetic model coverage only.
-- [x] `swift tests/macos/physical-devices/track-integrity-check.swift` executed: ACCEPTED for synthetic model coverage only.
-- [x] `sh apps/macos/Scripts/validate-us1-gate.sh` executed: PASS script-level checks (runtime probe remains externally documented by direct proof command).
-- [ ] Fresh install/onboarding scenario requiring UI flow and permissions not run (manual).
-- [ ] Route verification UI one-action ready-state enforcement not run (manual).
-- [ ] Browser meeting matrix for Chrome/Opera/Yandex/Yandex Telemost not run (manual).
-- [ ] 60-minute integrity runs (wired/Bluetooth/AirPods) not run (manual).
-- [ ] Failure recovery matrix (permission/device/server/network/buffer recovery) not run (manual).
-- [ ] Visible control one-action stop not run (manual).
-- [ ] Update/repair/rollback/uninstall/reinstall lifecycle scenarios not run (manual).
-- [ ] Diagnostics redaction generation per family not run end-to-end (contract tests only).
+## Manual Gates
 
-## Phase 0 Runtime Proof Gate
+- [ ] Current-build short recording smoke passes on the required browser target.
+- [ ] Claimed microphone device classes pass the device matrix.
+- [ ] Indicator visibility and stop behavior are observed directly.
+- [ ] Long-duration acceptance is either passed with evidence or called out as
+  a known limitation.
 
-- [x] Virtual audio publication runtime proof accepted
-- [x] OS: Apple Silicon macOS (14.5+)
-- [x] Virtual devices are visible:
-  - `2brain Rec Microphone`
-  - `2brain Rec Speaker`
+## Release Hygiene
 
-## US1 Readiness Gate
-
-- [x] Route verification synthetic checks pass for mic and speaker
-- [ ] Self-routing rejection enforced
-- [ ] App shows `ready` only after both routes passed
-
-## US2 Capture Gate
-
-- [ ] Start capture in `audio_recording` mode only when route readiness evidence exists
-- [ ] Capture remains separated as:
-  - local microphone track
-  - remote speaker track
-- [ ] Wired tracks alignment for 60-minute calls remains under **100 ms**
-- [ ] Wired track dropouts stay below **0.1%**
-- [ ] Bluetooth/AirPods-class track dropouts stay below **0.5%**
-- [x] Remote speaker leakage remains below **-45 dB** in synthetic check
-- [ ] Remote speaker leakage remains below **-45 dB** in a real browser meeting
-- [x] Private app I/O loss hides or makes public devices unavailable within 5 seconds
-- [x] Built-in/wired added route latency stays at or below **30 ms** in
-  synthetic validation
-- [ ] Remote meeting audio does not appear in microphone track
-- [ ] Server/network outage for 5 minutes does not stop passthrough
-- [ ] Missing-track finalization marks session as degraded before finalization event
-- [ ] Local capture indicator is visible during capture and one-action stop is available
-
-## Recovery and UX Gate
-
-- [ ] `detecting` and `ready` states are exposed before assisted start is invoked
-- [ ] Local buffer policy can enter warning/critical/must-degrade states before hard loss
-- [ ] Track and session finalization records visibility of degraded/missing-track state
-- [ ] Unsupported targets/devices remain marked best-effort
-- [ ] Diagnostics remain redacted by default (no raw audio, no transcript text, no credentials)
-
-## US3 Recovery Gate
-
-- [ ] Permission denied/revoked scenarios are explicitly surfaced and distinguishable from route failures
-- [ ] Device disconnect/Bluetooth profile-switch scenarios produce explicit device/path recovery actions
-- [ ] Buffer pressure transitions are reflected as warning/critical/must-degrade before drop occurs
-- [ ] Restart recovery preserves buffer state and reports interrupted sessions truthfully
-- [ ] Diagnostic redaction checks executed from `tests/macos/installer-recovery/diagnostic-redaction.md`
-
-## US4 Lifecycle Gate
-
-- [ ] Active-call update deferral is deterministic and does not force interruption (`tests/macos/installer-recovery/active-call-update-deferral.md`)
-- [ ] Uninstall outputs machine-readable result with manual cleanup details when needed
-- [ ] Reinstall flow is idempotent after uninstall and reports restore outcome
-- [ ] Rollback and partial cleanup scenarios are reproducible (`tests/macos/installer-recovery/rollback-partial-cleanup.md`)
-- [ ] Uninstall + reinstall quick-checks complete from `tests/macos/installer-recovery/uninstall-reinstall.md`
-
-## Measured Thresholds (US2)
-
-- Wired alignment threshold: **≤ 100 ms**
-- Wired dropout threshold: **≤ 0.1 %**
-- Bluetooth/AirPods dropout threshold: **≤ 0.5 %**
-- Loopback signal correlation target: `remote_to_mic <= -45 dB`
-- Built-in/wired added route latency threshold: `<= 30 ms`
-- Local buffer warning: policy warning fraction / critical fraction and reserve policy must prevent silent loss
-- Disk reserve safety: stop capture or degrade before reserve is breached
-
-## Known Deviation Log
-
-- [x] 2026-05-31: Current build was a driver publication and readiness UI build,
-  not a production passthrough build. Superseded by 2026-06-01 low-resource
-  non-recording passthrough acceptance.
-- [x] 2026-05-31 04:16 MSK: App I/O fail-closed proof is accepted, but browser
-  and Bluetooth release-candidate checks remain blocked by the larger real
-  passthrough/capture gate.
-- [x] 2026-05-31: Feature 004 local package install, `coreaudiod` restart,
-  runtime publication probe, driver heartbeat fail-closed gate, and synthetic
-  live passthrough checks were accepted. Superseded on 2026-06-01 by manual
-  smoke acceptance for Chrome, Opera, Zoom, and Yandex Telemost; Yandex Browser
-  remains skipped/not accepted by decision.
-- [ ] Fill remaining observations with run date + artifact reference before release
-- [ ] Update this checklist after each quickstart run
+- [ ] Russian changelog/release notes describe the architecture removal,
+  compatibility impact, validation evidence, known limitations, and linked
+  PR/issues.
+- [ ] No secrets, raw audio, transcript text, signed URLs, or private meeting
+  content are committed as evidence.

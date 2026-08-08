@@ -10,6 +10,8 @@ from jinja2 import Environment
 from markupsafe import Markup
 from starlette.responses import HTMLResponse
 
+from twobrain_rec_server.config import Settings
+from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
 from twobrain_rec_server.templates import (
     html_response,
     package_path,
@@ -18,6 +20,7 @@ from twobrain_rec_server.templates import (
 )
 
 CABINET_STATIC_URL = "/static/cabinet"
+PUBLIC_STATIC_URL = "/static/public"
 
 TRUSTED_HTML_SOURCES = frozenset(
     {
@@ -27,11 +30,15 @@ TRUSTED_HTML_SOURCES = frozenset(
         "meeting_list.manual_upload",
         "meeting_list.region",
         "meeting_list.rows",
+        "meeting_list.upcoming_recurring",
         "meeting_detail.access_chip",
         "meeting_detail.access_summary",
         "meeting_detail.activity",
         "meeting_detail.artifacts",
+        "meeting_detail.calendar_context",
+        "meeting_detail.calendar_context_chooser",
         "meeting_detail.content",
+        "meeting_detail.content_export_dialog",
         "meeting_detail.delete_confirmation",
         "meeting_detail.empty_transcript",
         "meeting_detail.governance",
@@ -65,6 +72,13 @@ def cabinet_static_asset_url(filename: str) -> str:
     return f"{CABINET_STATIC_URL}/{filename}?v={version}"
 
 
+@lru_cache(maxsize=32)
+def public_static_asset_url(filename: str) -> str:
+    path = Path(package_path("twobrain_rec_server.public", "static", "public"), filename)
+    version = sha256(path.read_bytes()).hexdigest()[:12]
+    return f"{PUBLIC_STATIC_URL}/{filename}?v={version}"
+
+
 def get_cabinet_templates() -> Environment:
     return template_environment(cabinet_template_dir())
 
@@ -75,6 +89,7 @@ def render_template(template_name: str, **context: Any) -> str:
         template_name,
         cabinet_static_asset_url=cabinet_static_asset_url,
         cabinet_static_url=CABINET_STATIC_URL,
+        public_static_asset_url=public_static_asset_url,
         **context,
     )
 
@@ -98,6 +113,8 @@ def cabinet_template_response(
     hx_request: bool = False,
     **context: Any,
 ) -> HTMLResponse:
+    settings = getattr(request.app.state, "settings", Settings())
+    context.setdefault("product_analytics_provider", build_browser_provider_context(settings, "cabinet_home"))
     html = render_template(template_name, request=request, **context)
     return cabinet_html_response(html, status_code=status_code, hx_request=hx_request)
 
@@ -109,6 +126,7 @@ def cabinet_html_response(
     hx_request: bool = False,
 ) -> HTMLResponse:
     response = html_response(html, status_code=status_code)
+    response.headers["Cache-Control"] = "private, no-store"
     if hx_request:
         response.headers["Vary"] = "HX-Request"
     return response

@@ -45,7 +45,7 @@ Required gates:
 - all phases record RSS memory samples for coreaudiod, app, helper, and
   app+helper totals as metadata-only diagnostics.
 
-This script uses ps/pgrep metadata only and must not run HAL live-publication probes.
+This script uses ps/pgrep metadata only and does not inspect audio content.
 USAGE
     [ -z "$PHASE" ] && exit 2
     exit 0
@@ -267,7 +267,7 @@ while [ "$i" -le "$SAMPLES" ]; do
   app_helper_cpu="$(awk -v a="$app_cpu" -v b="$helper_cpu" 'BEGIN { printf "%.2f", a + b }')"
   app_helper_rss_mb="$(awk -v a="$app_rss_mb" -v b="$helper_rss_mb" 'BEGIN { printf "%.2f", a + b }')"
   sampled_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  printf '%s phase=%s sample=%s coreaudiodCpuPercent=%s appCpuPercent=%s helperCpuPercent=%s appHelperCpuPercent=%s coreaudiodRssMB=%s appRssMB=%s helperRssMB=%s appHelperRssMB=%s appProcessCount=%s helperProcessCount=%s unexpectedAppProcessCount=%s halProbeObserved=false phaseEventObserved=%s\n' \
+  printf '%s phase=%s sample=%s coreaudiodCpuPercent=%s appCpuPercent=%s helperCpuPercent=%s appHelperCpuPercent=%s coreaudiodRssMB=%s appRssMB=%s helperRssMB=%s appHelperRssMB=%s appProcessCount=%s helperProcessCount=%s unexpectedAppProcessCount=%s phaseEventObserved=%s\n' \
     "$sampled_at" "$PHASE" "$i" "$core_cpu" "$app_cpu" "$helper_cpu" "$app_helper_cpu" "$core_rss_mb" "$app_rss_mb" "$helper_rss_mb" "$app_helper_rss_mb" "$app_process_count" "$helper_process_count" "$unexpected_app_process_count" "$phase_event" | tee -a "$tmp_file"
   if [ "$i" -lt "$SAMPLES" ]; then
     sleep "$INTERVAL_SECONDS"

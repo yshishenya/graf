@@ -20,6 +20,15 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
     }
 }
 
+public enum DesktopUploadFollowUpReason {
+    public static let localPurgeAcknowledgementRetry = "local_purge_ack_retry"
+    public static let scheduledRetry = "scheduled_retry"
+
+    public static func processing(after reason: String) -> String {
+        reason.hasPrefix("processing_follow_up") ? "processing_follow_up" : "processing_follow_up_after_\(reason)"
+    }
+}
+
 private extension LocalRecordingManifest {
     var isServerUploadEligible: Bool {
         Self.sessionStatusAllowsUpload(status, failureReason: failureReason) &&
@@ -48,13 +57,11 @@ private extension LocalRecordingManifest {
     private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
         switch reason {
         case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
-             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
-             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
-             .silentInput, .noFrames, .stoppedBeforeFrames:
+             .silentInput, .noFrames, .stoppedBeforeFrames, .historicalPackage:
             return true
         case .directoryUnavailable, .writeFailed, .finalizationFailed,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
-             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .cpuGateFailed, .deviceUnavailable,
              .appClosed, .unknown:
             return false
         }
@@ -84,13 +91,11 @@ private extension LocalRecordingTrack {
     private static func isUploadSafeFailure(_ reason: LocalRecordingFailureReason) -> Bool {
         switch reason {
         case .none, .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
-             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
-             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
-             .silentInput, .noFrames, .stoppedBeforeFrames:
+             .silentInput, .noFrames, .stoppedBeforeFrames, .historicalPackage:
             return true
         case .directoryUnavailable, .writeFailed, .finalizationFailed,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
-             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .cpuGateFailed, .deviceUnavailable,
              .appClosed, .unknown:
             return false
         }
@@ -99,6 +104,7 @@ private extension LocalRecordingTrack {
 
 public final class DesktopUploadQueueService: @unchecked Sendable {
     public typealias Clock = @Sendable () -> Date
+    public typealias ProgressObserver = @Sendable ([DesktopUploadQueueItem]) async -> Void
     private static let processingFollowUpWindowSeconds: TimeInterval = 15 * 60
     private static let uploadedReconciliationStaleSeconds: TimeInterval = 60
     private static let finalProcessingStatuses: Set<String> = [
@@ -214,7 +220,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifest: LocalRecordingManifest,
         directoryURL: URL,
         reason: String = "local_recording_finalized",
-        calendarContextEventId: String? = nil
+        calendarContextEventId: String? = nil,
+        calendarMatchAttemptId: String? = nil
     ) throws -> DesktopUploadQueueItem {
         try queue.sync {
             var document = try loadDocumentOnQueue()
@@ -224,7 +231,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 directoryURL: directoryURL,
                 now: now,
                 reason: reason,
-                calendarContextEventId: calendarContextEventId
+                calendarContextEventId: calendarContextEventId,
+                calendarMatchAttemptId: calendarMatchAttemptId
             )
             var savedItem = item
 
@@ -245,6 +253,42 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             try saveDocumentOnQueue(document)
             return savedItem
         }
+    }
+
+    @discardableResult
+    public func persistCalendarMatchAttempt(
+        localRecordingId: String,
+        attemptId: String
+    ) throws -> DesktopUploadQueueItem? {
+        let normalizedAttemptId = attemptId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAttemptId.isEmpty else { return nil }
+
+        return try queue.sync {
+            var document = try loadDocumentOnQueue()
+            guard let index = document.items.firstIndex(where: { $0.directoryId == localRecordingId }) else {
+                return nil
+            }
+            guard Self.canPersistCalendarMatchAttempt(in: document.items[index]) else {
+                return nil
+            }
+            let now = clock()
+            document.items[index].calendarMatchAttemptId = normalizedAttemptId
+            document.items[index].updatedAt = now
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+            return document.items.first { $0.directoryId == localRecordingId }
+        }
+    }
+
+    public static func canPersistCalendarMatchAttempt(
+        in item: DesktopUploadQueueItem
+    ) -> Bool {
+        item.attemptCount == 0 &&
+            item.state != .uploading &&
+            !item.state.isTerminal &&
+            item.meetingId == nil &&
+            item.serverTruth.meetingId == nil
     }
 
     @discardableResult
@@ -331,23 +375,24 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     @discardableResult
-    public func submitSupportIncident(itemId: String) async throws -> DesktopSupportIncidentResponse {
-        try await submitSupportIncident(itemIds: [itemId])
+    public func submitSupportIncident(
+        itemId: String,
+        using submitter: any DesktopSupportIncidentSubmitting
+    ) async throws -> DesktopSupportIncidentResponse {
+        try await submitSupportIncident(itemIds: [itemId], using: submitter)
     }
 
     @discardableResult
-    public func submitSupportIncident(itemIds: [String]) async throws -> DesktopSupportIncidentResponse {
+    public func submitSupportIncident(
+        itemIds: [String],
+        using submitter: any DesktopSupportIncidentSubmitting
+    ) async throws -> DesktopSupportIncidentResponse {
         let context = client?.supportIncidentContext() ?? .unknown
         let submission = try markSupportIncidentSending(itemIds: itemIds, context: context)
-        guard let client else {
-            let error = DesktopUploadClientError.httpStatus(503, "support_incident.unavailable")
-            try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
-            throw error
-        }
 
         do {
-            let response = try await client.submitSupportIncident(report: submission.report)
-            try markSupportIncidentSent(itemIds: submission.itemIds, report: submission.report, response: response)
+            let response = try await submitter.submitSupportIncident(report: submission.report)
+            try markSupportIncidentResponse(itemIds: submission.itemIds, report: submission.report, response: response)
             return response
         } catch {
             try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
@@ -355,8 +400,63 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    /// Builds the same bounded v2 metadata-only report used for submission.
+    /// The queue core returns text only; AppKit owns clipboard side effects.
+    public func supportIncidentReportText(itemIds: [String]) throws -> String? {
+        let context = client?.supportIncidentContext() ?? .unknown
+        return try queue.sync {
+            let document = try loadDocumentOnQueue()
+            guard let primaryID = itemIds.first,
+                  let primary = document.items.first(where: { $0.id == primaryID })
+            else {
+                throw DesktopUploadQueueServiceError.packageNotFound(itemIds.first ?? "unknown")
+            }
+            let projection = DesktopUploadCustodyProjection(item: primary, now: clock())
+            let affectedItems = itemIds.compactMap { itemID in
+                document.items.first(where: { $0.id == itemID })
+            }
+            return DesktopSupportIncidentReport(
+                item: primary,
+                projection: projection,
+                context: context,
+                affectedItems: affectedItems
+            )?.clipboardText
+        }
+    }
+
     @discardableResult
-    public func processDueItems() async throws -> [DesktopUploadQueueItem] {
+    public func syncSupportIncident(
+        itemId: String,
+        using submitter: any DesktopSupportIncidentSubmitting
+    ) async throws -> DesktopSupportIncidentResponse {
+        try await syncSupportIncident(itemIds: [itemId], using: submitter)
+    }
+
+    @discardableResult
+    public func syncSupportIncident(
+        itemIds: [String],
+        using submitter: any DesktopSupportIncidentSubmitting
+    ) async throws -> DesktopSupportIncidentResponse {
+        let draft = try markSupportIncidentSyncing(itemIds: itemIds)
+        do {
+            let response = try await submitter.syncSupportIncident(incidentID: draft.incidentNumber)
+            try markSupportIncidentResponse(
+                itemIds: draft.itemIds,
+                reportFingerprint: draft.reportFingerprint,
+                dedupeKey: draft.dedupeKey,
+                response: response
+            )
+            return response
+        } catch {
+            try markSupportIncidentPendingAfterSyncFailure(draft: draft, error: error)
+            throw error
+        }
+    }
+
+    @discardableResult
+    public func processDueItems(
+        onProgress: @escaping ProgressObserver = { _ in }
+    ) async throws -> [DesktopUploadQueueItem] {
         guard let client else {
             return try loadItems()
         }
@@ -373,7 +473,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
 
         for item in dueItems {
-            try await upload(item: item, client: client)
+            try await upload(item: item, client: client, onProgress: onProgress)
         }
         await reconcileUploadedItemsIfNeeded(
             client: client,
@@ -670,10 +770,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     private static func localArtifactFiles(for item: DesktopUploadQueueItem) -> [String] {
-        var files = [item.manifestPath, item.microphonePath, item.systemAudioPath]
-        if item.artifactProfile.trackCompleteness.contains(where: { $0.transportRole == .playback }) {
-            files.append(item.reviewAudioPath)
-        }
+        let roles = Set(item.artifactProfile.trackCompleteness.map(\.transportRole))
+        var files = [item.manifestPath]
+        if roles.contains(.microphone) { files.append(item.microphonePath) }
+        if roles.contains(.system) { files.append(item.systemAudioPath) }
+        if roles.contains(.media) { files.append(item.transcriptionAudioPath) }
+        if roles.contains(.playback) { files.append(item.reviewAudioPath) }
         return files.filter { !$0.isEmpty && $0 != "metadata-only" }
     }
 
@@ -704,7 +806,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func upload(
         item: DesktopUploadQueueItem,
-        client: DesktopUploadClientProtocol
+        client: DesktopUploadClientProtocol,
+        onProgress: @escaping ProgressObserver
     ) async throws {
         let started = try updateItem(itemId: item.id) { current, now in
             var next = current.withTransition(
@@ -727,16 +830,30 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             )
             return next
         }
+        try await publishProgress(onProgress)
 
         do {
             let reconciled = try await reconcileBeforeUpload(started, client: client)
+            try await publishProgress(onProgress)
             guard reconciled.syncConflictState == .none else {
                 return
             }
             guard reconciled.state != .uploaded else {
                 return
             }
-            let result = try await client.upload(reconciled)
+            let result = try await client.upload(reconciled) { [self] reportedProgress in
+                _ = try updateItem(itemId: reconciled.id) { current, now in
+                    guard current.state == .uploading else {
+                        return current
+                    }
+                    return current.withTransition(
+                        to: .uploading,
+                        now: now,
+                        serverTruth: current.serverTruth.mergingConfirmedProgress(reportedProgress)
+                    )
+                }
+                try await publishProgress(onProgress)
+            }
             _ = try updateItem(itemId: started.id) { current, now in
                 var next = current.withTransition(
                     to: result.state,
@@ -767,6 +884,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 )
                 return next
             }
+            try await publishProgress(onProgress)
         } catch {
             let category = (error as? DesktopUploadClientError)?.failureCategory ?? .network
             let reason = String(describing: error)
@@ -809,7 +927,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 )
                 return next
             }
+            try await publishProgress(onProgress)
         }
+    }
+
+    private func publishProgress(_ observer: ProgressObserver) async throws {
+        await observer(try loadItems())
     }
 
     private func reconcileBeforeUpload(
@@ -976,11 +1099,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         directoryURL: URL,
         now: Date,
         reason: String = "local_recording_discovered",
-        calendarContextEventId: String? = nil
+        calendarContextEventId: String? = nil,
+        calendarMatchAttemptId: String? = nil
     ) throws -> DesktopUploadQueueItem {
         let manifestURL = directoryURL.appendingPathComponent(manifest.manifestFileName)
         let microphoneURL = directoryURL.appendingPathComponent("mic.wav")
         let systemAudioURL = directoryURL.appendingPathComponent("incoming.wav")
+        let transcriptionURL = directoryURL.appendingPathComponent("meeting-transcription.wav")
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
             throw DesktopUploadQueueServiceError.manifestMissing(manifestURL)
         }
@@ -990,7 +1115,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             manifestURL: manifestURL,
             microphoneURL: microphoneURL,
             systemAudioURL: systemAudioURL,
-            reviewAudioURL: directoryURL.appendingPathComponent("meeting-review.m4a")
+            reviewAudioURL: directoryURL.appendingPathComponent("meeting-review.m4a"),
+            transcriptionURL: transcriptionURL
         )
         let state: UploadItemState = profile.isUploadable ? .queued : .blocked
         let failureCategory: UploadFailureCategory = profile.isUploadable ? .none : .schemaIncompatibility
@@ -1031,6 +1157,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             createdAt: now,
             updatedAt: now,
             calendarContextEventId: calendarContextEventId,
+            calendarMatchAttemptId: calendarMatchAttemptId,
             recordingMetadata: recordingMetadata,
             artifactProfile: profile,
             retentionDecision: RetentionDecision(
@@ -1097,6 +1224,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.createdAt = existing.createdAt
         merged.supportIncidentSubmission = existing.supportIncidentSubmission
         merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
+        merged.calendarMatchAttemptId = existing.calendarMatchAttemptId ?? refreshed.calendarMatchAttemptId
         merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
         return merged
     }
@@ -1104,6 +1232,14 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private struct SupportIncidentSubmissionDraft {
         var itemIds: [String]
         var report: DesktopSupportIncidentReport
+    }
+
+    private struct SupportIncidentSyncDraft {
+        var itemIds: [String]
+        var incidentNumber: String
+        var reportFingerprint: String
+        var dedupeKey: String
+        var copyFallbackAvailable: Bool
     }
 
     private func markSupportIncidentSending(
@@ -1157,22 +1293,153 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
-    private func markSupportIncidentSent(
+    private func markSupportIncidentResponse(
         itemIds: [String],
         report: DesktopSupportIncidentReport,
+        response: DesktopSupportIncidentResponse
+    ) throws {
+        if response.isPendingSync {
+            try markSupportIncidentPending(
+                itemIds: itemIds,
+                reportFingerprint: report.safeReportFingerprint,
+                dedupeKey: report.dedupeKey,
+                incidentNumber: response.incidentId,
+                copyFallbackAvailable: response.copyFallbackAvailable
+            )
+            return
+        }
+        try markSupportIncidentSent(
+            itemIds: itemIds,
+            reportFingerprint: report.safeReportFingerprint,
+            dedupeKey: report.dedupeKey,
+            response: response
+        )
+    }
+
+    private func markSupportIncidentResponse(
+        itemIds: [String],
+        reportFingerprint: String,
+        dedupeKey: String,
+        response: DesktopSupportIncidentResponse
+    ) throws {
+        if response.isPendingSync {
+            try markSupportIncidentPending(
+                itemIds: itemIds,
+                reportFingerprint: reportFingerprint,
+                dedupeKey: dedupeKey,
+                incidentNumber: response.incidentId,
+                copyFallbackAvailable: response.copyFallbackAvailable
+            )
+            return
+        }
+        try markSupportIncidentSent(
+            itemIds: itemIds,
+            reportFingerprint: reportFingerprint,
+            dedupeKey: dedupeKey,
+            response: response
+        )
+    }
+
+    private func markSupportIncidentSent(
+        itemIds: [String],
+        reportFingerprint: String,
+        dedupeKey: String,
         response: DesktopSupportIncidentResponse
     ) throws {
         let changedIds = Set(itemIds)
         try updateSupportIncidentSubmission(itemIds: changedIds) { item, now in
             item.supportIncidentSubmission = .sent(
-                reportFingerprint: report.safeReportFingerprint,
-                dedupeKey: report.dedupeKey,
+                reportFingerprint: reportFingerprint,
+                dedupeKey: dedupeKey,
                 incidentNumber: response.incidentId,
                 githubIssueNumber: response.githubIssueNumber,
                 attemptedAt: now,
                 copyFallbackAvailable: response.copyFallbackAvailable
             )
         }
+    }
+
+    private func markSupportIncidentPending(
+        itemIds: [String],
+        reportFingerprint: String,
+        dedupeKey: String,
+        incidentNumber: String,
+        copyFallbackAvailable: Bool,
+        failureCode: String? = nil
+    ) throws {
+        let changedIds = Set(itemIds)
+        try updateSupportIncidentSubmission(itemIds: changedIds) { item, now in
+            item.supportIncidentSubmission = .pendingSync(
+                reportFingerprint: reportFingerprint,
+                dedupeKey: dedupeKey,
+                incidentNumber: incidentNumber,
+                attemptedAt: now,
+                copyFallbackAvailable: copyFallbackAvailable,
+                failureCode: failureCode
+            )
+        }
+    }
+
+    private func markSupportIncidentSyncing(itemIds: [String]) throws -> SupportIncidentSyncDraft {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            guard let primaryItemId = itemIds.first,
+                  let primaryIndex = document.items.firstIndex(where: { $0.id == primaryItemId }),
+                  let submission = document.items[primaryIndex].supportIncidentSubmission,
+                  submission.state == .pendingSync,
+                  let incidentNumber = submission.incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !incidentNumber.isEmpty,
+                  let reportFingerprint = submission.localReportFingerprint,
+                  let dedupeKey = submission.dedupeKey
+            else {
+                throw DesktopUploadClientError.httpStatus(409, "support_incident.sync_unavailable")
+            }
+            let changedIds = Set(itemIds).intersection(Set(document.items.map(\.id)))
+            guard !changedIds.isEmpty else {
+                throw DesktopUploadQueueServiceError.packageNotFound(primaryItemId)
+            }
+            let now = clock()
+            document.items = document.items.map { candidate in
+                guard changedIds.contains(candidate.id) else { return candidate }
+                var next = candidate
+                next.updatedAt = now
+                next.supportIncidentSubmission = DesktopSupportIncidentSubmissionState(
+                    state: .sending,
+                    localReportFingerprint: reportFingerprint,
+                    dedupeKey: dedupeKey,
+                    incidentNumber: incidentNumber,
+                    lastSubmissionAttemptAt: now,
+                    copyFallbackAvailable: submission.copyFallbackAvailable,
+                    accessibilityLabel: DesktopSupportIncidentActionCopy.sendingMessage
+                )
+                return next
+            }
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+            return SupportIncidentSyncDraft(
+                itemIds: Array(changedIds),
+                incidentNumber: incidentNumber,
+                reportFingerprint: reportFingerprint,
+                dedupeKey: dedupeKey,
+                copyFallbackAvailable: submission.copyFallbackAvailable
+            )
+        }
+    }
+
+    private func markSupportIncidentPendingAfterSyncFailure(
+        draft: SupportIncidentSyncDraft,
+        error: Error
+    ) throws {
+        let failure = Self.supportIncidentFailure(error)
+        try markSupportIncidentPending(
+            itemIds: draft.itemIds,
+            reportFingerprint: draft.reportFingerprint,
+            dedupeKey: draft.dedupeKey,
+            incidentNumber: draft.incidentNumber,
+            copyFallbackAvailable: draft.copyFallbackAvailable,
+            failureCode: failure.code
+        )
     }
 
     private func markSupportIncidentFailed(
@@ -1224,6 +1491,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 return (clientError.failureCategory.rawValue, code)
             case .invalidBaseURL:
                 return (clientError.failureCategory.rawValue, "support_incident.invalid_base_url")
+            case .invalidArtifactPackage:
+                return (clientError.failureCategory.rawValue, "support_incident.invalid_artifact_package")
             case .invalidResponse:
                 return (clientError.failureCategory.rawValue, "support_incident.invalid_response")
             case .localFileMissing:
@@ -1245,15 +1514,19 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         if manifest.permissions?.allowsAcceptedRecording != true {
             return LocalRecordingFailureReason.permissionDenied.rawValue
         }
-        if !profile.manifestPresent || !profile.microphonePresent || !profile.systemAudioPresent {
+        let requiredRoles: Set<DesktopUploadTransportRole> = profile.isV5Package
+            ? [.manifest, .media, .playback]
+            : [.manifest, .microphone, .system]
+        let presentRoles = Set(
+            profile.trackCompleteness
+                .filter(\.present)
+                .map(\.transportRole)
+        )
+        if !requiredRoles.isSubset(of: presentRoles) {
             return "local_artifacts_not_uploadable"
         }
         if manifest.failureReason != .none {
             return manifest.failureReason.rawValue
-        }
-        if let leakageReason = manifest.leakageFinalization?.failureReason,
-           leakageReason != .none {
-            return leakageReason.rawValue
         }
         return "local_recording_package_not_uploadable"
     }
@@ -1276,13 +1549,73 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifestURL: URL,
         microphoneURL: URL,
         systemAudioURL: URL,
-        reviewAudioURL: URL? = nil
+        reviewAudioURL: URL? = nil,
+        transcriptionURL: URL? = nil
     ) -> ArtifactCompletenessProfile {
         let manifestSize = fileSize(manifestURL)
         let microphoneSize = fileSize(microphoneURL)
         let systemAudioSize = fileSize(systemAudioURL)
         let reviewAudio = reviewAudioURL.flatMap(reviewAudioArtifact)
         let durationSeconds = max(1, Int(ceil(Double(max(0, manifest.stoppedAt.timeIntervalSince(manifest.startedAt))))))
+        if manifest.isV5Package {
+            let mediaURL = transcriptionURL ?? manifestURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("meeting-transcription.wav")
+            let mediaAudio = transcriptionAudioArtifact(mediaURL)
+            let manifestTrack = UploadTrackCompleteness(
+                transportRole: .manifest,
+                fileName: "manifest.json",
+                present: manifestSize > 0,
+                byteCount: manifestSize,
+                sha256: sha256Hex(url: manifestURL),
+                durationSeconds: 1
+            )
+            let mediaTrack = UploadTrackCompleteness(
+                transportRole: .media,
+                fileName: "meeting-transcription.wav",
+                present: mediaAudio != nil,
+                byteCount: mediaAudio?.byteCount ?? fileSize(mediaURL),
+                sha256: mediaAudio?.sha256,
+                durationSeconds: mediaAudio?.durationSeconds ?? durationSeconds
+            )
+            let playbackTrack = UploadTrackCompleteness(
+                transportRole: .playback,
+                fileName: "meeting-review.m4a",
+                present: reviewAudio != nil,
+                byteCount: reviewAudio?.byteCount ?? (reviewAudioURL.map(fileSize) ?? 0),
+                sha256: reviewAudio?.sha256,
+                durationSeconds: reviewAudio?.durationSeconds ?? durationSeconds
+            )
+            let tracks = [manifestTrack, mediaTrack, playbackTrack]
+            let manifestTracksByRole = Dictionary(
+                uniqueKeysWithValues: manifest.tracks.map { ($0.role, $0) }
+            )
+            let integrityMatches =
+                manifestTracksByRole[.mixedMeetingAudio]?.byteCount == mediaTrack.byteCount &&
+                manifestTracksByRole[.mixedMeetingAudio]?.sha256 == mediaTrack.sha256 &&
+                manifestTracksByRole[.reviewPlayback]?.byteCount == playbackTrack.byteCount &&
+                manifestTracksByRole[.reviewPlayback]?.sha256 == playbackTrack.sha256
+            let uploadable = manifest.isServerUploadEligible &&
+                manifest.isComplete &&
+                integrityMatches &&
+                tracks.allSatisfy(\.uploadable)
+            return ArtifactCompletenessProfile(
+                schemaVersion: manifest.schemaVersion,
+                manifestPresent: manifestTrack.present,
+                microphonePresent: false,
+                systemAudioPresent: false,
+                manifestSha256: manifestTrack.sha256,
+                microphoneSha256: nil,
+                systemAudioSha256: nil,
+                manifestSizeBytes: manifestSize,
+                microphoneSizeBytes: 0,
+                systemAudioSizeBytes: 0,
+                durationSeconds: durationSeconds,
+                trackCompleteness: tracks,
+                isUploadable: uploadable,
+                qualityWarningReason: uploadable ? Self.qualityWarningReason(for: manifest) : nil
+            )
+        }
         let manifestTrack = UploadTrackCompleteness(
             transportRole: .manifest,
             fileName: "manifest.json",
@@ -1346,10 +1679,6 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         if let reason = uploadableQualityWarningReason(manifest.failureReason) {
             return reason
         }
-        if let leakageReason = manifest.leakageFinalization?.failureReason,
-           let reason = uploadableQualityWarningReason(leakageReason) {
-            return reason
-        }
         for track in manifest.tracks {
             if let reason = uploadableQualityWarningReason(track.failureReason) {
                 return reason
@@ -1361,13 +1690,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private static func uploadableQualityWarningReason(_ reason: LocalRecordingFailureReason) -> String? {
         switch reason {
         case .emptyRequiredTrack, .formatNotReady, .timelineMisaligned,
-             .leakageDetected, .leakageUnproven, .leakageNotMeasured,
-             .insufficientReference, .derivedResidualLeakage, .derivedDeletionNotRegistered,
-             .silentInput, .noFrames, .stoppedBeforeFrames:
+             .silentInput, .noFrames, .stoppedBeforeFrames, .historicalPackage:
             return reason.rawValue
         case .none, .directoryUnavailable, .writeFailed, .finalizationFailed,
              .permissionDenied, .scopeUnavailable, .protectedAudioBlocked, .captureFailed,
-             .cpuGateFailed, .halProbeObserved, .deviceUnavailable, .legacyNotReady,
+             .cpuGateFailed, .deviceUnavailable,
              .appClosed, .unknown:
             return nil
         }
@@ -1449,7 +1776,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func malformedQueueDocumentItem(now: Date) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.schemaVersion,
+            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
             manifestPresent: false,
             microphonePresent: false,
             systemAudioPresent: false,
@@ -1505,6 +1832,28 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
               (file.fileFormat.settings[AVFormatIDKey] as? NSNumber)?.intValue == Int(kAudioFormatMPEG4AAC),
               Int(file.fileFormat.sampleRate.rounded()) == 48_000,
               Int(file.fileFormat.channelCount) == 1,
+              file.length > 0
+        else {
+            return nil
+        }
+        return (
+            byteCount,
+            sha256Hex(url: url),
+            max(1, Int(ceil(Double(file.length) / file.fileFormat.sampleRate)))
+        )
+    }
+
+    private static func transcriptionAudioArtifact(
+        _ url: URL
+    ) -> (byteCount: Int64, sha256: String?, durationSeconds: Int)? {
+        let byteCount = fileSize(url)
+        guard byteCount > 44,
+              url.pathExtension.lowercased() == "wav",
+              let file = try? AVAudioFile(forReading: url),
+              (file.fileFormat.settings[AVFormatIDKey] as? NSNumber)?.intValue == Int(kAudioFormatLinearPCM),
+              Int(file.fileFormat.sampleRate.rounded()) == 16_000,
+              Int(file.fileFormat.channelCount) == 1,
+              (file.fileFormat.settings[AVLinearPCMBitDepthKey] as? NSNumber)?.intValue == 16,
               file.length > 0
         else {
             return nil
@@ -1583,14 +1932,8 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
         switch reason {
         case "local_recording_package_not_uploadable", "local_artifacts_not_uploadable":
             return "нужна ручная проверка локальной записи"
-        case LocalRecordingFailureReason.leakageDetected.rawValue:
-            return "звук динамиков попал в микрофон; отправим как есть"
-        case LocalRecordingFailureReason.leakageUnproven.rawValue:
-            return "чистота микрофона не доказана; отправим как есть"
-        case LocalRecordingFailureReason.leakageNotMeasured.rawValue:
-            return "не удалось проверить утечку динамиков; отправим как есть"
-        case LocalRecordingFailureReason.insufficientReference.rawValue:
-            return "не хватает системной аудио-дорожки для проверки; отправим как есть"
+        case LocalRecordingFailureReason.historicalPackage.rawValue:
+            return "сохранённая ранее запись будет отправлена в режиме совместимости"
         case LocalRecordingFailureReason.silentInput.rawValue:
             return "микрофон был слишком тихим или пустым; отправим как есть"
         case LocalRecordingFailureReason.permissionDenied.rawValue:

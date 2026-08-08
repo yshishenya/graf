@@ -1,33 +1,29 @@
-# Device Change Recovery Scenarios (US4)
+# Current Microphone Device Change Recovery
 
 ## Purpose
 
-Validate recovery from physical device disconnect, Bluetooth profile changes, and replacement devices.
+Validate current app-owned microphone behavior when the selected physical input
+changes or disappears without changing system-audio capture ownership.
 
 ## Scenarios
 
-1. Start with a selected physical microphone and start route verification.
-   - Capture readiness state is `ready`.
-2. Disconnect selected microphone mid-run.
-   - Verify Audio Health switches to degraded/error quickly.
-   - Verify capture does not continue silently.
-3. Reconnect original microphone or select an alternative supported device.
-   - Verify the app can re-run route verification and return to readiness state.
-
-4. Simulate Bluetooth profile change (A2DP/Handsfree where supported).
-   - Verify output path becomes muted/noisy/degraded with explicit recovery copy.
-   - Verify remote call can continue via host fallback or stop with user-facing warning.
-
-5. Switch selected output while capture is active.
-   - Verify route graph and passthrough state reflect actual selection.
-   - Verify active-capture stop remains available.
-
-6. Kill or crash the desktop audio engine while 2brain Rec devices are selected.
-   - Verify public devices become hidden or unavailable within 5 seconds.
-   - Verify readiness is stale until app I/O heartbeat and route validation recover.
+1. Select an available built-in, wired, USB, or Bluetooth microphone and start
+   a manual recording.
+2. Disconnect the selected microphone during capture.
+   - The microphone track becomes degraded or failed truthfully.
+   - Incoming ScreenCaptureKit audio and the visible Stop control remain owned
+     by the active capture session.
+3. Stop the recording once and verify the manifest records the microphone
+   failure without claiming a complete accepted package.
+4. Reconnect the input or choose another supported physical microphone.
+5. Start a new manual recording and verify both current sources produce frames.
+6. Present an aggregate, multi-output, virtual, unavailable, or unknown input
+   and verify selection fails closed before recording.
 
 ## Expected Outcome
 
-- All changes map to distinct recovery families: device disconnect, profile switch, unsupported profile.
-- No automatic silent retry without explicit user action.
-- App I/O loss maps to fail-closed recovery, not fake-ready virtual devices.
+- No silent source substitution occurs.
+- A microphone-source failure cannot hide active capture or remove one-action
+  Stop.
+- A later recording can recover after explicit supported-device selection.
+- Evidence stays metadata-only.

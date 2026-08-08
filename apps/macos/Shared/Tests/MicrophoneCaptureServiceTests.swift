@@ -36,6 +36,29 @@ final class MicrophoneCaptureServiceTests: XCTestCase {
         XCTAssertEqual(session.inputDisplayName, "Built-in Microphone")
     }
 
+    func testRequestPermissionAndPreflightDoesNotReRequestAfterDenial() async {
+        let service = MicrophoneCaptureService(
+            authorizer: FakeMicrophoneAuthorizer(current: .denied, requested: .granted)
+        )
+
+        let session = await service.requestPermissionAndPreflight(
+            sessionId: "session",
+            inputDisplayName: "Built-in Microphone"
+        )
+
+        XCTAssertEqual(session.permissionState, .denied)
+    }
+
+    func testRequestPermissionForSettingsReRegistersAfterDenial() async {
+        let service = MicrophoneCaptureService(
+            authorizer: FakeMicrophoneAuthorizer(current: .denied, requested: .granted)
+        )
+
+        let state = await service.requestPermissionForSettings()
+
+        XCTAssertEqual(state, .granted)
+    }
+
     func testRecordingMicrophoneSelectionAcceptsDefaultFallbackAsDiagnosticSafe() {
         let selection = RecordingMicrophoneSelection(
             selectionId: "selection-default",
@@ -76,17 +99,17 @@ final class MicrophoneCaptureServiceTests: XCTestCase {
             lastFrameAt: Date(timeIntervalSince1970: 119),
             failureReason: .none
         )
-        let legacy = AppOwnedMicrophoneStreamSession(
+        let historical = AppOwnedMicrophoneStreamSession(
             sessionId: "session",
             selection: selection,
             permissionState: .granted,
-            streamKind: .legacyRecorderFallback,
+            streamKind: .historicalSource,
             frameCount: 16_000,
             failureReason: .none
         )
 
         XCTAssertTrue(appOwned.provesGraphReadiness)
-        XCTAssertFalse(legacy.provesGraphReadiness)
+        XCTAssertFalse(historical.provesGraphReadiness)
         XCTAssertTrue(appOwned.diagnosticSafe)
     }
 
@@ -165,6 +188,28 @@ final class MicrophoneCaptureServiceTests: XCTestCase {
         XCTAssertNil(selection.rejectionReason)
     }
 
+    func testResolveRecordingMicrophoneFailsClosedForUnknownInputIdentity() {
+        let unknownInput = PhysicalAudioDevice(
+            id: "unclassified-input",
+            displayName: "External Audio",
+            direction: .input,
+            deviceClass: .unknown,
+            availabilityState: .available
+        )
+        let service = MicrophoneCaptureService(
+            authorizer: FakeMicrophoneAuthorizer(current: .granted, requested: .granted),
+            inputProvider: FakeRecordingMicrophoneInputProvider(defaultInput: unknownInput, devices: [unknownInput]),
+            clock: { Date(timeIntervalSince1970: 204) }
+        )
+
+        let selection = service.resolveRecordingMicrophoneSelection(selectedInputDeviceId: nil)
+
+        XCTAssertEqual(selection.selectionResult, .rejected)
+        XCTAssertEqual(selection.workingDeviceKind, .unknown)
+        XCTAssertEqual(selection.rejectionReason, .inputIdentityUnproven)
+        XCTAssertFalse(selection.isAccepted)
+    }
+
     func testAppOwnedMicrophoneSampleSourceBindsResolvedSelectedInputDevice() throws {
         let selectedInput = PhysicalAudioDevice(
             id: "usb-mic",
@@ -190,6 +235,25 @@ final class MicrophoneCaptureServiceTests: XCTestCase {
         let source = try service.makeAppOwnedMicrophoneSampleSource(for: selection)
 
         XCTAssertEqual(source.inputDeviceId, "usb-mic")
+    }
+
+    func testAppOwnedMicrophoneSourcePreservesTimestampedCaptureBatch() throws {
+        let source = AppOwnedMicrophoneSampleSource(inputDeviceId: "built-in")
+        let original = RecordingAudioBatch(
+            samples: Array(repeating: 0.4, count: 480),
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: RecordingAudioPresentationTimestamp(seconds: 654.5, clockDomain: .hostTime),
+            discontinuity: .none,
+            routeGeneration: 3
+        )
+
+        source.appendCapturedBatch(original)
+        let restored = try XCTUnwrap(source.readTimestampedBatch(maximumFrameCount: 480))
+
+        XCTAssertEqual(restored.presentationTime, original.presentationTime)
+        XCTAssertEqual(restored.format, original.format)
+        XCTAssertEqual(restored.routeGeneration, 3)
+        XCTAssertEqual(restored.samples, original.samples)
     }
 
     func testBlockedPermissionStatesCreateBlockedMicrophoneStreamEvidence() {

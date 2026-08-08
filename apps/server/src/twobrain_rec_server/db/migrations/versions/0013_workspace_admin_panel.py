@@ -96,7 +96,6 @@ def upgrade() -> None:
         ["workspace_id", "target_contact"],
         unique=True,
         postgresql_where=sa.text("status = 'pending'"),
-        sqlite_where=sa.text("status = 'pending'"),
     )
     op.create_index(
         "ix_workspace_invitations_workspace_status",

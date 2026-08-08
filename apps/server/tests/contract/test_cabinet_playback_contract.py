@@ -5,7 +5,7 @@ from tests.fixtures.cabinet import seed_cabinet_meetings
 from tests.fixtures.cabinet_access import add_retained_playback_m4a
 
 
-def test_ready_detail_keeps_playback_unavailable_until_m4a_artifact_exists(client) -> None:
+def test_ready_detail_reports_automatic_preparation_until_m4a_artifact_exists(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
     response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
@@ -14,13 +14,21 @@ def test_ready_detail_keeps_playback_unavailable_until_m4a_artifact_exists(clien
     payload = response.json()
     playback = payload["playback"]
     assert playback["available"] is False
-    assert playback["unavailable_reason"] == "no_audio"
+    assert playback["state"] == "preparing"
+    assert playback["reason_code"] == "normalization_queued"
+    assert playback["automatic_recovery"] is True
+    assert playback["can_play"] is False
+    assert playback["action"] == "disabled"
+    assert playback["unavailable_reason"] == "processing"
     assert playback["source_mode"] == "none"
     assert "playback_path" not in playback or playback["playback_path"] is None
     assert playback["duration_seconds"] > 0
     assert playback["speed_options"] == [0.75, 1.0, 1.25, 1.5, 2.0]
-    audio_artifact = next(artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio")
-    assert audio_artifact["state"] == "policy_blocked"
+    audio_artifact = next(
+        artifact for artifact in payload["artifacts"] if artifact["artifact_class"] == "audio"
+    )
+    assert audio_artifact["state"] == "missing"
+    assert audio_artifact["reason"] == "missing_playback_artifact"
     assert audio_artifact["action"] == "disabled"
 
 
@@ -81,4 +89,23 @@ def test_desktop_embedded_detail_uses_same_playback_contract(client) -> None:
     assert 'data-source-mode="stored_review_m4a"' in html
     assert 'data-seek-seconds="0.0"' in html
     assert 'data-seek-seconds="12.5"' in html
+    assert "data-timeline-track" in html
+    assert "data-timeline-playhead" in html
     assert "desktop-embedded" in html
+
+
+def test_browser_and_embedded_keep_the_same_persistent_timeline_fixture(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A parity")
+
+    browser = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
+    embedded = client.get(f"/desktop/meetings/{seeds.ready_id}", headers=auth_headers())
+
+    assert browser.status_code == embedded.status_code == 200
+    for html in (browser.text, embedded.text):
+        assert html.count("data-playback-shell") == 1
+        assert html.count("data-timeline-track") == 2
+        assert html.count("data-transcript-turn") == 2
+        assert 'data-speaker-key="speaker_00"' in html
+        assert 'data-speaker-key="speaker_01"' in html
+        assert html.index('data-detail-panel="recording"') < html.index("data-playback-shell")

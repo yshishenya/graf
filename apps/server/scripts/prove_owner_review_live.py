@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
+from smoke_target import read_private_auth_material, validate_origin
+
 
 @dataclass(slots=True)
 class OwnerReviewProof:
@@ -36,10 +38,10 @@ class OwnerReviewProof:
 
 
 def _origin(value: str) -> str:
-    parsed = parse.urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise SystemExit("api must be an http(s) origin")
-    return f"{parsed.scheme}://{parsed.netloc}"
+    try:
+        return validate_origin(value)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def _safe_json(payload: dict[str, Any]) -> str:
@@ -51,9 +53,23 @@ def _safe_json(payload: dict[str, Any]) -> str:
     return serialized
 
 
-def _request_json(origin: str, path: str, token: str) -> tuple[int, dict[str, Any] | None, str | None]:
+def _request_json(
+    origin: str,
+    path: str,
+    token: str | None = None,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any] | None, str | None]:
     url = f"{origin}{path}"
-    req = request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+    headers = {"Accept": "application/json"}
+    data = None
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if payload is not None:
+        data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = request.Request(url, data=data, method=method, headers=headers)
     try:
         with request.urlopen(req, timeout=15) as response:
             body = response.read().decode("utf-8")
@@ -88,7 +104,7 @@ def build_dry_run_proof(*, origin: str, run_id: str) -> OwnerReviewProof:
 
 
 def build_execute_proof(*, origin: str, run_id: str, token_file: Path) -> OwnerReviewProof:
-    token = token_file.read_text(encoding="utf-8").strip()
+    token = read_private_auth_material(token_file, expected_run_id=run_id)
     list_status, list_payload, list_code = _request_json(origin, "/api/v1/cabinet/meetings", token)
     route_status: dict[str, int | str] = {"list": list_status or list_code or "blocked"}
     list_state = "ready" if list_status == 200 else "blocked"

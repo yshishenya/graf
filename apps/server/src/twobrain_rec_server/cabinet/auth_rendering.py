@@ -89,6 +89,8 @@ def render_login_page(
     providers: list,
     next_path: str = "/meetings",
     error: str | None = None,
+    invitation_flow: bool = False,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     content = render_template(
@@ -97,9 +99,10 @@ def render_login_page(
         providers=_login_provider_actions(providers, next_path=safe_next),
         next_path=safe_next,
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
+        invitation_flow=invitation_flow,
         error_message=_login_error_message(error),
     )
-    return _standalone_page("Вход", content)
+    return _standalone_page("Вход", content, product_analytics_provider=product_analytics_provider)
 
 
 def render_signup_page(
@@ -109,6 +112,7 @@ def render_signup_page(
     next_path: str = "/meetings",
     error: str | None = None,
     mode: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     email_mode = str(mode or "").lower() == "email"
@@ -123,7 +127,7 @@ def render_signup_page(
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
         signup_email_href=f"/sign-up?{urlencode({'next': safe_next, 'mode': 'email'})}",
     )
-    return _standalone_page("Регистрация", content)
+    return _standalone_page("Регистрация", content, product_analytics_provider=product_analytics_provider)
 
 
 def render_email_code_page(
@@ -134,16 +138,27 @@ def render_email_code_page(
     dev_code: str | None = None,
     error: str | None = None,
     flow: str = "login",
+    product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     verify_path = "/sign-up/email/verify" if flow == "signup" else "/login/email/verify"
     resend_path = "/sign-up/email/start" if flow == "signup" else "/login/email/start"
     back_path = "/sign-up" if flow == "signup" else "/login"
-    page_title = "Подтвердите почту" if flow == "signup" else "Подтвердите вход"
+    invitation_flow = flow == "share_invitation"
+    page_title = (
+        "Откройте итоги встречи"
+        if invitation_flow
+        else ("Подтвердите почту" if flow == "signup" else "Подтвердите вход")
+    )
     subtitle = (
-        f"Проверьте {email}: мы отправили 6-значный код для создания аккаунта."
-        if flow == "signup"
-        else f"Проверьте {email}: мы отправили 6-значный код для входа."
+        f"Проверьте {email}: мы отправили 6-значный код. Если аккаунта GRAF ещё нет, "
+        "он создастся автоматически."
+        if invitation_flow
+        else (
+            f"Проверьте {email}: мы отправили 6-значный код для создания аккаунта."
+            if flow == "signup"
+            else f"Проверьте {email}: мы отправили 6-значный код для входа."
+        )
     )
     content = render_template(
         "cabinet/auth/email_code.html",
@@ -158,15 +173,22 @@ def render_email_code_page(
         dev_code=dev_code,
         error_message=_login_error_message(error),
     )
-    return _standalone_page("Код входа", content)
+    return _standalone_page("Код входа", content, product_analytics_provider=product_analytics_provider)
 
 
-def _standalone_page(title: str, content: str, *, csrf_token: str | None = None) -> str:
+def _standalone_page(
+    title: str,
+    content: str,
+    *,
+    csrf_token: str | None = None,
+    product_analytics_provider: dict[str, object] | None = None,
+) -> str:
     return render_template(
         "cabinet/base.html",
         title=title,
         surface_mode="auth",
         csrf_token=csrf_token,
+        product_analytics_provider=product_analytics_provider,
         content=trusted_component_html(content, source="auth.shell"),
     )
 
@@ -190,16 +212,20 @@ def _login_error_message(error: str | None) -> str | None:
         "auth_session_invalid": "Сессия не найдена. Войдите снова.",
         "auth_session_expired": "Сессия истекла. Войдите снова.",
         "device_revoked": "Доступ этого устройства отозван. Войдите с доверенного браузера.",
-        "workspace_required": "Нужен workspace id для входа в self-hosted кабинет.",
+        "workspace_required": "Вход пока не настроен на сервере. Обратитесь к администратору GRAF.",
         "provider_missing": "Этот способ входа не настроен.",
         "provider_disabled": "Этот способ входа выключен политикой кабинета.",
         "provider_future": "Этот способ входа появится позже. Сейчас используйте вход по email.",
         "auth_dependency_unavailable": "Сервис входа временно недоступен.",
         "email_invalid": "Введите корректный email.",
-        "email_start_unavailable": "Не удалось отправить код для этого кабинета. Проверьте workspace id и email.",
+        "email_start_unavailable": "Не удалось отправить код. Проверьте email и попробуйте снова.",
         "email_delivery_unavailable": "Почтовая доставка временно недоступна. Попробуйте запросить код еще раз.",
+        "auth_rate_limited": "Слишком много попыток. Попробуйте снова через несколько минут.",
         "workspace_enrollment_required": "Регистрация в этом кабинете закрыта. Попросите администратора выслать приглашение.",
         "email_code_invalid": "Код не подошел. Проверьте письмо и попробуйте еще раз.",
         "email_code_expired": "Код истек. Запросите новый код.",
+        "share_invitation_email_required": "Введите email, на который пришло приглашение.",
+        "share_invitation_unavailable": "Приглашение больше недоступно. Запросите новое.",
+        "share_recipient_mismatch": "Этот аккаунт не совпадает с приглашённым адресом. Войдите с другим аккаунтом.",
     }
     return messages.get(error, "Не удалось открыть сессию кабинета. Попробуйте войти снова.")

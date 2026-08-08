@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-01
 
-**Status**: Draft
+**Status**: Implemented manual capture indicator and controls; v5 acceptance remains in 106
 
 **Input**: User description: "Implement recording through a full Spec Kit cycle. Build the first safe manual capture session layer after low-resource non-recording passthrough: manual start/stop, persistent visible local capture indicator, one-action stop, honest recording states, local-only evidence, and no silent or invisible recording."
 

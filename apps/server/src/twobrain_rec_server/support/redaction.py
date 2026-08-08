@@ -9,6 +9,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 SUPPORTED_SCHEMA_VERSION = "desktop-support-incident.v1"
+SUPPORTED_SCHEMA_VERSIONS = {
+    SUPPORTED_SCHEMA_VERSION,
+    "desktop-support-incident.v2",
+}
 SERVER_REDACTION_VERSION = "support-incident-redaction.v1"
 REDACTED_METADATA = "redacted_metadata"
 UNKNOWN = "unknown"
@@ -69,6 +73,26 @@ ALLOWED_REPORT_FIELDS = (
     "redaction_state",
     "affected_count",
     "safe_affected_identities",
+    "client_report_fingerprint",
+    "client_dedupe_key",
+    "canonical_stage",
+    "custody_owner",
+    "upload_state",
+    "deletion_state",
+    "local_copy_state",
+    "server_copy_state",
+    "server_deletion_state",
+    "server_access_state",
+    "server_status",
+    "server_upload_status",
+    "server_processing_status",
+    "server_review_available",
+    "server_review_status",
+    "last_reconciled_at",
+    "server_conflict_reason",
+    "server_next_action",
+    "timeline",
+    "retry_history",
 )
 
 NESTED_ALLOWED_FIELDS = {
@@ -98,6 +122,7 @@ BOOL_FIELDS = {
     "server_identity_present",
     "local_media_retained",
     "server_copy_known",
+    "server_review_available",
     "upload_session_present",
 }
 INT_FIELDS = {
@@ -154,7 +179,16 @@ SIGNED_URL_RE = re.compile(
 )
 RAW_PATH_RE = re.compile(r"(^|[\s=:])(/Users/|/private/|/var/folders/|file://|[A-Za-z]:\\)")
 SAFE_TEXT_RE = re.compile(r"^[A-Za-z0-9 ._:/+@-]{1,256}$")
+SAFE_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,159}$")
+SAFE_VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){0,3}(?:[-+][A-Za-z0-9._-]{1,40})?$")
+SAFE_BUILD_RE = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
+SAFE_BUNDLE_ID_RE = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+){1,8}$")
+SAFE_LOCALE_RE = re.compile(r"^[a-z]{2,3}(?:[-_][A-Z]{2})?$")
+SAFE_TIMEZONE_RE = re.compile(r"^[A-Za-z_]+/[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+)?$")
+SAFE_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 SAFE_FINGERPRINT_RE = re.compile(r"^(?:fpr|[a-z0-9]+_fpr)_[a-f0-9]{2,64}$")
+SAFE_CLIENT_REPORT_FINGERPRINT_RE = re.compile(r"^report_fpr_[a-f0-9]{2,64}$")
+SAFE_CLIENT_DEDUPE_KEY_RE = re.compile(r"^support_dedupe_[a-f0-9]{2,64}$")
 SAFE_AFFECTED_FINGERPRINT_RE = re.compile(r"^affected_fpr_[a-f0-9]{2,64}$")
 SAFE_SENTINELS = {"unknown", "not_applicable"}
 FINGERPRINT_FIELDS = {
@@ -173,6 +207,72 @@ REPORT_FINGERPRINT_EXCLUDED_FIELDS = {
     "affected_identity_fingerprint",
 }
 
+STRICT_STRING_FIELD_VALIDATORS: dict[str, Callable[[str], bool]] = {
+    "schema_version": lambda value: value in SUPPORTED_SCHEMA_VERSIONS,
+    "app_name": lambda value: value == "GRAF",
+    "bundle_id": lambda value: SAFE_BUNDLE_ID_RE.match(value) is not None,
+    "app_version": lambda value: SAFE_VERSION_RE.match(value) is not None,
+    "build_version": lambda value: SAFE_BUILD_RE.match(value) is not None,
+    "macos_version": lambda value: SAFE_VERSION_RE.match(value) is not None,
+    "architecture": lambda value: value in {"arm64", "x86_64", "universal", UNKNOWN},
+    "locale": lambda value: SAFE_LOCALE_RE.match(value) is not None or value == UNKNOWN,
+    "timezone": lambda value: SAFE_TIMEZONE_RE.match(value) is not None or value in {"UTC", UNKNOWN},
+    "custody_lifecycle_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "upload_queue_item_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "retry_class": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "retry_mode": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "normal_user_action": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "failure_category": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "problem_code": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "sync_conflict_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "created_at": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None,
+    "updated_at": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None,
+    "retention_deadline": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None,
+    "data_loss_risk": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "last_attempt_at": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None or value in SAFE_SENTINELS,
+    "next_retry_at": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None or value in SAFE_SENTINELS,
+    "last_safe_http_status": lambda value: value in SAFE_SENTINELS or value.isdigit(),
+    "last_safe_problem_code": lambda value: SAFE_CODE_RE.match(value) is not None or value in SAFE_SENTINELS,
+    "local_purge_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "local_purge_ack_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "processing_status": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "app_queue_schema_version": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "ledger_schema_version": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "redaction_state": lambda value: value == "metadata_only",
+    "client_report_fingerprint": lambda value: value in SAFE_SENTINELS
+    or SAFE_CLIENT_REPORT_FINGERPRINT_RE.match(value) is not None,
+    "client_dedupe_key": lambda value: value in SAFE_SENTINELS
+    or SAFE_CLIENT_DEDUPE_KEY_RE.match(value) is not None,
+    "canonical_stage": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "custody_owner": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "upload_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "deletion_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "local_copy_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "server_copy_state": lambda value: value in {"confirmed", "deleted", "blocked", "unknown"},
+    "server_deletion_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "server_access_state": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "server_status": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "server_upload_status": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "server_processing_status": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "server_review_status": lambda value: SAFE_CODE_RE.match(value) is not None,
+    "last_reconciled_at": lambda value: SAFE_TIMESTAMP_RE.match(value) is not None or value in SAFE_SENTINELS,
+    "server_conflict_reason": lambda value: SAFE_CODE_RE.match(value) is not None or value in SAFE_SENTINELS,
+    "server_next_action": lambda value: SAFE_CODE_RE.match(value) is not None or value in SAFE_SENTINELS,
+}
+
+SAFE_LOCAL_PURGE_TASK_VALUES = {
+    "purge_local_buffers",
+    "purge_local_exports",
+    "confirm_local_expiry",
+    "pending",
+    "claimed",
+    "acknowledged",
+    "failed",
+    "unreachable",
+    "expired",
+    "local_expiry_relied_upon",
+}
+
 
 class SupportIncidentRedactionError(ValueError):
     def __init__(self, code: str) -> None:
@@ -185,7 +285,7 @@ def build_server_redacted_report(
     *,
     received_at: datetime | None = None,
 ) -> dict[str, Any]:
-    if payload.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
+    if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
         raise SupportIncidentRedactionError("support_incident.unsupported_schema")
     if payload.get("redaction_state") != "metadata_only":
         raise SupportIncidentRedactionError("support_incident.unsafe_payload")
@@ -208,6 +308,8 @@ def build_server_redacted_report(
     report["safe_report_fingerprint"] = stable_report_fingerprint(report)
     report["dedupe_key"] = derive_dedupe_key(report)
     report["affected_identity_fingerprint"] = derive_affected_identity(report)
+    if len(canonical_report_json(report).encode("utf-8")) > 256 * 1024:
+        raise SupportIncidentRedactionError("support_incident.payload_too_large")
     return report
 
 
@@ -259,6 +361,8 @@ def derive_dedupe_key(report: Mapping[str, Any]) -> str:
         str(report.get("workspace_fingerprint", UNKNOWN)),
         str(report.get("device_fingerprint", UNKNOWN)),
         str(report.get("build_version", UNKNOWN)),
+        str(report.get("local_recording_id_fingerprint", UNKNOWN)),
+        str(report.get("safe_recording_identity", UNKNOWN)),
     ]
     return _fingerprint("support_dedupe", "|".join(parts), length=24)
 
@@ -285,9 +389,13 @@ def _redact_field(field: str, value: Any) -> tuple[Any, int]:
     if field in NESTED_ALLOWED_FIELDS:
         return _redact_nested(field, value)
     if field == "local_purge_tasks":
-        return _redact_safe_list(value)
+        return _redact_safe_list(value, limit=10, item_validator=_is_safe_local_purge_task)
     if field == "safe_affected_identities":
         return _redact_safe_list(value, limit=5, item_validator=_is_safe_affected_identity)
+    if field == "timeline":
+        return _redact_timeline(value)
+    if field == "retry_history":
+        return _redact_retry_history(value)
     if field in FINGERPRINT_FIELDS:
         return _redact_safe_identity(value, allow_device_prefix=False, allow_recording_prefix=False)
     if field == "safe_device_identifier":
@@ -295,10 +403,27 @@ def _redact_field(field: str, value: Any) -> tuple[Any, int]:
     if field == "safe_recording_identity":
         return _redact_safe_identity(value, allow_device_prefix=False, allow_recording_prefix=True)
     if isinstance(value, str):
-        if _is_unsafe_string(value) or not SAFE_TEXT_RE.match(value):
-            return REDACTED_METADATA, 1
-        return value, 0
+        return _redact_string_field(field, value)
     return value if isinstance(value, bool | int | float) else REDACTED_METADATA, 1
+
+
+def _redact_string_field(field: str, value: str) -> tuple[str, int]:
+    validator = STRICT_STRING_FIELD_VALIDATORS.get(field)
+    if validator is None:
+        return REDACTED_METADATA, 1
+    if _is_unsafe_string(value) or not validator(value):
+        return REDACTED_METADATA, 1
+    return value, 0
+
+
+def _redact_nested_string_value(field: str, value: str) -> tuple[str, int]:
+    if _is_unsafe_string(value):
+        return REDACTED_METADATA, 1
+    if field == "manifest_schema_version" and SAFE_CODE_RE.match(value):
+        return value, 0
+    if field in {"total_size_bucket", "duration_bucket"} and SAFE_CODE_RE.match(value):
+        return value, 0
+    return REDACTED_METADATA, 1
 
 
 def _redact_nested(field: str, value: Any) -> tuple[dict[str, Any], int]:
@@ -312,17 +437,106 @@ def _redact_nested(field: str, value: Any) -> tuple[dict[str, Any], int]:
             continue
         nested = value[key]
         if isinstance(nested, str):
-            if _is_unsafe_string(nested) or not SAFE_TEXT_RE.match(nested):
-                redacted[key] = REDACTED_METADATA
-                count += 1
-            else:
-                redacted[key] = nested
+            safe_nested, redacted_count = _redact_nested_string_value(key, nested)
+            redacted[key] = safe_nested
+            count += redacted_count
         elif isinstance(nested, bool | int):
             redacted[key] = nested
         else:
             redacted[key] = REDACTED_METADATA
             count += 1
     return redacted, count
+
+
+def _redact_timeline(value: Any) -> tuple[list[dict[str, str]], int]:
+    if not isinstance(value, list):
+        return [], 0
+    allowed = {"event", "at", "source"}
+    result: list[dict[str, str]] = []
+    count = 0
+    for item in value[:5]:
+        if not isinstance(item, Mapping):
+            result.append({"event": REDACTED_METADATA})
+            count += 1
+            continue
+        safe_item: dict[str, str] = {}
+        for key in sorted(allowed):
+            if key not in item:
+                continue
+            raw = item[key]
+            if not isinstance(raw, str):
+                safe_item[key] = REDACTED_METADATA
+                count += 1
+                continue
+            valid = (
+                SAFE_TIMESTAMP_RE.match(raw) is not None
+                if key == "at"
+                else SAFE_CODE_RE.match(raw) is not None
+            )
+            if _is_unsafe_string(raw) or not valid:
+                safe_item[key] = REDACTED_METADATA
+                count += 1
+            else:
+                safe_item[key] = raw
+        result.append(safe_item)
+    return result, count
+
+
+def _redact_retry_history(value: Any) -> tuple[list[dict[str, Any]], int]:
+    if not isinstance(value, list):
+        return [], 0
+    allowed = {
+        "attempt_number",
+        "started_at",
+        "finished_at",
+        "state_before",
+        "state_after",
+        "failure_category",
+        "problem_code",
+        "http_status",
+        "next_retry_at",
+    }
+    result: list[dict[str, Any]] = []
+    count = 0
+    for item in value[:5]:
+        if not isinstance(item, Mapping):
+            result.append({"problem_code": REDACTED_METADATA})
+            count += 1
+            continue
+        safe_item: dict[str, Any] = {}
+        for key in sorted(allowed):
+            if key not in item:
+                continue
+            raw = item[key]
+            if key == "attempt_number":
+                if isinstance(raw, int) and raw >= 0:
+                    safe_item[key] = raw
+                else:
+                    safe_item[key] = REDACTED_METADATA
+                    count += 1
+                continue
+            if key == "http_status":
+                if raw == UNKNOWN or (isinstance(raw, str) and raw.isdigit()):
+                    safe_item[key] = raw
+                else:
+                    safe_item[key] = REDACTED_METADATA
+                    count += 1
+                continue
+            if not isinstance(raw, str):
+                safe_item[key] = REDACTED_METADATA
+                count += 1
+                continue
+            if key in {"started_at", "finished_at", "next_retry_at"}:
+                valid = raw in SAFE_SENTINELS or SAFE_TIMESTAMP_RE.match(raw) is not None
+            else:
+                valid = SAFE_CODE_RE.match(raw) is not None
+            if _is_unsafe_string(raw) or not valid:
+                safe_item[key] = REDACTED_METADATA
+                count += 1
+            else:
+                safe_item[key] = raw
+        result.append(safe_item)
+    return result, count
 
 
 def _redact_safe_list(
@@ -413,3 +627,7 @@ def _is_unsafe_string(value: str) -> bool:
 def _fingerprint(prefix: str, value: str, *, length: int = 16) -> str:
     digest = sha256(value.encode("utf-8")).hexdigest()[:length]
     return f"{prefix}_{digest}"
+
+
+def _is_safe_local_purge_task(value: Any) -> bool:
+    return isinstance(value, str) and value in SAFE_LOCAL_PURGE_TASK_VALUES

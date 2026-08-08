@@ -33,3 +33,33 @@ def test_cabinet_static_assets_are_mounted_by_app() -> None:
     app = create_app(Settings())
 
     assert any(route.path == CABINET_STATIC_URL for route in app.routes)
+
+
+def test_feature_104_main_window_has_responsive_accessible_dom_contract() -> None:
+    sections = (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
+    meeting_list = (
+        SERVER_ROOT
+        / "cabinet"
+        / "templates"
+        / "cabinet"
+        / "pages"
+        / "meeting_list_content.html"
+    ).read_text()
+
+    assert 'mark_src=static_url ~ "/graf-icon.png"' in sections
+    assert 'wordmark_src=static_url ~ "/graf-wordmark-dark.png"' in sections
+    assert 'alt="{{ name }}"' in sections
+    assert 'width="34" height="34" alt=""' in sections
+    assert 'width="243" height="90" alt="{{ name }}"' in sections
+    for marker in [
+        'aria-label="Поиск встреч"',
+        'placeholder="Поиск встреч"',
+        'aria-label="{{ filter_label }}"',
+        'aria-label="Сортировка: {{ sort_label }}"',
+        'aria-label="Загрузить запись"',
+        "<span>Загрузить запись</span>",
+        'aria-label="Действия с выбранными встречами"',
+    ]:
+        assert marker in meeting_list

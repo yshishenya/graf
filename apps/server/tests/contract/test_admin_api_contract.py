@@ -4,6 +4,8 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import select
+
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import ORG_ID, WORKSPACE_ID
 from tests.fixtures.admin import (
@@ -15,7 +17,7 @@ from tests.fixtures.admin import (
     seed_default_workspace_admin_roles,
 )
 from tests.fixtures.cabinet import seed_cabinet_meetings
-from twobrain_rec_server.db.models import UserIdentity
+from twobrain_rec_server.db.models import AdminAuditEvent, UserIdentity
 
 
 def test_admin_overview_contract_for_owner_and_admin(client) -> None:
@@ -111,6 +113,63 @@ def test_admin_user_and_invitation_contract(client) -> None:
     )
     assert revoke.status_code == 200
     assert revoke.json()["status"] == "revoked"
+
+    async def load_revocation_audit() -> AdminAuditEvent:
+        async with client.app_state["sessionmaker"]() as db:
+            event = await db.scalar(
+                select(AdminAuditEvent).where(
+                    AdminAuditEvent.action == "invite_revoked",
+                    AdminAuditEvent.target_id == owner_invite.json()["id"],
+                )
+            )
+            assert event is not None
+            return event
+
+    event = asyncio.run(load_revocation_audit())
+    assert event.outcome == "completed"
+    assert "target_contact" not in event.metadata_json
+
+
+def test_admin_invitation_resend_is_generic_and_keeps_terminal_invites_terminal(monkeypatch, client) -> None:
+    asyncio.run(_seed_roles(client))
+    sent_to: list[str] = []
+
+    async def send_review_notice(*, settings, recipient_email: str) -> None:
+        _ = settings
+        sent_to.append(recipient_email)
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.api.admin.email_delivery.send_workspace_invitation_review_notice",
+        send_review_notice,
+    )
+    invite = client.post(
+        "/api/v1/admin/invitations",
+        headers=auth_headers(),
+        json={"target_contact": "review-invitee@example.test", "invited_role": "member"},
+    )
+    assert invite.status_code == 201
+
+    resend = client.post(
+        f"/api/v1/admin/invitations/{invite.json()['id']}/resend",
+        headers=auth_headers(),
+    )
+    assert resend.status_code == 200
+    assert resend.json()["status"] == "pending"
+    assert sent_to == ["review-invitee@example.test"]
+
+    revoke = client.post(
+        f"/api/v1/admin/invitations/{invite.json()['id']}/revoke",
+        headers=auth_headers(),
+        json={"reason_code": "no_longer_needed"},
+    )
+    assert revoke.status_code == 200
+    terminal_resend = client.post(
+        f"/api/v1/admin/invitations/{invite.json()['id']}/resend",
+        headers=auth_headers(),
+    )
+    assert terminal_resend.status_code == 409
+    assert terminal_resend.json()["code"] == "invitation_resend_unavailable"
+    assert sent_to == ["review-invitee@example.test"]
 
 
 def test_admin_invitation_completion_contract(client) -> None:

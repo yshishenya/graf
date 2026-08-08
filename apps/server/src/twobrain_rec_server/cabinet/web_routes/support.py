@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import Annotated, Literal
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import Depends, Form, Query, Request
+from pydantic import BeforeValidator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +15,7 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import (
     DESKTOP_CALENDAR_AUTH_COOKIE_PATH,
+    get_optional_principal,
     get_principal,
     get_web_owner_tenant_scope,
     require_web_csrf,
@@ -27,13 +31,40 @@ from twobrain_rec_server.db.tenant_context import (
 
 WebTenantDependency = Depends(get_web_owner_tenant_scope)
 PrincipalDependency = Depends(get_principal)
+OptionalPrincipalDependency = Depends(get_optional_principal)
 WebCSRFDependency = Depends(require_web_csrf)
 StorageDependency = Depends(get_request_storage)
 CabinetSearchQuery = Query(default=None, max_length=120)
-CabinetStatusQuery = Query(default=None)
-CabinetAccessQuery = Query(default=None)
-CabinetSortQuery = Query(default="updated_desc")
+CabinetSortQuery = Query(default="started_desc")
 CabinetLimitQuery = Query(default=50, ge=1, le=100)
+WebMeetingStatusFilter = Literal["ready", "processing", "partial", "failed"]
+WebMeetingAccessFilter = Literal["owner", "team", "shared"]
+
+
+def _normalize_web_meeting_status_filter(value: object) -> object:
+    if value == "":
+        return None
+    if not isinstance(value, str):
+        return value
+    return {
+        "local_only": "processing",
+        "uploading": "processing",
+        "submitted": "processing",
+        "blocked": "failed",
+        "unavailable": "failed",
+    }.get(value, value)
+
+
+CabinetStatusFilter = Annotated[
+    WebMeetingStatusFilter | None,
+    BeforeValidator(_normalize_web_meeting_status_filter),
+    Query(),
+]
+CabinetAccessFilter = Annotated[
+    WebMeetingAccessFilter | None,
+    BeforeValidator(lambda value: None if value == "" else value),
+    Query(),
+]
 CalendarConnectResultQuery = Query(default=None, max_length=48, alias="connect_result")
 CalendarPolicyLimitedQuery = Query(default=None, max_length=48, alias="policy_limited")
 CalendarSelectionResultQuery = Query(default=None, max_length=48, alias="selection_result")
@@ -52,8 +83,35 @@ def _is_hx_request(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
 
 
-def _request_path_with_query(request: Request) -> str:
-    query = request.url.query
+def _request_path_with_query(
+    request: Request,
+    *,
+    sort_override: str | None = None,
+    status_override: str | None = None,
+) -> str:
+    overrides = {
+        key: value
+        for key, value in (("sort", sort_override), ("status", status_override))
+        if value is not None
+    }
+    if not overrides:
+        query = request.url.query
+    else:
+        query_items: list[tuple[str, str]] = []
+        replaced: set[str] = set()
+        for key, value in request.query_params.multi_items():
+            if key in overrides:
+                if key not in replaced:
+                    override = overrides[key]
+                    if override is not None:
+                        query_items.append((key, override))
+                    replaced.add(key)
+                continue
+            query_items.append((key, value))
+        for key, override in overrides.items():
+            if key not in replaced and override is not None:
+                query_items.append((key, override))
+        query = urlencode(query_items)
     return f"{request.url.path}?{query}" if query else request.url.path
 
 

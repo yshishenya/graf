@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-26
 
-**Status**: Draft
+**Status**: Implemented and merged as the server-owned cabinet shell
 
 **Input**: User description: "Create Spec Kit feature 058 for the web cabinet architecture because 057 is occupied. The current local Swift sidebar/menu should move into the WebView in the future because, without network access, the sidebar has little value; offline users must still be able to record locally. The refactor must support a server-owned cabinet, reusable atomic components, a deliberate decision on whether to adopt a ready UI framework, modern 2026 stable approaches, HTMX adoption where it avoids duplicate migration work, strong security boundaries, maintainability, design consistency, and the full software development lifecycle."
 

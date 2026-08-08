@@ -312,7 +312,15 @@ def run_checks() -> dict[str, Any]:
 
     _add_check(checks, "standalone_shell", "<!doctype html>" in list_page and 'data-surface-mode="standalone_browser"' in list_page, "full browser shell is rendered")
     _add_check(checks, "embedded_shell", 'class="app-shell desktop-embedded"' in embedded_list_page, "desktop WebView uses embedded shell mode")
-    _add_check(checks, "settings_shell", 'id="calendar-connections"' in settings_page and 'data-active-nav="settings"' in settings_page, "settings shell exposes calendar connections")
+    _add_check(
+        checks,
+        "settings_shell",
+        '<h1>Настройки</h1>' in settings_page
+        and 'data-settings-nav="calendar"' in settings_page
+        and 'href="/settings/integrations/calendar"' in settings_page
+        and 'data-active-nav="settings"' in settings_page,
+        "settings overview exposes the calendar category",
+    )
     _add_check(checks, "native_controls_absent_from_webview", "Record live" not in embedded_detail_page and "Screen Recording" not in embedded_detail_page, "native capture copy stays outside WebView")
     _add_check(checks, "list_fragment_bounded", "<!doctype html>" not in list_fragment and 'data-cabinet-fragment="meeting-list"' in list_fragment, "list HTMX response is a bounded fragment")
     _add_check(checks, "detail_fragment_bounded", "<!doctype html>" not in detail_fragment and 'data-cabinet-fragment="meeting-detail"' in detail_fragment, "detail HTMX response is a bounded fragment")
@@ -320,7 +328,18 @@ def run_checks() -> dict[str, Any]:
     _add_check(checks, "hx_vary_header", hx_response.headers.get("Vary") == "HX-Request", "HTMX responses declare Vary: HX-Request")
     _add_check(checks, "responsive_contract", "@media (max-width: 980px)" in css and "@media (max-width: 540px)" in css, "desktop and mobile-width breakpoints exist")
     _add_check(checks, "focus_contract", ":focus-visible" in css and "min-height: 46px;" in css, "focus visibility and target sizing are styled")
-    _add_check(checks, "ephemeral_js", "localStorage" not in js and "sessionStorage" not in js and "htmx:afterSwap" in js, "fragment state is not persisted client-side")
+    _add_check(
+        checks,
+        "ephemeral_js",
+        "localStorage" not in js
+        and 'sessionStorage.removeItem("htmx-history-cache")' in js
+        and 'sessionStorage.removeItem("htmx-current-path-for-history")' in js
+        and "sessionStorage.setItem(candidateStorageKey, JSON.stringify({" in js
+        and "poll_url: candidate.poll_url" in js
+        and "template: activeTemplate" in js
+        and "htmx:afterSwap" in js,
+        "private fragment history is cleared while only the metadata-only pending candidate state survives a same-tab refresh",
+    )
     _add_check(checks, "no_frontend_toolchain_markers", not _forbidden_found(css + "\n" + js, FORBIDDEN_FRONTEND_MARKERS), "static cabinet assets avoid excluded frontend stacks")
     _add_check(checks, "metadata_safe_html", not _forbidden_found(all_html, FORBIDDEN_EVIDENCE_MARKERS), "rendered synthetic evidence omits private markers")
 

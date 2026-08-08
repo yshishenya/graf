@@ -39,3 +39,12 @@ def test_recording_sync_migration_declares_media_revision_boundaries() -> None:
         assert needle in migration
     assert 'sa.Column("immutable", sa.Boolean(), nullable=False, server_default=sa.text("true"))' in migration
     assert 'sa.Column("immutable", sa.Boolean(), nullable=False, server_default=sa.text("1"))' not in migration
+
+
+def test_v5_mixed_revision_uses_the_existing_additive_source_kind_column() -> None:
+    from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind
+
+    migration = MIGRATION.read_text(encoding="utf-8")
+    assert MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value == "initial_mixed_recording"
+    assert 'sa.Column("source_kind", sa.String(length=64), nullable=False, server_default="initial_recording")' in migration
+    assert "initial_mixed_recording" not in migration

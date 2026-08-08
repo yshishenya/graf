@@ -95,7 +95,7 @@ unambiguous.
 Clarification is mandatory when the feature touches:
 
 - recording start/stop behavior;
-- system audio, microphone capture, audio driver, or routing;
+- system audio, microphone capture, or audio routing;
 - local buffering;
 - upload/retry semantics;
 - MediaScribe, Langfuse, MinIO, Postgres, Temporal, or Docker;
@@ -116,8 +116,7 @@ The plan must:
 - resolve technical unknowns in `research.md`;
 - define the implementation approach in `plan.md`;
 - create `data-model.md` where data is involved;
-- create `contracts/` for APIs, capture/session protocols, future driver IPC,
-  or UI contracts;
+- create `contracts/` for APIs, capture/session protocols, or UI contracts;
 - create `quickstart.md` with validation scenarios;
 - update the root `AGENTS.md` plan reference between the Spec Kit markers.
 
@@ -135,8 +134,8 @@ Default checklist set:
   diagnostics.
 - `audio-capture.md` for macOS system audio, microphone permissions, track
   truth, performance, and QA matrix.
-- `driver.md` only when a feature touches future macOS virtual audio,
-  installer, passthrough, repair, or driver QA.
+- `advanced-routing.md` only when a newly approved feature introduces a
+  distinct audio-routing architecture, packaging model, or privileged boundary.
 - `ux.md` for tray/widget, onboarding, accessibility, theme, deletion UX, and
   brand distance.
 - `infra.md` for Docker, Temporal, MinIO, Postgres, MediaScribe, Langfuse,

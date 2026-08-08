@@ -3,7 +3,10 @@ import Foundation
 public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case meetingList
     case meetingDetail
+    case meetingShare
     case meetingDeletionReport
+    case artifactDownload
+    case settings
     case calendarSettings
     case meetingDetectionSettings
     case admin
@@ -37,7 +40,10 @@ public enum DesktopCabinetRouteAction: String, Equatable, Sendable {
 public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedMeetingList = "allowed_meeting_list"
     case allowedMeetingDetail = "allowed_meeting_detail"
+    case allowedMeetingShare = "allowed_meeting_share"
     case allowedMeetingDeletionReport = "allowed_meeting_deletion_report"
+    case allowedArtifactDownload = "allowed_artifact_download"
+    case allowedSettings = "allowed_settings"
     case allowedCalendarSettings = "allowed_calendar_settings"
     case allowedMeetingDetectionSettings = "allowed_meeting_detection_settings"
     case allowedAuthLogin = "allowed_auth_login"
@@ -130,6 +136,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Meeting list"
             )
         }
+        if components == ["desktop", "shared-with-me"] {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .meetingList),
+                decision: .allow,
+                reason: .allowedMeetingList,
+                userMessage: "Shared meeting list"
+            )
+        }
         if components.count == 3,
            components[0] == "desktop",
            components[1] == "meetings",
@@ -145,12 +159,53 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
            components[0] == "desktop",
            components[1] == "meetings",
            isSafeMeetingId(components[2]),
+           components[3] == "share" {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, meetingId: components[2], kind: .meetingShare),
+                decision: .allow,
+                reason: .allowedMeetingShare,
+                userMessage: "Meeting sharing"
+            )
+        }
+        if components.count == 5,
+           components[0] == "desktop",
+           components[1] == "meetings",
+           isSafeMeetingId(components[2]),
+           components[3] == "calendar-context",
+           ["choose", "continue-without", "clear"].contains(components[4]) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(
+                    path: path,
+                    meetingId: components[2],
+                    kind: .meetingDetail
+                ),
+                decision: .allow,
+                reason: .allowedMeetingDetail,
+                userMessage: "Meeting calendar context"
+            )
+        }
+        if components.count == 4,
+           components[0] == "desktop",
+           components[1] == "meetings",
+           isSafeMeetingId(components[2]),
            components[3] == "deletion-report" {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, meetingId: components[2], kind: .meetingDeletionReport),
                 decision: .allow,
                 reason: .allowedMeetingDeletionReport,
                 userMessage: "Meeting deletion report"
+            )
+        }
+        if isArtifactDownloadRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(
+                    path: path,
+                    meetingId: components[4],
+                    kind: .artifactDownload
+                ),
+                decision: .allow,
+                reason: .allowedArtifactDownload,
+                userMessage: "Download meeting artifact"
             )
         }
         if isCalendarSettingsRoute(components) {
@@ -167,6 +222,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedMeetingDetectionSettings,
                 userMessage: "Meeting detection settings"
+            )
+        }
+        if isSettingsRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .settings),
+                decision: .allow,
+                reason: .allowedSettings,
+                userMessage: "Settings"
             )
         }
         if isAdminRoute(components) {
@@ -195,7 +258,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     ) -> DesktopCabinetRouteDecision {
         let decision = decision(for: url)
         guard decision.decision == .allow,
-              decision.route.kind == .meetingDetail,
+              [.meetingDetail, .meetingShare].contains(decision.route.kind),
               let meetingId = decision.route.meetingId
         else {
             return decision
@@ -311,6 +374,53 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         components == ["desktop", "settings", "meeting-detection"]
     }
 
+    private func isSettingsRoute(_ components: [String]) -> Bool {
+        guard components.count >= 2,
+              components[0] == "desktop",
+              components[1] == "settings"
+        else {
+            return false
+        }
+
+        let tail = Array(components.dropFirst(2))
+        if tail.isEmpty || (tail.count == 1 && ["recording", "summaries", "workspace", "account"].contains(tail[0])) {
+            return true
+        }
+        if tail.count == 4,
+           tail[0] == "account",
+           tail[1] == "devices",
+           tail[3] == "revoke" {
+            return isSafeMeetingId(tail[2])
+        }
+        if tail.count == 2, tail[0] == "provider-links" {
+            return isSafeMeetingId(tail[1])
+        }
+        if tail.count == 3, tail[0] == "provider-links" {
+            if tail[2] == "start" {
+                return isSafeProviderId(tail[1])
+            }
+            return tail[2] == "confirm" && isSafeMeetingId(tail[1])
+        }
+        if tail.count == 3, tail[0] == "spaces", tail[2] == "activate" {
+            return isSafeMeetingId(tail[1])
+        }
+        if tail.count == 3, tail[0] == "join-offers", ["accept", "reject"].contains(tail[2]) {
+            return isSafeMeetingId(tail[1])
+        }
+        return false
+    }
+
+    private func isArtifactDownloadRoute(_ components: [String]) -> Bool {
+        components.count == 7 &&
+            components[0] == "api" &&
+            components[1] == "v1" &&
+            components[2] == "cabinet" &&
+            components[3] == "meetings" &&
+            isSafeMeetingId(components[4]) &&
+            components[5] == "downloads" &&
+            ["audio", "transcript", "summary"].contains(components[6])
+    }
+
     private func isFutureGovernanceRoute(_ components: [String]) -> Bool {
         hasAnySegment(
             components,
@@ -333,6 +443,8 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     }
 
     private func isNativeCaptureControlRoute(_ components: [String]) -> Bool {
+        // Keep stale legacy route names denied so an old server link cannot
+        // cross the native capture-control trust boundary.
         hasAnySegment(
             components,
             [

@@ -28,3 +28,12 @@
 
 **Alternatives considered**:
 - New frontend bundle: rejected because the current surface is server-rendered and no dependency is needed.
+
+## Decision: Keep The Report Out Of The Normal Owner Flow
+
+**Rationale**: The owner asked for a fast, direct delete of the selected recording. The current web response replaces the list outcome with a detailed lifecycle report link and a persistent status block even though the request has already removed server-controlled content and the row should no longer be actionable. Removing the status block and the accepted row fixes the confusing hand-off without weakening the existing lifecycle accounting.
+
+**Alternatives considered**:
+- Delete the lifecycle report endpoint: rejected because support and operators still need the truthful artifact, dependency, backup, and local-purge status.
+- Hide the row only in the browser: rejected because the server must accept the deletion request and keep the existing audit/report records.
+- Add a new batch deletion API: rejected because the current list limit is small and the existing per-meeting request already handles partial failure safely.

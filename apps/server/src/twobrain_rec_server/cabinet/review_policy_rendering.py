@@ -4,6 +4,7 @@ from html import escape
 
 from twobrain_rec_server.api.schemas import ArtifactEgressState, MeetingReviewResponse
 from twobrain_rec_server.cabinet.rendering_shared import _base_path, _ui_text
+from twobrain_rec_server.cabinet.templates import render_icon, render_template
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 
@@ -61,6 +62,14 @@ def _render_share_panel(review: MeetingReviewResponse) -> str:
     """
 
 
+def render_meeting_share_fragment(review: MeetingReviewResponse) -> str:
+    return render_template(
+        "cabinet/fragments/meeting_share.html",
+        meeting_id=review.meeting.meeting_id,
+        share=review.share,
+    )
+
+
 def _render_artifacts(review: MeetingReviewResponse) -> str:
     if not review.artifacts:
         return f'<div class="muted">{escape(_ui_text("No exportable artifacts yet."))}</div>'
@@ -70,7 +79,9 @@ def _render_artifacts(review: MeetingReviewResponse) -> str:
 
 def _render_artifact_state(review: MeetingReviewResponse, artifact: ArtifactEgressState) -> str:
     label = escape(_ui_text(artifact.label))
-    reason = f'<span class="muted">{escape(_ui_text(artifact.reason))}</span>' if artifact.reason else ""
+    reason = (
+        f'<span class="muted">{escape(_ui_text(artifact.reason))}</span>' if artifact.reason else ""
+    )
     if artifact.state == "available" and artifact.artifact_class != "package":
         action = (
             f'<a class="mini-link" href="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/downloads/'
@@ -79,7 +90,9 @@ def _render_artifact_state(review: MeetingReviewResponse, artifact: ArtifactEgre
     elif artifact.state == "available":
         action = f'<span class="chip available">{escape(_ui_text("Export ready"))}</span>'
     else:
-        action = f'<span class="chip {escape(artifact.state)}">{escape(_ui_text(artifact.state))}</span>'
+        action = (
+            f'<span class="chip {escape(artifact.state)}">{escape(_ui_text(artifact.state))}</span>'
+        )
     return f"""
       <div class="state-row">
         <span><strong>{label}</strong><br>{reason}</span>
@@ -88,18 +101,47 @@ def _render_artifact_state(review: MeetingReviewResponse, artifact: ArtifactEgre
     """
 
 
-def _render_delete_confirmation(review: MeetingReviewResponse, *, embedded: bool) -> str:
+def _render_delete_action(review: MeetingReviewResponse) -> str:
+    if review.governance.delete.state != "available":
+        return ""
+    return f"""
+      <button type="button" class="meeting-action-item meeting-action-item--danger"
+              role="menuitem" tabindex="-1" data-meeting-delete-dialog-open
+              aria-haspopup="dialog" aria-controls="meeting-delete-dialog">
+        <span class="meeting-action-item__icon">{render_icon("trash")}</span>
+        <span class="meeting-action-item__body"><strong>Удалить встречу…</strong></span>
+      </button>
+    """
+
+
+def _render_delete_confirmation(
+    review: MeetingReviewResponse,
+    *,
+    embedded: bool,
+    csrf_token: str | None,
+) -> str:
+    if review.governance.delete.state != "available":
+        return ""
+    request_action = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-requests"
     report_href = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
     return f"""
-      <div class="delete-confirmation">
-        <strong>{escape(_ui_text("Delete this meeting everywhere GRAF controls"))}</strong>
-        <div class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</div>
-        <div class="state-row">
-          <span class="muted">Резервные копии, локальные буферы, метаданные провайдера и уже переданные копии показываются отдельно.</span>
+      <dialog id="meeting-delete-dialog" class="delete-dialog" data-meeting-delete-dialog
+              aria-labelledby="meeting-delete-title">
+        <form method="post" action="{escape(request_action)}" data-meeting-delete-form>
+          <input type="hidden" name="_csrf" value="{escape(csrf_token or "")}">
+          <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
+          <h2 id="meeting-delete-title" tabindex="-1" data-meeting-delete-dialog-title>Удалить встречу?</h2>
+          <p>Встреча и доступ к ней будут удалены везде, чем управляет GRAF.</p>
+          <p class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</p>
+          <p class="muted">Полные записи Generation Call, наблюдения Langfuse и Temporal History удалены не будут: они остаются по политике хранения оператора.</p>
+          <p class="muted">Резервные копии, локальные буферы, данные внешних сервисов и уже переданные копии отражаются отдельно в отчёте.</p>
           <a class="mini-link" href="{report_href}">{escape(_ui_text("Report"))}</a>
-        </div>
-        <button type="button" disabled>{escape(_ui_text("Request deletion"))}</button>
-      </div>
+          <div class="dialog-actions">
+            <button type="button" data-meeting-delete-dialog-cancel>Отмена</button>
+            <button type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить встречу</button>
+          </div>
+        </form>
+      </dialog>
     """
 
 
@@ -134,13 +176,26 @@ def _render_governance(review: MeetingReviewResponse) -> str:
 
 
 def _render_top_actions(review: MeetingReviewResponse, *, embedded: bool) -> str:
+    content_export_available = review.content_exports is not None and (
+        review.content_exports.transcript.state == "available"
+        or review.content_exports.summary.state in {"available", "partial"}
+        or review.content_exports.combined.state == "available"
+    )
+    export_disabled = "" if content_export_available else "disabled"
+    export_button = (
+        f'<button type="button" {export_disabled} data-export-dialog-open '
+        f'aria-haspopup="dialog" aria-controls="content-export-dialog">'
+        f"{escape(_ui_text('Export'))}</button>"
+    )
     if embedded:
-        return f'<button type="button" disabled>{escape(_ui_text("Open in browser"))}</button>'
-    export_disabled = "disabled" if review.governance.export.state != "available" else ""
+        return (
+            f'<button type="button" disabled>{escape(_ui_text("Open in browser"))}</button>'
+            + export_button
+        )
     share_disabled = "disabled" if review.governance.share.state != "available" else ""
     return f"""
       <button type="button" disabled>{escape(_ui_text(review.template.label))}</button>
-      <button type="button" {export_disabled}>{escape(_ui_text(review.governance.export.label))}</button>
+      {export_button}
       <button type="button" {share_disabled}>{escape(_ui_text(review.governance.share.label))}</button>
       <button type="button" disabled>{escape(_ui_text("More"))}</button>
     """

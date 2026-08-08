@@ -7,56 +7,61 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
     case offline
     case timeout
     case expiredSession
+    case workspaceReselectionRequired
     case accessDenied
     case notFound
     case malformedResponse
     case blockedRoute
 
-    private static let calendarCredentialBoundary = "Mac не хранит пароли календаря; ручная запись доступна без календаря."
+    private static let localRecordingBoundary = "Запись на этом Mac остаётся доступна."
 
     public var userMessage: String {
         switch self {
         case .notConfigured:
-            return "Подключите рабочее пространство GRAF, чтобы просматривать встречи здесь. \(Self.calendarCredentialBoundary)"
+            return "Подключите рабочее пространство GRAF, чтобы видеть встречи. \(Self.localRecordingBoundary)"
         case .loading:
-            return "Загружаем рабочее пространство встреч. Управление записью остается в приложении."
+            return "Загружаем встречи. Управление записью остаётся в приложении."
         case .ready:
-            return "Рабочее пространство встреч готово."
+            return "Встречи загружены."
         case .offline:
-            return "Кабинет недоступен. Проверьте соединение с сервером Rec. \(Self.calendarCredentialBoundary)"
+            return "Не удалось загрузить встречи. Проверьте интернет-соединение. \(Self.localRecordingBoundary)"
         case .timeout:
-            return "Кабинет долго отвечает. Попробуйте еще раз. \(Self.calendarCredentialBoundary)"
+            return "Загрузка встреч заняла слишком много времени. Проверьте интернет-соединение и повторите попытку. \(Self.localRecordingBoundary)"
         case .expiredSession:
-            return "Войдите снова. \(Self.calendarCredentialBoundary)"
+            return "Войдите снова, чтобы видеть встречи. \(Self.localRecordingBoundary)"
+        case .workspaceReselectionRequired:
+            return "Доступ к выбранному пространству больше не подтверждён. Войдите снова и выберите доступное пространство. \(Self.localRecordingBoundary)"
         case .accessDenied:
-            return "Не удалось подтвердить доступ. \(Self.calendarCredentialBoundary)"
+            return "Не удалось подтвердить доступ к встречам. Обратитесь к владельцу рабочего пространства. \(Self.localRecordingBoundary)"
         case .notFound:
-            return "Не удалось подтвердить доступ к этому разделу. \(Self.calendarCredentialBoundary)"
+            return "Не удалось подтвердить доступ к этой встрече. Вернитесь к списку встреч. \(Self.localRecordingBoundary)"
         case .malformedResponse:
-            return "Кабинет вернул неожиданный ответ. \(Self.calendarCredentialBoundary)"
+            return "Не удалось загрузить встречи. Повторите попытку. \(Self.localRecordingBoundary)"
         case .blockedRoute:
-            return "Это действие вне встроенного кабинета. \(Self.calendarCredentialBoundary)"
+            return "Эта функция недоступна внутри приложения. Вернитесь к списку встреч и продолжите работу. \(Self.localRecordingBoundary)"
         }
     }
 
     public var unavailableTitle: String {
         switch self {
         case .expiredSession:
-            return "Нужен вход в кабинет"
+            return "Нужно войти"
+        case .workspaceReselectionRequired:
+            return "Нужно выбрать пространство"
         case .accessDenied:
-            return "Нет доступа к кабинету"
+            return "Нет доступа к встречам"
         case .notFound:
-            return "Обзор не найден"
+            return "Встреча недоступна"
         case .offline, .timeout:
-            return "Кабинет временно недоступен"
+            return "Встречи временно недоступны"
         case .notConfigured:
-            return "Кабинет не настроен"
+            return "Встречи не подключены"
         case .blockedRoute:
-            return "Действие ограничено"
+            return "Функция недоступна"
         case .malformedResponse:
-            return "Нужна проверка кабинета"
+            return "Не удалось загрузить встречи"
         case .loading, .ready:
-            return "Кабинет встреч"
+            return "Встречи"
         }
     }
 
@@ -64,6 +69,8 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .expiredSession:
             return "person.crop.circle.badge.exclamationmark"
+        case .workspaceReselectionRequired:
+            return "person.crop.circle.badge.xmark"
         case .accessDenied:
             return "lock.trianglebadge.exclamationmark"
         case .notFound:
@@ -83,8 +90,29 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .expiredSession:
             return "Войти в кабинет"
+        case .workspaceReselectionRequired:
+            return "Войти и выбрать пространство"
+        case .offline, .timeout, .malformedResponse:
+            return "Повторить"
+        case .accessDenied, .notFound, .blockedRoute:
+            return "К списку встреч"
         default:
             return nil
+        }
+    }
+
+    public var recoverySystemImage: String {
+        switch self {
+        case .expiredSession:
+            return "person.crop.circle"
+        case .workspaceReselectionRequired:
+            return "person.crop.circle"
+        case .offline, .timeout, .malformedResponse:
+            return "arrow.clockwise"
+        case .accessDenied, .notFound, .blockedRoute:
+            return "arrow.left"
+        default:
+            return "arrow.right"
         }
     }
 
@@ -92,7 +120,7 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .loading, .ready:
             return true
-        case .notConfigured, .offline, .timeout, .expiredSession, .accessDenied, .notFound, .malformedResponse, .blockedRoute:
+        case .notConfigured, .offline, .timeout, .expiredSession, .workspaceReselectionRequired, .accessDenied, .notFound, .malformedResponse, .blockedRoute:
             return false
         }
     }
@@ -114,6 +142,13 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         default:
             return .malformedResponse
         }
+    }
+
+    public static func state(forHTTPResponse response: HTTPURLResponse) -> DesktopCabinetState? {
+        if response.value(forHTTPHeaderField: "X-GRAF-Cabinet-Recovery") == "reselect-space" {
+            return .workspaceReselectionRequired
+        }
+        return state(forHTTPStatus: response.statusCode)
     }
 
     public static func state(forNavigationError error: Error, currentState: DesktopCabinetState) -> DesktopCabinetState {
@@ -183,6 +218,9 @@ public enum DesktopCabinetAccessibilityIdentifier {
     public static let embeddedSurface = "desktop-cabinet-embedded-surface"
     public static let unavailableState = "desktop-cabinet-unavailable-state"
     public static let nativeShellRegion = "desktop-native-shell-region"
+    public static let navigationBack = "desktop-cabinet-navigation-back"
+    public static let navigationForward = "desktop-cabinet-navigation-forward"
+    public static let navigationReload = "desktop-cabinet-navigation-reload"
 }
 
 public enum DesktopCabinetRecoveryTarget: Equatable, Sendable {
@@ -213,12 +251,60 @@ public enum DesktopCabinetWorkspace {
         for state: DesktopCabinetState,
         configuration: DesktopCabinetConfiguration
     ) -> DesktopCabinetRecoveryTarget? {
+        recoveryTarget(
+            for: state,
+            currentRoute: nil,
+            initialRoute: nil,
+            configuration: configuration
+        )
+    }
+
+    /// Returns a safe document route for a recovery action. A failed resource
+    /// request must not replace the last useful meeting page with an API URL.
+    public static func recoveryTarget(
+        for state: DesktopCabinetState,
+        currentRoute: URL?,
+        initialRoute: URL?,
+        configuration: DesktopCabinetConfiguration
+    ) -> DesktopCabinetRecoveryTarget? {
         switch state {
-        case .expiredSession:
-            return .embedded(loginRoute(configuration: configuration))
+        case .expiredSession, .workspaceReselectionRequired:
+            let nextRoute = retryableDocumentRoute(
+                currentRoute: currentRoute,
+                initialRoute: initialRoute,
+                configuration: configuration
+            )
+            return .embedded(loginRoute(configuration: configuration, next: nextRoute.path))
+        case .offline, .timeout, .malformedResponse, .blockedRoute:
+            return .embedded(
+                retryableDocumentRoute(
+                    currentRoute: currentRoute,
+                    initialRoute: initialRoute,
+                    configuration: configuration
+                )
+            )
+        case .accessDenied, .notFound:
+            return .embedded(configuration.meetingsURL())
         default:
             return nil
         }
+    }
+
+    private static func retryableDocumentRoute(
+        currentRoute: URL?,
+        initialRoute: URL?,
+        configuration: DesktopCabinetConfiguration
+    ) -> URL {
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        for route in [currentRoute, initialRoute].compactMap({ $0 }) {
+            let decision = policy.decision(for: route)
+            if decision.decision == .allow,
+               [.meetingList, .meetingDetail, .meetingDeletionReport, .settings, .calendarSettings,
+                .meetingDetectionSettings].contains(decision.route.kind) {
+                return route
+            }
+        }
+        return configuration.meetingsURL()
     }
 
     public static func calendarSettingsRecoveryTarget(
@@ -228,6 +314,8 @@ public enum DesktopCabinetWorkspace {
         switch state {
         case .expiredSession:
             return .embedded(loginRoute(configuration: configuration, next: "/desktop/settings/integrations/calendar"))
+        case .offline, .timeout, .malformedResponse:
+            return .embedded(configuration.calendarSettingsURL())
         default:
             return recoveryTarget(for: state, configuration: configuration)
         }
@@ -242,7 +330,7 @@ public enum DesktopCabinetWorkspace {
         if state.shouldShowEmbeddedSurface {
             return true
         }
-        guard state == .expiredSession, let configuration else {
+        guard [.expiredSession, .workspaceReselectionRequired].contains(state), let configuration else {
             return false
         }
         guard let route = currentRoute ?? initialRoute else {

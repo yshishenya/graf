@@ -157,6 +157,16 @@ def build_metrics_view(
         actor_role=actor_role,
         active="metrics",
         metrics=metrics,
+        playback_normalization=metrics.get(
+            "playback_normalization",
+            {
+                "run_states": {},
+                "job_states": {},
+                "reason_counts": {},
+                "backlog_total": 0,
+                "oldest_backlog_age_seconds": 0,
+            },
+        ),
         filters=filters or {},
     )
 

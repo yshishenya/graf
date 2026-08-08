@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Literal
 
+from pydantic import BaseModel, Field
+
+from twobrain_rec_server.normalization.statuses import (
+    CANONICAL_PROFILE_VERSION,
+    VALIDATION_VERSION,
+)
 from twobrain_rec_server.readiness.default_evidence import (
     build_default_evidence as build_default_evidence,
 )
@@ -34,6 +42,66 @@ REQUIRED_MVP_LOOP_STAGE_IDS = [
 ]
 
 SEVERITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+
+PLAYBACK_NORMALIZATION_CAPABILITY_GATES = (
+    "ffmpeg_dependency",
+    "canonical_profile",
+    "schema_0022",
+    "minio_storage",
+    "temporal_queue",
+    "private_work_directory",
+    "free_space_threshold",
+    "synthetic_full_decode_cleanup",
+)
+PlaybackNormalizationCapabilityGateResult = Literal["pass", "blocked", "failed"]
+PlaybackNormalizationCapabilityState = Literal["ready", "degraded", "blocked"]
+
+
+class PlaybackNormalizationCapability(BaseModel):
+    """Safe worker-wide capability truth; never an individual recording state."""
+
+    scope: Literal["worker_capability_only"] = "worker_capability_only"
+    state: PlaybackNormalizationCapabilityState
+    profile_version: Literal[CANONICAL_PROFILE_VERSION] = CANONICAL_PROFILE_VERSION
+    validation_version: Literal[VALIDATION_VERSION] = VALIDATION_VERSION
+    blocked_gates: list[str] = Field(default_factory=list)
+    retrying_job_count: int = Field(default=0, ge=0)
+    recording_readiness_implied: Literal[False] = False
+
+
+def evaluate_playback_normalization_capability(
+    gate_results: Mapping[str, PlaybackNormalizationCapabilityGateResult],
+    *,
+    retrying_job_count: int = 0,
+) -> PlaybackNormalizationCapability:
+    """Evaluate exact dependency gates without accepting content-bearing labels."""
+
+    if set(gate_results) != set(PLAYBACK_NORMALIZATION_CAPABILITY_GATES):
+        raise ValueError("playback normalization capability requires the exact gate set")
+    invalid_results = [
+        gate
+        for gate, result in gate_results.items()
+        if result not in {"pass", "blocked", "failed"}
+    ]
+    if invalid_results:
+        raise ValueError("playback normalization capability received an invalid gate result")
+    blocked_gates = [
+        gate
+        for gate in PLAYBACK_NORMALIZATION_CAPABILITY_GATES
+        if gate_results[gate] != "pass"
+    ]
+    state: PlaybackNormalizationCapabilityState
+    if blocked_gates:
+        state = "blocked"
+    elif retrying_job_count:
+        state = "degraded"
+    else:
+        state = "ready"
+    return PlaybackNormalizationCapability(
+        state=state,
+        blocked_gates=blocked_gates,
+        retrying_job_count=retrying_job_count,
+    )
 
 
 def utc_now_iso() -> str:

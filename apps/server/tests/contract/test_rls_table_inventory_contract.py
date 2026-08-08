@@ -48,6 +48,46 @@ MEETING_DETECTION_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0017_meeting_detection_registry.py"
 )
+CALENDAR_AUTO_CONTEXT_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0021_calendar_auto_context_match.py"
+)
+PLAYBACK_NORMALIZATION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0022_playback_normalization.py"
+)
+MEETING_SPEAKER_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0029_meeting_speaker_names.py"
+)
+RECORDING_WORKFLOW_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0031_recording_workflow_templates_sharing.py"
+)
+MEETING_SHARE_SECURITY_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0035_meeting_share_security_hardening.py"
+)
+CONTENT_REGENERATION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0032_content_regeneration_lineage.py"
+)
+DELETION_PURGE_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0033_deletion_purge_journal.py"
+)
+LIFECYCLE_RECONCILIATION_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0035_content_lifecycle_reconciliation.py"
+)
+LEGACY_LINEAGE_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0039_legacy_lineage_backfill.py"
+)
+AUTH_RATE_LIMIT_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0037_auth_rate_limit_buckets.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -103,6 +143,46 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         MEETING_DETECTION_MIGRATION,
         "meeting_detection_registry_migration",
     )
+    calendar_auto_context_migration = _load_migration_module(
+        CALENDAR_AUTO_CONTEXT_MIGRATION,
+        "calendar_auto_context_match_migration",
+    )
+    playback_normalization_migration = _load_migration_module(
+        PLAYBACK_NORMALIZATION_MIGRATION,
+        "playback_normalization_migration",
+    )
+    meeting_speaker_migration = _load_migration_module(
+        MEETING_SPEAKER_MIGRATION,
+        "meeting_speaker_names_migration",
+    )
+    recording_workflow_migration = _load_migration_module(
+        RECORDING_WORKFLOW_MIGRATION,
+        "recording_workflow_migration",
+    )
+    meeting_share_security_migration = _load_migration_module(
+        MEETING_SHARE_SECURITY_MIGRATION,
+        "meeting_share_security_migration",
+    )
+    content_regeneration_migration = _load_migration_module(
+        CONTENT_REGENERATION_MIGRATION,
+        "content_regeneration_migration",
+    )
+    deletion_purge_migration = _load_migration_module(
+        DELETION_PURGE_MIGRATION,
+        "deletion_purge_migration",
+    )
+    lifecycle_reconciliation_migration = _load_migration_module(
+        LIFECYCLE_RECONCILIATION_MIGRATION,
+        "lifecycle_reconciliation_migration",
+    )
+    legacy_lineage_migration = _load_migration_module(
+        LEGACY_LINEAGE_MIGRATION,
+        "legacy_lineage_migration",
+    )
+    auth_rate_limit_migration = _load_migration_module(
+        AUTH_RATE_LIMIT_MIGRATION,
+        "auth_rate_limit_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -118,6 +198,17 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(admin_migration.ADMIN_TABLES)
         | set(calendar_settings_migration.CONTENT_WORKSPACE_POLICIES)
         | set(meeting_detection_migration.MEETING_DETECTION_TABLES)
+        | set(calendar_auto_context_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(playback_normalization_migration.PLAYBACK_NORMALIZATION_TABLES)
+        | set(meeting_speaker_migration.MEETING_SPEAKER_TABLES)
+        | set(recording_workflow_migration.TENANT_TABLE_POLICIES)
+        | set(recording_workflow_migration.GLOBAL_OPERATOR_TABLES)
+        | set(meeting_share_security_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(content_regeneration_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(deletion_purge_migration.CONTENT_WORKSPACE_POLICIES)
+        | set(lifecycle_reconciliation_migration.__dict__.get("CONTENT_WORKSPACE_POLICIES", {}))
+        | set(legacy_lineage_migration.__dict__.get("CONTENT_WORKSPACE_POLICIES", {}))
+        | set(auth_rate_limit_migration.AUTH_RATE_LIMIT_TABLES)
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

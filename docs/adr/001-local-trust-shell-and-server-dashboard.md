@@ -4,17 +4,16 @@
 
 **Date**: 2026-06-04
 
-**Updated by**: ADR 002. System-audio-first capture is now the MVP path; driver
-references in this ADR apply to future advanced-routing work unless a later
-feature spec explicitly reintroduces them.
+**Updated by**: ADR 002 and ADR 004. System-audio-first capture is the MVP path;
+the former separate routing implementation is removed.
 
 ## Context
 
 `2brain Rec` is a self-hosted meeting capture product with a native macOS
 capture layer, local recording, assisted meeting detection, and future
-multiplatform desktop clients. It originally considered a macOS virtual audio
-driver/layer for MVP capture; ADR 002 parks that route as future
-advanced-routing work. The product must preserve visible capture indicator,
+multiplatform desktop clients. It originally considered a separate macOS audio
+routing component; ADR 002 replaced that capture direction and ADR 004 removed
+the superseded implementation. The product must preserve visible capture indicator,
 one-action stop, explicit policy gates, local audio truth, owner-controlled
 storage, and no silent recording.
 
@@ -66,7 +65,7 @@ Use a hybrid UI authority model:
 1. **Local/native trust shell for capture-critical desktop surfaces.**
    The desktop app is authoritative for active capture state, visible local
    indicator, one-action stop, recording controls, assisted detection prompts,
-   route readiness, driver recovery, local buffer safety, local artifact truth,
+   source readiness, permission recovery, local buffer safety, local artifact truth,
    offline pending recordings, diagnostics export, and local degraded states.
 
 2. **Server web dashboard for post-meeting and admin surfaces.**
@@ -85,12 +84,12 @@ Use a hybrid UI authority model:
    Server-rendered remote UI, remote WebView UI, or server-driven schema must
    not own or be required for active capture truth, visible indicator
    availability, Stop availability, route health truth, local storage safety,
-   permission recovery, driver recovery, or capture authorization gates.
+   permission recovery, source recovery, or capture authorization gates.
 
 5. **Cross-platform reuse through contracts, not remote control of capture UI.**
    Future platforms reuse shared state contracts, API schemas, policy schemas,
    design tokens, localization keys, and dashboard surfaces. Each platform has
-   its own native trust shell for capture/driver/permission behavior.
+   its own native trust shell for capture and permission behavior.
 
 ## Considered Options
 
@@ -101,7 +100,7 @@ All product UI is implemented in each desktop app.
 **Pros**:
 
 - Strongest local trust and offline behavior.
-- Best fit for OS permissions, tray/menu, widgets, driver lifecycle, and local
+- Best fit for OS permissions, tray/menu, widgets, capture lifecycle, and local
   recovery.
 - Avoids remote UI weakening capture safety.
 
@@ -128,8 +127,8 @@ Desktop app is mostly a WebView or server-rendered shell.
 - Unsafe for active recording because network/server availability could affect
   Stop and indicator.
 - Larger remote-content/native-bridge attack surface.
-- Poor fit for OS permissions, driver lifecycle, local audio route truth, and
-  offline behavior.
+- Poor fit for OS permissions, capture lifecycle, local audio truth, and offline
+  behavior.
 
 **Result**: Rejected for capture-critical surfaces.
 

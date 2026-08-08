@@ -1,17 +1,586 @@
 # Текущий статус продукта
 
-Date: 2026-07-09
+Date: 2026-08-04
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и
 metadata-only evidence остаются подробной историей реализации.
+
+## Implementation update (2026-08-04) — Feature 139 meeting outcome value
+
+- Первый пригодный транскрипт теперь идемпотентно создаёт один вариант «Авто»
+  после быстрого baseline, без model/network I/O внутри транзакции и без замены
+  принятой версии. Disabled, deleting и stale-source состояния fail closed.
+- Общие prompt/schema gates требуют 1–8 уникальных канонических source refs для
+  каждого пункта, запрещают owner/due вне действий и проваливают весь пример при
+  критическом неподтверждённом факте, атрибуции или prompt injection.
+- Owner review использует существующую GRAF IA: «Кратко → Действия → Решения»,
+  owner/due и переход к точной реплике до принятия. Остальные разделы вторичны;
+  dashboard, chat, task hub, новая зависимость или миграция не добавлялись.
+- Accepted truth остаётся единственным источником для full viewer, summary-only,
+  share и export. Summary-only browser entry возвращает локализованный HTML;
+  без реального destination source control не показывается.
+- Synthetic Browser matrix прошла на `1280×720` и `390×844`: horizontal
+  overflow 0, accept/reject, source seek/focus/live announcement и timeline
+  Enter работают. Focused server matrix: `319 passed`; fast CI: `882 passed`;
+  Ruff, Python compile, JavaScript syntax и diff checks прошли.
+- Exact prompt promotion/readback и private synthetic e2e прошли. Gated control
+  prompts оставлены в production; outcome prompts возвращены на совместимый со
+  старым runtime `v3` до deploy, после которого exact `v5` будет назначен снова
+  с подготовленным `v6` rollback. Implementation commit, PR/merge, production
+  deploy и публичный Developer ID package остаются отдельными exact-SHA gates.
+
+## Canonical macOS public release policy (2026-07-26, current `v2026.07.26.8`)
+
+- Единственный текущий публичный путь для macOS — `Developer ID Application`
+  для `GRAF.app` и `Developer ID Installer` для `.pkg`, затем hardened runtime,
+  secure timestamp, notarization Apple, stapling и проверка Gatekeeper.
+- Текущий опубликованный и выкаченный релиз — `v2026.07.26.8` на точном коммите
+  `15309573ff8ff0fa5ed97269c6577f68db57c439`. Для уже доверенного Developer ID
+  клиента подтверждено обычное in-place обновление `2026.07.26.7 →
+  2026.07.26.8` через Sparkle; appcast указывает на `.8`.
+- `v2026.07.26.6` — одноразовый ручной `.pkg`-bootstrap для перехода с
+  исторического local/self-signed `.5`; он намеренно не заменял appcast и не
+  является обычным Sparkle update. После установки дальнейшая цепочка только
+  `Developer ID → Developer ID` при неизменных bundle id, team, designated
+  requirement, feed URL и Sparkle trust generation.
+- Local, ad-hoc и self-signed identities допустимы только в архивных receipts и
+  изолированных тестовых fixtures. Они не могут попасть в GitHub Release,
+  public host, ZIP/PKG для пользователей или appcast. Исторические записи ниже
+  сохраняют факты прошлых выпусков, но не являются инструкцией или текущим
+  release gate.
+
+Канонические инструкции: [Installer README](../apps/macos/Installer/README.md),
+[release validation](agent-guidance/release-and-validation.md) и
+[Feature 130](../specs/130-developer-id-release/spec.md). Metadata-only release
+evidence текущего выпуска: [release note](releases/v2026.07.26.8.md) и
+[production receipt](deployments/2brain-rec/release-v2026.07.26.8.md). Описание
+одноразовой миграции `.6` сохранено в [архивной release note](releases/v2026.07.26.6.md).
+
+## Current release closeout — `v2026.07.26.8`
+
+- Apple принял app и installer; оба артефакта получили notarization staple и
+  прошли Gatekeeper. Публичные ZIP, PKG, checksums и appcast опубликованы после
+  проверки точных SHA-256.
+- Protected Sparkle signing workflow завершился успешно; continuity validator
+  подтвердил ту же bundle identity, Developer ID lineage, designated requirement
+  и trust generation.
+- Production deploy завершён на том же SHA; backup/restore rehearsal, disposable
+  RLS, migration, smoke, readiness и публичные health endpoints прошли.
+- В receipts зафиксированы только агрегированные технические результаты; они не
+  содержат пользовательские данные.
+
+## Implementation update (2026-07-26) — Feature 125 direct invitation link
+
+- Открытие валидной external invitation URL теперь показывает только короткий
+  переход и автоматически отправляет существующий CSRF-bound POST; результатом
+  становится разрешённое summary или recipient-bound recording page без
+  обязательного metadata-preview экрана.
+- GET остаётся без побочных эффектов: личный аккаунт, grant и browser session
+  создаются только POST-потоком. При отключённом JavaScript сохраняется одна
+  fallback-кнопка; exact identity, expiry, revoke, deletion и egress checks не
+  менялись.
+- Focused direct-link matrix прошёл `21/21`; полный local CI прошёл macOS
+  `640/640`, PostgreSQL `2,438 passed / 1 skipped` и strict `41 passed / 1
+  skipped`, lint/compile/Compose/evidence scan PASS. Release `v2026.07.26.5`
+  опубликован и выкачен на production на точный SHA
+  `57dde9fd745a89622f804ac1188eee548e805439`; backup/restore rehearsal,
+  migration head `0041_share_account_created_email`, disposable RLS,
+  production smoke и live/ready `200/200` прошли. Backup:
+  `/opt/projects/2brain-rec/backups/20260726T110215Z`.
+- Публичный appcast и ZIP `2026.07.26.5` доступны и совпадают с подписанными
+  артефактами; установленный `/Applications/GRAF.app` обновился с
+  `2026.07.26.4` через штатную проверку обновлений и прошёл strict codesign.
+  Live rendered browser smoke отдельно не заявляется; CD оставил
+  post-deploy retry/backfill/range/normalization как `required_post_deploy`.
+
+## Implementation update (2026-07-25) — Feature 128
+
+- Нативная строка локальной записи теперь показывает bounded-прогресс активной
+  отправки и процент только при известном общем объёме. Очередь, порядок строк,
+  automatic retry, custody, retention, deletion и local purge не изменены.
+- При 100% принятых байтов до перехода в `uploaded` строка сообщает, что запись
+  проверяется перед просмотром; queued, retrying, blocked и неизмеримые состояния
+  не получают устаревший progress bar. VoiceOver получает то же состояние и
+  процент из доступного текста.
+- Feature 128 не является production owner-journey или release evidence:
+  installed-app, deploy и production acceptance остаются отдельным P2 launch
+  gap. Focused macOS contract run прошёл `41/41`; полный local CI прошёл:
+  macOS `639/639`, server `2420 passed / 1 skipped`, strict PostgreSQL
+  `41 passed / 1 skipped`, lint/compile/Compose/evidence scan PASS. Production
+  RLS probe не выполнялся без live production DB.
+
+## Production delivery hotfix (2026-07-24) — Feature 125
+
+- Исправлен production-блокер внешних приглашений: `rec-processing-worker`
+  имел Postal-конфигурацию и secret, но не был подключён к внешней Docker-сети
+  Postal, поэтому `postal-web` не резолвился и доставка завершалась
+  `outcome_unknown` до обращения к провайдеру.
+- Worker теперь подключён к `postal_postal-network` и
+  `twobrain-rec-private`; Compose contract test фиксирует этот обязательный
+  сетевой контракт. На production worker healthy, `postal-web` разрешается,
+  automatic dispatch и публичные health/readiness проверки прошли.
+- Hotfix выкачен на точный SHA
+  `7b601cf94b7f1a8183dc55e8651d2851c4b0eee7`; backup/restore reference:
+  `/opt/projects/2brain-rec/backups/20260724T121617Z`. Existing
+  `outcome_unknown` invitations intentionally не переотправляются автоматически,
+  чтобы не создать duplicate; для проверки нужно отменить старое приглашение и
+  создать новое явным действием.
+
+## Production closeout (2026-07-24) — Feature 125 post-review hardening
+
+- Post-review candidate deployed successfully at exact runtime SHA
+  `9a44d9af9c0bce0c4a75b6d497657492f44c818a`. The remote working tree is
+  clean; migration head is `0037_auth_rate_limit_buckets`.
+- CD backup/restore rehearsal, disposable RLS probe, runtime database-role
+  checks, Temporal and processing-worker readiness, media-worker boundary,
+  production smoke, automatic dispatch gate and final public live/ready
+  checks passed. Backup reference:
+  `/opt/projects/2brain-rec/backups/20260724T113944Z`.
+- Production external exact-email configuration is enabled and consistent in
+  both API and delivery worker: `share_external_invitations_enabled=true`,
+  `email_login_delivery_enabled=true`, Postal and public base URL configured.
+  The email/pre-auth flow remains metadata-only and exact-email; the explicit
+  accepted recording preset opens summary, timestamped transcript, playback,
+  canonical audio download and combined export without workspace auto-join.
+- macOS local artifact `2026.07.24.4` was rebuilt after the review at
+  [`graf-local-release-125-v4.pkg`](../apps/macos/.build/installer/graf-local-release-125-v4.pkg)
+  with SHA-256
+  `112a5f2419d8517a0ef5d9fde26ebac0564bf966d01897576ecb7878c2e5d936`.
+  It passes deep strict verification and uses a local-only signer; no
+  Developer ID or notarization is claimed.
+- Public links, native Contacts/provider lookup, referral attribution,
+  participant batch/Shared with me, recurring/channel distribution and
+  automatic workspace join remain separate gated slices.
+
+## Validation update (2026-07-24) — Feature 125 Share candidate
+
+- Feature `125-meeting-sharing` исправляет B2B Share как authenticated
+  summary-only сценарий: capability-aware модалка obeys server policy and only
+  calls the external email endpoint when the exact-email capability is enabled;
+  поиск привязан к встрече и праву владельца,
+  кандидаты объединяют active workspace directory и связанный календарный
+  roster без побочного grant/delivery эффекта, а user grants получают
+  recipient-bound URL с rotation/revoke и повторной проверкой membership.
+- B2C exact-email invitation flow включён в controlled rollout: deploy-gate
+  подтвердил одинаковую production-конфигурацию API и delivery-worker. Flow —
+  metadata-only email/landing, единый email/provider-вход с автоматическим
+  созданием personal account при первом входе, exact verified identity,
+  отдельный grant token с bounded replay-safe выдачей и без workspace auto-join. Postal,
+  credential-encryption key, persistent share-identity HMAC secret, durable
+  invitation rate-limit, delivery fence and revoke/deletion evidence are
+  provisioned and validated in production. Postal network route is reachable;
+  no live email was sent without a consented test recipient. Public links,
+  native Contacts picker/provider
+  lookup и referral attribution остаются выключенными отдельными gates.
+- Validation: focused Share/access/auth matrix 50 passed; the targeted
+  invitation-auth/provider-workspace regression passed separately;
+  `infra/scripts/ci-local.sh` passed macOS (624 tests), PostgreSQL parallel
+  (2,255 passed, 1 skipped) and strict (41 passed, 1 skipped), lint, compile,
+  RLS boundary, compose config and deployment evidence scan. Production
+  exact-email is enabled; public links, Contacts and referral remain disabled.
+- Production deploy: PASS for code SHA
+  `2db3d4ccd2541fbc7701b5803ef8049d2c2cc709`; migration head
+  `0035_meeting_share_security`, backup/restore rehearsal, disposable RLS
+  probe, runtime/worker readiness, production smoke and automatic dispatch
+  passed. Post-deploy automatic retry, backfill, range and normalization
+  maintenance remain separate required follow-up checks. External config gates
+  passed in API and worker; live health endpoints and Postal network reachability
+  passed without sending an email.
+- macOS local artifact `2026.07.24.3` прошёл production-build packaging и
+  `codesign --verify --deep --strict`; SHA-256
+  `4cb73bdc94d8d18aba3597794d34fc1abfb9f0276f3f9351bac9445dbf51a197`;
+  использован local-only signer, без Developer ID и notarization.
+
+## Validation update (2026-07-23, Feature 124 release/production)
+
+- Feature `124-restore-automatic-recording` restores the previously designed
+  target-scoped meeting workflow: the `Автозапись` settings page with the full
+  verified native-app list and per-app checkboxes, prompt opt-in via `Всегда
+  писать это приложение`, the eight-second countdown, immediate
+  `Записать сейчас`, `Пропустить`, and automatic start on countdown expiry.
+  The implementation reuses Feature 092/119 registry and capture gates; it
+  does not revive the removed audio-routing implementation or enable arbitrary
+  audio auto-recording.
+- Feature 124 released as [`v2026.07.23.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.9)
+  and deployed to production at exact SHA
+  `5d5b8428239f9f1439cefc63e11bd1b07e3f4279`. The previous `.8` candidate
+  stopped fail-closed on an outdated migration lineage and is superseded; no
+  production rollout was claimed from that candidate.
+- Production deploy evidence is complete: backup and restore rehearsal passed,
+  migration head is `0033_prompt_opt_maintenance`, production smoke/cleanup,
+  API and worker readiness, Temporal readiness and automatic dispatch passed,
+  and the final verdict is `infra_smoke_ready`.
+- Production RLS read-only metadata verification passed: `77/77` covered tables
+  have RLS enabled and forced, `failed_table_names=none`, and live production
+  enforcement is enabled. Public `/api/v1/health/live` and
+  `/api/v1/health/ready` both returned HTTP 200.
+- The macOS update is now published as [`v2026.07.23.11`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.11)
+  from merge `05d66e582f77a4bfeed66057043e8269077d395a`. The public Sparkle
+  appcast reports `2026.07.23.11`; its ZIP, PKG and appcast were fetched again
+  over HTTPS, with SHA-256 values
+  `8abdb294667f5b696373b50aa3583ea0db0bd22b2b865bbad9c3914a85f789df`,
+  `d8b93e40164347bfb62f71039fae51fd34dbb84c3c473d21c2268b3edaf2f025` and
+  `1eaac01354991f3eedbf0b73e968cedf1fb1ec3641e25b4899b354b6cb1588e7`.
+  Owner-only update validation, ZIP integrity and both Sparkle signatures
+  passed; the previous `2026.07.22.6` archive remains available for rollback.
+  This channel intentionally uses the local Keychain signer and is not a
+  Developer ID-signed or notarized public distribution.
+- Post-review focused validation is complete: policy 16/16, capture 39/39
+  (including cancelled-countdown, prompt-disappearance and trigger-coalescing
+  regressions), accessibility 18/18, `ContractValidation: PASS`. The pre-merge
+  canonical local CI baseline passed with macOS 609/609, server 2191 passed / 1
+  skipped, strict PostgreSQL 41 passed / 1 skipped, lint/compile/compose/evidence
+  scans passing. A post-merge local rerun reproduced only the unrelated SC-017
+  calendar performance assertion twice (`p95=92.78ms` and `201.96ms` against a
+  `50ms` threshold); Feature-124 code and that performance test were not
+  changed. Release used the documented local-CI bypass for this
+  host-load-sensitive assertion; all mandatory remote release and production
+  gates passed.
+
+## Validation update (2026-07-23) — deletion list feedback cleanup
+
+- Список встреч после подтвержденного удаления сразу убирает строку и закрывает
+  диалог. Постоянный success/cleanup-баннер внизу списка удален: он не менял
+  следующего действия пользователя и оставлял лишнее пространство. Ошибка
+  удаления остается рядом с подтверждением, а серверная lifecycle-очистка и
+  retained observability-копии не изменены.
+
+- Historical Feature `121-recording-workflows` реализует единый спокойный
+  recording flow:
+  раздельное восстановление разрешений, ручной idempotent Start,
+  detect-and-ask baseline for the non-restored workflow, Pause/Resume/Stop,
+  понятную custody и
+  processing truth, две вкладки встречи с постоянным плеером, девять форматов
+  итогов, личные шаблоны, internal sharing, приглашения, gated links и
+  контекстные export/download/delete actions. Модель и параметры приходят из
+  versioned Langfuse Prompt Config; inference изолирован за owner-controlled
+  LiteLLM; Temporal владеет durable work. По решению владельца полный
+  транскрипт/модельный контент сохраняется без masking/encryption в Langfuse,
+  retained Generation Call и Temporal History, тогда как обычные audit/logs и
+  evidence остаются metadata-only.
+- Канонический локальный gate после повторных correctness/security/Ponytail
+  review прошёл: 608 macOS tests, ContractValidation PASS, 2191 server tests
+  passed / 1 skipped, strict PostgreSQL/RLS 41 passed / 1 skipped, Ruff,
+  compile, Compose и evidence scan PASS; collection digest
+  `e17b34f99664a8cca403c031fd70343b5cbb27cc86952cf19db56a298cfa4673`.
+  Десять outcome prompts verified в private production Langfuse v2; четыре
+  control prompts остаются без
+  production promotion до calibration gate.
+- Feature 121 merged через PR #4235; найденный перед установкой native
+  local-purge/CSRF дефект исправлен и повторно reviewed в PR #4242. Release
+  [`v2026.07.22.4`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.4)
+  опубликован, production и runtime работают на exact SHA
+  `3724b596bfc80a19d1dbef000f44c97d56fff7eb`: backup/restore, migration
+  `0031_recording_workflows`, Temporal/worker readiness, smoke/cleanup и
+  public live/ready прошли. Public appcast прошёл strict re-fetch, а
+  `/Applications/GRAF.app` обновлена до `2026.07.22.4` с сохранёнными identity
+  и TCC grants; после запуска новых `csrf_token_missing` не наблюдалось, но
+  положительный live pending-purge ack не заявляется. Журнал ограничен 4 МиБ.
+- Outcome generation в production настроена и прошла live LiteLLM proof
+  на `gpt-5.6-luna`: retained Generation Call, plaintext Temporal History и
+  private Langfuse trace с точными IO/usage/cost/release/correlation прошли
+  read-back. Reconciler из PR #4250 доводит все response-bearing attempts
+  до confirmed без повтора inference; backlog после proof равен `0`.
+  Production работает на content-equivalent overlay
+  `3a1cfbdcdde5250ec447fc00f8d98a41cf34784a`; patch-marker/child в retained
+  history требуют forward-fix rollback. Expanded scan проверил 21 secret-
+  файл, логи, non-ledger DB и committed content: все matches `0`;
+  audio rows/screenshots/diagnostics `0`, analytics disabled/no event path.
+  T050, T057 и T089 закрыты с metadata-only production evidence. Prompt
+  optimization для обычного трафика, public/team links и external invitations
+  остаются выключены по отдельным rollout-политикам.
+
+## Validation update (2026-07-23) — outcome-generation decoder and candidate UX hotfix
+
+- Production incident analysis isolated the failure to
+  `OutcomeObservabilityReconcilerWorkflow` returning `dict[str, object]`.
+  Temporal 1.30 rejected the already-completed child result during parent
+  replay (`Unserializable type during conversion`), leaving an accepted parent
+  workflow running even though no model call was pending. This is separate
+  from `summary_response_invalid`, where a valid LiteLLM response is rejected
+  by local category/source-reference validation.
+- The hotfix changes both outcome workflow result boundaries to
+  `dict[str, Any]` (compatible with retained histories), makes Langfuse span
+  filtering sandbox-safe, and adds owner-only server candidate recovery,
+  preview, bounded reason/retryability projection, and selected-format pending
+  UI. It does not delete or redact any transcript, Generation Call, Langfuse
+  observation, or Temporal History.
+- Production readiness is now **complete for T097–T100**. Focused review and
+  canonical CI passed; final release `v2026.07.23.10` was deployed at
+  runtime SHA `9cd7b5040a8213e58f52cf1d1cfd90059021d0a` (the earlier
+  `028fdfb` was a superseded release candidate). Backup/restore rehearsal passed at
+  `/opt/projects/2brain-rec/backups/20260723T142743Z`, migration head is
+  `0033_prompt_opt_maintenance`, and Temporal, processing, media worker,
+  automatic dispatch, public live/ready, and metadata-only production smoke
+  all passed.
+- The known parent
+  `outcome-generation/a65deb9a-e9ed-4048-ac7b-26e9f0657f68` (run
+  `019f8e11-3db5-72eb-a73d-db4893baca80`) replayed with the forward-compatible
+  worker and completed at `2026-07-23T14:36:08Z`. Its retained History
+  contains `46` events and one plaintext transcript chunk of `20328` UTF-8
+  bytes; the chunk hash matches the attempt hash
+  `ded0defcde2940b2fba9fc664ac8008d5062e8d64bf10465f732144681dbf942`.
+  Candidate state is `accepted`; its single Generation Call is
+  `completed/confirmed` with `provider_attempt=1`, `call_sequence=1`, and
+  `gpt-5.6-luna`. The response-bearing backlog is `11` completed/confirmed
+  rows with no pending exports.
+- Private Langfuse trace `a2c4ed95a65338818e00217318b19fc9` is `production` and
+  `public=false`, with `18` observations and exactly one generation
+  `4a87ed7b08da9f93` using `graf/meeting-outcome/project-sync` v2 and
+  `gpt-5.6-luna`. Generation Call and Langfuse request/raw-response/
+  validated-result hashes match; usage is `7279` total tokens and the reported
+  calculated cost is `0.014114999999`. Decoder/sandbox markers in API, worker,
+  and Temporal logs after the forward-fix were `0`; replay completed without a
+  second model call.
+- Rollback is forward-only for this retained history: a worker older than the
+  `dict[str, Any]` boundary must not be deployed and the existing child/marker
+  compatibility path must remain. The global deploy script keeps four
+  unrelated playback-normalization checks explicitly at
+  `required_post_deploy`; they are not claimed as part of this
+  outcome-generation receipt.
+
+## Validation update (2026-07-23) — candidate recovery regression (production closeout)
+
+- Production logs captured one metadata-only HTTP 500 on
+  `GET /api/v1/cabinet/meetings/{uuid}/summary-candidates` (request id
+  `74e15694-3786-4f7f-996f-0005a62e8d62`). The deployed runtime projected a
+  legacy deterministic attempt whose `candidate_id` was null, then failed while
+  building the owner candidate response; Uvicorn subsequently reported the
+  secondary `Response content shorter than Content-Length` transport error.
+- Production database counts at investigation time were `2 accepted` and `6
+  failed/summary_response_invalid` AI candidates; all `11` retained response
+  calls were `completed/confirmed`. The six invalid results are a separate
+  strict model-output validation signal, not transcript loss or accepted-summary
+  replacement. The old browser bundle mapped that bounded failure to the
+  generic “Не удалось подготовить новый вариант…” fallback.
+- The T101/T102 hotfix filters null-candidate legacy provenance before
+  projection, preserves accepted results across post-commit Temporal dispatch
+  outages, reuses deterministic candidate/workflow IDs on explicit retry, and
+  maps invalid/temporary failures to an actionable user message. It does not
+  alter or delete any retained transcript, Generation Call, Langfuse
+  observation, or Temporal History. Automatic background scanning of
+  undispatched candidates remains a separate follow-up; this slice uses the
+  explicit retry path.
+- Release [`v2026.07.23.14`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.14)
+  is deployed at the exact runtime SHA
+  `1e14004836bc069522002615839e3985586012ff`. Backup and restore rehearsal
+  passed at `/opt/projects/2brain-rec/backups/20260723T181940Z`; migration head
+  is `0033_prompt_opt_maintenance`; Temporal, processing, media worker,
+  automatic dispatch, and public live/ready all passed. The metadata-only
+  production smoke passed and post-deploy logs contain no new
+  `summary-candidates` 500, `Response content shorter than Content-Length`, or
+  `summary_generation` error. T101/T102 are closed after this evidence.
+
+## Validation update (2026-07-23) — T103 actionable outcome recovery
+
+- The reported generic regeneration error was traced to strict local rejection
+  of completed LiteLLM JSON: state/item parity, selected-section membership, or
+  exact transcript reference sequence could be invalid. The transcript was not
+  lost, and no Temporal/Langfuse transport failure was found. Full plaintext
+  transcript and model-call content remain retained in the existing
+  Generation Call, Langfuse, and Temporal observability paths.
+- PR [#4510](https://github.com/yshishenya/crisp/pull/4510) adds the prompt,
+  validator, candidate lifecycle, API projection, and embedded UI recovery
+  fixes. All ten production outcome prompts are at Langfuse production v3.
+  The public static bundle contains the new bounded reason/action mapping.
+- Release
+  [`v2026.07.23.17`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.23.17)
+  is deployed at exact runtime SHA
+  `da3a625d96491e99159c7a80ee69a82337daefb6`. Backup and restore rehearsal,
+  RLS, migration head `0033_prompt_opt_maintenance`, Temporal and processing
+  readiness, automatic dispatch, metadata-only production smoke and cleanup
+  all passed. The production containers are healthy and public
+  `/api/v1/health/live` and `/api/v1/health/ready` both returned HTTP 200.
+- The local server PostgreSQL CI lane was unavailable because Docker Engine was
+  not running on the developer machine; focused tests and the complete remote
+  production gate passed. Evidence contains no transcript or model content.
+
+## Validation update (2026-07-21)
+
+- Feature `090-manual-media-upload-ui` получила production owner-upload
+  receipt: accepted media, обработка `Готово`, 8 transcript segments, 2 speaker
+  tracks, сохранённые GRAF итоги и готовая media revision. Свежий acceptance
+  artifact затем удалён через разрешённый GRAF cleanup path; detail и точный
+  поиск в списке встреч больше его не показывают. Подробный metadata-only
+  receipt находится в
+  `specs/090-manual-media-upload-ui/validation/production-user-path-2026-07-21.md`.
+  Резервные копии, локальные буферы и внешние копии остаются отдельной
+  границей и не заявляются удалёнными. Issues #3049 и #3050 закрыты после
+  этой проверки.
+
+## Spec Kit documentation status
+
+Полный inventory и reconciliation для feature specs находится в
+[`docs/spec-kit-feature-index.md`](spec-kit-feature-index.md). На текущем
+`master` проверены 98 spec-каталогов, 98 `spec.md` и 92 `tasks.md`.
+Requirements-only остаются `011`, `026–029` и `101`; для них не создаются
+искусственные plan/tasks. В implementation/release slice 096–121 статусы
+сверены с task receipts и release boundaries: открыты только явно отмеченные
+гейты, включая 096/T101/T104, 106/T049/T063/T064, 109/T022, 119/T008 и
+120/T059 и 121/T057. Feature 118 имеет полный Spec Kit package и
+release receipt, Feature 120 — merged implementation plus controlled
+production-preview receipt, а Feature 121 — released/deployed/installed
+outcome generation с одним явно открытым GEPA gate.
+Эта сверка не закрывает general-release, security или representative-reviewer
+gates.
+
+## Feature 129 — invitation magic-link RLS hotfix
+
+- Production investigation установил источник HTTP 500: pending
+  `auth_audit_events` flushed после переключения из personal workspace в
+  workspace встречи.
+- Исправление добавляет один flush в существующей AsyncSession до смены
+  контекста; RLS policy и authorization boundaries не ослаблены, новой
+  migration нет.
+- Focused invitation matrix (`23 passed`), strict-RLS regression и полный
+  `infra/scripts/ci-local.sh` прошли: macOS `640`, server `2441 passed / 1
+  skipped`, strict PostgreSQL `42 passed / 1 skipped`, lint/compile/Compose/
+  evidence scan — `PASS`.
+- PR #4626 и release PR #4627 merged; CalVer `v2026.07.26.7` выкачен на
+  production на exact SHA `0b2680433ffda9137ea63e16ec99153e37bcb562`.
+  Backup/restore, migration head `0041_share_account_created_email`,
+  disposable RLS, production smoke, readiness и live/ready `200/200` прошли.
+- После deploy aggregate API-log audit показал `0` HTTP-500 и `0` RLS-ошибок
+  `auth_audit_events`; raw logs и пользовательская magic-ссылка в evidence не
+  сохранялись. Backup:
+  `/opt/projects/2brain-rec/backups/20260726T123714Z`.
+- Signed public Sparkle feed/ZIP `2026.07.26.7` опубликованы; trusted v6
+  bootstrap обновился до v7 через Sparkle и relaunch/codesign smoke прошли.
+  v7 notarization staple и Gatekeeper public-trust не заявляются, потому что в
+  release-operator окружении отсутствуют Apple notarization credentials.
+
+Feature `114-support-incident-diagnostics` реализована и merged через
+[PR #4068](https://github.com/yshishenya/crisp/pull/4068): v2 metadata-only
+report связывает client/server correlation, canonical stage/problem, bounded
+retry/timeline и truthful
+deletion/access state, а clipboard fallback использует тот же report builder.
+Private Issue canon синхронизирован с задачами T001–T026 (Issues #3953–#3978),
+а полный `infra/scripts/ci-local.sh` прошёл: 587 Swift-тестов, 1960 server
+тестов и strict-проверка. Production deploy и установленная сборка этим
+receipt не заявляются; они остаются отдельными release gates.
 
 ## Accepted Now
 
 - macOS is the selected MVP platform.
 - The current macOS product identity is `GRAF.app` with bundle id
   `pro.2brain.graf`.
-- Feature `095-macos-permission-retention` is implemented for local
+- Feature `100-provider-link-verified-callback` is merged, released as
+  [`v2026.07.17.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.17.1)
+  and deployed to production at `744b3ad25cf52cdb119b37a1900f14928428ee4b`.
+  It adds a server-verified, explicit flow for a
+  signed-in user to add another provider: callback stores only a temporary
+  candidate and never issues or switches a GRAF session; only the exact
+  initiating user/workspace/session may confirm. Browser and embedded Settings
+  reuse one safe provider-only surface. Expired/replayed/rejected candidates are
+  scrubbed and audit stores only codes plus a one-way intent fingerprint.
+  Canonical local CI passes (`643` macOS tests, `1757` server tests, `28`
+  expected PostgreSQL-only skips, Ruff, compile, Compose and deployment-evidence
+  scan). A disposable local PostgreSQL RLS module passes 16/16 with zero
+  database residue. Production dry-run and deploy pass; the deploy created a
+  protected backup point, public health/readiness and metadata-only smoke pass,
+  and the actual browser and embedded Settings pages show the same safe
+  provider-only start surface without starting a provider flow.
+  The standalone formal Codex Security scan for Feature `097` was explicitly
+  skipped by user instruction and is not represented as a security result.
+- Historical receipt for Feature `105-macos-app-updates` (superseded by the
+  Developer ID-only policy above) was merged and live on the former owner-only
+  production
+  channel as
+  [`v2026.07.17.9`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.17.9)
+  at exact merge `d6debe22b799e37f08fcbf77bec9b5123338acf7` through
+  [#3702](https://github.com/yshishenya/crisp/pull/3702) and
+  [#3703](https://github.com/yshishenya/crisp/pull/3703). The app embeds exact
+  Sparkle `2.9.4`, checks the signed stable feed every 24 hours, exposes
+  `GRAF > Check for Updates…`, and shows one VoiceOver-accessible
+  `Доступно обновление` marker in both connected-cabinet and local-only sidebars.
+  Automatic install and system profiling remain disabled. Update presentation
+  and relaunch stay deferred while capture is active or paused, recording is
+  starting/stopping/finalizing, or termination cleanup is pending. Production
+  staging now fails closed unless the worktree is clean, `HEAD` equals
+  `origin/master`, and the exact published CalVer tag points to that commit;
+  versioned archives, packages, GitHub Release assets, and public checksums are
+  verified before the appcast is replaced last. The installed `.9` keeps the
+  stable `GRAF.app` / `pro.2brain.graf` designated requirement and retained
+  microphone plus Screen/System Audio grants through sequential same-identity
+  updates without TCC mutation. Its 120-second ScreenCaptureKit windows passed
+  an installed-app start lasting 76 seconds and a successful Stop/finalization
+  without false `capture_failed`. Focused rejection checks cover corrupt,
+  unsigned, wrong-key, downgrade, incompatible, and wrong-identity updates;
+  full CI passes 666 macOS tests and 1761 server tests with 28 expected skips.
+  Existing installations without Sparkle still need one trusted `.pkg`
+  bootstrap. This owner-only self-signed channel was not public Developer ID
+  distribution; its notarization, stapling, public Gatekeeper proof, and
+  signing-identity migration gap is closed by `v2026.07.26.6` only through the
+  manual Developer ID package bootstrap described above.
+- Historical receipt for Feature `109-release-signing-key-custody` is closed for
+  the former private
+  repository lane through [T037 / issue #3911](https://github.com/yshishenya/crisp/issues/3911)
+  and [release `v2026.07.21.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.3).
+  The immutable tag is pinned to exact `origin/master` commit
+  `9a17dde2e6938d352cbf38aff7e034a9ad52fad6`; fresh Keychain evidence is
+  metadata-only and explicitly degraded. Versioned ZIP/pkg/checksum were
+  verified and published before the signed appcast, then the public files were
+  fetched and checked again. This entry documents Sparkle key custody only; it
+  does not authorize the former owner-only app-signing lane. Bitwarden is
+  recovery-only.
+- Feature `113-transcript-speaker-turns` is implemented, merged, and included
+  in release `v2026.07.21.1`. The server derives provider-neutral chronological
+  `speaker_turns` from canonical diarization boundaries, preserves raw ASR and
+  diarization segments, and merges only adjacent same-speaker fragments within
+  the bounded gap rule. The MinIO playback normalization fix is a separate
+  release boundary.
+- Feature `118-interactive-playback-timeline` is implemented, merged through
+  [PR #3948](https://github.com/yshishenya/crisp/pull/3948), and released as
+  [`v2026.07.21.5`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.5)
+  through [PR #3949](https://github.com/yshishenya/crisp/pull/3949). It aligns
+  playback and speaker lanes to one timeline, follows the active transcript
+  turn, and stores meeting-local display names with existing authorization,
+  CSRF, RLS, audit, and deletion boundaries. Production `/api/v1/health/live`
+  and `/ready` returned 200 after the release, and the public cabinet CSS/JS
+  hashes match the exact `origin/master` sources. The installed GRAF binary
+  remains `.3` because this slice changes the server WebView only; it already
+  points to the same production cabinet and needs no binary update.
+- Feature `120-transcript-export` is implemented and merged through
+  [PR #4084](https://github.com/yshishenya/crisp/pull/4084) at exact merge SHA
+  `7ea8afc517b79fa943ec1ef99d047027234e3c35`. The server builds one
+  provider-neutral snapshot pinned to the selected transcript and stored
+  summary revisions, then exports TXT, MD, CSV, XLSX, versioned JSON, or SRT
+  without provider calls or summary regeneration. Raw segments remain the
+  source of truth; CSV/XLSX/JSON/SRT use server canonical turns, preserve
+  unknown/source/result/overlap boundaries, and never fabricate pause text.
+  Transcript, summary, and combined egress keep separate readiness, policy,
+  audit, access, revision, and deletion truth, with a final fail-closed recheck
+  before bytes leave GRAF. The web cabinet includes the scope-first export
+  dialog, metadata-only preview, progress/failure states, copy/download and
+  keyboard/focus/zoom accessibility behavior. Focused closeout passes 74
+  unit/contract and 49 PostgreSQL/RLS tests; the full repository gate passed
+  594 macOS, 2013 server, and 35 strict PostgreSQL/RLS tests with
+  `ci_local_result=pass`. The server/web-cabinet slice is released as
+  [`v2026.07.21.13`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.21.13)
+  through [PR #4086](https://github.com/yshishenya/crisp/pull/4086) and deployed
+  at exact runtime SHA `0b923f7e4c1198c39ba17951bd0ced7f2d7bcc3f`.
+  Backup, restore rehearsal, RLS, metadata-only smoke, cleanup, public health,
+  and readiness passed. A bounded production seed set transcript and summary
+  egress to `owner_only` for the existing owner-preview corpus while leaving
+  audio and legacy package export disabled; installed GRAF read-back then
+  showed the enabled content-export entry point on a ready owner meeting.
+  Production hotfix [PR #4217](https://github.com/yshishenya/crisp/pull/4217)
+  then added the bounded native WebKit download handoff after the installed
+  client exposed a `blob:` attachment as an unsupported cabinet route. It is
+  released through [`v2026.07.22.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.22.1)
+  at exact runtime SHA `43f7b09e988621be608049931a048faba1e6a119`.
+  Public owner-only ZIP/PKG/appcast hashes, server deploy gates, installed GRAF
+  `2026.07.22.1`, and a real TXT download that retained the meeting detail and
+  playback timeline all passed. New meetings remain fail-closed until they
+  receive an explicit accepted artifact-policy snapshot. T059 / issue #4083
+  remains the required representative-reviewer study before general release;
+  synthetic or single-owner preview QA does not satisfy that product outcome.
+  Metadata-only evidence is recorded in
+  `specs/120-transcript-export/validation/production-preview-2026-07-21.md` and
+  `specs/120-transcript-export/validation/production-embedded-download-hotfix-2026-07-22.md`.
+- Historical receipt for Feature `095-macos-permission-retention` is implemented
+  for local
   owner-machine validation: GRAF can be built with an explicit locally trusted
   self-signed app identity, same-identity reinstalls preserve already granted
   microphone and Screen/System Audio permissions on the validated Mac, and
@@ -20,23 +589,237 @@ metadata-only evidence остаются подробной историей ре
   distribution readiness: Apple Developer account, Developer ID Application
   and Installer signing, notarization, stapling, and public Gatekeeper
   validation remain separate release-gate work. Release `v2026.07.09.6`
-  refreshes the public download package with the local self-signed build so
-  the owner machine can update from the hosted package while the Developer ID
-  path remains out of scope.
-- The Core Audio HAL component publishes `GRAF Microphone` and `GRAF Speaker`
-  with `pro.2brain.graf.*` virtual device identifiers; legacy `2brain Rec`
-  paths are kept only for cleanup and local data compatibility.
-- The installed local package can be upgraded, `coreaudiod` can be restarted,
-  and both virtual devices return visible/alive in default-safe idle state.
-- Low-resource routing is the current local default: public virtual devices
-  stay lightweight while physical input/output routes are opened only when a
-  virtual-device client needs audio or the user runs an explicit check.
-- Non-recording passthrough smoke is accepted for Telemost, Chrome, Opera, and
-  Zoom in the local environment.
-- `Run Check` is now a recheck/repair action, not the normal activation path
-  for ordinary browser/meeting audio.
-- The current route truth model separates publication, virtual client I/O, app
-  bridge, physical-device routing, and future recording triggers.
+  refreshed a public download package with the local self-signed build. That
+  former path is closed and must not be used for current publication; the
+  Developer ID path is now the only public release path.
+- Feature `097-workspace-account-onboarding` is merged through
+  [#3842](https://github.com/yshishenya/crisp/pull/3842) at merge SHA
+  `d79f24a9b91a739e90826a5e51659614628b62d1`, released as
+  [`v2026.07.18.1`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.18.1)
+  and deployed at exact runtime SHA
+  `2e94cd76a716c46238a67a65ec9f83bd7381f8b6`. New self-serve accounts land
+  in an idempotent personal space; corporate membership requires an explicit,
+  identity-matched offer; domain-only discovery stays disabled; active-space
+  switching and revoked-access fallback are server-verified; and the legacy
+  bootstrap report remains metadata-only with no data move. Migration head is
+  `0028_active_space_read`; backup/restore rehearsal, runtime readiness,
+  metadata-only production smoke and cleanup passed. Canonical local CI passed
+  with 572 macOS tests and the accelerated PostgreSQL/RLS gate recorded in
+  `specs/097-workspace-account-onboarding/validation/release-closeout.md`.
+  A bounded post-deploy metadata-only user-path smoke also listed and accepted
+  an identity-matched offer, switched spaces, revoked the corporate
+  membership, blocked the revoked session and confirmed personal fallback with
+  residue `0`; it used an internal disposable identity rather than live email
+  delivery. Older macOS app builds need the 097 client
+  changes for embedded revoked-session recovery. The standalone Codex Security
+  scan was skipped by explicit user instruction and is not a security result.
+  Active server runtime has no SQLite or `aiosqlite` support; historical ADRs,
+  the macOS TCC `sqlite3` permission probe, and bounded bootstrap/legacy aliases
+  remain intentionally retained compatibility or audit anchors.
+- Feature `098-calendar-auto-context-match` is implemented, released and live
+  in production. Feature PR
+  [#3270](https://github.com/yshishenya/crisp/pull/3270) merged as
+  `979dc497c1575baa886ce5d74d414e898f5ea464`; feature release
+  [`v2026.07.13.2`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.2)
+  introduced the behavior, and smoke-cleanup hotfix
+  [`v2026.07.13.3`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.13.3)
+  is deployed at exact SHA `f0e3ee4aef81c5d7a58cf632b6513b7f38414dc9`.
+  A desktop recording start may request a server-owned,
+  24-hour match attempt without blocking capture; the deterministic matcher
+  accepts only one fresh eligible event, keeps overlaps/back-to-back cases
+  ambiguous, and safely skips private/free-busy, all-day, stale, manual-upload
+  and offline/unknown paths. Meeting creation atomically consumes only a
+  same-owner/same-workspace attempt and persists one immutable context snapshot
+  with safe title, time, bounded roster and hashed recurring-series evidence.
+  Replaceable app/generic titles may use the safe calendar title; user,
+  upload/file and legacy titles remain authoritative, and visible titles remain
+  stable after correction or clear. Browser and embedded review reuse the same
+  owner-managed chooser, no-context explanations, roster-not-speaker copy and
+  independently authorized previous-series pointer. Calendar participants do
+  not create access, shares, recipients, delivery or speaker-name assignment.
+  Current focused evidence passes `145` unit/read-model, `99` contract, `162`
+  integration, `195` focused macOS and `72` authorization/privacy tests;
+  the historical portability migration receipt and disposable PostgreSQL/RLS
+  probes pass with cleanup. Canonical local CI also passes with `631` macOS tests, `1414` server
+  tests passed and `4` skipped, Ruff, compile, Compose rendering and deployment
+  evidence scan. Its intentionally non-live RLS boundary reports that a
+  PostgreSQL test URL is required; the separate disposable PostgreSQL/RLS run
+  is the database receipt. User-approved Chrome QA also passes the web and
+  embedded list/matched/recurring/ambiguity/correction/clear flow with keyboard
+  focus and durable-state checks. That pass found and closed an invalid nested
+  chooser-link/grid-wrap defect before the final screenshot rerun. Production
+  is at migration `0021_calendar_auto_context_match (head)`; backup and restore
+  rehearsal, RLS verification, synthetic no-context upload, cleanup, public
+  live/ready probes and an independent zero-residue read-back all pass. The
+  clear/ambiguous and browser/embedded receipts remain synthetic same-code QA,
+  not a claim that private production calendars were inspected. Older app
+  builds must be updated to gain feature 098; the server-only `.3` hotfix has
+  no `apps/macos` diff and requires no additional reinstall. Feature `097` is
+  separately released; its standalone Codex Security scan was skipped by user
+  instruction and is not counted as 098 acceptance evidence.
+- Feature `099-review-m4a-normalization` is implemented, validated and merged
+  through [PR #3470](https://github.com/yshishenya/crisp/pull/3470) at exact
+  merge SHA `da8b22ea069202d9d9961f9a4f46dd4192821da3`. Release
+  `v2026.07.15.1` is tagged and published from exact release-preparation merge
+  SHA `619c6ce3600d2d56e3461b69d523c4240ec8767a`. Its first production deploy
+  stopped safely before migration/runtime mutation because the deploy script
+  looked for the newly built media-worker image through an existing-container
+  inventory. Staged rollback restored the prior production SHA and a clean
+  worktree. The minimal image-resolution hotfix is merged through
+  [PR #3472](https://github.com/yshishenya/crisp/pull/3472) at exact merge SHA
+  `9081a942040d19819119feb6cf043c603514e401`. It passes independent review,
+  its executable success/no-match/inspect-failure regression and fresh
+  canonical CI: macOS `643/643`, server `1716 passed, 21 skipped`, Ruff,
+  compile, Compose rendering and deployment evidence. Release
+  `v2026.07.15.2` is published from exact release-preparation merge SHA
+  `13fe923421df60da77a0b936a8b04cd63db6f891`. Its deploy passed backup,
+  restore rehearsal, image/profile gates and migration `0022`, then stopped
+  before dispatch because the non-root database-role bootstrap could not read
+  a newly generated file-backed credential. Staged rollback returned schema to
+  `0021`, restored production SHA
+  `e77f942bf178862905ee98b27488d87e469c3e26`, and confirmed zero feature truth.
+  A bounded private-group readability hotfix passed focused tests, fresh
+  canonical CI and independent review from exact `.2` release SHA, then merged
+  through [PR #3474](https://github.com/yshishenya/crisp/pull/3474) at exact
+  merge SHA `f0fbd18bb7cf18410da16bda2f6ca7177b40ce98`. Release
+  `v2026.07.16.1` was published, but its deploy stopped before dispatch because
+  the restricted media role could not read the schema version. The narrow
+  permission hotfix merged through
+  [PR #3522](https://github.com/yshishenya/crisp/pull/3522), and release
+  `v2026.07.16.2` was published. Its deploy applied migration `0022` and
+  validated the media worker, then production smoke stopped on the stricter
+  RLS boundary. Compatibility rollback kept the `.2` source and additive
+  schema, disabled normalization/dispatch, removed the media worker and left
+  public live/ready healthy with zero smoke residue. The corrective RLS/smoke
+  hotfix passed real PostgreSQL tests, full CI and independent review, then
+  merged through [PR #3524](https://github.com/yshishenya/crisp/pull/3524) at
+  exact merge SHA `ff34413994d8e15f64149e7470db6539f2d7180c`. Candidate
+  `v2026.07.16.3` is prepared from that merge and still requires release PR,
+  publication, production deploy and E2E evidence.
+  The feature gives every new first-party recording and supported manual
+  upload one server-prepared,
+  fully decoded canonical `meeting-review.m4a`; an already canonical M4A is
+  reused byte-for-byte, a layout-only mismatch is remuxed without audio loss,
+  and every other supported valid retained source is converted automatically.
+  The user and workspace administrator receive no retry, repair, reprocess or
+  backfill action: transient failures remain automatic, while only objectively
+  invalid, unsupported, no-audio or missing retained sources can finish with a
+  clear unavailable reason. Existing records are inventoried before mutation
+  and then reuse, regenerate or report unavailable without fabricating source
+  media. Playback uses only the validated canonical object, supports byte
+  ranges without full-object request memory, and keeps playback readiness
+  independent from transcript/summary readiness. Candidate, source, attempt
+  and canonical objects participate in RLS, retention and deletion accounting;
+  deletion wins every tested queued/running/publishing/retry race. The new
+  `0022_playback_normalization` migration and isolated non-root media worker
+  are required at deploy. The worker has one-activity concurrency, 1 CPU,
+  1 GiB memory, 128 PIDs, a 6 GiB logical work budget, a 128 MiB output cap,
+  bounded FFmpeg/FFprobe output and automatic free-capacity preflight. A
+  historical near-four-hour dual-source synthetic package of about 5 GiB
+  completed the former local production-equivalent normalization pipeline in `185.236` seconds
+  with canonical/full-decode success, zero OOM events and zero
+  container/volume/image residue. Focused
+  evidence currently includes `497` focused server tests, a post-fix
+  `21`-test resource/workflow/worker regression, `42` migration-focused and a
+  final `19/19` disposable PostgreSQL/RLS role-policy run, `139` unchanged
+  macOS regressions, the 14-case container matrix, authorized working-copy
+  conversion with original hashes preserved, and deletion/cleanup evidence.
+  The validated feature branch was integrated onto the `.7` interface base
+  before merge. Canonical repository CI passes on that integrated candidate:
+  macOS `643/643`, server `1713 passed, 21 skipped`, Ruff, Python compile,
+  Compose rendering and deployment-evidence scan, with
+  `ci_local_result=pass` and exit code `0`; a fresh native disposable
+  PostgreSQL run also passes `23/23` plus the direct RLS probe with zero
+  cluster residue. After independent review found a transaction-local tenant
+  context gap across internal commits, the central PostgreSQL session boundary
+  was repaired and its three exact restricted-media-role regressions plus the
+  full normalization PostgreSQL file passed `3/3` and `12/12` respectively.
+  T100 local synthetic UI acceptance is complete. Real Chrome and the embedded
+  macOS cabinet show the same preparing/ready/unavailable and
+  transcript-independent states with no repair control. Chrome Play/Pause held
+  `10.9s`, forward seek reached `25.9s`, two tabs shared durable status while
+  keeping independent playback position, and automatic preparing-to-ready
+  refresh produced another Play/Pause/seek sequence through `24.5s`. The
+  backend returned `206` with `Content-Range: bytes 0-35620/35621`. Embedded
+  Play/Pause held `2.3s`, forward seeks reached `17.3s` and `32.3s`, and a
+  post-seek cycle held `33.7s`; app close did not stop publication and relaunch
+  read `Аудио готово`. Wide/narrow, keyboard focus, system light/dark
+  preference and reduced-motion checks pass, with no Chrome console errors.
+  A post-merge-base Chrome rerun against the `.7` cabinet also passed: the
+  preparing state automatically became a `readyState=4` player, Play reached
+  `1.935s`, Pause held `10.532s`, seek reached `25.532s`, and the browser
+  received the same `206` Range response. Both `1440x900` and `740x900` had no
+  horizontal overflow, reduced motion remained bounded, and cleanup residue
+  was zero. The final browser pass also recovered automatically from synthetic
+  `503`, login-redirect and disconnect responses with visible status copy; a
+  confirmed delete changed an already-polling detail to the terminal
+  unavailable state, returned `404` and did not resurrect the player after a
+  delayed publication attempt.
+  The initial control-channel-only top-level navigation block was recovered by
+  the documented manual URL handoff; it is no longer a T100 limitation.
+  Feature 099 changes server behavior and macOS regression tests only; it has
+  no native macOS runtime-source diff, so this hotfix does not require an app
+  rebuild or reinstall. The narrow follow-up cleanup fix is released as
+  `v2026.07.17.5`: its active-lease selector and migration
+  `0026_active_cleanup` are deployed. The previously interrupted production
+  conversion reached canonical playback-ready state automatically; no retry,
+  upload, or other user action was needed. Broader T115 browser/embedded
+  production proof and T116 full feature issue cleanup remain separately open.
+  Feature 097 is separately released; its standalone Codex Security scan was
+  skipped by explicit user instruction. Ordinary 099
+  authorization/RLS/subprocess/privacy gates do not complete or replace 097.
+  Release `v2026.07.14.7` remains owned by the separate «новый
+  главный экран GRAF» rollout. None of the immutable feature-099 release tags
+  were moved. The later `v2026.07.16.4`, `v2026.07.17.3` and `v2026.07.17.5`
+  production receipts supersede the old `.3` candidate note. Only the
+  T115 Chrome/embedded production receipt and the dependent T116 tracker
+  cleanup remain open; the 097 security scan is still explicitly skipped.
+- **Feature 099 final closeout update (2026-07-20):** after `v2026.07.20.7`
+  deployment, an authorized production Chrome cabinet session opened an
+  existing meeting whose audio was marked ready, started and stopped playback,
+  and recorded only network metadata: `Range: bytes=262144-`, HTTP `206`,
+  `Content-Range: bytes 262144-8384167/8384168`, and
+  `Accept-Ranges: bytes`. No signed URL, media, transcript or user data was
+  retained. Combined with the preceding first-party/manual synthetic
+  conversion, worker-interruption recovery, inventory guard and zero-residue
+  cleanup receipts, this completes T115. T116 is complete after the final
+  feature-099 issues were reconciled and the clean release worktree was
+  verified; the user-owned/test-rec and unrelated historical worktrees were
+  preserved. The separate Feature-090 manual-upload browser receipt remains
+  closed in #3049/#3050 after the metadata-only receipt and is not
+  reclassified as a 099 failure; #3060 focus evidence is closed separately.
+  Feature 097 remains released but its standalone Codex Security scan is still
+  explicitly skipped by user instruction.
+- The separate Feature 099 production evidence includes the `v2026.07.17.3`
+  startup-recovery release and the `v2026.07.17.5` active-attempt cleanup
+  fix; it does not alter Feature 106 acceptance or its rollback boundary.
+- Feature `106-mixed-wav-recording` implementation is complete in the local
+  candidate but is not released or deployed. Its local candidate changes **new** recordings
+  to one shared source timeline with exactly `meeting-transcription.wav` (PCM
+  s16le mono 16 kHz, the only ASR source), `meeting-review.m4a` (AAC mono 48
+  kHz, playback only), and `manifest.json`. The backend receives the WAV once
+  through `initial_mixed_recording` / `single_wav_v1`; the M4A never enters a
+  MediaScribe request. This is implementation status, not installed-app or
+  production acceptance evidence.
+- Recording start remains independent of the selected output route. The app
+  does not change route or volume; removing speaker sound from the microphone
+  is intentionally a separate future feature and is not part of v5.
+- The macOS capture architecture remains app-owned: ScreenCaptureKit system
+  audio and the app-owned microphone source are explicitly injected into the
+  candidate `V5LocalRecordingWriter`, which writes the v5 package described
+  above. Historical v3/v4 packages remain readable only and do not alter new
+  capture defaults.
+- The former separate audio-routing component, shared-memory bridge,
+  lifecycle scripts, route orchestration, and user-facing setup/repair states
+  have been removed from the source and app-only package surface.
+- Current packaging contains one desktop application component and performs no
+  privileged audio installation or Core Audio service mutation.
+- Historical v3/v4 recording roots and unknown manifest fields remain readable
+  through an isolated compatibility path. They do not change v5 writer
+  defaults, visible controls, or the canonical single-WAV ASR path.
+- Generic Core Audio microphone discovery and metadata-only `AudioHAL`
+  meeting-detection signals remain current OS integrations and are not the
+  removed component.
 - Diagnostics and validation artifacts remain metadata-only and must not include
   raw audio, transcript text, credentials, tokens, signed URLs, passwords, or
   meeting content.
@@ -59,15 +842,15 @@ metadata-only evidence остаются подробной историей ре
   all-pages expansion, Yandex offline conversion upload, production deploy, and
   paid campaign optimization remain blocked pending separate legal/product/
   security/QA/provider approval.
-- Manual user-facing `Record`/`Stop` exists in the local macOS app with visible
-  recording state and one-action stop from feature `007`.
-- Local recording persistence from feature `008` is accepted for local artifact
-  creation after manual `Record`/`Stop`: local mic track, remote speaker track,
-  metadata-only manifest, saved/degraded/failed truth, and metadata-only
-  diagnostics.
-- One-minute manual recording smoke is accepted for Yandex Telemost, Chrome,
-  Opera, and Zoom for features `007` and `008`: visible manual recording,
-  one-action stop, and saved local recording artifacts.
+- Manual user-facing `Record`/`Stop` remains current in the local macOS app
+  with visible recording state and one-action stop from feature `007`.
+- Historical archive — feature `008` accepted the former v3 local
+  microphone/system package after manual `Record`/`Stop`. Its separate tracks
+  remain readable only for already accepted records; feature `106` supersedes it
+  for every new capture with one canonical WAV and one playback M4A.
+- Historical one-minute recording smokes for Yandex Telemost, Chrome, Opera and
+  Zoom prove only the former `007`/`008` control surface. They are not v5
+  route, volume, timeline or transcription acceptance evidence.
 - Feature `022-meeting-mute-truth` is implemented as the product-owned mute
   truth layer for local macOS recording. The desktop app exposes `Pause` and
   `Resume` beside always-available `Stop`; product Pause suppresses local
@@ -78,19 +861,70 @@ metadata-only evidence остаются подробной историей ре
   script coverage, diagnostics redaction, and upload-queue regressions are
   included. This slice does not implement third-party Zoom/Telemost mute
   adapters or claim that meeting-app mute itself is respected.
-- MediaScribe dual-track API contract is recorded in
-  `docs/integrations/mediascribe-dual-track-api.md` for future backend
-  transcription work. The real API key is intentionally not committed.
-- Feature `010-recording-artifact-format` is accepted for local artifact
-  format. Automated gates and a fresh manual `Record`/`Stop` smoke on
-  2026-06-04 MSK confirmed a local package with `manifest.json`, `mic.wav`,
-  `incoming.wav`, dual-track MediaScribe role mapping, readiness metadata,
-  diagnostics redaction, and `007`/`008` regression validation.
-- Feature `011-assisted-auto-recording` is specified but not planned or
-  implemented. It records the future detect-and-ask rollout, automatic naming
-  policy, and local-trust-shell/server-dashboard UI authority model.
-- Feature `092-automatic-meeting-detection` is implemented locally as the first
-  registry-driven detect-and-ask foundation for the Russian-market VKS scope.
+- The active MediaScribe contract is the v5 single-WAV section in
+  `docs/integrations/mediascribe-dual-track-api.md`; its dual endpoint is a
+  historical compatibility drain only. The real API key is intentionally not
+  committed.
+- Historical archive — feature `010-recording-artifact-format` proved the
+  former v3 package format. Its separate-file assertions and role mapping are
+  not the active local-artifact contract and cannot be copied into new capture
+  code, UI or validation.
+- Feature `011-assisted-auto-recording` remains a broad historical product
+  proposal and is not the owner of the current implementation. The narrower
+  verified-target workflow is now specified and restored by Feature 124;
+  generalized automatic recording and the original routed-audio assumptions
+  remain outside the accepted scope.
+- Feature `090-manual-media-upload-ui` is merged through
+  [#3874](https://github.com/yshishenya/crisp/pull/3874) and follow-up review
+  fixes in [#3877](https://github.com/yshishenya/crisp/pull/3877). The final
+  no-follow artifact hardening is in [#3880](https://github.com/yshishenya/crisp/pull/3880),
+  released through [#3881](https://github.com/yshishenya/crisp/pull/3881) as
+  [`v2026.07.20.6`](https://github.com/yshishenya/crisp/releases/tag/v2026.07.20.6),
+  and deployed at exact runtime SHA `bcfba51a212bf723ed9fa86f96bbe3dcd49282fb`.
+  The convergence fixes make accepted-without-dispatch UI state truthful,
+  preserve accepted multipart custody before conflict materialization, verify
+  stored M4A size before egress headers, restrict the embedded picker to the
+  same-origin meeting list, and bind metadata-only smoke auth files to an
+  approved origin and exact run id. The follow-up also makes default smoke run
+  IDs collision-resistant, limits artifact/token paths to direct `/tmp`
+  children without traversal or symlink parents, creates the in-container
+  artifact leaf atomically without following a pre-existing file or symlink,
+  requires container cleanup verification before `infra_smoke_ready`, and
+  proves row-lock serialization with two PostgreSQL transactions. Backup/restore, migration head
+  `0028_active_space_read`, disposable RLS probes, service readiness, public
+  health/readiness and metadata-only smoke/cleanup passed. Final local CI passed
+  with 582 macOS tests, PostgreSQL parallel 1936 passed plus one skip, strict
+  34 passed plus one skip, Ruff, compile, Compose and deployment evidence scan;
+  the local live-production RLS boundary remains intentionally unclaimed. The
+  remaining open boundary is the external `test-rec` manual-upload review with
+  non-empty transcript/speaker/summary and its zero-residue receipt; production
+  smoke is infrastructure proof, not that final user-path claim. Deferred
+  post-deploy checks remain explicitly marked `required_post_deploy`. Review and
+  cleanup/evidence receipts closed #3044–#3048, #3051, #3052, #3054–#3059 and
+  #3061; #3049 and #3050 are closed after the external test-rec manual-upload
+  receipt, while #3060 is closed after the production focus-trap receipt.
+  Current-diff evidence is in
+  `specs/090-manual-media-upload-ui/validation/current-diff-closeout-2026-07-20.md`;
+  production evidence is in
+  `specs/090-manual-media-upload-ui/validation/production-closeout-2026-07-20.md`.
+- Feature `108-local-postgres-only` is merged through
+  [#3873](https://github.com/yshishenya/crisp/pull/3873). The local runner now
+  uses disposable PostgreSQL for the complete server suite and the active
+  server/deployment surface has zero SQLite/aiosqlite references. Its receipt
+  records 1918 parallel PostgreSQL tests plus one skip, strict 34 tests plus one
+  skip, and the expected local-only RLS limitation; it was a validation-only
+  convergence and did not require a separate runtime release.
+- Feature `091-mediascribe-result-contract` is implemented and released as
+  `v2026.07.09.5` for the MediaScribe result-contract slice. The repository
+  still does not contain a separate post-deploy receipt for the complete
+  transcript-plus-summary user path, so production acceptance of that path is
+  not claimed here; the implementation boundary and its no-deploy closeout are
+  recorded in `specs/091-mediascribe-result-contract/tasks.md`.
+- Feature `092-automatic-meeting-detection` is merged through PR `#2808`, with
+  convergence PR `#3029` and release/deploy lineage
+  `v2026.07.09.1`, `v2026.07.09.7`, `v2026.07.09.8`, and
+  `v2026.07.09.16`. It is the first registry-driven detect-and-ask foundation
+  for the Russian-market VKS scope.
   It adds server-side metadata-only meeting-detection telemetry, admin candidate
   review and registry publishing, RLS-covered registry/candidate tables, a
   server-published macOS target registry with last-good client cache, low-noise
@@ -102,9 +936,11 @@ metadata-only evidence остаются подробной историей ре
   browser extension. Prompt-capable first targets remain limited to locally
   verified native Zoom and Yandex Telemost paths; browser targets, unverified
   native apps, and unsupported metadata states stay detect-only/manual-only
-  until separate live validation promotes them. This slice is local
-  implementation readiness only: it is not committed, merged, released,
-  deployed, or production-rollout evidence. Critical review remediation on
+  until separate live validation promotes them. The repository does not yet
+  contain a canonical post-deploy runtime receipt or seeded admin-browser
+  receipt for 092, so target promotion and production telemetry rollout are
+  not claimed; the spec is marked as implemented foundation with that
+  production boundary intentionally open. Critical review remediation on
   2026-07-08 connected the native `AudioHAL` log stream to
   prompt/auto-record decisioning, moved the registry source to server publish
   plus last-good client cache,
@@ -117,6 +953,27 @@ metadata-only evidence остаются подробной историей ре
   10-minute resource gate, explicitly keeps Microsoft Teams diagnostic-only
   until installed runtime validation is available, and documents Firefox/
   non-Chromium browser metadata as manual-only when no safe adapter exists.
+- Feature `119-expand-meeting-app-registry` is implemented locally as the
+  breadth-first expansion of feature 092. Registry baseline `2026.07.21.1`
+  contains 85 targets, including 79 prompt-enabled native target families and
+  87 case-insensitively unique macOS bundle IDs. The common macOS settings list
+  now includes Telegram for macOS/Telegram Lite, Telegram Desktop with Forkgram
+  and 64Gram aliases, Telegram A, AyuGram, Kotatogram, and a broad global,
+  enterprise, and Russian calling-app set, including DION, IVA Connect, and
+  VideoMost. All verified native rows use the
+  existing Zoom/Telemost prompt and user-selected auto-record flow; “Выбрать
+  все” opts into the complete set. Capture prerequisites, workspace policy,
+  visible recording state, manual controls, and one-action Stop remain
+  unchanged. Matching and registry validation are case-insensitive, duplicate
+  bundle ownership is rejected, and the large settings list scrolls. Browser
+  providers without safe active-tab evidence remain manual-only. Live app
+  receipts are post-enable QA and are not yet claimed; production release and
+  deploy evidence are still open.
+- Feature `124-restore-automatic-recording` is the current owner of the runtime
+  contract that consumes the Feature-119 list. Any future recording-workflow
+  refactor must preserve the list, target-scoped preference, prompt checkbox,
+  eight-second countdown, automatic expiry start, immediate start, and skip
+  actions, or open a new approved replacement feature first.
 - Feature `012-server-ingest-foundation` is implemented as the first backend
   foundation slice in this repository: FastAPI ingest service scaffold,
   local/prod Docker Compose stacks, Postgres/Alembic schema models, MinIO
@@ -138,11 +995,11 @@ metadata-only evidence остаются подробной историей ре
 - Feature `013-federated-auth-foundation` is implemented on the backend and
   provides provider-based auth, workspace membership, session, account linking,
   and registered-device identity scaffolding for later desktop upload.
-- Feature `015-mediascribe-processing-pipeline` is implemented as the first
-  server-side processing slice after accepted ingest. It adds durable
+- Historical feature `015-mediascribe-processing-pipeline` was the first
+  server-side processing slice after accepted ingest. It added durable
   processing workflow/job/result/segment/audit/dependency tables, idempotent
-  `processing/<meeting_id>` workflow identity, internal pickup, server-side
-  dual-track MediaScribe submission from owner-controlled artifacts,
+  `processing/<meeting_id>` workflow identity, internal pickup and the former
+  server-side dual MediaScribe submission from owner-controlled artifacts,
   poll/import services, content-safe processing status, failure/retry
   classification, restart-safe job reuse, and metadata-only dependency truth.
   On 2026-06-11, `master` at `4cda38c` was deployed to
@@ -152,7 +1009,9 @@ metadata-only evidence остаются подробной историей ре
   processing, live MediaScribe submit/poll, result import, content-safe status,
   and cleanup: workflow `processed`, MediaScribe job `ready`, result
   `imported`, transcript and diarization available, dependency state
-  `mediascribe:imported`, and no cleanup residue.
+  `mediascribe:imported`, and no cleanup residue. That branch remains
+  compatibility-only for immutable v3/v4 records; new feature-`106` recordings
+  use the v5 one-WAV submission contract.
   Desktop clients still do not call MediaScribe, hold MediaScribe credentials,
   receive signed dependency URLs, or receive transcript/audio/download surfaces
   in this slice.
@@ -228,10 +1087,11 @@ metadata-only evidence остаются подробной историей ре
   only: the branch is not merged, not PR-reviewed, not deployed, and has no
   production upload-to-transcript e2e evidence yet.
 - Feature `045-transcription-results-pipeline` is implemented, merged,
-  released as `v2026.06.24.1`, and deployed to production. Structurally valid
-  local packages remain upload/transcription eligible even when local leakage,
-  echo, silence, timing, or transcription-readiness checks are degraded,
-  failed, inconclusive, or unavailable. Consent, permission, missing/unreadable
+  released as `v2026.06.24.1`, and deployed to production. For historical
+  v3/v4 packages, structurally valid records remain upload/transcription
+  eligible even when their legacy quality metadata is degraded, failed,
+  inconclusive, or unavailable. Feature `106` does not create or interpret
+  that metadata. Consent, permission, missing/unreadable
   files, package role/size/checksum/fingerprint integrity, lifecycle, and
   privacy boundaries remain hard gates. Accepted server finalization starts or
   reuses one processing workflow when processing is enabled, unavailable
@@ -242,7 +1102,7 @@ metadata-only evidence остаются подробной историей ре
   failure reasons. Production evidence on 2026-06-24 proved a real installed
   app recording could upload, finalize, process through MediaScribe, and reach
   a review state with transcript, diarization, playback, workflow presence, and
-  both source roles visible. Speakerphone quality remains a product limitation:
+  both historical source roles visible. Speakerphone quality remains a product limitation:
   the pipeline accepts degraded-but-structurally-valid recordings, but this is
   not proof of clean echo/noise suppression.
 - Feature `046-meeting-playback-timestamp-seek` is implemented, merged through
@@ -354,6 +1214,18 @@ metadata-only evidence остаются подробной историей ре
   CI passed `685 passed, 4 skipped, 94 warnings` with `ci_local_result=pass`.
   This slice has no database migration or machine-readable JSON contract
   change and is not released, deployed, or production-smoked yet.
+- The secondary slices `053` and `054` are implemented and merged with local
+  cabinet selection/delete and desktop layout-polish evidence; they do not make
+  a separate production rollout claim. Feature `061` is implemented and
+  deployed, including server-side metadata-only support incidents and Docker
+  secret wiring for the private issue action. Features `064`, `065`, and `066`
+  are implemented browser-owned admin/Yandex ID/VK ID slices; provider-click
+  acceptance remains a separate live proof boundary. Feature `070` is locally
+  validated and keeps production deploy/account retest separate. Features
+  `071–078` are completed cleanup/refactor batches with focused/full local
+  validation and no product-behavior or deploy claim. Feature `087` provides
+  the implemented one-file backend upload/processing path; user-facing upload
+  UI is owned by `090`.
 - Feature `059-recording-date-title` is merged into `origin/master` through PR
   `#2235` and included in release `v2026.06.27.1`. New recordings now carry
   persisted recording metadata from
@@ -471,14 +1343,11 @@ metadata-only evidence остаются подробной историей ре
   Record/Stop/upload truth/local readiness outside the scaled WebKit surface.
   This slice does not change capture, upload, backend meeting data, retention,
   deletion, auth, or production rollout state.
-- Feature `038-apple-voice-processing-spike` is implemented as a bounded
-  metadata-only Apple candidate evidence slice. Its current primary outcome is
-  `defer_to_webrtc_aec3`: Apple processing is not accepted for built-in
-  speakerphone recording, original `mic.wav`/`incoming.wav`/`manifest.json`
-  package truth remains authoritative, existing `020` leakage finalization
-  remains the clean/leakage/unproven authority, and user-facing/release-facing
-  copy must not claim clean speakerphone behavior from Apple evidence. The next
-  technical slice is `039-webrtc-aec3-speakerphone-spike`.
+- Historical archive — feature `038-apple-voice-processing-spike` recorded
+  why Apple voice processing was not accepted. It does not nominate a current
+  runtime candidate: feature `106` removes Apple processing, WebRTC AEC,
+  echo cleanup and leakage finalization from the active new-recording path.
+  The old v3 package discussion is retained only as historical evidence.
 - Feature `033-desktop-cabinet-embedding` is implemented as the macOS shell
   bridge for the accepted `016` cabinet route classes. The desktop app now
   opens a `Встречи` workspace after native capture controls, hosts embedded
@@ -511,36 +1380,19 @@ metadata-only evidence остаются подробной историей ре
   production RLS enforcement is verified enabled and forced through read-only
   PostgreSQL catalog metadata, while destructive same/cross-tenant probes
   remain limited to disposable or explicit test databases.
-- Feature `025-system-audio-capture-pivot` is accepted as the macOS MVP
-  recording path. It records local microphone plus incoming/system audio without
-  requiring virtual device selection, preserves dual-track local artifacts, and
-  closes the final evidence gates for permission matrix, controlled artifact,
-  CPU/resource behavior, 30-minute development validation, 75-minute release
-  validation, forbidden-content scan, and final scope review.
-- Feature `020-speaker-to-mic-leakage` is accepted as the post-stop
-  finalization truth gate for local dual-track packages. After `Stop`, saved
-  `mic.wav` and `incoming.wav` evidence is measured against
-  `leakage-threshold.v1`; `manifest.json` uses
-  `local-recording-manifest.v3`; contaminated, ambiguous, malformed,
-  misaligned, not-measured, or unproven packages still record local
-  transcription-readiness failure/degradation truth. Feature `045` changes how
-  that truth is used for product upload/transcription eligibility: for
-  structurally valid packages it is diagnostic metadata, not an upload blocker.
-  The implementation is integrated on top of the accepted `025` system-audio
-  capture path and does not replace scope approvals, permissions,
-  capture-health evidence, dual-track role mapping, or system-audio recording
-  truth.
-- `020` diagnostics remain metadata-only: leakage status, transcription gate,
-  route metadata, threshold metadata, and measurement summaries may be included,
-  but raw audio, transcript text, credentials, tokens, signed URLs, passwords,
-  meeting content, and live filesystem paths remain forbidden.
-- `020` is finalization-only. It does not introduce external egress, a
-  MediaScribe call, live echo cancellation, recording-time route remediation,
-  driver fallback, or a customer-visible auto-start policy.
-- The driver-based live virtual-device publication blocker from `019` / issue
-  #234 is superseded for MVP recording by `025` and parked as future
-  advanced-routing work. Its unsafe HAL publication attempts remain preserved
-  as negative evidence and must not be counted as accepted driver evidence.
+- Historical archive — feature `025-system-audio-capture-pivot` established
+  the two-source native capture boundary without meeting-app device
+  reconfiguration. Its former dual-package acceptance evidence remains useful
+  only for reading records already created before v5; it is not a new-writing
+  contract.
+- Historical archive — feature `020-speaker-to-mic-leakage` was a post-stop
+  finalization gate for v3 dual packages. The `leakage-threshold.v1` and
+  related diagnostic states no longer participate in a v5 recording, upload or
+  transcript decision. Historical diagnostics remain protected metadata only
+  until their retention lifecycle ends.
+- The unsafe separate audio-routing experiment from `019` / issue #234 is
+  superseded by `025` and removed from active source, packaging, runtime,
+  tests, and QA. Its failure report remains historical negative evidence only.
 - ADR `001-local-trust-shell-and-server-dashboard` is accepted. Capture-critical
   desktop trust surfaces stay local/native; server/web surfaces own
   post-meeting, transcript, notes, admin, retention, deletion, audit, and fleet
@@ -548,21 +1400,59 @@ metadata-only evidence остаются подробной историей ре
 
 ## Not Accepted Yet
 
+- Feature `096-product-analytics-provider-rollout` is integrated into the
+  current master through merged PR
+  [#3852](https://github.com/yshishenya/crisp/pull/3852) at merge SHA
+  `11b82f378c24007b40d90f4c08e9645ce617e91d`. The provider code and runtime
+  guard are released as part of `v2026.07.20.3`; the current production runtime
+  is later master `bcfba51a212bf723ed9fa86f96bbe3dcd49282fb` from
+  `v2026.07.20.6`. Provider flags remain disabled/fail-closed, so this is an
+  infrastructure integration receipt, not product-rollout or paid-campaign
+  approval. T097–T100, T102 and T103 have current-master evidence. T101 remains
+  open for independent RBAC/MFA/audit, future deletion-enforcement, dashboard
+  freshness and approved-goal review, and full persistent alert/restore
+  evidence. The self-hosted session-recording policy and replay-bucket
+  lifecycle are now configured at the 90-day baseline; the session-replay
+  bucket was empty and provider delivery remains fail-closed. The root-owned
+  guard/timer and reviewed automatic rollback override now have a production
+  receipt. PostHog invitation mail now uses the same owner-controlled Postal
+  contour as GRAF; the email for the existing second-operator invitation was
+  accepted by the worker and Postal, but the invitation has not been accepted
+  by the invitee, so the active membership count is still one. T104 remains
+  open until that dependency is complete and the tracker/spec reconciliation is
+  truthful; Issue #3860 was
+  reopened on 2026-07-20 after its premature closure. The exact receipts and
+  remaining boundaries are in
+  `specs/096-product-analytics-provider-rollout/validation/current-master-integration.md`.
+  A docs-only reconciliation checkpoint dated 2026-07-21 updates the historical
+  wording but does not close T104 while T101 remains open. The exact receipts
+  and remaining boundaries are in
+  `specs/096-product-analytics-provider-rollout/validation/current-master-integration.md`
+  and `specs/096-product-analytics-provider-rollout/validation/reconciliation-closeout-2026-07-21.md`.
+- Feature `106-mixed-wav-recording` is not yet accepted for an installed app
+  or release. The open gate is one controlled 60-minute v5 run with route
+  unchanged, incoming volume delta no greater than 1 dB, no unexplained
+  timeline divergence over 100 ms, truthful byte progress, one ASR job,
+  playback, transcript, deletion and future-capture rollback evidence. The
+  exact `v2026.07.17.6` baseline SHA and separately approved local test
+  procedure are required before that result can be claimed.
+- The 2026-07-13 dual-recording result, including its review-mix imbalance and
+  leakage status, is historical evidence only. It does not describe the v5
+  writer and cannot justify adding a live cleanup, dual fallback or second ASR
+  job.
 - Yandex Browser is intentionally skipped/not accepted in the current
   browser/meeting smoke cycle.
 - Third-party meeting-app mute adapters are not accepted yet. Local privacy
   truth is product-owned through 2brain `Pause`/`Resume`/`Stop`; Zoom/browser
   mute state remains unverified unless a future adapter provides fresh
   target-specific evidence.
-- Built-in speakerphone clean dual-track acceptance remains constrained by
-  `020`/`038` evidence: packages can be captured and, after `045`, structurally
-  valid imperfect packages can still proceed to server transcription, but the
-  product must not label polluted microphone audio as clean local speech.
-  Feature `038` did not accept Apple processing for built-in speakerphone
-  recording; `044` remains the real echo/noise suppression runtime candidate.
-- Driver live virtual-device publication is not accepted for MVP recording and
-  must not be revived without a separate future advanced-routing spec,
-  implementation, and safety evidence.
+- No AEC, Apple voice processing, WebRTC cleanup, derived-cleaned fallback or
+  dual-track speakerphone mode is an active v5 candidate. Any future proposal
+  would require a new approved product decision and cannot reuse retired code
+  or silently alter a recorded conversation.
+- Any future advanced routing requires a new approved spec, implementation,
+  packaging model, and safety evidence; the removed implementation must not be
+  revived as a hidden fallback.
 - Public meeting links, external-recipient invitations, partial deletion,
   legal-hold management, admin retention editing UI, billing, and desktop-owned
   deletion policy remain later slices.
@@ -573,9 +1463,10 @@ metadata-only evidence остаются подробной историей ре
 - Production RLS coverage is accepted only for the `031` covered table
   inventory. Future tenant-owned tables and product surfaces still need their
   own ADR `003` classification, tests, and metadata-only evidence before merge.
-- Feature `011-assisted-auto-recording` remains requirements-only. Detect-only,
-  detect-and-ask, automatic naming, and future auto-record behavior have not
-  been implemented or accepted.
+- Feature `011-assisted-auto-recording` remains requirements-only only for its
+  broad/generalized scope. The verified-target detect-and-ask and
+  target-scoped auto-record behavior is owned by Feature 124; its local branch
+  implementation passed post-review validation but is not yet a release claim.
 - Signed/notarized production installer evidence remains separate from local
   ad-hoc development package evidence.
 - Feature `030-mvp-experience-design-system` now provides the MVP product
@@ -704,12 +1595,12 @@ Keep separate unless the next spec explicitly changes scope:
   implemented, merged, released, and production-smoked in `048`. Remaining
   playback-related work is post-MVP scope such as compressed share audio,
   public links, waveform polish, native Swift controls, or editing.
-- Assisted auto-start and generalized meeting detection.
-- Live speakerphone cleanup/AEC: Apple voice processing, WebRTC AEC3, custom
-  AEC, and mixed-audio fallback remain decision records or future spike gates
-  after `020`. They are not runtime behavior in the finalization-only slice.
-  Detailed prepared backlog context is recorded in
-  `docs/audio-capture-backlog.md`.
+- Generalized meeting detection and unrestricted assisted auto-start remain
+  deferred. Verified-target, target-scoped auto-record with the Feature-124
+  countdown/prompt contract is current and must not be removed as cleanup.
+- The former live speakerphone cleanup/AEC research is archived in
+  `docs/audio-capture-backlog.md`. It is neither an active feature backlog nor
+  a fallback for v5; new capture must keep the truthful one-timeline contract.
 - Post-MVP editing and media revision work is tracked in
   `docs/post-mvp-editing-media-backlog.md`: local media trim/edit revisions,
   online transcript/speaker edit sync, video capture package foundation, and
@@ -724,42 +1615,30 @@ the current accepted implementation or `012` ingest slice.
   privacy, platform, and QA evidence. Accepted feature `022` covers
   product-owned Pause/Resume truth and keeps unsupported meeting targets
   fail-closed; it does not claim third-party Zoom/Telemost mute interception.
-- `011-assisted-auto-recording`: plan and implement detect-and-ask, automatic
-  naming, and any future auto-start behavior from the accepted requirements.
-- Public-link and external-recipient sharing policy: add optional public links,
-  expiration, external invitations, abuse controls, and admin/legal copy after
-  the login-required 017 flow is accepted.
+- `011-assisted-auto-recording`: broad future work only. For the current
+  verified native target path, follow Feature 124 and preserve its settings,
+  per-target opt-in, eight-second automatic start, and visible skip/start
+  prompt contract.
+- Public-link and broader external-recipient sharing policy: add optional public
+  links, batch/participant delivery, additional expiration/abuse controls and
+  admin/legal copy beyond the bounded exact-email recording package in Feature
+  125.
 - `021-production-deployment-plan`: use the remote-first runbook to reach
   `infra_smoke_ready` for the Rec stack, while keeping user rollout and pilot
   claims blocked until later product slices are accepted.
-- `020-hardware-route-matrix`: complete physical-device route matrix rows that
-  require unavailable hardware before claiming broad hardware speakerphone
-  acceptance. Current automated acceptance covers persisted-package
-  finalization behavior, not every physical device route.
-- `037-microphone-sample-graph-foundation`: introduce an app-owned microphone
-  sample graph before any live cleanup claim, while preserving the current
-  `mic.wav`/`incoming.wav`/`manifest.json` package truth.
-- `038-apple-voice-processing-spike`: evaluate Apple `AVAudioEngine` voice
-  processing, `VoiceProcessingIO`, and Mic Mode/Voice Isolation as bounded
-  spike candidates for reducing built-in speaker-to-mic leakage.
-- `039-webrtc-aec3-speakerphone-spike`: evaluate WebRTC AEC3 with system audio
-  as the render/far-end reference and microphone frames as capture input only
-  after the app-owned microphone graph is available.
-- `040-speakerphone-recording-fallback-decision`: decide headset-first,
-  derived-cleaned, mixed-audio, pilot-only, or unsupported-route semantics if
-  clean built-in speakerphone dual-track capture cannot be proven.
+- Feature `106` hardware acceptance: complete the controlled v5 route,
+  incoming-level, timeline and one-job checks before any installed-app or
+  release claim. This is a test gate, not a request to revive a second
+  recording mode.
+- Features `020`, `037`, `038`, `039`, `040` and `044` are archived
+  pre-v5 dual/AEC research or historical package work. They are not an active
+  implementation backlog and cannot be selected as a hidden fallback.
 - `041-recording-permission-readiness-onboarding`: make microphone and
   Screen/System Audio readiness visible before the user starts recording.
 - `031-rls-hardening` / `032-rls-live-enforcement`: future tenant-owned tables
   and product surfaces must follow ADR `003-tenant-isolation-rls`; destructive
   RLS probes stay on disposable/test databases, and production truth must be
   proven with read-only catalog metadata.
-- `044-speakerphone-echo-noise-suppression`: clean-recording runtime slice for
-  real echo cancellation/noise suppression. It must preserve package truth,
-  metadata-only evidence, reversible fallback, and built-in speakerphone route
-  limits before any clean speakerphone claim is allowed. It is separate from
-  `045`, which lets imperfect-but-structurally-valid packages reach
-  transcription/results without claiming the mic was cleaned.
 - Post-MVP editing/media backlog still needs separate numbering after `048`:
   local media trim revisions, online transcript edit sync, video capture
   package foundation, and explicit media replace/reprocess flows are not part
@@ -767,10 +1646,66 @@ the current accepted implementation or `012` ingest slice.
   meetings later.
 - `direct-object-upload`: future upload optimization only after a separate
   security and lifecycle review; `012` remains `server_mediated`.
+- Calendar/contact-based speaker-name suggestions remain a separate future
+  identity capability after `098-calendar-auto-context-match`. Feature `098`
+  treats calendar participants only as invited roster metadata: they do not
+  rename `SPEAKER_XX` transcript/diarization labels, create access or share
+  grants, become recipients, or trigger delivery. Any future implementation
+  requires its own consent, confidence, correction, speaker-truth, privacy and
+  authorization design and evidence.
 - Browser/packaging evidence still pending: Yandex Browser smoke, long-duration
   30/60 minute integrity, and signed/notarized installer evidence.
 - `mediascribe-large-audio-proxy-ceiling`: do not raise MediaScribe just
   because Rec accepts larger upload packages or future video files. MediaScribe
-  receives only audio. Raise its separate OpenResty/nginx body limit only if
-  real combined `mic_file` + `incoming_file` audio approaches the observed
-  public proxy ceiling and starts failing with `413`.
+  receives only the canonical WAV. Raise its separate OpenResty/nginx body
+  limit only if a real v5 WAV approaches the observed public proxy ceiling and
+  starts failing with `413`.
+
+## Validation update (2026-07-25) — External recording package
+
+- Full focused invitation/Share matrix: `33 passed`. It covers the explicit
+  full-recording email preset, personal-account bootstrap without owner
+  workspace membership, stable recipient-bound page, transcript/playback/audio
+  download/content-export routes and revoke rechecks.
+- The recipient page intentionally omits workspace/calendar/service metadata,
+  media revision identifiers and sharing controls. Email and pre-auth landing
+  remain metadata-only; transcript/audio/summary content is served only after
+  exact verified identity and server-side access/egress checks.
+- In-app browser smoke on disposable local PostgreSQL passed: the invitation CTA
+  opened the result with HTTP 200, and the full-recording preset redirected to
+  the recipient-bound page with HTTP 200 and no console errors. No live mailbox
+  delivery, commit or deployment was performed. The local RLS hardening probe
+  remains blocked without a separate disposable live PostgreSQL URL.
+
+## Validation update (2026-07-26) — Full recording package closeout
+
+- Focused invitation/Share regression matrix passed `44` tests. The canonical
+  `infra/scripts/ci-local.sh` gate passed with macOS `639` tests, PostgreSQL
+  `2,426` parallel tests plus one skip and `41` strict tests plus one skip;
+  ContractValidation, Ruff, Python compile, Compose configuration and the
+  deployment-evidence scan also passed.
+- The local RLS hardening boundary reported `blocked` because no live
+  production or separate disposable PostgreSQL URL was supplied; no
+  destructive production probe was attempted. The isolated PostgreSQL phases
+  completed successfully.
+- The in-app browser smoke used synthetic local data only: summary invitation
+  and full-recording recipient routes returned HTTP 200 with no console errors.
+  Live mailbox delivery, private meeting content and production deployment
+  were not used for this validation record.
+
+## Release closeout (2026-07-26) — v2026.07.26.2
+
+- Feature 125 was released at tag `v2026.07.26.2` and deployed to
+  `2brain.dev:/opt/projects/2brain-rec` at immutable SHA
+  `0c16b218466f43863dbb5db0cea06dcf21921910`.
+- Remote deploy passed backup, restore rehearsal, migration head `0041`,
+  external invitation API/worker configuration, production smoke,
+  `infra_smoke_ready`, automatic dispatch, and worker/Temporal readiness.
+  Public health returned `live=200` and `ready=200`.
+- The public Sparkle ZIP, PKG and appcast were fetched over HTTPS and matched
+  the release checksums. The installed owner-only GRAF app displayed the
+  signed update offer; installation remains pending because the macOS desktop
+  was locked during this session.
+- The preceding validation record intentionally described pre-deploy local
+  testing; the production evidence for this release is recorded in
+  `docs/deployments/2brain-rec/release-v2026.07.26.2.md`.

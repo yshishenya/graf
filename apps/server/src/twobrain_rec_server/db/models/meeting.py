@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -25,6 +25,11 @@ class Meeting(Base):
     device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
     local_recording_id: Mapped[str] = mapped_column(String(240), nullable=False)
     title: Mapped[str | None] = mapped_column(String(500))
+    title_source: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="legacy_unknown"
+    )
+    title_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    create_request_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recording_display_timezone_offset_minutes: Mapped[int | None] = mapped_column(Integer)
@@ -35,10 +40,20 @@ class Meeting(Base):
     share_policy_state: Mapped[str] = mapped_column(String(64), default="not_available")
     download_policy_state: Mapped[str] = mapped_column(String(64), default="not_available")
     deletion_state: Mapped[str] = mapped_column(String(64), default="none")
+    # Monotonic tombstone fence.  Every asynchronous content operation snapshots
+    # this value and must re-check it before committing or publishing content.
+    deletion_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retention_delete_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retention_policy_state: Mapped[str] = mapped_column(String(64), default="not_configured")
+    current_outcome_set_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "meeting_outcome_sets.id",
+            name="fk_meetings_current_outcome_set",
+            use_alter=True,
+        )
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

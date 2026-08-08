@@ -27,7 +27,7 @@ public enum RecordingMicrophoneSampleSourceError: Error {
     case runtimeStartFailed
 }
 
-public final class AppOwnedMicrophoneSampleSource: LocalRecordingSampleSource, @unchecked Sendable {
+public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
     public let inputDeviceId: String?
 
     private let bufferedSource: BufferedLocalRecordingSampleSource
@@ -83,6 +83,21 @@ public final class AppOwnedMicrophoneSampleSource: LocalRecordingSampleSource, @
 
     public func readSamples(into destination: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
         bufferedSource.readSamples(into: destination, capacity: capacity)
+    }
+
+    public func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        bufferedSource.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
+    }
+
+    public var hasTimestampedOverflow: Bool {
+        bufferedSource.hasTimestampedOverflow
+    }
+
+    /// Exposed for the native capture boundary and deterministic tests. It keeps
+    /// the original PTS, source format and route generation intact for the v5
+    /// timeline instead of reconstructing them while draining a FIFO.
+    public func appendCapturedBatch(_ batch: RecordingAudioBatch) {
+        bufferedSource.append(batch)
     }
 
     #if canImport(AVFoundation) && canImport(CoreMedia) && canImport(AudioToolbox)
@@ -157,9 +172,8 @@ public final class AppOwnedMicrophoneSampleSource: LocalRecordingSampleSource, @
     }
 
     private func append(_ sampleBuffer: CMSampleBuffer) {
-        let samples = SystemAudioSampleExtractor.extractMonoFloatSamples(from: sampleBuffer)
-        guard !samples.isEmpty else { return }
-        bufferedSource.append(samples)
+        guard let batch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer) else { return }
+        appendCapturedBatch(batch)
     }
 
     private static func captureDevice(id: String?) -> AVCaptureDevice? {
@@ -270,8 +284,7 @@ public struct AVFoundationRecordingMicrophoneInputProvider: RecordingMicrophoneI
 
     private static func deviceClass(id: String, name: String) -> PhysicalDeviceClass {
         let normalized = "\(id) \(name)".lowercased()
-        if normalized.contains("2brain") ||
-            normalized.contains("virtual") ||
+        if normalized.contains("virtual") ||
             normalized.contains("blackhole") ||
             normalized.contains("soundflower") {
             return .otherVirtual
@@ -301,18 +314,18 @@ public final class MicrophoneCaptureService: Sendable {
     private let authorizer: MicrophonePermissionAuthorizing
     private let inputProvider: RecordingMicrophoneInputProviding
     private let clock: Clock
-    private let selfRoutingGuard: SelfRoutingGuard
+    private let inputPolicy: RecordingMicrophoneInputPolicy
 
     public init(
         authorizer: MicrophonePermissionAuthorizing = AVFoundationMicrophonePermissionAuthorizer(),
         inputProvider: RecordingMicrophoneInputProviding = AVFoundationRecordingMicrophoneInputProvider(),
         clock: @escaping Clock = Date.init,
-        selfRoutingGuard: SelfRoutingGuard = SelfRoutingGuard()
+        inputPolicy: RecordingMicrophoneInputPolicy = RecordingMicrophoneInputPolicy()
     ) {
         self.authorizer = authorizer
         self.inputProvider = inputProvider
         self.clock = clock
-        self.selfRoutingGuard = selfRoutingGuard
+        self.inputPolicy = inputPolicy
     }
 
     public func preflight(
@@ -333,13 +346,23 @@ public final class MicrophoneCaptureService: Sendable {
         inputDeviceId: String? = nil,
         inputDisplayName: String = "Default Microphone"
     ) async -> MicrophoneCaptureSession {
-        let state = await authorizer.requestPermission()
+        let currentState = authorizer.currentPermissionState()
+        let state = currentState == .unknown
+            ? await authorizer.requestPermission()
+            : currentState
         return MicrophoneCaptureSession(
             sessionId: sessionId,
             permissionState: state,
             inputDeviceId: inputDeviceId,
             inputDisplayName: inputDisplayName
         )
+    }
+
+    /// Re-register the native microphone request before opening macOS settings.
+    /// This is explicit recovery only; normal preflight still avoids a second
+    /// prompt after a denial.
+    public func requestPermissionForSettings() async -> CapturePermissionState {
+        await authorizer.requestPermission()
     }
 
     public func availableRecordingMicrophoneInputs() -> [PhysicalAudioDevice] {
@@ -427,7 +450,7 @@ public final class MicrophoneCaptureService: Sendable {
         for device: PhysicalAudioDevice,
         mode: RecordingMicrophoneSelectionMode
     ) -> RecordingMicrophoneSelection {
-        let workingKind = selfRoutingGuard.workingDeviceKind(for: device)
+        let workingKind = inputPolicy.workingDeviceKind(for: device)
         if device.direction != .input {
             return selection(
                 for: device,
@@ -448,7 +471,7 @@ public final class MicrophoneCaptureService: Sendable {
             )
         }
 
-        if let rejectionReason = rejectionReason(for: workingKind) {
+        if let rejectionReason = inputPolicy.rejectionReason(for: workingKind) {
             return selection(
                 for: device,
                 mode: mode,
@@ -487,18 +510,4 @@ public final class MicrophoneCaptureService: Sendable {
         )
     }
 
-    private func rejectionReason(
-        for workingKind: PhysicalWorkingDeviceKind
-    ) -> RecordingMicrophoneSelectionRejectionReason? {
-        switch workingKind {
-        case .physical, .bluetooth:
-            return nil
-        case .twoBrainVirtual:
-            return .unsupportedSelfRoutingInput
-        case .otherVirtual, .aggregate, .multiOutput:
-            return .unsupportedVirtualInput
-        case .unknown:
-            return .inputIdentityUnproven
-        }
-    }
 }

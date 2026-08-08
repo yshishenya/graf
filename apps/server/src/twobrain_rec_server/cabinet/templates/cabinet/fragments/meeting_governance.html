@@ -1,0 +1,81 @@
+{% import "cabinet/components/icons.html" as icons %}
+<div class="meeting-actions-menu" id="meeting-context-more"
+     data-meeting-context-panel="more" role="menu" aria-label="Действия со встречей"
+     aria-labelledby="meeting-actions-trigger"
+     tabindex="-1" hidden>
+  {% if content_export_available %}
+    <button type="button" class="meeting-action-item" role="menuitem" tabindex="-1"
+            data-export-dialog-open aria-haspopup="dialog" aria-controls="content-export-dialog">
+      <span class="meeting-action-item__icon">{{ icons.icon("transcript") }}</span>
+      <span class="meeting-action-item__body">
+        <strong>Экспортировать…</strong>
+        <small>Расшифровка или итоги</small>
+      </span>
+    </button>
+  {% endif %}
+  {% if audio_download_available %}
+    <a class="meeting-action-item" role="menuitem" tabindex="-1"
+       href="{{ audio_download_href }}">
+      <span class="meeting-action-item__icon">{{ icons.icon("audio") }}</span>
+      <span class="meeting-action-item__body">
+        <strong>Скачать аудио…</strong>
+        <small>Исходная запись</small>
+      </span>
+    </a>
+  {% endif %}
+  {% if meeting_details_available %}
+    <button type="button" class="meeting-action-item" role="menuitem" tabindex="-1"
+            data-meeting-panel-open="details" aria-haspopup="dialog"
+            aria-controls="meeting-details-dialog">
+      <span class="meeting-action-item__icon">{{ icons.icon("info") }}</span>
+      <span class="meeting-action-item__body"><strong>Сведения о встрече</strong></span>
+    </button>
+  {% endif %}
+  {% if delete_action %}
+    <div class="meeting-actions-divider" role="separator"></div>
+    {{ delete_action }}
+  {% endif %}
+</div>
+
+{% if meeting_details_available %}
+  <dialog class="meeting-details-dialog" id="meeting-details-dialog"
+          data-meeting-context-panel="details" aria-modal="true"
+          aria-labelledby="meeting-details-title">
+  <div class="meeting-details-dialog__surface">
+    <div class="meeting-details-dialog__header">
+      <h2 id="meeting-details-title">Сведения о встрече</h2>
+      <button type="button" class="icon-button" data-meeting-panel-close
+              aria-label="Закрыть сведения">{{ icons.icon("x") }}</button>
+    </div>
+    <section class="meeting-details-section" aria-labelledby="meeting-details-files-title">
+      <h3 id="meeting-details-files-title">Файлы</h3>
+      {{ artifacts }}
+    </section>
+    <details class="meeting-details-more">
+      <summary>Дополнительные сведения</summary>
+      <div class="meeting-details-more__content">
+        {{ revision_status }}
+        {{ calendar_context }}
+        <section class="meeting-details-section" aria-labelledby="meeting-details-speakers-title">
+          <h3 id="meeting-details-speakers-title">Спикеры</h3>
+          {{ speaker_lanes }}
+        </section>
+        <section class="meeting-details-section" aria-labelledby="meeting-details-activity-title">
+          <h3 id="meeting-details-activity-title">Активность</h3>
+          {{ activity }}
+        </section>
+      </div>
+    </details>
+    <section class="meeting-details-section meeting-details-boundary"
+             aria-labelledby="meeting-details-boundary-title">
+      <h3 id="meeting-details-boundary-title">Удаление и копии</h3>
+      <p class="truth-copy" data-boundary-copy="{{ deletion_truth_copy }}">{{ deletion_truth_text }}</p>
+      {% if deletion_report_href %}
+        <a class="mini-link" href="{{ deletion_report_href }}">Отчёт об удалении</a>
+      {% endif %}
+    </section>
+  </div>
+  </dialog>
+{% endif %}
+
+{{ delete_confirmation }}

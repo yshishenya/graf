@@ -17,6 +17,7 @@ from twobrain_rec_server.admin.files import (
 )
 from twobrain_rec_server.admin.invitations import (
     create_workspace_invitation,
+    resend_workspace_invitation,
     revoke_workspace_invitation,
 )
 from twobrain_rec_server.admin.meeting_detection import build_meeting_detection_admin_model
@@ -46,6 +47,7 @@ from twobrain_rec_server.admin.view_models import (
 from twobrain_rec_server.api.ingest import get_request_storage
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import ArtifactClass
+from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.auth.dependencies import (
     get_device_context,
@@ -556,6 +558,50 @@ async def admin_revoke_invitation_form(
 
 
 @router.post(
+    "/admin/invitations/{invitation_id}/resend",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def admin_resend_invitation_form(
+    request: Request,
+    invitation_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> Response:
+    loaded = await _load_web_admin_context(
+        request, tenant_scope=tenant_scope, principal=principal, db=db
+    )
+    if isinstance(loaded, HTMLResponse):
+        return loaded
+    context, session = loaded
+    invitation = await resend_workspace_invitation(
+        session,
+        context=context,
+        invitation_id=invitation_id,
+    )
+    if "@" not in invitation.target_contact:
+        raise ProblemDetail(
+            status=409,
+            code="invitation_resend_unavailable",
+            title="Invitation resend unavailable",
+        )
+    try:
+        await email_delivery.send_workspace_invitation_review_notice(
+            settings=request.app.state.settings,
+            recipient_email=invitation.target_contact,
+        )
+    except email_delivery.EmailLoginDeliveryError as exc:
+        raise ProblemDetail(
+            status=503,
+            code="invitation_delivery_unavailable",
+            title="Invitation delivery unavailable",
+        ) from exc
+    await session.commit()
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+@router.post(
     "/admin/users/{user_id}/membership", include_in_schema=False, dependencies=[WebCSRFDependency]
 )
 async def admin_update_membership_form(
@@ -682,9 +728,11 @@ async def admin_delete_file_form(
         actor_user_id=principal.user_id,
         device_id=device.device_id,
         confirmation_boundary=BOUNDED_DELETE_COPY,
+        local_buffer_expiry_days=request.app.state.settings.retention_local_buffer_expiry_days,
         request_source=DeletionRequestSource.ADMIN,
         reason_code=reason_code,
         storage=storage,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await session.commit()
     return RedirectResponse(f"/admin/files/{meeting_id}", status_code=303)

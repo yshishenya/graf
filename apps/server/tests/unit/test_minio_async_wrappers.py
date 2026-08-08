@@ -4,7 +4,10 @@ from io import BytesIO
 import pytest
 from minio.error import S3Error
 
-from twobrain_rec_server.storage.minio_client import MinioStorage
+from twobrain_rec_server.storage.minio_client import (
+    STORAGE_READINESS_OBJECT_KEY,
+    MinioStorage,
+)
 
 
 class _Settings:
@@ -55,6 +58,33 @@ class _FakeGetObjectClient:
         return self.response
 
 
+class _ReadinessClient:
+    def __init__(self, error_code: str | None = None) -> None:
+        self.error_code = error_code
+        self.calls: list[tuple[str, str]] = []
+
+    def stat_object(self, bucket: str, object_key: str) -> object:
+        self.calls.append((bucket, object_key))
+        if self.error_code is not None:
+            raise S3Error(
+                None,
+                self.error_code,
+                "storage failed",
+                object_key,
+                "request",
+                "host",
+            )
+        return object()
+
+
+class _StatClient:
+    def __init__(self, size: int) -> None:
+        self.size = size
+
+    def stat_object(self, _bucket: str, _object_key: str) -> object:
+        return type("Stat", (), {"size": self.size})()
+
+
 def _storage_with_client(client: object) -> MinioStorage:
     storage = MinioStorage.__new__(MinioStorage)
     storage.settings = _Settings()
@@ -101,6 +131,34 @@ def test_get_bytes_normalizes_missing_object_errors() -> None:
         MinioStorage.get_bytes(storage, "objects/missing.wav")
 
 
+def test_readiness_uses_exact_sentinel_without_bucket_listing() -> None:
+    client = _ReadinessClient()
+    storage = _storage_with_client(client)
+
+    assert MinioStorage.is_ready(storage) is True
+    assert client.calls == [("test-bucket", STORAGE_READINESS_OBJECT_KEY)]
+
+
+def test_readiness_is_false_when_sentinel_is_missing() -> None:
+    storage = _storage_with_client(_ReadinessClient("NoSuchKey"))
+
+    assert MinioStorage.is_ready(storage) is False
+
+
+def test_stat_object_returns_safe_size_metadata_and_async_wrapper() -> None:
+    storage = _storage_with_client(_StatClient(123))
+
+    assert MinioStorage.stat_object(storage, "objects/audio.m4a").size == 123
+    assert asyncio.run(MinioStorage.stat_object_async(storage, "objects/audio.m4a")).size == 123
+
+
+def test_stat_object_normalizes_missing_object_errors() -> None:
+    storage = _storage_with_client(_ReadinessClient("NoSuchKey"))
+
+    with pytest.raises(KeyError, match="objects/missing.m4a"):
+        MinioStorage.stat_object(storage, "objects/missing.m4a")
+
+
 def test_get_bytes_preserves_non_missing_storage_errors() -> None:
     storage = _storage_with_client(_FailingGetObjectClient("AccessDenied"))
 
@@ -137,7 +195,9 @@ def test_iter_object_streams_requested_range_and_releases_storage_response() -> 
     client = _FakeGetObjectClient(b"abcdef")
     storage = _storage_with_client(client)
 
-    chunks = list(MinioStorage.iter_object(storage, "objects/audio.m4a", offset=2, length=3, chunk_size=2))
+    chunks = list(
+        MinioStorage.iter_object(storage, "objects/audio.m4a", offset=2, length=3, chunk_size=2)
+    )
 
     assert chunks == [b"cd", b"e"]
     assert client.calls == [{"offset": 2, "length": 3}]

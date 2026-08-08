@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-01
 
-**Status**: Draft
+**Status**: Implemented import/dead-code cleanup; no deploy or product behavior change
 
 **Input**: Continue the Ponytail cleanup program after 075 by removing only
 code with direct evidence that it is unnecessary. Do not broaden into an

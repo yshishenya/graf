@@ -1,10 +1,11 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from twobrain_rec_server.domain.statuses import (
     CustodyMetadataSafety,
@@ -26,6 +27,7 @@ class ProblemDetail(Exception):
     retry_class: str | None = None
     normal_user_action: str | None = None
     metadata_safety: str | None = None
+    headers: Mapping[str, str] | None = None
 
 
 def problem_response(problem: ProblemDetail, request: Request | None = None) -> JSONResponse:
@@ -54,6 +56,7 @@ def problem_response(problem: ProblemDetail, request: Request | None = None) -> 
         status_code=problem.status,
         content=redact_mapping(body),
         media_type="application/problem+json",
+        headers=problem.headers,
     )
 
 
@@ -163,8 +166,20 @@ def _custody_default(
 def _is_browser_cabinet_path(path: str) -> bool:
     return (
         path in {"/meetings", "/desktop/meetings"}
-        or path.startswith(("/meetings/", "/desktop/meetings/"))
+        or path.startswith(
+            (
+                "/meetings/",
+                "/desktop/meetings/",
+                "/share/",
+                "/share-invitations/",
+                "/api/v1/cabinet/share/",
+            )
+        )
     )
+
+
+def _is_browser_invitation_path(path: str) -> bool:
+    return path.startswith("/share-invitations/")
 
 
 def _is_browser_admin_path(path: str) -> bool:
@@ -172,10 +187,46 @@ def _is_browser_admin_path(path: str) -> bool:
 
 
 def _wants_html(request: Request) -> bool:
-    return "text/html" in request.headers.get("accept", "").lower()
+    accept = request.headers.get("accept", "").strip().lower()
+    if "text/html" in accept:
+        return True
+    return (
+        accept in {"", "*/*"}
+        and _is_browser_invitation_path(request.url.path)
+    )
 
 
-async def problem_exception_handler(request: Request, exc: ProblemDetail) -> JSONResponse | RedirectResponse:
+def _share_invitation_unavailable_response(problem: ProblemDetail) -> HTMLResponse:
+    from twobrain_rec_server.cabinet.rendering import render_share_invitation_unavailable_page
+    from twobrain_rec_server.cabinet.templates import cabinet_html_response
+
+    return cabinet_html_response(
+        render_share_invitation_unavailable_page(),
+        status_code=problem.status,
+    )
+
+
+def _safe_browser_login_next(request: Request) -> str:
+    if request.url.path.startswith(
+        ("/share/", "/share-invitations/", "/api/v1/cabinet/share/")
+    ):
+        return "/meetings"
+    next_path = request.url.path
+    if request.url.query:
+        next_path = f"{next_path}?{request.url.query}"
+    return next_path
+
+
+async def problem_exception_handler(
+    request: Request,
+    exc: ProblemDetail,
+) -> JSONResponse | HTMLResponse | RedirectResponse:
+    if (
+        _is_browser_invitation_path(request.url.path)
+        and _wants_html(request)
+        and exc.status in {400, 403, 404, 410}
+    ):
+        return _share_invitation_unavailable_response(exc)
     if exc.status == 401 and _is_browser_admin_path(request.url.path):
         next_path = request.url.path
         if request.url.query:
@@ -185,18 +236,26 @@ async def problem_exception_handler(request: Request, exc: ProblemDetail) -> JSO
             status_code=303,
         )
     if exc.status in {401, 403} and _is_browser_cabinet_path(request.url.path) and _wants_html(request):
-        next_path = request.url.path
-        if request.url.query:
-            next_path = f"{next_path}?{request.url.query}"
         return RedirectResponse(
-            "/login?" + urlencode({"next": next_path, "error": exc.code}),
+            "/login?" + urlencode({"next": _safe_browser_login_next(request), "error": exc.code}),
             status_code=303,
         )
     return problem_response(exc, request)
 
 
-async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def request_validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse | HTMLResponse:
     _ = exc
+    if _is_browser_invitation_path(request.url.path) and _wants_html(request):
+        return _share_invitation_unavailable_response(
+            ProblemDetail(
+                status=422,
+                code="request_validation_error",
+                title="Request validation failed",
+            )
+        )
     return problem_response(
         ProblemDetail(
             status=422,

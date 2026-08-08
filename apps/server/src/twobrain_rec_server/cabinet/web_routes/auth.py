@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.api.auth import build_provider_callback_url
+from twobrain_rec_server.api.auth import (
+    _set_browser_auth_state_cookie,
+    build_provider_callback_url,
+)
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth import email_delivery
 from twobrain_rec_server.auth.audit import write_auth_audit_event
@@ -15,15 +19,19 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.policy import read_auth_providers
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
+from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
 from twobrain_rec_server.auth.sessions import (
     create_callback_state,
+    issue_callback_nonce,
 )
+from twobrain_rec_server.cabinet.access import share_invitation_continuation_matches
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
     render_login_page,
     render_signup_page,
 )
+from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EMAIL_SIGNUP_PROVIDER,
     _consume_email_login_code,
@@ -43,14 +51,17 @@ from twobrain_rec_server.cabinet.web_routes.support import (
 )
 from twobrain_rec_server.db.models import AuthSession
 from twobrain_rec_server.db.tenant_context import (
+    ShareInvitationLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context,
 )
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
+)
 
 router = APIRouter(tags=["cabinet-web"])
 
-LoginWorkspaceQuery = Query(default=None)
 LoginNextQuery = Query(default="/meetings", alias="next", max_length=512)
 LoginErrorQuery = Query(default=None, max_length=120)
 SignupModeQuery = Query(default=None, max_length=32, alias="mode")
@@ -58,22 +69,76 @@ LoginAuthProviderQuery = Query(default=None, alias="auth_provider", max_length=3
 LoginEmailForm = Form(..., max_length=240)
 LoginCodeForm = Form(..., max_length=32)
 LoginStateForm = Form(..., max_length=160)
-LoginWorkspaceForm = Form(default=None)
 LoginNextForm = Form(default="/meetings", alias="next", max_length=512)
 LogoutNextForm = Form(default="/login?next=/meetings", alias="next", max_length=512)
+
+
+def _auth_rate_limit_headers(retry_after: int) -> dict[str, str]:
+    return {"Retry-After": str(max(1, retry_after))}
+
+
+def _request_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _parse_share_invitation_next(next_path: str) -> tuple[UUID, str] | None:
+    try:
+        parsed = urlsplit(next_path)
+    except ValueError:
+        return None
+    if parsed.path != "/share-invitations/continue" or parsed.scheme or parsed.netloc:
+        return None
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    workspace_values = query.get("workspace_id", [])
+    state_values = query.get("state", [])
+    if len(workspace_values) != 1 or len(state_values) != 1:
+        return None
+    state = state_values[0]
+    if not 16 <= len(state) <= 128:
+        return None
+    try:
+        workspace_id = UUID(workspace_values[0])
+    except ValueError:
+        return None
+    return workspace_id, state
+
+
+async def _active_share_invitation_next(
+    db: AsyncSession,
+    next_path: str,
+    *,
+    address: str | None = None,
+) -> tuple[UUID, str] | None:
+    target = _parse_share_invitation_next(next_path)
+    if target is None:
+        return None
+    workspace_id, state = target
+    await apply_tenant_context(
+        db,
+        ShareInvitationLookupContext(
+            workspace_id=workspace_id,
+            continuation_nonce=state,
+        ),
+    )
+    if not await share_invitation_continuation_matches(
+        db,
+        workspace_id=workspace_id,
+        nonce=state,
+        address=address,
+    ):
+        return None
+    return target
 
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
 async def browser_login_page(
     request: Request,
-    workspace_id: UUID | None = LoginWorkspaceQuery,
     next_path: str = LoginNextQuery,
     error: str | None = LoginErrorQuery,
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse:
     resolved_workspace_id, providers, safe_next, load_error = await _load_browser_auth_page_context(
         request,
-        workspace_id=workspace_id,
         next_path=next_path,
         error=error,
         db=db,
@@ -84,6 +149,8 @@ async def browser_login_page(
             providers=providers,
             next_path=safe_next,
             error=load_error,
+            invitation_flow=_parse_share_invitation_next(safe_next) is not None,
+            product_analytics_provider=build_request_browser_provider_context(request, "login_signup"),
         )
     )
 
@@ -91,7 +158,6 @@ async def browser_login_page(
 @router.get("/sign-up", response_class=HTMLResponse, include_in_schema=False)
 async def browser_signup_page(
     request: Request,
-    workspace_id: UUID | None = LoginWorkspaceQuery,
     next_path: str = LoginNextQuery,
     error: str | None = LoginErrorQuery,
     mode: str | None = SignupModeQuery,
@@ -99,7 +165,6 @@ async def browser_signup_page(
 ) -> HTMLResponse:
     resolved_workspace_id, providers, safe_next, load_error = await _load_browser_auth_page_context(
         request,
-        workspace_id=workspace_id,
         next_path=next_path,
         error=error,
         db=db,
@@ -111,6 +176,7 @@ async def browser_signup_page(
             next_path=safe_next,
             error=load_error,
             mode=mode,
+            product_analytics_provider=build_request_browser_provider_context(request, "login_signup"),
         )
     )
 
@@ -119,12 +185,38 @@ async def browser_signup_page(
 async def browser_email_login_start(
     request: Request,
     email: str = LoginEmailForm,
-    workspace_id: UUID | None = LoginWorkspaceForm,
     next_path: str = LoginNextForm,
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    if db is None:
+        raise ProblemDetail(
+            status=503,
+            code="auth_dependency_unavailable",
+            title="Authentication DB dependency unavailable",
+        )
+    invitation_target = _parse_share_invitation_next(safe_next)
+    invitation_context = await _active_share_invitation_next(db, safe_next)
+    invitation_flow = invitation_target is not None
+    if invitation_flow and invitation_context is None:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=None,
+                providers=[],
+                next_path=safe_next,
+                error="share_invitation_unavailable",
+                invitation_flow=True,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=400,
+        )
+    resolved_workspace_id = (
+        invitation_context[0]
+        if invitation_context is not None
+        else _resolve_browser_login_workspace_id(request)
+    )
     if resolved_workspace_id is None:
         return HTMLResponse(
             render_login_page(
@@ -132,14 +224,12 @@ async def browser_email_login_start(
                 providers=[],
                 next_path=safe_next,
                 error="workspace_required",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=400,
-        )
-    if db is None:
-        raise ProblemDetail(
-            status=503,
-            code="auth_dependency_unavailable",
-            title="Authentication DB dependency unavailable",
         )
     normalized_email = _normalize_email(email)
     if normalized_email is None:
@@ -149,15 +239,67 @@ async def browser_email_login_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_invalid",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=400,
+        )
+    if invitation_context is not None and await _active_share_invitation_next(
+        db,
+        safe_next,
+        address=normalized_email,
+    ) is None:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="share_invitation_email_required",
+                invitation_flow=True,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=400,
+        )
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=resolved_workspace_id,
+        scopes=(
+            ("email_code_start_address", normalized_email),
+            ("email_code_start_ip", _request_ip(request)),
+            *(
+                (("email_code_start_invitation", invitation_context[1]),)
+                if invitation_context is not None
+                else ()
+            ),
+        ),
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        return HTMLResponse(
+            render_login_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="auth_rate_limited",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=429,
+            headers=_auth_rate_limit_headers(retry_after),
         )
     workspace, user = await _resolve_email_login_user(
         db,
         workspace_id=resolved_workspace_id,
         email=normalized_email,
     )
-    if workspace is None or user is None:
+    if workspace is None or (user is None and invitation_context is None):
         if workspace is not None:
             await _record_email_login_audit(
                 db,
@@ -173,6 +315,10 @@ async def browser_email_login_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_start_unavailable",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=400,
         )
@@ -213,6 +359,10 @@ async def browser_email_login_start(
                     providers=[],
                     next_path=safe_next,
                     error="email_delivery_unavailable",
+                    invitation_flow=invitation_flow,
+                    product_analytics_provider=build_request_browser_provider_context(
+                        request, "login_signup"
+                    ),
                 ),
                 status_code=503,
             )
@@ -229,6 +379,10 @@ async def browser_email_login_start(
             state_nonce=state.state_nonce,
             next_path=safe_next,
             dev_code=dev_code,
+            flow="share_invitation" if invitation_context is not None else "login",
+            product_analytics_provider=build_request_browser_provider_context(
+                request, "login_signup"
+            ),
         )
     )
 
@@ -237,12 +391,11 @@ async def browser_email_login_start(
 async def browser_email_signup_start(
     request: Request,
     email: str = LoginEmailForm,
-    workspace_id: UUID | None = LoginWorkspaceForm,
     next_path: str = LoginNextForm,
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     if resolved_workspace_id is None:
         return HTMLResponse(
             render_signup_page(
@@ -250,6 +403,9 @@ async def browser_email_signup_start(
                 providers=[],
                 next_path=safe_next,
                 error="workspace_required",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=400,
         )
@@ -267,8 +423,35 @@ async def browser_email_signup_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_invalid",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=400,
+        )
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=resolved_workspace_id,
+        scopes=(
+            ("email_code_start_address", normalized_email),
+            ("email_code_start_ip", _request_ip(request)),
+        ),
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        return HTMLResponse(
+            render_signup_page(
+                workspace_id=resolved_workspace_id,
+                providers=[],
+                next_path=safe_next,
+                error="auth_rate_limited",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=429,
+            headers=_auth_rate_limit_headers(retry_after),
         )
     workspace = await _resolve_email_workspace(db, workspace_id=resolved_workspace_id)
     if workspace is None:
@@ -278,28 +461,11 @@ async def browser_email_signup_start(
                 providers=[],
                 next_path=safe_next,
                 error="email_start_unavailable",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=400,
-        )
-    snapshot = await read_auth_providers(db, resolved_workspace_id, adapters=build_provider_registry())
-    if not snapshot.allow_provider_self_enrollment:
-        await _record_email_login_audit(
-            db,
-            request=request,
-            workspace_id=resolved_workspace_id,
-            outcome="failure",
-            error_code="workspace_enrollment_required",
-            metadata={"flow": "registration"},
-        )
-        await db.commit()
-        return HTMLResponse(
-            render_signup_page(
-                workspace_id=resolved_workspace_id,
-                providers=[],
-                next_path=safe_next,
-                error="workspace_enrollment_required",
-            ),
-            status_code=403,
         )
     code = _issue_email_login_code()
     ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
@@ -340,6 +506,9 @@ async def browser_email_signup_start(
                     providers=[],
                     next_path=safe_next,
                     error="email_delivery_unavailable",
+                    product_analytics_provider=build_request_browser_provider_context(
+                        request, "login_signup"
+                    ),
                 ),
                 status_code=503,
             )
@@ -358,6 +527,9 @@ async def browser_email_signup_start(
             next_path=safe_next,
             dev_code=dev_code,
             flow="signup",
+            product_analytics_provider=build_request_browser_provider_context(
+                request, "login_signup"
+            ),
         )
     )
 
@@ -368,12 +540,10 @@ async def browser_email_login_verify(
     email: str = LoginEmailForm,
     code: str = LoginCodeForm,
     state: str = LoginStateForm,
-    workspace_id: UUID | None = LoginWorkspaceForm,
     next_path: str = LoginNextForm,
     db: AsyncSession | None = LoginDbDependency,
 ):
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
     normalized_email = _normalize_email(email)
     if db is None:
         raise ProblemDetail(
@@ -381,6 +551,28 @@ async def browser_email_login_verify(
             code="auth_dependency_unavailable",
             title="Authentication DB dependency unavailable",
         )
+    invitation_target = _parse_share_invitation_next(safe_next)
+    invitation_context = await _active_share_invitation_next(db, safe_next)
+    invitation_flow = invitation_target is not None
+    if invitation_flow and invitation_context is None:
+        return HTMLResponse(
+            render_email_code_page(
+                email=normalized_email or "",
+                state_nonce=state,
+                next_path=safe_next,
+                error="share_invitation_unavailable",
+                flow="share_invitation",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=400,
+        )
+    resolved_workspace_id = (
+        invitation_context[0]
+        if invitation_context is not None
+        else _resolve_browser_login_workspace_id(request)
+    )
     if resolved_workspace_id is None or normalized_email is None:
         return HTMLResponse(
             render_email_code_page(
@@ -388,8 +580,38 @@ async def browser_email_login_verify(
                 state_nonce=state,
                 next_path=safe_next,
                 error="email_code_invalid",
+                flow="share_invitation" if invitation_flow else "login",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=400,
+        )
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=resolved_workspace_id,
+        scopes=(
+            ("email_code_verify_address", normalized_email or ""),
+            ("email_code_verify_ip", _request_ip(request)),
+            ("email_code_verify_state", state),
+        ),
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        return HTMLResponse(
+            render_email_code_page(
+                email=normalized_email,
+                state_nonce=state,
+                next_path=safe_next,
+                error="auth_rate_limited",
+                flow="share_invitation" if invitation_flow else "login",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=429,
+            headers=_auth_rate_limit_headers(retry_after),
         )
     result = await _consume_email_login_code(
         db,
@@ -399,10 +621,19 @@ async def browser_email_login_verify(
         code=code,
         state_nonce=state,
         next_path=safe_next,
+        allow_registration=invitation_context is not None,
     )
     if isinstance(result, HTMLResponse):
         return result
-    redirect = RedirectResponse(safe_next, status_code=303)
+    redirect_path = await resolve_browser_auth_return_path(
+        db,
+        requested_redirect=result.requested_redirect,
+        organization_id=result.organization_id,
+        workspace_id=result.workspace_id,
+        user_id=result.user_id,
+        auth_session_id=result.auth_session_id,
+    )
+    redirect = RedirectResponse(redirect_path or "/meetings", status_code=303)
     _set_browser_auth_cookie(redirect, token=result.token, expires_at=result.expires_at)
     return redirect
 
@@ -484,12 +715,11 @@ async def browser_email_signup_verify(
     email: str = LoginEmailForm,
     code: str = LoginCodeForm,
     state: str = LoginStateForm,
-    workspace_id: UUID | None = LoginWorkspaceForm,
     next_path: str = LoginNextForm,
     db: AsyncSession | None = LoginDbDependency,
 ):
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     normalized_email = _normalize_email(email)
     if db is None:
         raise ProblemDetail(
@@ -505,8 +735,37 @@ async def browser_email_signup_verify(
                 next_path=safe_next,
                 error="email_code_invalid",
                 flow="signup",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=400,
+        )
+    retry_after = await enforce_auth_rate_limits(
+        db,
+        workspace_id=resolved_workspace_id,
+        scopes=(
+            ("email_code_verify_address", normalized_email or ""),
+            ("email_code_verify_ip", _request_ip(request)),
+            ("email_code_verify_state", state),
+        ),
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+        scope_secret=request.app.state.settings.share_identity_hash_secret,
+    )
+    if retry_after is not None:
+        return HTMLResponse(
+            render_email_code_page(
+                email=normalized_email,
+                state_nonce=state,
+                next_path=safe_next,
+                error="auth_rate_limited",
+                flow="signup",
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+            ),
+            status_code=429,
+            headers=_auth_rate_limit_headers(retry_after),
         )
     result = await _consume_email_login_code(
         db,
@@ -521,7 +780,15 @@ async def browser_email_signup_verify(
     )
     if isinstance(result, HTMLResponse):
         return result
-    redirect = RedirectResponse(safe_next, status_code=303)
+    redirect_path = await resolve_browser_auth_return_path(
+        db,
+        requested_redirect=result.requested_redirect,
+        organization_id=result.organization_id,
+        workspace_id=result.workspace_id,
+        user_id=result.user_id,
+        auth_session_id=result.auth_session_id,
+    )
+    redirect = RedirectResponse(redirect_path or "/meetings", status_code=303)
     _set_browser_auth_cookie(redirect, token=result.token, expires_at=result.expires_at)
     return redirect
 
@@ -530,13 +797,49 @@ async def browser_email_signup_verify(
 async def browser_login_provider_start(
     provider: str,
     request: Request,
-    workspace_id: UUID | None = LoginWorkspaceQuery,
     next_path: str = LoginNextQuery,
     auth_provider: str | None = LoginAuthProviderQuery,
     db: AsyncSession | None = LoginDbDependency,
 ) -> HTMLResponse | RedirectResponse:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    invitation_target = _parse_share_invitation_next(safe_next)
+    invitation_context = None
+    if invitation_target is not None:
+        if db is None:
+            return HTMLResponse(
+                render_login_page(
+                    workspace_id=None,
+                    providers=[],
+                    next_path=safe_next,
+                    error="auth_dependency_unavailable",
+                    invitation_flow=True,
+                    product_analytics_provider=build_request_browser_provider_context(
+                        request, "login_signup"
+                    ),
+                ),
+                status_code=503,
+            )
+        invitation_context = await _active_share_invitation_next(db, safe_next)
+        if invitation_context is None:
+            return HTMLResponse(
+                render_login_page(
+                    workspace_id=None,
+                    providers=[],
+                    next_path=safe_next,
+                    error="share_invitation_unavailable",
+                    invitation_flow=True,
+                    product_analytics_provider=build_request_browser_provider_context(
+                        request, "login_signup"
+                    ),
+                ),
+                status_code=400,
+            )
+    resolved_workspace_id = (
+        invitation_context[0]
+        if invitation_context is not None
+        else _resolve_browser_login_workspace_id(request)
+    )
+    invitation_flow = invitation_target is not None
     if resolved_workspace_id is None:
         return HTMLResponse(
             render_login_page(
@@ -544,6 +847,10 @@ async def browser_login_provider_start(
                 providers=[],
                 next_path=safe_next,
                 error="workspace_required",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=400,
         )
@@ -561,6 +868,10 @@ async def browser_login_provider_start(
                 providers=providers,
                 next_path=safe_next,
                 error="provider_future",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=501,
         )
@@ -571,6 +882,10 @@ async def browser_login_provider_start(
                 providers=[],
                 next_path=safe_next,
                 error="auth_dependency_unavailable",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=503,
         )
@@ -606,6 +921,10 @@ async def browser_login_provider_start(
                     providers=providers,
                     next_path=safe_next,
                     error="provider_disabled",
+                    invitation_flow=invitation_flow,
+                    product_analytics_provider=build_request_browser_provider_context(
+                        request, "login_signup"
+                    ),
                 ),
                 status_code=403,
             )
@@ -616,15 +935,22 @@ async def browser_login_provider_start(
                 providers=providers,
                 next_path=safe_next,
                 error="provider_missing",
+                invitation_flow=invitation_flow,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
             ),
             status_code=403,
         )
+    browser_state_nonce = issue_callback_nonce()
+    state_ttl_seconds = request.app.state.settings.auth_callback_state_ttl_seconds
     state = create_callback_state(
         db,
         provider=normalized_provider,
         workspace_id=resolved_workspace_id,
         requested_redirect=safe_next,
-        ttl_seconds=request.app.state.settings.auth_callback_state_ttl_seconds,
+        browser_state_nonce=browser_state_nonce,
+        ttl_seconds=state_ttl_seconds,
     )
     settings = request.app.state.settings
     callback_url = build_provider_callback_url(request, normalized_provider)
@@ -650,21 +976,33 @@ async def browser_login_provider_start(
         request_id=getattr(request.state, "request_id", None),
     )
     await db.commit()
-    return RedirectResponse(authorization_url, status_code=303)
+    response = RedirectResponse(authorization_url, status_code=303)
+    _set_browser_auth_state_cookie(
+        response, nonce=browser_state_nonce, max_age=state_ttl_seconds
+    )
+    return response
 
 
 async def _load_browser_auth_page_context(
     request: Request,
     *,
-    workspace_id: UUID | None,
     next_path: str,
     error: str | None,
     db: AsyncSession | None,
 ) -> tuple[UUID | None, list, str, str | None]:
     safe_next = _safe_browser_next_path(next_path)
-    resolved_workspace_id = _resolve_browser_login_workspace_id(request, workspace_id)
+    resolved_workspace_id = _resolve_browser_login_workspace_id(request)
     providers = []
     load_error = error
+    if _parse_share_invitation_next(safe_next) is not None:
+        if db is None:
+            load_error = load_error or "auth_dependency_unavailable"
+        else:
+            invitation_context = await _active_share_invitation_next(db, safe_next)
+            if invitation_context is not None:
+                resolved_workspace_id = invitation_context[0]
+            else:
+                load_error = load_error or "share_invitation_unavailable"
     if resolved_workspace_id is not None and db is not None:
         try:
             providers = await _load_browser_login_providers(db, resolved_workspace_id)
@@ -696,9 +1034,8 @@ def _provider_client_secret(settings, provider: str) -> str | None:
         return None
 
 
-def _resolve_browser_login_workspace_id(request: Request, workspace_id: UUID | None) -> UUID | None:
-    if workspace_id is not None:
-        return workspace_id
+def _resolve_browser_login_workspace_id(request: Request):
+    """Use the deployment bootstrap internally; public routes never accept it."""
     settings = request.app.state.settings
     configured = getattr(settings, "web_login_workspace_id", None)
     if configured is not None:

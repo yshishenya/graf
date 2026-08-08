@@ -4,7 +4,15 @@
 
 **Created**: 2026-07-09
 
-**Status**: Planned
+**Status**: Historical local permission-retention fixture; public release path
+superseded by Feature 130
+
+**Current release policy**: This feature does not authorize local/self-signed,
+ad-hoc or Apple Development publication. Current public macOS artifacts must
+use Developer ID Application/Installer, notarization, stapling and Gatekeeper;
+see [Feature 130](../130-developer-id-release/spec.md). The local identity
+material below is retained only for isolated permission-continuity tests and
+archived evidence.
 
 **Input**: User direction: "095 - новая фича. Можно ли сделать так, что при
 переустановке приложения разрешения для него не слетали в macOS. Каждый раз

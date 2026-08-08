@@ -21,7 +21,8 @@ def test_issue_draft_uses_private_support_canon_and_full_safe_json() -> None:
         report,
         affected_count=5,
         safe_affected_identities=("affected_a", "affected_b", "affected_c", "affected_d", "affected_e", "extra"),
-        github_issue_number=123,
+        incident_number="CUST-8E2A1F4B",
+        sync_status="synced",
     )
 
     assert draft.title.startswith("[061][P1][support/custody] Пользовательская проблема:")
@@ -52,12 +53,48 @@ def test_issue_draft_uses_private_support_canon_and_full_safe_json() -> None:
     )
     assert GENERATED_START in draft.body
     assert GENERATED_END in draft.body
+    assert "Номер обращения: `CUST-8E2A1F4B`" in draft.body
+    assert "Статус синхронизации: `synced`" in draft.body
     assert "```json" in draft.body
     assert '"redaction_state": "metadata_only"' in draft.body
     assert "retained indefinitely in this private GitHub issue" in draft.body
+    assert "specs/061-support-incident-reporting/spec.md" in draft.body
     assert "extra" not in draft.body
     assert "/Users/" not in draft.body
     assert "token=redacted" not in draft.body
+
+
+def test_v2_issue_draft_has_feature_114_runtime_canon_and_state_matrix() -> None:
+    payload = safe_report_payload()
+    payload.update(
+        {
+            "schema_version": "desktop-support-incident.v2",
+            "client_report_fingerprint": "report_fpr_1234abcd",
+            "client_dedupe_key": "support_dedupe_1234abcd",
+            "canonical_stage": "server_deletion",
+            "server_copy_state": "deleted",
+            "local_copy_state": "retained",
+            "server_deletion_state": "complete",
+            "server_access_state": "owner",
+            "server_next_action": "send_support_report",
+            "timeline": [
+                {"event": "reconciled", "at": "2026-06-26T10:06:00Z", "source": "server_truth"}
+            ],
+            "retry_history": [],
+        }
+    )
+    report = build_server_redacted_report(payload)
+    draft = build_github_issue_draft(report, incident_number="CUST-114-1")
+
+    assert draft.title.startswith("[114][P0][support/custody] T000:")
+    assert "feature:114" in draft.labels
+    assert "Канонический этап: `server_deletion`" in draft.body
+    assert "Матрица состояния:" in draft.body
+    assert "Timeline (max 5):" in draft.body
+    assert "Retry history (max 5):" in draft.body
+    assert "Client report fingerprint: `report_fpr_1234abcd`" in draft.body
+    assert "specs/114-support-incident-diagnostics/spec.md" in draft.body
+    assert "CUST-114-1" in draft.body
 
 
 def test_metadata_block_replacement_preserves_human_sections() -> None:
@@ -81,7 +118,8 @@ def test_deduped_issue_update_refreshes_generated_counters_only() -> None:
         report,
         affected_count=1,
         safe_affected_identities=("old_identity",),
-        github_issue_number=123,
+        incident_number="CUST-8E2A1F4B",
+        sync_status="synced",
     ).body.replace("Пользовательская проблема из GRAF", "Ручная заметка. Пользовательская проблема из GRAF")
 
     updated = updated_deduped_issue_body(
@@ -89,13 +127,28 @@ def test_deduped_issue_update_refreshes_generated_counters_only() -> None:
         report,
         affected_count=6,
         safe_affected_identities=("new_a", "new_b"),
-        github_issue_number=123,
+        incident_number="CUST-8E2A1F4B",
+        sync_status="synced",
     )
 
     assert "Ручная заметка" in updated
     assert "Affected count: `6`" in updated
     assert "new_a, new_b" in updated
     assert "old_identity" not in updated
+
+
+def test_issue_draft_uses_server_correlation_number_not_github_number() -> None:
+    report = build_server_redacted_report(safe_report_payload())
+
+    draft = build_github_issue_draft(
+        report,
+        incident_number="CUST-LOCAL-ONLY",
+        sync_status="synced",
+    )
+
+    assert "Номер обращения: `CUST-LOCAL-ONLY`" in draft.body
+    assert "CUST-new" not in draft.body
+    assert "CUST-123" not in draft.body
 
 
 @pytest.mark.asyncio

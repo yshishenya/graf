@@ -51,7 +51,6 @@ def test_cabinet_component_fixtures_are_metadata_safe() -> None:
         {% import "cabinet/components/sections.html" as sections %}
         {{ sections.workspace_header(fixture.workspace_name, fixture.workspace_subtitle, "2B") }}
         {{ sections.meeting_row(fixture.meeting_title, "/meetings/synthetic", fixture.status_label, "audio", "26 июн") }}
-        {{ sections.selection_toolbar(fixture.count, fixture.total) }}
         """
     )
 
@@ -150,6 +149,23 @@ def test_rendered_cabinet_pages_do_not_include_storage_or_dependency_identifiers
         assert marker not in body
 
 
+def test_ordinary_meeting_list_does_not_render_internal_state_fields(client) -> None:
+    seed_cabinet_meetings(client)
+
+    response = client.get("/desktop/meetings", headers=auth_headers())
+
+    assert response.status_code == 200
+    for marker in {
+        "local_recording_id",
+        "processing_status",
+        "status_reason",
+        "mediascribe",
+        "schema_version",
+        "/Users/",
+    }:
+        assert marker not in response.text.lower()
+
+
 def test_manual_upload_surface_and_error_copy_are_metadata_safe(client) -> None:
     response = client.get("/meetings", headers=auth_headers())
 
@@ -170,6 +186,60 @@ def test_manual_upload_surface_and_error_copy_are_metadata_safe(client) -> None:
 
     script = (SERVER_ROOT / "cabinet" / "static" / "cabinet" / "cabinet.js").read_text()
     assert "mediascribe_job" not in script
+
+
+def test_meeting_list_recovery_replaces_cached_rows_without_echoing_metadata() -> None:
+    script = (SERVER_ROOT / "cabinet" / "static" / "cabinet" / "cabinet.js").read_text()
+    recovery = script[
+        script.index("const clearMeetingListAnnouncements") : script.index(
+            "const showMeetingListLoading"
+        )
+    ]
+
+    assert "current.replaceChildren(recovery)" in recovery
+    assert '["session", "workspace", "access"].includes(kind)' in recovery
+    assert "scrubSessionMeetingMetadata" in recovery
+    assert 'document.querySelector(".upcoming")?.remove()' in recovery
+    assert 'document.querySelector("[data-upload-activity-list]")?.replaceChildren()' in recovery
+    assert 'document.querySelector("[data-upload-progress-announcer]")?.replaceChildren()' in recovery
+    assert 'document.querySelector("[data-meeting-result-announcer]")?.replaceChildren()' in recovery
+    assert 'document.querySelector("#delete-feedback-region")?.replaceChildren()' in recovery
+    assert "scrubManualUploadPrivateState({ authorizationLost: true })" in recovery
+    assert 'dialog.dataset.uploadAvailable = "false"' in script
+    assert "trigger.disabled = true" in script
+    assert 'dialog.dataset.uploadAvailable === "true"' in script
+    assert 'if (titleInput) titleInput.value = ""' in script
+    assert "activeUploadActivities" in script
+    assert "xhr.abort()" in script
+    assert "activity.file = null" in script
+    assert "activeUploadActivities.clear()" in script
+    assert "announcedUploadProgressBuckets.clear()" in recovery
+    assert 'document.querySelector("#meeting-search")' in recovery
+    assert "clearMeetingHistoryCache()" in recovery
+    assert 'sessionStorage.removeItem("htmx-history-cache")' in script
+    assert 'sessionStorage.removeItem("htmx-current-path-for-history")' in recovery
+    assert "neutralizePrivateLocation(neutralPath)" in recovery
+    neutralizer = script[
+        script.index("const neutralizePrivateLocation") : script.index(
+            "clearMeetingHistoryCache();"
+        )
+    ]
+    assert 'history.replaceState(null, "", neutralPath)' in neutralizer
+    assert "window.location.replace(neutralPath)" in neutralizer
+    assert '"/desktop/meetings"' in recovery
+    assert '"/meetings"' in recovery
+    assert "dataset.meetingTitle" not in recovery
+    assert "textContent" in recovery
+    for marker in {
+        "local_recording_id",
+        "status_reason",
+        "storage_object_key",
+        "signed_url",
+        "raw_transcript",
+        "raw_audio",
+        "/Users/",
+    }:
+        assert marker not in recovery
 
 
 def test_cabinet_ready_detail_keeps_dependency_and_storage_identifiers_private(client) -> None:

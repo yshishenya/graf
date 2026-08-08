@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -88,11 +88,19 @@ class WorkspaceProviderLinkState(Base):
     initiating_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
     source_provider_identity_id: Mapped[UUID] = mapped_column(ForeignKey("external_identities.id"), nullable=False)
     target_provider_identity_id: Mapped[UUID | None] = mapped_column(ForeignKey("external_identities.id"))
+    initiating_auth_session_id: Mapped[UUID | None] = mapped_column(ForeignKey("auth_sessions.id"))
+    callback_state_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("auth_callback_states.id"), unique=True
+    )
+    candidate_provider: Mapped[str | None] = mapped_column(String(64))
     candidate_identity_subject: Mapped[str | None] = mapped_column(String(240))
     candidate_email: Mapped[str | None] = mapped_column(String(240))
     candidate_phone: Mapped[str | None] = mapped_column(String(64))
+    candidate_display_name: Mapped[str | None] = mapped_column(String(240))
     status: Mapped[str] = mapped_column(String(32), default="initiated")
     resolution: Mapped[str | None] = mapped_column(String(240))
+    callback_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -129,6 +137,30 @@ class AuthAuditEvent(Base):
     outcome: Mapped[str] = mapped_column(String(32), default="success")
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuthRateLimitBucket(Base):
+    """Hashed, workspace-scoped buckets for unauthenticated auth attempts."""
+
+    __tablename__ = "auth_rate_limit_buckets"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "scope_hash",
+            "action_key",
+            name="uq_auth_rate_limit_scope",
+        ),
+        Index("ix_auth_rate_limit_blocked_until", "blocked_until"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    scope_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    action_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class WorkspaceConsentCopy(Base):

@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.cabinet.deletion_rendering import (
-    render_deletion_feedback_fragment,
     render_deletion_report_fragment,
     render_deletion_report_page,
 )
@@ -30,6 +29,9 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _is_hx_request,
 )
 from twobrain_rec_server.deletion.service import deletion_report_response, request_meeting_deletion
+from twobrain_rec_server.product_analytics.browser_context import (
+    build_request_browser_provider_context,
+)
 
 router = APIRouter(tags=["cabinet-web"])
 
@@ -47,7 +49,9 @@ async def meeting_deletion_report_page(
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting = await _authorized_lifecycle_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -66,8 +70,15 @@ async def meeting_deletion_report_page(
             meeting_title,
             report,
             csrf_token=_csrf_token_for_principal(request, principal),
+            product_analytics_provider=build_request_browser_provider_context(
+                request,
+                "deletion",
+                principal=principal,
+                tenant_scope=tenant_scope,
+            ),
         )
     )
+
 
 @router.post(
     "/meetings/{meeting_id}/deletion-requests",
@@ -91,7 +102,9 @@ async def meeting_deletion_request_page(
     db: AsyncSession | None = WebDbDependency,
 ) -> Response:
     if db is None:
-        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+        raise ProblemDetail(
+            status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
+        )
     meeting, decision = await _authorized_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -99,21 +112,22 @@ async def meeting_deletion_request_page(
         viewer_user_id=principal.user_id,
     )
     _ensure_lifecycle_manager(decision)
-    response = await request_meeting_deletion(
+    await request_meeting_deletion(
         db,
         meeting=meeting,
         actor_user_id=principal.user_id,
         device_id=principal.session_device_id,
         confirmation_boundary=confirmation_boundary,
+        local_buffer_expiry_days=request.app.state.settings.retention_local_buffer_expiry_days,
         storage=storage,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
     await db.commit()
     embedded = request.url.path.startswith("/desktop/")
-    report_url = f"{_base_path(embedded)}/{response.meeting_id}/deletion-report"
     if _is_hx_request(request):
         return cabinet_html_response(
-            render_deletion_feedback_fragment(report_url=report_url),
+            "",
             status_code=202,
             hx_request=True,
         )
-    return RedirectResponse(report_url, status_code=303)
+    return RedirectResponse(_base_path(embedded), status_code=303)

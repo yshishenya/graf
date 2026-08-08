@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-02
 
-**Status**: Draft
+**Status**: Historical v3 recording persistence; v5 writing is owned by feature 106
 
 **Input**: User observed that pressing `Record` in the manual capture UI does not
 produce a discoverable recording and asked where the recording is. The feature

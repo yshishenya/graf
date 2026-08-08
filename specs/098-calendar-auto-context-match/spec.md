@@ -2,21 +2,20 @@
 
 **Feature Branch**: `098-calendar-auto-context-match`
 **Created**: 2026-07-09
-**Status**: Draft
+**Status**: Implemented, released, and production-smoke validated
 **Input**: User description: "После подключения календаря GRAF должен сам матчить запись с календарной встречей по времени записи и брать оттуда название, roster участников и полезный recurring context. Ручная привязка event_id не должна быть основным сценарием."
 
-## Implementation Note
+## Historical implementation note — before the feature merge
 
 The 090 security closeout tightened the existing manual calendar-context
 link/unlink endpoints so a user can only link their own recording to a calendar
 event from their own selected calendar source in the same space, and cannot
 unlink another user's recording context.
 
-That hotfix only closes the immediate authorization gap. It does not implement
-098's intended product behavior: automatic time-based matching for normal
-first-party recordings, ambiguity handling, private/all-day exclusions,
-recurring context and the rule that manual uploads/offline recovery are not
-calendar-matched.
+At that checkpoint the hotfix only closed the immediate authorization gap. The
+full time-based matcher, ambiguity/private/all-day exclusions, recurring
+context, and manual-upload/offline boundary were subsequently implemented and
+released; see [quickstart.md](./quickstart.md) and the validation receipts.
 
 ## Product Context
 
@@ -109,6 +108,12 @@ GRAF уже имеет базовую календарную инфрастру�
 - Decision: Manual uploads не матчим к календарю вообще.
 - Decision: Offline recordings или delayed offline upload recovery не матчим к календарю в этой фиче.
 - Decision: Calendar access остается read-only: без calendar mutation, emails/messages, auto-join, auto-record и attendee-based permission grants.
+
+### Session 2026-07-13
+
+- Q: Как показывать причину отсутствия context, если по времени совпало private/free-busy событие? → A: В списке записей показывать общий статус без calendar context; только авторизованный владелец может увидеть в детальном состоянии безопасную metadata-only причину `private/free-busy event skipped`, без названия, roster, описания, ссылок или иных деталей события.
+- Decision: Feature `097-workspace-account-onboarding` пропущена по явному указанию пользователя и не является prerequisite для 098; matching использует уже действующие owner/workspace boundaries, а будущая 097 может только уточнить terminology/UX без изменения 098 truth model.
+- Decision: Отдельный Codex Security scan не входит в текущий delivery/closeout 098 и будет выполнен пользователем отдельно; обязательные product acceptance checks для authorization, privacy-safe projections, lifecycle и forbidden-content evidence остаются частью реализации, но не выдаются за отдельный security audit.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -300,7 +305,7 @@ GRAF уже имеет базовую календарную инфрастру�
 - **FR-007**: Events with meeting link/location but no participants MUST be eligible for automatic title context, with roster marked unavailable.
 - **FR-008**: Events without participants and without meeting link/location SHOULD NOT be auto-matched by default unless a later settings feature explicitly changes this rule.
 - **FR-009**: All-day events MUST be ignored completely for automatic calendar context matching.
-- **FR-010**: Private and free/busy-only events MUST NOT be used for automatic title, roster или visible context.
+- **FR-010**: Private and free/busy-only events MUST NOT be used for automatic title, roster или visible event context. Recording list surfaces MUST show only the generic no-calendar-context state; an authorized owner detail surface MAY explain the metadata-only reason `private/free-busy event skipped` without exposing title, roster, description, links или other event details.
 - **FR-011**: Manual media uploads MUST NOT be automatically matched to calendar events.
 - **FR-012**: Offline recordings and delayed offline upload recovery MUST NOT be automatically matched to calendar events in this feature.
 - **FR-013**: Ad-hoc recordings without a matching eligible calendar event MUST remain unchanged.
@@ -319,11 +324,11 @@ GRAF уже имеет базовую календарную инфрастру�
 - **FR-026**: If previous recurring context is unavailable, deleted, ambiguous или inaccessible, GRAF MUST not fabricate or leak previous-meeting information.
 - **FR-027**: Calendar matching MUST be idempotent: retries, refreshes, duplicate upload attempts или repeated processing MUST NOT create duplicate active calendar context links.
 - **FR-028**: Calendar matching MUST be safe under stale calendar sync: if event snapshot set is unavailable или too stale to make a high-confidence decision, GRAF MUST leave the recording unchanged или require user choice.
-- **FR-029**: Audit and diagnostics MUST record metadata-only outcomes for matched, not matched, ambiguous, skipped-private, skipped-all-day, skipped-manual-upload, skipped-offline, skipped-stale-calendar и user-selected states.
+- **FR-029**: Audit and diagnostics MUST record metadata-only outcomes for matched, not matched, ambiguous, skipped-private, skipped-all-day, skipped-manual-upload, skipped-offline, skipped-stale-calendar, user-selected, declined-by-user и cleared-by-user states.
 - **FR-030**: Logs, diagnostics, specs, screenshots, test evidence и support payloads MUST NOT contain provider tokens, app passwords, raw event descriptions, meeting links with passcodes, raw attendee email dumps, raw calendar payloads, transcript text или private meeting content.
 - **FR-031**: Calendar matching MUST remain read-only with respect to external calendars: no event mutation, no calendar writes, no invite changes, no messages и no auto-join.
 - **FR-032**: Calendar matching MUST NOT block recording creation, upload, processing, playback или review; failures degrade to no calendar context.
-- **FR-033**: UI surfaces MUST clearly distinguish auto-matched context, user-selected context, ambiguous context и no calendar context without exposing unsafe private event content.
+- **FR-033**: UI surfaces MUST clearly distinguish auto-matched context, user-selected context, ambiguous context и no calendar context without exposing unsafe private event content; a private/free-busy skip reason is restricted to an authorized owner detail surface and MUST remain generic in recording lists.
 - **FR-034**: Feature MUST preserve brand-distance и clean-room rules: public reference products can inform category expectations, but GRAF must not copy proprietary UI, copy, assets или private behavior.
 - **FR-035**: GRAF MUST keep the source of the recording title distinguishable: user/manual title, calendar title, generated title, upload-provided title или file-name-derived title.
 - **FR-036**: Calendar title MUST NOT replace upload-provided title or file-name-derived title for manual uploads, because manual uploads are out of calendar matching scope.
@@ -341,6 +346,8 @@ GRAF уже имеет базовую календарную инфрастру�
 - **FR-048**: Calendar matching behavior MUST be consistent between web cabinet and desktop/app surfaces: the same recording should not appear matched in one surface and unmatched in another.
 - **FR-049**: The product MUST preserve existing recording creation and processing behavior for users who never connect a calendar.
 - **FR-050**: The feature MUST provide enough product evidence for release review to prove safe behavior across clear match, no match, ambiguous match, private/free-busy, all-day, manual upload, offline recording, multi-space and recurring cases.
+- **FR-051**: An explicit recording-start choice to continue without calendar context MUST persist as `declined_by_user`, distinct from `cleared_by_user`, which is reserved for removing context from an already created meeting. Both states MUST prevent later automatic attachment until the owner explicitly selects context.
+- **FR-052**: Every recording-start match attempt MUST set `expires_at` to exactly 24 hours after its server `evaluated_at`; an unconsumed attempt at or after that instant MUST NOT be consumed and MUST be eligible for bounded purge.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -354,7 +361,7 @@ GRAF уже имеет базовую календарную инфрастру�
 - **Future Speaker-Name Suggestion**: Deferred feature candidate that may suggest mapping speakers to people using calendar/contact context, but is not part of 098.
 - **Title Source**: Product state explaining why a recording has its visible name: user/manual title, safe calendar title, generated date/title, upload-provided title или file-name-derived title.
 - **No Calendar Context State**: Explicit product outcome when matching was skipped, unavailable, private, all-day, stale, manual-upload, offline, cross-space или not found.
-- **User Calendar Choice**: Explicit owner action that selects a candidate event or chooses no calendar context for a recording after ambiguity or correction.
+- **User Calendar Choice**: Explicit owner action that selects a candidate event, declines calendar context at recording start, or later clears context from an existing recording. Start-time decline and later clear are distinct durable states.
 
 ## Out of Scope *(mandatory)*
 
@@ -379,7 +386,7 @@ GRAF уже имеет базовую календарную инфрастру�
 - Existing meeting title source behavior from `059-recording-date-title`.
 - Existing cabinet review access decisions, share grants и no-attendee-access boundaries.
 - Existing deletion, retention, audit и diagnostics product gates.
-- Future `097-workspace-account-onboarding` decisions for personal/corporate space separation may affect workspace/space terminology and active-space boundaries.
+- Existing workspace membership and active-workspace boundaries are sufficient for 098. A future `097-workspace-account-onboarding` slice may refine personal/corporate terminology and onboarding UX, but 098 MUST NOT depend on 097 implementation or weaken its same-owner/same-workspace rule.
 
 ## Success Criteria *(mandatory)*
 
@@ -395,30 +402,31 @@ GRAF уже имеет базовую календарную инфрастру�
 - **SC-008**: In attendee tests, 0 calendar attendees receive access, share grants, message delivery, summary delivery, report delivery или speaker-name assignment.
 - **SC-009**: In recurring-series tests, previous-meeting context is shown only when previous recording is matched, authorized и in the same workspace/space.
 - **SC-010**: Calendar match failure, stale sync, provider downtime или ambiguity never blocks recording creation, upload, processing, playback или review.
-- **SC-011**: Security/privacy scans for feature evidence find 0 provider tokens, app passwords, raw event descriptions, meeting links with passcodes, raw attendee dumps, transcript text, raw audio или private meeting content.
+- **SC-011**: Feature authorization/privacy acceptance tests and evidence-hygiene checks find 0 provider tokens, app passwords, raw event descriptions, meeting links with passcodes, raw attendee dumps, transcript text, raw audio или private meeting content. A standalone Codex Security scan is explicitly deferred to a separate run and MUST NOT be claimed as completed by 098 closeout.
 - **SC-012**: In normal first-party recording smoke tests, web cabinet and desktop/app surfaces show the same calendar context state for the same recording.
 - **SC-013**: In ambiguous matching tests, 100% of recordings remain unlinked until a user explicitly selects a safe candidate or chooses no calendar context.
-- **SC-014**: In user-correction tests, 100% of user-selected or user-cleared calendar context decisions survive later sync/retry without automatic reversal.
+- **SC-014**: In user-correction tests, 100% of user-selected, start-time-declined or later-cleared calendar context decisions survive later sync/retry without automatic reversal, and decline is never reported as clear.
 - **SC-015**: In no-calendar-user tests, users who never connect a calendar experience no new blocking steps, prompts or errors during recording creation and review.
 - **SC-016**: In release review, all required scenario evidence is captured without storing raw meeting content, raw event descriptions, raw attendee email dumps, raw meeting links or provider credentials.
+- **SC-017**: Across at least 100 warmed synthetic evaluations with four selected sources and 50 candidate rows, recording-start resolve completes in `<= 200 ms` p95 and atomic attempt consumption completes in `<= 50 ms` p95.
 
 ## Assumptions
 
 - "Normal first-party recording" means a recording created through the desktop/app recording flow while the user is authenticated and app/server have enough current calendar context to decide safely.
 - Manual upload is any user-selected media file uploaded through cabinet/app upload workflow rather than a first-party recording session.
 - Offline/delayed upload means the recording could not be associated with current calendar state at recording time because app/server was offline, unauthenticated или recovering from a delayed queue.
-- Small pre-start grace window may be useful for meetings started shortly before calendar time, but exact thresholds should be finalized during planning and must not override ambiguity/back-to-back rule.
+- The pre-start candidate grace is exactly five minutes. A recording at or after an event end and at or before five minutes after that end sees the event only as a boundary blocker; these thresholds never override ambiguity/back-to-back safety.
 - Calendar event snapshots are treated as match-time evidence. Later provider changes are not automatically applied to matched recordings.
 - Calendar roster means invited/known calendar participants, not confirmed attendees and not diarized speakers.
 
-## Planning Notes For Next Phases
+## Completed Planning Decisions
 
-- `$speckit-clarify` should confirm exact confidence language and user-facing states, but not reopen the core decisions already made in this spec.
-- `$speckit-plan` should decide precise timing windows and stale-calendar thresholds. The default product rule remains: if timing thresholds create ambiguity, do not auto-match.
-- `$speckit-plan` should map which existing 060/063 concepts are reused and which user-facing states need new copy, without expanding scope into auto-share, speaker naming or retrospective matching.
-- `$speckit-checklist` should explicitly test all user decisions from the 2026-07-09 session: back-to-back choice, ad-hoc no-op, private/free-busy no-op, all-day ignored, manual upload skipped, offline skipped, stable renamed events, manual title protection, roster-only participants and recurring continuity.
-- `$speckit-tasks` should split work so clear auto-match, ambiguity handling, privacy/no-op cases, recurring continuity, UI consistency and release evidence can be validated independently.
-- `$speckit-analyze` should look for conflicts with existing calendar link behavior, upload naming rules, workspace/space ownership, review authorization and deletion/retention accounting before implementation starts.
+- `$speckit-clarify` fixed the confidence language and user-facing states without reopening the settled product decisions.
+- `$speckit-plan` fixed the five-minute timing rules and 24-hour calendar-freshness threshold; any resulting ambiguity remains non-automatic.
+- `$speckit-plan` mapped reuse of the 060/063 calendar concepts without expanding into auto-share, speaker naming or retrospective matching.
+- `$speckit-checklist` covers every 2026-07-09 decision: back-to-back choice, ad-hoc no-op, private/free-busy no-op, all-day ignored, manual upload skipped, offline skipped, stable renamed events, manual title protection, roster-only participants and recurring continuity.
+- `$speckit-tasks` separates clear match, ambiguity, privacy/no-op, recurring continuity, UI consistency and release evidence into independently validated work.
+- `$speckit-analyze` reconciled existing calendar-link behavior, upload naming, workspace/space ownership, review authorization and deletion/retention accounting before implementation.
 
 ## Release Review Evidence Expected Later
 

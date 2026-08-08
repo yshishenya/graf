@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-16
 
-**Status**: Draft
+**Status**: Implemented and production-smoke validated; later policy surfaces remain out of scope
 
 **Input**: User description: "Continue toward MVP after accepted meeting review, desktop cabinet embedding, and access/sharing/downloads by implementing server-side retention jobs, deletion workflows, deletion verification reports, local desktop purge coordination, backup expiry accounting, and external dependency deletion truth for 2brain Rec."
 
