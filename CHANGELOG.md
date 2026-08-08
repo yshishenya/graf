@@ -7,6 +7,10 @@
 прямо указано в их документации.
 
 ## [Unreleased]
+- Modernize macOS Application UI (Feature 144)
+  - Align macOS native SwiftUI interface with the dark, glassmorphic bento-card aesthetic of the web cabinet.
+  - Implement rounded corners, updated typography weights, and `Material` usage across `DesktopMeetingShellView` and `CaptureControlViewCore`.
+- Load custom modern fonts (Geist, Sora, Hanken Grotesk, Inter) in Web Cabinet.
 
 ### Добавлено
 - _Пока нет записей._
@@ -6490,3 +6494,7 @@
 ### Security
 ### Docs
 ### Ops
+
+### Изменено (UI)
+- Редизайн веб-кабинета пользователя (Modernization): добавлена поддержка современных эффектов глубины (bento-card стиль), обновлена типографика с использованием шрифтов `Geist`, `Sora` и `Hanken Grotesk`.
+- Улучшены состояния hover и focus для кнопок, элементов ввода и списков встреч, добавлены плавные анимации и тени для элементов интерфейса, сохраняя при этом оригинальный дизайн `GRAF`.

@@ -243,7 +243,7 @@ def _meeting_invitation_bodies(
         + " Рабочая область не меняется."
     )
     html = (
-        '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;'
+        '<div style="font-family:Inter,-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;'
         'max-width:560px;color:#373941;line-height:1.5">'
         f"<p><strong>{safe_inviter}</strong> открыл(а) вам {escape(access_label)} в GRAF.</p>"
         '<div style="border:1px solid #dfe1e7;border-radius:12px;padding:18px 20px;">'
@@ -314,7 +314,7 @@ def _account_created_email_bodies(
         "или обратиться в поддержку."
     )
     html = (
-        '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;'
+        '<div style="font-family:Inter,-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;'
         'max-width:560px;color:#373941;line-height:1.5">'
         '<div style="color:#111820;font-size:28px;line-height:1;font-weight:850;'
         'letter-spacing:-1px;margin:0 0 28px">GRAF</div>'
@@ -429,7 +429,7 @@ def _html_login_code_body(*, code: str, ttl_minutes: int) -> str:
     return f"""
     <!doctype html>
     <html lang="ru">
-      <body style="margin:0;background:#f7f7f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#373941;">
+      <body style="margin:0;background:#f7f7f8;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#373941;">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f7f7f8;padding:44px 16px;">
           <tr>
             <td align="center">

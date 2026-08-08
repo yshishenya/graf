@@ -626,12 +626,13 @@ private struct CalendarPromptView: View {
         }
         .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.95))
+                .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.accentColor.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(prompt.accessibilityLabel)
@@ -680,7 +681,7 @@ private struct LiveRecordingMetersView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(SystemAudioStatusLabels.captureAudioTitle)
-                        .font(.headline)
+                        .font(.system(.headline, design: .rounded, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     Text(liveSummary)

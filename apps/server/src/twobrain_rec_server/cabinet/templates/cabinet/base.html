@@ -15,6 +15,9 @@
   <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"refreshOnHistoryMiss":true}'>
   <script src="{{ cabinet_static_url }}/htmx-2.0.10.min.js" defer></script>
   <script src="{{ cabinet_static_asset_url('cabinet.js') }}" defer></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Hanken+Grotesk:wght@400;500;600&family=Sora:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body data-surface-mode="{{ surface_mode|default('standalone_browser') }}" data-graf-analytics-private="true" data-ph-mask="true" data-ym-hide-content="true" data-ym-disable-keys="true">
   {% if product_analytics_provider is defined and product_analytics_provider and product_analytics_provider.enabled %}
