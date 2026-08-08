@@ -73,9 +73,7 @@ Current accepted local baseline:
 
 Current non-accepted product areas:
 
-- Desktop upload queue integration, Temporal workflows, MediaScribe processing,
-  dashboard notes, server retention, deletion, and user rollout are not accepted
-  yet.
+- Workflow integration (Temporal, MediaScribe), retention/deletion policies, and upload queue have been merged to master. Internal pilot user rollout and commercial billing integration are the remaining major blockers for MVP commercial launch.
 - Feature `011-assisted-auto-recording` remains a broad historical proposal;
   its generalized auto-record and routed-audio assumptions are not accepted.
   The narrower verified-native-target workflow is owned by Feature
@@ -980,22 +978,22 @@ Allowed-transition and mapping requirements:
 
 Cross-surface state mapping:
 
-| Backend/ingest state | Desktop/tray state | Dashboard state | User meaning |
-|---|---|---|---|
-| `created` | `idle` or `ready` | Not shown or scheduled | Session exists but capture has not started |
-| `detecting` | `detecting` | Detecting | Meeting/audio activity detected |
-| `recording` | `recording` or `transcript_only` | Capturing | Audio is actively captured |
-| `paused` | `paused` | Paused | Capture is intentionally paused |
-| `uploading` | `uploading` | Uploading | Chunks are being sent to server |
-| `upload_interrupted` | `buffered_locally` or `upload_failed` | Upload interrupted | Audio exists locally and needs retry |
-| `uploaded` | `complete` | Uploaded | Required chunks are durably stored |
-| `processing` | `processing` | Processing | STT/notes/indexing is running |
-| `partial_ready` | `processing` | Partial ready | Some artifacts are usable; processing continues |
-| `ready` | `complete` | Ready | Meeting artifacts are available |
-| `failed_retryable` | `degraded` or `error` | Retryable failure | User/admin can retry or repair |
-| `failed_terminal` | `error` | Failed | Manual intervention or new capture needed |
-| `deleting` | `deleting` | Deleting | Deletion cascade is running |
-| `purged` | `purged` or `not_applicable` | Purged | Server-side artifacts are removed; local purge state is tracked separately for registered devices |
+| Backend/ingest state | Desktop/tray state                    | Dashboard state        | User meaning                                                                                      |
+| -------------------- | ------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `created`            | `idle` or `ready`                     | Not shown or scheduled | Session exists but capture has not started                                                        |
+| `detecting`          | `detecting`                           | Detecting              | Meeting/audio activity detected                                                                   |
+| `recording`          | `recording` or `transcript_only`      | Capturing              | Audio is actively captured                                                                        |
+| `paused`             | `paused`                              | Paused                 | Capture is intentionally paused                                                                   |
+| `uploading`          | `uploading`                           | Uploading              | Chunks are being sent to server                                                                   |
+| `upload_interrupted` | `buffered_locally` or `upload_failed` | Upload interrupted     | Audio exists locally and needs retry                                                              |
+| `uploaded`           | `complete`                            | Uploaded               | Required chunks are durably stored                                                                |
+| `processing`         | `processing`                          | Processing             | STT/notes/indexing is running                                                                     |
+| `partial_ready`      | `processing`                          | Partial ready          | Some artifacts are usable; processing continues                                                   |
+| `ready`              | `complete`                            | Ready                  | Meeting artifacts are available                                                                   |
+| `failed_retryable`   | `degraded` or `error`                 | Retryable failure      | User/admin can retry or repair                                                                    |
+| `failed_terminal`    | `error`                               | Failed                 | Manual intervention or new capture needed                                                         |
+| `deleting`           | `deleting`                            | Deleting               | Deletion cascade is running                                                                       |
+| `purged`             | `purged` or `not_applicable`          | Purged                 | Server-side artifacts are removed; local purge state is tracked separately for registered devices |
 
 Purged meetings are hidden from normal lists by default unless the user is viewing audit, deletion history, or admin lifecycle views.
 

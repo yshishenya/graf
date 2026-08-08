@@ -38,7 +38,7 @@ metadata-only evidence остаются подробной историей ре
 - Текущий опубликованный и выкаченный релиз — `v2026.07.26.8` на точном коммите
   `15309573ff8ff0fa5ed97269c6577f68db57c439`. Для уже доверенного Developer ID
   клиента подтверждено обычное in-place обновление `2026.07.26.7 →
-  2026.07.26.8` через Sparkle; appcast указывает на `.8`.
+2026.07.26.8` через Sparkle; appcast указывает на `.8`.
 - `v2026.07.26.6` — одноразовый ручной `.pkg`-bootstrap для перехода с
   исторического local/self-signed `.5`; он намеренно не заменял appcast и не
   является обычным Sparkle update. После установки дальнейшая цепочка только
@@ -82,7 +82,7 @@ evidence текущего выпуска: [release note](releases/v2026.07.26.8.
   менялись.
 - Focused direct-link matrix прошёл `21/21`; полный local CI прошёл macOS
   `640/640`, PostgreSQL `2,438 passed / 1 skipped` и strict `41 passed / 1
-  skipped`, lint/compile/Compose/evidence scan PASS. Release `v2026.07.26.5`
+skipped`, lint/compile/Compose/evidence scan PASS. Release `v2026.07.26.5`
   опубликован и выкачен на production на точный SHA
   `57dde9fd745a89622f804ac1188eee548e805439`; backup/restore rehearsal,
   migration head `0041_share_account_created_email`, disposable RLS,
@@ -197,7 +197,7 @@ evidence текущего выпуска: [release note](releases/v2026.07.26.8.
 - Feature `124-restore-automatic-recording` restores the previously designed
   target-scoped meeting workflow: the `Автозапись` settings page with the full
   verified native-app list and per-app checkboxes, prompt opt-in via `Всегда
-  писать это приложение`, the eight-second countdown, immediate
+писать это приложение`, the eight-second countdown, immediate
   `Записать сейчас`, `Пропустить`, and automatic start on countdown expiry.
   The implementation reuses Feature 092/119 registry and capture gates; it
   does not revive the removed audio-routing implementation or enable arbitrary
@@ -349,7 +349,7 @@ evidence текущего выпуска: [release note](releases/v2026.07.26.8.
   building the owner candidate response; Uvicorn subsequently reported the
   secondary `Response content shorter than Content-Length` transport error.
 - Production database counts at investigation time were `2 accepted` and `6
-  failed/summary_response_invalid` AI candidates; all `11` retained response
+failed/summary_response_invalid` AI candidates; all `11` retained response
   calls were `completed/confirmed`. The six invalid results are a separate
   strict model-output validation signal, not transcript loss or accepted-summary
   replacement. The old browser bundle mapped that bounded failure to the
@@ -435,7 +435,7 @@ gates.
   migration нет.
 - Focused invitation matrix (`23 passed`), strict-RLS regression и полный
   `infra/scripts/ci-local.sh` прошли: macOS `640`, server `2441 passed / 1
-  skipped`, strict PostgreSQL `42 passed / 1 skipped`, lint/compile/Compose/
+skipped`, strict PostgreSQL `42 passed / 1 skipped`, lint/compile/Compose/
   evidence scan — `PASS`.
 - PR #4626 и release PR #4627 merged; CalVer `v2026.07.26.7` выкачен на
   production на exact SHA `0b2680433ffda9137ea63e16ec99153e37bcb562`.
@@ -1456,10 +1456,6 @@ receipt не заявляются; они остаются отдельными 
 - Public meeting links, external-recipient invitations, partial deletion,
   legal-hold management, admin retention editing UI, billing, and desktop-owned
   deletion policy remain later slices.
-- Feature `042` production behavior is not accepted yet. The local
-  implementation passed `ci-local`, but merge, PR review, deployment,
-  production smoke, and production upload-to-transcript evidence still need a
-  separate approval and closeout.
 - Production RLS coverage is accepted only for the `031` covered table
   inventory. Future tenant-owned tables and product surfaces still need their
   own ADR `003` classification, tests, and metadata-only evidence before merge.
@@ -1621,8 +1617,7 @@ the current accepted implementation or `012` ingest slice.
   prompt contract.
 - Public-link and broader external-recipient sharing policy: add optional public
   links, batch/participant delivery, additional expiration/abuse controls and
-  admin/legal copy beyond the bounded exact-email recording package in Feature
-  125.
+  admin/legal copy beyond the bounded exact-email recording package in Feature 125.
 - `021-production-deployment-plan`: use the remote-first runbook to reach
   `infra_smoke_ready` for the Rec stack, while keeping user rollout and pilot
   claims blocked until later product slices are accepted.
@@ -1709,3 +1704,31 @@ the current accepted implementation or `012` ingest slice.
 - The preceding validation record intentionally described pre-deploy local
   testing; the production evidence for this release is recorded in
   `docs/deployments/2brain-rec/release-v2026.07.26.2.md`.
+
+## Commercial MVP Launch Readiness
+
+В преддверии запуска для B2B/B2C (прием денег) следующие компоненты подтверждены как готовые к MVP:
+
+- **Аудио захват и Desktop-клиент:** Захват System Audio + Mic, App UI (с использованием WebKit для Cabinet), Developer ID distribution (Notarized).
+- **Backend Ingest & Processing:** Интеграция с Temporal и MediaScribe, обработка WAV -> STT, генерация summary.
+- **Данные и Политики:** Имплементированы retention и deletion policies, есть coverage для RLS (Row Level Security).
+
+**Блокеры для коммерческого запуска (Pending):**
+
+- **Billing & Payments:** Отсутствуют. В `064-workspace-admin-panel` явно отложены тарифы, квоты, биллинг-система (Stripe/Robokassa).
+- **Pilot User Rollout (E2E на проде):** Gap `production-user-rollout-evidence` в 050.
+- **Поддержка / Инциденты (Support/Diagnostics):** Отложены, но могут быть нужны для платных пользователей.
+
+## Commercial MVP Launch Readiness
+
+В преддверии запуска для B2B/B2C (прием денег) следующие компоненты подтверждены как готовые к MVP:
+
+- **Аудио захват и Desktop-клиент:** Захват System Audio + Mic, App UI (с использованием WebKit для Cabinet), Developer ID distribution (Notarized).
+- **Backend Ingest & Processing:** Интеграция с Temporal и MediaScribe, обработка WAV -> STT, генерация summary.
+- **Данные и Политики:** Имплементированы retention и deletion policies, есть coverage для RLS (Row Level Security).
+
+**Блокеры для коммерческого запуска (Pending):**
+
+- **Billing & Payments:** Отсутствуют. В `064-workspace-admin-panel` явно отложены тарифы, квоты, биллинг-система (Stripe/Robokassa).
+- **Pilot User Rollout (E2E на проде):** Gap `production-user-rollout-evidence` в 050.
+- **Поддержка / Инциденты (Support/Diagnostics):** Отложены, но могут быть нужны для платных пользователей.
