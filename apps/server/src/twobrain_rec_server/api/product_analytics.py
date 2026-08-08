@@ -16,7 +16,10 @@ from twobrain_rec_server.product_analytics.event_catalog import (
 from twobrain_rec_server.product_analytics.events import build_activation_event
 from twobrain_rec_server.product_analytics.identity import is_safe_pseudonymous_id
 from twobrain_rec_server.product_analytics.ingest import ProductAnalyticsIngestService
-from twobrain_rec_server.product_analytics.page_inventory import page_class_policies
+from twobrain_rec_server.product_analytics.page_inventory import (
+    get_page_class_policy,
+    page_class_policies,
+)
 from twobrain_rec_server.product_analytics.posthog_client import PostHogClientWrapper
 from twobrain_rec_server.product_analytics.provider_config import ProductAnalyticsProviderConfig
 from twobrain_rec_server.product_analytics.provider_readiness import build_provider_readiness
@@ -168,6 +171,22 @@ async def product_analytics_posthog_web_capture(
             code="posthog_autocapture_disabled",
             title="PostHog autocapture disabled",
             detail="PostHog web autocapture is disabled or missing credential suppression.",
+        )
+    try:
+        page_policy = get_page_class_policy(body.page_class)
+    except ValueError as exc:
+        raise ProblemDetail(
+            status=400,
+            code="posthog_autocapture_page_class_rejected",
+            title="PostHog autocapture page class rejected",
+            detail="Autocapture page class is not in the approved inventory.",
+        ) from exc
+    if page_policy.posthog_autocapture_state != "enabled" or page_policy.sensitivity == "financial":
+        raise ProblemDetail(
+            status=403,
+            code="posthog_autocapture_page_blocked",
+            title="PostHog autocapture blocked for this page",
+            detail="Financial and sensitive pages are not eligible for web autocapture.",
         )
     distinct_id = body.distinct_id or "graf_pseudo_browser_anonymous"
     if not is_safe_pseudonymous_id(distinct_id):

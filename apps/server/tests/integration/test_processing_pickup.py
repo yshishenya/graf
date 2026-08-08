@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -18,10 +18,15 @@ from tests.fixtures.admin import (
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import issue_auth_session
+from twobrain_rec_server.billing.catalog import FREE_PROCESSING_SECONDS
+from twobrain_rec_server.billing.usage import moscow_window_for
 from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
+    FreeUsageWindow,
     ProcessingAuditEvent,
     ProcessingWorkflow,
+    UsageReservation,
+    WorkspaceSubscription,
 )
 
 
@@ -79,6 +84,117 @@ def test_processing_pickup_without_temporal_blocks_safely(client) -> None:
             return workflow.last_reason_code
 
     assert asyncio.run(reason_code()) == "blocked_temporal_unavailable"
+
+
+def test_processing_pickup_reserves_free_seconds_before_temporal(client) -> None:
+    client.app.state.temporal_client = FakeTemporalClient()
+    finalized = create_finalized_meeting(client, "pickup-free-reservation", duration_seconds=60)
+    meeting_id = finalized["meeting"]["meeting_id"]
+    media_revision_id = finalized["meeting"]["media_revision"]["media_revision_id"]
+
+    response = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers=auth_headers(),
+        json={"meeting_id": meeting_id},
+    )
+    assert response.status_code == 202
+    assert response.json()["started_count"] == 1
+
+    async def reservation_state() -> tuple[str, int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.scalar(
+                select(UsageReservation).where(
+                    UsageReservation.workspace_id == WORKSPACE_ID,
+                    UsageReservation.idempotency_key == f"processing:{media_revision_id}",
+                )
+            )
+            assert row is not None
+            return row.state, row.declared_seconds, row.committed_seconds
+
+    assert asyncio.run(reservation_state()) == ("active", 60, 0)
+
+
+def test_processing_pickup_blocks_free_job_when_window_is_exhausted(client) -> None:
+    client.app.state.temporal_client = FakeTemporalClient()
+    finalized = create_finalized_meeting(client, "pickup-free-exhausted", duration_seconds=60)
+    meeting_id = finalized["meeting"]["meeting_id"]
+    now = datetime.now(UTC)
+    window_start, window_end = moscow_window_for(now)
+
+    async def seed_exhausted_window() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                FreeUsageWindow(
+                    workspace_id=WORKSPACE_ID,
+                    window_start=window_start,
+                    window_end=window_end,
+                    included_seconds=FREE_PROCESSING_SECONDS,
+                    committed_seconds=FREE_PROCESSING_SECONDS,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_exhausted_window())
+    response = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers=auth_headers(),
+        json={"meeting_id": meeting_id},
+    )
+    assert response.status_code == 202
+    assert response.json()["blocked_count"] == 1
+
+    async def blocked_reason() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await db.scalar(
+                select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == UUID(meeting_id))
+            )
+            assert workflow is not None
+            return workflow.last_reason_code
+
+    assert asyncio.run(blocked_reason()) == "blocked_free_processing_exhausted"
+
+
+def test_processing_pickup_keeps_paid_processing_unlimited_without_reservation(client) -> None:
+    client.app.state.temporal_client = FakeTemporalClient()
+    finalized = create_finalized_meeting(client, "pickup-paid-unlimited", duration_seconds=60)
+    meeting_id = finalized["meeting"]["meeting_id"]
+    media_revision_id = finalized["meeting"]["media_revision"]["media_revision_id"]
+
+    async def seed_paid_subscription() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                WorkspaceSubscription(
+                    workspace_id=WORKSPACE_ID,
+                    state="personal",
+                    plan_code="personal",
+                    paid_through=datetime.now(UTC) + timedelta(days=30),
+                    capacity_bytes=2_000_000_000,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_paid_subscription())
+    response = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers=auth_headers(),
+        json={"meeting_id": meeting_id},
+    )
+    assert response.status_code == 202
+    assert response.json()["started_count"] == 1
+
+    async def reservation_count() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            return len(
+                (
+                    await db.scalars(
+                        select(UsageReservation).where(
+                            UsageReservation.idempotency_key == f"processing:{media_revision_id}"
+                        )
+                    )
+                ).all()
+            )
+
+    assert asyncio.run(reservation_count()) == 0
 
 
 def test_processing_pickup_reopens_blocked_workflow_after_temporal_recovers(client) -> None:

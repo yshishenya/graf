@@ -16,6 +16,16 @@ from twobrain_rec_server.api.schemas import (
     DeletionVerificationReport,
     LocalPurgeTask,
 )
+from twobrain_rec_server.billing.source_lifecycle import (
+    SOURCE_TRACK_ROLES,
+    SourceLifecycleState,
+    source_cogs_evidence,
+    source_lifecycle_state_for_gates,
+)
+from twobrain_rec_server.billing.storage import (
+    CANONICAL_PLAYBACK_PROFILE,
+    logically_release_playback_quota,
+)
 from twobrain_rec_server.calendar.lifecycle import account_meeting_calendar_context_deletion
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -73,6 +83,7 @@ from twobrain_rec_server.domain.statuses import (
     DeletionState,
     LifecycleAuditOutcome,
     OutcomeLifecycleState,
+    TrackRole,
 )
 from twobrain_rec_server.normalization.audit import add_normalization_audit_event
 from twobrain_rec_server.normalization.statuses import (
@@ -84,6 +95,7 @@ from twobrain_rec_server.normalization.statuses import (
 )
 from twobrain_rec_server.processing.fences import ensure_deletion_fence
 from twobrain_rec_server.processing.lifecycle import MEDIA_REVISION_DELETION_SAFE_REASON
+from twobrain_rec_server.processing.store import release_processing_usage_reservation
 
 TERMINAL_REQUEST_STATES = {
     DeletionState.COMPLETE.value,
@@ -219,6 +231,15 @@ async def request_meeting_deletion(
     meeting.deletion_state = DeletionState.DELETING.value
     meeting.deletion_requested_at = now
     await _flush_or_fail_closed(db)
+    # Quota is a logical projection: release canonical playback bytes under
+    # the committed tombstone before object-store deletion.  The artifact key
+    # remains in the purge journal so physical deletion and retry evidence are
+    # still handled by the existing lifecycle worker.
+    await logically_release_playback_quota(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
     calendar_context_artifact_count = await account_meeting_calendar_context_deletion(
         db,
         meeting=meeting,
@@ -393,6 +414,74 @@ async def lifecycle_for_meeting(*, meeting: Meeting) -> DeletionState:
     ) == DeletionState.NONE.value:
         return DeletionState.DELETING
     return DeletionState(meeting.deletion_state or DeletionState.NONE.value)
+
+
+async def fanout_account_close_deletions(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    storage: object | None,
+    temporal_client: object | None = None,
+    limit: int = 500,
+) -> tuple[UUID, ...]:
+    """Start the existing meeting-deletion workflow for account finalization.
+
+    Account close must not invent a second purge implementation.  This helper
+    snapshots eligible meeting ids, then delegates each row to the same
+    tombstone/quota-release/object-purge path used by owner deletion.  A
+    storage adapter is required so an unavailable object-store fails closed
+    before the account-close request can be marked complete.
+    """
+
+    batch_size = max(1, min(limit, 1000))
+    accepted: list[UUID] = []
+    storage_checked = False
+    while True:
+        meeting_ids = tuple(
+            await db.scalars(
+                select(Meeting.id)
+                .where(
+                    Meeting.workspace_id == workspace_id,
+                    Meeting.deleted_at.is_(None),
+                    or_(
+                        Meeting.deletion_state.is_(None),
+                        Meeting.deletion_state == DeletionState.NONE.value,
+                    ),
+                )
+                .order_by(Meeting.created_at, Meeting.id)
+                .limit(batch_size)
+            )
+        )
+        if not meeting_ids:
+            break
+        if not storage_checked:
+            _ensure_storage_delete_capability(storage)
+            storage_checked = True
+        for meeting_id in meeting_ids:
+            meeting = await db.scalar(
+                select(Meeting)
+                .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
+                .with_for_update()
+            )
+            if meeting is None or meeting.deleted_at is not None or (
+                meeting.deletion_state or DeletionState.NONE.value
+            ) != DeletionState.NONE.value:
+                continue
+            await request_meeting_deletion(
+                db,
+                meeting=meeting,
+                actor_user_id=None,
+                device_id=None,
+                confirmation_boundary=BOUNDED_DELETE_COPY,
+                request_source=DeletionRequestSource.ACCOUNT_CLOSE,
+                reason_code=DeletionReasonCode.ACCOUNT_CLOSE,
+                storage=storage,
+                temporal_client=temporal_client,
+            )
+            accepted.append(meeting_id)
+        if len(meeting_ids) < batch_size:
+            break
+    return tuple(accepted)
 
 
 async def retry_meeting_deletion(
@@ -775,6 +864,405 @@ async def reconcile_deletion_purges(
             await db.rollback()
             continue
     return reconciled
+
+
+async def reconcile_transient_media_purges(
+    db: AsyncSession,
+    *,
+    storage: object | None,
+    now: datetime | None = None,
+    limit: int = 20,
+) -> int:
+    """Purge persisted no-archive media after terminal/24-hour deadlines.
+
+    The admission and deadlines live on ``ProcessingWorkflow``; object keys
+    are read from the existing TrackArtifact, normalization-attempt and
+    TemporaryUploadObject lifecycle rows.  This deliberately does not delete
+    transcripts/notes and does not use a fake counter as purge evidence.
+    """
+
+    now = now or datetime.now(UTC)
+    rows = list(
+        (
+            await db.scalars(
+                select(ProcessingWorkflow)
+                .where(
+                    ProcessingWorkflow.archive_audio.is_(False),
+                    ProcessingWorkflow.transient_state.in_(
+                        {"admitted", "processing", "terminal", "purge_due"}
+                    ),
+                    (
+                        (ProcessingWorkflow.transient_hard_deadline.is_not(None)
+                         & (ProcessingWorkflow.transient_hard_deadline <= now))
+                        | (ProcessingWorkflow.transient_purge_due_at.is_not(None)
+                           & (ProcessingWorkflow.transient_purge_due_at <= now))
+                    ),
+                )
+                .order_by(ProcessingWorkflow.transient_purge_due_at, ProcessingWorkflow.id)
+                .limit(max(1, min(limit, 100)))
+                .with_for_update(skip_locked=True)
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    )
+    purged = 0
+    for workflow in rows:
+        workflow.transient_state = "purge_due"
+        artifacts = list(
+            await db.scalars(
+                select(TrackArtifact)
+                .where(
+                    TrackArtifact.workspace_id == workflow.workspace_id,
+                    TrackArtifact.meeting_id == workflow.meeting_id,
+                    TrackArtifact.media_revision_id == workflow.media_revision_id,
+                    TrackArtifact.status.not_in({"purged", "deleted"}),
+                )
+                .with_for_update()
+            )
+        )
+        attempts = list(
+            await db.scalars(
+                select(PlaybackNormalizationAttempt)
+                .where(
+                    PlaybackNormalizationAttempt.workspace_id == workflow.workspace_id,
+                    PlaybackNormalizationAttempt.meeting_id == workflow.meeting_id,
+                    PlaybackNormalizationAttempt.media_revision_id == workflow.media_revision_id,
+                    PlaybackNormalizationAttempt.state.not_in({AttemptState.PURGED.value}),
+                )
+                .with_for_update()
+            )
+        )
+        jobs = list(
+            await db.scalars(
+                select(PlaybackNormalizationJob)
+                .where(
+                    PlaybackNormalizationJob.workspace_id == workflow.workspace_id,
+                    PlaybackNormalizationJob.meeting_id == workflow.meeting_id,
+                    PlaybackNormalizationJob.media_revision_id == workflow.media_revision_id,
+                )
+                .with_for_update()
+            )
+        )
+        temporary_objects = list(
+            (
+                await db.scalars(
+                    select(TemporaryUploadObject)
+                    .join(UploadSession, TemporaryUploadObject.upload_session_id == UploadSession.id)
+                    .where(
+                        TemporaryUploadObject.workspace_id == workflow.workspace_id,
+                        TemporaryUploadObject.media_revision_id == workflow.media_revision_id,
+                        UploadSession.workspace_id == workflow.workspace_id,
+                        UploadSession.media_revision_id == workflow.media_revision_id,
+                        TemporaryUploadObject.cleanup_status != "purged",
+                    )
+                    .with_for_update()
+                )
+            ).all()
+        )
+        object_keys = {
+            *(artifact.storage_object_key for artifact in artifacts),
+            *(attempt.storage_object_key for attempt in attempts),
+            *(temporary_object.storage_object_key for temporary_object in temporary_objects),
+        }
+        if object_keys:
+            _ensure_storage_delete_capability(storage)
+        journals = {
+            row.object_key: row
+            for row in (
+                await db.scalars(
+                    select(PurgeJournal)
+                    .where(
+                        PurgeJournal.workspace_id == workflow.workspace_id,
+                        PurgeJournal.meeting_id == workflow.meeting_id,
+                        PurgeJournal.artifact_class == "transient_audio",
+                        PurgeJournal.object_key.in_(object_keys or {""}),
+                    )
+                    .with_for_update()
+                )
+            ).all()
+        }
+        for object_key in sorted(object_keys):
+            if object_key not in journals:
+                journal = PurgeJournal(
+                    workspace_id=workflow.workspace_id,
+                    meeting_id=workflow.meeting_id,
+                    artifact_class="transient_audio",
+                    object_key=object_key,
+                    state="pending",
+                    safe_reason="transient_media_purge",
+                )
+                db.add(journal)
+                journals[object_key] = journal
+        await _flush_or_fail_closed(db)
+        try:
+            for object_key in sorted(object_keys):
+                journal = journals[object_key]
+                if journal.state in {"purged", "superseded"}:
+                    continue
+                journal.state = "deleting"
+                journal.attempt_count += 1
+                journal.started_at = now
+                await _flush_or_fail_closed(db)
+                if await _storage_object_exists(storage, object_key):
+                    await _delete_storage_object(storage, object_key)
+                    if await _storage_object_exists(storage, object_key):
+                        raise RuntimeError("transient_storage_delete_unverified")
+                journal.state = "purged"
+                journal.completed_at = now
+                journal.next_retry_at = None
+                journal.safe_reason = "transient_object_deleted_verified"
+        except Exception:
+            await db.rollback()
+            continue
+
+        for artifact in artifacts:
+            artifact.status = "purged"
+            if artifact.track_role in SOURCE_TRACK_ROLES:
+                artifact.source_lifecycle_state = SourceLifecycleState.PURGED.value
+                artifact.source_purged_at = now
+                artifact.source_retention_purge_due_at = None
+            if artifact.track_role == TrackRole.PLAYBACK.value:
+                artifact.normalization_profile_version = None
+                artifact.validated_at = None
+                artifact.derivation_kind = None
+                artifact.source_fingerprint_sha256 = None
+                artifact.validation_version = None
+        for attempt in attempts:
+            current = AttemptState(attempt.state)
+            if current is not AttemptState.PURGED:
+                ensure_attempt_transition(current, AttemptState.PURGED)
+                attempt.state = AttemptState.PURGED.value
+                attempt.cleanup_reason = NormalizationReason.AUDIO_PURGED.value
+                attempt.cleaned_at = attempt.cleaned_at or now
+        for job in jobs:
+            if job.state in {
+                JobState.QUEUED.value,
+                JobState.RUNNING.value,
+                JobState.PUBLISHING.value,
+                JobState.RETRY_WAIT.value,
+                JobState.READY.value,
+            }:
+                ensure_job_transition(
+                    JobState(job.state),
+                    JobState.CANCELLED,
+                    reason_code=NormalizationReason.AUDIO_PURGED,
+                )
+                job.state = JobState.CANCELLED.value
+                job.reason_code = NormalizationReason.AUDIO_PURGED.value
+                job.cancelled_at = now
+        for temporary_object in temporary_objects:
+            temporary_object.cleanup_status = "purged"
+            temporary_object.failure_reason = None
+            temporary_object.last_error = None
+        workflow.transient_state = "purged"
+        workflow.transient_purged_at = now
+        await release_processing_usage_reservation(
+            db,
+            workspace_id=workflow.workspace_id,
+            media_revision_id=workflow.media_revision_id,
+            meeting_id=workflow.meeting_id,
+        )
+        await db.commit()
+        purged += 1
+    return purged
+
+
+async def reconcile_source_retention_purges(
+    db: AsyncSession,
+    *,
+    storage: object | None,
+    retention_period: timedelta | None,
+    policy_version: str,
+    backup_expiry_days: int | None,
+    now: datetime | None = None,
+    limit: int = 20,
+) -> int:
+    """Purge current/legacy transcription sources only after both gates.
+
+    This worker is intentionally fail-closed: an absent/invalid policy, a
+    missing gate, a deleted/deleting meeting or an invalid byte count leaves
+    the source recoverable.  Accepted deletion is handled by the mandatory
+    meeting purge path and therefore takes precedence over this scan.
+    """
+
+    if retention_period is None or retention_period <= timedelta(0) or not policy_version.strip():
+        return 0
+    now = now or datetime.now(UTC)
+    candidate_ids = tuple(
+        await db.scalars(
+            select(TrackArtifact.id)
+            .where(
+                TrackArtifact.track_role.in_(tuple(SOURCE_TRACK_ROLES)),
+                TrackArtifact.status.not_in({"purged", "deleted"}),
+                TrackArtifact.source_lifecycle_state != SourceLifecycleState.PURGED.value,
+            )
+            .order_by(TrackArtifact.created_at.asc(), TrackArtifact.id.asc())
+            .limit(max(1, min(limit, 100)))
+        )
+    )
+    purged = 0
+    for artifact_id in candidate_ids:
+        meeting = await db.scalar(
+            select(Meeting)
+            .join(TrackArtifact, TrackArtifact.meeting_id == Meeting.id)
+            .where(TrackArtifact.id == artifact_id)
+            .with_for_update(of=Meeting)
+            .execution_options(populate_existing=True)
+        )
+        if meeting is None or meeting.deleted_at is not None or (
+            meeting.deletion_state or DeletionState.NONE.value
+        ) != DeletionState.NONE.value:
+            continue
+        candidate_artifact = await db.scalar(
+            select(TrackArtifact).where(
+                TrackArtifact.id == artifact_id,
+                TrackArtifact.workspace_id == meeting.workspace_id,
+            )
+        )
+        if candidate_artifact is None:
+            continue
+        # Match deletion/normalization lock order: Meeting -> job -> source
+        # artifact.  This prevents a retention scan from racing publication.
+        await db.scalars(
+            select(PlaybackNormalizationJob)
+            .where(
+                PlaybackNormalizationJob.workspace_id == meeting.workspace_id,
+                PlaybackNormalizationJob.meeting_id == meeting.id,
+                (
+                    PlaybackNormalizationJob.media_revision_id
+                    == candidate_artifact.media_revision_id
+                    if candidate_artifact.media_revision_id is not None
+                    else PlaybackNormalizationJob.media_revision_id.is_(None)
+                ),
+            )
+            .with_for_update()
+        )
+        artifact = await db.scalar(
+            select(TrackArtifact)
+            .where(
+                TrackArtifact.id == artifact_id,
+                TrackArtifact.workspace_id == meeting.workspace_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if (
+            artifact is None
+            or artifact.track_role not in SOURCE_TRACK_ROLES
+            or artifact.status in {"purged", "deleted"}
+            or artifact.source_lifecycle_state == SourceLifecycleState.PURGED.value
+        ):
+            continue
+        active_playback = await db.scalar(
+            select(TrackArtifact.id).where(
+                TrackArtifact.workspace_id == artifact.workspace_id,
+                TrackArtifact.meeting_id == artifact.meeting_id,
+                (
+                    TrackArtifact.media_revision_id == artifact.media_revision_id
+                    if artifact.media_revision_id is not None
+                    else TrackArtifact.media_revision_id.is_(None)
+                ),
+                TrackArtifact.track_role == TrackRole.PLAYBACK.value,
+                TrackArtifact.status == "stored",
+                TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE,
+                TrackArtifact.validated_at.is_not(None),
+            )
+        )
+        if active_playback is None:
+            artifact.source_playback_verified_at = None
+            artifact.source_retention_policy_version = None
+            artifact.source_retention_purge_due_at = None
+            artifact.source_lifecycle_state = SourceLifecycleState.RECOVERABLE.value
+            continue
+
+        state, deadline = source_lifecycle_state_for_gates(
+            transcript_imported_at=artifact.source_transcript_imported_at,
+            playback_verified_at=artifact.source_playback_verified_at,
+            now=now,
+            retention_period=retention_period,
+        )
+        artifact.source_retention_policy_version = policy_version
+        artifact.source_retention_purge_due_at = deadline
+        if state is not SourceLifecycleState.PURGE_DUE:
+            artifact.source_lifecycle_state = state.value
+            continue
+        if artifact.byte_length <= 0 or not artifact.storage_object_key:
+            artifact.source_lifecycle_state = SourceLifecycleState.RECOVERABLE.value
+            artifact.source_retention_purge_due_at = None
+            continue
+
+        artifact.source_lifecycle_state = SourceLifecycleState.PURGE_PENDING.value
+        journal = await db.scalar(
+            select(PurgeJournal)
+            .where(
+                PurgeJournal.workspace_id == artifact.workspace_id,
+                PurgeJournal.meeting_id == artifact.meeting_id,
+                PurgeJournal.artifact_class == "source_retention",
+                PurgeJournal.object_key == artifact.storage_object_key,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if journal is None:
+            journal = PurgeJournal(
+                workspace_id=artifact.workspace_id,
+                meeting_id=artifact.meeting_id,
+                artifact_class="source_retention",
+                object_key=artifact.storage_object_key,
+                state="pending",
+                safe_reason="source_retention_gate_passed",
+            )
+            db.add(journal)
+            await _flush_or_fail_closed(db)
+        journal.metadata_json = source_cogs_evidence(
+            byte_length=artifact.byte_length,
+            policy_version=policy_version,
+            backup_expiry_days=backup_expiry_days,
+        )
+        if journal.state == "terminal_unknown":
+            continue
+        if journal.state == "purged":
+            journal.state = "pending"
+            journal.attempt_count = 0
+            journal.completed_at = None
+            journal.next_retry_at = None
+            journal.safe_reason = "source_object_reintroduced"
+        if journal.state == "retryable_failed" and journal.next_retry_at is not None and journal.next_retry_at > now:
+            continue
+        _ensure_storage_delete_capability(storage)
+        journal.state = "deleting"
+        journal.attempt_count += 1
+        journal.started_at = now
+        journal.next_retry_at = now + timedelta(seconds=STORAGE_CALL_TIMEOUT_SECONDS)
+        await _flush_or_fail_closed(db)
+        try:
+            if await _storage_object_exists(storage, artifact.storage_object_key):
+                await _delete_storage_object(storage, artifact.storage_object_key)
+                if await _storage_object_exists(storage, artifact.storage_object_key):
+                    raise RuntimeError("source_storage_delete_unverified")
+        except Exception:
+            journal.state = "retryable_failed"
+            journal.safe_reason = "source_storage_delete_failed"
+            journal.next_retry_at = now + timedelta(
+                seconds=min(3600, 15 * (2 ** min(journal.attempt_count - 1, 8)))
+            )
+            artifact.source_lifecycle_state = SourceLifecycleState.PURGE_PENDING.value
+            await db.commit()
+            continue
+        journal.state = "purged"
+        journal.completed_at = now
+        journal.next_retry_at = None
+        journal.safe_reason = "source_object_deleted_verified"
+        artifact.status = "purged"
+        artifact.source_lifecycle_state = SourceLifecycleState.PURGED.value
+        artifact.source_purged_at = now
+        artifact.source_retention_purge_due_at = None
+        await db.commit()
+        purged += 1
+    # Persist deadline recomputation/reopen and terminal-journal evidence even
+    # when no object was eligible for physical deletion in this scan.
+    await db.commit()
+    return purged
 
 
 async def _object_key_referenced(
@@ -1232,9 +1720,11 @@ async def _purge_server_controlled_content(
         result.materialized_classes.add(DeletionArtifactClass.PLAYBACK_CANDIDATE)
     if any(
         artifact.track_role == "playback"
-        and artifact.status == "stored"
-        and artifact.validated_at is not None
-        and artifact.normalization_profile_version is not None
+        and artifact.status in {"stored", "deleted"}
+        and (
+            artifact.validated_at is not None
+            or artifact.status == "deleted"
+        )
         for artifact in artifacts
     ):
         result.materialized_classes.add(DeletionArtifactClass.PLAYBACK_CANONICAL)
@@ -1384,6 +1874,10 @@ async def _purge_server_controlled_content(
 
     for artifact in artifacts:
         artifact.status = "purged"
+        if artifact.track_role in SOURCE_TRACK_ROLES:
+            artifact.source_lifecycle_state = SourceLifecycleState.PURGED.value
+            artifact.source_purged_at = now
+            artifact.source_retention_purge_due_at = None
         if artifact.track_role == "playback":
             artifact.normalization_profile_version = None
             artifact.validated_at = None
@@ -2129,6 +2623,12 @@ async def _mark_outcomes_deleting(
         workflow.status = "canceled"
         workflow.last_reason_code = "meeting_deleting"
         workflow.ended_at = datetime.now(UTC)
+        await release_processing_usage_reservation(
+            db,
+            workspace_id=workflow.workspace_id,
+            media_revision_id=workflow.media_revision_id,
+            meeting_id=workflow.meeting_id,
+        )
         if workflow.workflow_id:
             workflow_ids.append(workflow.workflow_id)
 

@@ -9,12 +9,14 @@ from tests.fixtures.rls import RLS_ALLOWED_MAINTENANCE_OPERATIONS
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.tenant_context import (
     AuthCallbackLookupContext,
+    AuthReferralLookupContext,
     AuthSessionLookupContext,
     MaintenanceTenantContext,
     SharedWithMeLookupContext,
     ShareInvitationLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
+    auth_referral_lookup_settings,
     auth_session_lookup_settings,
     share_invitation_lookup_settings,
     shared_with_me_lookup_settings,
@@ -83,6 +85,33 @@ def test_auth_context_helpers_reject_wrong_context_kind() -> None:
         WorkspaceAuthContext(workspace_id=WORKSPACE_ID, context_kind="request")
     with pytest.raises(ValueError, match="auth_callback_lookup"):
         AuthCallbackLookupContext(state_nonce="state", context_kind="auth_public")
+    with pytest.raises(ValueError, match="auth_referral_lookup"):
+        AuthReferralLookupContext(
+            workspace_id=WORKSPACE_ID,
+            user_id=USER_ID,
+            token_hash="a" * 64,
+            context_kind="auth_public",
+        )
+
+
+def test_auth_referral_lookup_context_is_token_scoped() -> None:
+    context = AuthReferralLookupContext(
+        workspace_id=WORKSPACE_ID,
+        user_id=USER_ID,
+        token_hash="a" * 64,
+    )
+    assert auth_referral_lookup_settings(context) == {
+        "app.context_kind": "auth_referral_lookup",
+        "app.workspace_id": str(WORKSPACE_ID),
+        "app.user_id": str(USER_ID),
+        "app.referral_token_hash": "a" * 64,
+    }
+    with pytest.raises(ValueError, match="lowercase hex"):
+        AuthReferralLookupContext(
+            workspace_id=WORKSPACE_ID,
+            user_id=USER_ID,
+            token_hash="A" * 64,
+        )
 
 
 def test_maintenance_context_rejects_unknown_operation() -> None:

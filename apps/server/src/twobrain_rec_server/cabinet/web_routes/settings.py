@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from hashlib import sha256
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.auth import revoke_device
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.auth.account_closure import (
+    cancel_account_close,
+    schedule_account_close,
+)
+from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
+from twobrain_rec_server.auth.provider_links import recovery_safe_unlink_allowed
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
     list_workspace_join_offers,
 )
+from twobrain_rec_server.billing.notification_preferences import NotificationPreferences
 from twobrain_rec_server.cabinet.queries import (
     get_account_settings_surface,
     get_provider_link_start_options,
@@ -26,6 +36,14 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     WebTenantDependency,
     _csrf_token_for_principal,
 )
+from twobrain_rec_server.db.models import (
+    AuthSession,
+    AuthSessionDeviceBinding,
+    BillingNotificationPreference,
+    ExternalIdentity,
+    RegisteredDevice,
+    UserIdentity,
+)
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
@@ -36,6 +54,12 @@ WorkspaceOfferResultQuery = Query(default=None, max_length=24, alias="workspace_
 WorkspaceSwitchResultQuery = Query(default=None, max_length=24, alias="space_switch")
 ProviderLinkResultQuery = Query(default=None, max_length=48, alias="provider_link")
 DeviceRevokeResultQuery = Query(default=None, max_length=24, alias="device_revoke")
+SessionResultQuery = Query(default=None, max_length=24, alias="session")
+NotificationResultQuery = Query(default=None, max_length=24, alias="notification")
+AccountCloseResultQuery = Query(default=None, max_length=24, alias="account_close")
+ProfileResultQuery = Query(default=None, max_length=24, alias="profile")
+PreferencesResultQuery = Query(default=None, max_length=24, alias="preferences")
+ProviderUnlinkResultQuery = Query(default=None, max_length=48, alias="provider_unlink")
 
 
 async def _render_settings(
@@ -50,11 +74,18 @@ async def _render_settings(
     space_switch: str | None = None,
     provider_link: str | None = None,
     device_revoke: str | None = None,
+    session: str | None = None,
+    notification: str | None = None,
+    account_close: str | None = None,
+    profile: str | None = None,
+    preferences: str | None = None,
+    provider_unlink: str | None = None,
 ) -> HTMLResponse:
     workspace_spaces = ()
     workspace_join_offers = ()
     provider_link_options = ()
     account_surface = None
+    notification_preferences = NotificationPreferences()
     if category == "workspace" and db is not None:
         workspace_join_offers = await list_workspace_join_offers(
             db,
@@ -71,6 +102,13 @@ async def _render_settings(
     elif category == "account" and db is not None:
         provider_link_options = await get_provider_link_start_options(db, tenant_scope)
         account_surface = await get_account_settings_surface(db, tenant_scope)
+    elif category == "notifications" and db is not None:
+        preference = await db.get(BillingNotificationPreference, principal.user_id)
+        if preference is not None:
+            notification_preferences = NotificationPreferences(
+                optional_email_enabled=preference.optional_email_enabled,
+                optional_in_app_enabled=preference.optional_in_app_enabled,
+            )
     elif category in {"workspace", "account"}:
         from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 
@@ -94,6 +132,16 @@ async def _render_settings(
             account_surface=account_surface,
             provider_link_result=provider_link,
             device_revoke_result=device_revoke,
+            session_result=session,
+            notification_result=notification,
+            account_close_result=account_close,
+            profile_result=profile,
+            preferences_result=preferences,
+            provider_unlink_result=provider_unlink,
+            account_active=(
+                "security" if request.url.path.endswith("/account/security") else "profile"
+            ),
+            notification_preferences=notification_preferences,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "settings",
@@ -182,6 +230,10 @@ async def settings_account_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
+    profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -195,7 +247,733 @@ async def settings_account_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        session=session,
+        profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
     )
+
+
+@router.get("/settings/notifications", response_class=HTMLResponse, include_in_schema=False)
+async def settings_notifications_page(
+    request: Request,
+    notification: str | None = NotificationResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="notifications",
+        embedded=False,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        notification=notification,
+    )
+
+
+def _form_checkbox(form: object, name: str) -> bool:
+    value = getattr(form, "get", lambda _name: None)(name)
+    return value in {"on", "true", "1", True}
+
+
+async def _save_notification_preferences(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    form: object,
+) -> None:
+    preference = await db.get(BillingNotificationPreference, user_id, with_for_update=True)
+    if preference is None:
+        preference = BillingNotificationPreference(user_id=user_id)
+        db.add(preference)
+    preference.optional_email_enabled = _form_checkbox(form, "optional_email_enabled")
+    preference.optional_in_app_enabled = _form_checkbox(form, "optional_in_app_enabled")
+    await db.commit()
+
+
+@router.post(
+    "/settings/notifications",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_settings_notifications(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    form = await request.form()
+    await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+    return RedirectResponse("/settings/notifications?notification=saved", status_code=303)
+
+
+async def _save_account_profile(
+    db: AsyncSession,
+    *,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+    request: Request,
+) -> None:
+    form = await request.form()
+    display_name = " ".join(str(form.get("display_name") or "").split())
+    if len(display_name) > 240:
+        raise ProblemDetail(status=422, code="profile_display_name_too_long", title="Имя слишком длинное")
+    user = await db.get(UserIdentity, principal.user_id, with_for_update=True)
+    if user is None:
+        raise ProblemDetail(status=404, code="account_not_found", title="Аккаунт не найден")
+    user.display_name = display_name or None
+    await write_auth_audit_event(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        actor_user_id=principal.user_id,
+        user_id=principal.user_id,
+        event_type="account_profile_updated",
+        metadata={"fields": ["display_name"]},
+    )
+    await db.commit()
+
+
+def _account_preference_value(form: object, name: str, allowed: frozenset[str]) -> str:
+    value = str(getattr(form, "get", lambda _name: "")(name) or "")
+    if value not in allowed:
+        raise ProblemDetail(
+            status=422,
+            code=f"invalid_account_{name}",
+            title="Недопустимое значение настройки аккаунта",
+        )
+    return value
+
+
+async def _save_account_preferences(
+    db: AsyncSession,
+    *,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+    request: Request,
+) -> None:
+    form = await request.form()
+    user = await db.get(UserIdentity, principal.user_id, with_for_update=True)
+    if user is None or user.organization_id != tenant_scope.organization_id:
+        raise ProblemDetail(status=404, code="account_not_found", title="Аккаунт не найден")
+    user.locale = _account_preference_value(form, "locale", frozenset({"ru-RU", "en-US"}))
+    user.timezone = _account_preference_value(
+        form, "timezone", frozenset({"Europe/Moscow", "UTC"})
+    )
+    user.theme = _account_preference_value(form, "theme", frozenset({"system", "dark", "light"}))
+    await write_auth_audit_event(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        actor_user_id=principal.user_id,
+        user_id=principal.user_id,
+        event_type="account_preferences_updated",
+        metadata={"fields": ["locale", "timezone", "theme"]},
+    )
+    await db.commit()
+
+
+async def _unlink_account_provider(
+    db: AsyncSession,
+    *,
+    identity_id: UUID,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+) -> None:
+    identity = await db.scalar(
+        select(ExternalIdentity)
+        .where(
+            ExternalIdentity.id == identity_id,
+            ExternalIdentity.user_id == principal.user_id,
+            ExternalIdentity.is_active.is_(True),
+        )
+        .with_for_update()
+    )
+    if identity is None:
+        raise ProblemDetail(status=404, code="login_method_not_found", title="Способ входа не найден")
+    identities = list(
+        await db.scalars(
+            select(ExternalIdentity)
+            .where(
+                ExternalIdentity.user_id == principal.user_id,
+                ExternalIdentity.is_active.is_(True),
+            )
+            .with_for_update()
+        )
+    )
+    verified_count = sum(1 for item in identities if item.is_verified)
+    if not recovery_safe_unlink_allowed(
+        verified_identity_count=verified_count,
+        target_is_verified=identity.is_verified,
+    ):
+        raise ProblemDetail(
+            status=422,
+            code="recovery_path_required",
+            title="Сначала подключите другой подтверждённый способ восстановления",
+        )
+    identity.is_active = False
+    identity.is_verified = False
+    await write_auth_audit_event(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        actor_user_id=principal.user_id,
+        user_id=principal.user_id,
+        provider=identity.provider,
+        event_type="provider_unlinked",
+        metadata={"identity_id_sha256": sha256(str(identity.id).encode("utf-8")).hexdigest()},
+    )
+    await db.commit()
+
+
+async def _revoke_account_session(
+    db: AsyncSession,
+    *,
+    session_id: UUID,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+) -> None:
+    if session_id == principal.session_id or session_id == tenant_scope.auth_session_id:
+        raise ProblemDetail(status=422, code="current_session_revoke_forbidden", title="Текущую сессию нельзя отозвать этой кнопкой")
+    session = await db.scalar(
+        select(AuthSession)
+        .where(
+            AuthSession.id == session_id,
+            AuthSession.workspace_id == tenant_scope.workspace_id,
+            AuthSession.user_id == principal.user_id,
+        )
+        .with_for_update()
+    )
+    if session is None:
+        raise ProblemDetail(status=404, code="auth_session_not_found", title="Сессия не найдена")
+    session.status = "revoked"
+    await write_auth_audit_event(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        actor_user_id=principal.user_id,
+        user_id=principal.user_id,
+        event_type="auth_session_revoked",
+        provider=session.provider,
+        metadata={"session_id": str(session.id)},
+    )
+    await db.commit()
+
+
+async def _revoke_other_account_sessions(
+    db: AsyncSession,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+) -> int:
+    sessions = list(
+        await db.scalars(
+            select(AuthSession)
+            .where(
+                AuthSession.workspace_id == tenant_scope.workspace_id,
+                AuthSession.user_id == principal.user_id,
+                AuthSession.status == "active",
+                AuthSession.id != tenant_scope.auth_session_id,
+            )
+            .with_for_update()
+        )
+    )
+    for session in sessions:
+        session.status = "revoked"
+    if sessions:
+        await write_auth_audit_event(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            actor_user_id=principal.user_id,
+            user_id=principal.user_id,
+            event_type="auth_sessions_revoked",
+            metadata={"scope": "other_sessions", "count": len(sessions)},
+        )
+    await db.commit()
+    return len(sessions)
+
+
+async def _revoke_other_account_devices(
+    db: AsyncSession,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+) -> tuple[int, int]:
+    devices = list(
+        await db.scalars(
+            select(RegisteredDevice)
+            .where(
+                RegisteredDevice.workspace_id == tenant_scope.workspace_id,
+                RegisteredDevice.user_id == principal.user_id,
+                RegisteredDevice.status == "active",
+                RegisteredDevice.id != tenant_scope.device_id,
+            )
+            .with_for_update()
+        )
+    )
+    device_ids = [device.id for device in devices]
+    sessions = []
+    bindings = []
+    if device_ids:
+        sessions = list(
+            await db.scalars(
+                select(AuthSession)
+                .where(
+                    AuthSession.workspace_id == tenant_scope.workspace_id,
+                    AuthSession.user_id == principal.user_id,
+                    AuthSession.status == "active",
+                    AuthSession.device_id.in_(device_ids),
+                )
+                .with_for_update()
+            )
+        )
+        bindings = list(
+            await db.scalars(
+                select(AuthSessionDeviceBinding)
+                .where(AuthSessionDeviceBinding.registered_device_id.in_(device_ids))
+                .with_for_update()
+            )
+        )
+    for device in devices:
+        device.status = "revoked"
+        device.registration_state = "revoked"
+        device.revoked_by = principal.user_id
+    for session in sessions:
+        session.status = "revoked"
+    for binding in bindings:
+        binding.device_state = "blocked"
+        binding.revocation_reason = "device_revoked"
+    if devices or sessions:
+        await write_auth_audit_event(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            actor_user_id=principal.user_id,
+            user_id=principal.user_id,
+            event_type="auth_devices_revoked",
+            metadata={
+                "scope": "other_devices",
+                "device_count": len(devices),
+                "session_count": len(sessions),
+            },
+        )
+    await db.commit()
+    return len(devices), len(sessions)
+
+
+@router.post(
+    "/settings/account/profile",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_settings_account_profile(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    return RedirectResponse("/account/profile?profile=saved", status_code=303)
+
+
+@router.post(
+    "/desktop/settings/account/profile",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_embedded_settings_account_profile(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    return RedirectResponse("/desktop/account/profile?profile=saved", status_code=303)
+
+
+@router.post(
+    "/settings/account/preferences",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_settings_account_preferences(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _save_account_preferences(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    return RedirectResponse("/account/profile?preferences=saved", status_code=303)
+
+
+@router.post(
+    "/desktop/settings/account/preferences",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_embedded_settings_account_preferences(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _save_account_preferences(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    return RedirectResponse("/desktop/account/profile?preferences=saved", status_code=303)
+
+
+async def _unlink_provider_action(
+    *,
+    identity_id: UUID,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+    db: AsyncSession | None,
+    embedded: bool,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _unlink_account_provider(
+        db,
+        identity_id=identity_id,
+        principal=principal,
+        tenant_scope=tenant_scope,
+    )
+    return RedirectResponse(
+        f"{'/desktop' if embedded else ''}/account/profile?provider_unlink=success",
+        status_code=303,
+    )
+
+
+@router.post(
+    "/settings/account/providers/{identity_id}/unlink",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def unlink_settings_account_provider(
+    identity_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _unlink_provider_action(
+        identity_id=identity_id,
+        principal=principal,
+        tenant_scope=tenant_scope,
+        db=db,
+        embedded=False,
+    )
+
+
+@router.post(
+    "/desktop/settings/account/providers/{identity_id}/unlink",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def unlink_embedded_settings_account_provider(
+    identity_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _unlink_provider_action(
+        identity_id=identity_id,
+        principal=principal,
+        tenant_scope=tenant_scope,
+        db=db,
+        embedded=True,
+    )
+
+
+@router.post(
+    "/settings/account/sessions/revoke-others",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_other_settings_sessions(
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/account/security?session=others_revoked", status_code=303)
+
+
+@router.post(
+    "/desktop/settings/account/sessions/revoke-others",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_other_embedded_settings_sessions(
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_other_account_sessions(db, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/desktop/account/security?session=others_revoked", status_code=303)
+
+
+@router.post(
+    "/settings/account/sessions/{session_id}/revoke",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_settings_session(
+    session_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_account_session(db, session_id=session_id, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/account/security?session=revoked", status_code=303)
+
+
+@router.post(
+    "/desktop/settings/account/sessions/{session_id}/revoke",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_embedded_settings_session(
+    session_id: UUID,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_account_session(db, session_id=session_id, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/desktop/account/security?session=revoked", status_code=303)
+
+
+@router.get("/account", response_class=HTMLResponse, include_in_schema=False)
+async def account_center_page(
+    request: Request,
+    provider_link: str | None = ProviderLinkResultQuery,
+    device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
+    account_close: str | None = AccountCloseResultQuery,
+    profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    """Stable account-center entry point used by the cabinet navigation."""
+    return await _render_settings(
+        request,
+        category="account",
+        embedded=False,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        provider_link=provider_link,
+        device_revoke=device_revoke,
+        session=session,
+        account_close=account_close,
+        profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
+    )
+
+
+@router.get("/account/profile", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/account/security", response_class=HTMLResponse, include_in_schema=False)
+async def account_profile_security_alias_page(
+    request: Request,
+    provider_link: str | None = ProviderLinkResultQuery,
+    device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
+    account_close: str | None = AccountCloseResultQuery,
+    profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    """Stable account IA aliases; both views share the verified account surface."""
+    return await _render_settings(
+        request,
+        category="account",
+        embedded=False,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        provider_link=provider_link,
+        device_revoke=device_revoke,
+        session=session,
+        account_close=account_close,
+        profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
+    )
+
+
+@router.get("/account/notifications", response_class=HTMLResponse, include_in_schema=False)
+async def account_notifications_alias_page(
+    request: Request,
+    notification: str | None = NotificationResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="notifications",
+        embedded=False,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        notification=notification,
+    )
+
+
+async def _account_close_action(
+    request: Request,
+    *,
+    tenant_scope: TenantScope,
+    principal: AuthenticatedPrincipal,
+    db: AsyncSession | None,
+    cancel: bool,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    if not cancel:
+        form = await request.form()
+        if str(form.get("confirm_close") or "") != "Закрыть аккаунт":
+            raise ProblemDetail(status=422, code="account_close_confirmation_required", title="Введите подтверждение закрытия аккаунта")
+    try:
+        if cancel:
+            await cancel_account_close(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                user_id=principal.user_id,
+                now=datetime.now(UTC),
+            )
+            result = "canceled"
+        else:
+            await schedule_account_close(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                user_id=principal.user_id,
+                now=datetime.now(UTC),
+            )
+            result = "scheduled"
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    prefix = "/desktop" if request.url.path.startswith("/desktop/") else ""
+    return RedirectResponse(f"{prefix}/settings/account?account_close={result}", status_code=303)
+
+
+@router.post(
+    "/settings/account/close",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def schedule_account_close_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _account_close_action(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        cancel=False,
+    )
+
+
+@router.post(
+    "/desktop/settings/account/close",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def schedule_embedded_account_close_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _account_close_action(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        cancel=False,
+    )
+
+
+@router.post(
+    "/settings/account/close/cancel",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def cancel_account_close_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _account_close_action(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        cancel=True,
+    )
+
+
+@router.post(
+    "/desktop/settings/account/close/cancel",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def cancel_embedded_account_close_page(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    return await _account_close_action(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        cancel=True,
+    )
+
+
+@router.post(
+    "/settings/account/devices/revoke-others",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_other_settings_devices(
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_other_account_devices(db, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/account/security?device_revoke=others_revoked", status_code=303)
 
 
 @router.post(
@@ -303,6 +1081,10 @@ async def embedded_settings_account_page(
     request: Request,
     provider_link: str | None = ProviderLinkResultQuery,
     device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
+    account_close: str | None = AccountCloseResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
@@ -316,7 +1098,145 @@ async def embedded_settings_account_page(
         db=db,
         provider_link=provider_link,
         device_revoke=device_revoke,
+        session=session,
+        account_close=account_close,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
     )
+
+
+@router.get("/desktop/settings/notifications", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_settings_notifications_page(
+    request: Request,
+    notification: str | None = NotificationResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="notifications",
+        embedded=True,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        notification=notification,
+    )
+
+
+@router.post(
+    "/desktop/settings/notifications",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def save_embedded_settings_notifications(
+    request: Request,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    form = await request.form()
+    await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+    return RedirectResponse("/desktop/settings/notifications?notification=saved", status_code=303)
+
+
+@router.get("/desktop/account", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_account_center_page(
+    request: Request,
+    provider_link: str | None = ProviderLinkResultQuery,
+    device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
+    profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="account",
+        embedded=True,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        provider_link=provider_link,
+        device_revoke=device_revoke,
+        session=session,
+        profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
+    )
+
+
+@router.get("/desktop/account/profile", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/desktop/account/security", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_account_profile_security_alias_page(
+    request: Request,
+    provider_link: str | None = ProviderLinkResultQuery,
+    device_revoke: str | None = DeviceRevokeResultQuery,
+    session: str | None = SessionResultQuery,
+    account_close: str | None = AccountCloseResultQuery,
+    profile: str | None = ProfileResultQuery,
+    preferences: str | None = PreferencesResultQuery,
+    provider_unlink: str | None = ProviderUnlinkResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="account",
+        embedded=True,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        provider_link=provider_link,
+        device_revoke=device_revoke,
+        session=session,
+        account_close=account_close,
+        profile=profile,
+        preferences=preferences,
+        provider_unlink=provider_unlink,
+    )
+
+
+@router.get("/desktop/account/notifications", response_class=HTMLResponse, include_in_schema=False)
+async def embedded_account_notifications_alias_page(
+    request: Request,
+    notification: str | None = NotificationResultQuery,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> HTMLResponse:
+    return await _render_settings(
+        request,
+        category="notifications",
+        embedded=True,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        db=db,
+        notification=notification,
+    )
+
+
+@router.post(
+    "/desktop/settings/account/devices/revoke-others",
+    include_in_schema=False,
+    dependencies=[WebCSRFDependency],
+)
+async def revoke_other_embedded_settings_devices(
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+) -> RedirectResponse:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await _revoke_other_account_devices(db, tenant_scope=tenant_scope, principal=principal)
+    return RedirectResponse("/desktop/account/security?device_revoke=others_revoked", status_code=303)
 
 
 @router.post(

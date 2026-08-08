@@ -24,18 +24,32 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_posthog_autocapture_context_is_enabled_for_every_current_page_class(tmp_path: Path) -> None:
+def test_posthog_autocapture_context_excludes_financial_page_classes(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    contexts = [build_browser_provider_context(settings, policy.page_class) for policy in page_class_policies()]
+    contexts = {
+        policy.page_class: build_browser_provider_context(settings, policy.page_class)
+        for policy in page_class_policies()
+    }
+    financial_page_classes = {
+        policy.page_class for policy in page_class_policies() if policy.sensitivity == "financial"
+    }
+    enabled_contexts = [
+        context for page_class, context in contexts.items() if page_class not in financial_page_classes
+    ]
+    financial_contexts = [contexts[page_class] for page_class in financial_page_classes]
 
-    assert all(context["posthog"]["enabled"] is True for context in contexts)
-    assert all(context["posthog"]["autocapture_enabled"] is True for context in contexts)
-    assert all(context["posthog"]["replay_enabled"] is False for context in contexts)
-    assert all(context["posthog"]["autocapture_scope"] == "all_browser_rendered_pages" for context in contexts)
-    assert all(context["posthog"]["delivery_route"] == "first_party_browser_proxy" for context in contexts)
+    assert all(context["posthog"]["enabled"] is True for context in enabled_contexts)
+    assert all(context["posthog"]["autocapture_enabled"] is True for context in enabled_contexts)
+    assert all(context["enabled"] is False for context in financial_contexts)
+    assert all(context["posthog"]["enabled"] is False for context in financial_contexts)
+    assert all(context["posthog"]["autocapture_enabled"] is False for context in financial_contexts)
+    assert all(context["yandex"]["enabled"] is False for context in financial_contexts)
+    assert all(context["posthog"]["replay_enabled"] is False for context in contexts.values())
+    assert all(context["posthog"]["autocapture_scope"] == "all_browser_rendered_pages" for context in contexts.values())
+    assert all(context["posthog"]["delivery_route"] == "first_party_browser_proxy" for context in contexts.values())
     assert all(
         context["posthog"]["capture_endpoint"] == "/api/v1/product-analytics/posthog-web-capture"
-        for context in contexts
+        for context in contexts.values()
     )
 
 
@@ -69,7 +83,7 @@ def test_posthog_web_capture_endpoint_accepts_safe_proxy_event_without_provider_
             "/api/v1/product-analytics/posthog-web-capture",
             json={
                 "event_type": "click",
-                "page_class": "cabinet",
+                "page_class": "cabinet_home",
                 "tag_name": "button",
                 "role": "tab",
                 "analytics_action": "nav_recordings",
@@ -84,6 +98,25 @@ def test_posthog_web_capture_endpoint_accepts_safe_proxy_event_without_provider_
     assert "properties" not in str(body)
 
 
+def test_posthog_web_capture_endpoint_blocks_financial_page_inventory_entries(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/product-analytics/posthog-web-capture",
+            json={
+                "event_type": "click",
+                "page_class": "billing_invoice",
+                "tag_name": "button",
+                # Client-provided sensitivity cannot override the inventory.
+                "sensitivity": "product",
+            },
+        )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "posthog_autocapture_page_blocked"
+
+
 def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_secret_material(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     app = create_app(settings)
@@ -95,7 +128,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "page_class": "settings",
-                "role": "owner@example.test",
+                "role": "tab",
                 "analytics_action": "calendar_settings_opened",
                 "identity_state": "authenticated_pseudonymous",
                 "workspace_pseudonym": "graf_pseudo_workspace_c0ffee0000000000",
@@ -109,8 +142,19 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "page_class": "settings",
-                "role": "owner@example.test",
+                "role": "tab",
                 "analytics_action": "access_token",
+                "sensitivity": "product",
+            },
+        )
+        private_identity = client.post(
+            "/api/v1/product-analytics/posthog-web-capture",
+            json={
+                "distinct_id": "graf_pseudo_user_c0ffee0000000000",
+                "event_type": "click",
+                "page_class": "settings",
+                "role": "owner@example.test",
+                "analytics_action": "calendar_settings_opened",
                 "sensitivity": "product",
             },
         )
@@ -128,5 +172,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
     assert safe.json()["status"] == "dry_run"
     assert secret.status_code == 400
     assert secret.json()["code"] == "posthog_autocapture_rejected"
+    assert private_identity.status_code == 400
+    assert private_identity.json()["code"] == "posthog_autocapture_rejected"
     assert raw_identity.status_code == 400
     assert raw_identity.json()["code"] == "posthog_autocapture_identity_rejected"

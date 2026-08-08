@@ -94,11 +94,36 @@ RLS_OPERATOR_TABLES = {
     "prompt_optimization_call_ledger",
 }
 
+RLS_BILLING_TABLES = {
+    "billing_plan_versions",
+    "promotion_campaigns",
+    "promotion_redemptions",
+    "workspace_subscriptions",
+    "trial_activations",
+    "billing_operations",
+    "billing_invoices",
+    "billing_payment_methods",
+    "billing_entitlement_grants",
+    "observed_provider_refunds",
+    "free_usage_windows",
+    "usage_reservations",
+    "usage_ledger_entries",
+    "storage_reservations",
+    "time_credit_ledger_entries",
+    "billing_audit_events",
+    "billing_notification_deliveries",
+    "billing_notification_preferences",
+    "billing_webhook_events",
+    "referral_attributions",
+    "account_closure_requests",
+}
+
 RLS_COVERED_TABLES = (
     RLS_DIRECT_WORKSPACE_TABLES
     | RLS_INHERITED_WORKSPACE_TABLES
     | RLS_ORGANIZATION_TABLES
     | RLS_OPERATOR_TABLES
+    | RLS_BILLING_TABLES
 )
 
 RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
@@ -114,4 +139,5 @@ RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "deletion_purge_reconciliation",
     "processing_legacy_lineage_reconciliation",
     "outcome_initial_baseline_reconciliation",
+    "billing_reconciliation",
 }

@@ -209,6 +209,29 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(lifecycle_reconciliation_migration.__dict__.get("CONTENT_WORKSPACE_POLICIES", {}))
         | set(legacy_lineage_migration.__dict__.get("CONTENT_WORKSPACE_POLICIES", {}))
         | set(auth_rate_limit_migration.AUTH_RATE_LIMIT_TABLES)
+        | {
+            "billing_plan_versions",
+            "promotion_campaigns",
+            "promotion_redemptions",
+            "workspace_subscriptions",
+            "trial_activations",
+            "billing_operations",
+            "billing_invoices",
+            "billing_payment_methods",
+            "billing_entitlement_grants",
+            "observed_provider_refunds",
+            "free_usage_windows",
+            "usage_reservations",
+            "usage_ledger_entries",
+            "storage_reservations",
+            "time_credit_ledger_entries",
+            "billing_audit_events",
+            "billing_notification_deliveries",
+            "billing_notification_preferences",
+            "billing_webhook_events",
+            "referral_attributions",
+            "account_closure_requests",
+        }
     )
 
     assert set(RLS_COVERED_TABLES) == migration_tables

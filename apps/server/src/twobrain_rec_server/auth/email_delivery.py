@@ -85,6 +85,30 @@ class PostalEmailLoginClient:
         }
         await self._post_message(payload)
 
+    async def send_billing_notification(
+        self,
+        *,
+        recipient_email: str,
+        subject: str,
+        plain_body: str,
+        html_body: str,
+        delivery_key: str,
+    ) -> None:
+        """Send bounded transactional billing copy through the existing Postal path."""
+        payload = {
+            "to": [recipient_email],
+            "from": formataddr((self.from_name, self.from_address)),
+            "subject": subject[:160],
+            "plain_body": plain_body[:4000],
+            "html_body": html_body[:12000],
+            "tag": "billing-transactional",
+            "headers": {
+                "X-2brain-Email-Purpose": "billing-transactional",
+                "X-2brain-Delivery-Key": delivery_key,
+            },
+        }
+        await self._post_message(payload)
+
     async def send_meeting_invitation(
         self,
         *,
@@ -360,6 +384,27 @@ async def send_workspace_invitation_review_notice(
         raise EmailLoginDeliveryError("postal_delivery_disabled", retryable=False)
     client = PostalEmailLoginClient.from_settings(settings)
     await client.send_workspace_invitation_review_notice(recipient_email=recipient_email)
+
+
+async def send_billing_notification(
+    *,
+    settings: Settings,
+    recipient_email: str,
+    subject: str,
+    plain_body: str,
+    html_body: str,
+    delivery_key: str,
+) -> None:
+    if not settings.email_login_delivery_enabled:
+        raise EmailLoginDeliveryError("postal_delivery_disabled", retryable=False)
+    client = PostalEmailLoginClient.from_settings(settings)
+    await client.send_billing_notification(
+        recipient_email=recipient_email,
+        subject=subject,
+        plain_body=plain_body,
+        html_body=html_body,
+        delivery_key=delivery_key,
+    )
 
 
 async def send_meeting_invitation(

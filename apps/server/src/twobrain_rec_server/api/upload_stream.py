@@ -42,6 +42,11 @@ MANUAL_MEDIA_UPLOAD_OPENAPI_EXTRA: dict[str, object] = {
                             ],
                             "title": "Local Recording Id",
                         },
+                        "archive_audio": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Keep playback audio in the server archive; false keeps it transient only.",
+                        },
                     },
                     "required": ["file", "duration_seconds"],
                 }
@@ -66,6 +71,7 @@ class ManualMediaUploadBody:
     duration_seconds: int
     title: str | None
     local_recording_id: str | None
+    archive_audio: bool = True
 
 
 async def read_bounded_upload_body(
@@ -136,7 +142,9 @@ def _decode_form_value(value: bytes) -> str:
     return value.decode("utf-8", errors="replace")
 
 
-def _validate_manual_media_form(fields: dict[str, str], file_seen: bool) -> tuple[int, str | None, str | None]:
+def _validate_manual_media_form(
+    fields: dict[str, str], file_seen: bool
+) -> tuple[int, str | None, str | None, bool]:
     if not file_seen:
         raise ProblemDetail(status=422, code="request_validation_error", title="Request validation error")
     raw_duration = fields.get("duration_seconds")
@@ -156,7 +164,11 @@ def _validate_manual_media_form(fields: dict[str, str], file_seen: bool) -> tupl
         not 1 <= len(local_recording_id) <= 240 or any(ord(ch) < 32 or ord(ch) == 127 for ch in local_recording_id)
     ):
         raise ProblemDetail(status=422, code="request_validation_error", title="Request validation error")
-    return duration_seconds, title, local_recording_id
+    raw_archive = fields.get("archive_audio", "true").strip().lower()
+    if raw_archive not in {"true", "false", "1", "0"}:
+        raise ProblemDetail(status=422, code="request_validation_error", title="Request validation error")
+    archive_audio = raw_archive in {"true", "1"}
+    return duration_seconds, title, local_recording_id, archive_audio
 
 
 async def read_manual_media_upload_body(
@@ -239,13 +251,13 @@ async def read_manual_media_upload_body(
                 raise ProblemDetail(status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded")
             file_digest.update(chunk)
             file_spool.write(chunk)
-        elif current_name in {"duration_seconds", "title", "local_recording_id"}:
+        elif current_name in {"duration_seconds", "title", "local_recording_id", "archive_audio"}:
             current_field.extend(chunk)
             if len(current_field) > 1024:
                 raise ProblemDetail(status=422, code="request_validation_error", title="Request validation error")
 
     def on_part_end() -> None:
-        if not current_is_file and current_name in {"duration_seconds", "title", "local_recording_id"}:
+        if not current_is_file and current_name in {"duration_seconds", "title", "local_recording_id", "archive_audio"}:
             fields[current_name] = _decode_form_value(bytes(current_field))
 
     parser = MultipartParser(
@@ -269,7 +281,7 @@ async def read_manual_media_upload_body(
                 raise ProblemDetail(status=413, code="upload_part_bytes_exceeded", title="Upload part byte limit exceeded")
             parser.write(chunk)
         parser.finalize()
-        duration_seconds, title, local_recording_id = _validate_manual_media_form(fields, file_seen)
+        duration_seconds, title, local_recording_id, archive_audio = _validate_manual_media_form(fields, file_seen)
         if file_spool is None:
             raise ProblemDetail(status=422, code="request_validation_error", title="Request validation error")
         file_spool.seek(0)
@@ -280,6 +292,7 @@ async def read_manual_media_upload_body(
             duration_seconds=duration_seconds,
             title=title,
             local_recording_id=local_recording_id,
+            archive_audio=archive_audio,
         )
     except ProblemDetail:
         if file_spool is not None:

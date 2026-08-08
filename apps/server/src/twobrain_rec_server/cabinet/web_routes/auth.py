@@ -790,6 +790,14 @@ async def browser_email_signup_verify(
     )
     redirect = RedirectResponse(redirect_path or "/meetings", status_code=303)
     _set_browser_auth_cookie(redirect, token=result.token, expires_at=result.expires_at)
+    if result.registered:
+        redirect.delete_cookie(
+            key="graf_referral_token",
+            path="/",
+            secure=True,
+            httponly=True,
+            samesite="lax",
+        )
     return redirect
 
 

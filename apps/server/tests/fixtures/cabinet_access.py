@@ -33,6 +33,11 @@ SHARED_USER_ID = UUID("30000000-0000-0000-0000-000000000017")
 SHARED_DEVICE_ID = UUID("40000000-0000-0000-0000-000000000017")
 
 
+def masked_billing_identity(user_id: UUID = SHARED_USER_ID) -> str:
+    """Return a stable, non-reversible fixture label for billing assertions."""
+    return f"user-{str(user_id).split('-')[0]}"
+
+
 def auth_headers_for(
     *,
     user_id: UUID = SHARED_USER_ID,

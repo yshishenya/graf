@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    <meta name="description" content="Условия оплаты и поддержки GRAF.">
+    <meta name="theme-color" content="#05090a">
+    <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+    <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">К содержанию</a>
+    <div class="site-shell legal-shell">
+      <header class="site-header" aria-label="GRAF">
+        <a class="brand" href="/" aria-label="GRAF" translate="no">GRAF</a>
+        <nav class="top-nav" aria-label="Основные разделы">
+          <a href="/">Главная</a>
+          <a href="/download">Скачать</a>
+        </nav>
+      </header>
+
+      <main id="main" class="legal-page">
+        <p class="section-label">Условия оплаты</p>
+        <h1>Публичная оферта GRAF</h1>
+        <p class="legal-status">Редакция: 7 августа 2026 года. Оплата включается только после отдельного подтверждения магазина, фискальной схемы и юридических условий.</p>
+
+        <section class="legal-section" aria-labelledby="offer-operator">
+          <h2 id="offer-operator">Оператор</h2>
+          <p>Индивидуальный предприниматель Шишеня Ян Александрович.</p>
+          <p>ИНН 667803118920 · ОГРНИП 320665800036109.</p>
+          <p>Адрес: 623701, Свердловская обл., Березовский городской округ, г. Березовский, ул. Спортивная, д. 8, кв. 87.</p>
+          <p>Контакт для вопросов по оплате и возврату: <a href="mailto:yan@shishenya.ru">yan@shishenya.ru</a>.</p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="offer-payment">
+          <h2 id="offer-payment">Оплата и продление</h2>
+          <p>Оплата проходит на защищённой странице ЮKassa. Регулярное списание возможно только после отдельного явного согласия владельца пространства и подтверждённого сохранения банковской карты.</p>
+          <p>Автопродление можно отключить самостоятельно. После окончания оплаченного периода доступ сразу переходит на Free; grace period не предусмотрен.</p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="offer-refund">
+          <h2 id="offer-refund">Возврат</h2>
+          <p>Возврат не оформляется автоматически и не создаёт заявку в продукте. Пользователь пишет на <a href="mailto:yan@shishenya.ru">yan@shishenya.ru</a> и указывает безопасный номер платежа из истории. Решение, расчёт и выполнение возврата осуществляются вручную во внешнем кабинете YooKassa.</p>
+          <p>Не отправляйте в письме данные карты, секреты, идентификаторы провайдера, аудио или содержимое встреч.</p>
+        </section>
+
+        <section class="legal-section" aria-labelledby="offer-contact">
+          <h2 id="offer-contact">Дополнительные условия</h2>
+          <p>Промокоды, реферальные бонусы и платное расширение хранилища действуют только при наличии опубликованной версии условий и цен в кабинете. Технические и fair-use ограничения раскрываются до оплаты.</p>
+          <p>Платёжные реквизиты оператора используются во внешнем merchant backoffice и не публикуются в интерфейсе GRAF.</p>
+        </section>
+      </main>
+    </div>
+    {% include "public/_analytics.html" %}
+  </body>
+</html>

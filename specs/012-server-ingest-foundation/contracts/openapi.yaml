@@ -1181,6 +1181,10 @@ paths:
                     pattern: ^[^\x00-\x1f\x7f]+$
                   - type: 'null'
                   title: Local Recording Id
+                archive_audio:
+                  type: boolean
+                  default: true
+                  description: Keep playback audio in the server archive; false keeps it transient only.
               required:
               - file
               - duration_seconds
@@ -6030,6 +6034,10 @@ paths:
                     pattern: ^[^\x00-\x1f\x7f]+$
                   - type: 'null'
                   title: Local Recording Id
+                archive_audio:
+                  type: boolean
+                  default: true
+                  description: Keep playback audio in the server archive; false keeps it transient only.
               required:
               - file
               - duration_seconds
@@ -9276,6 +9284,60 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    BillingSummaryResponse:
+      properties:
+        plan_code:
+          type: string
+          title: Plan Code
+        state:
+          type: string
+          title: State
+        trial_ends_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Trial Ends At
+        paid_through:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Paid Through
+        bonus_until:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Bonus Until
+        renewal_resolution:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Renewal Resolution
+        processing_unlimited:
+          type: boolean
+          title: Processing Unlimited
+        storage_used_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Storage Used Bytes
+        storage_capacity_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Storage Capacity Bytes
+        handoff_path:
+          type: string
+          title: Handoff Path
+          default: /billing
+      type: object
+      required:
+      - plan_code
+      - state
+      - processing_unlimited
+      title: BillingSummaryResponse
     AbortUploadRequest:
       properties:
         reason:
@@ -10912,6 +10974,7 @@ components:
       - retention_expired
       - policy_blocked
       - retry
+      - account_close
       title: DeletionReasonCode
     DeletionRequestResponse:
       properties:
@@ -11361,6 +11424,10 @@ components:
           type: array
           minItems: 2
           title: Tracks
+        archive_audio:
+          type: boolean
+          title: Archive Audio
+          default: true
       type: object
       required:
       - manifest_sha256
@@ -11741,6 +11808,8 @@ components:
             $ref: '#/components/schemas/AuthDeviceStateResponse'
           type: array
           title: Registered Devices
+        billing:
+          $ref: '#/components/schemas/BillingSummaryResponse'
       type: object
       required:
       - user_id
@@ -11748,6 +11817,7 @@ components:
       - linked_providers
       - policy
       - registered_devices
+      - billing
       title: MeResponse
     MediaRevisionSourceKind:
       type: string
@@ -14000,6 +14070,11 @@ components:
           minimum: 1.0
           title: Limit
           default: 25
+        archive_audio:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Archive Audio
       type: object
       title: ProcessingPickupRequest
     ProcessingPickupResponse:
@@ -14134,6 +14209,20 @@ components:
           title: Workspace Id
         state:
           $ref: '#/components/schemas/ProcessingStatus'
+        archive_audio:
+          type: boolean
+          title: Archive Audio
+          default: true
+        transient_state:
+          type: string
+          title: Transient State
+          default: not_applicable
+        transient_purge_due_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Transient Purge Due At
         reason_code:
           anyOf:
           - type: string
@@ -15690,6 +15779,10 @@ components:
         processing_status:
           $ref: '#/components/schemas/ProcessingStatus'
           default: not_submitted
+        archive_audio:
+          type: boolean
+          title: Archive Audio
+          default: true
         workflow_id:
           type: 'null'
           title: Workflow Id

@@ -1,0 +1,20 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+{% import "cabinet/components/sections.html" as sections %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing") }}
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar"><div class="page-title"><h1>Статус платежа</h1><p class="muted">GRAF показывает только локальное состояние и ждёт подтверждения ЮKassa.</p></div></header>
+      <section class="settings-section cabinet-card" aria-labelledby="billing-operation-title">
+        <h2 id="billing-operation-title">{{ invoice.safe_number }}</h2>
+        <p role="status" aria-live="polite"><strong>{{ operation_state_label }}</strong></p>
+        <dl class="settings-definition-list"><div><dt>Сумма</dt><dd>{{ amount_label }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ updated_at_label or "ещё не выполнялась" }}</dd></div></dl>
+        <ol class="billing-operation-timeline" aria-label="Хронология платежа"><li>Создано: {{ invoice.created_at_label|default("время недоступно") }}</li><li>Текущее состояние: {{ operation_state_label|default("Статус уточняется") }}</li>{% if updated_at_label %}<li>Последняя проверка: {{ updated_at_label }}</li>{% endif %}</ol>
+        {% if status_result|default(None) == "refreshed" %}<p class="notice" role="status">Проверка ЮKassa завершена. Состояние обновлено, если провайдер уже вернул итог.</p>{% elif status_result|default(None) == "unavailable" %}<p class="notice" role="alert">Проверку сейчас выполнить не удалось. Новая оплата не создавалась.</p>{% endif %}
+        {% if operation_state in ["scheduled", "provider_pending", "unknown", "pending_reconciliation", "reconciliation_gap", "manual_resolution"] %}<p>Повторно оплачивать пока нельзя: результат сначала сверяется с ЮKassa. Можно запросить одну проверку; новая операция не создаётся.</p><form action="/billing/checkout/status/{{ invoice.safe_number }}/refresh" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button quiet" type="submit">Проверить в ЮKassa</button></form>{% elif operation_state == "method_required" %}<p>Для продолжения нужен подтверждённый способ оплаты.</p><a class="button" href="/billing/payment-method">Добавить способ оплаты</a>{% elif operation_state == "succeeded" %}<p>Платёж подтверждён. Доступ и чек обновляются отдельным reconciliation-процессом.</p><a class="button quiet" href="/billing/history">Открыть историю платежей</a>{% elif operation_state in ["canceled", "failed"] %}<p>Платёж не выполнен. Можно начать новую попытку.</p><a class="button" href="/billing/checkout">Попробовать снова</a>{% else %}<p>Операция не найдена в локальном состоянии. Обратитесь в поддержку с номером платежа.</p>{% endif %}
+      </section>
+      <a class="button quiet" href="/billing">Вернуться в кабинет</a>
+      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
+    </div>
+  </div>
+</main>

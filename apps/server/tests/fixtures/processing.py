@@ -67,6 +67,7 @@ def create_finalized_meeting(
     local_recording_id: str = "processing-ready",
     *,
     duration_seconds: int = 60,
+    archive_audio: bool = True,
 ) -> dict[str, object]:
     meeting_response = client.post(
         "/api/v1/meetings",
@@ -96,7 +97,7 @@ def create_finalized_meeting(
     finalize = client.post(
         f"/api/v1/upload-sessions/{session['session_id']}/finalize",
         headers=auth_headers(),
-        json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks},
+        json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks, "archive_audio": archive_audio},
     )
     assert finalize.status_code == 200
     finalized = finalize.json()
