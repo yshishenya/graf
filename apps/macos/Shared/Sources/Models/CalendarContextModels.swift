@@ -250,8 +250,6 @@ public struct DesktopCalendarPromptEvent: Codable, Equatable, Identifiable, Send
             "@",
             "http://",
             "https://",
-            "meet.google.com",
-            "teams.microsoft.com",
             "zoom.us/",
             "passcode",
             "password",

@@ -4,13 +4,11 @@ from fastapi import APIRouter
 
 from twobrain_rec_server.cabinet.web_routes import (
     auth,
-    billing,
     browser,
     calendar,
     deletion,
     desktop,
     provider_links,
-    referrals,
     settings,
     spaces,
     speakers,
@@ -23,12 +21,10 @@ from twobrain_rec_server.product_analytics.telemetry_gate import build_required_
 router = APIRouter(tags=["cabinet-web"])
 router.include_router(static.router)
 router.include_router(auth.router)
-router.include_router(billing.router)
 router.include_router(settings.router)
 router.include_router(browser.router)
 router.include_router(calendar.router)
 router.include_router(provider_links.router)
-router.include_router(referrals.router)
 router.include_router(spaces.router)
 router.include_router(speakers.router)
 router.include_router(deletion.router)

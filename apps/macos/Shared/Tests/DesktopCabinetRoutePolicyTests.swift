@@ -46,13 +46,6 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             XCTAssertEqual(decision.reason, .allowedCalendarSettings, route)
         }
 
-        for route in ["/billing", "/billing/checkout", "/billing/history", "/billing/invoices/INV-2026-0001"] {
-            let billing = policy.decision(for: try url(route))
-            XCTAssertEqual(billing.decision, .openExternally, route)
-            XCTAssertEqual(billing.route.kind, .external, route)
-            XCTAssertEqual(billing.reason, .openBrowserOwnedBilling, route)
-        }
-
         let meetingDetectionSettings = policy.decision(for: try url("/desktop/settings/meeting-detection"))
         XCTAssertEqual(meetingDetectionSettings.decision, .allow)
         XCTAssertEqual(meetingDetectionSettings.route.kind, .meetingDetectionSettings)
@@ -64,22 +57,10 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
             "/desktop/settings/summaries",
             "/desktop/settings/workspace",
             "/desktop/settings/account",
-            "/desktop/settings/account/profile",
-            "/desktop/settings/account/security",
-            "/desktop/settings/account/notifications",
-            "/desktop/settings/account/providers/7f3d6f9f-0f7f-4c13-a9af-000000000033/unlink",
-            "/desktop/settings/account/sessions/7f3d6f9f-0f7f-4c13-a9af-000000000033/revoke",
-            "/desktop/settings/account/sessions/revoke-others",
-            "/desktop/settings/notifications",
-            "/desktop/account",
-            "/desktop/account/profile",
-            "/desktop/account/security",
-            "/desktop/account/notifications",
             "/desktop/settings/provider-links/7f3d6f9f-0f7f-4c13-a9af-000000000033",
             "/desktop/settings/provider-links/yandex/start",
             "/desktop/settings/provider-links/7f3d6f9f-0f7f-4c13-a9af-000000000033/confirm",
             "/desktop/settings/account/devices/7f3d6f9f-0f7f-4c13-a9af-000000000033/revoke",
-            "/desktop/settings/account/devices/revoke-others",
             "/desktop/settings/spaces/7f3d6f9f-0f7f-4c13-a9af-000000000033/activate",
             "/desktop/settings/join-offers/7f3d6f9f-0f7f-4c13-a9af-000000000033/accept"
         ] {

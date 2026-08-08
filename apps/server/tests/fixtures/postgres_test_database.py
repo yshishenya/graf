@@ -33,14 +33,12 @@ MEDIA_READ_ONLY_TABLES = (
     "alembic_version",
     "meetings",
     "media_revisions",
-    "workspace_subscriptions",
     "workspaces",
 )
 MEDIA_READ_WRITE_TABLES = (
     "playback_backfill_runs",
     "playback_normalization_attempts",
     "playback_normalization_jobs",
-    "storage_reservations",
     "support_incidents",
     "track_artifacts",
 )

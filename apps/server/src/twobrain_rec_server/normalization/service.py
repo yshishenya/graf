@@ -19,17 +19,6 @@ from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
-from twobrain_rec_server.billing.entitlements import effective_plan_code
-from twobrain_rec_server.billing.source_lifecycle import (
-    clear_source_playback_verification,
-    mark_source_playback_verified,
-)
-from twobrain_rec_server.billing.storage import (
-    commit_storage_reservation,
-    lock_storage_workspace,
-    reserve_storage,
-)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     MediaRevision,
@@ -39,12 +28,8 @@ from twobrain_rec_server.db.models import (
     PlaybackNormalizationJob,
     TrackArtifact,
     Workspace,
-    WorkspaceSubscription,
 )
-from twobrain_rec_server.db.tenant_context import (
-    rehydrate_tenant_context,
-    require_database_context,
-)
+from twobrain_rec_server.db.tenant_context import require_database_context
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionSourceKind,
@@ -2331,8 +2316,6 @@ async def run_normalization_job(
         reason_code = normalization_reason_from_exception(exc)
         with suppress(Exception):
             await db.rollback()
-        with suppress(Exception):
-            await rehydrate_tenant_context(db)
         try:
             failure = await record_normalization_failure(
                 db,
@@ -2774,7 +2757,6 @@ async def publish_uploaded_attempt(
     attempt_id: UUID,
 ) -> NormalizationExecutionResult:
     require_database_context(db, allowed_context_kinds=frozenset({"worker"}))
-    await rehydrate_tenant_context(db)
     attempt_job_id = await db.scalar(
         select(PlaybackNormalizationAttempt.job_id).where(
             PlaybackNormalizationAttempt.id == attempt_id
@@ -2876,44 +2858,8 @@ async def publish_uploaded_attempt(
             )
         )
     )
-    if prior_playback:
-        await clear_source_playback_verification(
-            db,
-            workspace_id=job.workspace_id,
-            meeting_id=job.meeting_id,
-            media_revision_id=job.media_revision_id,
-        )
     for artifact in prior_playback:
         _supersede_playback_artifact(artifact)
-    publication_time = datetime.now(UTC)
-    await lock_storage_workspace(db, job.workspace_id)
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == job.workspace_id)
-    )
-    effective_plan = (
-        effective_plan_code(
-            plan_code=subscription.plan_code,
-            state=subscription.state,
-            now=publication_time,
-            paid_through=subscription.paid_through,
-            trial_ends_at=subscription.trial_ends_at,
-        )
-        if subscription is not None
-        else "free"
-    )
-    storage_reservation = await reserve_storage(
-        db,
-        workspace_id=job.workspace_id,
-        reservation_key=f"normalization:{attempt.id}",
-        declared_bytes=int(attempt.output_byte_length or 0),
-        capacity_bytes=(
-            subscription.capacity_bytes
-            if subscription is not None and effective_plan in {"trial", "personal"}
-            else FREE_STORAGE_BYTES
-        ),
-        now=publication_time,
-    )
     canonical = TrackArtifact(
         meeting_id=job.meeting_id,
         media_revision_id=job.media_revision_id,
@@ -2935,20 +2881,7 @@ async def publish_uploaded_attempt(
     )
     db.add(canonical)
     await db.flush()
-    await commit_storage_reservation(
-        db,
-        reservation_id=storage_reservation.id,
-        artifact_id=canonical.id,
-        actual_bytes=canonical.byte_length,
-        now=publication_time,
-    )
-    await mark_source_playback_verified(
-        db,
-        workspace_id=job.workspace_id,
-        meeting_id=job.meeting_id,
-        media_revision_id=job.media_revision_id,
-        verified_at=publication_time,
-    )
+    publication_time = datetime.now(UTC)
     ensure_attempt_transition(AttemptState.UPLOADED, AttemptState.PUBLISHED)
     attempt.state = AttemptState.PUBLISHED.value
     attempt.published_track_artifact_id = canonical.id
@@ -2970,8 +2903,6 @@ async def publish_uploaded_attempt(
         "audio_stream_count": attempt.source_audio_stream_count,
         "full_decode_passed": bool(attempt.full_decode_passed),
         "moov_before_mdat": bool(attempt.moov_before_mdat),
-        "output_byte_length": attempt.output_byte_length,
-        "canonical_byte_length": canonical.byte_length,
     }
     _add_job_audit_event(
         db,

@@ -573,7 +573,6 @@ async def start_processing_workflow(
     media_revision_id: UUID,
     workspace_id: UUID,
     tenant_scope: TenantScope | None = None,
-    archive_audio: bool = True,
 ) -> ProcessingWorkflowStart:
     workflow_id = processing_workflow_id(media_revision_id)
     validate_processing_workflow_id(workflow_id)
@@ -583,7 +582,6 @@ async def start_processing_workflow(
         "workspace_id": str(workspace_id),
         "requested_by": "processing-pickup",
         "source": "ingested_pending_processing",
-        "archive_audio": "true" if archive_audio else "false",
     }
     if tenant_scope is not None:
         payload.update(

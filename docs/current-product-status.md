@@ -1,58 +1,6 @@
 # Текущий статус продукта
 
-Date: 2026-08-08
-
-## Implementation update (2026-08-06) — Feature 140 personal billing foundation
-
-- Личный кабинет получил server-owned Free/Trial/Личный billing overview,
-  hosted YooKassa checkout boundary, immutable invoice/operation records,
-  exact-second Free ledger primitives и playback-only storage projection.
-- Webhook inbox теперь tenant-scoped и RLS-защищён; provider payment/refund/
-  receipt observations read-only и metadata-only. Refund в GRAF не выполняется:
-  история даёт только безопасный номер и письмо во внешний backoffice-процесс.
-- Добавлены referral token/UI (10% первой оплаты, 7/30 service days after
-  maturity), no-grace renewal observation worker и fail-closed emergency/config
-  boundaries. Trial исправлен до ровно 7 календарных дней.
-- Добавлены owner-only cancel/resume controls с CSRF, row-lock, authority-version
-  checks и audit rows, а также отдельный exact-byte/second usage screen.
-- Provider payment success теперь требует server-side GET и immutable amount/
-  currency match; entitlement period сохраняется append-only в migration 0045.
-- Реферальная привязка теперь использует token-hash-scoped auth callback и
-  owner-scoped RLS для начисления в workspace пригласившего (migration 0047).
-- Refund success остаётся merchant-cabinet процессом: GRAF только наблюдает
-  подтверждённый GET/list результат и сохраняет безопасную связь с invoice.
-- Billing notifications получили транзакционный DB-backed metadata-only outbox
-  с uniqueness/delivery state и Russian-first finance copy; worker delivery
-  now uses the existing Postal sender with bounded transactional templates;
-  full lifecycle producer coverage and provider canary remain launch gates.
-- Provider registry теперь разделяет payments/refunds, проверяет completeness и
-  хранит только metadata-only gap ownership; notification worker только
-  доставляет verified recipients через Postal и не помечает сообщения delivered
-  до provider success.
-- Processing admission теперь резервирует точные Free-секунды до запуска Temporal,
-  оставляет Trial/Личный безлимитными, коммитит transcript ranges без двойного
-  списания и освобождает hold при terminal/deletion/transient-hard-timeout.
-- Production Compose монтирует YooKassa API/webhook и referral secrets только
-  server-side через Docker secrets; checkout и canary остаются выключенными до
-  внешних finance/legal/security/QA подтверждений.
-- Контрольный проход Feature 140 добавил browser/desktop account IA aliases,
-  server-owned profile/preferences (migration 0053), recovery-safe provider
-  unlink, bounded maintenance counters для зависших billing operations и
-  storage projection. Локальный credential-free test-shop harness проходит,
-  но YooKassa canary, end-to-end purge/COGS evidence и moderated UX review
-  остаются launch gates.
-- Fast lane и focused account/security suites после изменений проходят; миграция
-  проверена на disposable PostgreSQL. Полный public launch остаётся gated:
-  test-shop canary, live security/RLS, accessibility/usability, product-market
-  WTP/COGS и approved finance/legal sign-off ещё должны быть закрыты до
-  включения checkout.
-- Последний hardening-проход добавил отдельное подтверждение версии оферты с
-  timestamp в invoice/operation snapshot, запрет Trial поверх действующего
-  paid-through, каталог-управляемые цены с годовой экономией, timeline статуса
-  платежа и привязку referral reversal к исходному payer snapshot, а не к
-  текущему владельцу workspace. Контрактные UI/accessibility/usability проверки: 23
-  passed; focused billing/account/security/PostgreSQL suite: 72 passed. Последний
-  fast PostgreSQL контур после hardening checkout/referral/renewal/catalog: 1022 passed.
+Date: 2026-08-04
 
 Этот документ коротко фиксирует состояние продукта на текущей ветке
 реализации. PRD остается базовой продуктовой линией; feature specs и

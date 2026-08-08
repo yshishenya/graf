@@ -56,7 +56,6 @@ async def trigger_processing_pickup(
         limit=payload.limit,
         temporal_client=getattr(request.app.state, "temporal_client", None),
         tenant_scope=tenant_scope,
-        archive_audio=payload.archive_audio,
     )
     await db.commit()
     return ProcessingPickupResponse(

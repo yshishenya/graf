@@ -6,7 +6,7 @@
 
 {% block content %}
   <section class="admin-panel">
-    <h2>Использование и лимиты</h2>
+    <h2>Использование</h2>
     <form class="admin-toolbar" method="get" action="/admin/balance">
       <label>С даты
         <input name="date_from" type="date" value="{{ view.usage.totals.date_window['from'] or '' }}">

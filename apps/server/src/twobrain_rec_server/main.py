@@ -8,7 +8,6 @@ from twobrain_rec_server.admin.templates import ADMIN_STATIC_URL, admin_static_d
 from twobrain_rec_server.admin.web import router as admin_web_router
 from twobrain_rec_server.api.admin import router as admin_api_router
 from twobrain_rec_server.api.auth import router as auth_router
-from twobrain_rec_server.api.billing import router as billing_router
 from twobrain_rec_server.api.cabinet import router as cabinet_api_router
 from twobrain_rec_server.api.calendar import router as calendar_router
 from twobrain_rec_server.api.health import router as health_router
@@ -21,7 +20,6 @@ from twobrain_rec_server.api.problems import (
 )
 from twobrain_rec_server.api.processing import router as processing_router
 from twobrain_rec_server.api.product_analytics import router as product_analytics_router
-from twobrain_rec_server.api.product_analytics_guard import ProductAnalyticsIngressGuard
 from twobrain_rec_server.api.support_incidents import router as support_incidents_router
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_dir
 from twobrain_rec_server.cabinet.web import router as cabinet_web_router
@@ -67,7 +65,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.web_csrf_secret = settings.web_csrf_secret
     app.state.support_incident_integration_status = support_incident_configuration_status(settings)
     app.middleware("http")(request_logging_middleware)
-    app.add_middleware(ProductAnalyticsIngressGuard)
     app.add_exception_handler(ProblemDetail, problem_exception_handler)
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
     app.mount(ADMIN_STATIC_URL, StaticFiles(directory=admin_static_dir()), name="admin_static")
@@ -76,7 +73,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(public_web_router)
     app.include_router(health_router)
     app.include_router(auth_router)
-    app.include_router(billing_router)
     app.include_router(ingest_router)
     app.include_router(meeting_detection_router)
     app.include_router(processing_router)

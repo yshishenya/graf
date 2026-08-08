@@ -31,14 +31,6 @@ services:
       TWOBRAIN_POSTAL_API_KEY_FILE: ${TWOBRAIN_POSTAL_API_KEY_FILE:-/run/secrets/twobrain_postal_api_key}
       TWOBRAIN_POSTAL_HOST_HEADER: ${TWOBRAIN_POSTAL_HOST_HEADER:-postal.2brain.pro}
       TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
-      TWOBRAIN_BILLING_CHECKOUT_ENABLED: ${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}
-      TWOBRAIN_BILLING_RECEIPT_TAX_SYSTEM_CODE: ${TWOBRAIN_BILLING_RECEIPT_TAX_SYSTEM_CODE:-0}
-      TWOBRAIN_BILLING_RECEIPT_VAT_CODE: ${TWOBRAIN_BILLING_RECEIPT_VAT_CODE:-0}
-      TWOBRAIN_BILLING_RECEIPT_PAYMENT_SUBJECT: ${TWOBRAIN_BILLING_RECEIPT_PAYMENT_SUBJECT:-service}
-      TWOBRAIN_BILLING_RECEIPT_PAYMENT_MODE: ${TWOBRAIN_BILLING_RECEIPT_PAYMENT_MODE:-full_payment}
-      TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE: /run/secrets/twobrain_yookassa_secret
-      TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE: /run/secrets/twobrain_yookassa_webhook_secret
-      TWOBRAIN_BILLING_REFERRAL_SECRET_FILE: /run/secrets/twobrain_billing_referral_secret
       TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: ${TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED:-false}
       TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE: /run/secrets/graf_share_identity_hash_secret
       TWOBRAIN_YANDEX_CLIENT_ID: ${TWOBRAIN_YANDEX_CLIENT_ID:-twobrain-yandex-client-id}
@@ -113,12 +105,6 @@ services:
         target: twobrain_web_csrf_secret
       - source: twobrain_postal_api_key
         target: twobrain_postal_api_key
-      - source: twobrain_yookassa_secret
-        target: twobrain_yookassa_secret
-      - source: twobrain_yookassa_webhook_secret
-        target: twobrain_yookassa_webhook_secret
-      - source: twobrain_billing_referral_secret
-        target: twobrain_billing_referral_secret
       - source: twobrain_yandex_client_secret
         target: twobrain_yandex_client_secret
         uid: "100"
@@ -973,12 +959,6 @@ secrets:
     file: ${TWOBRAIN_MEDIASCRIBE_API_KEY_FILE:-./secrets/twobrain_mediascribe_api_key}
   twobrain_postal_api_key:
     file: ${TWOBRAIN_POSTAL_API_SECRET_FILE:-./secrets/twobrain_postal_api_key}
-  twobrain_yookassa_secret:
-    file: ${TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}
-  twobrain_yookassa_webhook_secret:
-    file: ${TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}
-  twobrain_billing_referral_secret:
-    file: ${TWOBRAIN_BILLING_REFERRAL_SECRET_FILE:-./secret-placeholders/disabled_optional_provider_secret}
   twobrain_yandex_client_secret:
     file: ${TWOBRAIN_YANDEX_CLIENT_SECRET_FILE:-./secrets/twobrain_yandex_client_secret}
   twobrain_vk_client_secret:

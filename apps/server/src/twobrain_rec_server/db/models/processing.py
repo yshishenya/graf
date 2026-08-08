@@ -80,18 +80,6 @@ class ProcessingWorkflow(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     workflow_id: Mapped[str] = mapped_column(String(240), nullable=False)
     purpose: Mapped[str] = mapped_column(String(64), nullable=False, default="transcription")
-    # ``archive_audio=False`` is the persisted no-archive admission.  The
-    # transient timestamps live on the workflow row so maintenance can purge
-    # deterministically after worker crashes without a second entity.
-    archive_audio: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    transient_state: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="not_applicable"
-    )
-    transient_admitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    transient_terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    transient_purge_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    transient_hard_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    transient_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_fingerprint: Mapped[str | None] = mapped_column(String(128))
     deletion_epoch_at_start: Mapped[int | None] = mapped_column(BigInteger)
     workflow_run_id: Mapped[str | None] = mapped_column(String(240))

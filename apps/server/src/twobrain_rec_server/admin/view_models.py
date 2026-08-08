@@ -26,7 +26,7 @@ def admin_navigation(*, active: str) -> AdminNavigationModel:
             AdminNavigationItem("users", "Пользователи", "/admin/users"),
             AdminNavigationItem("files", "Файлы", "/admin/files"),
             AdminNavigationItem("meeting-detection", "ВКС", "/admin/meeting-detection"),
-            AdminNavigationItem("balance", "Использование и лимиты", "/admin/balance"),
+            AdminNavigationItem("balance", "Баланс", "/admin/balance"),
             AdminNavigationItem("metrics", "Метрики", "/admin/metrics"),
             AdminNavigationItem("audit", "Аудит", "/admin/audit"),
         ),
@@ -136,7 +136,7 @@ def build_balance_view(
     usage: dict[str, Any],
 ) -> SimpleNamespace:
     return _page_view(
-        page_title="Использование и лимиты",
+        page_title="Баланс",
         workspace_name=workspace_name,
         actor_role=actor_role,
         active="balance",

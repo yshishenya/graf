@@ -73,7 +73,4 @@ async def get_content_safe_processing_status(
         diarization_available=diarization_available,
         summary_status=store.summary_status_from_result(result).value,
         updated_at=updated_at,
-        archive_audio=workflow.archive_audio if workflow is not None else True,
-        transient_state=workflow.transient_state if workflow is not None else "not_applicable",
-        transient_purge_due_at=workflow.transient_purge_due_at if workflow is not None else None,
     )

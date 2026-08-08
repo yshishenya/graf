@@ -57,8 +57,6 @@ COUNTER_KEYS = frozenset(
         "ready_count",
         "terminal_count",
         "cancelled_count",
-        "output_byte_length",
-        "canonical_byte_length",
     }
 )
 TIMESTAMP_KEYS = frozenset(

@@ -852,7 +852,6 @@ class UploadSessionResponse(BaseModel):
     expected_track_sizes: dict[TrackRole, int] = Field(default_factory=dict)
     accepted_bytes_by_track: dict[str, int] = Field(default_factory=dict)
     processing_status: ProcessingStatus = ProcessingStatus.NOT_SUBMITTED
-    archive_audio: bool = True
     workflow_id: None = None
     mediascribe_job_id: None = None
     desktop_label: str | None = None
@@ -973,7 +972,6 @@ class MissingRangesResponse(BaseModel):
 class FinalizeUploadRequest(BaseModel):
     manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     tracks: list[TrackDescriptor] = Field(min_length=2)
-    archive_audio: bool = True
 
 
 class FinalizeUploadResponse(BaseModel):
@@ -995,7 +993,6 @@ class AbortUploadRequest(BaseModel):
 class ProcessingPickupRequest(BaseModel):
     meeting_id: UUID | None = None
     limit: int = Field(default=25, ge=1, le=100)
-    archive_audio: bool | None = None
 
 
 class ProcessingPickupResponse(BaseModel):
@@ -1011,9 +1008,6 @@ class ProcessingStatusResponse(BaseModel):
     media_revision_id: UUID | None = None
     workspace_id: UUID
     state: ProcessingStatus
-    archive_audio: bool = True
-    transient_state: str = "not_applicable"
-    transient_purge_due_at: datetime | None = None
     reason_code: str | None = None
     workflow_id: str | None = None
     mediascribe_job_id_present: bool = False

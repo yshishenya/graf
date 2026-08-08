@@ -173,7 +173,6 @@ def session_response(session: object) -> UploadSessionResponse:
         expected_track_sizes=session.expected_track_sizes,
         accepted_bytes_by_track=accepted,
         processing_status=session.processing_status,
-        archive_audio=getattr(session, "archive_audio", True),
         desktop_label=desktop.label,
         desktop_truth_rule=desktop.truth_rule,
     )
@@ -267,7 +266,6 @@ async def create_manual_media_upload(
         title=upload.title,
         local_recording_id=upload.local_recording_id,
         temporal_client=getattr(request.app.state, "temporal_client", None),
-        archive_audio=upload.archive_audio,
     )
     await commit_if_available(db)
     return ManualMediaUploadResponse(
@@ -477,17 +475,15 @@ async def finalize_session(
         manifest_sha256=payload.manifest_sha256,
         tracks=payload.tracks,
         storage=storage,
-        archive_audio=payload.archive_audio,
     )
     await commit_if_available(db)
-    if session.archive_audio:
-        await dispatch_normalization_after_accepted_commit(
-            db=db,
-            settings=request.app.state.settings,
-            tenant_scope=tenant_scope,
-            media_revision_id=session.media_revision_id or meeting.media_revision_id,
-            temporal_client=getattr(request.app.state, "temporal_client", None),
-        )
+    await dispatch_normalization_after_accepted_commit(
+        db=db,
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        media_revision_id=session.media_revision_id or meeting.media_revision_id,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
+    )
     processing = await dispatch_processing_after_finalize(
         db=db,
         settings=request.app.state.settings,

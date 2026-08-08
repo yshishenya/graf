@@ -42,7 +42,7 @@ def test_admin_overview_page_renders_russian_shell_without_forbidden_markers(cli
     assert "2brain Rec" not in response.text
     assert "Администрирование" in response.text
     assert "Пользователи" in response.text
-    assert "Использование и лимиты" in response.text
+    assert "Баланс" in response.text
     assert "Метрики" in response.text
     assert "Аудит" in response.text
     assert "Поддержка" not in response.text
@@ -96,7 +96,7 @@ def test_admin_browser_pages_keep_russian_navigation_and_compact_keyboard_css(cl
         assert response.status_code == 200
         assert "Пользователи" in response.text
         assert "Файлы" in response.text
-        assert "Использование и лимиты" in response.text
+        assert "Баланс" in response.text
         assert "Метрики" in response.text
         assert "Аудит" in response.text
         assert "Поддержка" not in response.text

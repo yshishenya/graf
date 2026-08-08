@@ -100,44 +100,6 @@ Tables:
 - `playback_backfill_runs`
 - `meeting_speaker_names`
 
-## Billing And Account Tables
-
-Billing and account tables added after the original RLS baseline remain in the
-same authoritative production inventory:
-
-- `workspace_subscriptions`
-- `trial_activations`
-- `billing_operations`
-- `billing_invoices`
-- `billing_payment_methods`
-- `billing_entitlement_grants`
-- `observed_provider_refunds`
-- `free_usage_windows`
-- `usage_reservations`
-- `usage_ledger_entries`
-- `storage_reservations`
-- `time_credit_ledger_entries`
-- `billing_audit_events`
-- `billing_notification_deliveries`
-- `billing_webhook_events`
-- `referral_attributions`
-- `promotion_redemptions`
-- `account_closure_requests`
-
-`billing_notification_preferences` is user-scoped and permits only the current
-user or approved maintenance context. `billing_webhook_events` has an explicit
-auth-public workspace binding policy. Their rows are still included in
-`RLS_COVERED_TABLES` and must be enabled and forced in production.
-
-Controlled global tables are also covered:
-
-- `billing_plan_versions`
-- `promotion_campaigns`
-
-They permit only the documented request/worker or approved maintenance
-contexts; they never provide an end-user mutation path for provider secrets or
-raw payloads.
-
 `generation_calls` deliberately has no request-context policy. It is visible to
 the matching workspace worker and approved maintenance contexts only, so the
 retained plaintext model-call ledger cannot become an end-user data surface.

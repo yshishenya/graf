@@ -78,7 +78,6 @@ def public_template_response(
         "/privacy": "legal",
         "/cookies": "legal",
         "/terms": "legal",
-        "/offer": "legal",
         "/analytics-consent": "legal",
     }.get(analytics_path, "future_browser_page")
     context.setdefault("product_analytics_provider", build_browser_provider_context(settings, public_page_class))

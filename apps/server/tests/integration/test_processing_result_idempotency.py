@@ -1,18 +1,11 @@
 import asyncio
-from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
 
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
 from tests.fixtures.processing import create_finalized_meeting
-from twobrain_rec_server.billing.usage import reserve_free_usage
-from twobrain_rec_server.db.models import (
-    ProcessingResult,
-    TranscriptSegment,
-    UsageLedgerEntry,
-    UsageReservation,
-)
+from twobrain_rec_server.db.models import ProcessingResult, TranscriptSegment
 from twobrain_rec_server.domain.statuses import (
     MediaScribeJobStatus,
     ProcessingAvailabilityStatus,
@@ -51,14 +44,6 @@ def test_result_import_is_idempotent_for_same_normalized_result(client) -> None:
                 workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
             )
-            await reserve_free_usage(
-                db,
-                workspace_id=workspace_id,
-                reservation_key=f"processing:{media_revision_id}",
-                declared_seconds=60,
-                now=datetime.now(UTC),
-            )
-            await db.commit()
             submitted = await submit_to_mediascribe(
                 db=db,
                 settings=client.app.state.settings,
@@ -68,21 +53,7 @@ def test_result_import_is_idempotent_for_same_normalized_result(client) -> None:
             )
             await poll_and_import_mediascribe_result(db=db, workflow=workflow, job=submitted.job, mediascribe_client=fake_client)
             await poll_and_import_mediascribe_result(db=db, workflow=workflow, job=submitted.job, mediascribe_client=fake_client)
-            transcript_count = len(
-                (await db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))).all()
-            )
-            ledger_count = len(
-                (await db.scalars(select(UsageLedgerEntry).where(UsageLedgerEntry.workspace_id == workspace_id))).all()
-            )
-            assert ledger_count == 1
-            reservation = await db.scalar(
-                select(UsageReservation).where(
-                    UsageReservation.workspace_id == workspace_id,
-                    UsageReservation.idempotency_key == f"processing:{media_revision_id}",
-                )
-            )
-            assert reservation is not None and reservation.state == "released"
-            return transcript_count
+            return len((await db.scalars(select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))).all())
 
     assert asyncio.run(import_twice()) == 1
 

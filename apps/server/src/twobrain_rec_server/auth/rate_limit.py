@@ -22,10 +22,6 @@ AUTH_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "email_code_verify_address": (10, 15 * 60),
     "email_code_verify_ip": (40, 15 * 60),
     "email_code_verify_state": (10, 15 * 60),
-    "billing_checkout_start": (5, 15 * 60),
-    "billing_status_refresh": (30, 15 * 60),
-    "billing_promo_action": (20, 15 * 60),
-    "billing_referral_issue": (5, 60 * 60),
 }
 
 

@@ -115,31 +115,6 @@ def test_admin_file_detail_reports_retention_and_post_egress_blocks(client) -> N
     assert post_egress_detail.json()["access"]["outcome"] == "unavailable_post_egress_limit"
 
 
-def test_admin_download_and_export_reject_retention_blocked_meeting(client) -> None:
-    asyncio.run(_seed_roles(client))
-    seeds = seed_cabinet_meetings(client)
-    headers = auth_headers_for(user_id=DEFAULT_ADMIN_USER_ID, device_id=DEFAULT_ADMIN_DEVICE_ID)
-    set_artifact_policy(client, seeds.ready_id, audio_download="allowed", package_export="allowed")
-    replace_retained_audio_with_test_wav(client, seeds.ready_id)
-    asyncio.run(
-        _set_meeting_states(
-            client, seeds.ready_id, retention_state=RetentionPolicyState.BLOCKED.value
-        )
-    )
-
-    download = client.get(f"/api/v1/admin/files/{seeds.ready_id}/downloads/audio", headers=headers)
-    export = client.post(
-        f"/api/v1/admin/files/{seeds.ready_id}/exports",
-        headers=headers,
-        json={"artifact_classes": ["audio"]},
-    )
-
-    assert download.status_code == 409
-    assert download.json()["code"] == "unavailable_retention_or_lifecycle_block"
-    assert export.status_code == 409
-    assert export.json()["code"] == "unavailable_retention_or_lifecycle_block"
-
-
 def test_admin_file_type_filter_uses_stored_artifacts_not_download_policy(client) -> None:
     asyncio.run(_seed_roles(client))
     seeds = seed_cabinet_meetings(client)

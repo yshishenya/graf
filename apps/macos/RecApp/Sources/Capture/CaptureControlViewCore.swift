@@ -681,7 +681,7 @@ private struct LiveRecordingMetersView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(SystemAudioStatusLabels.captureAudioTitle)
-                        .font(.system(.headline, design: .rounded, weight: .semibold))
+                        .font(.system(.headline, design: .rounded).weight(.semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     Text(liveSummary)

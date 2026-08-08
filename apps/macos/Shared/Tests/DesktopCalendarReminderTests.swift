@@ -315,37 +315,6 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertFalse(unsafePrompt.accessibilityLabel.localizedCaseInsensitiveContains("passcode"))
     }
 
-    func testBareMeetingLinksUseGenericPromptTitles() throws {
-        let googleMeetEvent = makeEvent(
-            eventId: "google-meet",
-            startsAt: date(120),
-            endsAt: date(300),
-            title: "meet.google.com/abc-defg-hij?token=attacker-secret",
-            titleState: .available,
-            joinPromptDueAt: date(60),
-            openMeetingURL: try XCTUnwrap(URL(string: "https://meet.google.com/abc-defg-hij"))
-        )
-        let teamsEvent = makeEvent(
-            eventId: "teams",
-            startsAt: date(120),
-            endsAt: date(300),
-            title: "teams.microsoft.com/l/meetup-join/19%3ameeting-secret-thread",
-            titleState: .available,
-            joinPromptDueAt: date(60),
-            openMeetingURL: try XCTUnwrap(URL(string: "https://teams.microsoft.com/l/meetup-join/example"))
-        )
-
-        let googlePrompt = DesktopCalendarReminderService.joinPrompt(for: googleMeetEvent)
-        let overlapPrompt = DesktopCalendarReminderService.overlapJoinPrompt(for: [googleMeetEvent, teamsEvent])
-
-        XCTAssertEqual(googlePrompt.title, SystemAudioStatusLabels.calendarGenericMeetingTitle)
-        XCTAssertFalse(googlePrompt.accessibilityLabel.contains("meet.google.com"))
-        XCTAssertEqual(overlapPrompt.choices.map(\.title), [
-            SystemAudioStatusLabels.calendarGenericMeetingTitle,
-            SystemAudioStatusLabels.calendarGenericMeetingTitle
-        ])
-    }
-
     func testOverlappingCurrentEventsFallBackToGenericRecordPrompt() throws {
         let events = [
             makeEvent(eventId: "first", startsAt: date(120), endsAt: date(300), title: "First", recordPromptDueAt: date(120)),

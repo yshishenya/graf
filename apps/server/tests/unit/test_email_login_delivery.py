@@ -59,38 +59,6 @@ async def test_postal_email_login_client_sends_code_with_server_api_key() -> Non
 
 
 @pytest.mark.anyio
-async def test_postal_billing_notification_uses_transactional_tag_and_delivery_key() -> None:
-    seen: dict[str, object] = {}
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        seen["payload"] = json.loads(request.content)
-        return httpx.Response(200, json={"status": "success"})
-
-    client = PostalEmailLoginClient(
-        api_url="http://postal-web:5000",
-        api_key="postal-test-key",
-        from_address="no-reply@rec.2brain.pro",
-        transport=httpx.MockTransport(handler),
-    )
-
-    await client.send_billing_notification(
-        recipient_email="owner@example.test",
-        subject="Платёж подтверждён",
-        plain_body="Оплата прошла успешно.",
-        html_body="<p>Оплата прошла успешно.</p>",
-        delivery_key="billing:delivery-1",
-    )
-
-    payload = seen["payload"]
-    assert isinstance(payload, dict)
-    assert payload["tag"] == "billing-transactional"
-    assert payload["headers"]["X-2brain-Email-Purpose"] == "billing-transactional"
-    assert payload["headers"]["X-2brain-Delivery-Key"] == "billing:delivery-1"
-    assert payload["to"] == ["owner@example.test"]
-    assert "provider" not in payload["plain_body"]
-
-
-@pytest.mark.anyio
 async def test_postal_invitation_resend_is_generic_and_requires_explicit_acceptance() -> None:
     seen: dict[str, object] = {}
 

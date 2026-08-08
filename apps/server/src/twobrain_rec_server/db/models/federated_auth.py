@@ -21,7 +21,6 @@ class ExternalIdentity(Base):
     phone: Mapped[str | None] = mapped_column(String(64))
     display_name: Mapped[str | None] = mapped_column(String(240))
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     subject_issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     meta: Mapped[dict] = mapped_column(JSON, default=dict)

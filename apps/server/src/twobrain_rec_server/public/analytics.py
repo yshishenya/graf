@@ -31,7 +31,6 @@ PUBLIC_ANALYTICS_CTA_LOCATIONS = (
     "hero_download",
     "final_download",
     "hero_login",
-    "hero_product",
     "final_login",
     "download_page_installer",
     "download_page_login",

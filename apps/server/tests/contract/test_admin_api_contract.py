@@ -275,12 +275,6 @@ def test_admin_metrics_and_audit_contract(client) -> None:
     assert metrics.status_code == 200
     assert audit.status_code == 200
     metric_payload = metrics.json()
-    assert set(metric_payload["billing"]) >= {
-        "unknown_operations",
-        "notification_failures",
-        "storage_reserved_bytes",
-        "observed_refunds",
-    }
     assert {card["family"] for card in metric_payload["metrics"]} == {
         "adoption",
         "usage",

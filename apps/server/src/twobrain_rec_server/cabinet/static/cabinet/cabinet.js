@@ -2866,10 +2866,6 @@
       form.dataset.settingsFormReady = "true";
       const status = form.querySelector("[data-settings-form-status]");
       const submit = form.querySelector("button[type='submit']");
-      if (status) {
-        status.setAttribute("role", "status");
-        status.setAttribute("aria-live", "polite");
-      }
       const snapshot = () => new URLSearchParams(new FormData(form)).toString();
       let initial = snapshot();
       const update = () => {
@@ -2893,37 +2889,6 @@
         if (submit) submit.disabled = true;
       });
       update();
-    });
-  };
-
-  const initAccountPreferences = () => {
-    document.querySelectorAll("[data-account-preferences]").forEach((form) => {
-      if (form.dataset.accountPreferencesReady === "true") return;
-      form.dataset.accountPreferencesReady = "true";
-      const applyTheme = (theme) => {
-        document.documentElement.dataset.theme = theme === "system" ? "" : theme;
-        document.documentElement.style.colorScheme = theme === "system" ? "" : theme;
-      };
-      const currentTheme = form.elements.namedItem("theme")?.value || "system";
-      applyTheme(currentTheme);
-      const locale = form.elements.namedItem("locale")?.value;
-      if (locale) document.documentElement.lang = locale.slice(0, 2);
-      form.addEventListener("change", (event) => {
-        if (event.target?.name === "theme") applyTheme(event.target.value);
-        if (event.target?.name === "locale") document.documentElement.lang = event.target.value.slice(0, 2);
-      });
-      form.addEventListener("submit", () => {
-        // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
-        const status = form.querySelector("[data-settings-form-status]");
-        if (status) { status.textContent = "Сохраняем настройки…"; status.hidden = false; }
-        const submit = form.querySelector("button[type='submit']");
-        if (submit) submit.disabled = false;
-      });
-      form.addEventListener("reset", () => window.setTimeout(() => {
-        applyTheme(form.elements.namedItem("theme")?.value || "system");
-        const locale = form.elements.namedItem("locale")?.value;
-        if (locale) document.documentElement.lang = locale.slice(0, 2);
-      }, 0));
     });
   };
 
@@ -3048,7 +3013,6 @@
     const fileCard = dialog.querySelector("[data-manual-upload-file-card]");
     const fileName = dialog.querySelector("[data-manual-upload-file-name]");
     const titleInput = dialog.querySelector("[data-manual-upload-title]");
-    const archiveInput = dialog.querySelector("[data-manual-upload-archive]");
     const durationInput = dialog.querySelector("[data-manual-upload-duration]");
     const localIdInput = dialog.querySelector("[data-manual-upload-local-id]");
     const fileMeta = dialog.querySelector("[data-manual-upload-file-meta]");
@@ -3097,7 +3061,6 @@
       selectedFile = null;
       if (fileInput) fileInput.value = "";
       if (titleInput) titleInput.value = "";
-      if (archiveInput) archiveInput.checked = true;
       if (durationInput) durationInput.value = "";
       if (localIdInput) localIdInput.value = "";
       resetFilePreview();
@@ -3219,7 +3182,7 @@
       activeUploadActivities.clear();
     };
 
-    const createUploadActivity = ({ file, title, duration, localId, archiveAudio }) => {
+    const createUploadActivity = ({ file, title, duration, localId }) => {
       const host = ensureUploadHost();
       uploadCounter += 1;
       const row = document.createElement("article");
@@ -3254,7 +3217,6 @@
         title,
         duration,
         localId,
-        archiveAudio,
         state: "queued",
         xhr: null,
         accepted: false,
@@ -3311,7 +3273,6 @@
       data.append("file", activity.file);
       data.append("duration_seconds", String(activity.duration));
       data.append("local_recording_id", activity.localId);
-      data.append("archive_audio", activity.archiveAudio ? "true" : "false");
       if (activity.title) data.append("title", activity.title);
 
       const xhr = new XMLHttpRequest();
@@ -3537,8 +3498,7 @@
         file: selectedFile,
         title,
         duration,
-        localId: localIdInput.value,
-        archiveAudio: archiveInput?.checked !== false,
+        localId: localIdInput.value
       });
       startActivityUpload(activity);
       closeDialog();
@@ -3548,15 +3508,6 @@
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) closeDialog();
     });
-
-    if (window.location.hash === "#manual-upload") {
-      const trigger = document.querySelector("[data-manual-upload-open]");
-      if (trigger) {
-        const params = new URLSearchParams(window.location.search);
-        if (params.get("archive_audio") === "false" && archiveInput) archiveInput.checked = false;
-        openDialog(trigger);
-      }
-    }
   };
 
   const setRailPinned = (shell, toggle, pinned) => {
@@ -4642,57 +4593,6 @@
     });
   };
 
-  const copyBillingText = async (value) => {
-    if (!value) throw new Error("clipboard_empty");
-    if (navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(value);
-        return;
-      } catch {
-        // Fall through to the native textarea fallback when permissions deny
-        // clipboard access (common in embedded or non-secure contexts).
-      }
-    }
-    const fallback = document.createElement("textarea");
-    fallback.value = value;
-    fallback.setAttribute("readonly", "true");
-    fallback.style.position = "fixed";
-    fallback.style.opacity = "0";
-    document.body.append(fallback);
-    fallback.select();
-    try {
-      if (!document.execCommand("copy")) throw new Error("clipboard_unavailable");
-    } finally {
-      fallback.remove();
-    }
-  };
-
-  const initBillingCopyControls = () => {
-    document.querySelectorAll("[data-copy-value], [data-copy-target]").forEach((button) => {
-      if (button.dataset.copyReady === "true") return;
-      button.dataset.copyReady = "true";
-      button.addEventListener("click", async () => {
-        const targetId = button.dataset.copyTarget;
-        const target = targetId ? document.getElementById(targetId) : null;
-        const value = targetId ? target?.value || target?.textContent?.trim() : button.dataset.copyValue;
-        let status = button.parentElement?.querySelector("[data-copy-status]");
-        if (!status) {
-          status = document.createElement("span");
-          status.dataset.copyStatus = "true";
-          status.setAttribute("role", "status");
-          status.setAttribute("aria-live", "polite");
-          button.parentElement?.append(status);
-        }
-        try {
-          await copyBillingText(value);
-          status.textContent = "Скопировано.";
-        } catch {
-          status.textContent = "Не удалось скопировать. Выделите текст вручную.";
-        }
-      });
-    });
-  };
-
   const initCabinet = () => {
     initAuthTransition();
     initCabinetRail();
@@ -4715,10 +4615,8 @@
     initMeetingDeleteDialog();
     initCalendarSettings();
     initSettingsFormState();
-    initAccountPreferences();
     initSettingsConfirmations();
     initShareInvitationAutoAccept();
-    initBillingCopyControls();
   };
 
   const initShareInvitationAutoAccept = () => {

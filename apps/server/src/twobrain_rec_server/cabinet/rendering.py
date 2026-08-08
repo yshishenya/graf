@@ -19,7 +19,6 @@ from twobrain_rec_server.auth.workspace_onboarding import (
     WorkspaceAccessView,
     WorkspaceJoinOfferView,
 )
-from twobrain_rec_server.billing.notification_preferences import NotificationPreferences
 from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 from twobrain_rec_server.cabinet.auth_rendering import (
     render_email_code_page as render_email_code_page,
@@ -260,14 +259,6 @@ def render_settings_page(
     account_surface: cabinet_view_models.AccountSettingsSurface | None = None,
     provider_link_result: str | None = None,
     device_revoke_result: str | None = None,
-    session_result: str | None = None,
-    notification_result: str | None = None,
-    account_close_result: str | None = None,
-    profile_result: str | None = None,
-    preferences_result: str | None = None,
-    provider_unlink_result: str | None = None,
-    account_active: str = "profile",
-    notification_preferences: object | None = None,
 ) -> str:
     offer_result_copy = {
         "accepted": "Вы присоединились к команде. Личное пространство остаётся вашим.",
@@ -283,12 +274,8 @@ def render_settings_page(
         "provider_link_denied": "Подключение не разрешено текущей политикой.",
         "provider_link_expired": "Срок подключения истёк. Начните заново.",
     }.get(provider_link_result)
-    provider_unlink_result_copy = {
-        "success": "Способ входа отключён. Остальные подтверждённые способы сохранены.",
-    }.get(provider_unlink_result)
     device_revoke_result_copy = {
         "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
-        "others_revoked": "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным.",
         "failed": "Не удалось отозвать устройство. Попробуйте ещё раз.",
     }.get(device_revoke_result)
     content_templates = {
@@ -297,7 +284,6 @@ def render_settings_page(
         "summaries": "cabinet/pages/settings_summaries_content.html",
         "workspace": "cabinet/pages/settings_workspace_content.html",
         "account": "cabinet/pages/settings_account_content.html",
-        "notifications": "cabinet/pages/settings_notifications_content.html",
     }
     titles = {
         "overview": "Настройки",
@@ -305,7 +291,6 @@ def render_settings_page(
         "summaries": "Итоги",
         "workspace": "Пространство",
         "account": "Аккаунт и безопасность",
-        "notifications": "Уведомления",
     }
     resolved_category = category if category in content_templates else "overview"
     settings_context = {
@@ -327,23 +312,7 @@ def render_settings_page(
         "summary_formats": BUILT_IN_TEMPLATES,
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
         "provider_link_result": provider_link_result_copy,
-        "provider_unlink_result": provider_unlink_result_copy,
         "device_revoke_result": device_revoke_result_copy,
-        "session_result": {
-            "revoked": "Сеанс завершён.",
-            "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
-        }.get(session_result),
-        "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(notification_result),
-        "account_close_result": {
-            "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
-            "canceled": "Закрытие аккаунта отменено.",
-        }.get(account_close_result),
-        "profile_result": {"saved": "Профиль сохранён."}.get(profile_result),
-        "preferences_result": {"saved": "Настройки языка, часового пояса и темы сохранены."}.get(
-            preferences_result
-        ),
-        "account_active": account_active,
-        "notification_preferences": notification_preferences or NotificationPreferences(),
     }
     return _page_shell(
         titles[resolved_category],

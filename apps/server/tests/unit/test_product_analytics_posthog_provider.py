@@ -89,8 +89,8 @@ def test_posthog_provider_smoke_allows_product_identity_but_rejects_secrets(tmp_
         event_name="graf_web_autocapture_click",
         distinct_id="graf_pseudo_user_0123456789abcdef",
         properties={
-            "role": "owner",
-            "identity_state": "authenticated_pseudonymous",
+            "role": "owner@example.test",
+            "display_name": "Product Owner",
             "analytics_action": "settings_opened",
         },
     )
@@ -98,7 +98,7 @@ def test_posthog_provider_smoke_allows_product_identity_but_rejects_secrets(tmp_
         event_name="graf_web_autocapture_click",
         distinct_id="graf_pseudo_user_0123456789abcdef",
         properties={
-            "role": "owner",
+            "role": "owner@example.test",
             "analytics_action": "access_token",
         },
     )

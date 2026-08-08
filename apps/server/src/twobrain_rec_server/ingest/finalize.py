@@ -41,7 +41,6 @@ from twobrain_rec_server.ingest.store import (
     persist_finalized_tracks,
     persist_meeting,
     persist_orphan_cleanup_intents,
-    persist_transient_source_objects,
     persist_upload_session,
 )
 from twobrain_rec_server.normalization.service import upsert_playback_normalization_job
@@ -454,7 +453,6 @@ async def finalize_upload(
     manifest_sha256: str,
     tracks: list[TrackDescriptor],
     storage: object | None = None,
-    archive_audio: bool = True,
 ) -> tuple[object, object]:
     # Read a stable snapshot for validation/materialization. Final mutation
     # takes Meeting → MediaRevision → UploadSession locks after storage I/O.
@@ -768,7 +766,6 @@ async def finalize_upload(
     previous_session_status = session.status
     previous_session_processing_status = session.processing_status
     previous_finalized_at = session.finalized_at
-    previous_archive_audio = session.archive_audio
     try:
         meeting.status = MeetingStatus.INGESTED_PENDING_PROCESSING
         meeting.processing_status = ProcessingStatus.NOT_SUBMITTED
@@ -776,7 +773,6 @@ async def finalize_upload(
         session.status = UploadSessionStatus.FINALIZED
         session.processing_status = ProcessingStatus.NOT_SUBMITTED
         session.finalized_at = datetime.now(UTC)
-        session.archive_audio = archive_audio
         await persist_meeting(db, meeting, commit=False)
         await persist_upload_session(db, session, commit=False)
         await persist_finalized_tracks(
@@ -788,29 +784,12 @@ async def finalize_upload(
             finalized_track_object_keys,
             commit=False,
         )
-        if archive_audio:
-            await upsert_playback_normalization_job(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                media_revision_id=session.media_revision_id or meeting.media_revision_id,
-            )
-        else:
-            source_object_keys = {
-                track.track_role: (
-                    finalized_track_object_keys[track.track_role],
-                    track.byte_length,
-                )
-                for track in tracks
-                if track.track_role in {TrackRole.MEDIA, TrackRole.MICROPHONE, TrackRole.SYSTEM}
-            }
-            await persist_transient_source_objects(
-                db,
-                session=session,
-                source_object_keys=source_object_keys,
-                admitted_at=session.finalized_at,
-                commit=False,
-            )
+        await upsert_playback_normalization_job(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            media_revision_id=session.media_revision_id or meeting.media_revision_id,
+        )
         await persist_audit_event(db, event, commit=False)
     except Exception as exc:
         await cleanup_materialized("finalize_persistence_failed")
@@ -820,6 +799,5 @@ async def finalize_upload(
         session.status = previous_session_status
         session.processing_status = previous_session_processing_status
         session.finalized_at = previous_finalized_at
-        session.archive_audio = previous_archive_audio
         raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
     return meeting, session

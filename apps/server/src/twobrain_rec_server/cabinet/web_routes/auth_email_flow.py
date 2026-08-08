@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import Request
@@ -14,11 +14,6 @@ from twobrain_rec_server.auth.audit import write_auth_audit_event
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import callback_expiry, hash_token, issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
-from twobrain_rec_server.billing.referrals import (
-    REFERRAL_TOKEN_MAX_AGE_DAYS,
-    referral_token_hash,
-    validate_referral_token,
-)
 from twobrain_rec_server.cabinet.auth_rendering import (
     _safe_browser_next_path,
     render_email_code_page,
@@ -27,7 +22,6 @@ from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSessionDeviceBinding,
     ExternalIdentity,
-    ReferralAttribution,
     RegisteredDevice,
     UserIdentity,
     Workspace,
@@ -35,7 +29,6 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.db.tenant_context import (
     AuthCallbackLookupContext,
-    AuthReferralLookupContext,
     TenantDatabaseContext,
     WorkspaceAuthContext,
     apply_tenant_context,
@@ -57,63 +50,6 @@ class EmailLoginCompletion:
     token: str
     expires_at: datetime
     requested_redirect: str | None
-    registered: bool = False
-
-
-async def _bind_referral_attribution(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID,
-    user_id: UUID,
-    token: str | None,
-    now: datetime,
-) -> bool:
-    """Bind a first-touch token while the signup transaction is still open."""
-    if not token:
-        return False
-    try:
-        token_hash = referral_token_hash(validate_referral_token(token))
-    except ValueError:
-        return False
-    await apply_tenant_context(
-        db,
-        AuthReferralLookupContext(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            token_hash=token_hash,
-        ),
-    )
-    try:
-        attribution = await db.scalar(
-            select(ReferralAttribution)
-            .where(
-                ReferralAttribution.token_hash == token_hash,
-                ReferralAttribution.invitee_user_id.is_(None),
-                ReferralAttribution.state == "issued",
-            )
-            .with_for_update()
-        )
-        touched_at = attribution.first_touched_at if attribution is not None else None
-        if touched_at is not None:
-            if touched_at.tzinfo is None or touched_at.utcoffset() is None:
-                return False
-            if now - touched_at.astimezone(UTC) > timedelta(days=REFERRAL_TOKEN_MAX_AGE_DAYS):
-                return False
-        if attribution is None or attribution.inviter_user_id == user_id:
-            return False
-        attribution.invitee_user_id = user_id
-        attribution.bound_at = now
-        attribution.state = "bound"
-        return True
-    finally:
-        await apply_tenant_context(
-            db,
-            WorkspaceAuthContext(
-                workspace_id=workspace_id,
-                user_id=user_id,
-                context_kind="auth_bootstrap",
-            ),
-        )
 
 
 async def _record_email_login_audit(
@@ -268,22 +204,13 @@ async def _consume_email_login_code(
             flow=flow,
         )
     workspace, user = await _resolve_email_login_user(db, workspace_id=workspace_id, email=email)
-    registered = False
     if workspace is not None and user is None and allow_registration:
-        user, registered = await _ensure_email_registration_user(
+        user = await _ensure_email_registration_user(
             db,
             workspace=workspace,
             email=email,
             now=now,
         )
-        if registered:
-            await _bind_referral_attribution(
-                db,
-                workspace_id=workspace.id,
-                user_id=user.id,
-                token=request.cookies.get("graf_referral_token"),
-                now=now,
-            )
     if workspace is None or user is None:
         state.result = "failed"
         state.used_at = now
@@ -366,7 +293,6 @@ async def _consume_email_login_code(
         token=issued.token,
         expires_at=issued.expires_at,
         requested_redirect=requested_redirect,
-        registered=registered,
     )
 
 
@@ -395,7 +321,6 @@ async def _resolve_email_login_user(
             .where(
                 UserIdentity.organization_id == workspace.organization_id,
                 UserIdentity.status == "active",
-                ExternalIdentity.is_active.is_(True),
                 func.lower(ExternalIdentity.email) == email,
             )
             .order_by(ExternalIdentity.created_at.asc())
@@ -450,7 +375,7 @@ async def _ensure_email_registration_user(
     workspace: Workspace,
     email: str,
     now: datetime,
-) -> tuple[UserIdentity, bool]:
+) -> UserIdentity:
     await apply_tenant_context(
         db,
         WorkspaceAuthContext(
@@ -466,7 +391,6 @@ async def _ensure_email_registration_user(
             .where(
                 UserIdentity.organization_id == workspace.organization_id,
                 UserIdentity.status == "active",
-                ExternalIdentity.is_active.is_(True),
                 func.lower(ExternalIdentity.email) == email,
             )
             .order_by(ExternalIdentity.created_at.asc())
@@ -485,37 +409,7 @@ async def _ensure_email_registration_user(
         )
         identity.is_verified = True
         identity.last_seen_at = now
-        return user, False
-
-    inactive = (
-        await db.execute(
-            select(ExternalIdentity, UserIdentity)
-            .join(UserIdentity, UserIdentity.id == ExternalIdentity.user_id)
-            .where(
-                UserIdentity.organization_id == workspace.organization_id,
-                UserIdentity.status == "active",
-                ExternalIdentity.provider == EMAIL_LOGIN_PROVIDER,
-                ExternalIdentity.is_active.is_(False),
-                func.lower(ExternalIdentity.email) == email,
-            )
-            .order_by(ExternalIdentity.created_at.asc())
-        )
-    ).first()
-    if inactive is not None:
-        identity, user = inactive
-        await apply_tenant_context(
-            db,
-            WorkspaceAuthContext(
-                workspace_id=workspace.id,
-                organization_id=workspace.organization_id,
-                user_id=user.id,
-                context_kind="auth_bootstrap",
-            ),
-        )
-        identity.is_active = True
-        identity.is_verified = True
-        identity.last_seen_at = now
-        return user, False
+        return user
 
     display_name = email.partition("@")[0].replace(".", " ").replace("_", " ").title() or email
     user = UserIdentity(
@@ -551,7 +445,7 @@ async def _ensure_email_registration_user(
         )
     )
     await db.flush()
-    return user, True
+    return user
 
 
 async def _resolve_email_browser_device(

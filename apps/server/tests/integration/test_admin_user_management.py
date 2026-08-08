@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from uuid import UUID
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.admin import (
     DEFAULT_ADMIN_DEVICE_ID,
     DEFAULT_ADMIN_USER_ID,
@@ -13,7 +11,6 @@ from tests.fixtures.admin import (
     auth_headers_for,
     seed_default_workspace_admin_roles,
 )
-from twobrain_rec_server.db.models import UserIdentity, WorkspaceMembership, WorkspaceSubscription
 
 
 def test_admin_can_manage_members_but_not_owner_authority(client) -> None:
@@ -64,53 +61,6 @@ def test_user_detail_is_workspace_scoped_and_metadata_safe(client) -> None:
     assert "recent_audit" in payload
     assert "transcript_text" not in response.text
     assert "storage_object_key" not in response.text
-
-
-def test_owner_membership_loss_revokes_recurring_authority(client) -> None:
-    async def seed_subscription() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            second_owner_id = UUID("10000000-0000-0000-0000-000000000002")
-            db.add_all(
-                [
-                    UserIdentity(
-                        id=second_owner_id,
-                        organization_id=ORG_ID,
-                        external_subject=str(second_owner_id),
-                        display_name="Second Owner",
-                    ),
-                    WorkspaceMembership(
-                        workspace_id=WORKSPACE_ID,
-                        user_id=second_owner_id,
-                        role="owner",
-                        status="active",
-                    ),
-                    WorkspaceSubscription(
-                        workspace_id=WORKSPACE_ID,
-                        billing_owner_id=USER_ID,
-                        state="personal",
-                        plan_code="personal",
-                        cycle="month",
-                        recurring_allowed=True,
-                    ),
-                ]
-            )
-            await db.commit()
-    asyncio.run(seed_subscription())
-    response = client.patch(
-        f"/api/v1/admin/users/{USER_ID}/membership",
-        headers=auth_headers(),
-        json={"role": "member", "reason_code": "handoff"},
-    )
-    assert response.status_code == 200
-
-    async def read_subscription() -> WorkspaceSubscription:
-        async with client.app_state["sessionmaker"]() as db:
-            return await db.get(WorkspaceSubscription, WORKSPACE_ID)
-
-    subscription = asyncio.run(read_subscription())
-    assert subscription is not None
-    assert subscription.recurring_allowed is False
-    assert subscription.recurring_authority_version == 1
 
 
 async def _seed_roles(client) -> None:

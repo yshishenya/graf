@@ -8,15 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.admin.queries import AdminWorkspaceContext
 from twobrain_rec_server.db.models import (
     AdminAuditEvent,
-    BillingNotificationDelivery,
-    BillingOperation,
     Meeting,
-    ObservedProviderRefund,
     PlaybackBackfillRun,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
     PurgeJournal,
-    StorageReservation,
     WorkspaceMembership,
     WorkspaceUsageDaily,
 )
@@ -94,7 +90,6 @@ async def get_admin_metrics(
         db,
         workspace_id=context.workspace_id,
     )
-    billing = await _billing_metrics(db, workspace_id=context.workspace_id)
     cards = [
         _card(
             "active_users",
@@ -163,104 +158,12 @@ async def get_admin_metrics(
             "/admin/audit",
             date_window=usage_window,
         ),
-        _card(
-            "billing_unknown_operations",
-            "reliability",
-            "Неизвестные платежные исходы",
-            "Операции, ожидающие подтверждения YooKassa",
-            "billing operations",
-            "billing_reconciliation",
-            billing["unknown_operations"],
-            "/admin/metrics?family=reliability",
-            date_window=usage_window,
-        ),
-        _card(
-            "billing_notification_failures",
-            "reliability",
-            "Ошибки уведомлений",
-            "Transactional delivery в retry/failed",
-            "billing notification deliveries",
-            "billing_notifications",
-            billing["notification_failures"],
-            "/admin/metrics?family=reliability",
-            date_window=usage_window,
-        ),
-        _card(
-            "billing_storage_reserved_bytes",
-            "usage",
-            "Зарезервированное хранилище",
-            "Зарезервированные байты playback-архива",
-            "storage reservations",
-            "billing_storage",
-            billing["storage_reserved_bytes"],
-            "/admin/balance",
-            date_window=usage_window,
-        ),
-        _card(
-            "billing_observed_refunds",
-            "governance",
-            "Наблюдаемые возвраты",
-            "Только provider-confirmed reconciliation, без refund mutation",
-            "observed provider refunds",
-            "billing_reconciliation",
-            billing["observed_refunds"],
-            "/admin/metrics?family=governance",
-            date_window=usage_window,
-        ),
     ]
     if family:
         cards = [card for card in cards if card["family"] == family]
     return {
         "metrics": cards,
         "playback_normalization": playback_normalization,
-        "billing": billing,
-    }
-
-
-async def _billing_metrics(db: AsyncSession, *, workspace_id) -> dict[str, int]:
-    operation_state_rows = (
-        await db.execute(
-            select(BillingOperation.state, func.count())
-            .where(BillingOperation.workspace_id == workspace_id)
-            .group_by(BillingOperation.state)
-        )
-    ).all()
-    operation_states = {str(state): int(count) for state, count in operation_state_rows}
-    notification_failures = int(
-        await db.scalar(
-            select(func.count())
-            .select_from(BillingNotificationDelivery)
-            .where(
-                BillingNotificationDelivery.workspace_id == workspace_id,
-                BillingNotificationDelivery.state.in_(("retry", "failed")),
-            )
-        )
-        or 0
-    )
-    reserved_bytes = int(
-        await db.scalar(
-            select(func.coalesce(func.sum(StorageReservation.declared_bytes - StorageReservation.committed_bytes), 0))
-            .where(
-                StorageReservation.workspace_id == workspace_id,
-                StorageReservation.state == "active",
-            )
-        )
-        or 0
-    )
-    observed_refunds = int(
-        await db.scalar(
-            select(func.count())
-            .select_from(ObservedProviderRefund)
-            .where(ObservedProviderRefund.workspace_id == workspace_id)
-        )
-        or 0
-    )
-    return {
-        "unknown_operations": operation_states.get("unknown", 0)
-        + operation_states.get("provider_key_expired", 0),
-        "notification_failures": notification_failures,
-        "storage_reserved_bytes": max(0, reserved_bytes),
-        "observed_refunds": observed_refunds,
     }
 
 

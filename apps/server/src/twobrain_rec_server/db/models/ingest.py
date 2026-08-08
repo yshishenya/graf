@@ -65,9 +65,6 @@ class UploadSession(Base):
     upload_strategy: Mapped[str] = mapped_column(String(64), default="server_mediated")
     status: Mapped[str] = mapped_column(String(64), default="pending")
     processing_status: Mapped[str] = mapped_column(String(64), default="not_submitted")
-    # Explicit user choice.  Existing sessions remain archival by default;
-    # transient/no-archive processing is persisted on this same upload row.
-    archive_audio: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(240))
     expected_track_roles: Mapped[list] = mapped_column(JSON, default=list)
     expected_track_sizes: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -180,23 +177,6 @@ class TrackArtifact(Base):
     derivation_kind: Mapped[str | None] = mapped_column(String(64))
     source_fingerprint_sha256: Mapped[str | None] = mapped_column(String(64))
     validation_version: Mapped[str | None] = mapped_column(String(80))
-    # Current v5 ``media`` and legacy ``microphone``/``system`` sources are
-    # lifecycle-accounted but never customer-quota chargeable.  Playback
-    # verification and transcript import are independent retention gates.
-    source_lifecycle_state: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="not_source"
-    )
-    source_transcript_imported_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    source_playback_verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    source_retention_policy_version: Mapped[str | None] = mapped_column(String(120))
-    source_retention_purge_due_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    source_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

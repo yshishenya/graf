@@ -12,7 +12,7 @@ from twobrain_rec_server.observability.redaction import redact_mapping
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 SHARE_TOKEN_PATH_RE = re.compile(
-    r"(/(?:api/v1/cabinet/(?:share|public-shares|share-invitations)|share|share-invitations|referral)/)[^/?]+"
+    r"(/(?:api/v1/cabinet/(?:share|public-shares|share-invitations)|share|share-invitations)/)[^/?]+"
 )
 LOG_RECORD_BASE_FIELDS = frozenset(logging.makeLogRecord({}).__dict__)
 

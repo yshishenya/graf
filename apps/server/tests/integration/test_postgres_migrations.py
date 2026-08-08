@@ -163,7 +163,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
     postgres_clean_database_url: str,
     monkeypatch,
 ) -> None:
-    """A database at the legacy auth head must reach the current migration head."""
+    """A database deployed at the Feature 125 head must reach Feature 124 head."""
 
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
     get_settings.cache_clear()
@@ -212,7 +212,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             await engine.dispose()
 
     versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
-    assert versions == ["0057_referral_workspace_scope"]
+    assert versions == ["0043_initial_outcome_reconcile"]
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",
@@ -299,18 +299,13 @@ def test_content_regen_downgrade_restores_legacy_meeting_unique_constraints() ->
 
 def test_alembic_revision_ids_fit_default_version_table_length() -> None:
     versions = ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions"
-    legacy_overlength = {
-        "0048_billing_notification_preferences",
-        "0050_referral_token_lookup_context",
-    }
 
     for migration_path in versions.glob("*.py"):
         migration = migration_path.read_text(encoding="utf-8")
         match = re.search(r'^revision: str = "([^"]+)"', migration, re.MULTILINE)
 
         assert match is not None, migration_path.name
-        revision = match.group(1)
-        assert len(revision) <= 32 or revision in legacy_overlength, migration_path.name
+        assert len(match.group(1)) <= 32, migration_path.name
 
 
 def test_workspace_onboarding_migration_keeps_personal_space_and_offer_boundaries() -> None:

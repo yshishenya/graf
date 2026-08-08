@@ -117,41 +117,12 @@ RLS_OPERATOR_TABLES = frozenset(
     }
 )
 
-# Billing/account tables are maintained by later feature migrations, but must
-# remain in the same production RLS truth inventory as the original MVP tables.
-RLS_BILLING_TABLES = frozenset(
-    {
-        "billing_plan_versions",
-        "promotion_campaigns",
-        "promotion_redemptions",
-        "workspace_subscriptions",
-        "trial_activations",
-        "billing_operations",
-        "billing_invoices",
-        "billing_payment_methods",
-        "billing_entitlement_grants",
-        "observed_provider_refunds",
-        "free_usage_windows",
-        "usage_reservations",
-        "usage_ledger_entries",
-        "storage_reservations",
-        "time_credit_ledger_entries",
-        "billing_audit_events",
-        "billing_notification_deliveries",
-        "billing_notification_preferences",
-        "billing_webhook_events",
-        "referral_attributions",
-        "account_closure_requests",
-    }
-)
-
 RLS_COVERED_TABLES = tuple(
     sorted(
         RLS_DIRECT_WORKSPACE_TABLES
         | RLS_INHERITED_WORKSPACE_TABLES
         | RLS_ORGANIZATION_TABLES
         | RLS_OPERATOR_TABLES
-        | RLS_BILLING_TABLES
     )
 )
 
