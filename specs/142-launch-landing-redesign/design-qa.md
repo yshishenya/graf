@@ -1,5 +1,21 @@
 # Design QA: Launch Landing Redesign
 
+## Marketing-proof crop refresh — 2026-08-08
+
+The desktop hero pair was re-composed from the current GRAF runtime screens.
+The product UI, synthetic meeting content, speaker lanes, timestamps and
+player remain intact; only the crop and density were refined to remove unused
+lower space and keep the transcript/outcome pair visually balanced.
+
+| Asset | Pixels | SHA-256 | Provenance |
+|---|---:|---|---|
+| `landing-transcript-proof.png` | 1487 × 1058 | `cb089e669c3e6d943f732a9117861956183da583cf314cd09d56b4f90f0065d9` | Edited from the current real GRAF transcript runtime with synthetic product, sales and support dialogue. |
+| `landing-outcome-proof.png` | 1487 × 1058 | `1d90003066d83a452408f3903fde0f290ba2ab370f35ce3307c4641b3fce9576` | Edited from the matching accepted-outcome runtime for the same synthetic meeting. |
+
+- The mobile source pair remains the privacy-cleared runtime capture so small
+  screens retain exact product truth and readable native controls.
+- No personal data, real names or external meeting content were introduced.
+
 ## Product-proof depth and application breadth — 2026-08-07
 
 The final proof sequence uses one 18-minute synthetic pilot meeting with three

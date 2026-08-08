@@ -260,6 +260,7 @@ h3 {
 
 .hero-copy {
   max-width: 650px;
+  min-width: 0;
 }
 
 .eyebrow,
@@ -346,6 +347,7 @@ h1 span {
 .hero-product {
   position: relative;
   isolation: isolate;
+  min-width: 0;
   width: min(100%, 640px);
   margin: 0 0 0 auto;
   perspective: 1400px;
@@ -381,7 +383,7 @@ h1 span {
 }
 
 .hero-proof-stack {
-  aspect-ratio: 1440 / 1300;
+  aspect-ratio: 1487 / 1058;
   overflow: hidden;
   border-radius: 17px;
   transform: rotateX(1.6deg) rotateZ(-0.55deg) translateY(2px);
@@ -1301,7 +1303,7 @@ h2 {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 820px) {
   :root {
     --page-pad: 18px;
     --section-gap: 80px;

@@ -76,8 +76,8 @@ def test_public_landing_uses_local_static_assets(client) -> None:
     assert "/static/public/landing-hero-product.png?v=" not in response.text
     assert "/static/cabinet/graf-wordmark-dark@2x.png?v=" in response.text
     assert "/static/cabinet/favicon.ico?v=" in response.text
-    assert 'width="1440"' in response.text
-    assert 'height="1300"' in response.text
+    assert 'width="1487"' in response.text
+    assert 'height="1058"' in response.text
     assert 'width="3040"' in response.text
     assert 'height="2000"' in response.text
     assert "/static/public/fonts/onest-cyrillic.woff2?v=" in response.text
