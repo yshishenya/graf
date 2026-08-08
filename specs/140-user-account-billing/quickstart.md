@@ -46,9 +46,12 @@ elsewhere; real-shop canary is a separate approved release step.
 
 - `infra/scripts/ci-local.sh --fast`: PASS, 1014 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
-- Focused billing/account/storage/accessibility/security/UI contracts: PASS;
-  latest billing/security/UI suite: 123 tests; separate disposable-PostgreSQL
-  billing/RLS/storage/registry sample: 31 tests.
+- Billing launch contracts and test-shop e2e: PASS, 8 tests. Focused billing
+  account/checkout/security/UI contracts: PASS, 57 tests.
+- Disposable-PostgreSQL billing lifecycle sample: PASS, 61 tests covering
+  account lifecycle, RLS, checkout, webhooks, promos, referrals, renewals,
+  storage and subscription controls; the isolated container was removed after
+  the run.
 - Focused billing lifecycle, notification and subscription tests: PASS; no
   checkout enablement was performed; evidence is committed locally at the
   current feature SHA and has not been pushed.
