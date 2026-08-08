@@ -1043,10 +1043,6 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .control-list {
-    grid-template-columns: 1fr;
-  }
-
   .outcome-section,
   .control-section {
     gap: 24px;
@@ -1110,14 +1106,6 @@ h3 {
   }
 }
 
-@media (forced-colors: active) {
-  .gradient-text {
-    -webkit-text-fill-color: CanvasText;
-    background: none;
-    color: CanvasText;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -1126,12 +1114,8 @@ h3 {
   .top-nav a,
   .header-cta,
   .secondary-cta,
-  .primary-cta,
-  .pill-tag,
-  .bento-card,
-  .control-card {
+  .primary-cta {
     transition: none;
-    transform: none;
   }
 
   .platform-track {
