@@ -55,8 +55,10 @@ def test_enabled_billing_requires_canonical_https_public_origin(tmp_path) -> Non
             billing_yookassa_shop_id="shop-test",
             billing_yookassa_secret_file=secret,
             billing_yookassa_webhook_secret_file=webhook,
-            billing_referral_secret_file=referral,
-            billing_support_email="support@example.invalid",
+        billing_referral_secret_file=referral,
+        billing_support_email="support@example.invalid",
+        billing_receipt_tax_system_code=2,
+        billing_receipt_vat_code=1,
         )
 
     settings = Settings(
@@ -66,8 +68,10 @@ def test_enabled_billing_requires_canonical_https_public_origin(tmp_path) -> Non
         billing_yookassa_shop_id="shop-test",
         billing_yookassa_secret_file=secret,
         billing_yookassa_webhook_secret_file=webhook,
-        billing_referral_secret_file=referral,
-        billing_support_email="support@example.invalid",
+            billing_referral_secret_file=referral,
+            billing_support_email="support@example.invalid",
+            billing_receipt_tax_system_code=2,
+            billing_receipt_vat_code=1,
     )
     assert settings.public_base_url is not None
 
@@ -88,6 +92,8 @@ def test_enabled_billing_rejects_malformed_support_email(tmp_path) -> None:
             billing_yookassa_webhook_secret_file=paths[1],
             billing_referral_secret_file=paths[2],
             billing_support_email="support\nBcc:x@example.invalid",
+            billing_receipt_tax_system_code=2,
+            billing_receipt_vat_code=1,
         )
 
 

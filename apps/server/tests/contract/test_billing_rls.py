@@ -60,3 +60,10 @@ def test_billing_catalog_is_readable_but_maintenance_only_writable() -> None:
     source = migration.read_text(encoding="utf-8")
     assert "rec_context_kind() in ('request', 'worker')" in source
     assert "with check (rec_maintenance_allowed())" in source
+
+
+def test_referral_owner_lookup_is_scoped_to_selected_workspace() -> None:
+    migration = Path(__file__).parents[2] / "src/twobrain_rec_server/db/migrations/versions/0057_referral_workspace_scope.py"
+    source = migration.read_text(encoding="utf-8")
+    assert "workspace_id = rec_current_workspace_id()" in source
+    assert "rec_context_kind() = 'auth_public'" in source

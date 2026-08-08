@@ -8,6 +8,7 @@ from twobrain_rec_server.db.models import (
     BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
+    Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
 )
@@ -76,7 +77,15 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(monkeypat
         role="owner",
         status="active",
     )
-    db = _FakeDb([operation, invoice, None, owner, None])
+    workspace = Workspace(
+        id=WORKSPACE_ID,
+        organization_id=UUID("66666666-6666-4666-8666-666666666666"),
+        slug="personal",
+        name="Personal",
+        kind="personal",
+        owner_user_id=OWNER_ID,
+    )
+    db = _FakeDb([operation, invoice, None, workspace, owner, None])
 
     result = await entitlements.grant_confirmed_payment(
         db,

@@ -94,7 +94,7 @@ async def reconcile_pending_initial_checkout_operations(
                     payload = await provider.get_payment(operation.provider_id or "")
                     observation = extract_payment_observation(payload, scope=scope)
                     if observation.status == "succeeded":
-                        await grant_confirmed_payment(
+                        grant_result = await grant_confirmed_payment(
                             db,
                             workspace_id=operation.workspace_id,
                             provider_payment_id=observation.provider_payment_id,
@@ -106,7 +106,10 @@ async def reconcile_pending_initial_checkout_operations(
                             payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
                             receipt_registration=observation.receipt_registration,
                         )
-                        counters["succeeded"] += 1
+                        if grant_result in {"granted", "duplicate"}:
+                            counters["succeeded"] += 1
+                        else:
+                            counters["failed"] += 1
                     elif observation.status == "canceled":
                         await release_payment_promo(
                             db,

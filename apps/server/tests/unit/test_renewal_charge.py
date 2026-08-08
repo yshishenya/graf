@@ -98,6 +98,8 @@ def _settings(tmp_path: Path) -> Settings:
         billing_yookassa_webhook_secret_file=webhook_path,
         billing_referral_secret_file=referral_path,
         billing_support_email="billing@2brain.pro",
+        billing_receipt_tax_system_code=2,
+        billing_receipt_vat_code=1,
         credential_encryption_key_file=key_path,
         billing_provider_floor_minor=100,
     )

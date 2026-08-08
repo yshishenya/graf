@@ -59,6 +59,7 @@ from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
     YooKassaProviderError,
+    build_receipt_payload,
     is_allowed_confirmation_url,
 )
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
@@ -356,7 +357,17 @@ async def _billing_role(
             WorkspaceMembership.status == "active",
         )
     )
-    return membership.role if membership is not None else None
+    if membership is None:
+        return None
+    workspace = await db.get(Workspace, tenant_scope.workspace_id)
+    if membership.role == "owner":
+        # Corporate billing is sales-assisted/read-only. A personal owner is
+        # valid only when the workspace's immutable owner marker agrees.
+        if workspace is None or workspace.kind != "personal":
+            return "corporate_owner"
+        if workspace.owner_user_id != principal.user_id:
+            return "member"
+    return membership.role
 
 
 def _can_manage_billing(
@@ -1381,6 +1392,9 @@ async def _billing_owner_subscription(
     tenant_scope: TenantScope,
     principal: AuthenticatedPrincipal,
 ) -> WorkspaceSubscription | None:
+    workspace = await db.get(Workspace, tenant_scope.workspace_id)
+    if workspace is None or workspace.kind != "personal" or workspace.owner_user_id != principal.user_id:
+        return None
     membership = await db.scalar(
         select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
@@ -1900,6 +1914,16 @@ async def start_billing_checkout(
         await db.commit()
         return_url = billing_checkout_return_url(request, safe_invoice_number=intent.invoice_number)
         async with YooKassaClient(settings) as provider:
+            receipt = build_receipt_payload(
+                receipt_contact=invoice.receipt_contact_snapshot,
+                amount_minor=preview.payable_amount_minor,
+                currency=invoice.currency,
+                description=f"GRAF Личный, {preview.cycle}",
+                tax_system_code=settings.billing_receipt_tax_system_code,
+                vat_code=settings.billing_receipt_vat_code,
+                payment_subject=settings.billing_receipt_payment_subject,
+                payment_mode=settings.billing_receipt_payment_mode,
+            )
             payment = await provider.create_payment(
                 amount_minor=preview.payable_amount_minor,
                 currency="RUB",
@@ -1912,6 +1936,7 @@ async def start_billing_checkout(
                     "return_url": return_url,
                 },
                 save_payment_method=True,
+                receipt=receipt,
             )
         confirmation = payment.get("confirmation")
         confirmation_url = confirmation.get("confirmation_url") if isinstance(confirmation, dict) else None
@@ -1961,7 +1986,18 @@ async def start_billing_checkout(
             )
             if unresolved is not None:
                 if unresolved.state == "scheduled":
-                    unresolved.state = "unknown"
+                    # A transport failure before provider_id persistence cannot
+                    # be safely retried automatically; keep it in the same
+                    # blocked, operator-owned state as other unresolved money
+                    # mutations instead of pretending provider truth is known.
+                    unresolved.state = "manual_resolution"
+                    invoice = await db.scalar(
+                        select(BillingInvoice)
+                        .where(BillingInvoice.operation_id == unresolved.id)
+                        .with_for_update()
+                    )
+                    if invoice is not None:
+                        invoice.status = "manual_resolution"
                 await db.commit()
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
 

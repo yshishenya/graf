@@ -8,8 +8,34 @@ from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
     YooKassaProviderError,
+    build_receipt_payload,
 )
 from twobrain_rec_server.config import Settings
+
+
+def test_receipt_payload_uses_exact_minor_unit_amount_and_fails_closed() -> None:
+    receipt = build_receipt_payload(
+        receipt_contact="billing@example.test",
+        amount_minor=10001,
+        currency="RUB",
+        description="Личный",
+        tax_system_code=2,
+        vat_code=1,
+        payment_subject="service",
+        payment_mode="full_payment",
+    )
+    assert receipt["items"][0]["amount"] == {"value": "100.01", "currency": "RUB"}
+    with pytest.raises(YooKassaConfigurationError, match="receipt contact"):
+        build_receipt_payload(
+            receipt_contact=None,
+            amount_minor=10001,
+            currency="RUB",
+            description="Личный",
+            tax_system_code=2,
+            vat_code=1,
+            payment_subject="service",
+            payment_mode="full_payment",
+        )
 
 
 @pytest.mark.asyncio

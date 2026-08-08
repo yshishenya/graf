@@ -17,7 +17,7 @@
   финансовые/неизвестные классы; cabinet-ответы получили DENY/
   `frame-ancestors 'none'` и `Referrer-Policy: no-referrer`.
 - Checkout перебирает последнюю действующую approved-версию каталога, а история
-  платежей показывает только метод текущего billing owner; migration 0056 имеет
+  платежей показывает только метод текущего billing owner; migration 0057 имеет
   симметричный downgrade policy.
 - Каталог цен и ёмкости теперь читается из утверждённой версии в базе и
   сохраняется в immutable checkout/invoice snapshot; renewal planner создаёт
@@ -64,8 +64,8 @@
 - Refund observations проверяют валюту, сумму и cumulative partial-refund cap;
   canonical playback проходит storage reserve/commit с effective plan cutoff;
   production config проверяет оба YooKassa secret-файла. Добавлена миграция
-  `0054_promotion_reservation_counter`, `0055_referral_owner_lookup` и
-  `0056_billing_catalog_write_rls`.
+  `0054_promotion_reservation_counter`, `0055_referral_owner_lookup`,
+  `0056_billing_catalog_write_rls` и `0057_referral_workspace_scope`.
 - Checkout скрывает publishable price до включения магазина, а страницы скидок
   и способа оплаты получили CSRF-защищённые действия `Применить`/`Удалить` и
   безопасное локальное удаление authority без вызова refund/payment API.
@@ -82,6 +82,11 @@
   `ExternalIdentity` и реального owner workspace, designated billing owner
   ограничивает финансовые маршруты, successor проходит отдельный hosted
   re-consent, а YooKassa webhook без proxy-injected secret отклоняется.
+- Trust-boundary hardening: corporate owner переведён в read-only billing,
+  entitlement/referral reward используют owner/payer snapshots, первое
+  free-usage окно сериализуется, replay-conflict webhook отвечает 409,
+  receipt mapping fail-closed передаётся через env, а миграция
+  `0057_referral_workspace_scope` ограничивает referral RLS выбранным workspace.
 - В биллинге показаны точные остаток Free-обработки и срок trial до секунды,
   а сценарий «без сохранения аудио» открывает ручную загрузку с отключённым
   архивированием.

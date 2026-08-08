@@ -163,6 +163,8 @@ async def _handle_billing_webhook(
                 if stored.state not in {"reconciled", "reconciliation_gap"}:
                     stored.state = "pending_reconciliation"
                 await db.commit()
+            if result == "replay_conflict":
+                return JSONResponse(status_code=409, content={"status": result})
     except (ValueError, IntegrityError):
         return JSONResponse(status_code=503, content={"status": "deferred_store_error"})
     request.app.state.billing_last_webhook_metadata = redacted_event_metadata(event)

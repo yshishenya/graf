@@ -36,6 +36,7 @@ from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
     YooKassaProviderError,
+    build_receipt_payload,
 )
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
@@ -506,6 +507,16 @@ async def charge_renewal_operation(
         operation.state = "processing"
         await db.flush()
         async with YooKassaClient(settings) as provider:
+            receipt = build_receipt_payload(
+                receipt_contact=invoice.receipt_contact_snapshot,
+                amount_minor=invoice.amount_minor,
+                currency=invoice.currency,
+                description=f"GRAF Личный, {operation.request_snapshot.get('cycle', 'month')}",
+                tax_system_code=settings.billing_receipt_tax_system_code,
+                vat_code=settings.billing_receipt_vat_code,
+                payment_subject=settings.billing_receipt_payment_subject,
+                payment_mode=settings.billing_receipt_payment_mode,
+            )
             payment = await provider.create_payment(
                 amount_minor=invoice.amount_minor,
                 currency=invoice.currency,
@@ -517,6 +528,7 @@ async def charge_renewal_operation(
                     "invoice_number": invoice.safe_number,
                 },
                 payment_method_id=provider_ref,
+                receipt=receipt,
             )
         provider_id = payment.get("id")
         if not isinstance(provider_id, str):

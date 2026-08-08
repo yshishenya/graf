@@ -29,6 +29,7 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
+    Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
 )
@@ -161,14 +162,23 @@ async def grant_confirmed_payment(
     if plan_code != "personal" or cycle not in {"month", "year"}:
         operation.state = "reconciliation_gap"
         return "snapshot_invalid"
+    try:
+        payer_user_id = UUID(str(snapshot["billing_actor_user_id"]))
+    except (KeyError, TypeError, ValueError):
+        operation.state = "reconciliation_gap"
+        return "snapshot_invalid"
+    workspace = await db.scalar(
+        select(Workspace).where(Workspace.id == workspace_id).with_for_update()
+    )
     owner = await db.scalar(
         select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id == (workspace.owner_user_id if workspace is not None else None),
             WorkspaceMembership.role == "owner",
             WorkspaceMembership.status == "active",
-        ).order_by(WorkspaceMembership.user_id)
+        )
     )
-    if owner is None:
+    if workspace is None or workspace.kind != "personal" or owner is None:
         operation.state = "reconciliation_gap"
         return "owner_missing"
     recurring_actor_matches = recurring_actor_matches_current_owner(
@@ -243,7 +253,7 @@ async def grant_confirmed_payment(
     await create_pending_credit(
         db,
         workspace_id=workspace_id,
-        invitee_user_id=owner.user_id,
+        invitee_user_id=payer_user_id,
         provider_payment_id=provider_payment_id,
         paid_at=paid_at,
         cycle=cycle,

@@ -8,6 +8,7 @@ from starlette.requests import Request
 
 from twobrain_rec_server.billing.yookassa import YooKassaClient, YooKassaConfigurationError
 from twobrain_rec_server.cabinet.web_routes.billing import (
+    _billing_owner_subscription,
     billing_checkout_return_url,
     start_billing_checkout,
 )
@@ -57,6 +58,13 @@ def test_personal_checkout_cannot_run_for_corporate_workspace() -> None:
     source = inspect.getsource(start_billing_checkout)
 
     assert "workspace.kind != \"personal\"" in source
+    assert "workspace.owner_user_id != principal.user_id" in source
+
+
+def test_subscription_mutations_share_personal_owner_gate() -> None:
+    source = inspect.getsource(_billing_owner_subscription)
+
+    assert 'workspace.kind != "personal"' in source
     assert "workspace.owner_user_id != principal.user_id" in source
 
 

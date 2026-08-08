@@ -34,6 +34,15 @@ def test_every_billing_screen_keeps_payment_help_after_the_primary_panel() -> No
         assert html.index("Нужна помощь с оплатой?") > html.index("</section>")
 
 
+def test_member_billing_surfaces_do_not_render_workspace_usage_values() -> None:
+    overview = (TEMPLATE_ROOT / "billing_overview_content.html").read_text(encoding="utf-8")
+    usage = (TEMPLATE_ROOT / "billing_usage_content.html").read_text(encoding="utf-8")
+
+    assert 'billing_role in ["member", "corporate_owner"]' in overview
+    assert 'billing_role in ["member", "corporate_owner"]' in usage
+    assert "Точные объёмы использования видит владелец биллинга" in usage
+
+
 def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
     html = (TEMPLATE_ROOT / "billing_checkout_content.html").read_text(encoding="utf-8")
     assert 'name="cycle" value="month"' in html

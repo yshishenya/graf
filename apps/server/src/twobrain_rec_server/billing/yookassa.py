@@ -21,6 +21,55 @@ class YooKassaProviderError(RuntimeError):
         self.status_code = status_code
 
 
+def _format_minor_amount(amount_minor: int) -> str:
+    return f"{amount_minor // 100}.{amount_minor % 100:02d}"
+
+
+def build_receipt_payload(
+    *,
+    receipt_contact: str | None,
+    amount_minor: int,
+    currency: str,
+    description: str,
+    tax_system_code: int | None,
+    vat_code: int | None,
+    payment_subject: str,
+    payment_mode: str,
+) -> dict[str, Any]:
+    """Build one exact positive full-payment receipt line.
+
+    Fiscal/tax values are deployment approvals, never inferred from a user
+    profile. Missing values fail closed before any provider mutation.
+    """
+    if (
+        not isinstance(receipt_contact, str)
+        or "@" not in receipt_contact
+        or any(char in receipt_contact for char in "\r\n")
+        or not 1 <= len(receipt_contact) <= 254
+    ):
+        raise YooKassaConfigurationError("receipt contact is unavailable")
+    if amount_minor <= 0 or currency != "RUB":
+        raise ValueError("receipt amount is invalid")
+    if tax_system_code not in {1, 2, 3, 4, 5, 6} or vat_code not in {1, 2, 3, 4, 5, 6}:
+        raise YooKassaConfigurationError("receipt tax mapping is unavailable")
+    if payment_subject not in {"service", "commodity"} or payment_mode != "full_payment":
+        raise YooKassaConfigurationError("receipt payment mode is unavailable")
+    return {
+        "customer": {"email": receipt_contact},
+        "tax_system_code": tax_system_code,
+        "items": [
+            {
+                "description": description[:128],
+                "quantity": "1.00",
+                "amount": {"value": _format_minor_amount(amount_minor), "currency": currency},
+                "vat_code": vat_code,
+                "payment_mode": payment_mode,
+                "payment_subject": payment_subject,
+            }
+        ],
+    }
+
+
 ALLOWED_YOOKASSA_HOSTS = frozenset(
     {
         "api.yookassa.ru",
@@ -103,15 +152,18 @@ class YooKassaClient:
         metadata: dict[str, str],
         save_payment_method: bool = False,
         payment_method_id: str | None = None,
+        receipt: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if amount_minor < self._provider_floor_minor:
             raise ValueError("payment amount is below provider floor")
         payload = {
-            "amount": {"value": f"{amount_minor / 100:.2f}", "currency": currency},
+            "amount": {"value": _format_minor_amount(amount_minor), "currency": currency},
             "capture": True,
             "description": description[:128],
             "metadata": metadata,
         }
+        if receipt is not None:
+            payload["receipt"] = receipt
         if payment_method_id is not None:
             if save_payment_method:
                 raise ValueError("recurring payment cannot save a new payment method")

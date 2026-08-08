@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import FREE_PROCESSING_SECONDS, classify_free_processing
-from twobrain_rec_server.db.models import FreeUsageWindow, UsageLedgerEntry
+from twobrain_rec_server.db.models import FreeUsageWindow, UsageLedgerEntry, Workspace
 from twobrain_rec_server.db.models import UsageReservation as UsageReservationRow
 
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -150,6 +150,10 @@ async def reserve_free_usage(
     if declared_seconds <= 0 or not reservation_key.strip():
         raise ValueError("usage reservation is invalid")
     window_start, window_end = moscow_window_for(now)
+    # Serialize first-window creation as well as later reservations. The
+    # unique window key alone turns the first concurrent insert into an
+    # unhandled IntegrityError.
+    await db.scalar(select(Workspace).where(Workspace.id == workspace_id).with_for_update())
     window = await db.scalar(
         select(FreeUsageWindow)
         .where(FreeUsageWindow.workspace_id == workspace_id, FreeUsageWindow.window_start == window_start)

@@ -55,7 +55,7 @@ elsewhere; real-shop canary is a separate approved release step.
 - Focused billing lifecycle, notification and subscription tests: PASS; no
   checkout enablement was performed; evidence is committed on the feature
   branch and remains gated from public enablement.
-- Latest hardening pass: UI/accessibility/usability contracts 22 passed; focused
+- Latest hardening pass: UI/accessibility/usability contracts 23 passed; focused
   disposable-PostgreSQL billing/account/security suite 72 passed; provider
   refund observation regression test confirms referral reversal uses the
   original payer snapshot after ownership changes. Full fast unit/PostgreSQL
@@ -74,7 +74,7 @@ elsewhere; real-shop canary is a separate approved release step.
   row lock; refund webhook backstop follows YooKassa cursor pages with a bounded
   20-page safety limit. These are covered by focused disposable-PostgreSQL and
   adapter/webhook tests; live provider evidence and manual sign-offs remain open.
-- Current migration head for the billing branch is `0056_billing_catalog_write_rls`:
+- Current migration head for the billing branch is `0057_referral_workspace_scope`:
   plan and promotion catalog rows remain readable in request/worker contexts,
   but inserts/updates require the maintenance role. Webhook bodies are read in
   bounded chunks without relying on `Content-Length`; enabling billing also

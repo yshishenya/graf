@@ -32,6 +32,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        env_ignore_empty=True,
         populate_by_name=True,
     )
 
@@ -235,6 +236,12 @@ class Settings(BaseSettings):
     billing_referral_secret_file: Path | None = None
     billing_provider_floor_minor: int = 1
     billing_support_email: str | None = None
+    # Fiscal receipt mapping is deliberately explicit: an unknown 54-ФЗ/VAT
+    # setup must keep checkout fail-closed instead of guessing a legal default.
+    billing_receipt_tax_system_code: int | None = None
+    billing_receipt_vat_code: int | None = None
+    billing_receipt_payment_subject: str = "service"
+    billing_receipt_payment_mode: str = "full_payment"
     billing_emergency_stop: bool = False
 
     yandex_client_id: str = "twobrain-yandex-client-id"
@@ -564,6 +571,14 @@ class Settings(BaseSettings):
             raise ValueError("enabled billing requires a safe support email")
         if self.billing_provider_floor_minor <= 0:
             raise ValueError("billing provider floor must be positive")
+        if self.billing_receipt_tax_system_code not in {1, 2, 3, 4, 5, 6}:
+            raise ValueError("enabled billing requires an approved receipt tax system code")
+        if self.billing_receipt_vat_code not in {1, 2, 3, 4, 5, 6}:
+            raise ValueError("enabled billing requires an approved receipt VAT code")
+        if self.billing_receipt_payment_subject not in {"service", "commodity"}:
+            raise ValueError("billing receipt payment subject is invalid")
+        if self.billing_receipt_payment_mode != "full_payment":
+            raise ValueError("only full_payment receipt mode is supported")
         return self
 
     @model_validator(mode="after")

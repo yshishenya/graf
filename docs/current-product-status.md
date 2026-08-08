@@ -50,7 +50,7 @@ Date: 2026-08-08
   timestamp в invoice/operation snapshot, запрет Trial поверх действующего
   paid-through, каталог-управляемые цены с годовой экономией, timeline статуса
   платежа и привязку referral reversal к исходному payer snapshot, а не к
-  текущему владельцу workspace. Контрактные UI/accessibility/usability проверки: 22
+  текущему владельцу workspace. Контрактные UI/accessibility/usability проверки: 23
   passed; focused billing/account/security/PostgreSQL suite: 72 passed. Последний
   fast PostgreSQL контур после hardening checkout/referral/renewal/catalog: 1022 passed.
 
