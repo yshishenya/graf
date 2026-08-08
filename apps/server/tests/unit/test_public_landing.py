@@ -206,7 +206,9 @@ def test_public_pages_do_not_publish_unapproved_price_or_checkout_claims(client)
     assert "₽" not in combined
     assert "рублей" not in combined.lower()
     assert "цена скоро" not in combined.lower()
-    assert "тарифы" not in combined.lower()
+    # A legal/footer link may mention tariffs; public pages must not publish
+    # an amount or promise an enabled checkout before catalog approval.
+    assert 'class="pricing-section"' not in combined
     assert "тарифный" not in combined.lower()
     assert "юkassa" not in combined.lower()
     assert "yookassa" not in combined.lower()

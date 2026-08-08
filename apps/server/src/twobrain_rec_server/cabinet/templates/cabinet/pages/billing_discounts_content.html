@@ -1,0 +1,35 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing") }}
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar"><div class="page-title"><h1>Скидки</h1><p class="muted">Промокод применяется только к одной оплате и не складывается с реферальной скидкой.</p></div></header>
+      {% if result == "invalid" %}<p class="notice" role="alert">Промокод не найден или сейчас недоступен. Проверьте код и попробуйте снова.</p>{% elif result == "promo_applied" %}<p class="notice" role="status" aria-live="polite">Промокод сохранён для проверки на странице оплаты. Скидка будет зафиксирована только в подтверждённом платеже.</p>{% elif result == "removed" %}<p class="notice" role="status" aria-live="polite">Выбранный промокод удалён из текущей попытки оплаты.</p>{% endif %}
+      <section class="settings-section cabinet-card" aria-labelledby="billing-discounts-title">
+        <h2 id="billing-discounts-title">История применений</h2>
+        {% if active_promotions %}<h3>Действующие предложения</h3><ul class="settings-choice-list" aria-label="Действующие предложения">{% for item in active_promotions %}<li class="settings-choice-row"><span>{{ item.discount_label }}</span><span class="muted">до {{ item.expiry_label }}</span></li>{% endfor %}</ul>{% endif %}
+        {% if billing_owner %}
+        <p class="muted">Код проверяется сервером и не резервируется до создания платежа. Одновременно применяется только одна скидка.</p>
+        <form action="/billing/discounts/apply" method="post">
+          <label for="billing-discount-code">Промокод</label>
+          <input id="billing-discount-code" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48">
+          <div class="settings-actions"><button class="button" type="submit">Применить</button><a class="button quiet" href="/billing/checkout">Добавить промокод на оплате</a></div>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
+        </form>
+        <form action="/billing/discounts/remove" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}"><button class="button quiet" type="submit">Удалить</button></form>
+        {% endif %}
+        {% if redemptions %}
+        <ul class="settings-choice-list" aria-label="История скидок">
+          {% for item in redemptions %}<li class="settings-choice-row"><div><strong>{{ item.discount_label }}</strong><span class="muted">{{ item.state_label }}{% if item.cycle_label %} · {{ item.cycle_label }}{% endif %}</span></div><span class="muted">Код не отображается после применения</span></li>{% endfor %}
+        </ul>
+        {% else %}<p role="status">Применённых промокодов пока нет.</p>{% endif %}
+      </section>
+      <section class="settings-section cabinet-card" aria-labelledby="billing-referral-discount-title">
+        <h2 id="billing-referral-discount-title">Реферальная скидка</h2>
+        <p>Приглашённый получает 10% на первую оплату. Пригласивший получает 7 дней за месячный платёж или 30 дней за годовой после 14 дней подтверждения. Денежного баланса нет.</p>
+        <a class="button quiet" href="/referrals">Открыть реферальную систему</a>
+      </section>
+      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
+    </div>
+  </div>
+</main>

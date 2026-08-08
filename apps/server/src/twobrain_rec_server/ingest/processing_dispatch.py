@@ -42,6 +42,7 @@ async def dispatch_processing_after_finalize(
         limit=1,
         temporal_client=temporal_client,
         tenant_scope=tenant_scope,
+        archive_audio=session.archive_audio,
     )
 
     stored_meeting = await db.get(Meeting, meeting.id)

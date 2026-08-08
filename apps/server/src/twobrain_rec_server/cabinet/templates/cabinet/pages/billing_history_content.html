@@ -1,0 +1,35 @@
+{% import "cabinet/components/settings_navigation.html" as settings_ui %}
+<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+  <div class="cabinet-workspace settings-page">
+    {{ settings_ui.navigation(settings_navigation, active=settings_active, back_href="/billing") }}
+    <div class="settings-page__content">
+      <header class="cabinet-topbar settings-page__topbar">
+        <div class="page-title"><h1>История платежей</h1><p class="muted">Здесь показаны только безопасные данные платежей и чеков.</p></div>
+      </header>
+      <section class="settings-section cabinet-card" aria-labelledby="billing-history-title">
+        <h2 id="billing-history-title">Платежи</h2>
+        {% if invoices %}
+        <ul class="settings-choice-list" aria-label="История платежей">
+          {% for invoice in invoices %}
+          <li class="settings-choice-row">
+            <div><strong>{{ invoice.amount_label }}</strong><span class="muted">{{ invoice.safe_number }} · {{ invoice.status_label|default(invoice.status) }} · {{ invoice.cycle_label|default("Период уточняется") }}{% if invoice.created_at %} · {{ invoice.created_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}</span>{% if invoice.discount_label %}<span class="muted">{{ invoice.discount_label }}</span>{% endif %}{% if invoice.payment_method_label %}<span class="muted">Способ оплаты: {{ invoice.payment_method_label }}</span>{% endif %}<span class="muted">{{ invoice.receipt_label|default("Чек: статус уточняется") }}</span></div>
+            <div class="settings-actions">
+              <a class="button quiet" href="{{ invoice.detail_url }}">Открыть</a>
+              <button class="button quiet" type="button" data-copy-value="{{ invoice.safe_number }}">Скопировать номер платежа</button>
+              {% if support_email %}<button class="button quiet" type="button" data-copy-value="{{ support_email }}">Скопировать email</button>{% endif %}
+              {% if invoice.refund_mailto %}<a class="button quiet" href="{{ invoice.refund_mailto }}">Написать письмо</a>{% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}<p role="status">Платежей пока нет.</p>{% endif %}
+      </section>
+      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
+      <section class="settings-section cabinet-card" aria-labelledby="billing-refund-title">
+        <h2 id="billing-refund-title">Вопрос о возврате</h2>
+        <p>Возврат не оформляется автоматически и не создаёт заявку в продукте. Напишите в поддержку и укажите номер платежа.</p>
+        <p class="muted">Не отправляйте данные карты, идентификаторы YooKassa, ссылки или содержимое встреч.{% if support_email %} Адрес поддержки: {{ support_email }}.{% endif %}</p>
+      </section>
+    </div>
+  </div>
+</main>

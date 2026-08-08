@@ -13,15 +13,18 @@ from twobrain_rec_server.admin.permissions import (
 )
 from twobrain_rec_server.admin.queries import AdminWorkspaceContext
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
     AdminAuditEvent,
     AuthSession,
+    BillingAuditEvent,
     Meeting,
     RegisteredDevice,
     UserIdentity,
     UserUsageDaily,
     WorkspaceInvitation,
     WorkspaceMembership,
+    WorkspaceSubscription,
 )
 
 
@@ -246,6 +249,7 @@ async def update_workspace_membership(
     requested_status: str | None,
     reason_code: str | None,
 ) -> dict[str, object]:
+    await lock_storage_workspace(db, context.workspace_id)
     membership = await db.get(
         WorkspaceMembership,
         {"workspace_id": context.workspace_id, "user_id": target_user_id},
@@ -258,6 +262,8 @@ async def update_workspace_membership(
             "role": membership.role,
             "status": membership.status,
         }
+    previous_role = membership.role
+    previous_status = membership.status
     active_owner_count = int(
         await db.scalar(
             select(func.count())
@@ -298,6 +304,31 @@ async def update_workspace_membership(
         membership.role = requested_role
     if requested_status is not None:
         membership.status = requested_status
+    was_active_billing_owner = previous_role == "owner" and previous_status == "active"
+    is_active_billing_owner = membership.role == "owner" and membership.status == "active"
+    if was_active_billing_owner and not is_active_billing_owner:
+        subscription = await db.scalar(
+            select(WorkspaceSubscription)
+            .where(WorkspaceSubscription.workspace_id == context.workspace_id)
+            .with_for_update()
+        )
+        if subscription is not None and subscription.billing_owner_id == target_user_id:
+            # Keep the historical owner id for referral/refund attribution; recurring authority is revoked.
+            subscription.recurring_allowed = False
+            subscription.recurring_authority_version += 1
+            subscription.application_version += 1
+            db.add(
+                BillingAuditEvent(
+                    workspace_id=context.workspace_id,
+                    actor_user_id=context.actor_user_id,
+                    action="billing.owner_authority_revoked",
+                    target_kind="workspace_subscription",
+                    target_ref=str(context.workspace_id),
+                    outcome="success",
+                    reason_code="owner_membership_changed",
+                    metadata_json={"recurring_allowed": "false"},
+                )
+            )
     await write_admin_audit_event(
         db,
         workspace_id=context.workspace_id,

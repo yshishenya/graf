@@ -9,7 +9,12 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Feature 140 добавляет личный кабинет тарифа и оплаты, hosted checkout YooKassa,
+  промокоды, referral credits, usage/storage controls, renewal и ручной refund
+  back-office процесс. Checkout остаётся выключенным до canary и согласований.
+- Billing secrets остаются server-only и монтируются через Docker secrets;
+  receipt/VAT mapping передаётся через fail-closed env, а migration head
+  включает workspace-scoped referral RLS `0057_referral_workspace_scope`.
 
 ### Изменено
 - _Пока нет записей._
@@ -24,7 +29,8 @@
   потенциально секретных domain/path строк.
 
 ### Документы
-- _Пока нет записей._
+- Добавлены Spec Kit артефакты Feature 140, launch runbook и metadata-only
+  evidence с production blockers и canary checklist.
 
 ### Операции
 - _Пока нет записей._

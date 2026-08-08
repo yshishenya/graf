@@ -56,6 +56,8 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case blockedReviewUnavailable = "blocked_review_unavailable"
     case blockedUnknownRoute = "blocked_unknown_route"
     case openExternalSafeLink = "open_external_safe_link"
+    case openBrowserOwnedBilling = "open_browser_owned_billing"
+    case openBrowserOwnedAccount = "open_browser_owned_account"
     case openBrowserOwnedAdmin = "open_browser_owned_admin"
     case invalidURL = "invalid_url"
 }
@@ -240,6 +242,22 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Open workspace admin in your browser."
             )
         }
+        if isBrowserOwnedBillingRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .external),
+                decision: .openExternally,
+                reason: .openBrowserOwnedBilling,
+                userMessage: "Откройте тариф и оплату в браузере."
+            )
+        }
+        if isBrowserOwnedAccountRoute(components) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .external),
+                decision: .openExternally,
+                reason: .openBrowserOwnedAccount,
+                userMessage: "Откройте раздел аккаунта в браузере."
+            )
+        }
         if isFutureGovernanceRoute(components) {
             return block(path: path, kind: .unsupported, reason: .blockedFutureGovernance, message: "This action opens in a future browser-owned release.")
         }
@@ -375,6 +393,12 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     }
 
     private func isSettingsRoute(_ components: [String]) -> Bool {
+        if components.count >= 2,
+           components[0] == "desktop",
+           components[1] == "account" {
+            let tail = Array(components.dropFirst(2))
+            return tail.isEmpty || (tail.count == 1 && ["profile", "security", "notifications"].contains(tail[0]))
+        }
         guard components.count >= 2,
               components[0] == "desktop",
               components[1] == "settings"
@@ -383,7 +407,12 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         }
 
         let tail = Array(components.dropFirst(2))
-        if tail.isEmpty || (tail.count == 1 && ["recording", "summaries", "workspace", "account"].contains(tail[0])) {
+        if tail.isEmpty || (tail.count == 1 && ["recording", "summaries", "workspace", "account", "notifications"].contains(tail[0])) {
+            return true
+        }
+        if tail.count == 2,
+           tail[0] == "account",
+           ["profile", "security", "notifications"].contains(tail[1]) {
             return true
         }
         if tail.count == 4,
@@ -391,6 +420,18 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
            tail[1] == "devices",
            tail[3] == "revoke" {
             return isSafeMeetingId(tail[2])
+        }
+        if tail.count == 4,
+           tail[0] == "account",
+           tail[1] == "sessions",
+           tail[3] == "revoke" {
+            return isSafeMeetingId(tail[2])
+        }
+        if tail.count == 3,
+           tail[0] == "account",
+           ["devices", "sessions"].contains(tail[1]),
+           tail[2] == "revoke-others" {
+            return true
         }
         if tail.count == 2, tail[0] == "provider-links" {
             return isSafeMeetingId(tail[1])
@@ -400,6 +441,12 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 return isSafeProviderId(tail[1])
             }
             return tail[2] == "confirm" && isSafeMeetingId(tail[1])
+        }
+        if tail.count == 4,
+           tail[0] == "account",
+           tail[1] == "providers",
+           tail[3] == "unlink" {
+            return isSafeMeetingId(tail[2])
         }
         if tail.count == 3, tail[0] == "spaces", tail[2] == "activate" {
             return isSafeMeetingId(tail[1])
@@ -440,6 +487,20 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
     private func isAdminRoute(_ components: [String]) -> Bool {
         components.first?.lowercased() == "admin"
+    }
+
+    private func isBrowserOwnedBillingRoute(_ components: [String]) -> Bool {
+        guard components.first == "billing" else { return false }
+        if components.count == 1 { return true }
+        if components.count == 2 {
+            return ["usage", "subscription", "payment-method", "checkout", "history", "storage"].contains(components[1])
+        }
+        if components == ["billing", "checkout", "return"] { return true }
+        return components.count == 3 && components[1] == "invoices" && isSafeMeetingId(components[2])
+    }
+
+    private func isBrowserOwnedAccountRoute(_ components: [String]) -> Bool {
+        components == ["referrals"] || components == ["account", "referrals"]
     }
 
     private func isNativeCaptureControlRoute(_ components: [String]) -> Bool {

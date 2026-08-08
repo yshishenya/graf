@@ -35,6 +35,26 @@ class ConfirmedProviderLink:
         self.idempotent = idempotent
 
 
+def recovery_safe_unlink_allowed(
+    *,
+    verified_identity_count: int,
+    target_is_verified: bool,
+    has_independent_recovery_path: bool = False,
+) -> bool:
+    """Guard login-method removal without weakening account recovery.
+
+    A method can be removed only when it is a verified identity and another
+    verified login or independently verified recovery path remains.  The
+    caller still owns authorization, row locking and audit; this pure rule is
+    deliberately easy to exercise in contract tests.
+    """
+    if verified_identity_count < 0:
+        raise ValueError("verified identity count cannot be negative")
+    return target_is_verified and (
+        verified_identity_count > 1 or has_independent_recovery_path
+    )
+
+
 def _now(now: datetime | None) -> datetime:
     return now or datetime.now(UTC)
 
@@ -127,6 +147,7 @@ async def create_link_intent(
         select(ExternalIdentity).where(
             ExternalIdentity.user_id == principal.user_id,
             ExternalIdentity.provider == session.provider,
+            ExternalIdentity.is_active.is_(True),
         )
     )
     if source is None:
@@ -293,6 +314,9 @@ async def confirm_provider_link(
             actor_user_id=principal.user_id,
         )
         raise ProviderLinkError("provider_link_conflict")
+    if identity is not None and identity.user_id == principal.user_id:
+        identity.is_active = True
+        identity.is_verified = True
     if identity is None:
         try:
             async with db.begin_nested():

@@ -622,6 +622,22 @@ if [[ "${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}" == "true" \
   echo "litellm_secret_permissions_result=pass"
 fi
 
+if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+  for billing_secret in \
+    "${TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE:-./secrets/twobrain_yookassa_secret}" \
+    "${TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE:-./secrets/twobrain_yookassa_webhook_secret}" \
+    "${TWOBRAIN_BILLING_REFERRAL_SECRET_FILE:-./secrets/twobrain_billing_referral_secret}"; do
+    if ! secure_runtime_secret_file "$billing_secret"; then
+      echo "deploy_result=blocked"
+      echo "reason=billing_secret_permissions_invalid"
+      exit 1
+    fi
+  done
+  echo "billing_secret_permissions_result=pass"
+else
+  echo "billing_secret_permissions_result=disabled"
+fi
+
 ensure_generated_secret \
   "${TWOBRAIN_POSTGRES_APP_PASSWORD_FILE:-./secrets/twobrain_postgres_app_password}" 32
 ensure_generated_secret \

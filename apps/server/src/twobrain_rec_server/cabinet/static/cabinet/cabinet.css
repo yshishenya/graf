@@ -29,6 +29,21 @@
   --app-rail-width: 64px;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, ui-sans-serif, sans-serif;
 }
+html[data-theme="dark"] { color-scheme: dark; }
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f4f5f7;
+  --surface-3: #e9ebef;
+  --line: #c9cdd3;
+  --line-soft: rgba(0,0,0,.12);
+  --text: #1c2026;
+  --muted: #555d68;
+  --subtle: #737a84;
+  --focus-ring: #4d32cc;
+}
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { min-height: 100%; margin: 0; background: var(--bg); color: var(--text); overflow-x: hidden; }
@@ -1748,6 +1763,21 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .settings-section p { margin: 0; }
 .settings-page__topbar { align-items: flex-start; }
 .settings-page__topbar .page-title { min-width: 0; }
+.account-navigation { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.account-navigation a { min-height: 40px; padding: 9px 12px; border: 1px solid var(--line-soft); border-radius: 8px; color: var(--muted); }
+.account-navigation a:hover,
+.account-navigation a[aria-current="page"] { color: var(--text); border-color: var(--accent); background: var(--surface-3); }
+.account-navigation a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.account-navigation__divider { width: 1px; min-height: 24px; margin: 8px 2px; background: var(--line-soft); }
+.account-navigation__logout { display: contents; }
+.account-navigation__logout button { min-height: 40px; padding: 9px 12px; border: 1px solid var(--line-soft); border-radius: 8px; color: var(--muted); background: transparent; font: inherit; cursor: pointer; }
+.account-navigation__logout button:hover { color: var(--text); border-color: var(--accent); background: var(--surface-3); }
+.account-navigation__logout button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.account-profile-form,
+.account-preferences-form { display: grid; gap: 10px; max-width: 520px; }
+.account-profile-form__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.account-preferences-form fieldset { display: grid; gap: 8px; border: 0; padding: 0; margin: 2px 0 0; }
+.account-preferences-form fieldset label { display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .eyebrow {
   margin: 0 0 5px;
   color: var(--subtle);
@@ -1853,6 +1883,8 @@ h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; font-weig
 .settings-page h1,
 .settings-page h2,
 .settings-page h3 { color: var(--text); }
+.billing-cycle-choice { min-width: 0; margin: 0; padding: 0; border: 0; }
+.billing-cycle-choice legend { margin-bottom: 10px; color: var(--text); font-weight: 750; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }

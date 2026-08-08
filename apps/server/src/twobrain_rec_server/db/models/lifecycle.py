@@ -114,6 +114,9 @@ class PurgeJournal(Base):
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     safe_reason: Mapped[str | None] = mapped_column(String(240))
+    # Metadata-only accounting/lifecycle evidence.  Never store signed URLs,
+    # transcript text or provider credentials here.
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

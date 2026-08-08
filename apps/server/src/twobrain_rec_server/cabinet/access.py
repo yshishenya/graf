@@ -629,6 +629,7 @@ async def recipient_share_access_proof(
             await session.scalars(
                 select(ExternalIdentity.email).where(
                     ExternalIdentity.user_id == recipient_scope.user_id,
+                    ExternalIdentity.is_active.is_(True),
                     ExternalIdentity.is_verified.is_(True),
                     ExternalIdentity.email.is_not(None),
                 )
@@ -689,6 +690,7 @@ async def _share_grant_recipient_is_valid(
             await db.scalars(
                 select(ExternalIdentity.email).where(
                     ExternalIdentity.user_id == viewer_user_id,
+                    ExternalIdentity.is_active.is_(True),
                     ExternalIdentity.is_verified.is_(True),
                     ExternalIdentity.email.is_not(None),
                 )
@@ -1146,6 +1148,7 @@ async def search_share_recipients(
                 ExternalIdentity,
                 and_(
                     ExternalIdentity.user_id == UserIdentity.id,
+                    ExternalIdentity.is_active.is_(True),
                     ExternalIdentity.is_verified.is_(True),
                 ),
             )
@@ -1213,6 +1216,7 @@ async def search_share_recipients(
                 ExternalIdentity,
                 and_(
                     ExternalIdentity.user_id == UserIdentity.id,
+                    ExternalIdentity.is_active.is_(True),
                     ExternalIdentity.is_verified.is_(True),
                 ),
             )

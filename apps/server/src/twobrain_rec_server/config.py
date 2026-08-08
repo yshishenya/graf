@@ -32,6 +32,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        env_ignore_empty=True,
         populate_by_name=True,
     )
 
@@ -206,7 +207,9 @@ class Settings(BaseSettings):
     max_package_bytes: PositiveInt = Field(default=5_368_709_120)
     max_upload_part_bytes: PositiveInt = Field(default=1_073_741_824)
     max_upload_spool_memory_bytes: PositiveInt = Field(default=8_388_608)
-    upload_session_ttl_seconds: PositiveInt = Field(default=86_400)
+    # Billing/media lifecycle contract: an upload may never remain active
+    # beyond the 24-hour hard lifetime, even if deployment env is misconfigured.
+    upload_session_ttl_seconds: PositiveInt = Field(default=86_400, le=86_400)
     auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
     web_csrf_secret: str = "twobrain_rec_dev_web_csrf_secret"
     share_identity_hash_secret: str = "twobrain_rec_dev_share_identity_hash_secret"
@@ -216,8 +219,30 @@ class Settings(BaseSettings):
     retention_meeting_delete_after_days: PositiveInt | None = Field(default=365)
     retention_backup_expiry_days: PositiveInt | None = Field(default=30)
     retention_local_buffer_expiry_days: PositiveInt | None = Field(default=7)
+    # Normal transcription-source purge is opt-in until product/privacy/legal
+    # approve a concrete recovery policy; missing configuration is fail-closed.
+    retention_source_audio_days: PositiveInt | None = Field(default=None)
+    retention_source_audio_policy_version: str = "unconfigured"
     auth_storage_region_tag: str = "ru"
     auth_ru_local_storage_attested: bool = False
+
+    # Billing is fail-closed until the merchant, legal and receipt gates are
+    # explicitly enabled in the deployment environment.
+    billing_checkout_enabled: bool = False
+    billing_yookassa_base_url: AnyUrl | None = None
+    billing_yookassa_shop_id: str | None = None
+    billing_yookassa_secret_file: Path | None = None
+    billing_yookassa_webhook_secret_file: Path | None = None
+    billing_referral_secret_file: Path | None = None
+    billing_provider_floor_minor: int = 1
+    billing_support_email: str | None = None
+    # Fiscal receipt mapping is deliberately explicit: an unknown 54-ФЗ/VAT
+    # setup must keep checkout fail-closed instead of guessing a legal default.
+    billing_receipt_tax_system_code: int | None = None
+    billing_receipt_vat_code: int | None = None
+    billing_receipt_payment_subject: str = "service"
+    billing_receipt_payment_mode: str = "full_payment"
+    billing_emergency_stop: bool = False
 
     yandex_client_id: str = "twobrain-yandex-client-id"
     vk_client_id: str = "twobrain-vk-client-id"
@@ -252,6 +277,7 @@ class Settings(BaseSettings):
         "credential_encryption_key_file",
         "web_csrf_secret_file",
         "share_identity_hash_secret_file",
+        "billing_referral_secret_file",
         "support_incident_github_token_file",
         "langfuse_public_key_file",
         "langfuse_secret_key_file",
@@ -352,6 +378,15 @@ class Settings(BaseSettings):
         if value < 90:
             raise ValueError("product_analytics_retention_min_days must be at least 90")
         return value
+
+    @model_validator(mode="after")
+    def validate_source_retention_safety(self) -> "Settings":
+        if self.retention_source_audio_days is not None and (
+            not self.retention_source_audio_policy_version.strip()
+            or self.retention_source_audio_policy_version == "unconfigured"
+        ):
+            raise ValueError("source audio retention requires an explicit policy version")
+        return self
 
     @model_validator(mode="after")
     def validate_playback_normalization_safety(self) -> "Settings":
@@ -505,6 +540,48 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def validate_billing_safety(self) -> "Settings":
+        if not self.billing_checkout_enabled:
+            return self
+        if self.legacy_header_auth_enabled:
+            raise ValueError("enabled billing cannot use legacy header authentication")
+        if self.billing_yookassa_base_url is None or self.billing_yookassa_base_url.scheme != "https":
+            raise ValueError("enabled billing requires an HTTPS YooKassa base URL")
+        if self.public_base_url is None or self.public_base_url.scheme != "https":
+            raise ValueError("enabled billing requires an HTTPS public_base_url")
+        if (
+            not self.billing_yookassa_shop_id
+            or self.billing_yookassa_secret_file is None
+            or self.billing_yookassa_webhook_secret_file is None
+            or self.billing_referral_secret_file is None
+        ):
+            raise ValueError("enabled billing requires YooKassa shop, provider/webhook and referral secret files")
+        for field_name, path in (
+            ("billing_yookassa_secret_file", self.billing_yookassa_secret_file),
+            ("billing_yookassa_webhook_secret_file", self.billing_yookassa_webhook_secret_file),
+            ("billing_referral_secret_file", self.billing_referral_secret_file),
+        ):
+            if not path.is_file() or not path.read_text(encoding="utf-8").strip():
+                raise ValueError(f"enabled billing requires a non-empty {field_name}")
+        if (
+            not self.billing_support_email
+            or any(char in self.billing_support_email for char in "\r\n")
+            or not _is_valid_email_address(self.billing_support_email)
+        ):
+            raise ValueError("enabled billing requires a safe support email")
+        if self.billing_provider_floor_minor <= 0:
+            raise ValueError("billing provider floor must be positive")
+        if self.billing_receipt_tax_system_code not in {1, 2, 3, 4, 5, 6}:
+            raise ValueError("enabled billing requires an approved receipt tax system code")
+        if self.billing_receipt_vat_code not in {1, 2, 3, 4, 5, 6}:
+            raise ValueError("enabled billing requires an approved receipt VAT code")
+        if self.billing_receipt_payment_subject not in {"service", "commodity"}:
+            raise ValueError("billing receipt payment subject is invalid")
+        if self.billing_receipt_payment_mode != "full_payment":
+            raise ValueError("only full_payment receipt mode is supported")
+        return self
+
+    @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
@@ -604,6 +681,15 @@ class Settings(BaseSettings):
             ),
             "web_csrf_secret_file": (
                 self.web_csrf_secret_file if self.web_runtime_enabled else None
+            ),
+            "billing_referral_secret_file": (
+                self.billing_referral_secret_file if self.billing_checkout_enabled else None
+            ),
+            "billing_yookassa_secret_file": (
+                self.billing_yookassa_secret_file if self.billing_checkout_enabled else None
+            ),
+            "billing_yookassa_webhook_secret_file": (
+                self.billing_yookassa_webhook_secret_file if self.billing_checkout_enabled else None
             ),
             "support_incident_github_token_file": self.support_incident_github_token_file,
             "product_analytics_posthog_project_key_file": self.product_analytics_posthog_project_key_file,

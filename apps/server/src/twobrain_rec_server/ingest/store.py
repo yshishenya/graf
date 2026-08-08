@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import TrackDescriptor
+from twobrain_rec_server.billing.source_lifecycle import admit_transient_media
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     IngestAuditEvent,
@@ -87,6 +88,7 @@ class UploadSessionRecord:
     media_revision_id: UUID | None = None
     upload_strategy: UploadStrategy = UploadStrategy.SERVER_MEDIATED
     processing_status: ProcessingStatus = ProcessingStatus.NOT_SUBMITTED
+    archive_audio: bool = True
     expected_track_roles: list[TrackRole] = field(
         default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
     )
@@ -441,6 +443,7 @@ async def persist_upload_session(
                 upload_strategy=session.upload_strategy.value,
                 status=session.status.value,
                 processing_status=session.processing_status.value,
+                archive_audio=session.archive_audio,
                 idempotency_key=session.idempotency_key,
                 expected_track_roles=expected_roles,
                 expected_track_sizes=expected_sizes,
@@ -452,6 +455,7 @@ async def persist_upload_session(
     else:
         existing.status = session.status.value
         existing.processing_status = session.processing_status.value
+        existing.archive_audio = session.archive_audio
         existing.expected_track_roles = expected_roles
         existing.expected_track_sizes = expected_sizes
         existing.finalized_at = session.finalized_at
@@ -511,6 +515,7 @@ async def load_upload_session_record(
         expires_at=model.expires_at,
         upload_strategy=UploadStrategy(model.upload_strategy),
         processing_status=ProcessingStatus(model.processing_status),
+        archive_audio=bool(model.archive_audio),
         expected_track_roles=expected_roles,
         expected_track_sizes=expected_sizes,
         finalized_at=model.finalized_at,
@@ -917,3 +922,61 @@ async def persist_finalized_tracks(
             )
         )
     await _finish_write(db, commit=commit)
+
+
+async def persist_transient_source_objects(
+    db: AsyncSession | None,
+    *,
+    session: UploadSessionRecord,
+    source_object_keys: dict[TrackRole, tuple[str, int]],
+    admitted_at: datetime,
+    commit: bool = False,
+) -> None:
+    """Record no-archive source objects on the existing upload lifecycle.
+
+    No second media inventory is introduced.  The same ``temporary_upload_objects``
+    rows used for upload cleanup become the durable custody record until the
+    processing workflow's bounded purge closes them.
+    """
+
+    if session.archive_audio:
+        raise ValueError("transient source objects require archive_audio=False")
+    for track_role, (object_key, byte_length) in source_object_keys.items():
+        if track_role not in {
+            TrackRole.MEDIA,
+            TrackRole.MICROPHONE,
+            TrackRole.SYSTEM,
+        }:
+            raise ValueError("transient source must be an audio track")
+        if not object_key or byte_length <= 0:
+            raise ValueError("transient source object metadata is invalid")
+        admit_transient_media(now=admitted_at, source_bytes=byte_length, archive_requested=False)
+        existing = await db.scalar(
+            select(TemporaryUploadObject)
+            .where(
+                TemporaryUploadObject.upload_session_id == session.id,
+                TemporaryUploadObject.storage_object_key == object_key,
+            )
+            .with_for_update()
+        ) if db is not None else None
+        if existing is None:
+            if db is None:
+                continue
+            db.add(
+                TemporaryUploadObject(
+                    upload_session_id=session.id,
+                    media_revision_id=session.media_revision_id,
+                    workspace_id=session.workspace_id,
+                    storage_object_key=object_key,
+                    byte_length=byte_length,
+                    object_role="transient_source",
+                    cleanup_status="processing",
+                )
+            )
+        else:
+            existing.object_role = "transient_source"
+            existing.cleanup_status = "processing"
+            existing.byte_length = byte_length
+            existing.media_revision_id = session.media_revision_id
+    if db is not None:
+        await _finish_write(db, commit=commit)

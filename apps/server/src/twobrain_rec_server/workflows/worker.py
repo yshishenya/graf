@@ -2,24 +2,58 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
+from html import escape
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from twobrain_rec_server.auth.account_closure import (
+    finalize_account_close,
+    list_due_account_closures,
+)
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.auth.email_delivery import (
     EmailLoginDeliveryError,
     send_account_created_email,
+    send_billing_notification,
     send_meeting_invitation,
 )
+from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+from twobrain_rec_server.billing.maintenance import reconcile_billing_maintenance
+from twobrain_rec_server.billing.notifications import (
+    MANDATORY_NOTIFICATION_KINDS,
+    BillingNotification,
+    NotificationEvent,
+    notification_copy,
+)
+from twobrain_rec_server.billing.operations import provider_key_is_expired
+from twobrain_rec_server.billing.renewal_charge import (
+    charge_renewal_operation,
+    pending_renewal_charge_candidates,
+    plan_due_renewals,
+    project_renewal_cutoffs,
+)
+from twobrain_rec_server.billing.webhook_reconciliation import (
+    reconcile_pending_initial_checkout_operations,
+    reconcile_pending_webhook_events,
+)
+from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.models import (
+    AccountClosureRequest,
+    BillingAuditEvent,
+    BillingInvoice,
+    BillingNotificationDelivery,
+    BillingNotificationPreference,
+    BillingOperation,
     ExternalIdentity,
     Meeting,
     MeetingShareInvitation,
     UserIdentity,
+    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import (
@@ -28,7 +62,12 @@ from twobrain_rec_server.db.tenant_context import (
     apply_tenant_scope,
 )
 from twobrain_rec_server.deletion.local_purge import reconcile_expired_local_purge_tasks
-from twobrain_rec_server.deletion.service import reconcile_deletion_purges
+from twobrain_rec_server.deletion.service import (
+    fanout_account_close_deletions,
+    reconcile_deletion_purges,
+    reconcile_source_retention_purges,
+    reconcile_transient_media_purges,
+)
 from twobrain_rec_server.domain.statuses import ProcessingStatus
 from twobrain_rec_server.mediascribe.client import MediaScribeClient, MediaScribeClientError
 from twobrain_rec_server.outcomes.ai_service import (
@@ -52,6 +91,20 @@ from twobrain_rec_server.processing.submit import (
     submit_to_mediascribe,
 )
 from twobrain_rec_server.storage.minio_client import get_storage
+from twobrain_rec_server.workflows.billing_reconciliation_workflow import (
+    BILLING_RECONCILIATION_ACTIVITY_NAME,
+    BillingReconciliationWorkflow,
+    billing_reconciliation_task_queue,
+    start_billing_reconciliation_workflow,
+    validate_billing_reconciliation_payload,
+)
+from twobrain_rec_server.workflows.billing_renewal_workflow import (
+    BILLING_RENEWAL_ACTIVITY_NAME,
+    BillingRenewalWorkflow,
+    billing_renewal_task_queue,
+    start_billing_renewal_workflow,
+    validate_billing_renewal_payload,
+)
 from twobrain_rec_server.workflows.invitation_delivery_workflow import (
     AccountCreatedEmailWorkflow,
     InvitationDeliveryWorkflow,
@@ -72,6 +125,632 @@ from twobrain_rec_server.workflows.temporal_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+BILLING_RENEWAL_RECONCILE_STATES = frozenset(
+    {"scheduled", "sent", "processing", "unknown", "provider_key_expired"}
+)
+BILLING_RENEWAL_TERMINAL_STATES = frozenset({"succeeded", "canceled", "succeeded_refused"})
+
+
+def _provider_amount_minor(payment: dict[str, Any]) -> tuple[int, str]:
+    amount = payment.get("amount")
+    if not isinstance(amount, dict):
+        raise ValueError("provider payment amount is missing")
+    currency = amount.get("currency")
+    if not isinstance(currency, str) or not currency:
+        raise ValueError("provider payment currency is missing")
+    try:
+        decimal_value = Decimal(str(amount["value"]))
+    except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
+        raise ValueError("provider payment amount is invalid") from exc
+    minor_value = decimal_value * 100
+    if (
+        not decimal_value.is_finite()
+        or decimal_value < 0
+        or minor_value != minor_value.to_integral_value()
+    ):
+        raise ValueError("provider payment amount precision is invalid")
+    return int(minor_value), currency
+
+
+def _validate_authoritative_renewal_payment(
+    payment: dict[str, Any],
+    *,
+    operation: BillingOperation,
+    invoice: BillingInvoice,
+) -> str:
+    if payment.get("id") != operation.provider_id:
+        raise ValueError("provider payment reference does not match")
+    metadata = payment.get("metadata")
+    if not isinstance(metadata, dict):
+        raise ValueError("provider payment metadata is missing")
+    if metadata.get("workspace_id") != str(operation.workspace_id):
+        raise ValueError("provider payment workspace does not match")
+    if metadata.get("operation_id") != str(operation.id):
+        raise ValueError("provider payment operation does not match")
+    amount_minor, currency = _provider_amount_minor(payment)
+    if amount_minor != invoice.amount_minor or currency != invoice.currency:
+        raise ValueError("provider payment amount does not match")
+    status = payment.get("status")
+    if not isinstance(status, str) or not status:
+        raise ValueError("provider payment status is missing")
+    return status
+
+
+def _renewal_authority_matches(
+    operation: BillingOperation,
+    subscription: WorkspaceSubscription | None,
+) -> bool:
+    if subscription is None or not subscription.recurring_allowed:
+        return False
+    authority_version = operation.request_snapshot.get("recurring_authority_version")
+    return (
+        isinstance(authority_version, int)
+        and not isinstance(authority_version, bool)
+        and authority_version == subscription.recurring_authority_version
+    )
+
+
+async def run_billing_renewal_reconciler(settings: Any, temporal_client: object) -> None:
+    """Plan one renewal, charge it once, then reconcile provider truth."""
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="graf-maintenance",
+        reason_category="renewal_provider_truth_recovery",
+        feature_area="billing",
+    )
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    now = datetime.now(UTC)
+                    await project_renewal_cutoffs(db, now=now)
+                    await plan_due_renewals(
+                        db,
+                        now=now,
+                        provider_floor_minor=settings.billing_provider_floor_minor,
+                    )
+                    await db.commit()
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    charge_candidates = await pending_renewal_charge_candidates(
+                        db,
+                        now=datetime.now(UTC),
+                    )
+                for operation_id, workspace_id in charge_candidates:
+                    try:
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            await charge_renewal_operation(
+                                db,
+                                settings,
+                                operation_id=operation_id,
+                                workspace_id=workspace_id,
+                            )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception("billing renewal charge attempt failed")
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    rows = (
+                        await db.execute(
+                            select(BillingOperation.id, BillingOperation.workspace_id)
+                            .where(
+                                BillingOperation.kind == "renewal",
+                                BillingOperation.provider_id.is_not(None),
+                                BillingOperation.state.in_(BILLING_RENEWAL_RECONCILE_STATES),
+                            )
+                            .order_by(BillingOperation.updated_at, BillingOperation.id)
+                            .limit(100)
+                        )
+                    ).all()
+                for operation_id, workspace_id in rows:
+                    await start_billing_renewal_workflow(
+                        temporal_client=temporal_client,
+                        settings=settings,
+                        operation_id=operation_id,
+                        workspace_id=workspace_id,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("billing renewal reconciliation cycle failed")
+            await asyncio.sleep(60)
+    finally:
+        await engine.dispose()
+
+
+async def run_billing_reconciliation_reconciler(settings: Any, temporal_client: object) -> None:
+    """Schedule one bounded maintenance workflow per five-minute UTC bucket."""
+    try:
+        while True:
+            bucket = datetime.now(UTC).replace(second=0, microsecond=0)
+            bucket = bucket.replace(minute=(bucket.minute // 5) * 5)
+            run_id = uuid5(NAMESPACE_URL, f"graf-billing-reconciliation:{bucket.isoformat()}")
+            try:
+                await start_billing_reconciliation_workflow(
+                    temporal_client=temporal_client,
+                    settings=settings,
+                    run_id=run_id,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("billing maintenance workflow scheduling failed")
+            await asyncio.sleep(300)
+    except asyncio.CancelledError:
+        raise
+
+
+async def run_billing_notification_reconciler(settings: Any) -> None:
+    """Deliver bounded transactional notices exactly once per outbox row."""
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        # Reuse the existing narrowly-approved billing maintenance operation;
+        # the observer is read-only and must not widen the RLS allowlist.
+        operation_name="billing_reconciliation",
+        actor_id="graf-maintenance",
+        reason_category="durable_notification_backlog",
+        feature_area="billing",
+    )
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    verified_email = (
+                        select(
+                            ExternalIdentity.user_id,
+                            func.min(ExternalIdentity.email).label("email"),
+                        )
+                        .where(
+                            ExternalIdentity.email.is_not(None),
+                            ExternalIdentity.is_active.is_(True),
+                            ExternalIdentity.is_verified.is_(True),
+                        )
+                        .group_by(ExternalIdentity.user_id)
+                        .subquery()
+                    )
+                    rows = (
+                        await db.execute(
+                            select(
+                                BillingNotificationDelivery,
+                                verified_email.c.email,
+                                BillingNotificationPreference.optional_email_enabled,
+                            )
+                            .join(verified_email, verified_email.c.user_id == BillingNotificationDelivery.recipient_id)
+                            .outerjoin(
+                                BillingNotificationPreference,
+                                BillingNotificationPreference.user_id == BillingNotificationDelivery.recipient_id,
+                            )
+                            .where(
+                                BillingNotificationDelivery.channel == "email",
+                                BillingNotificationDelivery.state.in_(("pending", "retry")),
+                            )
+                            .order_by(BillingNotificationDelivery.created_at, BillingNotificationDelivery.id)
+                            .limit(50)
+                        )
+                    ).all()
+                for row, recipient_email, optional_email_enabled in rows:
+                    try:
+                        kind = BillingNotification(row.template_key)
+                        if (
+                            kind not in MANDATORY_NOTIFICATION_KINDS
+                            and optional_email_enabled is False
+                        ):
+                            async with sessionmaker() as db:
+                                await apply_tenant_context(db, context)
+                                suppressed = await db.scalar(
+                                    select(BillingNotificationDelivery)
+                                    .where(BillingNotificationDelivery.id == row.id)
+                                    .with_for_update()
+                                )
+                                if suppressed is not None and suppressed.state in {"pending", "retry"}:
+                                    suppressed.state = "suppressed"
+                                await db.commit()
+                            continue
+                        title, body = notification_copy(
+                            NotificationEvent(
+                                event_id=row.event_id,
+                                kind=kind,
+                                safe_payload=row.safe_payload or {},
+                            )
+                        )
+                        action_path = (row.safe_payload or {}).get("action_path")
+                        base_url = str(getattr(settings, "public_base_url", "")).rstrip("/")
+                        action_url = f"{base_url}{action_path}" if base_url and isinstance(action_path, str) else None
+                        plain = body if action_url is None else f"{body}\n\nОткрыть кабинет: {action_url}"
+                        html = (
+                            f"<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;"
+                            f"max-width:560px;line-height:1.5\"><h1>{escape(title)}</h1><p>{escape(body)}</p>"
+                            + (f"<p><a href=\"{escape(action_url, quote=True)}\">Открыть кабинет</a></p>" if action_url else "")
+                            + "</div>"
+                        )
+                        await send_billing_notification(
+                            settings=settings,
+                            recipient_email=str(recipient_email),
+                            subject=title,
+                            plain_body=plain,
+                            html_body=html,
+                            delivery_key=f"billing:{row.id}",
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            failed = await db.scalar(
+                                select(BillingNotificationDelivery)
+                                .where(BillingNotificationDelivery.id == row.id)
+                                .with_for_update()
+                            )
+                            if failed is not None and failed.state in {"pending", "retry"}:
+                                failed.attempts += 1
+                                failed.last_error_code = type(exc).__name__[:64]
+                                failed.state = "retry" if failed.attempts < 5 else "failed"
+                            await db.commit()
+                        logger.warning("billing notification delivery failed", exc_info=True)
+                    else:
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            delivered = await db.scalar(
+                                select(BillingNotificationDelivery)
+                                .where(BillingNotificationDelivery.id == row.id)
+                                .with_for_update()
+                            )
+                            if delivered is not None and delivered.state in {"pending", "retry"}:
+                                delivered.state = "delivered"
+                                delivered.delivered_at = datetime.now(UTC)
+                            await db.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("billing notification reconciliation cycle failed")
+            await asyncio.sleep(60)
+    finally:
+        await engine.dispose()
+
+
+async def run_account_closure_reconciler(settings: Any, temporal_client: object | None = None) -> None:
+    """Finalize due account-close cooling windows durably.
+
+    The row is the source of truth and the loop is restart-safe.  A future
+    Temporal workflow may claim the same IDs; row locks make duplicate claims
+    harmless and no meeting deletion is falsely reported as complete here.
+    """
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    storage = get_storage(settings)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="graf-maintenance",
+        reason_category="account_close_finalization",
+        feature_area="account",
+    )
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    request_ids = await list_due_account_closures(
+                        db, now=datetime.now(UTC), limit=100
+                    )
+                for request_id in request_ids:
+                    try:
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            request = await db.scalar(
+                                select(AccountClosureRequest)
+                                .where(AccountClosureRequest.id == request_id)
+                                .with_for_update()
+                            )
+                            if request is None or request.state not in {"scheduled", "blocked"}:
+                                continue
+                            # Account closure reuses the already-audited meeting
+                            # deletion path.  If storage or one purge is
+                            # unavailable, keep the close blocked and retry only
+                            # after an operator-visible reconciliation action.
+                            await fanout_account_close_deletions(
+                                db,
+                                workspace_id=request.workspace_id,
+                                storage=storage,
+                                temporal_client=temporal_client,
+                            )
+                            await finalize_account_close(
+                                db, request_id=request_id, now=datetime.now(UTC)
+                            )
+                            await db.commit()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.exception("account close finalization blocked")
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            blocked = await db.scalar(
+                                select(AccountClosureRequest)
+                                .where(AccountClosureRequest.id == request_id)
+                                .with_for_update()
+                            )
+                            if blocked is not None and blocked.state == "scheduled":
+                                blocked.state = "blocked"
+                                blocked.failure_reason = type(exc).__name__[:240]
+                                blocked.metadata_json = {
+                                    **(blocked.metadata_json or {}),
+                                    "blocked_reason": "meeting_deletion_fanout_failed",
+                                }
+                                await db.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("account close reconciliation cycle failed")
+            await asyncio.sleep(30)
+    finally:
+        close_storage = getattr(storage, "close", None)
+        if close_storage is not None:
+            close_storage()
+        await engine.dispose()
+
+
+async def run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[str, int | str]:
+    """Run one bounded billing maintenance pass; provider mutations are out of scope."""
+    from temporalio.exceptions import ApplicationError
+
+    try:
+        safe_payload = validate_billing_reconciliation_payload(payload)
+    except ValueError as exc:
+        raise ApplicationError(
+            "billing_reconciliation_payload_invalid",
+            type="BillingReconciliationInvalidPayload",
+            non_retryable=True,
+        ) from exc
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="graf-workflow-worker",
+        reason_category="billing_maintenance",
+        feature_area="billing",
+    )
+    try:
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            counters = await reconcile_billing_maintenance(db)
+            webhook_counters = await reconcile_pending_webhook_events(db, settings)
+            initial_checkout_counters = await reconcile_pending_initial_checkout_operations(db, settings)
+            await db.commit()
+        return {
+            "run_id": safe_payload["run_id"],
+            **counters,
+            **{f"webhook_{k}": v for k, v in webhook_counters.items()},
+            **{f"initial_checkout_{k}": v for k, v in initial_checkout_counters.items()},
+        }
+    finally:
+        await engine.dispose()
+
+
+async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str]:
+    """Observe provider truth for one persisted renewal operation.
+
+    This activity is deliberately observation-only at the provider boundary.
+    A retry repeats GET for the same operation and can never create another
+    payment or idempotency key.
+    """
+    from temporalio.exceptions import ApplicationError
+
+    try:
+        safe_payload = validate_billing_renewal_payload(payload)
+    except ValueError as exc:
+        raise ApplicationError(
+            "billing_renewal_payload_invalid",
+            type="BillingRenewalInvalidPayload",
+            non_retryable=True,
+        ) from exc
+
+    operation_id = UUID(safe_payload["operation_id"])
+    workspace_id = UUID(safe_payload["workspace_id"])
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="graf-workflow-worker",
+        reason_category="renewal_provider_truth_recovery",
+        feature_area="billing",
+    )
+    try:
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            operation = await db.scalar(
+                select(BillingOperation).where(
+                    BillingOperation.id == operation_id,
+                    BillingOperation.workspace_id == workspace_id,
+                )
+            )
+            if operation is None or operation.kind != "renewal":
+                raise ApplicationError(
+                    "billing_renewal_operation_invalid",
+                    type="BillingRenewalInvalidPayload",
+                    non_retryable=True,
+                )
+            if operation.state in BILLING_RENEWAL_TERMINAL_STATES:
+                return {"operation_id": str(operation_id), "status": operation.state}
+            if operation.provider_id is None:
+                raise ApplicationError(
+                    "billing_renewal_provider_reference_missing",
+                    type="BillingRenewalProviderMismatch",
+                    non_retryable=True,
+                )
+            invoice = await db.scalar(
+                select(BillingInvoice).where(
+                    BillingInvoice.operation_id == operation_id,
+                    BillingInvoice.workspace_id == workspace_id,
+                )
+            )
+            if invoice is None:
+                raise ApplicationError(
+                    "billing_renewal_invoice_missing",
+                    type="BillingRenewalProviderMismatch",
+                    non_retryable=True,
+                )
+            provider_id = operation.provider_id
+
+        try:
+            async with YooKassaClient(settings) as provider:
+                payment = await provider.get_payment(provider_id)
+        except Exception as exc:
+            raise ApplicationError(
+                "billing_provider_observation_unavailable",
+                type="BillingProviderObservationUnavailable",
+            ) from exc
+
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            operation = await db.scalar(
+                select(BillingOperation)
+                .where(
+                    BillingOperation.id == operation_id,
+                    BillingOperation.workspace_id == workspace_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if operation is None or operation.kind != "renewal":
+                raise ApplicationError(
+                    "billing_renewal_operation_invalid",
+                    type="BillingRenewalInvalidPayload",
+                    non_retryable=True,
+                )
+            if operation.state in BILLING_RENEWAL_TERMINAL_STATES:
+                return {"operation_id": str(operation_id), "status": operation.state}
+            invoice = await db.scalar(
+                select(BillingInvoice).where(
+                    BillingInvoice.operation_id == operation_id,
+                    BillingInvoice.workspace_id == workspace_id,
+                )
+            )
+            if invoice is None or operation.provider_id != provider_id:
+                raise ApplicationError(
+                    "billing_renewal_provider_binding_changed",
+                    type="BillingRenewalProviderMismatch",
+                    non_retryable=True,
+                )
+            try:
+                provider_status = _validate_authoritative_renewal_payment(
+                    payment,
+                    operation=operation,
+                    invoice=invoice,
+                )
+            except ValueError as exc:
+                raise ApplicationError(
+                    "billing_renewal_provider_truth_mismatch",
+                    type="BillingRenewalProviderMismatch",
+                    non_retryable=True,
+                ) from exc
+
+            subscription = await db.scalar(
+                select(WorkspaceSubscription)
+                .where(WorkspaceSubscription.workspace_id == workspace_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            now = datetime.now(UTC)
+            key_expired = provider_key_is_expired(
+                expires_at=operation.provider_key_expires_at,
+                now=now,
+            )
+            previous_state = operation.state
+
+            if provider_status == "succeeded":
+                if not _renewal_authority_matches(operation, subscription):
+                    operation.state = "succeeded_refused"
+                    if subscription is not None:
+                        subscription.renewal_resolution = "authority_refused"
+                    db.add(
+                        BillingAuditEvent(
+                            workspace_id=workspace_id,
+                            action="renewal_success_refused",
+                            target_kind="billing_operation",
+                            target_ref=str(operation_id),
+                            outcome="blocked",
+                            reason_code="recurring_authority_changed",
+                            metadata_json={},
+                        )
+                    )
+                else:
+                    grant_starts_at = now
+                    if not key_expired and subscription is not None and subscription.paid_through is not None:
+                        grant_starts_at = max(grant_starts_at, subscription.paid_through.astimezone(UTC))
+                    grant_status = await grant_confirmed_renewal(
+                        db,
+                        workspace_id=workspace_id,
+                        provider_payment_id=provider_id,
+                        amount_minor=invoice.amount_minor,
+                        currency=invoice.currency,
+                        grant_starts_at=grant_starts_at,
+                    )
+                    if grant_status not in {"granted", "duplicate"}:
+                        raise ApplicationError(
+                            "billing_renewal_entitlement_projection_failed",
+                            type="BillingRenewalProviderMismatch",
+                            non_retryable=True,
+                        )
+                    operation.state = "succeeded"
+                    if subscription is not None:
+                        subscription.renewal_resolution = (
+                            "late_success" if key_expired else "succeeded"
+                        )
+                    if key_expired:
+                        db.add(
+                            BillingAuditEvent(
+                                workspace_id=workspace_id,
+                                action="renewal_late_success_observed",
+                                target_kind="billing_operation",
+                                target_ref=str(operation_id),
+                                outcome="observed",
+                                reason_code="provider_success_after_key_expiry",
+                                metadata_json={},
+                            )
+                        )
+            elif provider_status in {"canceled", "cancelled"}:
+                operation.state = "canceled"
+                invoice.status = "canceled"
+                if subscription is not None:
+                    subscription.renewal_resolution = "canceled"
+            else:
+                operation.state = "provider_key_expired" if key_expired else "unknown"
+                if subscription is not None:
+                    subscription.renewal_resolution = (
+                        "provider_key_expired" if key_expired else "pending"
+                    )
+                if key_expired and previous_state != "provider_key_expired":
+                    db.add(
+                        BillingAuditEvent(
+                            workspace_id=workspace_id,
+                            action="renewal_resolution_gap",
+                            target_kind="billing_operation",
+                            target_ref=str(operation_id),
+                            outcome="unknown",
+                            reason_code="provider_key_expired",
+                            metadata_json={},
+                        )
+                    )
+            result_state = operation.state
+            await db.commit()
+
+            if result_state == "unknown":
+                raise ApplicationError(
+                    "billing_provider_outcome_unknown",
+                    type="BillingProviderOutcomeUnknown",
+                )
+            return {"operation_id": str(operation_id), "status": result_state}
+    finally:
+        await engine.dispose()
 
 
 async def run_dispatch_reconciler(settings: Any, temporal_client: object) -> None:
@@ -134,6 +813,22 @@ async def run_deletion_purge_reconciler(settings: Any, temporal_client: object) 
                         temporal_client=temporal_client,
                         limit=20,
                     )
+                    await reconcile_transient_media_purges(
+                        db,
+                        storage=storage,
+                        limit=20,
+                    )
+                    if settings.retention_source_audio_days is not None:
+                        await reconcile_source_retention_purges(
+                            db,
+                            storage=storage,
+                            retention_period=timedelta(
+                                days=settings.retention_source_audio_days
+                            ),
+                            policy_version=settings.retention_source_audio_policy_version,
+                            backup_expiry_days=settings.retention_backup_expiry_days,
+                            limit=20,
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -904,6 +1599,7 @@ async def send_account_created_email_activity(payload: dict[str, str]) -> dict[s
             identity = await db.scalar(
                 select(ExternalIdentity).where(
                     ExternalIdentity.user_id == user_id,
+                    ExternalIdentity.is_active.is_(True),
                     ExternalIdentity.is_verified.is_(True),
                     ExternalIdentity.email.is_not(None),
                 )
@@ -1120,6 +1816,12 @@ async def run_worker() -> None:
     processing_activity = activity.defn(name="run_processing_pipeline_activity")(
         run_processing_pipeline_activity
     )
+    billing_renewal_activity = activity.defn(name=BILLING_RENEWAL_ACTIVITY_NAME)(
+        run_billing_renewal_activity
+    )
+    billing_reconciliation_activity = activity.defn(name=BILLING_RECONCILIATION_ACTIVITY_NAME)(
+        run_billing_reconciliation_activity
+    )
     outcome_activities = [
         activity.defn(name="resolve_outcome_prompt_config_activity")(
             resolve_outcome_prompt_config_activity
@@ -1157,7 +1859,21 @@ async def run_worker() -> None:
         activities=[processing_activity, invitation_activity, account_created_email_activity],
         identity=processing_worker_identity(),
     )
-    workers = [processing_worker]
+    billing_renewal_worker = Worker(
+        processing_client,
+        task_queue=billing_renewal_task_queue(settings),
+        workflows=[BillingRenewalWorkflow],
+        activities=[billing_renewal_activity],
+        identity=f"{processing_worker_identity()}:billing-renewal",
+    )
+    billing_reconciliation_worker = Worker(
+        processing_client,
+        task_queue=billing_reconciliation_task_queue(settings),
+        workflows=[BillingReconciliationWorkflow],
+        activities=[billing_reconciliation_activity],
+        identity=f"{processing_worker_identity()}:billing-reconciliation",
+    )
+    workers = [processing_worker, billing_renewal_worker, billing_reconciliation_worker]
     if settings.outcome_generation_enabled:
         traced_client = await connect_temporal_client(
             settings,

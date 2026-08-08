@@ -9,8 +9,10 @@ from twobrain_rec_server.cabinet.rendering import render_settings_page
 from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
     AccountProviderView,
+    account_settings_surface,
 )
 from twobrain_rec_server.cabinet.web_routes.settings import router as settings_router
+from twobrain_rec_server.db.models import ExternalIdentity
 
 
 def test_settings_overview_exposes_supported_categories_and_group_labels() -> None:
@@ -33,14 +35,15 @@ def test_settings_overview_exposes_supported_categories_and_group_labels() -> No
 
 
 def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> None:
-    expected_ids = ("recording", "summaries", "calendar", "workspace", "account")
-    expected_groups = ("Встречи", "Рабочее пространство", "Аккаунт")
+    expected_ids = ("recording", "summaries", "calendar", "workspace", "account", "billing")
+    expected_groups = ("Встречи", "Рабочее пространство", "Аккаунт", "Оплата")
     expected_icons = {
         "recording": "video",
         "summaries": "transcript",
         "calendar": "calendar-days",
         "workspace": "users-round",
         "account": "settings",
+        "billing": "activity",
     }
     expected_suffixes = {
         "recording": "/recording",
@@ -48,6 +51,7 @@ def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> 
         "calendar": "/integrations/calendar",
         "workspace": "/workspace",
         "account": "/account",
+        "billing": "/billing",
     }
 
     for category in ("overview", "recording", "summaries", "workspace", "account"):
@@ -73,13 +77,16 @@ def test_settings_sidebar_exposes_grouped_canonical_links_and_active_state() -> 
             assert 'role="group"' in markup
             assert f'href="{"/desktop" if embedded else ""}/meetings"' in markup
             for category_id, suffix in expected_suffixes.items():
+                expected_href = (
+                    "/billing" if embedded and category_id == "billing" else prefix + suffix
+                )
                 assert re.search(
-                    rf'<a[^>]+href="{re.escape(prefix + suffix)}"[^>]*'
+                    rf'<a[^>]+href="{re.escape(expected_href)}"[^>]*'
                     rf'data-settings-nav="{category_id}"[^>]*>',
                     markup,
                 ) or re.search(
                     rf'<a[^>]+data-settings-nav="{category_id}"[^>]*'
-                    rf'href="{re.escape(prefix + suffix)}"[^>]*>',
+                    rf'href="{re.escape(expected_href)}"[^>]*>',
                     markup,
                 )
                 assert re.search(
@@ -125,6 +132,20 @@ def test_settings_sidebar_sticky_rail_stays_aligned_with_page_header() -> None:
     assert "grid-row: 1;" in sticky_layout_css
 
 
+def test_settings_css_has_reduced_motion_and_narrow_reflow_guards() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
+        encoding="utf-8"
+    )
+    reduced_motion = css[css.index("@media (prefers-reduced-motion: reduce)") :]
+    narrow = css[css.index("@media (max-width: 640px)") :]
+
+    assert "transition-duration: .01ms" in reduced_motion
+    assert "animation-duration: .01ms" in reduced_motion
+    assert "grid-template-columns: 1fr" in narrow
+    assert "overflow-x: auto" not in css[css.index(".settings-page,") : css.index(".meeting-title")]
+
+
 def test_settings_content_is_grouped_into_the_second_grid_column() -> None:
     root = Path(__file__).resolve().parents[2]
     css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
@@ -159,7 +180,7 @@ def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     assert "Здесь собраны только доступные сейчас настройки" not in page
     assert "Что можно настроить" not in page
     assert "data-settings-category=" not in page
-    assert page.count('data-settings-nav="') == 5
+    assert page.count('data-settings-nav="') == 6
 
 
 def test_recording_settings_keep_native_boundary_copy_compact() -> None:
@@ -237,6 +258,75 @@ def test_settings_device_mutation_requires_web_csrf() -> None:
 
     assert set(dependencies) == paths
     assert all("require_web_csrf" in values for values in dependencies.values())
+
+
+def test_account_profile_and_session_mutations_are_csrf_protected() -> None:
+    expected = {
+        "/settings/account/profile",
+        "/desktop/settings/account/profile",
+        "/settings/account/sessions/{session_id}/revoke",
+        "/desktop/settings/account/sessions/{session_id}/revoke",
+    }
+    routes = {
+        route.path: route
+        for route in settings_router.routes
+        if isinstance(route, APIRoute)
+    }
+    assert expected <= routes.keys()
+    for path in expected:
+        dependencies = {
+            getattr(dependency.call, "__name__", "")
+            for dependency in routes[path].dependant.dependencies
+            if dependency.call is not None
+        }
+        assert "require_web_csrf" in dependencies
+
+
+def test_account_preferences_and_provider_unlink_are_csrf_protected() -> None:
+    expected = {
+        "/settings/account/preferences",
+        "/desktop/settings/account/preferences",
+        "/settings/account/providers/{identity_id}/unlink",
+        "/desktop/settings/account/providers/{identity_id}/unlink",
+    }
+    routes = {
+        route.path: route
+        for route in settings_router.routes
+        if isinstance(route, APIRoute)
+    }
+    assert expected <= routes.keys()
+    for path in expected:
+        dependencies = {
+            getattr(dependency.call, "__name__", "")
+            for dependency in routes[path].dependant.dependencies
+            if dependency.call is not None
+        }
+        assert "require_web_csrf" in dependencies
+
+
+def test_account_surface_template_contains_profile_preference_and_session_controls() -> None:
+    page = render_settings_page(category="account")
+    for label in ("Профиль", "Язык интерфейса", "Часовой пояс", "Системная", "Активные сессии"):
+        assert label in page
+    assert "data-account-preferences" in page
+    assert "session_token_hash" not in page
+    assert 'method="post"' in page
+    assert "/settings/account/preferences" in page
+
+
+def test_account_surface_exposes_unlink_only_for_recovery_safe_provider() -> None:
+    first = ExternalIdentity(
+        id=uuid4(), user_id=uuid4(), provider="yandex", provider_subject="one", is_verified=True
+    )
+    second = ExternalIdentity(
+        id=uuid4(), user_id=first.user_id, provider="vk", provider_subject="two", is_verified=True
+    )
+    surface = account_settings_surface(
+        identities=(first, second),
+        can_unlink_provider=lambda identity: identity.is_verified,
+    )
+    page = render_settings_page(category="account", account_surface=surface)
+    assert page.count("/settings/account/providers/") == 2
 
 
 def test_account_markup_accepts_only_safe_presentation_fields() -> None:

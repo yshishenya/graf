@@ -11,6 +11,7 @@ from urllib import error, request
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.events import ProductActivationEvent
 from twobrain_rec_server.product_analytics.forbidden_fields import (
+    assert_no_forbidden_fields,
     assert_no_security_credential_fields,
 )
 from twobrain_rec_server.product_analytics.provider_secrets import (
@@ -130,6 +131,11 @@ class PostHogClientWrapper:
                 retryable=False,
             )
         try:
+            # Browser autocapture reaches this wrapper without going through
+            # ``build_activation_event``.  Enforce the complete privacy
+            # boundary here as well, so a harmless-looking field (for example
+            # a DOM role containing an email address) cannot leave GRAF.
+            assert_no_forbidden_fields(properties)
             assert_no_security_credential_fields(properties)
         except ValueError as exc:
             return ProviderDeliveryResult(

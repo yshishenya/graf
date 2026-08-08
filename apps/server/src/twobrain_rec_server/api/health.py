@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from twobrain_rec_server.api.schemas import HealthResponse, ReadyDetailResponse, ReadyResponse
+from twobrain_rec_server.readiness.checks import billing_readiness_status
 
 router = APIRouter(prefix="/api/v1/health", tags=["health"])
 
@@ -93,6 +94,13 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
             "support_incident_integration_status",
             "configuration_invalid",
         ),
+        # Billing is an operational launch diagnostic, not an infrastructure
+        # dependency: a disabled checkout or emergency stop must not make the
+        # general API readiness probe fail.
+        "billing_mutations": billing_readiness_status(
+            checkout_enabled=bool(settings.billing_checkout_enabled),
+            emergency_stop=bool(settings.billing_emergency_stop),
+        ),
     }
     non_blocking_statuses = {
         "ok",
@@ -103,6 +111,8 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
         "disabled",
         "enabled",
         "configuration_invalid",
+        "ready",
+        "emergency_stop",
     }
     status = "ready" if all(v in non_blocking_statuses for v in checks.values()) else "not_ready"
     return status, checks
