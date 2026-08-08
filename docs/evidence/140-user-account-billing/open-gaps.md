@@ -62,3 +62,12 @@ evidence в launch runbook.
   probe, test-shop/real-shop canary, merchant/finance/legal/security/QA
   sign-offs, moderated usability/landing, интервью/WTP/usage/COGS и финальный
   Spec Kit closeout. Поэтому public launch остаётся **BLOCKED**.
+- Remote readiness audit 2026-08-08: `2brain.dev` остаётся на `master`, billing
+  branch не развёрнут; remote `.env` не содержит billing-параметров, а webhook
+  и referral secret mounts отсутствуют. Production checkout и renewal поэтому
+  остаются disabled/fail-closed до одобренного exact-SHA deploy и настройки
+  YooKassa webhook secret в merchant cabinet.
+- Local evidence after the renewal/catalog hardening: disposable PostgreSQL
+  focused lifecycle suite — 47 passed; `infra/scripts/ci-local.sh --fast` —
+  1019 passed, Ruff and Python compile passed. Это implementation evidence, не
+  замена provider canary или four-eyes sign-off.
