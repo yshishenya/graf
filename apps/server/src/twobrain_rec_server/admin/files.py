@@ -239,6 +239,22 @@ async def admin_file_summary(
     return payload
 
 
+async def ensure_admin_file_access_allowed(
+    db: AsyncSession,
+    *,
+    context: AdminWorkspaceContext,
+    meeting: Meeting,
+) -> AdminFileAccessDecision:
+    decision = await _decision_for_meeting(db, context=context, meeting=meeting)
+    if not decision.allowed:
+        raise ProblemDetail(
+            status=409,
+            code=decision.outcome.value,
+            title="Meeting file egress unavailable",
+        )
+    return decision
+
+
 def admin_meeting_access(context: AdminWorkspaceContext) -> AccessDecision:
     return AccessDecision(
         state="admin",

@@ -18,6 +18,7 @@
 - _Пока нет записей._
 
 ### Безопасность
+- Закрыт обход admin egress governance: прямые API-запросы на download/export больше не выдают артефакты встреч, заблокированных retention или lifecycle политикой.
 - macOS calendar prompts снова скрывают bare Google Meet и Microsoft Teams
   ссылки из внешних calendar titles и показывают generic meeting title вместо
   потенциально секретных domain/path строк.
